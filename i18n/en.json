@@ -1495,6 +1495,7 @@
   "download_paused": "Download paused",
   "download_settings": "Download",
   "download_settings_description": "Manage settings related to asset download",
+  "download_to_device": "Download to device",
   "download_waiting_to_retry": "Waiting to retry",
   "downloading": "Downloading",
   "downloading_archive_filename_size": "Downloading archive {filename} (approximately {size})",

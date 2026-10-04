@@ -1487,6 +1487,7 @@
   "download_paused": "下載已暫停",
   "download_settings": "下載",
   "download_settings_description": "管理下載設定",
+  "download_to_device": "下載到裝置",
   "download_waiting_to_retry": "等待重試",
   "downloading": "下載中",
   "downloading_archive_filename_size": "下載封存 {filename} (大約 {size})",

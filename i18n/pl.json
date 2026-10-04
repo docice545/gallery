@@ -1493,6 +1493,7 @@
   "download_paused": "Pobieranie wstrzymane",
   "download_settings": "Pobierz",
   "download_settings_description": "Zarządzaj pobieraniem zasobów",
+  "download_to_device": "Pobierz na urządzenie",
   "download_waiting_to_retry": "Oczekiwanie na ponowną próbę",
   "downloading": "Pobieranie",
   "downloading_archive_filename_size": "Pobieranie archiwum {filename} (w przybliżeniu {size})",

@@ -1481,6 +1481,7 @@
   "download_paused": "下载已暂停",
   "download_settings": "下载",
   "download_settings_description": "管理与文件下载相关的设置",
+  "download_to_device": "下载到设备",
   "download_waiting_to_retry": "等待重试",
   "downloading": "下载中",
   "downloading_asset_filename": "正在下载文件：{filename}",

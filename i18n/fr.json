@@ -1489,6 +1489,7 @@
   "download_paused": "Téléchargement en pause",
   "download_settings": "Télécharger",
   "download_settings_description": "Gérer les paramètres de téléchargement des médias",
+  "download_to_device": "Télécharger sur l’appareil",
   "download_waiting_to_retry": "Téléchargement en attente du prochain essai",
   "downloading": "Téléchargement",
   "downloading_archive_filename_size": "Téléchargement de l'archive {filename} (environ {size})",

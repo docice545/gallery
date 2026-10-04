@@ -1490,6 +1490,7 @@
   "download_paused": "Download pausiert",
   "download_settings": "Download",
   "download_settings_description": "Einstellungen für das Herunterladen von Dateien verwalten",
+  "download_to_device": "Auf Gerät herunterladen",
   "download_waiting_to_retry": "Warte auf erneuten Versuch",
   "downloading": "Herunterladen",
   "downloading_archive_filename_size": "Archiv {filename} wird heruntergeladen (ungefähr {size})",

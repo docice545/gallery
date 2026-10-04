@@ -1491,6 +1491,7 @@
   "download_paused": "Загрузка приостановлена",
   "download_settings": "Скачивание",
   "download_settings_description": "Управление настройками скачивания объектов",
+  "download_to_device": "Скачать на устройство",
   "download_waiting_to_retry": "Ожидание повторной попытки",
   "downloading": "Загрузка",
   "downloading_archive_filename_size": "Скачивание архива {filename} (приблизительно {size})",

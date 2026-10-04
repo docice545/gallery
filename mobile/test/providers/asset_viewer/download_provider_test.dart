@@ -88,26 +88,56 @@ void main() {
     });
   });
 
-  test('canceled does not resurrect or alter the entry', () {
+  test('canceled removes the entry and late progress does not resurrect it', () {
     fakeAsync((async) {
       final task = _task('task-1');
       onProgress(TaskProgressUpdate(task, 0.4));
       onImage(TaskStatusUpdate(task, TaskStatus.canceled));
 
-      expect(notifier.state.taskProgress['task-1']?.status, TaskStatus.running);
-      expect(notifier.state.taskProgress['task-1']?.progress, 0.4);
+      expect(notifier.state.taskProgress.containsKey('task-1'), isFalse);
+      expect(notifier.state.showProgress, isFalse);
+      onProgress(TaskProgressUpdate(task, 0.6));
+      expect(notifier.state.taskProgress.containsKey('task-1'), isFalse);
 
       onImage(TaskStatusUpdate(_task('ghost'), TaskStatus.canceled));
       expect(notifier.state.taskProgress.containsKey('ghost'), isFalse);
     });
   });
 
-  test('a status for an unknown task does not create an entry', () {
+  test('fast tasks report completion even when the downloader never sends progress', () {
     fakeAsync((async) {
       onImage(TaskStatusUpdate(_task('ghost'), TaskStatus.complete));
 
-      expect(notifier.state.taskProgress, isEmpty);
-      expect(notifier.state.showProgress, isFalse);
+      expect(notifier.state.taskProgress['ghost']?.status, TaskStatus.complete);
+      expect(notifier.state.taskProgress['ghost']?.progress, 1);
+      expect(notifier.state.showProgress, isTrue);
     });
+  });
+
+  test('a network failure before progress is visible and cannot be overwritten by late progress', () {
+    final task = _task('network-failed');
+    onImage(TaskStatusUpdate(task, TaskStatus.failed));
+    onProgress(TaskProgressUpdate(task, 0.5));
+    expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.failed);
+    expect(notifier.state.showProgress, isTrue);
+  });
+
+  test('complete entries can be dismissed without canceling a finished native download', () async {
+    final task = _task('complete');
+    onImage(TaskStatusUpdate(task, TaskStatus.complete));
+    await notifier.cancelDownload(task.taskId);
+    expect(notifier.state.taskProgress, isEmpty);
+    expect(notifier.state.showProgress, isFalse);
+    verifyNever(() => service.cancelDownload(any()));
+    onProgress(TaskProgressUpdate(task, 0.9));
+    expect(notifier.state.taskProgress, isEmpty);
+  });
+
+  test('queued retry of a canceled task resets its suppression', () {
+    final task = _task('retry');
+    onImage(TaskStatusUpdate(task, TaskStatus.canceled));
+    onImage(TaskStatusUpdate(task, TaskStatus.enqueued));
+    onProgress(TaskProgressUpdate(task, 0.2));
+    expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.running);
   });
 }

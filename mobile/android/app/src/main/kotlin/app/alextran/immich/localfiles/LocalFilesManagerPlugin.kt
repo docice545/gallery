@@ -70,7 +70,61 @@ class LocalFilesManagerPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
       "requestManageMediaPermission", "manageMediaPermission" -> requestManageMediaPermission(result)
       "moveToTrash" -> moveToTrash(call.argument<List<String>>("mediaUrls"), result)
       "restoreFromTrash" -> restoreFromTrash(call, result)
+      "updateDownloadedAssetMimeType" -> updateDownloadedAssetMimeType(call, result)
       else -> result.notImplemented()
+    }
+  }
+
+  // photo_manager copies the original bytes but uses URLConnection's incomplete MIME map.
+  // Correct only the newly imported app-owned row; this method accepts no arbitrary URI.
+  private fun updateDownloadedAssetMimeType(call: MethodCall, result: MethodChannel.Result) {
+    val ctx = context
+    val mediaId = call.argument<String>("mediaId")
+    val type = call.argument<Int>("type")
+    val mimeType = call.argument<String>("mimeType")
+    val expectedPrefix = when (type) {
+      ASSET_TYPE_IMAGE -> "image/"
+      ASSET_TYPE_VIDEO -> "video/"
+      else -> null
+    }
+    if (ctx == null || mediaId == null || type == null || mimeType == null || expectedPrefix == null ||
+      !Regex("^[1-9][0-9]*$").matches(mediaId) ||
+      !Regex("^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$").matches(mimeType) ||
+      !mimeType.startsWith(expectedPrefix)) {
+      result.error("INVALID_ARGS", "A valid imported image/video ID and MIME type are required.", null)
+      return
+    }
+    val uri = mediaUriForId(mediaId, type)
+    if (uri == null) {
+      result.error("INVALID_ARGS", "Invalid media ID.", null)
+      return
+    }
+    try {
+      val resolver = ctx.contentResolver
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val ownedMimeType = resolver.query(
+          uri, arrayOf(MediaStore.MediaColumns.OWNER_PACKAGE_NAME, MediaStore.MediaColumns.MIME_TYPE), null, null, null
+        )?.use { cursor ->
+          if (cursor.moveToFirst() && cursor.getString(0) == ctx.packageName) cursor.getString(1) else null
+        }
+        if (ownedMimeType == null) {
+          result.error("NOT_OWNED", "Only media created by this app can be updated.", null)
+          return
+        }
+        if (ownedMimeType == mimeType) {
+          result.success(true)
+          return
+        }
+      }
+      val values = ContentValues().apply { put(MediaStore.MediaColumns.MIME_TYPE, mimeType) }
+      val updated = resolver.update(uri, values, null, null) == 1
+      val actualMimeType = if (updated) resolver.query(
+        uri, arrayOf(MediaStore.MediaColumns.MIME_TYPE), null, null, null
+      )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } else null
+      result.success(actualMimeType == mimeType)
+    } catch (error: Exception) {
+      Log.e(TAG, "Unable to update imported media MIME type", error)
+      result.error("MEDIA_SAVE_ERROR", "Unable to update imported media MIME type.", null)
     }
   }
 

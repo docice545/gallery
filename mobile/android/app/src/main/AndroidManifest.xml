@@ -31,6 +31,16 @@
 
     <profileable android:shell="true" />
 
+    <provider
+      android:name="app.alextran.immich.share.OriginalShareFileProvider"
+      android:authorities="${applicationId}.original_share"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/original_share_paths" />
+    </provider>
+
     <service
       android:name="androidx.work.impl.foreground.SystemForegroundService"
       android:directBootAware="false"

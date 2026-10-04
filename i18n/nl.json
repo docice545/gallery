@@ -1491,6 +1491,7 @@
   "download_paused": "Download gepauseerd",
   "download_settings": "Downloaden",
   "download_settings_description": "Beheer instellingen voor het downloaden van items",
+  "download_to_device": "Downloaden naar apparaat",
   "download_waiting_to_retry": "Wachten om opnieuw te proberen",
   "downloading": "Downloaden",
   "downloading_archive_filename_size": "Archief {filename} downloaden (ongeveer {size})",

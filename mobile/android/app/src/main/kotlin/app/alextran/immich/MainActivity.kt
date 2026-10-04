@@ -14,6 +14,7 @@ import app.alextran.immich.core.HttpClientManager
 import app.alextran.immich.core.ImmichPlugin
 import app.alextran.immich.core.NetworkApiPlugin
 import app.alextran.immich.localfiles.LocalFilesManagerPlugin
+import app.alextran.immich.share.OriginalSharePlugin
 import me.albemala.native_video_player.NativeVideoPlayerPlugin
 import app.alextran.immich.images.LocalImageApi
 import app.alextran.immich.images.LocalImagesImpl
@@ -45,6 +46,7 @@ class MainActivity : FlutterFragmentActivity() {
       NativeVideoPlayerPlugin.dataSourceFactory = HttpClientManager::createDataSourceFactory
       flutterEngine.plugins.add(NetworkApiPlugin())
       flutterEngine.plugins.add(LocalFilesManagerPlugin())
+      flutterEngine.plugins.add(OriginalSharePlugin())
 
       val messenger = flutterEngine.dartExecutor.binaryMessenger
       val backgroundEngineLockImpl = BackgroundEngineLock(ctx)

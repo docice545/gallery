@@ -12,6 +12,7 @@ import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/user_metadata.provider.dart';
 import 'package:immich_mobile/repositories/download.repository.dart';
+import 'package:immich_mobile/services/download.service.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -19,6 +20,8 @@ import '../../../repository.mocks.dart';
 import '../../factories/local_asset_factory.dart';
 import '../../factories/remote_asset_factory.dart';
 import '../presentation_context.dart';
+
+class MockDownloadService extends Mock implements DownloadService {}
 
 void main() {
   late PresentationContext context;
@@ -42,6 +45,8 @@ void main() {
       overrides: [
         ...context.selected(selection),
         downloadRepositoryProvider.overrideWithValue(context.repository.download.repo),
+        downloadServiceProvider.overrideWithValue(MockDownloadService()),
+        toastServiceProvider.overrideWithValue(context.service.toast),
         backgroundSyncProvider.overrideWithValue(context.service.backgroundSync),
       ],
     );
@@ -78,6 +83,24 @@ void main() {
       );
 
       expect(find.byType(ImmichIconButton), findsNothing);
+    });
+
+    testWidgets('labels the explicit permanent action with its localization key', (tester) async {
+      await tester.pumpTestWidget(
+        context,
+        const ActionButton(action: DownloadAction(source: .timeline)),
+        overrides: context.selected({owned()}),
+      );
+      expect(find.text(StaticTranslations.instance.download_to_device), findsOneWidget);
+    });
+
+    testWidgets('enqueue/network exceptions produce a visible localized error', (tester) async {
+      when(
+        () => context.repository.download.repo.downloadAllAssets(any()),
+      ).thenThrow(StateError('network unavailable'));
+      await pumpDownload(tester, {owned()});
+      await tester.pumpAndSettle();
+      verify(() => context.service.toast.error(StaticTranslations.instance.download_failed)).called(1);
     });
   });
 

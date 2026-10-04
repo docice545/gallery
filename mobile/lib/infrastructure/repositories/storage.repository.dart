@@ -102,6 +102,16 @@ class StorageRepository {
     }
   }
 
+  /// Distinguish a removed local ID from an existing PhotoKit item whose original is optimized into iCloud.
+  Future<bool> hasMediaLibraryAsset(String assetId) async {
+    try {
+      return await AssetEntity.fromId(assetId) != null;
+    } catch (error, stackTrace) {
+      log.warning('Error checking media library asset $assetId', error, stackTrace);
+      return false;
+    }
+  }
+
   Future<File?> loadFileFromCloud(String assetId, {PMProgressHandler? progressHandler}) async {
     try {
       final entity = await AssetEntity.fromId(assetId);

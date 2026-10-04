@@ -28,7 +28,7 @@ test -z "$(git status --porcelain)"
 git merge-base --is-ancestor 07f7a8a8e98a52ba7bcd70a30c3b8018a00775c0 HEAD
 
 # 2–4. Получаем work и применяем только fast-forward, без merge-коммита.
-git fetch origin work
+git fetch origin refs/heads/work:refs/remotes/origin/work
 git merge --ff-only origin/work
 git rev-parse HEAD
 test "$(git rev-parse HEAD)" = "$(git rev-parse origin/work)"
@@ -148,7 +148,13 @@ flutter test --no-pub test/presentation/widgets/timeline \
   test/widgets/common/photos_branding_test.dart \
   test/widgets/common/immich_sliver_app_bar_logo_test.dart \
   test/providers/server_info_provider_test.dart \
-  test/modules/utils/version_compatibility_test.dart
+  test/modules/utils/version_compatibility_test.dart \
+  test/repositories/asset_media_repository_test.dart \
+  test/repositories/download_repository_test.dart \
+  test/repositories/file_media_repository_test.dart \
+  test/services/download_service_test.dart \
+  test/providers/asset_viewer/download_provider_test.dart \
+  test/unit/presentation/actions/share_action_test.dart
 
 # 12. Фото 5.7.2 build 2. Gradle/AGP/Kotlin и release key не меняем.
 flutter build apk --release --build-name=5.7.2 --build-number=2
@@ -178,3 +184,21 @@ server 5.7.1; предупреждение о несуществующем об�
 по-прежнему вызывает уведомление. На Samsung проверьте scroll, одиночные и
 смешанные группы, badges/selection/tap и muted one-shot Motion Photo. Для iOS
 окончательная проверка требует macOS/Xcode и iPhone с paired Apple Live Photo.
+
+
+Для дополнения Share/Download API сервера, Pigeon и схемы БД не менялись.
+Новый Android FileProvider-мост написан вручную; дополнительного native codegen
+для него не требуется. Если все ранее сгенерированные файлы уже есть на HP,
+после `flutter pub get --enforce-lockfile` обязательны только генераторы
+`easy_localization:generate` и `bin/generate_keys.dart`. Блок полного codegen
+выше сохранён для воспроизводимой сборки с чистого checkout.
+
+После установки проверьте server-only JPEG/HEIC, большое видео и смешанный
+multi-share в Telegram/WhatsApp/почту; отмену зависшей загрузки; повторный Share
+без повторной загрузки; чтение предыдущего Share-файла после следующего Share.
+Share не должен создавать запись в Samsung Gallery. «Скачать на устройство»
+должно создать её, сохранить MIME и оригинальные bytes и не дублировать уже
+имеющийся локальный файл. Для Samsung Motion Photo проверьте сохранение
+встроенного движения; для Apple Live Photo окончательная проверка PhotoKit
+требует iPhone. Подробные сценарии и ограничения находятся в
+`specs/testing/2026-10-04-server-only-originals-validation.md`.

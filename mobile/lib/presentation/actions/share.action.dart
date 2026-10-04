@@ -63,31 +63,35 @@ class ShareAction extends AssetActionBuilder {
       context: context,
       barrierDismissible: false,
       useRootNavigator: false,
-      builder: (dialogContext) {
-        void finish({required bool failed}) {
+      builder: (dialogContext) => _SharePreparingDialog(
+        progress: progress,
+        prepare: () => mediaRepository.shareAssets(
+          assets,
+          context,
+          fileType: fileType,
+          cancelCompleter: cancelCompleter,
+          onAssetDownloadProgress: (value) {
+            if (!cancelCompleter.isCompleted) {
+              progress.value = value;
+            }
+          },
+        ),
+        onFinished: (count) {
           if (cancelCompleter.isCompleted || !dialogContext.mounted) {
             return;
           }
-          if (failed) {
+          if (count != assets.length) {
             unawaited(.value(toastService.error(errorMessage)));
           }
           dialogContext.pop();
-        }
-
-        unawaited(
-          mediaRepository
-              .shareAssets(
-                assets,
-                context,
-                fileType: fileType,
-                cancelCompleter: cancelCompleter,
-                onAssetDownloadProgress: (value) => progress.value = value,
-              )
-              .then<void>((count) => finish(failed: count == 0), onError: (_) => finish(failed: true)),
-        );
-
-        return _SharePreparingDialog(progress: progress);
-      },
+        },
+        onCancel: () {
+          if (!cancelCompleter.isCompleted) {
+            cancelCompleter.complete();
+          }
+          dialogContext.pop();
+        },
+      ),
     ).then((_) {
       if (!cancelCompleter.isCompleted) {
         cancelCompleter.complete();
@@ -97,10 +101,31 @@ class ShareAction extends AssetActionBuilder {
   }
 }
 
-class _SharePreparingDialog extends StatelessWidget {
+class _SharePreparingDialog extends StatefulWidget {
   final ValueNotifier<double?> progress;
 
-  const _SharePreparingDialog({required this.progress});
+  final Future<int> Function() prepare;
+  final void Function(int count) onFinished;
+  final VoidCallback onCancel;
+
+  const _SharePreparingDialog({
+    required this.progress,
+    required this.prepare,
+    required this.onFinished,
+    required this.onCancel,
+  });
+
+  @override
+  State<_SharePreparingDialog> createState() => _SharePreparingDialogState();
+}
+
+class _SharePreparingDialogState extends State<_SharePreparingDialog> {
+  @override
+  void initState() {
+    super.initState();
+    // Start once: dialog rebuilds must never enqueue the same originals again.
+    unawaited(widget.prepare().then<void>(widget.onFinished, onError: (_) => widget.onFinished(0)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +137,7 @@ class _SharePreparingDialog extends StatelessWidget {
           SizedBox(
             width: 240,
             child: ValueListenableBuilder<double?>(
-              valueListenable: progress,
+              valueListenable: widget.progress,
               builder: (context, value, _) {
                 final percent = value == null ? null : (value * 100).clamp(0, 100);
                 return Column(
@@ -128,6 +153,7 @@ class _SharePreparingDialog extends StatelessWidget {
           ),
         ],
       ),
+      actions: [TextButton(onPressed: widget.onCancel, child: Text(context.t.cancel))],
     );
   }
 }

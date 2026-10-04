@@ -1491,6 +1491,7 @@
   "download_paused": "Download in pausa",
   "download_settings": "Scarica",
   "download_settings_description": "Gestisci le impostazioni relative al download delle risorse",
+  "download_to_device": "Scarica sul dispositivo",
   "download_waiting_to_retry": "In attesa di riprovare",
   "downloading": "Scaricamento",
   "downloading_archive_filename_size": "Download archivio {filename} (circa {size})",
