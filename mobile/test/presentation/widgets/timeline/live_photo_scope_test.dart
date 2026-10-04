@@ -235,9 +235,14 @@ void main() {
     expect(log.stops, ['first']);
     await tester.pump(const Duration(seconds: 1));
     expect(log.starts, ['first']);
+    container.read(_configProvider.notifier).state = const AppConfig();
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.alive, isEmpty, reason: 'turning the setting back on does not replay the used viewport');
+    expect(log.starts, ['first']);
   });
 
-  testWidgets('scroll stops immediately, conservatively switches once settled, and releases the old preview', (
+  testWidgets('scroll stops immediately, switches only after meaningful movement, and releases the old preview', (
     tester,
   ) async {
     final log = _PlaybackLog();
@@ -250,14 +255,11 @@ void main() {
     await tester.pump();
     expect(log.alive, isEmpty);
     expect(log.stops, ['first']);
-    await gesture.moveBy(const Offset(0, -80));
-    await tester.pump(const Duration(seconds: 1));
-    expect(log.alive, isEmpty);
-    await gesture.up();
-    await tester.pumpAndSettle();
     scroll.jumpTo(120);
+    await tester.pump(const Duration(seconds: 1));
+    expect(log.alive, isEmpty, reason: 'all scrolling and pointer interaction suppress autoplay');
+    await gesture.up();
     await tester.pump();
-    expect(log.alive, isEmpty);
     await tester.pump(const Duration(milliseconds: 349));
     expect(log.alive, isEmpty);
     await tester.pump(const Duration(milliseconds: 1));
@@ -295,38 +297,128 @@ void main() {
     expect(find.text('photo-first'), findsOneWidget);
   });
 
-  testWidgets('selection and force-enable selection stop playback, preserving tap and long press gestures', (
-    tester,
-  ) async {
+  testWidgets('one-shot completion does not loop or start another live photo without a new viewport', (tester) async {
     final log = _PlaybackLog();
+    final height = ValueNotifier(80.0);
+    addTearDown(height.dispose);
+    await _pumpScope(tester, log, height: height);
+    await _settlePlayback(tester);
+    expect(log.alive, {'second'}, reason: 'the fully visible tile nearest the viewport centre wins');
+    final complete = log.completions['second']!;
+    complete();
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    complete();
+    await tester.pump(const Duration(seconds: 30));
+    expect(log.starts, ['second']);
+    expect(log.stops, ['second']);
+    expect(find.text('photo-second'), findsOneWidget);
+    expect(find.byType(_FakePreview), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('small scrolls keep the viewport static until meaningful movement selects a new asset', (tester) async {
+    final log = _PlaybackLog();
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await _pumpScope(tester, log, scrollController: scroll);
+    await _settlePlayback(tester);
+    log.completions['first']!();
+    await tester.pump();
+    for (final offset in [20.0, 40.0, 60.0, 80.0, 95.0]) {
+      scroll.jumpTo(offset);
+      await tester.pump();
+      await _settlePlayback(tester);
+      expect(log.alive, isEmpty);
+      expect(log.starts, ['first']);
+    }
+    scroll.jumpTo(120);
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.alive, {'second'});
+    log.completions['second']!();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first', 'second']);
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('scrolling away and back before settling cannot restart the original viewport', (tester) async {
+    final log = _PlaybackLog();
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await _pumpScope(tester, log, scrollController: scroll);
+    await _settlePlayback(tester);
+    log.completions['first']!();
+    await tester.pump();
+    scroll.jumpTo(120);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(log.alive, isEmpty);
+    scroll.jumpTo(0);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first']);
+  });
+
+  testWidgets('selection and forced selection stop playback without resuming the same viewport', (tester) async {
+    final log = _PlaybackLog();
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
     var taps = 0;
     var longPresses = 0;
-    final container = await _pumpScope(tester, log, onTap: () => taps++, onLongPress: () => longPresses++);
+    final container = await _pumpScope(
+      tester,
+      log,
+      scrollController: scroll,
+      onTap: () => taps++,
+      onLongPress: () => longPresses++,
+    );
     await _settlePlayback(tester);
     expect(find.descendant(of: find.byType(Hero), matching: find.byType(_FakePreview)), findsNothing);
     expect(find.text('stack-count-3'), findsWidgets);
-    await tester.tap(find.byKey(const ValueKey('tile-first')));
-    await tester.pump();
-    expect(taps, 1);
-    expect(log.alive, isEmpty);
-    await _settlePlayback(tester);
-    await tester.longPress(find.byKey(const ValueKey('tile-first')));
-    await tester.pump();
-    expect(longPresses, 1);
-    await _settlePlayback(tester);
-    expect(log.alive, {'first'});
     container.read(multiSelectProvider.notifier).selectAsset(_asset('first'));
     await tester.pump();
     expect(log.alive, isEmpty);
     container.read(multiSelectProvider.notifier).reset();
     await tester.pump();
     await _settlePlayback(tester);
-    expect(log.alive, {'first'});
+    expect(log.alive, isEmpty);
+    scroll.jumpTo(120);
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.alive, {'second'});
     (container.read(multiSelectProvider.notifier) as _TestSelection).setForceEnable(true);
     await tester.pump();
     expect(log.alive, isEmpty);
-    await tester.pump(const Duration(seconds: 1));
+    (container.read(multiSelectProvider.notifier) as _TestSelection).setForceEnable(false);
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.alive, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('tile-second')));
+    await tester.longPress(find.byKey(const ValueKey('tile-second')));
+    await _settlePlayback(tester);
+    expect(taps, 1);
+    expect(longPresses, 1);
+    expect(log.starts, ['first', 'second']);
     expect(log.maxConcurrent, 1);
+    expect(find.text('stack-count-3'), findsWidgets);
+  });
+
+  testWidgets('a tap restores the thumbnail without replaying or changing the asset opening gesture', (tester) async {
+    final log = _PlaybackLog();
+    var taps = 0;
+    await _pumpScope(tester, log, onTap: () => taps++);
+    await _settlePlayback(tester);
+    expect(log.alive, {'first'});
+    await tester.tap(find.byKey(const ValueKey('tile-first')));
+    await _settlePlayback(tester);
+    expect(taps, 1);
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first']);
+    expect(find.text('photo-first'), findsOneWidget);
   });
 
   testWidgets('a second finger keeps autoplay paused until all pointers leave', (tester) async {
@@ -344,11 +436,12 @@ void main() {
     await second.up();
     await tester.pump();
     await _settlePlayback(tester);
-    expect(log.alive, {'first'});
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first']);
     expect(log.maxConcurrent, 1);
   });
 
-  testWidgets('backgrounding releases playback, and returning resumes only after settling', (tester) async {
+  testWidgets('backgrounding releases playback, and returning keeps the used viewport static', (tester) async {
     final log = _PlaybackLog();
     await _pumpScope(tester, log);
     await _settlePlayback(tester);
@@ -361,7 +454,8 @@ void main() {
     await tester.pump();
     expect(log.alive, isEmpty);
     await _settlePlayback(tester);
-    expect(log.alive, {'first'});
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first']);
   });
 
   testWidgets('covering the timeline with another route stops its still-mounted playback', (tester) async {
@@ -376,10 +470,11 @@ void main() {
     navigator.currentState!.pop();
     await tester.pumpAndSettle();
     await _settlePlayback(tester);
-    expect(log.alive, {'first'});
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first']);
   });
 
-  testWidgets('opening the filter sheet stops playback and closing it waits before resuming', (tester) async {
+  testWidgets('opening the filter sheet stops playback and closing it cannot resume the same viewport', (tester) async {
     final log = _PlaybackLog();
     final container = await _pumpScope(tester, log);
     await _settlePlayback(tester);
@@ -393,7 +488,8 @@ void main() {
     await tester.pump();
     expect(log.alive, isEmpty);
     await _settlePlayback(tester);
-    expect(log.alive, {'first'});
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first']);
     expect(log.maxConcurrent, 1);
   });
 
@@ -410,6 +506,13 @@ void main() {
     expect(log.stops, ['first']);
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('tile-second')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    expect(log.starts, ['first'], reason: 'a newly visible neighbour cannot use the played viewport');
+    showFirst.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first'], reason: 'remounting the original tile cannot replay it');
   });
 
   testWidgets('scope unmount cancels pending playback and disposes active previews without late callbacks', (

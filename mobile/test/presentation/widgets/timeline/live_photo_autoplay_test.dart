@@ -34,6 +34,23 @@ LivePhotoCandidate _candidate(Object token, {BaseAsset? asset, double visibility
       distanceFromCenter: distance,
     );
 
+LivePhotoAutoplayController _controller({bool enabled = true, double viewportExtent = 400}) =>
+    LivePhotoAutoplayController(enabled: enabled)..updateViewport(scrollOffset: 0, viewportExtent: viewportExtent);
+
+void _scrollTo(
+  LivePhotoAutoplayController controller,
+  double offset, {
+  List<LivePhotoCandidate>? candidates,
+  double viewportExtent = 400,
+}) {
+  controller.setScrolling(true);
+  controller.updateViewport(scrollOffset: offset, viewportExtent: viewportExtent);
+  if (candidates != null) {
+    controller.updateCandidates(candidates);
+  }
+  controller.setScrolling(false);
+}
+
 void main() {
   group('live photo geometry and candidate choice', () {
     test('uses visible tile area, including horizontal clipping and empty/offscreen rectangles', () {
@@ -116,7 +133,7 @@ void main() {
   group('single live photo playback lease', () {
     test('grants one lease after 350 ms, without extending delay for stable measurements', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         var notifications = 0;
         controller.addListener(() => notifications++);
         controller.updateCandidates([_candidate('first'), _candidate('second', distance: 10)]);
@@ -134,7 +151,7 @@ void main() {
 
     test('a changed pending candidate must settle for its own full delay', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(const Duration(milliseconds: 300));
         controller.updateCandidates([_candidate('second')]);
@@ -148,7 +165,7 @@ void main() {
 
     test('scroll starts stop playback immediately and suppress both pending and active work', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(const Duration(milliseconds: 100));
         controller.setScrolling(true);
@@ -159,6 +176,7 @@ void main() {
         expect(controller.activeToken, 'first');
         controller.setScrolling(true);
         expect(controller.activeToken, isNull);
+        controller.updateViewport(scrollOffset: 120, viewportExtent: 400);
         controller.updateCandidates([_candidate('second')]);
         clock.elapse(const Duration(seconds: 1));
         expect(controller.activeToken, isNull);
@@ -171,7 +189,7 @@ void main() {
 
     test('loss of sufficient visibility stops the active lease without playing every other tile', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(livePhotoSettlingDelay);
         controller.updateCandidates([_candidate('first', visibility: 0.79), _candidate('second')]);
@@ -184,7 +202,7 @@ void main() {
 
     test('disabled setting cancels pending timers and releases active playback immediately', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController(enabled: false);
+        final controller = _controller(enabled: false);
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(const Duration(seconds: 1));
         expect(controller.activeToken, isNull);
@@ -198,13 +216,16 @@ void main() {
         expect(controller.activeToken, 'first');
         controller.setEnabled(false);
         expect(controller.activeToken, isNull);
+        controller.setEnabled(true);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull, reason: 'the setting does not refill a played viewport');
         controller.dispose();
       });
     });
 
     test('completion/errors restore the photo and do not replay or walk through the viewport', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         controller.updateCandidates([_candidate('first'), _candidate('second', distance: 10)]);
         clock.elapse(livePhotoSettlingDelay);
         controller.complete('wrong-token');
@@ -216,15 +237,204 @@ void main() {
         expect(controller.activeToken, isNull);
         controller.setScrolling(true);
         controller.setScrolling(false);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull, reason: 'touching the same viewport cannot replay it');
+        controller.dispose();
+      });
+    });
+
+    test('one-shot completion grants no new lease even when another live photo becomes the best candidate', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        final starts = <Object>[];
+        controller.addListener(() {
+          if (controller.activeToken != null) {
+            starts.add(controller.activeToken!);
+          }
+        });
+        controller.updateCandidates([_candidate('first'), _candidate('second', distance: 10)]);
         clock.elapse(livePhotoSettlingDelay);
-        expect(controller.activeToken, 'first');
+        controller.complete('first');
+        controller.updateCandidates([_candidate('second'), _candidate('third', distance: 10)]);
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull);
+        expect(starts, ['first'], reason: 'neither a loop nor a sequence is allowed in the settled viewport');
+        expect(clock.nonPeriodicTimerCount, 0);
+        controller.dispose();
+      });
+    });
+
+    test('small scroll jitter and gestures stop playback without allowing another preview', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        for (final offset in [0.0, 12.0, 5.0, 30.0, 0.0]) {
+          _scrollTo(controller, offset, candidates: [_candidate('second')]);
+          expect(controller.activeToken, isNull);
+          clock.elapse(const Duration(seconds: 2));
+          expect(controller.activeToken, isNull);
+        }
+        controller.dispose();
+      });
+    });
+
+    test('several small scrolls only allow a different candidate after sufficient net displacement', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.complete('first');
+        for (final offset in [20.0, 40.0, 60.0, 80.0, 99.0]) {
+          _scrollTo(controller, offset, candidates: [_candidate('second')]);
+          clock.elapse(livePhotoSettlingDelay);
+          expect(controller.activeToken, isNull);
+        }
+        _scrollTo(controller, 100, candidates: [_candidate('second')]);
+        clock.elapse(const Duration(milliseconds: 349));
+        expect(controller.activeToken, isNull);
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(controller.activeToken, 'second');
+        controller.complete('second');
+        controller.updateCandidates([_candidate('third')]);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull, reason: 'the new viewport also has a one-shot budget');
+        controller.dispose();
+      });
+    });
+
+    test('out-and-back scrolling does not refill the budget by accumulating travel distance', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.complete('first');
+        controller.setScrolling(true);
+        for (final offset in [80.0, 160.0, 200.0, 120.0, 40.0, 0.0]) {
+          controller.updateViewport(scrollOffset: offset, viewportExtent: 400);
+          controller.updateCandidates([_candidate('second')]);
+          clock.elapse(const Duration(seconds: 1));
+          expect(controller.activeToken, isNull);
+        }
+        controller.setScrolling(false);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull);
+        controller.dispose();
+      });
+    });
+
+    test('meaningful movement is at least 96 logical pixels or a quarter of the viewport', () {
+      fakeAsync((clock) {
+        for (final entry in [(240.0, 96.0), (800.0, 200.0)]) {
+          final (extent, threshold) = entry;
+          final controller = _controller(viewportExtent: extent);
+          controller.updateCandidates([_candidate('first')]);
+          clock.elapse(livePhotoSettlingDelay);
+          controller.complete('first');
+          _scrollTo(controller, threshold - 1, viewportExtent: extent, candidates: [_candidate('second')]);
+          clock.elapse(livePhotoSettlingDelay);
+          expect(controller.activeToken, isNull);
+          _scrollTo(controller, threshold, viewportExtent: extent, candidates: [_candidate('second')]);
+          clock.elapse(livePhotoSettlingDelay);
+          expect(controller.activeToken, 'second');
+          controller.dispose();
+        }
+      });
+    });
+
+    test('meaningful movement cannot replay the same asset or skip it to play its neighbour', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        final photo = _remote('first');
+        controller.updateCandidates([_candidate('original-tile', asset: photo)]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.complete('original-tile');
+        _scrollTo(
+          controller,
+          200,
+          candidates: [
+            _candidate('remounted-tile', asset: photo.copyWith(name: 'renamed.jpg')),
+            _candidate('second', distance: 10),
+          ],
+        );
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull, reason: 'new tile identity does not make a new photo');
+        controller.updateCandidates([_candidate('remounted-tile', asset: photo, distance: 10), _candidate('second')]);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'second', reason: 'the new best asset can use the moved viewport');
+        controller.dispose();
+      });
+    });
+
+    test('late candidates and remounts cannot autoplay after the settled viewport has been used', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.unregister('first');
+        expect(controller.activeToken, isNull);
+        controller.updateCandidates([]);
+        controller.updateCandidates([_candidate('late'), _candidate('remounted', asset: _remote('first'))]);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull);
+        controller.setEnabled(false);
+        controller.setEnabled(true);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull);
+        _scrollTo(controller, 120, candidates: [_candidate('late')]);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'late');
+        controller.dispose();
+      });
+    });
+
+    test('layout-only viewport changes cannot rearm autoplay without actual scrolling', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.complete('first');
+        controller.updateViewport(scrollOffset: 200, viewportExtent: 300, fromScroll: false);
+        controller.updateCandidates([_candidate('second')]);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull);
+        controller.setScrolling(true);
+        controller.setScrolling(false);
+        clock.elapse(const Duration(seconds: 2));
+        expect(controller.activeToken, isNull, reason: 'a touch after relayout is not scrolling');
+        _scrollTo(controller, 205, viewportExtent: 300, candidates: [_candidate('second')]);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, isNull, reason: 'five real scroll pixels cannot reuse a layout-only jump');
+        _scrollTo(controller, 320, viewportExtent: 300, candidates: [_candidate('second')]);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'second');
+        controller.dispose();
+      });
+    });
+
+    test('switching after scrolling releases one lease before granting the next, and ignores late completion', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        final leases = <Object?>[];
+        controller.addListener(() => leases.add(controller.activeToken));
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        _scrollTo(controller, 120, candidates: [_candidate('second')]);
+        expect(controller.activeToken, isNull);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'second');
+        controller.complete('first');
+        expect(controller.activeToken, 'second');
+        controller.complete('second');
+        clock.elapse(const Duration(seconds: 2));
+        expect(leases, ['first', null, 'second', null]);
         controller.dispose();
       });
     });
 
     test('unregister cancels pending playback and immediately releases an active tile', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         controller.updateCandidates([_candidate('pending')]);
         controller.unregister('pending');
         clock.elapse(const Duration(seconds: 1));
@@ -240,7 +450,7 @@ void main() {
 
     test('dispose cancels pending timers and late completion/scroll callbacks are inert', () {
       fakeAsync((clock) {
-        final controller = LivePhotoAutoplayController();
+        final controller = _controller();
         var notifications = 0;
         controller.addListener(() => notifications++);
         controller.updateCandidates([_candidate('pending')]);

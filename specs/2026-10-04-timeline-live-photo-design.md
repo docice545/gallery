@@ -23,7 +23,13 @@ ready callbacks verify that the lease still exists. Only changed tiles rebuild.
 Playback runs once per settled viewport. Completion/errors return to the photo
 without automatically walking through the other visible photos. An 8-second
 watchdog includes source loading and prevents a stalled preview from retaining
-resources indefinitely. Another scroll/interaction allows a new settled preview.
+resources indefinitely. Another preview requires a different best asset and a
+net scroll displacement of at least 25% of the last playback viewport height
+(minimum 96 logical pixels). The displacement is measured from the last playback,
+so small drags can eventually reach a genuinely new region, but back-and-forth
+jitter cannot rearm the original region. Gestures, layout/candidate churn,
+selection, settings, filter sheets and navigation/lifecycle transitions preserve
+the consumed viewport. A remounted tile of the same asset cannot bypass this gate.
 
 `NativeVideoViewer` supplies an explicit timeline preview mode, with the same
 native player and source resolution as the existing viewer. Its notifier is

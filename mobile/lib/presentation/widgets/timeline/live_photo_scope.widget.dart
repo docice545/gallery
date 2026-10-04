@@ -185,16 +185,29 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
     if (notification is ScrollStartNotification) {
       _scrolling = true;
       controller.setScrolling(true);
+      _updateViewport(notification.metrics);
     } else if (notification is ScrollUpdateNotification || notification is OverscrollNotification) {
       // Includes programmatic jumps from the timeline scrubber.
+      _scrolling = true;
       controller.setScrolling(true);
+      _updateViewport(notification.metrics);
       refresh();
     } else if (notification is ScrollEndNotification) {
       _scrolling = false;
+      _updateViewport(notification.metrics);
       controller.setScrolling(_pointers.isNotEmpty);
       refresh();
     }
     return false;
+  }
+
+  void _updateViewport(ScrollMetrics metrics, {bool fromScroll = true}) {
+    controller.updateViewport(
+      // Rubber-band overscroll does not form a new area of the timeline.
+      scrollOffset: metrics.pixels.clamp(metrics.minScrollExtent, metrics.maxScrollExtent),
+      viewportExtent: metrics.viewportDimension,
+      fromScroll: fromScroll,
+    );
   }
 
   @override
@@ -213,8 +226,11 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
     return _LivePhotoScope(
       state: this,
       child: NotificationListener<ScrollMetricsNotification>(
-        onNotification: (_) {
-          refresh();
+        onNotification: (notification) {
+          if (notification.depth == 0 && notification.metrics.axis == Axis.vertical) {
+            _updateViewport(notification.metrics, fromScroll: false);
+            refresh();
+          }
           return false;
         },
         child: NotificationListener<ScrollNotification>(

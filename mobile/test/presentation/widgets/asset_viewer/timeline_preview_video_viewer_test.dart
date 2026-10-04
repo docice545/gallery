@@ -164,6 +164,7 @@ void main() {
     bool useLocalFile = true,
     BaseAsset? previewAsset,
     bool Function()? previewIsActive,
+    bool? loopOverride,
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -180,6 +181,7 @@ void main() {
               timelinePreview: true,
               onPreviewCompleted: () => completions++,
               previewIsActive: previewIsActive,
+              loopOverride: loopOverride,
             ),
           ),
         ),
@@ -221,6 +223,63 @@ void main() {
     expect(calls.last, 'pause');
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('plays one shot and ignores repeated readiness and completion events while still mounted', (
+    tester,
+  ) async {
+    await mountPreview(tester);
+    ready.notifyListeners();
+    ready.notifyListeners();
+    await tester.pump();
+
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(completions, 0);
+
+    ended.notifyListeners();
+    await tester.pump();
+    expect(find.byType(NativeVideoViewer), findsOneWidget);
+    expect(completions, 1);
+    expect(calls.last, 'pause');
+
+    // Native buffering/readiness events can arrive after completion before the
+    // scope rebuild removes the platform view. They must never replay the clip.
+    ready.notifyListeners();
+    ended.notifyListeners();
+    ready.notifyListeners();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(calls.where((call) => call == 'load'), hasLength(1));
+    expect(calls.where((call) => call.startsWith('loop:')), ['loop:false']);
+    expect(completions, 1);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('timeline previews never loop even when viewer preferences and loop override request looping', (
+    tester,
+  ) async {
+    final previousLoopSetting = SettingsRepository.instance.appConfig.viewer.loopVideo;
+    await SettingsRepository.instance.write(SettingsKey.viewerLoopVideo, true);
+    try {
+      await mountPreview(tester, loopOverride: true);
+      expect(SettingsRepository.instance.appConfig.viewer.loopVideo, isTrue);
+      expect(calls.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+      verifyNever(() => controller.setLoop(true));
+
+      ended.notifyListeners();
+      await tester.pump();
+      ready.notifyListeners();
+      await tester.pump();
+      expect(completions, 1);
+      expect(calls.where((call) => call == 'play'), hasLength(1));
+      expect(calls.last, 'pause');
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      debugDefaultTargetPlatformOverride = null;
+      await SettingsRepository.instance.write(SettingsKey.viewerLoopVideo, previousLoopSetting);
+    }
   });
 
   testWidgets('removing a preview detaches native event listeners and pauses playback', (tester) async {
