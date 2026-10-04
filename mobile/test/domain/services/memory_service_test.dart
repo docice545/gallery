@@ -40,6 +40,18 @@ void main() {
   });
 
   group('getMemoryLane', () {
+    test('offline fallback excludes pending and declined candidates', () async {
+      when(() => mockApiRepository.getMemoryLane()).thenThrow(Exception('offline'));
+      when(() => mockRepository.getAll(any())).thenAnswer(
+        (_) async => [
+          memory('ordinary'),
+          memory('pending').copyWith(data: const MemoryData({'candidateState': 'pending'})),
+          memory('dismissed').copyWith(data: const MemoryData({'candidateState': 'dismissed'})),
+          memory('saved').copyWith(data: const MemoryData({'candidateState': 'saved'})),
+        ],
+      );
+      expect((await sut.getMemoryLane('user-1')).map((memory) => memory.id), ['ordinary', 'saved']);
+    });
     // Regression test for issue #997: memories built from Space-shared photos showed on
     // web but not in the Android app.
     test('returns the server list, which includes Space-shared memories', () async {

@@ -104,6 +104,19 @@ void main() {
     sut = MemoryApiRepository(apiService);
   });
 
+  group('candidate compatibility', () {
+    test('older server returns an empty candidate list without breaking Memories', () async {
+      stubResponse(() => jsonResponse('{}', status: 404));
+      expect(await sut.getCandidates(), isEmpty);
+    });
+
+    test('decision failures propagate instead of being stored only on the device', () async {
+      stubResponse(() => jsonResponse('{}', status: 403));
+      await expectLater(sut.decideCandidate('candidate-id', 'save'), throwsA(isA<api.ApiException>()));
+      expect(requestedUris.single.path, '/api/memories/candidates/candidate-id/decision');
+    });
+  });
+
   group('formatDay', () {
     // The endpoint validates `for` as YYYY-MM-DD and 400s on anything else, so a missing
     // zero-pad would break the lane every January and every single-digit day — a bug that
@@ -123,6 +136,22 @@ void main() {
   });
 
   group('getMemoryLane', () {
+    test('prefers server display fields while preserving standard memory metadata', () async {
+      final dto = memoryDto(
+        'enriched-memory',
+        data: const {'year': 2019, 'title': 'Legacy title'},
+        assets: [assetDto('sea-photo')],
+      );
+      dto.title = const api.Optional.present('A day by the sea');
+      dto.subtitle = const api.Optional.present('Together at sunset');
+      stubMemories([dto]);
+      final result = await sut.getMemoryLane();
+      expect(result.single.data.title, 'A day by the sea');
+      expect(result.single.data.subtitle, 'Together at sunset');
+      expect(result.single.data.raw['year'], 2019);
+      expect(result.single.id, 'enriched-memory');
+    });
+
     // The lane must ask for a single day. Without `for` the server applies `showAt` but not
     // `hideAt`, so it returns every memory inside the retention window (365 days by default)
     // with all of its assets — megabytes, on every tab switch.

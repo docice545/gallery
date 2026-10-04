@@ -4,6 +4,9 @@ import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
 import { BulkIdResponseDto, BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import {
+  MemoryCandidateCreateDto,
+  MemoryCandidateDecisionDto,
+  MemoryCandidateResponseDto,
   MemoryCreateDto,
   MemoryResponseDto,
   MemorySearchDto,
@@ -19,6 +22,31 @@ import { UUIDParamDto } from 'src/validation.js';
 @Controller('memories')
 export class MemoryController {
   constructor(private service: MemoryService) {}
+
+  @Get('candidates')
+  @Authenticated({ permission: Permission.MemoryRead })
+  getMemoryCandidates(@Auth() auth: AuthDto): Promise<MemoryCandidateResponseDto[]> {
+    return this.service.getCandidates(auth);
+  }
+
+  @Post('candidates')
+  @Authenticated({ permission: Permission.MemoryCreate })
+  createMemoryCandidate(
+    @Auth() auth: AuthDto,
+    @Body() dto: MemoryCandidateCreateDto,
+  ): Promise<MemoryCandidateResponseDto> {
+    return this.service.createCandidate(auth, dto);
+  }
+
+  @Post('candidates/:id/decision')
+  @Authenticated({ permission: Permission.MemoryUpdate })
+  decideMemoryCandidate(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: MemoryCandidateDecisionDto,
+  ): Promise<MemoryCandidateResponseDto> {
+    return this.service.decideCandidate(auth, id, dto);
+  }
 
   @Get()
   @Authenticated({ permission: Permission.MemoryRead })

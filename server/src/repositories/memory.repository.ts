@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { type Insertable, type Kysely, type OrderByDirection, type Updateable, sql } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { DateTime } from 'luxon';
@@ -10,6 +10,7 @@ import { AssetOrderWithRandom, AssetVisibility, MemoryType } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
 import { asUuid } from 'src/utils/database.js';
+import { memoryFingerprint, similarMemoryAssets } from 'src/utils/memory-candidate.js';
 import {
   type TimelineHiddenScope,
   hiddenFromOwnTimeline,
@@ -20,6 +21,174 @@ import {
 @Injectable()
 export class MemoryRepository implements IBulkAsset {
   constructor(@InjectKysely() private db: Kysely<DB>) {}
+
+  async createCandidate(memory: Insertable<MemoryTable>, assetIds: string[]) {
+    const ownerId = memory.ownerId;
+    const ids = [...new Set(assetIds)];
+    const fingerprint = memoryFingerprint(ids);
+    return this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
+      const history = await tx.selectFrom('memory_candidate').selectAll().where('ownerId', '=', ownerId).execute();
+      const existing = history.find((row) => row.fingerprint === fingerprint);
+      if (existing) {
+        if (existing.state === 'dismissed' || !existing.memoryId)
+          throw new ConflictException('Candidate already declined');
+        return { ...existing, created: false };
+      }
+      if (history.some((row) => similarMemoryAssets(ids, row.assetIds))) {
+        throw new ConflictException('A similar memory has already been proposed');
+      }
+      // Do not create an AI duplicate of a standard/rule memory already stored for this owner.
+      const memories = await tx
+        .selectFrom('memory')
+        .select('memory.id')
+        .select((eb) =>
+          jsonArrayFrom(eb.selectFrom('memory_asset').select('assetId').whereRef('memoriesId', '=', 'memory.id')).as(
+            'assets',
+          ),
+        )
+        .where('ownerId', '=', ownerId)
+        .where('deletedAt', 'is', null)
+        .execute();
+      if (
+        memories.some((row) =>
+          similarMemoryAssets(
+            ids,
+            row.assets.map((asset) => asset.assetId),
+          ),
+        )
+      ) {
+        throw new ConflictException('Enrich the existing memory instead of duplicating it');
+      }
+      const { id: memoryId } = await tx
+        .insertInto('memory')
+        .values({
+          ...memory,
+          isSaved: false,
+          data: { ...memory.data, candidateState: 'pending' },
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await tx
+        .insertInto('memory_asset')
+        .values(ids.map((assetId) => ({ memoriesId: memoryId, assetId })))
+        .execute();
+      const candidate = await tx
+        .insertInto('memory_candidate')
+        .values({
+          ownerId,
+          memoryId,
+          fingerprint,
+          assetIds: sql<string[]>`${JSON.stringify(ids)}::jsonb`,
+          state: 'pending',
+          remindAt: new Date(),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return { ...candidate, created: true };
+    });
+  }
+
+  getCandidates(ownerId: string, hiddenScope?: TimelineHiddenScope, visibleSpaceIds: string[] = []) {
+    return (
+      this.db
+        .selectFrom('memory_candidate')
+        .innerJoin('memory', 'memory.id', 'memory_candidate.memoryId')
+        .selectAll('memory_candidate')
+        .where('memory_candidate.ownerId', '=', ownerId)
+        .where('memory.ownerId', '=', ownerId)
+        .where('memory.deletedAt', 'is', null)
+        .where('memory_candidate.state', '=', 'pending')
+        .where('memory_candidate.remindAt', '<=', new Date())
+        // Filter before limiting, so old proposals with no renderable assets cannot block new ones.
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('memory_asset')
+              .innerJoin('asset', 'asset.id', 'memory_asset.assetId')
+              .select('asset.id')
+              .whereRef('memory_asset.memoriesId', '=', 'memory_candidate.memoryId')
+              .where('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
+              .where('asset.deletedAt', 'is', null)
+              .$if(!!hiddenScope && !timelineHiddenScopeIsEmpty(hiddenScope), (qb) =>
+                qb.where((eb) =>
+                  eb.or([
+                    eb('asset.ownerId', '!=', asUuid(ownerId)),
+                    hiddenFromOwnTimeline(eb, hiddenScope!, {
+                      kind: 'inline',
+                      visibleSpaceIds,
+                      viewerId: ownerId,
+                    })!,
+                  ]),
+                ),
+              ),
+          ),
+        )
+        .orderBy('memory_candidate.createdAt')
+        .orderBy('memory_candidate.id')
+        .limit(20)
+        .execute()
+    );
+  }
+
+  getCandidateForMemory(memoryId: string) {
+    return this.db.selectFrom('memory_candidate').select('state').where('memoryId', '=', memoryId).executeTakeFirst();
+  }
+
+  async decideCandidate(ownerId: string, id: string, action: 'save' | 'dismiss' | 'later') {
+    return this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
+      const candidate = await tx
+        .selectFrom('memory_candidate')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!candidate) throw new NotFoundException('Memory candidate not found');
+      const state = action === 'save' ? 'saved' : action === 'dismiss' ? 'dismissed' : 'pending';
+      if (candidate.state !== 'pending') {
+        if (candidate.state === state) return candidate;
+        throw new ConflictException('Memory candidate already decided');
+      }
+      if (action === 'save' && !candidate.memoryId) {
+        throw new ConflictException('Candidate memory no longer exists');
+      }
+      if (action === 'later') {
+        return tx
+          .updateTable('memory_candidate')
+          .set({ remindAt: DateTime.utc().plus({ days: 1 }).toJSDate() })
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      }
+      if (candidate.memoryId) {
+        const updated = await tx
+          .updateTable('memory')
+          .set({
+            isSaved: action === 'save',
+            showAt: new Date(),
+            hideAt: null,
+            deletedAt: action === 'dismiss' ? new Date() : null,
+            data: sql`"data" || ${JSON.stringify({ candidateState: state })}::jsonb`,
+            updatedAt: new Date(),
+          })
+          .where('id', '=', candidate.memoryId)
+          .where('ownerId', '=', ownerId)
+          .returning('id')
+          .execute();
+        if (action === 'save' && updated.length === 0) {
+          throw new ConflictException('Candidate memory no longer exists');
+        }
+      }
+      return tx
+        .updateTable('memory_candidate')
+        .set({ state })
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    });
+  }
 
   async cleanup(retentionDays: number) {
     await this.db
@@ -37,6 +206,17 @@ export class MemoryRepository implements IBulkAsset {
       .deleteFrom('memory')
       .where(sql<Date>`coalesce("showAt", "createdAt")`, '<', DateTime.now().minus({ days: retentionDays }).toJSDate())
       .where('isSaved', '=', false)
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('memory_candidate')
+              .select('id')
+              .whereRef('memory_candidate.memoryId', '=', 'memory.id')
+              .where('state', '=', 'pending'),
+          ),
+        ),
+      )
       .execute();
   }
 
@@ -66,6 +246,17 @@ export class MemoryRepository implements IBulkAsset {
 
     return this.db
       .selectFrom('memory')
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('memory_candidate')
+              .select('id')
+              .whereRef('memory_candidate.memoryId', '=', 'memory.id')
+              .where('state', '!=', 'saved'),
+          ),
+        ),
+      )
       .$if(dto.isSaved !== undefined, (qb) => qb.where('isSaved', '=', dto.isSaved!))
       .$if(dto.type !== undefined, (qb) => qb.where('type', '=', dto.type!))
       .$if(hideUnshown, (qb) =>
@@ -369,6 +560,10 @@ export class MemoryRepository implements IBulkAsset {
 
   @GenerateSql({ params: [DummyValue.UUID, { ownerId: DummyValue.UUID, isSaved: true }] })
   async update(id: string, memory: Updateable<MemoryTable>) {
+    if (memory.isSaved !== undefined) {
+      const candidate = await this.getCandidateForMemory(id);
+      if (candidate && candidate.state !== 'saved') throw new ConflictException('Use the candidate decision endpoint');
+    }
     await this.db.updateTable('memory').set(memory).where('id', '=', id).execute();
     return this.getByIdBuilder(id).executeTakeFirstOrThrow();
   }
@@ -378,6 +573,10 @@ export class MemoryRepository implements IBulkAsset {
     memory: Updateable<MemoryTable>,
     display: { title?: string | null; subtitle?: string | null },
   ) {
+    if (memory.isSaved !== undefined) {
+      const candidate = await this.getCandidateForMemory(id);
+      if (candidate && candidate.state !== 'saved') throw new ConflictException('Use the candidate decision endpoint');
+    }
     const patch = JSON.stringify(display);
     await this.db
       .updateTable('memory')

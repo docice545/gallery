@@ -7,6 +7,16 @@ import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/repositories/memory_api.repository.dart';
 
+final memoryCandidatesProvider = FutureProvider.autoDispose<List<({String id, Memory memory})>>((ref) {
+  final user = ref.watch(currentUserProvider);
+  if (user == null || !user.memoryEnabled) {
+    return const [];
+  }
+  final timer = Timer(const Duration(minutes: 1), ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+  return ref.watch(memoryApiRepositoryProvider).getCandidates();
+});
+
 final memoryLaneProvider = FutureProvider.autoDispose<List<Memory>>((ref) {
   final (userId, enabled) = ref.watch(currentUserProvider.select((user) => (user?.id, user?.memoryEnabled ?? true)));
   if (userId == null || !enabled) {

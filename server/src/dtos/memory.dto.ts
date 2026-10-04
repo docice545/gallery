@@ -109,6 +109,27 @@ export class MemoryCreateDto extends createZodDto(MemoryCreateSchema) {}
 export class MemoryStatisticsResponseDto extends createZodDto(MemoryStatisticsResponseSchema) {}
 export class MemoryResponseDto extends createZodDto(MemoryResponseSchema) {}
 
+export class MemoryCandidateCreateDto extends createZodDto(
+  MemoryCreateSchema.safeExtend({
+    assetIds: z.array(z.uuidv4()).min(1),
+    isSaved: z.literal(false).optional(),
+  }).meta({ id: 'MemoryCandidateCreateDto' }),
+) {}
+
+export class MemoryCandidateDecisionDto extends createZodDto(
+  z.object({
+    action: z.enum(['save', 'dismiss', 'later']),
+  }),
+) {}
+
+export class MemoryCandidateResponseDto extends createZodDto(
+  z.object({
+    id: z.uuidv4(),
+    state: z.enum(['pending', 'saved', 'dismissed']),
+    memory: MemoryResponseSchema.optional(),
+  }),
+) {}
+
 export const mapMemory = (entity: Memory, auth: AuthDto): MemoryResponseDto => {
   const data = entity.data as AnyMemoryData;
   const { title, subtitle } = getMemoryDisplay(data);

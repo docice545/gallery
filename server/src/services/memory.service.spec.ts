@@ -125,6 +125,57 @@ describe(MemoryService.name, () => {
     expect(sut).toBeDefined();
   });
 
+  describe('candidate decisions', () => {
+    it('uses the ordinary hidden timeline scope when listing and reading candidates', async () => {
+      const auth = factory.auth();
+      const scope = {
+        hiddenSpaceIds: [newUuid()],
+        hiddenAlbumIds: [],
+        hiddenAlbumSpacePairs: [],
+        hiddenLibraryIds: [],
+      };
+      const visibleSpaceId = newUuid();
+      const memory = MemoryFactory.from({ ownerId: auth.user.id }).asset({ ownerId: auth.user.id }).build();
+      const candidateId = newUuid();
+      mocks.sharedSpace.getTimelineHiddenScope.mockResolvedValue(scope);
+      mocks.sharedSpace.getSpaceIdsForTimeline.mockResolvedValue([{ spaceId: visibleSpaceId }]);
+      mocks.memory.getCandidates.mockResolvedValue([{ id: candidateId, memoryId: memory.id, state: 'pending' } as any]);
+      mocks.memory.get.mockResolvedValue(getForMemory(memory));
+
+      await expect(sut.getCandidates(auth)).resolves.toEqual([
+        expect.objectContaining({
+          id: candidateId,
+          state: 'pending',
+          memory: expect.objectContaining({ id: memory.id }),
+        }),
+      ]);
+      expect(mocks.memory.getCandidates).toHaveBeenCalledWith(auth.user.id, scope, [visibleSpaceId]);
+      expect(mocks.memory.get).toHaveBeenCalledWith(memory.id, auth.user.id, scope, [visibleSpaceId]);
+    });
+
+    it('forwards the authenticated owner, rather than an arbitrary supplied user', async () => {
+      const auth = factory.auth();
+      const id = newUuid();
+      mocks.memory.decideCandidate.mockResolvedValue({ id, state: 'dismissed' } as any);
+      await expect(sut.decideCandidate(auth, id, { action: 'dismiss' })).resolves.toEqual({ id, state: 'dismissed' });
+      expect(mocks.memory.decideCandidate).toHaveBeenCalledWith(auth.user.id, id, 'dismiss');
+    });
+
+    it('rejects candidate creation with another user assets before storing anything', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set());
+      await expect(
+        sut.createCandidate(factory.auth(), {
+          type: MemoryType.Rule,
+          data: { title: 'Private' },
+          memoryAt: new Date(),
+          assetIds: [newUuid()],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mocks.memory.createCandidate).not.toHaveBeenCalled();
+      expect(mocks.notification.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('onMemoryCleanup', () => {
     it('should clean up memories using configured retention days', async () => {
       mocks.systemMetadata.get.mockResolvedValue({ memories: { retentionDays: 0 } });

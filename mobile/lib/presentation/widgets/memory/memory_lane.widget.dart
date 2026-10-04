@@ -6,6 +6,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
 import 'package:immich_mobile/presentation/pages/memory.page.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
+import 'package:immich_mobile/presentation/widgets/memory/memory_candidates.widget.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
@@ -19,26 +20,32 @@ class MemoryLane extends ConsumerWidget {
     final memoryLane = ref.watch(memoryLaneProvider);
     final memories = memoryLane.value ?? const [];
     if (memories.isEmpty) {
-      return const SizedBox.shrink();
+      return const MemoryCandidates();
     }
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 200),
-      child: CarouselView(
-        itemExtent: 145.0,
-        shrinkExtent: 1.0,
-        elevation: 2,
-        backgroundColor: Colors.black,
-        overlayColor: WidgetStateProperty.all(Colors.white.withValues(alpha: 0.1)),
-        onTap: (index) {
-          ref.read(hapticFeedbackProvider.notifier).heavyImpact();
-          if (memories[index].assets.isNotEmpty) {
-            MemoryPage.setMemory(ref, memories[index]);
-          }
-          unawaited(context.pushRoute(MemoryRoute(memories: memories, memoryIndex: index)));
-        },
-        children: memories.map((memory) => MemoryCard(key: Key(memory.id), memory: memory)).toList(growable: false),
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const MemoryCandidates(),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 200),
+          child: CarouselView(
+            itemExtent: 145.0,
+            shrinkExtent: 1.0,
+            elevation: 2,
+            backgroundColor: Colors.black,
+            overlayColor: WidgetStateProperty.all(Colors.white.withValues(alpha: 0.1)),
+            onTap: (index) {
+              ref.read(hapticFeedbackProvider.notifier).heavyImpact();
+              if (memories[index].assets.isNotEmpty) {
+                MemoryPage.setMemory(ref, memories[index]);
+              }
+              unawaited(context.pushRoute(MemoryRoute(memories: memories, memoryIndex: index)));
+            },
+            children: memories.map((memory) => MemoryCard(key: Key(memory.id), memory: memory)).toList(growable: false),
+          ),
+        ),
+      ],
     );
   }
 }

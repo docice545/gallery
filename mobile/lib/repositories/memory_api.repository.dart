@@ -17,6 +17,46 @@ class MemoryApiRepository extends ApiRepository {
 
   MemoryApiRepository(this._apiService);
 
+  Future<List<({String id, Memory memory})>> getCandidates() async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/memories/candidates',
+      'GET',
+      <QueryParam>[],
+      null,
+      <String, String>{},
+      <String, String>{},
+      null,
+    );
+    // Additive capability: production/older servers without this endpoint still work.
+    if (response.statusCode == 404) {
+      return const [];
+    }
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, response.body);
+    }
+    final rows = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+    return [
+      for (final row in rows)
+        if (row['state'] == 'pending' && row['memory'] != null)
+          (id: row['id'] as String, memory: _toDriftMemory(MemoryResponseDto.fromJson(row['memory'])!)),
+    ];
+  }
+
+  Future<void> decideCandidate(String id, String action) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/memories/candidates/$id/decision',
+      'POST',
+      <QueryParam>[],
+      {'action': action},
+      <String, String>{},
+      <String, String>{},
+      'application/json',
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, response.body);
+    }
+  }
+
   /// Today's memory lane as the server sees it, including memories built from photos shared
   /// with the viewer through a Space — the same call the web memory lane makes.
   ///
@@ -218,9 +258,12 @@ class MemoryApiRepository extends ApiRepository {
     deletedAt: dto.deletedAt.orElse(null),
     ownerId: dto.ownerId,
     type: _toMemoryType(dto.type),
-    // `title` / `subtitle` on the DTO are mirrored straight out of `data` by the server
-    // (see mapMemory), so the raw map alone carries everything the lane renders.
-    data: MemoryData(Map<String, dynamic>.from(dto.data)),
+    // Prefer explicit server display fields while retaining legacy/external AI data.
+    data: MemoryData({
+      ...Map<String, dynamic>.from(dto.data),
+      if (dto.title.orElse(null)?.isNotEmpty ?? false) 'title': dto.title.orElse(null),
+      if (dto.subtitle.orElse(null)?.isNotEmpty ?? false) 'subtitle': dto.subtitle.orElse(null),
+    }),
     isSaved: dto.isSaved,
     memoryAt: dto.memoryAt,
     seenAt: dto.seenAt.orElse(null),

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import type { SystemConfig } from 'src/dtos/config.dto.js';
 import type { MemoryRule, MemoryRuleCandidate } from 'src/services/memory-rules/memory-rule.interface.js';
@@ -9,13 +9,26 @@ import { OnJob } from 'src/decorators.js';
 import { BulkIdResponseDto, BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import {
+  MemoryCandidateCreateDto,
+  MemoryCandidateDecisionDto,
+  MemoryCandidateResponseDto,
   MemoryCreateDto,
   MemoryResponseDto,
   MemorySearchDto,
   MemoryUpdateDto,
   mapMemory,
 } from 'src/dtos/memory.dto.js';
-import { DatabaseLock, JobName, MemoryType, Permission, QueueName, SystemMetadataKey } from 'src/enum.js';
+import { mapNotification } from 'src/dtos/notification.dto.js';
+import {
+  DatabaseLock,
+  JobName,
+  MemoryType,
+  NotificationLevel,
+  NotificationType,
+  Permission,
+  QueueName,
+  SystemMetadataKey,
+} from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
 import {
   getAdminAvailableMemoryTypeKeys,
@@ -69,6 +82,62 @@ const isVisibleOn = (row: Pick<MemoryOverlapRow, 'showAt' | 'hideAt'>, target: D
 
 @Injectable()
 export class MemoryService extends BaseService {
+  async createCandidate(auth: AuthDto, dto: MemoryCandidateCreateDto): Promise<MemoryCandidateResponseDto> {
+    const ids = [...new Set(dto.assetIds)];
+    const allowed = await this.accessRepository.asset.checkOwnerAccess(
+      auth.user.id,
+      new Set(ids),
+      auth.session?.hasElevatedPermission,
+    );
+    if (allowed.size !== ids.length || ids.length === 0)
+      throw new BadRequestException('Candidate assets must be owned by the user');
+    const candidate = await this.memoryRepository.createCandidate(
+      {
+        ownerId: auth.user.id,
+        type: dto.type,
+        data: dto.data,
+        memoryAt: dto.memoryAt,
+      },
+      ids,
+    );
+    const memory = await this.findOrFail(candidate.memoryId!, auth.user.id);
+    if (candidate.created) {
+      try {
+        const item = await this.notificationRepository.create({
+          userId: auth.user.id,
+          type: NotificationType.Custom,
+          level: NotificationLevel.Info,
+          title: typeof dto.data.title === 'string' ? dto.data.title : 'New memory',
+          data: JSON.stringify({ memoryCandidateId: candidate.id }),
+        });
+        this.websocketRepository.clientSend('on_notification', auth.user.id, mapNotification(item));
+      } catch (error) {
+        this.logger.warn(`Candidate persisted but notification could not be delivered: ${error}`);
+      }
+    }
+    return { id: candidate.id, state: candidate.state, memory: mapMemory(memory, auth) };
+  }
+
+  async getCandidates(auth: AuthDto): Promise<MemoryCandidateResponseDto[]> {
+    const [hiddenScope, visibleSpaceIds] = await this.resolveHiddenScopeAndVisibleSpaces(auth.user.id);
+    const rows = await this.memoryRepository.getCandidates(auth.user.id, hiddenScope, visibleSpaceIds);
+    const result: MemoryCandidateResponseDto[] = [];
+    for (const row of rows) {
+      const memory = await this.memoryRepository.get(row.memoryId!, auth.user.id, hiddenScope, visibleSpaceIds);
+      if (memory && memory.assets.length > 0)
+        result.push({ id: row.id, state: row.state, memory: mapMemory(memory, auth) });
+    }
+    return result;
+  }
+
+  async decideCandidate(
+    auth: AuthDto,
+    id: string,
+    dto: MemoryCandidateDecisionDto,
+  ): Promise<MemoryCandidateResponseDto> {
+    const row = await this.memoryRepository.decideCandidate(auth.user.id, id, dto.action);
+    return { id: row.id, state: row.state };
+  }
   @OnJob({ name: JobName.MemoryGenerate, queue: QueueName.BackgroundTask })
   async onMemoriesCreate() {
     const users = await this.userRepository.getList({ withDeleted: false });
@@ -504,6 +573,8 @@ export class MemoryService extends BaseService {
     availableTypes: Set<string>,
     userTypes: Record<string, boolean>,
   ): boolean {
+    const candidateState = (memory.data as Record<string, unknown> | null)?.candidateState;
+    if (candidateState === 'pending' || candidateState === 'dismissed') return false;
     if (memory.isSaved) {
       return true;
     }

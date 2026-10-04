@@ -70,6 +70,7 @@ import { LibraryTable } from 'src/schema/tables/library.table.js';
 import { MemoryAssetAuditTable } from 'src/schema/tables/memory-asset-audit.table.js';
 import { MemoryAssetTable } from 'src/schema/tables/memory-asset.table.js';
 import { MemoryAuditTable } from 'src/schema/tables/memory-audit.table.js';
+import { MemoryCandidateTable } from 'src/schema/tables/memory-candidate.table.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
 import { MoveTable } from 'src/schema/tables/move.table.js';
 import { NaturalEarthCountriesTable } from 'src/schema/tables/natural-earth-countries.table.js';
@@ -179,6 +180,7 @@ export class ImmichDatabase {
     LibraryUserTable,
     LibraryAssetAuditTable,
     MemoryTable,
+    MemoryCandidateTable,
     MemoryAuditTable,
     MemoryAssetTable,
     MemoryAssetAuditTable,
@@ -330,6 +332,7 @@ export interface DB {
   library_asset_audit: LibraryAssetAuditTable;
 
   memory: MemoryTable;
+  memory_candidate: MemoryCandidateTable;
   memory_audit: MemoryAuditTable;
   memory_asset: MemoryAssetTable;
   memory_asset_audit: MemoryAssetAuditTable;

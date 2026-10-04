@@ -25,7 +25,7 @@ class MemoryService {
       // Offline / server failure: fall back to the owner-scoped local list so the viewer's
       // own memories still render (their Space-shared memories are unavailable offline).
       log.warning("Failed to fetch memories from the server; using the local sync DB", error, stackTrace);
-      return _repository.getAll(ownerId);
+      return (await _repository.getAll(ownerId)).where(_isOrdinaryMemory).toList();
     }
   }
 
@@ -39,7 +39,11 @@ class MemoryService {
       return await _apiRepository.getAllMemories(onlyFavorites: onlyFavorites);
     } catch (error, stackTrace) {
       log.warning("Failed to fetch all memories from the server; using the local sync DB", error, stackTrace);
-      return _repository.getAll(ownerId, onlyToday: false, onlyFavorites: onlyFavorites);
+      return (await _repository.getAll(
+        ownerId,
+        onlyToday: false,
+        onlyFavorites: onlyFavorites,
+      )).where(_isOrdinaryMemory).toList();
     }
   }
 
@@ -51,3 +55,6 @@ class MemoryService {
     return _repository.getCount();
   }
 }
+
+bool _isOrdinaryMemory(Memory memory) =>
+    memory.data.raw['candidateState'] != 'pending' && memory.data.raw['candidateState'] != 'dismissed';

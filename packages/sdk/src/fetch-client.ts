@@ -2318,6 +2318,31 @@ export type MemoryCreateDto = {
     showAt?: string;
     "type": MemoryType;
 };
+export type MemoryCandidateResponseDto = {
+    id: string;
+    memory?: MemoryResponseDto;
+    state: State;
+};
+export type MemoryCandidateCreateDto = {
+    assetIds: string[];
+    /** Memory data */
+    data: {
+        [key: string]: any;
+    };
+    /** Date when memory should be hidden */
+    hideAt?: string;
+    isSaved?: false;
+    /** Memory date */
+    memoryAt: string;
+    /** Date when memory was seen */
+    seenAt?: string;
+    /** Date when memory should be shown */
+    showAt?: string;
+    "type": MemoryType;
+};
+export type MemoryCandidateDecisionDto = {
+    action: Action2;
+};
 export type MemoryStatisticsResponseDto = {
     /** Total number of memories */
     total: number;
@@ -2329,6 +2354,10 @@ export type MemoryUpdateDto = {
     memoryAt?: string;
     /** Date when memory was seen */
     seenAt?: string;
+    /** Generated description; null clears it */
+    subtitle?: string | null;
+    /** Generated display title; null clears it */
+    title?: string | null;
 };
 export type NotificationDeleteAllDto = {
     /** Notification IDs to delete */
@@ -4021,6 +4050,11 @@ export type StackResponseDto = {
 export type StackCreateDto = {
     /** Asset IDs (first becomes primary, min 2) */
     assetIds: string[];
+    /** Respect persistent user suppression for automated grouping */
+    automatic?: boolean;
+};
+export type StackSuppressionResponseDto = {
+    assetId: string;
 };
 export type StackUpdateDto = {
     /** Primary asset ID */
@@ -7175,6 +7209,39 @@ export function createMemory({ memoryCreateDto }: {
         body: memoryCreateDto
     })));
 }
+export function getMemoryCandidates(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: MemoryCandidateResponseDto[];
+    }>("/memories/candidates", {
+        ...opts
+    }));
+}
+export function createMemoryCandidate({ memoryCandidateCreateDto }: {
+    memoryCandidateCreateDto: MemoryCandidateCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: MemoryCandidateResponseDto;
+    }>("/memories/candidates", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: memoryCandidateCreateDto
+    })));
+}
+export function decideMemoryCandidate({ id, memoryCandidateDecisionDto }: {
+    id: string;
+    memoryCandidateDecisionDto: MemoryCandidateDecisionDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: MemoryCandidateResponseDto;
+    }>(`/memories/candidates/${encodeURIComponent(id)}/decision`, oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: memoryCandidateDecisionDto
+    })));
+}
 /**
  * Retrieve memories statistics
  */
@@ -9662,6 +9729,18 @@ export function createStack({ stackCreateDto }: {
         body: stackCreateDto
     })));
 }
+export function getStackSuppressions({ page }: {
+    page?: number;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: StackSuppressionResponseDto[];
+    }>(`/stacks/suppressions${QS.query(QS.explode({
+        page
+    }))}`, {
+        ...opts
+    }));
+}
 /**
  * Delete a stack
  */
@@ -11265,6 +11344,16 @@ export enum MemorySearchOrder {
 export enum MemoryType {
     OnThisDay = "on_this_day",
     Rule = "rule"
+}
+export enum State {
+    Pending = "pending",
+    Saved = "saved",
+    Dismissed = "dismissed"
+}
+export enum Action2 {
+    Save = "save",
+    Dismiss = "dismiss",
+    Later = "later"
 }
 export enum PartnerDirection {
     SharedBy = "shared-by",
