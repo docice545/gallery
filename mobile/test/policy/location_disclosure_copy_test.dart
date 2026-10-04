@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/generated/codegen_loader.g.dart';
+import 'package:immich_mobile/utils/app_asset_loader.dart';
 
 void main() {
   const englishMapDisclosure =
@@ -16,7 +17,8 @@ void main() {
 
   Map<String, dynamic> loadTranslations(String path) {
     final file = File(path);
-    return jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    final source = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+    return AppAssetLoader.brandTranslations(source, appName: source['app_name'] as String? ?? 'Photos');
   }
 
   Iterable<MapEntry<String, Map<String, dynamic>>> loadAllTranslationFiles() {
@@ -31,7 +33,8 @@ void main() {
       source.endsWith('/en.json') || source.contains('overrides-en.json') || source.startsWith('CodegenLoader.en');
 
   void expectBranding(String source, String content) {
-    expect(content, contains('Noodle Gallery'), reason: source);
+    expect(content, anyOf(contains('Photos'), contains('Фото')), reason: source);
+    expect(content, isNot(contains('Noodle Gallery')), reason: source);
     expect(content, isNot(contains('Immich')), reason: source);
   }
 
@@ -97,7 +100,8 @@ void main() {
   });
 
   test('generated runtime map disclosures match policy requirements', () {
-    for (final MapEntry(key: locale, value: translations) in CodegenLoader.mapLocales.entries) {
+    for (final MapEntry(key: locale, value: raw) in CodegenLoader.mapLocales.entries) {
+      final translations = AppAssetLoader.brandTranslations(raw, appName: raw['app_name'] as String? ?? 'Photos');
       if (translations case {'map_no_location_permission_content': final String content}) {
         expectMapDisclosure('CodegenLoader.$locale.map_no_location_permission_content', content);
       }
@@ -119,7 +123,8 @@ void main() {
   });
 
   test('generated runtime automatic endpoint disclosures match policy requirements', () {
-    for (final MapEntry(key: locale, value: translations) in CodegenLoader.mapLocales.entries) {
+    for (final MapEntry(key: locale, value: raw) in CodegenLoader.mapLocales.entries) {
+      final translations = AppAssetLoader.brandTranslations(raw, appName: raw['app_name'] as String? ?? 'Photos');
       expectAutomaticEndpointDisclosures('CodegenLoader.$locale', translations);
     }
   });
