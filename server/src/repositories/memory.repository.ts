@@ -373,6 +373,20 @@ export class MemoryRepository implements IBulkAsset {
     return this.getByIdBuilder(id).executeTakeFirstOrThrow();
   }
 
+  async updateDisplay(
+    id: string,
+    memory: Updateable<MemoryTable>,
+    display: { title?: string | null; subtitle?: string | null },
+  ) {
+    const patch = JSON.stringify(display);
+    await this.db
+      .updateTable('memory')
+      .set({ ...memory, data: sql`"data" || ${patch}::jsonb` })
+      .where('id', '=', id)
+      .execute();
+    return this.getByIdBuilder(id).executeTakeFirstOrThrow();
+  }
+
   @GenerateSql({ params: [DummyValue.UUID] })
   async delete(id: string) {
     await this.db.deleteFrom('memory').where('id', '=', id).execute();

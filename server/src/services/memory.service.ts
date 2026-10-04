@@ -554,11 +554,15 @@ export class MemoryService extends BaseService {
   async update(auth: AuthDto, id: string, dto: MemoryUpdateDto): Promise<MemoryResponseDto> {
     await this.requireAccess({ auth, permission: Permission.MemoryUpdate, ids: [id] });
 
-    const memory = await this.memoryRepository.update(id, {
+    const changes = {
       isSaved: dto.isSaved,
       memoryAt: dto.memoryAt,
       seenAt: dto.seenAt,
-    });
+    };
+    const memory =
+      dto.title !== undefined || dto.subtitle !== undefined
+        ? await this.memoryRepository.updateDisplay(id, changes, { title: dto.title, subtitle: dto.subtitle })
+        : await this.memoryRepository.update(id, changes);
 
     return mapMemory(memory, auth);
   }

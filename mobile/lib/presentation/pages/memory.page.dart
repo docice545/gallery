@@ -361,6 +361,7 @@ class MemoryPage extends HookConsumerWidget {
                     ),
                   ),
                   MemoryBottomInfo(
+                    subtitle: memories[mIndex].data.subtitle,
                     // currentAssetPage tracks the ACTIVE memory only; other pages in
                     // the vertical PageView show their own first asset.
                     asset: memoryAssetForPage(

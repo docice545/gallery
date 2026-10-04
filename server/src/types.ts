@@ -695,7 +695,7 @@ export type StorageAsset = {
   lensModel: string | null;
 };
 
-export type OnThisDayData = { year: number };
+export type OnThisDayData = { year: number; title?: string; subtitle?: string };
 
 export type RuleMemoryData = {
   ruleId: string;

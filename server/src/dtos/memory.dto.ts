@@ -30,11 +30,7 @@ const OnThisDaySchema = z
 
 const MemoryDataSchema = z.record(z.string(), z.unknown()).describe('Memory data');
 
-const getMemoryDisplay = (type: MemoryType, data: Record<string, unknown>) => {
-  if (type !== MemoryType.Rule) {
-    return { title: undefined, subtitle: undefined };
-  }
-
+const getMemoryDisplay = (data: Record<string, unknown>) => {
   return {
     title: typeof data.title === 'string' ? data.title : undefined,
     subtitle: typeof data.subtitle === 'string' ? data.subtitle : undefined,
@@ -45,6 +41,8 @@ const MemoryUpdateSchema = nonEmptyPartial({
   isSaved: z.boolean().describe('Is memory saved'),
   seenAt: isoDatetimeToDate.describe('Date when memory was seen'),
   memoryAt: isoDatetimeToDate.describe('Memory date'),
+  title: z.string().trim().max(200).nullable().describe('Generated display title; null clears it'),
+  subtitle: z.string().trim().max(500).nullable().describe('Generated description; null clears it'),
 }).meta({ id: 'MemoryUpdateDto' });
 
 const MemoryCreateSchema = z
@@ -113,7 +111,7 @@ export class MemoryResponseDto extends createZodDto(MemoryResponseSchema) {}
 
 export const mapMemory = (entity: Memory, auth: AuthDto): MemoryResponseDto => {
   const data = entity.data as AnyMemoryData;
-  const { title, subtitle } = getMemoryDisplay(entity.type as MemoryType, data);
+  const { title, subtitle } = getMemoryDisplay(data);
 
   return {
     id: entity.id,

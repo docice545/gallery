@@ -18,7 +18,8 @@ RemoteAsset memoryAssetForPage(Memory memory, int page) => memory.assets[page.cl
 class MemoryBottomInfo extends ConsumerWidget {
   final RemoteAsset asset;
   final String title;
-  const MemoryBottomInfo({super.key, required this.asset, required this.title});
+  final String? subtitle;
+  const MemoryBottomInfo({super.key, required this.asset, required this.title, this.subtitle});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,19 +30,25 @@ class MemoryBottomInfo extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
+          Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: Colors.grey[400], fontSize: 13.0, fontWeight: FontWeight.w500),
+              ),
+              if (subtitle != null && subtitle!.trim().isNotEmpty) Text(
+                subtitle!, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.grey[400], fontSize: 13),
               ),
               Text(
                 df.format(fileCreatedDate.toLocal()),
                 style: const TextStyle(color: Colors.white, fontSize: 15.0, fontWeight: FontWeight.w500),
               ),
             ],
-          ),
+          )),
           Tooltip(
             message: context.t.view_in_timeline,
             child: MaterialButton(

@@ -42,6 +42,16 @@ describe('Memory DTOs', () => {
   });
 
   describe('mapMemory', () => {
+    it('surfaces generated display text on an existing on-this-day memory', () => {
+      const memory = MemoryFactory.create({
+        type: MemoryType.OnThisDay,
+        data: { year: 2024, title: 'A day by the sea', subtitle: 'An afternoon together' },
+      });
+      const result = mapMemory(getForMemory(memory) as any, factory.auth());
+      expect(result.title).toBe('A day by the sea');
+      expect(result.subtitle).toBe('An afternoon together');
+      expect(result.data.year).toBe(2024);
+    });
     it('should surface server-owned title and subtitle for rule memories', () => {
       const memory = MemoryFactory.create({
         type: MemoryType.Rule,
