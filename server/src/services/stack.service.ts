@@ -20,6 +20,14 @@ export class StackService extends BaseService {
 
   async create(auth: AuthDto, dto: StackCreateDto): Promise<StackResponseDto> {
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: dto.assetIds });
+    // Shared-space editing is not ownership: a stack and its user decisions have one owner.
+    const ids = new Set(dto.assetIds);
+    const owned = await this.accessRepository.asset.checkOwnerAccess(
+      auth.user.id,
+      ids,
+      auth.session?.hasElevatedPermission,
+    );
+    if (owned.size !== ids.size) throw new BadRequestException('Stack assets must be owned by the user');
 
     const stack = dto.automatic
       ? await this.stackRepository.create({ ownerId: auth.user.id }, dto.assetIds, true)

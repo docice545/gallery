@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
@@ -12,6 +13,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../infrastructure/repository.mock.dart';
 import '../../repository.mocks.dart';
+import '../factories/remote_asset_factory.dart';
 import '../mocks.dart';
 
 void main() {
@@ -53,6 +55,44 @@ void main() {
 
   tearDown(() async {
     await Store.delete(StoreKey.manageLocalMediaAndroid);
+  });
+
+  group('manual stacks', () {
+    test('dissolves a two-member stack without deleting either photo', () async {
+      final asset = RemoteAssetFactory.create(stackId: 'stack');
+      final stack = StackResponse(id: 'stack', primaryAssetId: asset.id, assetIds: [asset.id, 'other']);
+      when(() => apiRepository.getStack('stack')).thenAnswer((_) async => stack);
+      when(() => apiRepository.unStack(['stack'])).thenAnswer((_) async {});
+      when(() => remoteRepository.unStack(['stack'])).thenAnswer((_) async {});
+      await sut.removeFromStack(asset.ownerId, asset);
+      verifyInOrder([
+        () => apiRepository.unStack(['stack']),
+        () => remoteRepository.unStack(['stack']),
+      ]);
+    });
+
+    test('changes primary on the server before removing the old cover', () async {
+      final asset = RemoteAssetFactory.create(stackId: 'stack');
+      final stack = StackResponse(id: 'stack', primaryAssetId: asset.id, assetIds: [asset.id, 'other', 'third']);
+      final updated = stack.copyWith(primaryAssetId: 'other');
+      when(() => apiRepository.getStack('stack')).thenAnswer((_) async => stack);
+      when(() => apiRepository.setStackPrimary('stack', 'other')).thenAnswer((_) async => updated);
+      when(() => remoteRepository.stack(asset.ownerId, updated)).thenAnswer((_) async {});
+      when(() => apiRepository.removeFromStack('stack', asset.id)).thenAnswer((_) async {});
+      when(() => remoteRepository.detachFromStack(asset.id)).thenAnswer((_) async {});
+      await sut.removeFromStack(asset.ownerId, asset);
+      verifyInOrder([
+        () => apiRepository.setStackPrimary('stack', 'other'),
+        () => apiRepository.removeFromStack('stack', asset.id),
+        () => remoteRepository.detachFromStack(asset.id),
+      ]);
+    });
+
+    test('a failed server dissolve leaves the local stack intact', () async {
+      when(() => apiRepository.unStack(['stack'])).thenThrow(Exception('offline'));
+      await expectLater(sut.unstack(['stack']), throwsException);
+      verifyNever(() => remoteRepository.unStack(['stack']));
+    });
   });
 
   group('AssetService.updateDateTime', () {

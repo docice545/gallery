@@ -26,9 +26,9 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
       ..addColumns([_db.remoteAssetEntity.stackId, count])
       ..where(_db.remoteAssetEntity.stackId.isNotNull() & _db.remoteAssetEntity.deletedAt.isNull())
       ..groupBy([_db.remoteAssetEntity.stackId]);
-    return query.watch().map((rows) => {
-      for (final row in rows) row.read(_db.remoteAssetEntity.stackId)!: row.read(count)!,
-    });
+    return query.watch().map(
+      (rows) => {for (final row in rows) row.read(_db.remoteAssetEntity.stackId)!: row.read(count)!},
+    );
   }
 
   SingleOrNullSelectable<RemoteAsset?> _assetSelectable(String id) {

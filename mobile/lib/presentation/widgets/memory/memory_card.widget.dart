@@ -80,9 +80,11 @@ class MemoryCard extends StatelessWidget {
             Positioned(
               left: 18.0,
               bottom: 18.0,
-              child: Text(
-                title,
-                style: context.textTheme.headlineMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w500),
+              child: IgnorePointer(
+                child: Text(
+                  title,
+                  style: context.textTheme.headlineMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w500),
+                ),
               ),
             ),
         ],

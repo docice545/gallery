@@ -15,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/cast.action.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/actions/download.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/open_in_browser.action.dart';
 import 'package:immich_mobile/presentation/actions/remove_from_album.action.dart';
 import 'package:immich_mobile/presentation/actions/restore.action.dart';
@@ -25,7 +26,6 @@ import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/similar_photos.action.dart';
 import 'package:immich_mobile/presentation/actions/slideshow.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
-import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/like_activity_action_button.widget.dart';
@@ -137,7 +137,11 @@ enum ActionButtonType {
         !context.isInLockedView && //
             context.currentAlbum != null && //
             context.selectedCount == 1,
-      ActionButtonType.manageStack => context.isOwner && context.asset.hasRemote && !context.isInLockedView && context.timelineOrigin != TimelineOrigin.trash,
+      ActionButtonType.manageStack =>
+        context.isOwner &&
+            context.asset.hasRemote &&
+            !context.isInLockedView &&
+            context.timelineOrigin != TimelineOrigin.trash,
       ActionButtonType.unstack =>
         context.isOwner && //
             context.timelineOrigin != TimelineOrigin.trash &&

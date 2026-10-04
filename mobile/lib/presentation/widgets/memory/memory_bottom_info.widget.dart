@@ -30,25 +30,30 @@ class MemoryBottomInfo extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.grey[400], fontSize: 13.0, fontWeight: FontWeight.w500),
-              ),
-              if (subtitle != null && subtitle!.trim().isNotEmpty) Text(
-                subtitle!, maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.grey[400], fontSize: 13),
-              ),
-              Text(
-                df.format(fileCreatedDate.toLocal()),
-                style: const TextStyle(color: Colors.white, fontSize: 15.0, fontWeight: FontWeight.w500),
-              ),
-            ],
-          )),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.grey[400], fontSize: 13.0, fontWeight: FontWeight.w500),
+                ),
+                if (subtitle != null && subtitle!.trim().isNotEmpty)
+                  Text(
+                    subtitle!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 13),
+                  ),
+                Text(
+                  df.format(fileCreatedDate.toLocal()),
+                  style: const TextStyle(color: Colors.white, fontSize: 15.0, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
           Tooltip(
             message: context.t.view_in_timeline,
             child: MaterialButton(

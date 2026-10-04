@@ -51,19 +51,24 @@ class AssetApiRepository extends ApiRepository {
 
   Future<List<({StackResponse stack, String name})>> getStacks() async {
     final stacks = await checkNull(_stacksApi.searchStacks());
-    return stacks.where((stack) => stack.assets.isNotEmpty).map((stack) => (
-      stack: stack.toStack(),
-      name: stack.assets.firstWhere((asset) => asset.id == stack.primaryAssetId).originalFileName,
-    )).toList();
+    return stacks
+        .where((stack) => stack.assets.any((asset) => asset.id == stack.primaryAssetId))
+        .map(
+          (stack) => (
+            stack: stack.toStack(),
+            name: stack.assets.firstWhere((asset) => asset.id == stack.primaryAssetId).originalFileName,
+          ),
+        )
+        .toList();
   }
 
-  Future<StackResponse> getStack(String id) async =>
-      (await checkNull(_stacksApi.getStack(id))).toStack();
+  Future<StackResponse> getStack(String id) async => (await checkNull(_stacksApi.getStack(id))).toStack();
 
-  Future<StackResponse> setStackPrimary(String id, String assetId) async =>
-      (await checkNull(_stacksApi.updateStack(id, StackUpdateDto(primaryAssetId: Optional.present(assetId))))).toStack();
+  Future<StackResponse> setStackPrimary(String id, String assetId) async => (await checkNull(
+    _stacksApi.updateStack(id, StackUpdateDto(primaryAssetId: Optional.present(assetId))),
+  )).toStack();
 
-  Future<void> removeFromStack(String id, String assetId) => _stacksApi.removeAssetFromStack(id, assetId);
+  Future<void> removeFromStack(String id, String assetId) => _stacksApi.removeAssetFromStack(assetId, id);
 
   api.AssetVisibility _mapVisibility(AssetVisibility visibility) => switch (visibility) {
     AssetVisibility.timeline => api.AssetVisibility.timeline,

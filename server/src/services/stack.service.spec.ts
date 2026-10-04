@@ -44,6 +44,15 @@ describe(StackService.name, () => {
   });
 
   describe('create', () => {
+    it('does not put shared-space editor assets in a personally owned stack', async () => {
+      const auth = AuthFactory.create();
+      const ids = [newUuid(), newUuid()];
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set([ids[0]]));
+      mocks.access.asset.checkSpaceEditAccess.mockResolvedValue(new Set([ids[1]]));
+      await expect(sut.create(auth, { assetIds: ids })).rejects.toThrow('Stack assets must be owned by the user');
+      expect(mocks.stack.create).not.toHaveBeenCalled();
+    });
+
     it('should require asset.update permissions', async () => {
       const auth = AuthFactory.create();
       const [primaryAsset, asset] = [AssetFactory.create(), AssetFactory.create()];

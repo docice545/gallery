@@ -304,31 +304,32 @@ class MemoryPage extends HookConsumerWidget {
                                     onNext: () => toNextAsset(index),
                                   ),
                                 ),
-                                if (!asset.isImage) Positioned.fill(
-                                  child: Row(
-                                    children: [
-                                      // Left side of the screen
-                                      Expanded(
-                                        child: GestureDetector(
-                                          behavior: HitTestBehavior.translucent,
-                                          onTap: () {
-                                            toPreviousAsset(index);
-                                          },
+                                if (!asset.isImage)
+                                  Positioned.fill(
+                                    child: Row(
+                                      children: [
+                                        // Left side of the screen
+                                        Expanded(
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.translucent,
+                                            onTap: () {
+                                              toPreviousAsset(index);
+                                            },
+                                          ),
                                         ),
-                                      ),
 
-                                      // Right side of the screen
-                                      Expanded(
-                                        child: GestureDetector(
-                                          behavior: HitTestBehavior.translucent,
-                                          onTap: () {
-                                            toNextAsset(index);
-                                          },
+                                        // Right side of the screen
+                                        Expanded(
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.translucent,
+                                            onTap: () {
+                                              toNextAsset(index);
+                                            },
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
                               ],
                             );
                           },

@@ -93,6 +93,15 @@ export class StackRepository {
         }
       }
 
+      // Also validate expanded children from legacy stacks created by space editors.
+      const foreignAsset = await tx
+        .selectFrom('asset')
+        .select('id')
+        .where('id', 'in', [...uniqueIds])
+        .where('ownerId', '!=', entity.ownerId)
+        .executeTakeFirst();
+      if (foreignAsset) throw new BadRequestException('Stack assets must have the same owner');
+
       if (automatic) {
         const suppressed = await tx
           .selectFrom('stack_suppression')

@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/widgets/photo_view/photo_view.dart';
-import 'package:immich_mobile/widgets/photo_view/src/controller/photo_view_controller.dart';
-import 'package:immich_mobile/widgets/photo_view/src/core/photo_view_gesture_detector.dart';
 
 /// Uses the same image/gesture implementation as the ordinary asset viewer.
 class MemoryPhoto extends StatefulWidget {

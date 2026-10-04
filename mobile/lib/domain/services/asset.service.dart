@@ -2,8 +2,8 @@ import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
-import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
@@ -125,7 +125,9 @@ class AssetService {
 
   Future<void> removeFromStack(String userId, RemoteAsset asset) async {
     final stackId = asset.stackId;
-    if (stackId == null) return;
+    if (stackId == null) {
+      return;
+    }
     var stack = await _apiRepository.getStack(stackId);
     if (stack.assetIds.length <= 2) {
       await unstack([stackId]);

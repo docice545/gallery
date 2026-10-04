@@ -17,12 +17,16 @@ class ShareHandlerRepository {
   void Function(List<ShareIntentAttachment> attachments)? onSharedMedia;
   StreamSubscription<SharedMedia>? _subscription;
   Future<void>? _initialization;
+  bool _disposed = false;
 
   Future<void> init() => _initialization ??= _init();
 
   Future<void> _init() async {
     final handler = ShareHandlerPlatform.instance;
     final media = await handler.getInitialSharedMedia();
+    if (_disposed) {
+      return;
+    }
 
     if (media != null && media.attachments != null) {
       onSharedMedia?.call(_buildPayload(media.attachments!));
@@ -36,6 +40,7 @@ class ShareHandlerRepository {
   }
 
   void dispose() {
+    _disposed = true;
     unawaited(_subscription?.cancel());
     onSharedMedia = null;
   }

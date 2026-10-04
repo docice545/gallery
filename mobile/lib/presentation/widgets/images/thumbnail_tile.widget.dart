@@ -341,11 +341,15 @@ class _StackIndicator extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const _TileOverlayIcon(Icons.burst_mode_rounded),
-          if (count != null) Text(
-            ' $count',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600,
-              shadows: [Shadow(blurRadius: 5, color: Colors.black)]),
-          ),
+          if (count != null)
+            Text(
+              ' $count',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                shadows: [Shadow(blurRadius: 5, color: Colors.black)],
+              ),
+            ),
         ],
       ),
     );
