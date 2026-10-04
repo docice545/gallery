@@ -112,6 +112,7 @@ import { SharedSpacePersonTable } from 'src/schema/tables/shared-space-person.ta
 import { SharedSpaceTable } from 'src/schema/tables/shared-space.table.js';
 import { SmartSearchTable } from 'src/schema/tables/smart-search.table.js';
 import { StackAuditTable } from 'src/schema/tables/stack-audit.table.js';
+import { StackSuppressionTable } from 'src/schema/tables/stack-suppression.table.js';
 import { StackTable } from 'src/schema/tables/stack.table.js';
 import { StorageMigrationLogTable } from 'src/schema/tables/storage-migration-log.table.js';
 import { SessionSyncCheckpointTable } from 'src/schema/tables/sync-checkpoint.table.js';
@@ -223,6 +224,7 @@ export class ImmichDatabase {
     UserGroupMemberTable,
     SmartSearchTable,
     StackTable,
+    StackSuppressionTable,
     StackAuditTable,
     StorageMigrationLogTable,
     SessionSyncCheckpointTable,
@@ -389,6 +391,7 @@ export interface DB {
   smart_search: SmartSearchTable;
 
   stack: StackTable;
+  stack_suppression: StackSuppressionTable;
   stack_audit: StackAuditTable;
 
   storage_migration_log: StorageMigrationLogTable;

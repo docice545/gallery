@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { sql } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import type { ExpressionBuilder, Insertable, Kysely, Updateable } from 'kysely';
@@ -62,8 +63,9 @@ export class StackRepository {
       .execute();
   }
 
-  async create(entity: Omit<Insertable<StackTable>, 'primaryAssetId'>, assetIds: string[]) {
+  async create(entity: Omit<Insertable<StackTable>, 'primaryAssetId'>, assetIds: string[], automatic = false) {
     return this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${entity.ownerId}), 179107)`.execute(tx);
       const stacks = await tx
         .selectFrom('stack')
         .where('stack.ownerId', '=', entity.ownerId)
@@ -89,6 +91,16 @@ export class StackRepository {
             uniqueIds.add(asset.id);
           }
         }
+      }
+
+      if (automatic) {
+        const suppressed = await tx
+          .selectFrom('stack_suppression')
+          .select('assetId')
+          .where('ownerId', '=', entity.ownerId)
+          .where('assetId', 'in', [...uniqueIds])
+          .executeTakeFirst();
+        if (suppressed) throw new BadRequestException('Automatic stacking suppressed by user');
       }
 
       if (stacks.length > 0) {
@@ -133,6 +145,66 @@ export class StackRepository {
 
   async deleteAll(ids: string[]): Promise<void> {
     await this.db.deleteFrom('stack').where('id', 'in', ids).execute();
+  }
+
+  /** Decision and mutation are committed together; automatic create takes the same owner lock. */
+  async manuallyDissolve(ownerId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179107)`.execute(tx);
+      const assets = await tx
+        .selectFrom('asset')
+        .select('id as assetId')
+        .select('ownerId')
+        .where('ownerId', '=', ownerId)
+        .where('stackId', 'in', ids)
+        .execute();
+      if (assets.length > 0)
+        await tx
+          .insertInto('stack_suppression')
+          .values(assets)
+          .onConflict((oc) => oc.column('assetId').doNothing())
+          .execute();
+      await tx.deleteFrom('stack').where('ownerId', '=', ownerId).where('id', 'in', ids).execute();
+    });
+  }
+
+  async manuallyRemove(ownerId: string, stackId: string, assetId: string): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179107)`.execute(tx);
+      const stack = await tx
+        .selectFrom('stack')
+        .select('primaryAssetId')
+        .where('id', '=', stackId)
+        .where('ownerId', '=', ownerId)
+        .executeTakeFirst();
+      if (!stack || stack.primaryAssetId === assetId) throw new BadRequestException('Invalid stack member removal');
+      const asset = await tx
+        .selectFrom('asset')
+        .select('id')
+        .where('id', '=', assetId)
+        .where('ownerId', '=', ownerId)
+        .where('stackId', '=', stackId)
+        .executeTakeFirst();
+      if (!asset) throw new BadRequestException('Asset not in stack');
+      await tx
+        .insertInto('stack_suppression')
+        .values({ ownerId, assetId })
+        .onConflict((oc) => oc.column('assetId').doNothing())
+        .execute();
+      await tx.updateTable('asset').set({ stackId: null, updatedAt: new Date() }).where('id', '=', assetId).execute();
+    });
+  }
+
+  getSuppressions(ownerId: string, page: number) {
+    return this.db
+      .selectFrom('stack_suppression')
+      .select('assetId')
+      .where('ownerId', '=', ownerId)
+      .orderBy('assetId')
+      .limit(1000)
+      .offset((page - 1) * 1000)
+      .execute();
   }
 
   update(id: string, entity: Updateable<StackTable>) {

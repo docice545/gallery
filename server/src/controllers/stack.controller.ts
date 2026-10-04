@@ -8,11 +8,21 @@ import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated } from 'src/middleware/auth.guard.js';
 import { StackService } from 'src/services/stack.service.js';
 import { UUIDAssetIDParamDto, UUIDParamDto } from 'src/validation.js';
+import { StackSuppressionSearchDto, StackSuppressionResponseDto } from 'src/dtos/stack.dto.js';
 
 @ApiTags(ApiTag.Stacks)
 @Controller('stacks')
 export class StackController {
   constructor(private service: StackService) {}
+
+  @Get('suppressions')
+  @Authenticated({ permission: Permission.StackRead })
+  getStackSuppressions(
+    @Auth() auth: AuthDto,
+    @Query() dto: StackSuppressionSearchDto,
+  ): Promise<StackSuppressionResponseDto[]> {
+    return this.service.getSuppressions(auth, dto.page);
+  }
 
   @Get()
   @Authenticated({ permission: Permission.StackRead })

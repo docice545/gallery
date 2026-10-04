@@ -21,6 +21,12 @@ describe(StackService.name, () => {
   });
 
   describe('search', () => {
+    it('scopes suppression discovery to the authenticated owner', async () => {
+      const auth = AuthFactory.create();
+      mocks.stack.getSuppressions.mockResolvedValue([]);
+      await sut.getSuppressions(auth, 2);
+      expect(mocks.stack.getSuppressions).toHaveBeenCalledWith(auth.user.id, 2);
+    });
     it('should search stacks', async () => {
       const auth = AuthFactory.create();
       const asset = AssetFactory.from().exif().build();
@@ -199,11 +205,11 @@ describe(StackService.name, () => {
       const auth = AuthFactory.create();
 
       mocks.access.stack.checkOwnerAccess.mockResolvedValue(new Set(['stack-id']));
-      mocks.stack.delete.mockResolvedValue();
+      mocks.stack.manuallyDissolve.mockResolvedValue();
 
       await sut.delete(auth, 'stack-id');
 
-      expect(mocks.stack.delete).toHaveBeenCalledWith('stack-id');
+      expect(mocks.stack.manuallyDissolve).toHaveBeenCalledWith(auth.user.id, ['stack-id']);
       expect(mocks.event.emit).toHaveBeenCalledWith('StackDelete', {
         stackId: 'stack-id',
         userId: auth.user.id,
@@ -221,11 +227,11 @@ describe(StackService.name, () => {
 
     it('should delete all stacks', async () => {
       mocks.access.stack.checkOwnerAccess.mockResolvedValue(new Set(['stack-id']));
-      mocks.stack.deleteAll.mockResolvedValue();
+      mocks.stack.manuallyDissolve.mockResolvedValue();
 
       await sut.deleteAll(authStub.admin, { ids: ['stack-id'] });
 
-      expect(mocks.stack.deleteAll).toHaveBeenCalledWith(['stack-id']);
+      expect(mocks.stack.manuallyDissolve).toHaveBeenCalledWith(authStub.admin.user.id, ['stack-id']);
       expect(mocks.event.emit).toHaveBeenCalledWith('StackDeleteAll', {
         stackIds: ['stack-id'],
         userId: authStub.admin.user.id,
@@ -274,9 +280,10 @@ describe(StackService.name, () => {
       mocks.access.stack.checkOwnerAccess.mockResolvedValue(new Set(['stack-id']));
       mocks.stack.getForAssetRemoval.mockResolvedValue({ id: 'stack-id', primaryAssetId: primaryAsset.id });
 
+      mocks.stack.manuallyRemove.mockResolvedValue();
       await sut.removeAsset(authStub.admin, { id: 'stack-id', assetId: asset.id });
 
-      expect(mocks.asset.update).toHaveBeenCalledWith({ id: asset.id, stackId: null });
+      expect(mocks.stack.manuallyRemove).toHaveBeenCalledWith(authStub.admin.user.id, 'stack-id', asset.id);
       expect(mocks.event.emit).toHaveBeenCalledWith('StackUpdate', {
         stackId: 'stack-id',
         userId: authStub.admin.user.id,

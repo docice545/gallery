@@ -60,6 +60,7 @@
 1789000000000-AddFacePersonVerdictStatusCreatedAtIdIndex
 1790000000000-FixFaceRepairScanInFlightIndex
 1791000000000-RepointFaceReviewToPersonGroup
+1791070000000-AddStackSuppression
 1792123120451-AddSharedLinkSpaceId
 1793000000000-AddSharedSpaceAlbumHidden
 1793100000000-AddSharedSpaceAlbumFolderTable

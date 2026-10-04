@@ -21,7 +21,9 @@ export class StackService extends BaseService {
   async create(auth: AuthDto, dto: StackCreateDto): Promise<StackResponseDto> {
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: dto.assetIds });
 
-    const stack = await this.stackRepository.create({ ownerId: auth.user.id }, dto.assetIds);
+    const stack = dto.automatic
+      ? await this.stackRepository.create({ ownerId: auth.user.id }, dto.assetIds, true)
+      : await this.stackRepository.create({ ownerId: auth.user.id }, dto.assetIds);
 
     await this.eventRepository.emit('StackCreate', { stackId: stack.id, userId: auth.user.id });
 
@@ -50,13 +52,13 @@ export class StackService extends BaseService {
 
   async delete(auth: AuthDto, id: string): Promise<void> {
     await this.requireAccess({ auth, permission: Permission.StackDelete, ids: [id] });
-    await this.stackRepository.delete(id);
+    await this.stackRepository.manuallyDissolve(auth.user.id, [id]);
     await this.eventRepository.emit('StackDelete', { stackId: id, userId: auth.user.id });
   }
 
   async deleteAll(auth: AuthDto, dto: BulkIdsDto): Promise<void> {
     await this.requireAccess({ auth, permission: Permission.StackDelete, ids: dto.ids });
-    await this.stackRepository.deleteAll(dto.ids);
+    await this.stackRepository.manuallyDissolve(auth.user.id, dto.ids);
     await this.eventRepository.emit('StackDeleteAll', { stackIds: dto.ids, userId: auth.user.id });
   }
 
@@ -74,11 +76,15 @@ export class StackService extends BaseService {
       throw new BadRequestException("Cannot remove stack's primary asset");
     }
 
-    await this.assetRepository.update({ id: assetId, stackId: null });
+    await this.stackRepository.manuallyRemove(auth.user.id, stackId, assetId);
     await this.eventRepository.emit('StackUpdate', { stackId, userId: auth.user.id });
   }
 
   private findOrFail(id: string) {
     return findOrFail(() => this.stackRepository.getById(id), 'Asset stack');
+  }
+
+  getSuppressions(auth: AuthDto, page: number) {
+    return this.stackRepository.getSuppressions(auth.user.id, page);
   }
 }
