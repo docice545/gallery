@@ -26,6 +26,10 @@ void main() {
   });
 
   group('defaults', () {
+    test('live photo autoplay is enabled when no preference has been stored', () {
+      expect(sut.appConfig.timeline.autoplayLivePhotos, isTrue);
+    });
+
     test('appConfig returns key defaults when DB is empty', () {
       expect(sut.appConfig.theme.mode, ThemeMode.system);
     });
@@ -36,6 +40,19 @@ void main() {
   });
 
   group('write', () {
+    test('live photo autoplay persists across cache refresh and resets to its enabled default', () async {
+      await sut.write(.timelineAutoplayLivePhotos, false);
+      expect(sut.appConfig.timeline.autoplayLivePhotos, isFalse);
+
+      await sut.refresh();
+      expect(sut.appConfig.timeline.autoplayLivePhotos, isFalse);
+      expect(await ctx.db.select(ctx.db.settingsEntity).get(), hasLength(1));
+
+      await sut.write(.timelineAutoplayLivePhotos, true);
+      expect(sut.appConfig.timeline.autoplayLivePhotos, isTrue);
+      expect(await ctx.db.select(ctx.db.settingsEntity).get(), isEmpty);
+    });
+
     test('persists a value and reflects it in the composed view', () async {
       await sut.write(.themeMode, ThemeMode.dark);
       expect(sut.appConfig.theme.mode, ThemeMode.dark);

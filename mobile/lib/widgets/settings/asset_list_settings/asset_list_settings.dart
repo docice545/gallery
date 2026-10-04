@@ -16,6 +16,9 @@ class AssetListSettings extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final storageIndicator = useValueNotifier(ref.watch(appConfigProvider.select((s) => s.timeline.storageIndicator)));
+    final autoplayLivePhotos = useValueNotifier(
+      ref.watch(appConfigProvider.select((s) => s.timeline.autoplayLivePhotos)),
+    );
 
     final assetListSetting = [
       SettingsSwitchListTile(
@@ -25,6 +28,13 @@ class AssetListSettings extends HookConsumerWidget {
           unawaited(ref.read(settingsProvider).write(.timelineStorageIndicator, value));
           ref.invalidate(appSettingsServiceProvider);
           ref.invalidate(settingsProvider);
+        },
+      ),
+      SettingsSwitchListTile(
+        valueNotifier: autoplayLivePhotos,
+        title: context.t.theme_setting_asset_list_autoplay_live_photos_title,
+        onChanged: (value) {
+          unawaited(ref.read(settingsProvider).write(.timelineAutoplayLivePhotos, value));
         },
       ),
       const LayoutSettings(),

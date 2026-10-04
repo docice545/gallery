@@ -7,6 +7,7 @@ import 'package:immich_mobile/extensions/duration_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/backup/asset_upload_progress.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
@@ -142,6 +143,8 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                     },
                   ),
                 ),
+                if (asset != null && asset.isImage && asset.isMotionPhoto)
+                  Positioned.fill(child: TimelineLivePhotoTile(asset: asset)),
                 if (asset != null)
                   AnimatedOpacity(
                     opacity: _hideIndicators ? 0.0 : 1.0,

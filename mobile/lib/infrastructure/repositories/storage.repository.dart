@@ -87,7 +87,7 @@ class StorageRepository {
     return entity;
   }
 
-  Future<bool> isAssetAvailableLocally(String assetId) async {
+  Future<bool> isAssetAvailableLocally(String assetId, {bool withSubtype = false}) async {
     try {
       final entity = await AssetEntity.fromId(assetId);
       if (entity == null) {
@@ -95,7 +95,7 @@ class StorageRepository {
         return false;
       }
 
-      return await entity.isLocallyAvailable(isOrigin: true);
+      return await entity.isLocallyAvailable(isOrigin: true, withSubtype: withSubtype);
     } catch (error, stackTrace) {
       log.warning("Error checking if asset is locally available $assetId", error, stackTrace);
       return false;

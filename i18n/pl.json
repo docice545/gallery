@@ -3447,6 +3447,7 @@
   "theme": "Motyw",
   "theme_selection": "Wybór motywu",
   "theme_selection_description": "Automatycznie zmień motyw na jasny lub ciemny zależnie od ustawień systemu",
+  "theme_setting_asset_list_autoplay_live_photos_title": "Automatycznie odtwarzaj ruchome zdjęcia na osi czasu",
   "theme_setting_asset_list_storage_indicator_title": "Pokaż wskaźnik przechowywania na kafelkach zasobów",
   "theme_setting_asset_list_tiles_per_row_title": "Liczba zasobów w wierszu ({count})",
   "theme_setting_colorful_interface_subtitle": "Zastosuj kolor podstawowy do powierzchni tła.",

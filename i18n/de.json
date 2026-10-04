@@ -3419,6 +3419,7 @@
   "theme": "Theme",
   "theme_selection": "Themenauswahl",
   "theme_selection_description": "Automatische Einstellung des Themes auf Hell oder Dunkel, je nach Systemeinstellung des Browsers",
+  "theme_setting_asset_list_autoplay_live_photos_title": "Live-Fotos in der Zeitleiste automatisch abspielen",
   "theme_setting_asset_list_storage_indicator_title": "Fortschrittsbalken der Sicherung auf dem Vorschaubild",
   "theme_setting_asset_list_tiles_per_row_title": "Anzahl der Elemente pro Reihe ({count})",
   "theme_setting_colorful_interface_subtitle": "Primärfarbe auf App-Hintergrund anwenden.",

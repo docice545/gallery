@@ -3406,6 +3406,7 @@
   "theme": "主題",
   "theme_selection": "主題選項",
   "theme_selection_description": "隨瀏覽器或系統設定，自動切換深色與淺色模式",
+  "theme_setting_asset_list_autoplay_live_photos_title": "在時間軸中自動播放動態相片",
   "theme_setting_asset_list_storage_indicator_title": "在項目標題上顯示使用之儲存空間",
   "theme_setting_asset_list_tiles_per_row_title": "每行展示 {count} 項",
   "theme_setting_colorful_interface_subtitle": "套用主色調到背景。",

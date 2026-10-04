@@ -3427,6 +3427,7 @@
   "theme": "Tema",
   "theme_selection": "Selezione tema",
   "theme_selection_description": "Imposta automaticamente il tema chiaro o scuro in base all'impostazione del tuo browser",
+  "theme_setting_asset_list_autoplay_live_photos_title": "Riproduci automaticamente le foto in movimento nella cronologia",
   "theme_setting_asset_list_storage_indicator_title": "Mostra indicatore dello storage nei titoli delle risorse",
   "theme_setting_asset_list_tiles_per_row_title": "Numero di risorse per riga ({count})",
   "theme_setting_colorful_interface_subtitle": "Applica il colore primario alle superfici di sfondo.",

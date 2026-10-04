@@ -3382,6 +3382,7 @@
   "theme": "主题",
   "theme_selection": "主题选项",
   "theme_selection_description": "跟随浏览器自动设置主题颜色",
+  "theme_setting_asset_list_autoplay_live_photos_title": "在时间线中自动播放动态图片",
   "theme_setting_asset_list_storage_indicator_title": "在项目标题上显示存储占用",
   "theme_setting_asset_list_tiles_per_row_title": "每行展示 {count} 项",
   "theme_setting_colorful_interface_subtitle": "应用主色调到背景。",

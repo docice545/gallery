@@ -3422,6 +3422,7 @@
   "theme": "Thème",
   "theme_selection": "Sélection du thème",
   "theme_selection_description": "Ajuster automatiquement le thème clair ou sombre via les préférences système",
+  "theme_setting_asset_list_autoplay_live_photos_title": "Lire automatiquement les photos animées dans la vue chronologique",
   "theme_setting_asset_list_storage_indicator_title": "Afficher l'indicateur de stockage sur les tuiles des éléments",
   "theme_setting_asset_list_tiles_per_row_title": "Nombre de médias par ligne ({count})",
   "theme_setting_colorful_interface_subtitle": "Appliquer la couleur principale sur les surfaces d'arrière-plan.",

@@ -7,6 +7,7 @@ import 'package:immich_mobile/presentation/widgets/feature_message/feature_messa
 import 'package:immich_mobile/presentation/widgets/filter_sheet/filter_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/memory/memory_lane.widget.dart';
 import 'package:immich_mobile/presentation/widgets/photos_filter/filter_subheader.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_empty_state.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_selector.widget.dart';
@@ -84,18 +85,20 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
                 }
                 return false;
               },
-              child: Timeline(
-                topSliverWidget: SliverMainAxisGroup(
-                  slivers: [
-                    const PhotosFilterSubheader(),
-                    if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
-                  ],
+              child: TimelineLivePhotoScope(
+                child: Timeline(
+                  topSliverWidget: SliverMainAxisGroup(
+                    slivers: [
+                      const PhotosFilterSubheader(),
+                      if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
+                    ],
+                  ),
+                  topSliverWidgetHeight: showMemories ? _memoryLaneHeight : 0,
+                  showStorageIndicator: true,
+                  appBar: const PhotosTimelineAppBar(),
+                  bottomSliverWidget: const _SearchLoadMoreFooter(),
+                  emptyWidget: const TimelineEmptyState(),
                 ),
-                topSliverWidgetHeight: showMemories ? _memoryLaneHeight : 0,
-                showStorageIndicator: true,
-                appBar: const PhotosTimelineAppBar(),
-                bottomSliverWidget: const _SearchLoadMoreFooter(),
-                emptyWidget: const TimelineEmptyState(),
               ),
             ),
           ),

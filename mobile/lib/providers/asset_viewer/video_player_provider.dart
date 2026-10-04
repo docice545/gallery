@@ -32,10 +32,18 @@ final videoPlayerProvider = StateNotifierProvider.autoDispose.family<VideoPlayer
   return VideoPlayerNotifier();
 });
 
+// Timeline previews must not share controls or wake-lock ownership with the asset viewer.
+final timelinePreviewVideoPlayerProvider = StateNotifierProvider.autoDispose
+    .family<VideoPlayerNotifier, VideoPlayerState, String>((ref, name) {
+      return VideoPlayerNotifier(wakelockEnabled: false);
+    });
+
 class VideoPlayerNotifier extends StateNotifier<VideoPlayerState> {
   static final _log = Logger('VideoPlayerNotifier');
 
-  VideoPlayerNotifier() : super(_defaultState);
+  VideoPlayerNotifier({this.wakelockEnabled = true}) : super(_defaultState);
+
+  final bool wakelockEnabled;
 
   NativeVideoPlayerController? _controller;
   Timer? _bufferingTimer;
@@ -46,7 +54,9 @@ class VideoPlayerNotifier extends StateNotifier<VideoPlayerState> {
   void dispose() {
     _bufferingTimer?.cancel();
     _seekTimer?.cancel();
-    unawaited(WakelockPlus.disable());
+    if (wakelockEnabled) {
+      unawaited(WakelockPlus.disable());
+    }
     _controller = null;
 
     super.dispose();
@@ -234,7 +244,9 @@ class VideoPlayerNotifier extends StateNotifier<VideoPlayerState> {
     final newStatus = _mapStatus(playbackInfo.status);
     switch (newStatus) {
       case VideoPlaybackStatus.playing:
-        unawaited(WakelockPlus.enable());
+        if (wakelockEnabled) {
+          unawaited(WakelockPlus.enable());
+        }
         _startBufferingTimer();
       default:
         onNativePlaybackEnded();
@@ -246,7 +258,9 @@ class VideoPlayerNotifier extends StateNotifier<VideoPlayerState> {
   }
 
   void onNativePlaybackEnded() {
-    unawaited(WakelockPlus.disable());
+    if (wakelockEnabled) {
+      unawaited(WakelockPlus.disable());
+    }
     _bufferingTimer?.cancel();
   }
 

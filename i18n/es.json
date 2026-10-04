@@ -3421,6 +3421,7 @@
   "theme": "Tema",
   "theme_selection": "Selección de tema",
   "theme_selection_description": "Establece el tema automáticamente como \"claro\" u \"oscuro\" según las preferencias del sistema/navegador",
+  "theme_setting_asset_list_autoplay_live_photos_title": "Reproducir automáticamente las fotos en movimiento en la cronología",
   "theme_setting_asset_list_storage_indicator_title": "Mostrar indicador de almacenamiento en las miniaturas de los recursos",
   "theme_setting_asset_list_tiles_per_row_title": "Número de recursos por fila ({count})",
   "theme_setting_colorful_interface_subtitle": "Aplicar el color primario a las superficies de fondo.",

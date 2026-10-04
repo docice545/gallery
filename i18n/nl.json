@@ -3427,6 +3427,7 @@
   "theme": "Thema",
   "theme_selection": "Thema selectie",
   "theme_selection_description": "Stel het thema automatisch in op licht of donker op basis van de systeemvoorkeuren van je browser",
+  "theme_setting_asset_list_autoplay_live_photos_title": "Bewegingsfoto’s automatisch afspelen in de tijdlijn",
   "theme_setting_asset_list_storage_indicator_title": "Toon opslag indicator bij de item tegels",
   "theme_setting_asset_list_tiles_per_row_title": "Aantal items per rij ({count})",
   "theme_setting_colorful_interface_subtitle": "Pas primaire kleuren toe op achtergronden.",
