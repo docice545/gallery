@@ -207,6 +207,12 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
     });
   }
 
+  Future<void> detachFromStack(String assetId) async {
+    await (_db.remoteAssetEntity.update()..where((row) => row.id.equals(assetId))).write(
+      const RemoteAssetEntityCompanion(stackId: Value(null)),
+    );
+  }
+
   Future<void> updateDescription(String assetId, String description) async {
     await (_db.remoteExifEntity.update()..where((row) => row.assetId.equals(assetId))).write(
       RemoteExifEntityCompanion(description: Value(description)),

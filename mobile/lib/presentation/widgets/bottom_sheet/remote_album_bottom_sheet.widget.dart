@@ -15,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/set_album_cover.action.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
@@ -72,6 +73,7 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
           .new(action: EditLocationAction(source: .timeline)),
           .new(action: LockAction(source: .timeline)),
           .new(action: StackAction(source: .timeline)),
+        .new(action: ManageStackAction(source: .timeline)),
         ],
         const .new(action: CleanupLocalAction(source: .timeline)),
         if (ownsAlbum) ...[

@@ -12,6 +12,7 @@ import 'package:immich_mobile/presentation/actions/lock.action.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
@@ -39,6 +40,7 @@ class FavoriteBottomSheet extends ConsumerWidget {
         .new(action: EditLocationAction(source: .timeline)),
         .new(action: LockAction(source: .timeline)),
         .new(action: StackAction(source: .timeline)),
+        .new(action: ManageStackAction(source: .timeline)),
         .new(action: CleanupLocalAction(source: .timeline)),
       ],
       // #965: the same picker the main timeline offers, so a space album is reachable from

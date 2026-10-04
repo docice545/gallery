@@ -25,6 +25,7 @@ import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/similar_photos.action.dart';
 import 'package:immich_mobile/presentation/actions/slideshow.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/like_activity_action_button.widget.dart';
@@ -76,6 +77,7 @@ enum ActionButtonType {
   upload,
   openInBrowser,
   unstack,
+  manageStack,
   archive,
   unarchive,
   moveToLockFolder,
@@ -135,6 +137,7 @@ enum ActionButtonType {
         !context.isInLockedView && //
             context.currentAlbum != null && //
             context.selectedCount == 1,
+      ActionButtonType.manageStack => context.isOwner && context.asset.hasRemote && !context.isInLockedView && context.timelineOrigin != TimelineOrigin.trash,
       ActionButtonType.unstack =>
         context.isOwner && //
             context.timelineOrigin != TimelineOrigin.trash &&
@@ -196,6 +199,7 @@ enum ActionButtonType {
         action: SetAlbumCoverAction(source: context.source, albumId: context.currentAlbum!.id),
       ),
       ActionButtonType.likeActivity => LikeActivityActionButton(iconOnly: iconOnly, menuItem: menuItem),
+      ActionButtonType.manageStack => ActionMenuItem(action: ManageStackAction(source: context.source)),
       ActionButtonType.unstack => ActionMenuItem(action: StackAction(source: context.source)),
       ActionButtonType.openInBrowser => ActionMenuItem(
         action: OpenInBrowserAction(remoteId: context.asset.remoteId!, origin: context.timelineOrigin),

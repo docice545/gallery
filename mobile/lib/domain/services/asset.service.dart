@@ -3,6 +3,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
@@ -111,8 +112,32 @@ class AssetService {
       return;
     }
 
-    await _remoteRepository.unStack(stackIds);
     await _apiRepository.unStack(stackIds);
+    await _remoteRepository.unStack(stackIds);
+  }
+
+  Future<List<({StackResponse stack, String name})>> getStacks() => _apiRepository.getStacks();
+
+  Future<void> setStackPrimary(String userId, String stackId, String assetId) async {
+    final stack = await _apiRepository.setStackPrimary(stackId, assetId);
+    await _remoteRepository.stack(userId, stack);
+  }
+
+  Future<void> removeFromStack(String userId, RemoteAsset asset) async {
+    final stackId = asset.stackId;
+    if (stackId == null) return;
+    var stack = await _apiRepository.getStack(stackId);
+    if (stack.assetIds.length <= 2) {
+      await unstack([stackId]);
+      return;
+    }
+    // The standard API forbids removing a primary: change it before detaching.
+    if (stack.primaryAssetId == asset.id) {
+      stack = await _apiRepository.setStackPrimary(stackId, stack.assetIds.firstWhere((id) => id != asset.id));
+      await _remoteRepository.stack(userId, stack);
+    }
+    await _apiRepository.removeFromStack(stackId, asset.id);
+    await _remoteRepository.detachFromStack(asset.id);
   }
 
   Future<void> update(
