@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_grouping.model.dart';
 import 'package:immich_mobile/domain/models/timeline_zoom_anchor.model.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 
 bool _matchesDate(Segment segment, bool Function(DateTime segmentDate) predicate) {
@@ -58,6 +59,8 @@ double? assetRowOffset({required Segment segment, required int assetIndexInTimel
   if (assetIndexInSegment < 0 || assetIndexInSegment >= segment.bucket.assetCount) {
     return null;
   }
-  final rowIndexInSegment = assetIndexInSegment ~/ columnCount;
+  final rowIndexInSegment = segment is FixedSegment
+      ? segment.rows.rowForAssetIndex(assetIndexInSegment)
+      : assetIndexInSegment ~/ columnCount;
   return segment.indexToLayoutOffset(segment.gridIndex + rowIndexInSegment);
 }

@@ -93,7 +93,7 @@ abstract class Segment {
 }
 
 extension SegmentListExtension on List<Segment> {
-  bool equals(List<Segment> other) => length == other.length && lastOrNull?.endOffset == other.lastOrNull?.endOffset;
+  bool equals(List<Segment> other) => const ListEquality<Segment>().equals(this, other);
 
   Segment? findByIndex(int index) => firstWhereOrNull((s) => s.containsIndex(index));
 

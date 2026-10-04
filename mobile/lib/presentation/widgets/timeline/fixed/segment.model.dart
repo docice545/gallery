@@ -11,6 +11,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/row.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/row_layout.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/header.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment_builder.dart';
@@ -24,11 +25,13 @@ import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/timeline/highlighted_asset.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
+import 'package:immich_mobile/widgets/asset_grid/thumbnail_placeholder.dart';
 
 class FixedSegment extends Segment {
   final double tileHeight;
   final int columnCount;
   final double mainAxisExtend;
+  final bool denseLayout;
 
   const FixedSegment({
     required super.firstIndex,
@@ -39,16 +42,31 @@ class FixedSegment extends Segment {
     required super.bucket,
     required this.tileHeight,
     required this.columnCount,
+    this.denseLayout = false,
     required super.headerExtent,
     required super.spacing,
     required super.header,
   }) : assert(tileHeight != 0),
        mainAxisExtend = tileHeight + spacing;
 
+  FixedRowLayout get rows => FixedRowLayout(
+    assetCount: bucket.assetCount,
+    columnCount: columnCount,
+    tileHeight: tileHeight,
+    spacing: spacing,
+    denseLayout: denseLayout,
+  );
+
   @override
   double indexToLayoutOffset(int index) {
     final relativeIndex = index - gridIndex;
-    return relativeIndex < 0 ? startOffset : gridOffset + (mainAxisExtend * relativeIndex);
+    if (relativeIndex < 0) {
+      return startOffset;
+    }
+    if (denseLayout && index > lastIndex) {
+      return endOffset;
+    }
+    return gridOffset + rows.offsetForRow(relativeIndex);
   }
 
   @override
@@ -57,7 +75,7 @@ class FixedSegment extends Segment {
     if (!adjustedOffset.isFinite || adjustedOffset < 0) {
       return firstIndex;
     }
-    return gridIndex + (adjustedOffset / mainAxisExtend).floor();
+    return gridIndex + (denseLayout ? rows.rowForOffset(adjustedOffset) : (adjustedOffset / mainAxisExtend).floor());
   }
 
   @override
@@ -66,28 +84,44 @@ class FixedSegment extends Segment {
     if (!adjustedOffset.isFinite || adjustedOffset < 0) {
       return firstIndex;
     }
-    return gridIndex + (adjustedOffset / mainAxisExtend).ceil() - 1;
+    if (!denseLayout) {
+      return gridIndex + (adjustedOffset / mainAxisExtend).ceil() - 1;
+    }
+    final row = rows.rowForOffset(adjustedOffset);
+    return math.min(lastIndex, gridIndex + row - ((rows.offsetForRow(row) - adjustedOffset).abs() < 1e-8 ? 1 : 0));
   }
 
   @override
   Widget builder(BuildContext context, int index) {
-    final rowIndexInSegment = index - (firstIndex + 1);
-    final assetIndex = rowIndexInSegment * columnCount;
-    final assetCount = bucket.assetCount;
-    final numberOfAssets = math.min(columnCount, assetCount - assetIndex);
-
     if (index == firstIndex) {
       return TimelineHeader(bucket: bucket, header: header, height: headerExtent, assetOffset: firstAssetIndex);
     }
 
+    final rowIndexInSegment = index - gridIndex;
+    final layout = rows;
+
     return _FixedSegmentRow(
-      assetIndex: firstAssetIndex + assetIndex,
-      assetCount: numberOfAssets,
-      tileHeight: tileHeight,
+      assetIndex: firstAssetIndex + layout.firstAssetIndexForRow(rowIndexInSegment),
+      assetCount: layout.assetCountForRow(rowIndexInSegment),
+      tileHeight: layout.heightForRow(rowIndexInSegment),
       spacing: spacing,
       columnCount: columnCount,
+      rowWidth: layout.width,
+      denseLayout: denseLayout,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      super == other &&
+      other is FixedSegment &&
+      other.tileHeight == tileHeight &&
+      other.columnCount == columnCount &&
+      other.denseLayout == denseLayout &&
+      other.bucket.assetCount == bucket.assetCount;
+
+  @override
+  int get hashCode => Object.hash(super.hashCode, tileHeight, columnCount, denseLayout, bucket.assetCount);
 }
 
 class _FixedSegmentRow extends ConsumerWidget {
@@ -96,6 +130,8 @@ class _FixedSegmentRow extends ConsumerWidget {
   final double tileHeight;
   final double spacing;
   final int columnCount;
+  final double rowWidth;
+  final bool denseLayout;
 
   const _FixedSegmentRow({
     required this.assetIndex,
@@ -103,6 +139,8 @@ class _FixedSegmentRow extends ConsumerWidget {
     required this.tileHeight,
     required this.spacing,
     required this.columnCount,
+    required this.rowWidth,
+    required this.denseLayout,
   });
 
   @override
@@ -136,6 +174,22 @@ class _FixedSegmentRow extends ConsumerWidget {
   }
 
   Widget _buildPlaceholder(BuildContext context) {
+    if (denseLayout) {
+      final widths = FixedRowLayout.justifiedWidths(
+        width: rowWidth,
+        spacing: spacing,
+        aspectRatios: List.filled(assetCount, 1.0),
+      );
+      return RepaintBoundary(
+        child: TimelineRow(
+          height: tileHeight,
+          widths: widths,
+          spacing: spacing,
+          textDirection: Directionality.of(context),
+          children: [for (final width in widths) ThumbnailPlaceholder(width: width, height: tileHeight)],
+        ),
+      );
+    }
     return SegmentBuilder.buildPlaceholder(context, assetCount, size: Size.square(tileHeight), spacing: spacing);
   }
 
@@ -145,9 +199,15 @@ class _FixedSegmentRow extends ConsumerWidget {
     TimelineService timelineService,
     bool isDynamicLayout,
   ) {
-    final widths = List.filled(assets.length, tileHeight);
+    final widths = denseLayout
+        ? FixedRowLayout.justifiedWidths(
+            width: rowWidth,
+            spacing: spacing,
+            aspectRatios: assets.map((asset) => (asset.width ?? 1) / (asset.height ?? 1)).toList(),
+          )
+        : List.filled(assets.length, tileHeight);
 
-    if (isDynamicLayout) {
+    if (isDynamicLayout && !denseLayout) {
       final aspectRatios = assets.map((e) => (e.width ?? 1) / (e.height ?? 1)).toList();
       final meanAspectRatio = aspectRatios.sum / assets.length;
 

@@ -87,6 +87,7 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
               },
               child: TimelineLivePhotoScope(
                 child: Timeline(
+                  denseLayout: true,
                   topSliverWidget: SliverMainAxisGroup(
                     slivers: [
                       const PhotosFilterSubheader(),

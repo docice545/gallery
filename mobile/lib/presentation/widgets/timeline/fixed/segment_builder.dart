@@ -1,4 +1,5 @@
 import 'package:immich_mobile/domain/models/timeline.model.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/row_layout.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment_builder.dart';
@@ -6,11 +7,13 @@ import 'package:immich_mobile/presentation/widgets/timeline/segment_builder.dart
 class FixedSegmentBuilder extends SegmentBuilder {
   final double tileHeight;
   final int columnCount;
+  final bool denseLayout;
 
   const FixedSegmentBuilder({
     required super.buckets,
     required this.tileHeight,
     required this.columnCount,
+    this.denseLayout = false,
     super.spacing,
     super.groupBy,
   });
@@ -26,7 +29,14 @@ class FixedSegmentBuilder extends SegmentBuilder {
       final bucket = buckets[i];
 
       final assetCount = bucket.assetCount;
-      final numberOfRows = (assetCount / columnCount).ceil();
+      final rows = FixedRowLayout(
+        assetCount: assetCount,
+        columnCount: columnCount,
+        tileHeight: tileHeight,
+        spacing: spacing,
+        denseLayout: denseLayout,
+      );
+      final numberOfRows = rows.rowCount;
       final segmentCount = numberOfRows + 1;
 
       final segmentFirstIndex = firstIndex;
@@ -43,7 +53,7 @@ class FixedSegmentBuilder extends SegmentBuilder {
       final headerExtent = SegmentBuilder.headerExtent(timelineHeader);
 
       final segmentStartOffset = startOffset;
-      startOffset += headerExtent + (tileHeight * numberOfRows) + spacing * (numberOfRows - 1);
+      startOffset += headerExtent + rows.extent + (denseLayout && numberOfRows > 0 ? spacing : 0);
       final segmentEndOffset = startOffset;
 
       segments.add(
@@ -56,6 +66,7 @@ class FixedSegmentBuilder extends SegmentBuilder {
           bucket: bucket,
           tileHeight: tileHeight,
           columnCount: columnCount,
+          denseLayout: denseLayout,
           headerExtent: headerExtent,
           spacing: spacing,
           header: timelineHeader,

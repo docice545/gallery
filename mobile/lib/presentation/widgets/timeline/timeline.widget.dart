@@ -15,6 +15,7 @@ import 'package:immich_mobile/presentation/widgets/action_buttons/download_statu
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/general_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/asset_scan.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/multi_select_status_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scroll_drain.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
@@ -53,6 +54,7 @@ class Timeline extends ConsumerWidget {
     this.bottomSliverWidget,
     this.showStorageIndicator = false,
     this.withStack = false,
+    this.denseLayout = false,
     this.appBar = const ImmichSliverAppBar(floating: true, pinned: false, snap: false),
     this.bottomSheet = const GeneralBottomSheet(minChildSize: 0.23),
     this.groupBy,
@@ -73,6 +75,10 @@ class Timeline extends ConsumerWidget {
   final Widget? appBar;
   final Widget? bottomSheet;
   final bool withStack;
+
+  /// Full-width rows with aspect-derived tile widths in the main mobile timeline.
+  /// Other grids keep their existing geometry unless they explicitly opt in.
+  final bool denseLayout;
   final GroupAssetsBy? groupBy;
   final bool withScrubber;
   final bool snapToMonth;
@@ -126,6 +132,7 @@ class Timeline extends ConsumerWidget {
                 columnCount: columnCount,
                 showStorageIndicator: showStorageIndicator,
                 withStack: withStack,
+                denseLayout: denseLayout && context.isMobile,
                 groupBy: groupBy,
               ),
             ),
@@ -275,11 +282,15 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     asyncSegments.whenData((segments) {
       final targetSegment = segments.lastWhereOrNull((segment) => segment.firstAssetIndex <= _restoreAssetIndex!);
       if (targetSegment != null) {
-        final assetIndexInSegment = _restoreAssetIndex! - targetSegment.firstAssetIndex;
         final newColumnCount = ref.read(timelineArgsProvider).columnCount;
-        final rowIndexInSegment = (assetIndexInSegment / newColumnCount).floor();
-        final targetRowIndex = targetSegment.firstIndex + 1 + rowIndexInSegment;
-        final targetOffset = targetSegment.indexToLayoutOffset(targetRowIndex);
+        final targetOffset = assetRowOffset(
+          segment: targetSegment,
+          assetIndexInTimeline: _restoreAssetIndex!,
+          columnCount: newColumnCount,
+        );
+        if (targetOffset == null) {
+          return;
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _scrollController.jumpTo(targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
@@ -348,7 +359,9 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
       if (rowIndex > segment.firstIndex) {
         final rowIndexInSegment = rowIndex - (segment.firstIndex + 1);
         final assetsPerRow = ref.read(timelineArgsProvider).columnCount;
-        final assetIndexInSegment = rowIndexInSegment * assetsPerRow;
+        final assetIndexInSegment = segment is FixedSegment
+            ? segment.rows.firstAssetIndexForRow(rowIndexInSegment)
+            : rowIndexInSegment * assetsPerRow;
         targetAssetIndex = segment.firstAssetIndex + assetIndexInSegment;
       } else {
         targetAssetIndex = segment.firstAssetIndex;
