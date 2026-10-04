@@ -6,6 +6,8 @@ Supplemental starting commit: `2bbad07f2bfb475fe1064953baaadde09c6d6276` on
 ancestors. No history rewrite, production deployment, release, API/schema change
 or production AI/auto-stack change is part of this supplement.
 
+Implementation commit: `0f89d8ad2d4b8128e8734bd1f3cf1711ccab8412`.
+
 ## Automated verification
 
 Final results (Flutter 3.47.2 / Dart 3.13.2):
@@ -198,4 +200,3 @@ their actual platform behavior must still be confirmed above.
 - `specs/2026-10-04-server-only-originals-design.md`
 - `specs/testing/2026-10-04-photos-hp-build.md`
 - `specs/testing/2026-10-04-server-only-originals-validation.md`
-

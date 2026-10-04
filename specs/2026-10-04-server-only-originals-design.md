@@ -75,7 +75,14 @@ Android's existing local-file channel corrects the MIME of the newly created,
 owned MediaStore item using bounded original-file MIME detection. It accepts
 numeric media IDs and image/video MIME values, checks row ownership on Android
 10+, and does not accept arbitrary URIs or modify unrelated media. A failure
-rolls back that new import instead of leaving a duplicate for a retry.
+rolls back that new import instead of leaving a duplicate for a retry. Published
+`MIME_TYPE` mutation is explicitly supported in the examined AOSP
+[Android 10](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/android-10.0.0_r1/src/com/android/providers/media/MediaProvider.java#L6319),
+[Android 13](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/android-13.0.0_r1/src/com/android/providers/media/MediaProvider.java#L10500),
+[Android 14](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/android-14.0.0_r1/src/com/android/providers/media/MediaProvider.java#L10728)
+and [Android 15](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/android-15.0.0_r1/src/com/android/providers/media/MediaProvider.java#L11320)
+implementations. The native method verifies the stored value after updating;
+no pending-state workaround is used. OEM differences remain a device check.
 
 Linked Apple resources are downloaded together on iOS and passed to the existing
 single PhotoKit Live Photo save transaction. Cancellation covers both parts and
