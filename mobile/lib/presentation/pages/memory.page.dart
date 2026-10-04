@@ -40,6 +40,7 @@ class MemoryPage extends HookConsumerWidget {
     final assetProgress = useState("${currentAssetPage.value + 1}|${currentMemory.value.assets.length}");
     const bgColor = Colors.black;
     final currentAsset = useState<RemoteAsset?>(null);
+    final photoInteracting = useState(false);
 
     /// The list of all of the asset page controllers
     final memoryAssetPageControllers = List.generate(memories.length, (i) => usePageController());
@@ -211,10 +212,13 @@ class MemoryPage extends HookConsumerWidget {
         backgroundColor: bgColor,
         body: SafeArea(
           child: PageView.builder(
-            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            physics: photoInteracting.value
+                ? const NeverScrollableScrollPhysics()
+                : const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             scrollDirection: Axis.vertical,
             controller: memoryPageController,
             onPageChanged: (pageNumber) {
+              photoInteracting.value = false;
               ref.read(hapticFeedbackProvider.notifier).mediumImpact();
               if (pageNumber < memories.length) {
                 currentMemoryIndex.value = pageNumber;
@@ -273,7 +277,9 @@ class MemoryPage extends HookConsumerWidget {
                     child: Stack(
                       children: [
                         PageView.builder(
-                          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                          physics: photoInteracting.value
+                              ? const NeverScrollableScrollPhysics()
+                              : const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                           controller: assetController,
                           onPageChanged: onAssetChanged,
                           scrollDirection: Axis.horizontal,
@@ -289,9 +295,16 @@ class MemoryPage extends HookConsumerWidget {
                                     title: title,
                                     showTitle: index == 0,
                                     isCurrent: mIndex == currentMemoryIndex.value && index == currentAssetPage.value,
+                                    onInteractionChanged: (value) {
+                                      if (mIndex == currentMemoryIndex.value && index == currentAssetPage.value) {
+                                        photoInteracting.value = value;
+                                      }
+                                    },
+                                    onPrevious: () => toPreviousAsset(index),
+                                    onNext: () => toNextAsset(index),
                                   ),
                                 ),
-                                Positioned.fill(
+                                if (!asset.isImage) Positioned.fill(
                                   child: Row(
                                     children: [
                                       // Left side of the screen

@@ -7,6 +7,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/full_image.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/memory/memory_photo.widget.dart';
 import 'package:immich_mobile/utils/hooks/blurhash_hook.dart';
 
 class MemoryCard extends StatelessWidget {
@@ -15,6 +16,9 @@ class MemoryCard extends StatelessWidget {
   final bool showTitle;
   final bool isCurrent;
   final Function()? onVideoEnded;
+  final ValueChanged<bool>? onInteractionChanged;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
   const MemoryCard({
     required this.asset,
@@ -22,6 +26,9 @@ class MemoryCard extends StatelessWidget {
     required this.showTitle,
     this.isCurrent = false,
     this.onVideoEnded,
+    this.onInteractionChanged,
+    this.onPrevious,
+    this.onNext,
     super.key,
   });
 
@@ -43,19 +50,15 @@ class MemoryCard extends StatelessWidget {
                   ? asset.width! / asset.height!
                   : constraints.maxWidth / constraints.maxHeight;
 
-              // Determine the fit using the aspect ratio
-              BoxFit fit = BoxFit.contain;
-              if (asset.width != null && asset.height != null) {
-                final phoneAspectRatio = constraints.maxWidth / constraints.maxHeight;
-                // Look for a 25% difference in either direction
-                if (phoneAspectRatio * .75 < r && phoneAspectRatio * 1.25 > r) {
-                  // Cover to look nice if we have nearly the same aspect ratio
-                  fit = BoxFit.cover;
-                }
-              }
-
               if (asset.isImage) {
-                return FullImage(asset, fit: fit, size: Size.infinite);
+                return MemoryPhoto(
+                  key: ValueKey(asset.id),
+                  imageProvider: getFullImageProvider(asset, size: Size(constraints.maxWidth, constraints.maxHeight)),
+                  isCurrent: isCurrent,
+                  onInteractionChanged: onInteractionChanged,
+                  onPrevious: onPrevious,
+                  onNext: onNext,
+                );
               }
 
               return Center(
