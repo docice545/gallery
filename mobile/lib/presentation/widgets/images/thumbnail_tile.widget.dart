@@ -9,6 +9,7 @@ import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart'
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/backup/asset_upload_progress.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 
@@ -321,20 +322,32 @@ class _AssetTypeIcons extends StatelessWidget {
   }
 }
 
-class _StackIndicator extends StatelessWidget {
+class _StackIndicator extends ConsumerWidget {
   final BaseAsset asset;
 
   const _StackIndicator({required this.asset});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (asset is! RemoteAsset || (asset as RemoteAsset).stackId == null) {
       return const SizedBox.shrink();
     }
 
-    return const Padding(
-      padding: EdgeInsets.only(right: 10.0, top: 6.0),
-      child: _TileOverlayIcon(Icons.burst_mode_rounded),
+    final stackId = (asset as RemoteAsset).stackId!;
+    final count = ref.watch(stackCountsProvider.select((counts) => counts.value?[stackId]));
+    return Padding(
+      padding: const EdgeInsets.only(right: 10.0, top: 6.0),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _TileOverlayIcon(Icons.burst_mode_rounded),
+          if (count != null) Text(
+            ' $count',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600,
+              shadows: [Shadow(blurRadius: 5, color: Colors.black)]),
+          ),
+        ],
+      ),
     );
   }
 }

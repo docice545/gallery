@@ -19,6 +19,18 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
 
   Drift get _db => attachedDatabase;
 
+  /// One reactive query for the grid, including primaries; no requests per tile.
+  Stream<Map<String, int>> watchStackCounts() {
+    final count = _db.remoteAssetEntity.id.count();
+    final query = _db.selectOnly(_db.remoteAssetEntity)
+      ..addColumns([_db.remoteAssetEntity.stackId, count])
+      ..where(_db.remoteAssetEntity.stackId.isNotNull() & _db.remoteAssetEntity.deletedAt.isNull())
+      ..groupBy([_db.remoteAssetEntity.stackId]);
+    return query.watch().map((rows) => {
+      for (final row in rows) row.read(_db.remoteAssetEntity.stackId)!: row.read(count)!,
+    });
+  }
+
   SingleOrNullSelectable<RemoteAsset?> _assetSelectable(String id) {
     final query =
         _db.remoteAssetEntity.select().addColumns([_db.localAssetEntity.id]).join([

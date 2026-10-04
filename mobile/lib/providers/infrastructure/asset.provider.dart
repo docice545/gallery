@@ -6,6 +6,10 @@ import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/repositories/asset_api.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 
+final stackCountsProvider = StreamProvider.autoDispose<Map<String, int>>((ref) {
+  return ref.watch(driftProvider).remoteAssetRepository.watchStackCounts();
+});
+
 final assetServiceProvider = Provider((ref) {
   final db = ref.watch(driftProvider);
   return AssetService(
