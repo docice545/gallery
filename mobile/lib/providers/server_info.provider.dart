@@ -64,7 +64,11 @@ class ServerInfoNotifier extends StateNotifier<ServerInfo> {
     final packageInfo = await PackageInfo.fromPlatform();
     final SemVer clientVersion = SemVer.fromString(packageInfo.version);
 
-    if (serverVersion < clientVersion || (latestVersion != null && serverVersion < latestVersion)) {
+    // Mobile and server releases can be built independently. Once the server
+    // supplies its latest release, compare against that rather than the mobile
+    // build's version (which may include a client-only patch).
+    final latestServerVersion = latestVersion ?? state.latestVersion;
+    if (serverVersion < (latestServerVersion ?? clientVersion)) {
       state = state.copyWith(versionStatus: VersionStatus.serverOutOfDate);
       return;
     }

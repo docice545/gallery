@@ -112,6 +112,13 @@ COPY --from=plugins /usr/src/app/packages/plugin-core/dist /build/plugins/immich
 COPY --from=plugins /usr/src/app/packages/plugin-core/manifest.json /build/plugins/immich-plugin-core/manifest.json
 COPY --from=plugins /usr/src/app/packages/plugin-gallery/dist /build/plugins/gallery-core/dist
 COPY --from=plugins /usr/src/app/packages/plugin-gallery/manifest.json /build/plugins/gallery-core/manifest.json
+
+# Official releases stamp package.json in the branding action. Custom builds can
+# supply the same release version explicitly, without modifying the source tree.
+# Without an argument, preserve the package version for release/dev compatibility.
+ARG BUILD_VERSION
+RUN node server/bin/set-build-version.mjs "${BUILD_VERSION}"
+
 RUN ln -s ../../cli/bin/immich server/bin/immich
 COPY LICENSE /licenses/LICENSE.txt
 COPY LICENSE /LICENSE
@@ -122,16 +129,17 @@ ARG BUILD_ID
 ARG BUILD_IMAGE
 ARG BUILD_SOURCE_REF
 ARG BUILD_SOURCE_COMMIT
+ARG BUILD_REPOSITORY=open-noodle/gallery
 
 ENV IMMICH_BUILD=${BUILD_ID}
-ENV IMMICH_BUILD_URL=https://github.com/immich-app/immich/actions/runs/${BUILD_ID}
+ENV IMMICH_BUILD_URL=https://github.com/${BUILD_REPOSITORY}/actions/runs/${BUILD_ID}
 ENV IMMICH_BUILD_IMAGE=${BUILD_IMAGE}
 ENV IMMICH_BUILD_IMAGE_URL=https://github.com/immich-app/immich/pkgs/container/immich-server
-ENV IMMICH_REPOSITORY=immich-app/immich
-ENV IMMICH_REPOSITORY_URL=https://github.com/immich-app/immich
+ENV IMMICH_REPOSITORY=${BUILD_REPOSITORY}
+ENV IMMICH_REPOSITORY_URL=https://github.com/${BUILD_REPOSITORY}
 ENV IMMICH_SOURCE_REF=${BUILD_SOURCE_REF}
 ENV IMMICH_SOURCE_COMMIT=${BUILD_SOURCE_COMMIT}
-ENV IMMICH_SOURCE_URL=https://github.com/immich-app/immich/commit/${BUILD_SOURCE_COMMIT}
+ENV IMMICH_SOURCE_URL=https://github.com/${BUILD_REPOSITORY}/commit/${BUILD_SOURCE_COMMIT}
 
 VOLUME /data
 EXPOSE 2283
