@@ -24,7 +24,7 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-  <application android:label="Noodle Gallery" android:name=".ImmichApp" android:usesCleartextTraffic="true"
+  <application android:label="Фото" android:name=".ImmichApp" android:usesCleartextTraffic="true"
     android:icon="@mipmap/ic_launcher" android:requestLegacyExternalStorage="true"
     android:largeHeap="true" android:enableOnBackInvokedCallback="false" android:allowBackup="false"
     android:networkSecurityConfig="@xml/network_security_config">
