@@ -1,7 +1,7 @@
 source "https://rubygems.org"
 
 gem "fastlane"
-gem "cocoapods"
+gem "cocoapods", "1.17.0" # Matches Podfile.lock; build-only must not drift.
 gem "abbrev" # Required for Ruby 3.4+
 # representable/json (pulled in by fastlane -> google-apis-*) requires
 # multi_json but no longer declares it as a dependency, and newer

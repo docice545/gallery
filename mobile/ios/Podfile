@@ -1,4 +1,5 @@
-# Uncomment this line to define a global platform for your project
+# Runner remains supported on iOS 15. Share/Widget have independent, higher
+# extension floors; an unavailable extension must not raise the host app floor.
 platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
@@ -35,6 +36,7 @@ target 'Runner' do
   
   # share_handler addition start
   target 'ShareExtension' do
+    platform :ios, '16.0'
     inherit! :search_paths
     pod "share_handler_ios_models", :path => ".symlinks/plugins/share_handler_ios/ios/Models"
   end
@@ -45,7 +47,9 @@ post_install do |installer|
   installer.generated_projects.each do |project|
     project.targets.each do |target|
         target.build_configurations.each do |config|
-            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+            # Never downgrade a dependency that already declares a newer floor.
+            floor = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '15.0'
+            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = [Gem::Version.new(floor), Gem::Version.new('15.0')].max.to_s
         end
     end
   end

@@ -53,27 +53,27 @@ on:
         default: 'both'
     secrets:
       KEY_JKS:
-        required: true
+        required: false
       ALIAS:
-        required: true
+        required: false
       ANDROID_KEY_PASSWORD:
-        required: true
+        required: false
       ANDROID_STORE_PASSWORD:
-        required: true
+        required: false
       PLAY_STORE_JSON_KEY:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ID:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ISSUER_ID:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY:
-        required: true
+        required: false
       IOS_CERTIFICATE_P12:
-        required: true
+        required: false
       IOS_CERTIFICATE_PASSWORD:
-        required: true
+        required: false
       FASTLANE_TEAM_ID:
-        required: true
+        required: false
   pull_request:
     paths:
       - 'mobile/**'
@@ -335,7 +335,7 @@ jobs:
           key: build-mobile-gradle-${{ runner.os }}-main
 
   build-sign-ios:
-    name: Build and sign iOS
+    name: Verify or explicitly release iOS
     permissions:
       contents: read
     if: ${{ !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
@@ -371,7 +371,7 @@ jobs:
           cache: true
 
       # Resolve Flutter plugins via CocoaPods (which honors the Podfile's
-      # `platform :ios, '14.0'`) instead of Swift Package Manager. Flutter's
+      # `platform :ios, '15.0'`) instead of Swift Package Manager. Flutter's
       # SPM integration pins the generated FlutterGeneratedPluginSwiftPackage
       # to the framework's default iOS floor (13.0) and only raises it during
       # `flutter build`; fastlane archives via `xcodebuild` directly, so the
@@ -391,16 +391,20 @@ jobs:
           working-directory: ./mobile/ios
 
       - name: Install Flutter dependencies
+        if: inputs.version != ''
         run: mise //mobile:install:ci
 
       - name: Perform codegen
+        if: inputs.version != ''
         run: mise //mobile:codegen
 
       - name: Install CocoaPods dependencies
+        if: inputs.version != ''
         working-directory: ./mobile/ios
-        run: pod install
+        run: bundle exec pod install --deployment
 
       - name: Create API Key
+        if: inputs.version != ''
         env:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
@@ -411,12 +415,14 @@ jobs:
           echo "$API_KEY_CONTENT" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
 
       - name: Import Certificate
+        if: inputs.version != ''
         env:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
         working-directory: ./mobile/ios
         run: echo "$IOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
 
       - name: Create keychain and import certificate
+        if: inputs.version != ''
         env:
           KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -449,14 +455,24 @@ jobs:
         if: inputs.version == ''
         working-directory: ./mobile
         run: |
-          flutter build ipa --no-codesign
+          bash scripts/ios_build_only.sh
 
       - name: Clean up keychain
-        if: always()
+        if: always() && inputs.version != ''
         run: security delete-keychain build.keychain || true
 
+      - name: Upload unsigned archive
+        if: inputs.version == ''
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ios-unsigned-archive
+          path: mobile/build/ios/archive/Runner.xcarchive
+          if-no-files-found: error
+
       - name: Upload IPA artifact
+        if: inputs.version != ''
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: ios-release-ipa
-          path: mobile/ios/Runner.ipa
+          path: mobile/build/ios/ipa/gallery.ipa
+          if-no-files-found: error
