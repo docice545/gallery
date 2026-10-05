@@ -29,6 +29,7 @@ import { JobRepository } from 'src/repositories/job.repository.js';
 import { LibraryRepository } from 'src/repositories/library.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository.js';
+import { MagicEraserRepository } from 'src/repositories/magic-eraser.repository.js';
 import { MapRepository } from 'src/repositories/map.repository.js';
 import { MediaRepository } from 'src/repositories/media.repository.js';
 import { MemoryRepository } from 'src/repositories/memory.repository.js';
@@ -96,6 +97,7 @@ export const repositories = [
   LoggingRepository,
   MachineLearningRepository,
   MapRepository,
+  MagicEraserRepository,
   MediaRepository,
   MemoryRepository,
   MetadataRepository,

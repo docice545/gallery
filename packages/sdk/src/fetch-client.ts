@@ -1805,6 +1805,31 @@ export type AssetEditsCreateDto = {
     /** List of edit actions to apply (crop, rotate, mirror, or trim) */
     edits: AssetEditActionItemDto[];
 };
+export type MagicEraserCreateDto = {
+    strokes: {
+        erase: boolean;
+        points: {
+            x: number;
+            y: number;
+        }[];
+        radius: number;
+    }[];
+};
+export type MagicEraserJobResponseDto = {
+    assetId?: string;
+    errorCode?: ErrorCode;
+    id: string;
+    status: Status2;
+};
+export type MagicEraserCapabilitiesDto = {
+    enabled: boolean;
+    maxPixels: number;
+    maxPoints: number;
+    maxRadius: number;
+    maxStrokes: number;
+    model: Model;
+    saveCopyOnly: true;
+};
 export type AssetMetadataResponseDto = {
     /** Metadata key */
     key: string;
@@ -6389,6 +6414,106 @@ export function editAsset({ id, assetEditsCreateDto }: {
         method: "PUT",
         body: assetEditsCreateDto
     })));
+}
+/**
+ * Process a brush mask on an owned original
+ */
+export function createMagicEraserJob({ id, magicEraserCreateDto }: {
+    id: string;
+    magicEraserCreateDto: MagicEraserCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 202;
+        data: MagicEraserJobResponseDto;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser`, oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: magicEraserCreateDto
+    })));
+}
+/**
+ * Get private Magic Eraser availability
+ */
+export function getMagicEraserCapabilities({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: MagicEraserCapabilitiesDto;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser/capabilities`, {
+        ...opts
+    }));
+}
+/**
+ * Get oriented original editor preview
+ */
+export function getMagicEraserSource({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchBlob<{
+        status: 200;
+        data: Blob;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser/source`, {
+        ...opts
+    }));
+}
+/**
+ * Cancel or discard an editing session
+ */
+export function cancelMagicEraserJob({ id, jobId }: {
+    id: string;
+    jobId: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: MagicEraserJobResponseDto;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser/${encodeURIComponent(jobId)}`, {
+        ...opts,
+        method: "DELETE"
+    }));
+}
+/**
+ * Get private Magic Eraser job status
+ */
+export function getMagicEraserJob({ id, jobId }: {
+    id: string;
+    jobId: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: MagicEraserJobResponseDto;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser/${encodeURIComponent(jobId)}`, {
+        ...opts
+    }));
+}
+/**
+ * Get bounded Magic Eraser result preview
+ */
+export function getMagicEraserPreview({ id, jobId }: {
+    id: string;
+    jobId: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchBlob<{
+        status: 200;
+        data: Blob;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser/${encodeURIComponent(jobId)}/preview`, {
+        ...opts
+    }));
+}
+/**
+ * Save Magic Eraser result as a separate still asset
+ */
+export function saveMagicEraserCopy({ id, jobId }: {
+    id: string;
+    jobId: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: AssetMediaResponseDto;
+    }>(`/assets/${encodeURIComponent(id)}/magic-eraser/${encodeURIComponent(jobId)}/save`, {
+        ...opts,
+        method: "POST"
+    }));
 }
 /**
  * Get asset metadata
@@ -11267,6 +11392,23 @@ export enum AssetEditAction {
 export enum MirrorAxis {
     Horizontal = "horizontal",
     Vertical = "vertical"
+}
+export enum ErrorCode {
+    Unavailable = "unavailable",
+    Invalid = "invalid",
+    Busy = "busy",
+    ProcessingFailed = "processing_failed"
+}
+export enum Status2 {
+    Queued = "queued",
+    Processing = "processing",
+    Ready = "ready",
+    Failed = "failed",
+    Saved = "saved",
+    Cancelled = "cancelled"
+}
+export enum Model {
+    BigLama = "big-lama"
 }
 export enum AssetMediaSize {
     Original = "original",

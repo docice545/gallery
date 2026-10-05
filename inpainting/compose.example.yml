@@ -1,0 +1,34 @@
+# Optional override, never applied automatically. Existing production services stay intact.
+# Usage: docker compose -f /opt/immich/docker-compose.yml -f /opt/gallery-fork/inpainting/compose.example.yml ...
+services:
+  immich-server:
+    env_file:
+      - /opt/immich/gallery-inpainting.env
+    environment:
+      GALLERY_INPAINTING_URL: http://gallery-inpainting:3004
+
+  gallery-inpainting:
+    image: gallery-inpainting:docice-work
+    env_file:
+      - /opt/immich/gallery-inpainting.env
+    environment:
+      INPAINTING_MODEL_PATH: /models/big-lama.pt
+      INPAINTING_MODEL_SHA256: 344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
+      INPAINTING_CPU_THREADS: "2"
+      INPAINTING_WORKING_SIZE: "512"
+      INPAINTING_MAX_WAITING: "3"
+      INPAINTING_QUEUE_TIMEOUT: "120"
+      INPAINTING_IDLE_UNLOAD_SECONDS: "300"
+      # Native multipart spooling and full-resolution staging both stay in private tmpfs.
+      TMPDIR: /tmp
+    volumes:
+      - /opt/gallery-inpainting/models:/models:ro
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1g,mode=1777
+    cpus: 2.0
+    mem_limit: 3g
+    pids_limit: 128
+    restart: unless-stopped
+    # No host port: only the Gallery server on the same private Compose network calls it.

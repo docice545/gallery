@@ -23,6 +23,7 @@ import { IntegrityService } from 'src/services/integrity.service.js';
 import { JobService } from 'src/services/job.service.js';
 import { LibraryManifestService } from 'src/services/library-manifest.service.js';
 import { LibraryService } from 'src/services/library.service.js';
+import { MagicEraserService } from 'src/services/magic-eraser.service.js';
 import { MaintenanceService } from 'src/services/maintenance.service.js';
 import { MapService } from 'src/services/map.service.js';
 import { MediaService } from 'src/services/media.service.js';
@@ -89,6 +90,7 @@ export const services = [
   LibraryService,
   MaintenanceService,
   MapService,
+  MagicEraserService,
   MediaService,
   MemoryService,
   MetadataService,
