@@ -50,6 +50,34 @@ cd mobile
 # Никаких изменений существующего key.jks/key.properties/alias foto.
 test -s android/key.jks
 test -f android/key.properties
+
+# После финальных iOS/shared изменений нужны новые ignored Pigeon/Freezed outputs.
+# Использовать существующий Flutter-aware codegen; версии из lock не обновлять.
+flutter pub get --enforce-lockfile
+pigeon_main="$(python3 - <<'PY'
+import json
+from pathlib import Path
+from urllib.parse import urljoin, urlparse, unquote
+config = Path('.dart_tool/package_config.json').resolve()
+package = next(p for p in json.loads(config.read_text())['packages'] if p['name'] == 'pigeon')
+uri = urlparse(urljoin(config.as_uri(), package['rootUri']))
+if uri.scheme != 'file':
+    raise SystemExit('Pigeon must resolve to a local locked package')
+print(Path(unquote(uri.path)) / 'bin/pigeon.dart')
+PY
+)"
+for definition in pigeon/*.dart; do
+  dart --packages=.dart_tool/package_config.json "$pigeon_main" --input "$definition"
+done
+dart format lib/platform/
+flutter pub run easy_localization:generate -S ../i18n
+flutter pub run bin/generate_keys.dart
+# Только генерация mobile-кода; production DB migrations не выполняются.
+flutter pub run drift_dev make-migrations
+flutter pub run drift_dev schema generate --data-classes --companions \
+  drift_schemas/main/ test/drift/main/generated/
+flutter pub run build_runner build
+dart format lib/routing/router.gr.dart
 flutter analyze
 flutter build apk --release --build-name=5.7.2 --build-number=4
 

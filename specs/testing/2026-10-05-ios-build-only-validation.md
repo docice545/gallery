@@ -137,3 +137,21 @@ profiles всех targets; проверить, что iOS 15 Runner работа
 появляется без Widget, iOS 17+ оба extensions доступны. Сохранение auth/session, PhotoKit rights,
 paired resources, background lifecycle и общий UI проверяются acceptance plan основной iOS
 implementation; unsigned compilation не заменяет эти испытания.
+
+## Фактическая попытка GitHub Actions
+
+После push CI/code commit `9034f4027d1eadbd4c5ac19ad668c9f173f7a96c` в `origin/work`
+выполнен описанный выше POST dispatch с `build_target=ios`, `environment=development`,
+пустым `version`. 2026-10-05 GitHub ответил **404 Not Found**, а не 204.
+Workflow contents подтверждены через API в `main` и `work`; список зарегистрированных
+Actions workflows возвращает `total_count=0`. API Actions permissions отвечает **403
+Resource not accessible by integration**. Эти ответы не позволяют различить выключенные
+fork Actions и недостаточные Actions permissions подключения; не утверждаем конкретную
+непроверенную причину.
+
+Run не создан: нет run ID/URL, Xcode log, unsigned archive или IPA artifact.
+Это внешний Actions access/registration blocker, а не compile/signing failure.
+Нужно проверить включение Actions во вкладке fork и разрешение **Actions: write**
+у подключения, затем повторить credentials-free dispatch на актуальном `origin/work`.
+Apple credentials для этой стадии не требуются. Native gate остаётся
+`NEEDS_MAC_VALIDATION`; физические проверки отдельно `NEEDS_PHYSICAL_IPHONE_VALIDATION`.
