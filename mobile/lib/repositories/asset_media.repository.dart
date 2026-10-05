@@ -15,7 +15,9 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/storage.repository.dart';
+import 'package:immich_mobile/platform/live_photo_api.g.dart';
 import 'package:immich_mobile/platform/native_sync_api.g.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/platform.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
 import 'package:immich_mobile/services/api.service.dart';
@@ -33,8 +35,14 @@ import 'package:uuid/uuid.dart';
 /// directory retained for receivers. Completed share files expire after seven days.
 typedef _ShareFile = ({File file, FileSystemEntity? tempEntity, String displayName});
 
+enum LivePhotoShareMode { preserveMotion, imageOnly }
+
 final assetMediaRepositoryProvider = Provider(
-  (ref) => AssetMediaRepository(ref.watch(nativeSyncApiProvider), ref.watch(storageRepositoryProvider)),
+  (ref) => AssetMediaRepository(
+    ref.watch(nativeSyncApiProvider),
+    ref.watch(storageRepositoryProvider),
+    remoteAssetById: ref.watch(driftProvider).remoteAssetRepository.get,
+  ),
 );
 
 class AssetMediaRepository {
@@ -44,8 +52,10 @@ class AssetMediaRepository {
   static const shareRetention = Duration(days: 7);
   static const _shareChannel = MethodChannel('app.alextran.immich/originalShare');
   static Future<void> _shareWorkTail = Future<void>.value();
+  final LivePhotoApi? livePhotoApi;
+  final Future<RemoteAsset?> Function(String)? remoteAssetById;
 
-  const AssetMediaRepository(this._nativeSyncApi, this._storageRepository);
+  const AssetMediaRepository(this._nativeSyncApi, this._storageRepository, {this.livePhotoApi, this.remoteAssetById});
 
   Future<bool> _androidSupportsTrash() async {
     if (Platform.isAndroid) {
@@ -115,7 +125,7 @@ class AssetMediaRepository {
             await file.delete(recursive: true);
           }
         } catch (e) {
-          _log.warning("Failed to delete temporary file: ${file.path}", e);
+          _log.warning("Failed to delete an owned temporary file");
         }
       }),
     );
@@ -425,6 +435,7 @@ class AssetMediaRepository {
     List<BaseAsset> assets,
     BuildContext context, {
     ShareAssetType fileType = ShareAssetType.original,
+    LivePhotoShareMode livePhotoMode = LivePhotoShareMode.preserveMotion,
     Completer<void>? cancelCompleter,
     void Function(double progress)? onAssetDownloadProgress,
   }) async {
@@ -443,6 +454,7 @@ class AssetMediaRepository {
         assets,
         context,
         fileType: fileType,
+        livePhotoMode: livePhotoMode,
         cancelCompleter: cancelCompleter,
         onAssetDownloadProgress: onAssetDownloadProgress,
       );
@@ -455,10 +467,12 @@ class AssetMediaRepository {
     List<BaseAsset> assets,
     BuildContext context, {
     ShareAssetType fileType = ShareAssetType.original,
+    LivePhotoShareMode livePhotoMode = LivePhotoShareMode.preserveMotion,
     Completer<void>? cancelCompleter,
     void Function(double progress)? onAssetDownloadProgress,
   }) async {
     final shareFiles = <_ShareFile>[];
+    final motionFiles = <String, String>{};
     await cleanupExpiredShareFiles();
     final totalAssets = assets.length;
     var processedAssets = 0;
@@ -483,6 +497,23 @@ class AssetMediaRepository {
 
       final effectiveFileType = asset.isVideo ? ShareAssetType.original : fileType;
       final displayName = _shareDisplayName(asset, fileType);
+
+      if (CurrentPlatform.isIOS &&
+          asset.isMotionPhoto &&
+          effectiveFileType == ShareAssetType.original &&
+          livePhotoMode == LivePhotoShareMode.preserveMotion) {
+        final pair = await _getLivePhotoSharePair(asset, cancelCompleter: cancelCompleter, onProgress: updateProgress);
+        if (pair == null || _isCancelled(cancelCompleter)) {
+          // The requested transfer must not silently lose motion. The explicit
+          // image-only action can be chosen after this preparation error.
+          return 0;
+        }
+        shareFiles.add((file: File(pair.imagePath), tempEntity: File(pair.imagePath).parent, displayName: displayName));
+        motionFiles[pair.imagePath] = pair.videoPath;
+        processedAssets++;
+        updateProgress();
+        continue;
+      }
 
       final shareFile = switch (effectiveFileType) {
         ShareAssetType.original => await _getOriginalShareFile(
@@ -524,7 +555,9 @@ class AssetMediaRepository {
     }
 
     try {
-      await _resolveShareFiles(shareFiles);
+      if (motionFiles.isEmpty) {
+        await _resolveShareFiles(shareFiles);
+      }
     } catch (e, s) {
       _log.warning("Failed to prepare files for sharing", e, s);
       return 0;
@@ -546,6 +579,35 @@ class AssetMediaRepository {
         'mimeTypes': downloadedXFiles.map((file) => file.mimeType).toList(),
         'displayNames': shareFiles.map((file) => file.displayName).toList(),
       });
+    } else if (CurrentPlatform.isIOS && motionFiles.isNotEmpty) {
+      final api = livePhotoApi ?? LivePhotoApi();
+      var finished = false;
+      if (cancelCompleter != null) {
+        unawaited(
+          cancelCompleter.future.then((_) async {
+            if (!finished) {
+              try {
+                await api.cancelLivePhotoShare();
+              } catch (_) {}
+            }
+          }),
+        );
+      }
+      try {
+        final shared = await api.shareLivePhotos(
+          [
+            for (final file in shareFiles)
+              LivePhotoShareItem(imagePath: file.file.path, videoPath: motionFiles[file.file.path]),
+          ],
+          0,
+          0,
+          size.width / 3,
+          size.height,
+        );
+        return shared && !_isCancelled(cancelCompleter) ? shareFiles.length : 0;
+      } finally {
+        finished = true;
+      }
     } else {
       // iOS completion likewise does not prove the receiver has finished reading.
       unawaited(
@@ -560,5 +622,85 @@ class AssetMediaRepository {
     }
 
     return downloadedXFiles.length;
+  }
+
+  Future<LivePhotoResourcePair?> _getLivePhotoSharePair(
+    BaseAsset asset, {
+    Completer<void>? cancelCompleter,
+    required void Function(double) onProgress,
+  }) async {
+    final api = livePhotoApi ?? LivePhotoApi();
+    final localId = asset.localId;
+    if (localId != null && await _storageRepository.hasMediaLibraryAsset(localId)) {
+      var finished = false;
+      if (cancelCompleter != null) {
+        unawaited(
+          cancelCompleter.future.then((_) async {
+            if (!finished) {
+              try {
+                await api.cancelLivePhotoExport(localId);
+              } catch (_) {}
+            }
+          }),
+        );
+      }
+      try {
+        // Cancellation requests PhotoKit cancellation. Await the export future:
+        // writers close/drain before native failure cleanup or returning paths.
+        final pair = await api.exportLivePhoto(localId);
+        if (pair != null || _isCancelled(cancelCompleter)) {
+          return _isCancelled(cancelCompleter) ? null : pair;
+        }
+      } finally {
+        finished = true;
+      }
+    }
+    final remote = asset is RemoteAsset
+        ? asset
+        : asset.remoteId != null
+        ? await remoteAssetById?.call(asset.remoteId!)
+        : null;
+    if (remote?.livePhotoVideoId == null || _isCancelled(cancelCompleter)) {
+      return null;
+    }
+    final still = await _getOriginalShareFile(
+      asset,
+      displayName: _getOriginalShareFilename(asset),
+      cancelCompleter: cancelCompleter,
+      onProgress: (value) => onProgress(value / 2),
+    );
+    if (still == null || _isCancelled(cancelCompleter)) {
+      return null;
+    }
+    final motion = await _downloadRemoteShareFile(
+      taskId: 'live-motion-${remote!.livePhotoVideoId}-${asset.updatedAt.microsecondsSinceEpoch}',
+      url: getOriginalUrlForRemoteId(remote.livePhotoVideoId!, edited: false),
+      displayName: '${p.basenameWithoutExtension(_getOriginalShareFilename(asset))}.mov',
+      cancelCompleter: cancelCompleter,
+      onProgress: (value) => onProgress(0.5 + value / 2),
+    );
+    if (motion == null || _isCancelled(cancelCompleter)) {
+      return null;
+    }
+    // Retain both members in one owned directory; cleanup never deletes half a
+    // requested Apple pair. Neither source original is modified or saved to Photos.
+    final key = const Uuid().v5(Namespace.url.value, 'apple-pair|${still.file.path}|${motion.file.path}');
+    final directory = Directory(p.join((await _shareRoot()).path, key));
+    final imageName = _getOriginalShareFilename(asset);
+    final cachedImage = await _cachedShareFile(directory, imageName);
+    final cachedVideo = File(p.join(directory.path, 'motion.mov'));
+    if (cachedImage != null && cachedVideo.existsSync() && cachedVideo.lengthSync() > 0) {
+      return LivePhotoResourcePair(imagePath: cachedImage.path, videoPath: cachedVideo.path);
+    }
+    await directory.create();
+    try {
+      final image = await still.file.copy(p.join(directory.path, imageName));
+      final video = await motion.file.copy(p.join(directory.path, 'motion.mov'));
+      await _completeShareFile(image);
+      return LivePhotoResourcePair(imagePath: image.path, videoPath: video.path);
+    } catch (_) {
+      await cleanupTempFiles([directory]);
+      return null;
+    }
   }
 }

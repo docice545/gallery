@@ -1,6 +1,7 @@
 import 'package:background_downloader/background_downloader.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/models/download/download_state.model.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/services/download.service.dart';
 import 'package:logging/logging.dart';
 
@@ -20,6 +21,7 @@ class DownloadStateNotifier extends StateNotifier<DownloadState> {
     _downloadService.onVideoDownloadStatus = _downloadStatusCallback;
     _downloadService.onLivePhotoDownloadStatus = _downloadStatusCallback;
     _downloadService.onTaskProgress = _taskProgressCallback;
+    _downloadService.onLivePhotoSaved = _livePhotoSavedCallback;
   }
 
   void _downloadStatusCallback(TaskStatusUpdate update) {
@@ -51,6 +53,21 @@ class DownloadStateNotifier extends StateNotifier<DownloadState> {
             progress: update.status == TaskStatus.complete ? 1 : existing.progress,
           ),
         }),
+    );
+  }
+
+  void _livePhotoSavedCallback(Task task, LivePhotoSaveResult result) {
+    if (!mounted || _dismissedTaskIds.contains(task.taskId)) {
+      return;
+    }
+    final existing =
+        state.taskProgress[task.taskId] ??
+        DownloadInfo(fileName: task.filename, progress: 0, status: TaskStatus.running);
+    state = state.copyWith(
+      taskProgress: {
+        ...state.taskProgress,
+        task.taskId: existing.copyWith(livePhotoOutcome: result.outcome),
+      },
     );
   }
 
@@ -125,6 +142,7 @@ class DownloadStateNotifier extends StateNotifier<DownloadState> {
     _downloadService.onVideoDownloadStatus = null;
     _downloadService.onLivePhotoDownloadStatus = null;
     _downloadService.onTaskProgress = null;
+    _downloadService.onLivePhotoSaved = null;
     super.dispose();
   }
 }

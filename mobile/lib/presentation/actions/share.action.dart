@@ -40,19 +40,28 @@ class ShareAction extends AssetActionBuilder {
     // Only show preview option when at least one of the assets is not a video
     final showPreview = assets.any((asset) => !asset.isVideo);
 
-    final fileType = await showDialog<ShareAssetType>(
+    final choice = await showDialog<({ShareAssetType fileType, LivePhotoShareMode livePhotoMode})>(
       context: context,
-      builder: (_) => _ShareFileTypeDialog(showPreview: showPreview),
+      builder: (_) => _ShareFileTypeDialog(
+        showPreview: showPreview,
+        showLivePhoto: CurrentPlatform.isIOS && assets.any((asset) => asset.isMotionPhoto),
+      ),
       useRootNavigator: false,
     );
-    if (fileType == null || !context.mounted) {
+    if (choice == null || !context.mounted) {
       return;
     }
 
-    await _share(context, ref, assets, fileType);
+    await _share(context, ref, assets, choice.fileType, livePhotoMode: choice.livePhotoMode);
   }
 
-  Future<void> _share(BuildContext context, WidgetRef ref, List<BaseAsset> assets, ShareAssetType fileType) async {
+  Future<void> _share(
+    BuildContext context,
+    WidgetRef ref,
+    List<BaseAsset> assets,
+    ShareAssetType fileType, {
+    LivePhotoShareMode livePhotoMode = LivePhotoShareMode.preserveMotion,
+  }) async {
     final cancelCompleter = Completer<void>();
     final progress = ValueNotifier<double?>(null);
     final mediaRepository = ref.read(assetMediaRepositoryProvider);
@@ -69,6 +78,7 @@ class ShareAction extends AssetActionBuilder {
           assets,
           context,
           fileType: fileType,
+          livePhotoMode: livePhotoMode,
           cancelCompleter: cancelCompleter,
           onAssetDownloadProgress: (value) {
             if (!cancelCompleter.isCompleted) {
@@ -160,8 +170,9 @@ class _SharePreparingDialogState extends State<_SharePreparingDialog> {
 
 class _ShareFileTypeDialog extends StatelessWidget {
   final bool showPreview;
+  final bool showLivePhoto;
 
-  const _ShareFileTypeDialog({this.showPreview = true});
+  const _ShareFileTypeDialog({this.showPreview = true, this.showLivePhoto = false});
 
   @override
   Widget build(BuildContext context) {
@@ -173,14 +184,22 @@ class _ShareFileTypeDialog extends StatelessWidget {
         children: [
           ListTile(
             leading: const Icon(Icons.high_quality_rounded),
-            title: Text(context.t.share_original),
-            onTap: () => context.pop(ShareAssetType.original),
+            title: Text(showLivePhoto ? context.t.share_live_photo : context.t.share_original),
+            onTap: () =>
+                context.pop((fileType: ShareAssetType.original, livePhotoMode: LivePhotoShareMode.preserveMotion)),
           ),
+          if (showLivePhoto)
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: Text(context.t.share_image_only),
+              onTap: () =>
+                  context.pop((fileType: ShareAssetType.original, livePhotoMode: LivePhotoShareMode.imageOnly)),
+            ),
           if (showPreview)
             ListTile(
               leading: const Icon(Icons.photo_size_select_large_rounded),
               title: Text(context.t.share_preview),
-              onTap: () => context.pop(ShareAssetType.preview),
+              onTap: () => context.pop((fileType: ShareAssetType.preview, livePhotoMode: LivePhotoShareMode.imageOnly)),
             ),
         ],
       ),

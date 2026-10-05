@@ -25,6 +25,10 @@ class LogService {
   final bool _shouldBuffer;
 
   Timer? _flushTimer;
+  bool _disposing = false;
+  final Set<Future<void>> _writes = {};
+  Object? _writeFailure;
+  StackTrace? _writeFailureStack;
 
   late final StreamSubscription<LogRecord> _logSubscription;
 
@@ -55,10 +59,15 @@ class LogService {
     bool shouldBuffer = true,
   }) async {
     final instance = LogService._(logRepository, settingsRepository, shouldBuffer);
-    await logRepository.truncate(limit: kLogTruncateLimit);
-    final level = instance._settingsRepository.appConfig.logLevel;
-    Logger.root.level = Level.LEVELS.elementAtOrNull(level.index) ?? Level.INFO;
-    return instance;
+    try {
+      await logRepository.truncate(limit: kLogTruncateLimit);
+      final level = instance._settingsRepository.appConfig.logLevel;
+      Logger.root.level = Level.LEVELS.elementAtOrNull(level.index) ?? Level.INFO;
+      return instance;
+    } catch (_) {
+      await instance.dispose();
+      rethrow;
+    }
   }
 
   LogService._(this._logRepository, this._settingsRepository, this._shouldBuffer) {
@@ -66,6 +75,9 @@ class LogService {
   }
 
   void _handleLogRecord(LogRecord r) {
+    if (_disposing) {
+      return;
+    }
     dPrint(
       () =>
           '[${r.level.name}] [${r.time}] [${r.loggerName}] ${r.message}'
@@ -84,9 +96,9 @@ class LogService {
 
     if (_shouldBuffer) {
       _msgBuffer.add(record);
-      _flushTimer ??= Timer(const Duration(seconds: 5), () => unawaited(_flushBuffer()));
+      _flushTimer ??= Timer(const Duration(seconds: 5), () => unawaited(_trackWrite(_flushBuffer())));
     } else {
-      unawaited(_logRepository.insert(record));
+      unawaited(_trackWrite(_logRepository.insert(record)));
     }
   }
 
@@ -112,15 +124,39 @@ class LogService {
     return _flushBuffer();
   }
 
+  Future<void> _trackWrite(Future<void> operation) {
+    late final Future<void> write;
+    write = operation
+        .then<void>(
+          (_) {},
+          onError: (Object error, StackTrace stack) {
+            _writeFailure ??= error;
+            _writeFailureStack ??= stack;
+          },
+        )
+        .whenComplete(() => _writes.remove(write));
+    _writes.add(write);
+    return write;
+  }
+
   Future<void> dispose() async {
+    _disposing = true;
     _flushTimer?.cancel();
     _flushTimer = null;
     await _logSubscription.cancel();
-    await _flushBuffer();
+    // A failed flush still has to drain earlier unbuffered writes before the
+    // owning engine closes sqlite. Track/retain failure without detaching work.
+    await _trackWrite(_flushBuffer());
+    while (_writes.isNotEmpty) {
+      await Future.wait(_writes.toList());
+    }
     // Allow a subsequent init() (e.g. when a worker isolate is reused) to
     // create a fresh instance instead of returning this disposed one.
     if (identical(_instance, this)) {
       _instance = null;
+    }
+    if (_writeFailure != null) {
+      Error.throwWithStackTrace(_writeFailure!, _writeFailureStack!);
     }
   }
 

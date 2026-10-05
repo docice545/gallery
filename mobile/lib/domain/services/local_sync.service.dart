@@ -27,6 +27,8 @@ class LocalSyncService {
   final AssetMediaRepository _assetMediaRepository;
   final DevicePermissionRepository _permissionRepository;
   final Completer<void>? _cancellation;
+  final bool rethrowErrors;
+  Future<void>? _nativeCancellation;
   final Logger _log = Logger("DeviceSyncService");
 
   LocalSyncService({
@@ -36,13 +38,19 @@ class LocalSyncService {
     required this._assetMediaRepository,
     required this._permissionRepository,
     this._cancellation,
+    this.rethrowErrors = false,
   }) {
-    unawaited(_cancellation?.future.then((_) => _nativeSyncApi.cancelSync().onError(_log.warning)));
+    unawaited(_cancellation?.future.then((_) => cancelNativeWork().onError(_log.warning)));
   }
+
+  Future<void> cancelNativeWork() => _nativeCancellation ??= _nativeSyncApi.cancelSync();
 
   bool get _isCancelled => _cancellation?.isCompleted ?? false;
 
   Future<void> sync({bool full = false}) async {
+    if (_isCancelled) {
+      return;
+    }
     final Stopwatch stopwatch = Stopwatch()..start();
     try {
       if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
@@ -60,6 +68,9 @@ class LocalSyncService {
       }
 
       final delta = await _nativeSyncApi.getMediaChanges();
+      if (_isCancelled) {
+        return;
+      }
       if (!delta.hasChanges) {
         _log.fine("No media changes detected. Skipping sync");
         return;
@@ -69,6 +80,9 @@ class LocalSyncService {
       _log.fine("Delta deleted: ${delta.deletes.length}");
 
       final deviceAlbums = await _nativeSyncApi.getAlbums();
+      if (_isCancelled) {
+        return;
+      }
       await _localAlbumRepository.updateAll(deviceAlbums.toLocalAlbums());
       final newAssets = delta.updates.toLocalAssets();
       await _localAlbumRepository.processDelta(
@@ -110,15 +124,26 @@ class LocalSyncService {
 
         await _resolveCloudIds(newAssets);
       }
-      await _nativeSyncApi.checkpointSync();
+      if (!_isCancelled) {
+        await _nativeSyncApi.checkpointSync();
+      }
     } on PlatformException catch (e, s) {
       if (e.code == _kSyncCancelledCode) {
         _log.warning("Local sync cancelled");
+        if (rethrowErrors) {
+          rethrow;
+        }
       } else {
         _log.severe("Error performing device sync", e, s);
+        if (rethrowErrors) {
+          rethrow;
+        }
       }
     } catch (e, s) {
       _log.severe("Error performing device sync", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     } finally {
       stopwatch.stop();
       _log.info("Device sync took - ${stopwatch.elapsedMilliseconds}ms");
@@ -126,10 +151,16 @@ class LocalSyncService {
   }
 
   Future<void> fullSync() async {
+    if (_isCancelled) {
+      return;
+    }
     try {
       final Stopwatch stopwatch = Stopwatch()..start();
 
       final deviceAlbums = await _nativeSyncApi.getAlbums();
+      if (_isCancelled) {
+        return;
+      }
       final dbAlbums = await _localAlbumRepository.getAll(sortBy: {SortLocalAlbumsBy.id});
 
       await diffSortedLists(
@@ -141,17 +172,28 @@ class LocalSyncService {
         onlySecond: addAlbum,
       );
 
-      await _nativeSyncApi.checkpointSync();
+      if (!_isCancelled) {
+        await _nativeSyncApi.checkpointSync();
+      }
       stopwatch.stop();
       _log.info("Full device sync took - ${stopwatch.elapsedMilliseconds}ms");
     } on PlatformException catch (e, s) {
       if (e.code == _kSyncCancelledCode) {
         _log.warning("Full device sync cancelled");
+        if (rethrowErrors) {
+          rethrow;
+        }
       } else {
         _log.severe("Error performing full device sync", e, s);
+        if (rethrowErrors) {
+          rethrow;
+        }
       }
     } catch (e, s) {
       _log.severe("Error performing full device sync", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
   }
 
@@ -171,6 +213,9 @@ class LocalSyncService {
       _log.fine("Successfully added device album ${album.name}");
     } catch (e, s) {
       _log.warning("Error while adding device album", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
   }
 
@@ -181,6 +226,9 @@ class LocalSyncService {
       await _localAlbumRepository.deleteAlbum(a.id);
     } catch (e, s) {
       _log.warning("Error while removing device album", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
   }
 
@@ -209,6 +257,9 @@ class LocalSyncService {
       return await fullDiff(dbAlbum, deviceAlbum);
     } catch (e, s) {
       _log.warning("Error while diff device album", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
     return true;
   }
@@ -253,6 +304,9 @@ class LocalSyncService {
       return true;
     } catch (e, s) {
       _log.warning("Error on fast syncing local album: ${dbAlbum.name}", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
     return false;
   }
@@ -324,6 +378,9 @@ class LocalSyncService {
       return true;
     } catch (e, s) {
       _log.warning("Error on full syncing local album: ${dbAlbum.name}", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
     return true;
   }

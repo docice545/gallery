@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/utils/original_file.dart';
 import 'package:photo_manager/photo_manager.dart' hide AssetType;
 
@@ -10,7 +11,8 @@ final fileMediaRepositoryProvider = Provider((ref) => const FileMediaRepository(
 class FileMediaRepository {
   static const _localFiles = MethodChannel('file_trash');
   final bool? isAndroid;
-  const FileMediaRepository({this.isAndroid});
+  final LivePhotoSaveApi? livePhotoApi;
+  const FileMediaRepository({this.isAndroid, this.livePhotoApi});
 
   Future<AssetEntity?> saveImageWithFile(String filePath, {String? title, String? relativePath}) async {
     final mimeType = await _originalMimeType(File(filePath), 'image/');
@@ -19,10 +21,32 @@ class FileMediaRepository {
     return entity;
   }
 
-  Future<AssetEntity?> saveLivePhoto({required File image, required File video, required String title}) async {
-    final entity = await PhotoManager.editor.darwin.saveLivePhoto(imageFile: image, videoFile: video, title: title);
-    return entity;
+  Future<LivePhotoSaveResult> saveLivePhoto({
+    required String requestId,
+    required File image,
+    required File video,
+    required String title,
+    bool allowImageOnlyFallback = true,
+  }) async {
+    try {
+      final result = await (livePhotoApi ?? LivePhotoSaveApi()).saveLivePhoto(
+        requestId: requestId,
+        imagePath: image.path,
+        videoPath: video.path,
+        title: title,
+        allowImageOnlyFallback: allowImageOnlyFallback,
+      );
+      if ((result.outcome == LivePhotoSaveOutcome.livePhoto || result.outcome == LivePhotoSaveOutcome.imageOnly) &&
+          (result.localIdentifier == null || result.localIdentifier!.isEmpty)) {
+        return LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.failed, errorCode: 'MISSING_LOCAL_IDENTIFIER');
+      }
+      return result;
+    } on PlatformException {
+      return LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.failed, errorCode: 'PLATFORM_FAILURE');
+    }
   }
+
+  Future<void> cancelLivePhotoSave(String requestId) => (livePhotoApi ?? LivePhotoSaveApi()).cancelSave(requestId);
 
   Future<AssetEntity?> saveVideo(File file, {required String title, String? relativePath}) async {
     final mimeType = await _originalMimeType(file, 'video/');

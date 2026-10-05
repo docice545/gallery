@@ -34,6 +34,7 @@ class DownloadInfoPage extends ConsumerWidget {
               progress: task.value.progress,
               fileName: task.value.fileName,
               status: task.value.status,
+              livePhotoOutcome: task.value.livePhotoOutcome,
               onCancelDownload: () => onCancelDownload(task.key),
             ),
           );

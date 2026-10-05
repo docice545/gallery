@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/models/download/livephotos_medatada.model.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/repositories/download.repository.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:immich_mobile/services/download.service.dart';
@@ -217,11 +218,12 @@ void main() {
     records = [TaskRecord(image, TaskStatus.complete, 1, 3), TaskRecord(video, TaskStatus.complete, 1, 3)];
     when(
       () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
         image: any(named: 'image'),
         video: any(named: 'video'),
         title: any(named: 'title'),
       ),
-    ).thenAnswer((_) async => entity);
+    ).thenAnswer((_) async => LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.livePhoto, localIdentifier: '17'));
     final statuses = <String, TaskStatus>{};
     final finished = Completer<void>();
     service.onLivePhotoDownloadStatus = (update) {
@@ -237,9 +239,10 @@ void main() {
     expect(statuses, {'live': TaskStatus.complete, 'motion': TaskStatus.complete});
     verify(
       () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
         image: any(named: 'image'),
         video: any(named: 'video'),
-        title: 'live',
+        title: 'live.jpg',
       ),
     ).called(1);
     verifyNever(
@@ -262,6 +265,7 @@ void main() {
     verify(() => repository.cancelDownload('live')).called(1);
     verifyNever(
       () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
         image: any(named: 'image'),
         video: any(named: 'video'),
         title: any(named: 'title'),
@@ -313,5 +317,196 @@ void main() {
     await finished.future;
     verify(() => repository.markSaved('remote-image', '17')).called(1);
     verifyNever(() => repository.markSaved(original.taskId, any()));
+  });
+  for (final outcome in LivePhotoSaveOutcome.values) {
+    test('native $outcome outcome is honest and both temporary originals are cleaned', () async {
+      final image = await task('live', live: true);
+      final video = await task('motion', video: true, live: true);
+      records = [TaskRecord(image, TaskStatus.complete, 1, 3), TaskRecord(video, TaskStatus.complete, 1, 3)];
+      final result = LivePhotoSaveResult(
+        outcome: outcome,
+        localIdentifier: outcome == LivePhotoSaveOutcome.livePhoto || outcome == LivePhotoSaveOutcome.imageOnly
+            ? '17'
+            : null,
+      );
+      when(
+        () => media.saveLivePhoto(
+          requestId: any(named: 'requestId'),
+          image: any(named: 'image'),
+          video: any(named: 'video'),
+          title: any(named: 'title'),
+        ),
+      ).thenAnswer((_) async => result);
+      final statuses = <TaskStatus>[];
+      final observed = <LivePhotoSaveOutcome>[];
+      final finished = Completer<void>();
+      service.onLivePhotoSaved = (_, saved) => observed.add(saved.outcome);
+      service.onLivePhotoDownloadStatus = (update) {
+        statuses.add(update.status);
+        if (statuses.length == 2) {
+          expect(File('${cache.path}/live.jpg').existsSync(), isFalse);
+          expect(File('${cache.path}/motion.MOV').existsSync(), isFalse);
+          finished.complete();
+        }
+      };
+      onRecord(records.last);
+      await finished.future;
+      final saved = outcome == LivePhotoSaveOutcome.livePhoto || outcome == LivePhotoSaveOutcome.imageOnly;
+      expect(
+        statuses,
+        List.filled(
+          2,
+          saved
+              ? TaskStatus.complete
+              : outcome == LivePhotoSaveOutcome.cancelled
+              ? TaskStatus.canceled
+              : TaskStatus.failed,
+        ),
+      );
+      expect(observed, List.filled(2, outcome));
+      if (saved) {
+        verify(() => repository.markSaved('live', '17')).called(1);
+      } else {
+        verifyNever(() => repository.markSaved(any(), any()));
+      }
+      verify(() => repository.deleteRecordsWithIds(['live', 'motion'])).called(1);
+      verifyNever(
+        () => media.saveImageWithFile(
+          any(),
+          title: any(named: 'title'),
+          relativePath: any(named: 'relativePath'),
+        ),
+      );
+    });
+  }
+
+  test('cancel while native pair save is active drains before cleanup and reports native cancellation', () async {
+    final image = await task('live', live: true);
+    final video = await task('motion', video: true, live: true);
+    records = [TaskRecord(image, TaskStatus.complete, 1, 3), TaskRecord(video, TaskStatus.complete, 1, 3)];
+    final save = Completer<LivePhotoSaveResult>();
+    final started = Completer<void>();
+    when(
+      () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
+        image: any(named: 'image'),
+        video: any(named: 'video'),
+        title: any(named: 'title'),
+      ),
+    ).thenAnswer((_) {
+      started.complete();
+      return save.future;
+    });
+    when(() => media.cancelLivePhotoSave('live')).thenAnswer((_) async {
+      expect(File('${cache.path}/live.jpg').existsSync(), isTrue);
+      expect(File('${cache.path}/motion.MOV').existsSync(), isTrue);
+      save.complete(LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.cancelled));
+    });
+    final statuses = <TaskStatus>[];
+    final finished = Completer<void>();
+    service.onLivePhotoDownloadStatus = (update) {
+      statuses.add(update.status);
+      if (statuses.length == 2) {
+        finished.complete();
+      }
+    };
+    onRecord(records.last);
+    await started.future;
+    expect(await service.cancelDownload(image.taskId), isFalse);
+    await finished.future;
+    expect(statuses, [TaskStatus.canceled, TaskStatus.canceled]);
+    expect(File('${cache.path}/live.jpg').existsSync(), isFalse);
+    expect(File('${cache.path}/motion.MOV').existsSync(), isFalse);
+    verify(() => media.cancelLivePhotoSave('live')).called(1);
+    verifyNever(() => repository.markSaved(any(), any()));
+  });
+
+  test('failed native save cleans both resources and does not make another still import', () async {
+    final image = await task('live', live: true);
+    final video = await task('motion', video: true, live: true);
+    records = [TaskRecord(image, TaskStatus.complete, 1, 3), TaskRecord(video, TaskStatus.complete, 1, 3)];
+    when(
+      () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
+        image: any(named: 'image'),
+        video: any(named: 'video'),
+        title: any(named: 'title'),
+      ),
+    ).thenThrow(PlatformException(code: 'PHPhotosErrorDomain'));
+    final finished = Completer<void>();
+    final statuses = <TaskStatus>[];
+    service.onLivePhotoDownloadStatus = (update) {
+      statuses.add(update.status);
+      if (statuses.length == 2) {
+        finished.complete();
+      }
+    };
+    onRecord(records.last);
+    await finished.future;
+    expect(statuses, [TaskStatus.failed, TaskStatus.failed]);
+    expect(File('${cache.path}/live.jpg').existsSync(), isFalse);
+    expect(File('${cache.path}/motion.MOV').existsSync(), isFalse);
+    verifyNever(
+      () => media.saveImageWithFile(
+        any(),
+        title: any(named: 'title'),
+        relativePath: any(named: 'relativePath'),
+      ),
+    );
+  });
+  test('cancel after PhotoKit commit reports the real saved pair exactly once, without a second import', () async {
+    final image = await task('live', live: true);
+    final video = await task('motion', video: true, live: true);
+    records = [TaskRecord(image, TaskStatus.complete, 1, 3), TaskRecord(video, TaskStatus.complete, 1, 3)];
+    final save = Completer<LivePhotoSaveResult>();
+    final started = Completer<void>();
+    when(
+      () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
+        image: any(named: 'image'),
+        video: any(named: 'video'),
+        title: any(named: 'title'),
+      ),
+    ).thenAnswer((_) {
+      started.complete();
+      return save.future;
+    });
+    when(() => media.cancelLivePhotoSave('live')).thenAnswer((_) async {
+      expect(File('${cache.path}/live.jpg').existsSync(), isTrue);
+      expect(File('${cache.path}/motion.MOV').existsSync(), isTrue);
+      save.complete(LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.livePhoto, localIdentifier: '17'));
+    });
+    final statuses = <TaskStatus>[];
+    final finished = Completer<void>();
+    service.onLivePhotoDownloadStatus = (update) {
+      statuses.add(update.status);
+      if (statuses.length == 2) {
+        finished.complete();
+      }
+    };
+    onRecord(records.first);
+    onRecord(records.last);
+    await started.future;
+    expect(await service.cancelDownload(image.taskId), isFalse);
+    await finished.future;
+    expect(statuses, [TaskStatus.complete, TaskStatus.complete]);
+    verify(
+      () => media.saveLivePhoto(
+        requestId: any(named: 'requestId'),
+        image: any(named: 'image'),
+        video: any(named: 'video'),
+        title: any(named: 'title'),
+      ),
+    ).called(1);
+    verify(() => repository.markSaved('live', '17')).called(1);
+    expect(File('${cache.path}/live.jpg').existsSync(), isFalse);
+    expect(File('${cache.path}/motion.MOV').existsSync(), isFalse);
+    verifyNever(
+      () => media.saveImageWithFile(
+        any(),
+        title: any(named: 'title'),
+        relativePath: any(named: 'relativePath'),
+      ),
+    );
   });
 }

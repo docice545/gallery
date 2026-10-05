@@ -17,6 +17,7 @@ import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/storage.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
+import 'package:immich_mobile/platform/live_photo_api.g.dart';
 import 'package:immich_mobile/platform/native_sync_api.g.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:mocktail/mocktail.dart';
@@ -26,12 +27,14 @@ import '../test_utils.dart';
 
 class _MockNativeSyncApi extends Mock implements NativeSyncApi {}
 
+class _MockLivePhotoApi extends Mock implements LivePhotoApi {}
+
 class _MockPersistentStorage extends Mock implements PersistentStorage {}
 
 class _MockStorageRepository extends Mock implements StorageRepository {}
 
 class _TestAssetMediaRepository extends AssetMediaRepository {
-  _TestAssetMediaRepository(super.nativeSyncApi, super.storageRepository);
+  _TestAssetMediaRepository(super.nativeSyncApi, super.storageRepository, {super.livePhotoApi, super.remoteAssetById});
 
   final cleanups = <List<FileSystemEntity>>[];
 
@@ -242,6 +245,203 @@ void main() {
     );
     return context;
   }
+
+  testWidgets('iOS server pair shares original still and motion as one native item and reuses retained bytes', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final api = _MockLivePhotoApi();
+    final batches = <List<LivePhotoShareItem>>[];
+    when(() => api.shareLivePhotos(any(), any(), any(), any(), any())).thenAnswer((invocation) async {
+      batches.add(invocation.positionalArguments.first as List<LivePhotoShareItem>);
+      return true;
+    });
+    repository = _TestAssetMediaRepository(nativeSync, storage, livePhotoApi: api);
+    final context = await mountShareContext(tester);
+    final asset = TestUtils.createRemoteAsset(
+      id: 'apple-still',
+    ).copyWith(name: 'photo.heic', livePhotoVideoId: 'apple-motion');
+    try {
+      await tester.runAsync(() async {
+        expect(await repository.shareAssets([asset], context), 1);
+        expect(await repository.shareAssets([asset], context), 1);
+      });
+      expect(downloads, hasLength(2));
+      expect(downloads.every((task) => task.url.contains('/original?edited=false')), isTrue);
+      final item = batches.first.single;
+      expect(item.videoPath, isNotNull);
+      expect(File(item.imagePath).parent.path, File(item.videoPath!).parent.path);
+      expect(File(item.imagePath).existsSync(), isTrue);
+      expect(File(item.videoPath!).existsSync(), isTrue);
+      expect(batches.last.single.imagePath, item.imagePath);
+      expect(mediaLibraryCalls, isEmpty);
+      expect(sharedArguments, isEmpty);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('iOS requested invalid pair fails without silent still share', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final api = _MockLivePhotoApi();
+    when(() => api.shareLivePhotos(any(), any(), any(), any(), any())).thenAnswer((_) async => false);
+    repository = _TestAssetMediaRepository(nativeSync, storage, livePhotoApi: api);
+    final context = await mountShareContext(tester);
+    try {
+      await tester.runAsync(() async {
+        expect(
+          await repository.shareAssets([
+            TestUtils.createRemoteAsset(id: 'still').copyWith(livePhotoVideoId: 'motion'),
+          ], context),
+          0,
+        );
+      });
+      expect(sharedArguments, isEmpty);
+      expect(mediaLibraryCalls, isEmpty);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('iOS image-only original mode intentionally does not download motion', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final context = await mountShareContext(tester);
+    try {
+      await tester.runAsync(() async {
+        expect(
+          await repository.shareAssets(
+            [TestUtils.createRemoteAsset(id: 'still').copyWith(livePhotoVideoId: 'motion')],
+            context,
+            livePhotoMode: LivePhotoShareMode.imageOnly,
+          ),
+          1,
+        );
+      });
+      expect(downloads.single.url, contains('/assets/still/original?'));
+      expect(sharedArguments, hasLength(1));
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets(
+    'iOS merged Live Photo with deleted local ID resolves existing remote pair without importing duplicates',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final api = _MockLivePhotoApi();
+      final remote = TestUtils.createRemoteAsset(id: 'server-still').copyWith(livePhotoVideoId: 'server-motion');
+      when(() => storage.hasMediaLibraryAsset('deleted-local')).thenAnswer((_) async => false);
+      when(() => storage.isAssetAvailableLocally('deleted-local')).thenAnswer((_) async => false);
+      when(() => api.shareLivePhotos(any(), any(), any(), any(), any())).thenAnswer((_) async => true);
+      repository = _TestAssetMediaRepository(
+        nativeSync,
+        storage,
+        livePhotoApi: api,
+        remoteAssetById: (_) async => remote,
+      );
+      final context = await mountShareContext(tester);
+      try {
+        await tester.runAsync(() async {
+          expect(
+            await repository.shareAssets([
+              TestUtils.createLocalAsset(
+                id: 'deleted-local',
+                remoteId: 'server-still',
+              ).copyWith(playbackStyle: AssetPlaybackStyle.livePhoto),
+            ], context),
+            1,
+          );
+        });
+        expect(downloads, hasLength(2));
+        expect(downloads.map((task) => task.url), contains(contains('/assets/server-motion/original?')));
+        expect(mediaLibraryCalls, isEmpty);
+        verifyNever(() => api.exportLivePhoto(any()));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets('cancellation during native pair preparation prevents late chooser and retains resources', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final api = _MockLivePhotoApi();
+    repository = _TestAssetMediaRepository(nativeSync, storage, livePhotoApi: api);
+    final context = await mountShareContext(tester);
+    try {
+      await tester.runAsync(() async {
+        final cancelled = Completer<void>();
+        final started = Completer<List<LivePhotoShareItem>>();
+        final completed = Completer<bool>();
+        when(() => api.shareLivePhotos(any(), any(), any(), any(), any())).thenAnswer((invocation) {
+          started.complete(invocation.positionalArguments.first as List<LivePhotoShareItem>);
+          return completed.future;
+        });
+        when(api.cancelLivePhotoShare).thenAnswer((_) async {
+          completed.complete(false);
+        });
+        final sharing = repository.shareAssets(
+          [TestUtils.createRemoteAsset(id: 'still').copyWith(livePhotoVideoId: 'motion')],
+          context,
+          cancelCompleter: cancelled,
+        );
+        final item = (await started.future).single;
+        cancelled.complete();
+        expect(await sharing, 0);
+        verify(api.cancelLivePhotoShare).called(1);
+        expect(File(item.imagePath).existsSync(), isTrue);
+        expect(File(item.videoPath!).existsSync(), isTrue);
+      });
+      expect(sharedArguments, isEmpty);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('iOS local pair cancellation awaits native export drain without deleting original resources', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final api = _MockLivePhotoApi();
+    when(() => storage.hasMediaLibraryAsset('local-live')).thenAnswer((_) async => true);
+    when(() => api.cancelLivePhotoExport('local-live')).thenAnswer((_) async {});
+    repository = _TestAssetMediaRepository(nativeSync, storage, livePhotoApi: api);
+    final context = await mountShareContext(tester);
+    try {
+      await tester.runAsync(() async {
+        final cancelled = Completer<void>();
+        final export = Completer<LivePhotoResourcePair?>();
+        final requestStarted = Completer<void>();
+        when(() => api.exportLivePhoto('local-live')).thenAnswer((_) {
+          requestStarted.complete();
+          return export.future;
+        });
+        var completed = false;
+        final sharing = repository
+            .shareAssets(
+              [TestUtils.createLocalAsset(id: 'local-live').copyWith(playbackStyle: AssetPlaybackStyle.livePhoto)],
+              context,
+              cancelCompleter: cancelled,
+            )
+            .then((count) {
+              completed = true;
+              return count;
+            });
+        await requestStarted.future;
+        cancelled.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(completed, isFalse);
+        verify(() => api.cancelLivePhotoExport('local-live')).called(1);
+        export.complete(null);
+        expect(await sharing, 0);
+      });
+      expect(repository.cleanups.expand((entities) => entities), isEmpty);
+      expect(downloads, isEmpty);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 
   testWidgets('shares a local original without requesting a remote original or thumbnail', (tester) async {
     final file = localFile('IMG.jpg', [0xff, 0xd8, 1, 2, 3]);

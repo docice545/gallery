@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/services/hash.service.dart';
@@ -23,6 +25,48 @@ void main() {
 
   tearDown(() {
     mocks.resetAll();
+  });
+
+  group('Background strict hashing', () {
+    setUp(() {
+      sut = HashService(
+        localAlbumRepository: mocks.localAlbum.repo,
+        localAssetRepository: mocks.localAsset.repo,
+        nativeSyncApi: mocks.nativeApi.api,
+        trashedLocalAssetRepository: mocks.trashedAsset,
+        rethrowErrors: true,
+      );
+    });
+
+    test('DB/hash failure is propagated instead of reported as success', () async {
+      when(mocks.localAlbum.getBackupAlbums).thenThrow(StateError('album query failed'));
+      await expectLater(sut.hashAssets(), throwsStateError);
+    });
+
+    test('partial native hash failure preserves successful writes and reports failure', () async {
+      final album = LocalAlbumFactory.create();
+      final asset = LocalAssetFactory.create();
+      when(mocks.localAlbum.getBackupAlbums).thenAnswer((_) async => [album]);
+      when(() => mocks.localAlbum.repo.getAssetsToHash(album.id)).thenAnswer((_) async => [asset]);
+      when(
+        () => mocks.nativeApi.api.hashAssets([asset.id], allowNetworkAccess: false),
+      ).thenAnswer((_) async => [HashResult(assetId: asset.id, error: 'resource unavailable')]);
+      await expectLater(sut.hashAssets(), throwsStateError);
+      verify(() => mocks.localAsset.repo.updateHashes({})).called(1);
+    });
+
+    test('duplicate cancellation awaits the same native drain reply', () async {
+      final native = Completer<void>();
+      when(() => mocks.nativeApi.api.cancelHashing()).thenAnswer((_) => native.future);
+      var drained = false;
+      final cancel = Future.wait([sut.cancelNativeWork(), sut.cancelNativeWork()]).then((_) => drained = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(drained, isFalse);
+      native.complete();
+      await cancel;
+      expect(drained, isTrue);
+      verify(() => mocks.nativeApi.api.cancelHashing()).called(1);
+    });
   });
 
   group('HashService', () {

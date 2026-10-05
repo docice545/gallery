@@ -57,8 +57,14 @@ class SyncStreamService {
   bool get isCancelled => _cancellation?.isCompleted ?? false;
 
   Future<bool> sync() async {
+    if (isCancelled) {
+      return false;
+    }
     _logger.info("Remote sync request for user");
     final serverVersion = await _api.serverInfoApi.getServerVersion();
+    if (isCancelled) {
+      return false;
+    }
     if (serverVersion == null) {
       _logger.severe("Cannot perform sync: unable to determine server version");
       return false;
@@ -81,9 +87,15 @@ class SyncStreamService {
     }
 
     final value = Store.get(StoreKey.syncMigrationStatus, "[]");
+    if (isCancelled) {
+      return false;
+    }
     final migrations = (jsonDecode(value) as List).cast<String>();
     int previousLength = migrations.length;
     await _runPreSyncTasks(migrations, serverSemVer);
+    if (isCancelled) {
+      return false;
+    }
 
     if (migrations.length != previousLength) {
       _logger.info("Updated pre-sync migration status: $migrations");
@@ -99,6 +111,9 @@ class SyncStreamService {
       onReset: () => shouldReset = true,
       abortSignal: _cancellation?.future,
     );
+    if (isCancelled) {
+      return false;
+    }
     if (shouldReset) {
       _logger.info("Resetting sync state as requested by server");
       await _syncApiRepository.streamChanges(
@@ -109,6 +124,9 @@ class SyncStreamService {
       );
     }
 
+    if (isCancelled) {
+      return false;
+    }
     previousLength = migrations.length;
     await _runPostSyncTasks(migrations);
 

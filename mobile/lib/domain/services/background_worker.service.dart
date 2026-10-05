@@ -8,6 +8,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/data/data_controller.dart';
 import 'package:immich_mobile/data/store.dart';
+import 'package:immich_mobile/domain/services/background_work_lifecycle.dart';
 import 'package:immich_mobile/domain/services/hash.service.dart';
 import 'package:immich_mobile/domain/services/local_sync.service.dart';
 import 'package:immich_mobile/domain/services/log.service.dart';
@@ -28,6 +29,7 @@ import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/repositories/permission.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
 import 'package:immich_mobile/services/auth.service.dart';
+import 'package:immich_mobile/services/background_upload.service.dart';
 import 'package:immich_mobile/services/foreground_upload.service.dart';
 import 'package:immich_mobile/services/localization.service.dart';
 import 'package:immich_mobile/utils/bootstrap.dart';
@@ -70,6 +72,8 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
   late HashService _hashService;
 
   bool _isCleanedUp = false;
+  late final BackgroundWorkLifecycle _lifecycle;
+  BackgroundUploadService? _backgroundUploadService;
 
   BackgroundWorkerBgService({required this._dataController, required ApiService apiService})
     : _backgroundHostApi = BackgroundWorkerBgHostApi() {
@@ -77,126 +81,141 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
       overrides: Store.overrideWith(dataController: _dataController, apiService: apiService),
     );
     _ref = ref;
-    final db = ref.read(driftProvider);
-    _localSyncService = LocalSyncService(
-      localAlbumRepository: db.localAlbumRepository,
-      nativeSyncApi: ref.read(nativeSyncApiProvider),
-      trashedLocalAssetRepository: db.trashedLocalAssetRepository,
-      assetMediaRepository: ref.read(assetMediaRepositoryProvider),
-      permissionRepository: ref.read(permissionRepositoryProvider),
-      cancellation: _cancellationToken,
-    );
-    _remoteSyncService = SyncStreamService(
-      syncApiRepository: ref.read(syncApiRepositoryProvider),
-      syncStreamRepository: db.syncStreamRepository,
-      localAssetRepository: db.localAssetRepository,
-      trashedLocalAssetRepository: db.trashedLocalAssetRepository,
-      assetMediaRepository: ref.read(assetMediaRepositoryProvider),
-      permissionRepository: ref.read(permissionRepositoryProvider),
-      syncMigrationRepository: db.syncMigrationRepository,
-      api: ref.read(apiServiceProvider),
-      cancellation: _cancellationToken,
-    );
-    _hashService = HashService(
-      localAlbumRepository: db.localAlbumRepository,
-      localAssetRepository: db.localAssetRepository,
-      nativeSyncApi: ref.read(nativeSyncApiProvider),
-      trashedLocalAssetRepository: db.trashedLocalAssetRepository,
-      cancellation: _cancellationToken,
-    );
-    BackgroundWorkerFlutterApi.setUp(this);
+    try {
+      final db = ref.read(driftProvider);
+      _localSyncService = LocalSyncService(
+        localAlbumRepository: db.localAlbumRepository,
+        nativeSyncApi: ref.read(nativeSyncApiProvider),
+        trashedLocalAssetRepository: db.trashedLocalAssetRepository,
+        assetMediaRepository: ref.read(assetMediaRepositoryProvider),
+        permissionRepository: ref.read(permissionRepositoryProvider),
+        cancellation: _cancellationToken,
+        rethrowErrors: true,
+      );
+      _remoteSyncService = SyncStreamService(
+        syncApiRepository: ref.read(syncApiRepositoryProvider),
+        syncStreamRepository: db.syncStreamRepository,
+        localAssetRepository: db.localAssetRepository,
+        trashedLocalAssetRepository: db.trashedLocalAssetRepository,
+        assetMediaRepository: ref.read(assetMediaRepositoryProvider),
+        permissionRepository: ref.read(permissionRepositoryProvider),
+        syncMigrationRepository: db.syncMigrationRepository,
+        api: ref.read(apiServiceProvider),
+        cancellation: _cancellationToken,
+      );
+      _hashService = HashService(
+        localAlbumRepository: db.localAlbumRepository,
+        localAssetRepository: db.localAssetRepository,
+        nativeSyncApi: ref.read(nativeSyncApiProvider),
+        trashedLocalAssetRepository: db.trashedLocalAssetRepository,
+        cancellation: _cancellationToken,
+        rethrowErrors: true,
+      );
+      _lifecycle = BackgroundWorkLifecycle(
+        cancellation: _cancellationToken,
+        cancelNativeWork: () async {
+          _backgroundUploadService?.stopAcceptingWork();
+          await Future.wait([_localSyncService.cancelNativeWork(), _hashService.cancelNativeWork()]);
+        },
+        drainCallbacks: () async => _backgroundUploadService?.stopAndDrain(),
+        closeResources: _handleCleanup,
+      );
+      BackgroundWorkerFlutterApi.setUp(this);
+    } catch (_) {
+      ref.dispose();
+      _ref = null;
+      rethrow;
+    }
   }
 
   bool get _isBackupEnabled => SettingsRepository.instance.appConfig.backup.enabled;
 
   Future<void> init() async {
     try {
-      await Future.wait(
-        [
-          loadTranslations(),
-          workerManagerPatch.init(dynamicSpawning: true),
-          _ref?.read(authServiceProvider).setOpenApiServiceEndpoint(),
-          // Initialize the file downloader
-          FileDownloader().configure(
-            globalConfig: [
-              // maxConcurrent: 6, maxConcurrentByHost(server):6, maxConcurrentByGroup: 3
-              (Config.holdingQueue, (6, 6, 3)),
-              // On Android, if files are larger than 256MB, run in foreground service
-              (Config.runInForegroundIfFileLargerThan, 256),
-            ],
-          ),
-          FileDownloader().trackTasksInGroup(kDownloadGroupLivePhoto, markDownloadedComplete: false),
-          FileDownloader().trackTasks(),
-        ].nonNulls,
+      await _lifecycle.track(
+        () => Future.wait(
+          [
+            loadTranslations(),
+            workerManagerPatch.init(dynamicSpawning: true),
+            _ref?.read(authServiceProvider).setOpenApiServiceEndpoint(),
+            // Initialize the file downloader
+            FileDownloader().configure(
+              globalConfig: [
+                // maxConcurrent: 6, maxConcurrentByHost(server):6, maxConcurrentByGroup: 3
+                (Config.holdingQueue, (6, 6, 3)),
+                // On Android, if files are larger than 256MB, run in foreground service
+                (Config.runInForegroundIfFileLargerThan, 256),
+              ],
+            ),
+            FileDownloader().trackTasksInGroup(kDownloadGroupLivePhoto, markDownloadedComplete: false),
+            FileDownloader().trackTasks(),
+          ].nonNulls,
+        ),
       );
 
+      if (!_lifecycle.acceptsWork) {
+        return;
+      }
       configureFileDownloaderNotifications();
 
       // Notify the host that the background worker service has been initialized and is ready to use
-      unawaited(_backgroundHostApi.onInitialized());
+      await _backgroundHostApi.onInitialized();
     } catch (error, stack) {
       _logger.severe("Failed to initialize background worker", error, stack);
-      unawaited(_backgroundHostApi.close());
+      _lifecycle.markFailed();
+      await _lifecycle.finish();
+      await _backgroundHostApi.close();
     }
   }
 
   @override
   Future<void> onAndroidUpload(int? maxMinutes) async {
+    if (!_lifecycle.acceptsWork) {
+      return;
+    }
     final hashTimeout = Duration(minutes: _isBackupEnabled ? 3 : 6);
     final backupTimeout = maxMinutes != null ? Duration(minutes: maxMinutes - 1) : null;
-    await _optimizeDB();
-    return _backgroundLoop(
-      hashTimeout: hashTimeout,
-      backupTimeout: backupTimeout,
-      debugLabel: 'Android background upload',
-    );
+    await _lifecycle.run(() async {
+      await _optimizeDB();
+      await _backgroundLoop(
+        hashTimeout: hashTimeout,
+        backupTimeout: backupTimeout,
+        debugLabel: 'Android background upload',
+      );
+    });
   }
 
   @override
-  Future<void> onIosUpload(bool isRefresh, int? maxSeconds) async {
-    _logger.info('iOS background upload started with maxSeconds: ${maxSeconds}s');
+  Future<bool> onIosUpload(bool isRefresh, int? maxSeconds) async {
+    if (!_lifecycle.acceptsWork) {
+      return false;
+    }
+    _logger.info('iOS background upload started');
     final sw = Stopwatch()..start();
-    try {
-      final budget = maxSeconds != null ? Duration(seconds: maxSeconds - 1) : null;
-
-      // Only for Background Processing tasks
+    final budget = maxSeconds == null ? null : Duration(seconds: (maxSeconds - 1).clamp(0, maxSeconds));
+    final success = await _lifecycle.run(() async {
       if (maxSeconds == null) {
         await _optimizeDB();
       }
-
-      // Run sync local, sync remote, hash and backup concurrently so the bg
-      // refresh task (20s budget) can make progress on all four instead of
-      // racing them sequentially. Phases are independent at the data layer:
-      // hash and handle_backup read drift state and tolerate stale reads
-      // (server-side dedup catches the rare race). The single budget caps the
-      // whole batch; no phase needs its own timeout.
-      final all = Future.wait<dynamic>([
+      if (!_lifecycle.acceptsWork) {
+        return;
+      }
+      // Future.wait drains all phases even if one fails. No timeout future may
+      // outlive its owner and continue accessing sqlite after teardown.
+      await Future.wait<void>([
         _localSyncService.sync(),
-        _remoteSyncService.sync(),
+        _remoteSyncService.sync().then((success) {
+          if (!success) {
+            throw StateError('Background remote sync failed');
+          }
+        }),
         _hashService.hashAssets(),
         _handleBackup(),
       ]);
-      if (budget != null) {
-        await all.timeout(
-          budget,
-          onTimeout: () {
-            if (!_cancellationToken.isCompleted) {
-              _logger.warning("iOS background upload timed out after ${budget.inSeconds}s, cancelling tasks");
-              _cancellationToken.complete();
-            }
-            return <dynamic>[];
-          },
-        );
-      } else {
-        await all;
-      }
-    } catch (error, stack) {
-      _logger.severe("Failed to complete iOS background upload", error, stack);
-    } finally {
-      sw.stop();
-      _logger.info("iOS background upload completed in ${sw.elapsed.inSeconds}s");
-      await _cleanup();
-    }
+    }, budget: budget);
+    sw.stop();
+    _logger.info('iOS background upload drained in ${sw.elapsed.inSeconds}s, success: $success');
+    return success;
   }
 
   Future<void> _backgroundLoop({
@@ -234,18 +253,13 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
     } finally {
       sw.stop();
       _logger.info("$debugLabel completed in ${sw.elapsed.inSeconds}s");
-      await _cleanup();
     }
   }
 
   @override
   Future<void> cancel() async {
-    _logger.warning("Background worker cancelled");
-    try {
-      await _cleanup();
-    } catch (error, stack) {
-      dPrint(() => 'Failed to cleanup background worker: $error with stack: $stack');
-    }
+    _logger.warning('Background worker cancellation requested');
+    await _lifecycle.cancel();
   }
 
   Future<void> _optimizeDB() async {
@@ -256,70 +270,53 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
     }
   }
 
-  Future<void> _cleanup() async {
-    await runZonedGuarded(_handleCleanup, (error, stack) {
-      dPrint(() => "Error during background worker cleanup: $error, $stack");
-    });
-  }
-
   Future<void> _handleCleanup() async {
     // If ref is null, it means the service was never initialized properly
     if (_isCleanedUp || _ref == null) {
       return;
     }
 
-    try {
-      _isCleanedUp = true;
-      final nativeSyncApi = _ref?.read(nativeSyncApiProvider);
-
-      _logger.info("Cleaning up background worker");
-      if (!_cancellationToken.isCompleted) {
-        _cancellationToken.complete();
+    _isCleanedUp = true;
+    _logger.info('Cleaning up background worker');
+    Object? failure;
+    StackTrace? failureStack;
+    Future<void> attempt(Future<void> Function() operation) async {
+      try {
+        await operation();
+      } catch (error, stack) {
+        failure ??= error;
+        failureStack ??= stack;
       }
+    }
 
-      // Workers share one sqlite connection, so DB teardown must wait until every worker has stopped using it.
-      await Future.wait([if (nativeSyncApi != null) nativeSyncApi.cancelHashing()]);
-      await workerManagerPatch.dispose().catchError((_) async {});
-      await Future.wait([LogService.I.dispose(), dbStore.Store.dispose()]);
-      await _dataController.close();
-
-      _ref?.dispose();
-      _ref = null;
-    } catch (error, stack) {
-      dPrint(() => 'Failed to cleanup background worker: $error with stack: $stack');
+    await attempt(() => workerManagerPatch.dispose());
+    await attempt(() async => Future.wait([LogService.I.dispose(), dbStore.Store.dispose()]));
+    await attempt(_dataController.close);
+    _ref?.dispose();
+    _ref = null;
+    if (failure != null) {
+      Error.throwWithStackTrace(failure!, failureStack!);
     }
   }
 
   Future<void> _handleBackup() async {
-    await runZonedGuarded(
-      () async {
-        if (_isCleanedUp) {
-          return;
-        }
-
-        if (!_isBackupEnabled) {
-          _logger.info("Backup is disabled. Skipping backup routine");
-          return;
-        }
-
-        final currentUser = _ref?.read(currentUserProvider);
-        if (currentUser == null) {
-          _logger.warning("No current user found. Skipping backup from background");
-          return;
-        }
-
-        if (Platform.isIOS) {
-          return _ref?.read(backupProvider.notifier).startBackupWithURLSession(currentUser.id);
-        }
-
-        return _ref
-            ?.read(foregroundUploadServiceProvider)
-            .uploadCandidates(currentUser.id, _cancellationToken, useSequentialUpload: true);
-      },
-      (error, stack) {
-        dPrint(() => "Error in backup zone $error, $stack");
-      },
-    );
+    if (!_lifecycle.acceptsWork || !_isBackupEnabled) {
+      return;
+    }
+    final currentUser = _ref?.read(currentUserProvider);
+    if (currentUser == null) {
+      throw StateError('Background backup requires a current user');
+    }
+    if (Platform.isIOS) {
+      _backgroundUploadService = _ref!.read(backgroundUploadServiceProvider);
+      await _ref!
+          .read(backupProvider.notifier)
+          .startBackupWithURLSession(currentUser.id, cancellation: _cancellationToken);
+    } else {
+      await _ref!
+          .read(foregroundUploadServiceProvider)
+          .uploadCandidates(currentUser.id, _cancellationToken, useSequentialUpload: true);
+    }
   }
 
   Future<bool> _syncAssets({Duration? hashTimeout}) async {
@@ -333,7 +330,7 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
       return isSuccess;
     }
 
-    var hashFuture = _hashService.hashAssets();
+    var hashFuture = _lifecycle.track(_hashService.hashAssets);
     if (hashTimeout != null) {
       hashFuture = hashFuture.timeout(
         hashTimeout,
@@ -372,6 +369,32 @@ Future<void> backgroundSyncNativeEntrypoint() async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
 
-  final (dataController, apiService) = await Bootstrap.initDomain(shouldBufferLogs: false, disableStoreWatching: true);
-  await BackgroundWorkerBgService(dataController: dataController, apiService: apiService).init();
+  DataController? controller;
+  BackgroundWorkerBgService? worker;
+  try {
+    final (dataController, apiService) = await Bootstrap.initDomain(
+      shouldBufferLogs: false,
+      disableStoreWatching: true,
+    );
+    controller = dataController;
+    worker = BackgroundWorkerBgService(dataController: dataController, apiService: apiService);
+    await worker.init();
+  } catch (_) {
+    // Bootstrap owns partial initialization. If provider/worker construction
+    // failed after bootstrap returned, this entrypoint still owns that DB.
+    try {
+      if (worker != null) {
+        await worker.cancel();
+      } else if (controller != null) {
+        try {
+          await Future.wait([LogService.I.dispose(), dbStore.Store.dispose()]);
+        } finally {
+          await controller.close();
+        }
+      }
+    } finally {
+      // Explicit bootstrap-failure acknowledgement, not a missing-channel guess.
+      await BackgroundWorkerBgHostApi().close();
+    }
+  }
 }

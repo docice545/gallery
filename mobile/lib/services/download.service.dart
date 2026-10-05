@@ -5,13 +5,12 @@ import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
 import 'package:collection/collection.dart';
-import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/models/download/livephotos_medatada.model.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/repositories/download.repository.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:logging/logging.dart';
-import 'package:path/path.dart' as p;
 
 final downloadServiceProvider = Provider((ref) {
   final service = DownloadService(ref.watch(fileMediaRepositoryProvider), ref.watch(downloadRepositoryProvider));
@@ -27,11 +26,13 @@ class DownloadService {
   void Function(TaskStatusUpdate)? onVideoDownloadStatus;
   void Function(TaskStatusUpdate)? onLivePhotoDownloadStatus;
   void Function(TaskProgressUpdate)? onTaskProgress;
+  void Function(Task, LivePhotoSaveResult)? onLivePhotoSaved;
 
   /// Active Live Photo IDs undergoing saving
   final Set<String> _savingLivePhotoIds = {};
   final Set<String> _canceledLivePhotoIds = {};
   final Set<String> _savingTaskIds = {};
+  final Map<String, String> _livePhotoSaveRequests = {};
   bool _disposed = false;
   Future<void> Function()? onSavedToDevice;
 
@@ -65,6 +66,7 @@ class DownloadService {
     _downloadRepository.onTaskProgress = null;
     _downloadRepository.onLivePhotoRecordComplete = null;
     onSavedToDevice = null;
+    onLivePhotoSaved = null;
   }
 
   Future<void> _savePreviouslyCompletedLivePhotos() async {
@@ -235,42 +237,41 @@ class DownloadService {
       return false;
     }
 
-    final title = p.basenameWithoutExtension(imageRecord.task.filename);
+    final title = imageRecord.task.filename;
     String? imageFilePath;
     String? videoFilePath;
     _savingTaskIds.addAll([imageRecord.task.taskId, videoRecord.task.taskId]);
 
     bool saved = false;
+    LivePhotoSaveOutcome outcome = LivePhotoSaveOutcome.failed;
+    _livePhotoSaveRequests[imageRecord.task.taskId] = livePhotosId;
+    _livePhotoSaveRequests[videoRecord.task.taskId] = livePhotosId;
     try {
       imageFilePath = await imageRecord.task.filePath();
       videoFilePath = await videoRecord.task.filePath();
+      if (_canceledLivePhotoIds.contains(livePhotosId)) {
+        outcome = LivePhotoSaveOutcome.cancelled;
+        return false;
+      }
       final result = await _fileMediaRepository.saveLivePhoto(
+        requestId: livePhotosId,
         image: File(imageFilePath),
         video: File(videoFilePath),
         title: title,
       );
-      saved = result != null;
-      if (result != null) {
-        _downloadRepository.markSaved(livePhotosId, result.id);
+      outcome = result.outcome;
+      saved = outcome == LivePhotoSaveOutcome.livePhoto || outcome == LivePhotoSaveOutcome.imageOnly;
+      if (saved) {
+        _downloadRepository.markSaved(livePhotosId, result.localIdentifier!);
+      }
+      if (!_disposed) {
+        for (final record in [imageRecord, videoRecord]) {
+          onLivePhotoSaved?.call(record.task, result);
+        }
       }
       return saved;
-    } on PlatformException catch (error, stack) {
-      // Handle saving MotionPhotos on iOS
-      if (error.code.startsWith('PHPhotosErrorDomain')) {
-        if (imageFilePath == null) {
-          return false;
-        }
-        final result = await _fileMediaRepository.saveImageWithFile(imageFilePath, title: imageRecord.task.filename);
-        saved = result != null;
-        if (result != null) {
-          _downloadRepository.markSaved(livePhotosId, result.id);
-        }
-        return saved;
-      }
-      _log.severe("Error saving live photo", error, stack);
-      return false;
-    } catch (error, stack) {
-      _log.severe("Error saving live photo", error, stack);
+    } catch (error) {
+      _log.severe("Error saving live photo (${error.runtimeType})");
       return false;
     } finally {
       if (imageFilePath != null) {
@@ -286,11 +287,20 @@ class DownloadService {
       }
       _savingTaskIds.removeAll([imageRecord.task.taskId, videoRecord.task.taskId]);
       _savingLivePhotoIds.remove(livePhotosId);
+      _livePhotoSaveRequests.remove(imageRecord.task.taskId);
+      _livePhotoSaveRequests.remove(videoRecord.task.taskId);
       _downloadRepository.releaseTask(imageRecord.task, afterImport: true);
       if (!_disposed) {
         for (final record in [imageRecord, videoRecord]) {
           onLivePhotoDownloadStatus?.call(
-            TaskStatusUpdate(record.task, saved ? TaskStatus.complete : TaskStatus.failed),
+            TaskStatusUpdate(
+              record.task,
+              saved
+                  ? TaskStatus.complete
+                  : outcome == LivePhotoSaveOutcome.cancelled
+                  ? TaskStatus.canceled
+                  : TaskStatus.failed,
+            ),
           );
         }
         if (saved) {
@@ -301,6 +311,13 @@ class DownloadService {
   }
 
   Future<bool> cancelDownload(String id) async {
+    final livePhotoRequest = _livePhotoSaveRequests[id];
+    if (livePhotoRequest != null) {
+      _canceledLivePhotoIds.add(livePhotoRequest);
+      await _fileMediaRepository.cancelLivePhotoSave(livePhotoRequest);
+      // The save callback reports the real result. A committed PhotoKit save may still succeed.
+      return false;
+    }
     // Public platform APIs cannot abort a MediaStore/PhotoKit import after its native transaction begins.
     if (_savingTaskIds.contains(id)) {
       return false;

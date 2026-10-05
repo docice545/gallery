@@ -40,6 +40,8 @@
 		FEE084F82EC172460045228E /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = FEE084F72EC172460045228E /* SQLiteData */; };
 		FEE084FB2EC1725A0045228E /* RawStructuredFieldValues in Frameworks */ = {isa = PBXBuildFile; productRef = FEE084FA2EC1725A0045228E /* RawStructuredFieldValues */; };
 		FEE084FD2EC1725A0045228E /* StructuredFieldValues in Frameworks */ = {isa = PBXBuildFile; productRef = FEE084FC2EC1725A0045228E /* StructuredFieldValues */; };
+		C0DE10012F99000100000001 /* LivePhotoApiImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10022F99000100000001 /* LivePhotoApiImpl.swift */; };
+		C0DE10032F99000100000001 /* LivePhotoMessages.g.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10042F99000100000001 /* LivePhotoMessages.g.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -132,6 +134,8 @@
 		FE5499F72F1198DE006016CB /* RemoteImagesImpl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImagesImpl.swift; sourceTree = "<group>"; };
 		FE5FE4AD2F30FBC000A71243 /* ImageProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageProcessing.swift; sourceTree = "<group>"; };
 		FEAFA8722E4D42F4001E47FE /* Thumbhash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Thumbhash.swift; sourceTree = "<group>"; };
+		C0DE10022F99000100000001 /* LivePhotoApiImpl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePhotoApiImpl.swift; sourceTree = "<group>"; };
+		C0DE10042F99000100000001 /* LivePhotoMessages.g.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePhotoMessages.g.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -287,6 +291,7 @@
 		97C146F01CF9000F007C117D /* Runner */ = {
 			isa = PBXGroup;
 			children = (
+				C0DE10052F99000100000001 /* LivePhotos */,
 				FE1BB4562F8319560087DBF9 /* Utility */,
 				FEE084F22EC172080045228E /* Schemas */,
 				B231F52D2E93A44A00BC45D1 /* Core */,
@@ -360,6 +365,15 @@
 				FEAFA8722E4D42F4001E47FE /* Thumbhash.swift */,
 			);
 			path = Images;
+			sourceTree = "<group>";
+		};
+		C0DE10052F99000100000001 /* LivePhotos */ = {
+			isa = PBXGroup;
+			children = (
+				C0DE10022F99000100000001 /* LivePhotoApiImpl.swift */,
+				C0DE10042F99000100000001 /* LivePhotoMessages.g.swift */,
+			);
+			path = LivePhotos;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -617,6 +631,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DE10012F99000100000001 /* LivePhotoApiImpl.swift in Sources */,
+				C0DE10032F99000100000001 /* LivePhotoMessages.g.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A01DD69B2F7F43B40049AB63 /* ImageRequest.swift in Sources */,
 				B21E34AC2E5B09190031FDB9 /* BackgroundWorker.swift in Sources */,

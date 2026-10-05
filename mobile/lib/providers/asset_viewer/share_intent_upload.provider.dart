@@ -6,6 +6,7 @@ import 'package:immich_mobile/models/upload/share_intent_attachment.model.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/services/foreground_upload.service.dart';
 import 'package:immich_mobile/services/share_intent_service.dart';
+import 'package:immich_mobile/utils/live_photo_import.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -65,20 +66,38 @@ class ShareIntentUploadStateNotifier extends StateNotifier<List<ShareIntentAttac
       _updateStatus(fileId, UploadStatus.running);
     }
 
-    await _foregroundUploadService.uploadShareIntent(
-      files,
-      onProgress: (fileId, bytes, totalBytes) {
-        final progress = totalBytes > 0 ? bytes / totalBytes : 0.0;
-        _updateProgress(fileId, progress);
-      },
-      onSuccess: (fileId, _) {
-        _updateStatus(fileId, UploadStatus.complete, progress: 1.0);
-      },
-      onError: (fileId, errorMessage) {
-        _logger.warning("Upload failed for file: $fileId, error: $errorMessage");
-        _updateStatus(fileId, UploadStatus.failed);
-      },
-    );
+    final protectedFiles = <File>[];
+    for (final file in files) {
+      if (setSharedImportActive(file.path, active: true)) {
+        protectedFiles.add(file);
+      } else {
+        _updateStatus(p.hash(file.path).toString(), UploadStatus.failed);
+      }
+    }
+    try {
+      await _foregroundUploadService.uploadShareIntent(
+        protectedFiles,
+        pairedVideoPaths: {for (final attachment in state) attachment.path: ?attachment.pairedVideoPath},
+        onProgress: (fileId, bytes, totalBytes) {
+          final progress = totalBytes > 0 ? bytes / totalBytes : 0.0;
+          _updateProgress(fileId, progress);
+        },
+        onSuccess: (fileId, _) {
+          _updateStatus(fileId, UploadStatus.complete, progress: 1.0);
+          for (final attachment in state.where((attachment) => attachment.id.toString() == fileId)) {
+            markSharedImportConsumed(attachment.path);
+          }
+        },
+        onError: (fileId, errorMessage) {
+          _logger.warning("Upload failed for file: $fileId, error: $errorMessage");
+          _updateStatus(fileId, UploadStatus.failed);
+        },
+      );
+    } finally {
+      for (final file in protectedFiles) {
+        setSharedImportActive(file.path, active: false);
+      }
+    }
   }
 
   void _updateStatus(String fileId, UploadStatus status, {double? progress}) {

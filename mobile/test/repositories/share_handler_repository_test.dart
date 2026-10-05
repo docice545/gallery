@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +25,83 @@ class _SharePlatform extends ShareHandlerPlatform {
 }
 
 void main() {
+  for (final state in ['malformed', 'missing']) {
+    test('owned Live Photo $state manifest is rejected and retained without ordinary-image fallback', () async {
+      final original = ShareHandlerPlatform.instance;
+      final platform = _SharePlatform();
+      ShareHandlerPlatform.instance = platform;
+      final root = Directory.systemTemp.createTempSync('gallery-share-manifest-test-');
+      final directory = Directory('${root.path}/live_photo_imports/pair')..createSync(recursive: true);
+      final image = File('${directory.path}/still.heic')..writeAsBytesSync([1]);
+      final motion = File('${directory.path}/motion.mov')..writeAsBytesSync([2]);
+      File('${directory.path}/.complete').writeAsStringSync('{}');
+      if (state == 'malformed') {
+        File('${directory.path}/.live-photo.json').writeAsStringSync('{');
+      }
+      final repository = ShareHandlerRepository();
+      final payloads = <List<ShareIntentAttachment>>[];
+      repository.onSharedMedia = payloads.add;
+      try {
+        final initialization = repository.init();
+        platform.initial.complete(
+          SharedMedia(
+            attachments: [SharedAttachment(path: image.path, type: SharedAttachmentType.image)],
+          ),
+        );
+        await initialization;
+        expect(payloads.single, isEmpty);
+        expect(image.existsSync(), isTrue);
+        expect(motion.existsSync(), isTrue);
+      } finally {
+        repository.dispose();
+        await platform.dispose();
+        root.deleteSync(recursive: true);
+        ShareHandlerPlatform.instance = original;
+      }
+    });
+  }
+  for (final completePair in [true, false]) {
+    test('native file-URI Live Photo import retains one attachment; completePair=$completePair', () async {
+      final original = ShareHandlerPlatform.instance;
+      final platform = _SharePlatform();
+      ShareHandlerPlatform.instance = platform;
+      final root = Directory.systemTemp.createTempSync('gallery-share-pair-test-');
+      final directory = Directory('${root.path}/live_photo_imports/pair')..createSync(recursive: true);
+      final image = File('${directory.path}/still.heic')..writeAsBytesSync([1, 2]);
+      final video = File('${directory.path}/motion.mov');
+      if (completePair) {
+        video.writeAsBytesSync([3, 4]);
+      }
+      File(
+        '${directory.path}/.live-photo.json',
+      ).writeAsStringSync(jsonEncode({'version': 1, 'image': 'still.heic', 'video': 'motion.mov'}));
+      File('${directory.path}/.complete').writeAsStringSync('{}');
+      final repository = ShareHandlerRepository();
+      final payloads = <List<ShareIntentAttachment>>[];
+      repository.onSharedMedia = payloads.add;
+      try {
+        final initialization = repository.init();
+        platform.initial.complete(
+          SharedMedia(
+            attachments: [SharedAttachment(path: image.uri.toString(), type: SharedAttachmentType.image)],
+          ),
+        );
+        await initialization;
+        if (completePair) {
+          expect(payloads.single, hasLength(1));
+          expect(payloads.single.single.path, image.path);
+          expect(payloads.single.single.pairedVideoPath, video.path);
+        } else {
+          expect(payloads.single, isEmpty);
+        }
+      } finally {
+        repository.dispose();
+        await platform.dispose();
+        root.deleteSync(recursive: true);
+        ShareHandlerPlatform.instance = original;
+      }
+    });
+  }
   test('imports accessible photos once and skips unsupported or revoked attachments', () async {
     final original = ShareHandlerPlatform.instance;
     final platform = _SharePlatform();

@@ -4,13 +4,19 @@ import 'dart:io';
 
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
+import 'package:immich_mobile/infrastructure/repositories/gallery_temporary_cache.dart';
 import 'package:logging/logging.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 class StorageRepository {
   final log = Logger('StorageRepository');
+  final Future<Directory> Function() _temporaryDirectory;
+  final Future<void> Function() _clearPhotoManagerCache;
 
-  StorageRepository();
+  StorageRepository({Future<Directory> Function()? temporaryDirectory, Future<void> Function()? clearPhotoManagerCache})
+    : _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory,
+      _clearPhotoManagerCache = clearPhotoManagerCache ?? PhotoManager.clearFileCache;
 
   Future<File?> getFileForAsset(String assetId) async {
     File? file;
@@ -143,24 +149,24 @@ class StorageRepository {
   }
 
   Future<void> clearCache() async {
-    final log = Logger('StorageRepository');
-
-    try {
-      await PhotoManager.clearFileCache();
-    } catch (error, stackTrace) {
-      log.warning("Error clearing cache", error, stackTrace);
-    }
-
-    if (!CurrentPlatform.isIOS) {
+    if (CurrentPlatform.isIOS) {
+      // PhotoManager.clearFileCache recursively removes its exported originals
+      // (.image/.video/.full) without knowing about active readers. Do not run
+      // it here on iOS or delete systemTemp/Library/Caches as a whole.
+      try {
+        await GalleryTemporaryCache(await _temporaryDirectory()).clear();
+      } catch (error, stackTrace) {
+        // FileSystemException may include a private resource filename. The
+        // exception type and call stack are sufficient to diagnose cleanup.
+        log.warning('Error clearing Gallery-owned temporary cache (${error.runtimeType})', null, stackTrace);
+      }
       return;
     }
 
     try {
-      if (await Directory.systemTemp.exists()) {
-        await Directory.systemTemp.delete(recursive: true);
-      }
+      await _clearPhotoManagerCache();
     } catch (error, stackTrace) {
-      log.warning("Error deleting temporary directory", error, stackTrace);
+      log.warning('Error clearing cache', error, stackTrace);
     }
   }
 }

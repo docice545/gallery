@@ -27,7 +27,13 @@ class NativeSyncApiImpl: ImmichPlugin, NativeSyncApi, FlutterPlugin {
   }
   
   func detachFromEngine(for registrar: any FlutterPluginRegistrar) {
+    detachFromEngine()
+  }
+
+  override func detachFromEngine() {
     super.detachFromEngine()
+    hashTask?.cancel()
+    syncTask?.cancel()
   }
   
   private let defaults: UserDefaults
@@ -301,11 +307,17 @@ class NativeSyncApiImpl: ImmichPlugin, NativeSyncApi, FlutterPlugin {
   }
   
   func hashAssets(assetIds: [String], allowNetworkAccess: Bool, completion: @escaping (Result<[HashResult], Error>) -> Void) {
-    if let prevTask = hashTask {
-      prevTask.cancel()
-      hashTask = nil
-    }
+    guard !detached else { return }
+    let previousTask = hashTask
+    previousTask?.cancel()
     hashTask = Task { [weak self] in
+      // A replacement never races the resources owned by the previous request.
+      _ = try? await previousTask?.value
+      guard let self else { return nil }
+      if Task.isCancelled {
+        self.completeWhenActive(for: completion, with: Self.hashCancelled)
+        return nil
+      }
       var missingAssetIds = Set(assetIds)
       var assets = [PHAsset]()
       assets.reserveCapacity(assetIds.count)
@@ -317,60 +329,74 @@ class NativeSyncApiImpl: ImmichPlugin, NativeSyncApi, FlutterPlugin {
         missingAssetIds.remove(asset.localIdentifier)
         assets.append(asset)
       }
-      
-      if Task.isCancelled {
-        return self?.completeWhenActive(for: completion, with: Self.hashCancelled)
-      }
-      
-      await withTaskGroup(of: HashResult?.self) { taskGroup in
-        var results = [HashResult]()
-        results.reserveCapacity(assets.count)
+
+      let results = await withTaskGroup(of: HashResult?.self, returning: [HashResult]?.self) { taskGroup in
         for asset in assets {
           if Task.isCancelled {
-            return self?.completeWhenActive(for: completion, with: Self.hashCancelled)
+            taskGroup.cancelAll()
+            return nil
           }
-          taskGroup.addTask {
-            guard let self = self else { return nil }
-            return await self.hashAsset(asset, allowNetworkAccess: allowNetworkAccess)
-          }
+          taskGroup.addTask { await self.hashAsset(asset, allowNetworkAccess: allowNetworkAccess) }
         }
-        
+        var results = [HashResult]()
+        results.reserveCapacity(assets.count)
         for await result in taskGroup {
-          guard let result = result else {
-            return self?.completeWhenActive(for: completion, with: Self.hashCancelled)
+          guard !Task.isCancelled, let result else {
+            taskGroup.cancelAll()
+            return nil
           }
           results.append(result)
         }
-        
-        for missing in missingAssetIds {
-          results.append(HashResult(assetId: missing, error: "Asset not found in library", hash: nil))
-        }
-        
-        return self?.completeWhenActive(for: completion, with: .success(results))
+        return results
       }
+      // The task group has drained all PhotoKit requests before replying.
+      guard !Task.isCancelled, var results else {
+        self.completeWhenActive(for: completion, with: Self.hashCancelled)
+        return nil
+      }
+      for missing in missingAssetIds {
+        results.append(HashResult(assetId: missing, error: "Asset not found in library", hash: nil))
+      }
+      self.completeWhenActive(for: completion, with: .success(results))
+      return nil
     }
   }
-  
-  func cancelHashing() {
-    hashTask?.cancel()
-    hashTask = nil
+
+  func cancelHashing(completion: @escaping (Result<Void, Error>) -> Void) {
+    let activeTask = hashTask
+    activeTask?.cancel()
+    Task { [weak self] in
+      _ = try? await activeTask?.value
+      // Do not clear hashTask: a new request may have replaced it while draining.
+      self?.completeWhenActive(for: completion, with: .success(()))
+    }
   }
-  
-  func cancelSync() {
-    syncTask?.cancel()
-    syncTask = nil
+
+  func cancelSync(completion: @escaping (Result<Void, Error>) -> Void) {
+    let activeTask = syncTask
+    activeTask?.cancel()
+    Task { [weak self] in
+      _ = try? await activeTask?.value
+      self?.completeWhenActive(for: completion, with: .success(()))
+    }
   }
-  
+
   private func runSync<T>(
     _ completion: @escaping (Result<T, Error>) -> Void,
     _ work: @escaping (NativeSyncApiImpl) throws -> T
   ) {
-    syncTask?.cancel()
+    guard !detached else { return }
+    let previousTask = syncTask
+    previousTask?.cancel()
     syncTask = Task { [weak self] in
+      _ = try? await previousTask?.value
       guard let self else { return nil }
       let result: Result<T, Error>
       do {
-        result = .success(try work(self))
+        try Task.checkCancellation()
+        let value = try work(self)
+        try Task.checkCancellation()
+        result = .success(value)
       } catch is CancellationError {
         result = .failure(Self.syncCancelled)
       } catch {
@@ -380,10 +406,28 @@ class NativeSyncApiImpl: ImmichPlugin, NativeSyncApi, FlutterPlugin {
       return nil
     }
   }
-  
+
   private func hashAsset(_ asset: PHAsset, allowNetworkAccess: Bool) async -> HashResult? {
-    class RequestRef {
-      var id: PHAssetResourceDataRequestID?
+    final class RequestRef {
+      private let lock = NSLock()
+      private var id: PHAssetResourceDataRequestID?
+      private var cancelled = false
+
+      func register(_ id: PHAssetResourceDataRequestID) {
+        lock.lock()
+        self.id = id
+        let shouldCancel = cancelled
+        lock.unlock()
+        if shouldCancel { PHAssetResourceManager.default().cancelDataRequest(id) }
+      }
+
+      func cancel() {
+        lock.lock()
+        cancelled = true
+        let id = id
+        lock.unlock()
+        if let id { PHAssetResourceManager.default().cancelDataRequest(id) }
+      }
     }
     let requestRef = RequestRef()
     return await withTaskCancellationHandler(operation: {
@@ -405,7 +449,7 @@ class NativeSyncApiImpl: ImmichPlugin, NativeSyncApi, FlutterPlugin {
       return await withCheckedContinuation { continuation in
         var hasher = Insecure.SHA1()
         
-        requestRef.id = PHAssetResourceManager.default().requestData(
+        let requestId = PHAssetResourceManager.default().requestData(
           for: resource,
           options: options,
           dataReceivedHandler: { data in
@@ -429,10 +473,10 @@ class NativeSyncApiImpl: ImmichPlugin, NativeSyncApi, FlutterPlugin {
             continuation.resume(returning: result)
           }
         )
+        requestRef.register(requestId)
       }
     }, onCancel: {
-      guard let requestId = requestRef.id else { return }
-      PHAssetResourceManager.default().cancelDataRequest(requestId)
+      requestRef.cancel()
     })
   }
   

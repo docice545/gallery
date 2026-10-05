@@ -2,6 +2,7 @@ import 'package:background_downloader/background_downloader.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/models/download/livephotos_medatada.model.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/providers/asset_viewer/download.provider.dart';
 import 'package:immich_mobile/services/download.service.dart';
 import 'package:mocktail/mocktail.dart';
@@ -17,6 +18,7 @@ void main() {
   late void Function(TaskProgressUpdate) onProgress;
   late void Function(TaskStatusUpdate) onImage;
   late void Function(TaskStatusUpdate) onLivePhoto;
+  late void Function(Task, LivePhotoSaveResult) onSaved;
 
   setUp(() {
     service = MockDownloadService();
@@ -27,6 +29,8 @@ void main() {
       }
     });
 
+    onSaved =
+        verify(() => service.onLivePhotoSaved = captureAny()).captured.last as void Function(Task, LivePhotoSaveResult);
     onProgress = verify(() => service.onTaskProgress = captureAny()).captured.last as void Function(TaskProgressUpdate);
     onImage =
         verify(() => service.onImageDownloadStatus = captureAny()).captured.last as void Function(TaskStatusUpdate);
@@ -139,5 +143,29 @@ void main() {
     onImage(TaskStatusUpdate(task, TaskStatus.enqueued));
     onProgress(TaskProgressUpdate(task, 0.2));
     expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.running);
+  });
+  test('UI preserves image-only outcome through status completion and late progress', () {
+    final task = _task('live');
+    onProgress(TaskProgressUpdate(task, .8));
+    onSaved(task, LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.imageOnly, localIdentifier: 'local'));
+    onLivePhoto(TaskStatusUpdate(task, TaskStatus.complete));
+    onProgress(TaskProgressUpdate(task, .99));
+    expect(notifier.state.taskProgress[task.taskId]?.livePhotoOutcome, LivePhotoSaveOutcome.imageOnly);
+    expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.complete);
+  });
+
+  test('UI distinguishes saved Live Photo from ordinary still save', () {
+    final task = _task('live');
+    onSaved(task, LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.livePhoto, localIdentifier: 'local'));
+    onLivePhoto(TaskStatusUpdate(task, TaskStatus.complete));
+    expect(notifier.state.taskProgress[task.taskId]?.livePhotoOutcome, LivePhotoSaveOutcome.livePhoto);
+  });
+
+  test('dismissed pair is not resurrected by a late native fidelity callback', () async {
+    final task = _task('live');
+    onLivePhoto(TaskStatusUpdate(task, TaskStatus.complete));
+    await notifier.cancelDownload(task.taskId);
+    onSaved(task, LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.imageOnly, localIdentifier: 'local'));
+    expect(notifier.state.taskProgress, isEmpty);
   });
 }

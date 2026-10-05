@@ -20,6 +20,8 @@ class HashService {
   final TrashedLocalAssetRepository _trashedLocalAssetRepository;
   final NativeSyncApi _nativeSyncApi;
   final Completer<void>? _cancellation;
+  final bool rethrowErrors;
+  Future<void>? _nativeCancellation;
   final _log = Logger('HashService');
 
   HashService({
@@ -28,21 +30,30 @@ class HashService {
     required this._trashedLocalAssetRepository,
     required this._nativeSyncApi,
     this._cancellation,
+    this.rethrowErrors = false,
     int? batchSize,
   }) : _batchSize = batchSize ?? kBatchHashFileLimit {
     // Stop the in-flight native hash call promptly on cancellation; the loops
     // below also observe [isCancelled] to bail between batches.
-    unawaited(_cancellation?.future.then((_) => _nativeSyncApi.cancelHashing().onError(_log.warning)));
+    unawaited(_cancellation?.future.then((_) => cancelNativeWork().onError(_log.warning)));
   }
+
+  Future<void> cancelNativeWork() => _nativeCancellation ??= _nativeSyncApi.cancelHashing();
 
   bool get isCancelled => _cancellation?.isCompleted ?? false;
 
   Future<void> hashAssets() async {
+    if (isCancelled) {
+      return;
+    }
     _log.info("Starting hashing of assets");
     final Stopwatch stopwatch = Stopwatch()..start();
     try {
       // Migrate hashes from cloud ID to local ID so we don't have to re-hash them
       await _localAssetRepository.reconcileHashesFromCloudId();
+      if (isCancelled) {
+        return;
+      }
 
       // Sorted by backupSelection followed by isCloud
       final localAlbums = await _localAlbumRepository.getBackupAlbums();
@@ -58,7 +69,7 @@ class HashService {
           await _hashAssets(album, assetsToHash);
         }
       }
-      if (CurrentPlatform.isAndroid && localAlbums.isNotEmpty) {
+      if (!isCancelled && CurrentPlatform.isAndroid && localAlbums.isNotEmpty) {
         final backupAlbumIds = localAlbums.map((e) => e.id);
         final trashedToHash = await _trashedLocalAssetRepository.getAssetsToHash(backupAlbumIds);
         if (trashedToHash.isNotEmpty) {
@@ -69,11 +80,20 @@ class HashService {
     } on PlatformException catch (e, s) {
       if (e.code == _kHashCancelledCode) {
         _log.warning("Hashing cancelled by platform");
+        if (rethrowErrors) {
+          rethrow;
+        }
         return;
       }
       _log.severe("Native hashing failed: ${e.code}", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     } catch (e, s) {
       _log.severe("Error during hashing", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
 
     stopwatch.stop();
@@ -104,7 +124,7 @@ class HashService {
 
   /// Processes a batch of assets.
   Future<void> _processBatch(LocalAlbum album, Map<String, LocalAsset> toHash, bool isTrashed) async {
-    if (toHash.isEmpty) {
+    if (toHash.isEmpty || isCancelled) {
       return;
     }
 
@@ -142,6 +162,9 @@ class HashService {
       await _trashedLocalAssetRepository.updateHashes(hashed);
     } else {
       await _localAssetRepository.updateHashes(hashed);
+    }
+    if (rethrowErrors && hashed.length != toHash.length) {
+      throw StateError('Some background assets could not be hashed');
     }
   }
 }

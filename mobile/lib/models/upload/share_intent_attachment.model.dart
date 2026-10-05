@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:immich_mobile/utils/bytes_units.dart';
+import 'package:immich_mobile/utils/live_photo_import.dart';
 import 'package:path/path.dart';
 
 part 'share_intent_attachment.model.freezed.dart';
@@ -32,6 +33,10 @@ abstract class ShareIntentAttachment with _$ShareIntentAttachment {
   bool get isImage => type == ShareIntentAttachmentType.image;
 
   bool get isVideo => type == ShareIntentAttachmentType.video;
+
+  /// Original pair relationship exported by the native iOS Share Extension.
+  /// The still remains the single logical attachment shown to the user.
+  String? get pairedVideoPath => isImage ? pairedVideoForSharedImage(path) : null;
 
   String get fileSize => formatHumanReadableBytes(fileLength, 2);
 

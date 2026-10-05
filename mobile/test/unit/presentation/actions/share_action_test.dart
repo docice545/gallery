@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -10,6 +11,7 @@ import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
+import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -25,6 +27,7 @@ void main() {
   });
 
   tearDown(() async {
+    debugDefaultTargetPlatformOverride = null;
     await context.dispose();
   });
 
@@ -56,6 +59,7 @@ void main() {
       any(),
       any(),
       fileType: captureAny(named: 'fileType'),
+      livePhotoMode: any(named: 'livePhotoMode'),
       cancelCompleter: any(named: 'cancelCompleter'),
       onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
     ),
@@ -75,6 +79,66 @@ void main() {
   }
 
   group('ShareAction', () {
+    testWidgets('iOS original Live Photo default requests preserved motion', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await pumpShare(
+          tester,
+          selection: {
+            RemoteAssetFactory.create(ownerId: context.currentUser.id).copyWith(livePhotoVideoId: 'paired-motion'),
+          },
+        );
+        await tester.tap(find.byType(ImmichIconButton));
+        await settle(tester);
+        final modes = verify(
+          () => context.repository.assetMedia.api.shareAssets(
+            any(),
+            any(),
+            fileType: any(named: 'fileType'),
+            livePhotoMode: captureAny(named: 'livePhotoMode'),
+            cancelCompleter: any(named: 'cancelCompleter'),
+            onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+          ),
+        ).captured;
+        expect(modes, [LivePhotoShareMode.preserveMotion]);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('iOS Live Photo dialog offers intentional original image-only mode', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await pumpShare(
+          tester,
+          selection: {
+            RemoteAssetFactory.create(ownerId: context.currentUser.id).copyWith(livePhotoVideoId: 'paired-motion'),
+          },
+        );
+        final shared = invokeSecondaryAction();
+        await settle(tester);
+        expect(find.text('Live Photo (preserve motion)'), findsOneWidget);
+        expect(find.text('Original image only'), findsOneWidget);
+        await tester.tap(find.byIcon(Icons.image_outlined));
+        await settle(tester);
+        await shared;
+        final modes = verify(
+          () => context.repository.assetMedia.api.shareAssets(
+            any(),
+            any(),
+            fileType: ShareAssetType.original,
+            livePhotoMode: captureAny(named: 'livePhotoMode'),
+            cancelCompleter: any(named: 'cancelCompleter'),
+            onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+          ),
+        ).captured;
+        expect(modes, [LivePhotoShareMode.imageOnly]);
+        expect(SettingsRepository.instance.appConfig.share.fileType, ShareAssetType.original);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
     testWidgets('single press shares with the configured default quality', (tester) async {
       await pumpShare(tester);
 
@@ -130,6 +194,7 @@ void main() {
           any(),
           any(),
           fileType: any(named: 'fileType'),
+          livePhotoMode: any(named: 'livePhotoMode'),
           cancelCompleter: any(named: 'cancelCompleter'),
           onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
         ),
@@ -163,6 +228,7 @@ void main() {
           any(),
           any(),
           fileType: any(named: 'fileType'),
+          livePhotoMode: any(named: 'livePhotoMode'),
           cancelCompleter: any(named: 'cancelCompleter'),
           onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
         ),
@@ -185,6 +251,7 @@ void main() {
           any(),
           any(),
           fileType: any(named: 'fileType'),
+          livePhotoMode: any(named: 'livePhotoMode'),
           cancelCompleter: any(named: 'cancelCompleter'),
           onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
         ),

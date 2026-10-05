@@ -43,7 +43,7 @@ abstract class BackgroundWorkerBgHostApi {
 abstract class BackgroundWorkerFlutterApi {
   // iOS Only: Called when the iOS background upload is triggered
   @async
-  void onIosUpload(bool isRefresh, int? maxSeconds);
+  bool onIosUpload(bool isRefresh, int? maxSeconds);
 
   // Android Only: Called when the Android background upload is triggered
   @async

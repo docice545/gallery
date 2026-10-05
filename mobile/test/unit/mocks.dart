@@ -10,6 +10,7 @@ import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/tag.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/platform/native_sync_api.g.dart';
+import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/services/foreground_upload.service.dart';
 import 'package:immich_mobile/utils/option.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -243,6 +244,7 @@ void _registerFallbacks() {
   registerFallbackValue(<RemoteAsset>[]);
   registerFallbackValue(<LocalAsset>[]);
   registerFallbackValue(ShareAssetType.original);
+  registerFallbackValue(LivePhotoShareMode.preserveMotion);
   registerFallbackValue(const UploadCallbacks());
   registerFallbackValue(_FakeBuildContext());
   registerFallbackValue(DevicePermissionStatus.granted);
@@ -430,6 +432,7 @@ extension type const AssetMediaRepositoryStub(MockAssetMediaRepository api) impl
         any(),
         any(),
         fileType: any(named: 'fileType'),
+        livePhotoMode: any(named: 'livePhotoMode'),
         cancelCompleter: any(named: 'cancelCompleter'),
         onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
       );

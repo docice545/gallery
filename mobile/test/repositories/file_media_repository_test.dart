@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
 
 void main() {
@@ -12,6 +13,14 @@ void main() {
   late List<MethodCall> photosCalls;
   late List<MethodCall> filesCalls;
   bool updateSucceeds = true;
+  const livePhotoChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.LivePhotoSaveApi.saveLivePhoto',
+    LivePhotoSaveApi.pigeonChannelCodec,
+  );
+  const cancelChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.LivePhotoSaveApi.cancelSave',
+    LivePhotoSaveApi.pigeonChannelCodec,
+  );
 
   setUp(() async {
     cache = await Directory.systemTemp.createTemp('file-media-test-');
@@ -33,6 +42,14 @@ void main() {
 
   tearDown(() async {
     await cache.delete(recursive: true);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      livePhotoChannel,
+      null,
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      cancelChannel,
+      null,
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(photos, null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(files, null);
   });
@@ -87,5 +104,106 @@ void main() {
     const repository = FileMediaRepository(isAndroid: true);
     await expectLater(repository.saveImageWithFile(original.path), throwsStateError);
     expect(photosCalls, isEmpty);
+  });
+  for (final outcome in LivePhotoSaveOutcome.values) {
+    test('iOS save forwards $outcome honestly without guessing from a fetched subtype', () async {
+      final image = await File('${cache.path}/photo.HEIC').writeAsBytes([1, 2, 3]);
+      final video = await File('${cache.path}/photo.MOV').writeAsBytes([4, 5, 6]);
+      final expectedId = outcome == LivePhotoSaveOutcome.livePhoto || outcome == LivePhotoSaveOutcome.imageOnly
+          ? 'local'
+          : null;
+      final expected = LivePhotoSaveResult(outcome: outcome, localIdentifier: expectedId);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+        livePhotoChannel,
+        (message) async {
+          expect(message, ['request', image.path, video.path, 'photo.HEIC', true]);
+          return [expected];
+        },
+      );
+      const repository = FileMediaRepository(isAndroid: false);
+      final result = await repository.saveLivePhoto(
+        requestId: 'request',
+        image: image,
+        video: video,
+        title: 'photo.HEIC',
+      );
+      expect(result.outcome, outcome);
+      expect(result.localIdentifier, expectedId);
+      expect(photosCalls, isEmpty); // Add-only does not need a full-library query.
+      expect(await image.readAsBytes(), [1, 2, 3]);
+      expect(await video.readAsBytes(), [4, 5, 6]);
+    });
+  }
+
+  test('missing PhotoKit placeholder is failure, never a falsely preserved Live Photo', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      livePhotoChannel,
+      (_) async {
+        return [LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.livePhoto)];
+      },
+    );
+    const repository = FileMediaRepository(isAndroid: false);
+    final result = await repository.saveLivePhoto(
+      requestId: 'request',
+      image: File('still'),
+      video: File('motion'),
+      title: 'photo.HEIC',
+    );
+    expect(result.outcome, LivePhotoSaveOutcome.failed);
+    expect(result.errorCode, 'MISSING_LOCAL_IDENTIFIER');
+  });
+
+  test('platform failure is an explicit sanitized failure, not still success', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      livePhotoChannel,
+      (_) async {
+        throw PlatformException(code: 'PHPhotosErrorDomain', message: 'private path must not be exposed');
+      },
+    );
+    const repository = FileMediaRepository(isAndroid: false);
+    final result = await repository.saveLivePhoto(
+      requestId: 'request',
+      image: File('still'),
+      video: File('motion'),
+      title: 'photo.HEIC',
+    );
+    expect(result.outcome, LivePhotoSaveOutcome.failed);
+    expect(result.errorCode, 'PLATFORM_FAILURE');
+    expect(photosCalls, isEmpty);
+  });
+
+  test('caller can explicitly prohibit image-only fallback', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      livePhotoChannel,
+      (message) async {
+        expect((message! as List).last, false);
+        return [LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.failed, errorCode: 'INVALID_PAIR')];
+      },
+    );
+    const repository = FileMediaRepository(isAndroid: false);
+    final result = await repository.saveLivePhoto(
+      requestId: 'request',
+      image: File('still'),
+      video: File('motion'),
+      title: 'photo.HEIC',
+      allowImageOnlyFallback: false,
+    );
+    expect(result.outcome, LivePhotoSaveOutcome.failed);
+    expect(result.errorCode, 'INVALID_PAIR');
+  });
+
+  test('cancel is an awaited native drain for this request only', () async {
+    var calls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
+      cancelChannel,
+      (message) async {
+        calls++;
+        expect(message, ['request']);
+        return [null];
+      },
+    );
+    const repository = FileMediaRepository(isAndroid: false);
+    await repository.cancelLivePhotoSave('request');
+    expect(calls, 1);
   });
 }
