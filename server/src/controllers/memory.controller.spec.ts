@@ -81,9 +81,38 @@ describe(MemoryController.name, () => {
       expect(status).toBe(400);
       expect(body).toEqual(
         errorDto.validationError([
-          { path: [], message: 'At least one of the following fields is required: isSaved, seenAt, memoryAt' },
+          {
+            path: [],
+            message:
+              'At least one of the following fields is required: isHidden, isSaved, seenAt, memoryAt, title, subtitle',
+          },
         ]),
       );
+    });
+
+    it('reuses the update endpoint for permanent hide', async () => {
+      const id = factory.uuid();
+      await request(ctx.getHttpServer()).put(`/memories/${id}`).send({ isHidden: true });
+      expect(service.update).toHaveBeenCalledWith(undefined, id, { isHidden: true });
+    });
+
+    it('rejects a client attempt to revive a permanently suppressed memory', async () => {
+      const { status } = await request(ctx.getHttpServer())
+        .put(`/memories/${factory.uuid()}`)
+        .send({ isHidden: false });
+      expect(status).toBe(400);
+      expect(service.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DELETE /memories/:id', () => {
+    it('retains the upstream memory-only deletion route and 204 response', async () => {
+      const id = factory.uuid();
+      service.remove.mockResolvedValue();
+      const { status } = await request(ctx.getHttpServer()).delete(`/memories/${id}`);
+      expect(status).toBe(204);
+      expect(service.remove).toHaveBeenCalledWith(undefined, id);
+      expect(service.removeAssets).not.toHaveBeenCalled();
     });
   });
 

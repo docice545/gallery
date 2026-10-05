@@ -104,6 +104,58 @@ void main() {
     sut = MemoryApiRepository(apiService);
   });
 
+  group('memory management', () {
+    test('delete uses only the upstream memory endpoint', () async {
+      late http.BaseRequest captured;
+      apiClient.client = _StubClient((request) async {
+        captured = request;
+        return jsonResponse('', status: 204);
+      });
+      await sut.delete('two-years-ago');
+      expect(captured.method, 'DELETE');
+      expect(captured.url.path, '/api/memories/two-years-ago');
+      expect((captured as http.Request).body, isEmpty);
+    });
+
+    test('hide persists via memory update and requires a server tombstone', () async {
+      final dto = memoryDto('highlight', type: api.MemoryType.rule, data: {'ruleId': 'gallery_ai_highlight'});
+      dto.deletedAt = api.Optional.present(DateTime.utc(2026, 10, 5));
+      late http.BaseRequest captured;
+      apiClient.client = _StubClient((request) async {
+        captured = request;
+        return jsonResponse(jsonEncode(dto.toJson()));
+      });
+      final hidden = await sut.hide('highlight');
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/api/memories/highlight');
+      expect(jsonDecode((captured as http.Request).body), {'isHidden': true});
+      expect(hidden.deletedAt, DateTime.utc(2026, 10, 5));
+      expect(hidden.data.ruleId, 'gallery_ai_highlight');
+    });
+
+    test('older server ignoring isHidden cannot produce a false successful hide', () async {
+      stubResponse(() => jsonResponse(jsonEncode(memoryDto('ordinary').toJson())));
+      await expectLater(sut.hide('ordinary'), throwsUnsupportedError);
+    });
+
+    test('unrelated memory response cannot confirm a hide', () async {
+      final dto = memoryDto('other');
+      dto.deletedAt = api.Optional.present(DateTime.utc(2026));
+      stubResponse(() => jsonResponse(jsonEncode(dto.toJson())));
+      await expectLater(sut.hide('ordinary'), throwsUnsupportedError);
+    });
+
+    for (final action in ['hide', 'delete']) {
+      test('$action propagates authorization/network/server failures', () async {
+        stubResponse(() => jsonResponse('{"message":"Forbidden"}', status: 403));
+        await expectLater(
+          action == 'hide' ? sut.hide('memory') : sut.delete('memory'),
+          throwsA(isA<api.ApiException>()),
+        );
+      });
+    }
+  });
+
   group('candidate compatibility', () {
     test('older server returns an empty candidate list without breaking Memories', () async {
       stubResponse(() => jsonResponse('{}', status: 404));

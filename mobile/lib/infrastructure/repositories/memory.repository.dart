@@ -12,6 +12,24 @@ class MemoryRepository extends DatabaseAccessor<Drift> with $MemoryRepositoryMix
 
   Drift get _db => attachedDatabase;
 
+  /// Updates only the memory cache after an acknowledged server action. Its
+  /// asset links and the original asset rows remain untouched.
+  Future<void> markRemoved(String memoryId, DateTime removedAt) async {
+    await (_db.update(
+      _db.memoryEntity,
+    )..where((row) => row.id.equals(memoryId))).write(MemoryEntityCompanion(deletedAt: Value(removedAt)));
+  }
+
+  /// Existing sync writes to this table. Notify server-backed lists when another
+  /// device changes a memory, including a hard deletion of its local cache row.
+  Stream<int> watchChanges(String ownerId) {
+    var revision = 0;
+    final query = _db.selectOnly(_db.memoryEntity)
+      ..addColumns([_db.memoryEntity.id, _db.memoryEntity.deletedAt])
+      ..where(_db.memoryEntity.ownerId.equals(ownerId));
+    return query.watch().map((_) => ++revision);
+  }
+
   Future<List<Memory>> getAll(String ownerId, {bool onlyToday = true, bool onlyFavorites = false}) async {
     final query =
         _db.select(_db.memoryEntity).join([

@@ -21,6 +21,7 @@ import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.pro
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
+import 'package:immich_mobile/services/gcast.service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:native_video_player/native_video_player.dart';
 
@@ -102,6 +103,7 @@ void main() {
       overrides: [
         assetServiceProvider.overrideWithValue(assetService),
         storageRepositoryProvider.overrideWithValue(storageRepository),
+        gCastServiceProvider.overrideWithValue(MockGCastService()),
       ],
     );
     temporaryDirectory = await Directory.systemTemp.createTemp('gallery-timeline-preview-');
@@ -141,6 +143,7 @@ void main() {
       calls.add('pause');
       status.value = PlaybackStatus.paused;
     });
+    when(() => controller.isPlaying()).thenAnswer((_) async => status.value == PlaybackStatus.playing);
   });
 
   tearDown(() async {
@@ -165,6 +168,9 @@ void main() {
     BaseAsset? previewAsset,
     bool Function()? previewIsActive,
     bool? loopOverride,
+    bool timelinePreview = true,
+    bool playbackPaused = false,
+    bool isCurrent = true,
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -177,8 +183,11 @@ void main() {
               asset: previewAsset ?? asset,
               localFilePath: useLocalFile ? sourcePath ?? filePath : null,
               image: const ColoredBox(color: Colors.blue),
-              isCurrent: true,
-              timelinePreview: true,
+              isCurrent: isCurrent,
+              timelinePreview: timelinePreview,
+              playbackPaused: playbackPaused,
+              forceAutoPlay: !timelinePreview,
+              showControls: false,
               onPreviewCompleted: () => completions++,
               previewIsActive: previewIsActive,
               loopOverride: loopOverride,
@@ -204,6 +213,185 @@ void main() {
       (call) async => call.method == 'create' ? pendingCreate.future : null,
     );
   }
+
+  Future<void> finishMemoryViewer(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    // This fixture owns its ProviderContainer. Dispose it before Flutter checks
+    // timer invariants, including the normal player's buffering timer.
+    container.dispose();
+    await tester.pump();
+    debugDefaultTargetPlatformOverride = null;
+  }
+
+  testWidgets('memory menu pause resumes the loaded video without fetching or reloading it', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    expect(calls.last, 'pause');
+    expect(container.read(videoPlayerProvider(asset.id)).status, VideoPlaybackStatus.paused);
+    await mountPreview(tester, timelinePreview: false);
+    expect(calls.last, 'play');
+    expect(calls.where((call) => call == 'load'), hasLength(1));
+    verify(() => assetService.getAsset(any())).called(1);
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('a memory video already paused before the menu stays paused on dismissal', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    await controller.pause();
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    await mountPreview(tester, timelinePreview: false);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(calls.where((call) => call == 'load'), hasLength(1));
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('readiness during the memory menu defers autoplay until dismissal', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    when(() => controller.loadVideoSource(any())).thenAnswer((_) async => calls.add('load'));
+    await mountPreview(tester, timelinePreview: false);
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    ready.notifyListeners();
+    await tester.pump();
+    expect(calls, isNot(contains('play')));
+    await mountPreview(tester, timelinePreview: false);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(calls.where((call) => call == 'load'), hasLength(1));
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('memory menu dismissal waits for a pending native pause before resuming', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    final acknowledgement = Completer<void>();
+    when(() => controller.pause()).thenAnswer((_) async {
+      calls.add('pending-pause');
+      await acknowledgement.future;
+      status.value = PlaybackStatus.paused;
+    });
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    await mountPreview(tester, timelinePreview: false);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    acknowledgement.complete();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(2));
+    expect(calls.last, 'play');
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('closing the memory viewer while a pause is pending never resumes its video', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    final acknowledgement = Completer<void>();
+    when(() => controller.pause()).thenAnswer((_) async {
+      calls.add('pending-pause');
+      await acknowledgement.future;
+      status.value = PlaybackStatus.paused;
+    });
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    await mountPreview(tester, timelinePreview: false);
+    await tester.pumpWidget(const SizedBox());
+    acknowledgement.complete();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('rapidly reopening the memory menu serializes pauses before the final resume', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    final firstPause = Completer<void>();
+    final secondPause = Completer<void>();
+    var pauseCount = 0;
+    when(() => controller.pause()).thenAnswer((_) async {
+      final acknowledgement = ++pauseCount == 1 ? firstPause : secondPause;
+      calls.add('pending-pause:$pauseCount');
+      await acknowledgement.future;
+      status.value = PlaybackStatus.paused;
+    });
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    await mountPreview(tester, timelinePreview: false);
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    await mountPreview(tester, timelinePreview: false);
+    expect(pauseCount, 1);
+    firstPause.complete();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(pauseCount, 2);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    secondPause.complete();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(2));
+    expect(calls.last, 'play');
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('foregrounding the app cannot play a memory video while its menu is open', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    final previousPlays = calls.where((call) => call == 'play').length;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(previousPlays));
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('a delayed pause acknowledgement and background menu dismissal wait for foreground', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    final acknowledgement = Completer<void>();
+    when(() => controller.pause()).thenAnswer((_) async {
+      calls.add('pending-pause');
+      await acknowledgement.future;
+      status.value = PlaybackStatus.paused;
+    });
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await mountPreview(tester, timelinePreview: false);
+    acknowledgement.complete();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(2));
+    expect(calls.last, 'play');
+    await finishMemoryViewer(tester);
+  });
+
+  testWidgets('a memory video becoming non-current while backgrounded never resumes on foreground', (tester) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    await mountPreview(tester, timelinePreview: false);
+    final acknowledgement = Completer<void>();
+    when(() => controller.pause()).thenAnswer((_) async {
+      calls.add('pending-pause');
+      await acknowledgement.future;
+      status.value = PlaybackStatus.paused;
+    });
+    await mountPreview(tester, timelinePreview: false, playbackPaused: true);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await mountPreview(tester, timelinePreview: false, isCurrent: false);
+    acknowledgement.complete();
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    await finishMemoryViewer(tester);
+  });
 
   testWidgets('mutes and disables looping before loading or playing, with isolated viewer state', (tester) async {
     container.read(isPlayingMotionVideoProvider.notifier).playing = true;

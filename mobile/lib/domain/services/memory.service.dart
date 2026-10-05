@@ -12,6 +12,26 @@ class MemoryService {
 
   MemoryService(this._repository, this._apiRepository);
 
+  Future<void> hide(String memoryId) async {
+    final hidden = await _apiRepository.hide(memoryId);
+    await _markRemoved(memoryId, hidden.deletedAt!);
+  }
+
+  Future<void> delete(String memoryId) async {
+    await _apiRepository.delete(memoryId);
+    await _markRemoved(memoryId, DateTime.now().toUtc());
+  }
+
+  Future<void> _markRemoved(String memoryId, DateTime removedAt) async {
+    try {
+      await _repository.markRemoved(memoryId, removedAt);
+    } catch (error, stackTrace) {
+      // The server action is already committed. Keep the acknowledged result and
+      // let normal sync repair the cache rather than reporting a failed deletion.
+      log.warning('Failed to update the removed memory cache', error, stackTrace);
+    }
+  }
+
   /// The memory lane: the viewer's own memories AND memories built from photos shared with
   /// them through a Space, matching the web memory lane (which calls the server).
   ///
@@ -57,4 +77,6 @@ class MemoryService {
 }
 
 bool _isOrdinaryMemory(Memory memory) =>
-    memory.data.raw['candidateState'] != 'pending' && memory.data.raw['candidateState'] != 'dismissed';
+    memory.deletedAt == null &&
+    memory.data.raw['candidateState'] != 'pending' &&
+    memory.data.raw['candidateState'] != 'dismissed';

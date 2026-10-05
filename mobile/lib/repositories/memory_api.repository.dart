@@ -17,6 +17,46 @@ class MemoryApiRepository extends ApiRepository {
 
   MemoryApiRepository(this._apiService);
 
+  /// Keep deletion on the upstream memory endpoint: it only removes the memory,
+  /// never its photo/video assets.
+  Future<void> delete(String id) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/memories/$id',
+      'DELETE',
+      <QueryParam>[],
+      null,
+      <String, String>{},
+      <String, String>{},
+      null,
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, response.body);
+    }
+  }
+
+  /// The existing memory update route accepts an additive, server-persisted hide
+  /// action. Validate the tombstone so an older server cannot silently ignore it.
+  Future<Memory> hide(String id) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/memories/$id',
+      'PUT',
+      <QueryParam>[],
+      {'isHidden': true},
+      <String, String>{},
+      <String, String>{},
+      'application/json',
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, response.body);
+    }
+    final body = utf8.decode(response.bodyBytes);
+    final dto = await _apiService.apiClient.deserializeAsync(body, 'MemoryResponseDto') as MemoryResponseDto?;
+    if (dto == null || dto.id != id || dto.deletedAt.orElse(null) == null) {
+      throw UnsupportedError('The server did not confirm that the memory was hidden');
+    }
+    return _toDriftMemory(dto);
+  }
+
   Future<List<({String id, Memory memory})>> getCandidates() async {
     final response = await _apiService.apiClient.invokeAPI(
       '/memories/candidates',

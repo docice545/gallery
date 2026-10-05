@@ -14,6 +14,8 @@ void main() {
   late MockMemoryRepository mockRepository;
   late MockMemoryApiRepository mockApiRepository;
 
+  setUpAll(() => registerFallbackValue(DateTime.utc(2026)));
+
   Memory memory(String id, {String ownerId = 'user-1'}) => Memory(
     id: id,
     createdAt: DateTime.utc(2026),
@@ -37,6 +39,42 @@ void main() {
     when(
       () => mockApiRepository.getMemoryLane(),
     ).thenAnswer((_) async => [memory('own-memory'), memory('shared-memory', ownerId: 'space-owner')]);
+    when(() => mockRepository.markRemoved(any(), any())).thenAnswer((_) async {});
+  });
+
+  group('management', () {
+    test('hide marks only the acknowledged memory cache as removed', () async {
+      final removedAt = DateTime.utc(2026, 10, 5);
+      when(
+        () => mockApiRepository.hide('own-memory'),
+      ).thenAnswer((_) async => memory('own-memory').copyWith(deletedAt: removedAt));
+      await sut.hide('own-memory');
+      verify(() => mockRepository.markRemoved('own-memory', removedAt)).called(1);
+      verifyNever(() => mockApiRepository.delete(any()));
+    });
+
+    test('delete waits for server success before marking the cache', () async {
+      when(() => mockApiRepository.delete('own-memory')).thenAnswer((_) async {});
+      await sut.delete('own-memory');
+      verify(() => mockApiRepository.delete('own-memory')).called(1);
+      verify(() => mockRepository.markRemoved('own-memory', any())).called(1);
+    });
+
+    for (final action in ['hide', 'delete']) {
+      test('$action failure leaves the local memory visible', () async {
+        when(() => mockApiRepository.hide('own-memory')).thenThrow(Exception('offline'));
+        when(() => mockApiRepository.delete('own-memory')).thenThrow(Exception('offline'));
+        await expectLater(action == 'hide' ? sut.hide('own-memory') : sut.delete('own-memory'), throwsException);
+        verifyNever(() => mockRepository.markRemoved(any(), any()));
+      });
+    }
+
+    test('a cache write failure does not undo an already committed server deletion', () async {
+      when(() => mockApiRepository.delete('own-memory')).thenAnswer((_) async {});
+      when(() => mockRepository.markRemoved(any(), any())).thenThrow(Exception('disk unavailable'));
+      await sut.delete('own-memory');
+      verify(() => mockApiRepository.delete('own-memory')).called(1);
+    });
   });
 
   group('getMemoryLane', () {
@@ -48,6 +86,7 @@ void main() {
           memory('pending').copyWith(data: const MemoryData({'candidateState': 'pending'})),
           memory('dismissed').copyWith(data: const MemoryData({'candidateState': 'dismissed'})),
           memory('saved').copyWith(data: const MemoryData({'candidateState': 'saved'})),
+          memory('hidden').copyWith(deletedAt: DateTime.utc(2026)),
         ],
       );
       expect((await sut.getMemoryLane('user-1')).map((memory) => memory.id), ['ordinary', 'saved']);

@@ -10,7 +10,12 @@ import { AssetOrderWithRandom, AssetVisibility, MemoryType } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
 import { asUuid } from 'src/utils/database.js';
-import { memoryFingerprint, similarMemoryAssets } from 'src/utils/memory-candidate.js';
+import {
+  MemorySuppressedException,
+  memoryData,
+  memoryFingerprint,
+  similarMemoryAssets,
+} from 'src/utils/memory-candidate.js';
 import {
   type TimelineHiddenScope,
   hiddenFromOwnTimeline,
@@ -29,6 +34,9 @@ export class MemoryRepository implements IBulkAsset {
     return this.db.transaction().execute(async (tx) => {
       await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
       const history = await tx.selectFrom('memory_candidate').selectAll().where('ownerId', '=', ownerId).execute();
+      if (history.some((row) => row.state === 'dismissed' && similarMemoryAssets(ids, row.assetIds))) {
+        throw new MemorySuppressedException();
+      }
       const existing = history.find((row) => row.fingerprint === fingerprint);
       if (existing) {
         if (existing.state === 'dismissed' || !existing.memoryId)
@@ -79,7 +87,7 @@ export class MemoryRepository implements IBulkAsset {
           ownerId,
           memoryId,
           fingerprint,
-          assetIds: sql<string[]>`${JSON.stringify(ids)}::jsonb`,
+          assetIds: ids,
           state: 'pending',
           remindAt: new Date(),
         })
@@ -163,6 +171,13 @@ export class MemoryRepository implements IBulkAsset {
           .executeTakeFirstOrThrow();
       }
       if (candidate.memoryId) {
+        const original = await tx
+          .selectFrom('memory')
+          .select('data')
+          .where('id', '=', candidate.memoryId)
+          .where('ownerId', '=', ownerId)
+          .forUpdate()
+          .executeTakeFirst();
         const updated = await tx
           .updateTable('memory')
           .set({
@@ -170,7 +185,7 @@ export class MemoryRepository implements IBulkAsset {
             showAt: new Date(),
             hideAt: null,
             deletedAt: action === 'dismiss' ? new Date() : null,
-            data: sql`"data" || ${JSON.stringify({ candidateState: state })}::jsonb`,
+            data: { ...memoryData(original?.data), candidateState: state },
             updatedAt: new Date(),
           })
           .where('id', '=', candidate.memoryId)
@@ -545,6 +560,19 @@ export class MemoryRepository implements IBulkAsset {
 
   async create(memory: Insertable<MemoryTable>, assetIds: Set<string>) {
     const id = await this.db.transaction().execute(async (tx) => {
+      // External AI producers using ordinary POST /memories must respect the same user
+      // decisions. Serialize their insertion with the existing candidate decision lane.
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${memory.ownerId}), 179108)`.execute(tx);
+      if (assetIds.size > 0) {
+        const history = tx
+          .selectFrom('memory_candidate')
+          .select('assetIds')
+          .where('ownerId', '=', memory.ownerId)
+          .where('state', '=', 'dismissed');
+        for await (const row of history.stream(100)) {
+          if (similarMemoryAssets([...assetIds], row.assetIds)) throw new MemorySuppressedException();
+        }
+      }
       const { id } = await tx.insertInto('memory').values(memory).returning('id').executeTakeFirstOrThrow();
 
       if (assetIds.size > 0) {
@@ -556,6 +584,106 @@ export class MemoryRepository implements IBulkAsset {
     });
 
     return this.getByIdBuilder(id).executeTakeFirstOrThrow();
+  }
+
+  /** Only explicit user actions enter durable rejection history; retention/reconciliation do not. */
+  private async suppressForUser(id: string, ownerId: string, action: 'hide' | 'delete') {
+    await this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
+      const memory = await tx
+        .selectFrom('memory')
+        .select('id')
+        .where('id', '=', id)
+        .where('ownerId', '=', ownerId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!memory) throw new NotFoundException('Memory not found');
+      const rows = await tx.selectFrom('memory_asset').select('assetId').where('memoriesId', '=', id).execute();
+      const assetIds = rows.map(({ assetId }) => assetId);
+      let linkedDuplicateId: string | null = null;
+      if (assetIds.length > 0) {
+        const rejection = await tx
+          .insertInto('memory_candidate')
+          .values({
+            ownerId,
+            memoryId: id,
+            fingerprint: memoryFingerprint(assetIds),
+            assetIds,
+            state: 'dismissed',
+            remindAt: new Date(),
+          })
+          .onConflict((oc) => oc.columns(['ownerId', 'fingerprint']).doUpdateSet({ state: 'dismissed' }))
+          .returning('memoryId')
+          .executeTakeFirstOrThrow();
+        linkedDuplicateId = rejection.memoryId;
+        if (linkedDuplicateId && linkedDuplicateId !== id) {
+          const linkedAssets = await tx
+            .selectFrom('memory_asset')
+            .select('assetId')
+            .where('memoriesId', '=', linkedDuplicateId)
+            .execute();
+          if (memoryFingerprint(linkedAssets.map(({ assetId }) => assetId)) !== memoryFingerprint(assetIds)) {
+            // A saved candidate may now contain a different, manually edited moment. Its
+            // historical fingerprint must not hide that unrelated current memory.
+            await tx
+              .updateTable('memory_candidate')
+              .set({ memoryId: id })
+              .where('ownerId', '=', ownerId)
+              .where('fingerprint', '=', memoryFingerprint(assetIds))
+              .execute();
+            linkedDuplicateId = null;
+          }
+        }
+      }
+      // A previously saved candidate may have been edited since its original fingerprint.
+      // Preserve both fingerprints and make its former Save decision terminally dismissed too.
+      await tx
+        .updateTable('memory_candidate')
+        .set({ state: 'dismissed' })
+        .where('ownerId', '=', ownerId)
+        .where('memoryId', '=', id)
+        .execute();
+      const hiddenIds = [
+        ...(action === 'hide' ? [id] : []),
+        ...(linkedDuplicateId && linkedDuplicateId !== id ? [linkedDuplicateId] : []),
+      ];
+      if (hiddenIds.length > 0) {
+        // An exact existing candidate-backed duplicate shares this durable decision. Deliver
+        // its tombstone through sync too, instead of leaving a stale offline/deep-link copy.
+        const hiddenMemories = await tx
+          .selectFrom('memory')
+          .select(['id', 'data'])
+          .where('id', 'in', hiddenIds)
+          .where('ownerId', '=', ownerId)
+          .forUpdate()
+          .execute();
+        for (const hidden of hiddenMemories) {
+          await tx
+            .updateTable('memory')
+            .set({
+              deletedAt: new Date(),
+              updatedAt: new Date(),
+              data: { ...memoryData(hidden.data), candidateState: 'dismissed' },
+            })
+            .where('id', '=', hidden.id)
+            .where('ownerId', '=', ownerId)
+            .execute();
+        }
+      }
+      if (action === 'delete') {
+        // The existing FK cascades remove only memory_asset links, never their asset rows.
+        await tx.deleteFrom('memory').where('id', '=', id).where('ownerId', '=', ownerId).execute();
+      }
+    });
+  }
+
+  async hideForUser(id: string, ownerId: string) {
+    await this.suppressForUser(id, ownerId, 'hide');
+    return this.getByIdBuilder(id, undefined, undefined, [], true).executeTakeFirstOrThrow();
+  }
+
+  async deleteForUser(id: string, ownerId: string) {
+    await this.suppressForUser(id, ownerId, 'delete');
   }
 
   @GenerateSql({ params: [DummyValue.UUID, { ownerId: DummyValue.UUID, isSaved: true }] })
@@ -577,12 +705,16 @@ export class MemoryRepository implements IBulkAsset {
       const candidate = await this.getCandidateForMemory(id);
       if (candidate && candidate.state !== 'saved') throw new ConflictException('Use the candidate decision endpoint');
     }
-    const patch = JSON.stringify(display);
-    await this.db
-      .updateTable('memory')
-      .set({ ...memory, data: sql`"data" || ${patch}::jsonb` })
-      .where('id', '=', id)
-      .execute();
+    await this.db.transaction().execute(async (tx) => {
+      const original = await tx.selectFrom('memory').select('data').where('id', '=', id).forUpdate().executeTakeFirst();
+      if (!original) throw new NotFoundException('Memory not found');
+      const patch = Object.fromEntries(Object.entries(display).filter(([, value]) => value !== undefined));
+      await tx
+        .updateTable('memory')
+        .set({ ...memory, data: { ...memoryData(original.data), ...patch } })
+        .where('id', '=', id)
+        .execute();
+    });
     return this.getByIdBuilder(id).executeTakeFirstOrThrow();
   }
 
@@ -673,6 +805,7 @@ export class MemoryRepository implements IBulkAsset {
     viewerId?: string,
     hiddenScope?: TimelineHiddenScope,
     visibleSpaceIds: string[] = [],
+    includeDeleted = false,
   ) {
     return this.db
       .selectFrom('memory')
@@ -698,6 +831,6 @@ export class MemoryRepository implements IBulkAsset {
         ).as('assets'),
       )
       .where('id', '=', id)
-      .where('deletedAt', 'is', null);
+      .$if(!includeDeleted, (qb) => qb.where('deletedAt', 'is', null));
   }
 }

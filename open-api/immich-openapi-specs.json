@@ -33804,6 +33804,13 @@
       },
       "MemoryUpdateDto": {
         "properties": {
+          "isHidden": {
+            "description": "Permanently hide this memory without deleting its assets",
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
           "isSaved": {
             "description": "Is memory saved",
             "type": "boolean"

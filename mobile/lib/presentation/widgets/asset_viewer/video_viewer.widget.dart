@@ -22,6 +22,10 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
   final BaseAsset asset;
   final String? localFilePath;
   final bool isCurrent;
+
+  /// Temporarily pause for a menu/dialog while retaining the current asset and
+  /// its native controller. Existing viewers keep their usual playback behavior.
+  final bool playbackPaused;
   final bool showControls;
   final Widget image;
 
@@ -47,6 +51,7 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
     this.localFilePath,
     required this.image,
     this.isCurrent = false,
+    this.playbackPaused = false,
     this.showControls = true,
     this.loopOverride,
     this.forceAutoPlay = false,
@@ -73,6 +78,10 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   bool _previewForeground = true;
   bool _previewAttached = true;
   bool _isLoading = false;
+  bool _resumeAfterPause = false;
+  bool _playbackForeground = true;
+  Future<void>? _pendingPause;
+  int _pauseRevision = 0;
   VideoPlayerNotifier? _attachedNotifier;
 
   VideoPlayerNotifier get _notifier => widget.timelinePreview
@@ -82,6 +91,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   bool get _canPreview =>
       mounted &&
       widget.isCurrent &&
+      !widget.playbackPaused &&
       _previewAttached &&
       _previewForeground &&
       !_previewFinished &&
@@ -90,6 +100,8 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _playbackForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     if (widget.timelinePreview) {
       _previewTimeout = Timer(const Duration(seconds: 8), _finishPreview);
@@ -117,11 +129,27 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   void didUpdateWidget(NativeVideoViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    if (widget.playbackPaused != oldWidget.playbackPaused) {
+      final revision = ++_pauseRevision;
+      if (widget.playbackPaused) {
+        final status = widget.timelinePreview
+            ? ref.read(timelinePreviewVideoPlayerProvider(widget.asset.id)).status
+            : ref.read(videoPlayerProvider(widget.asset.id)).status;
+        _resumeAfterPause =
+            _resumeAfterPause || status == VideoPlaybackStatus.playing || status == VideoPlaybackStatus.buffering;
+        _queuePause();
+      } else {
+        unawaited(_resumePausedPlayback(revision));
+      }
+    }
+
     if (widget.isCurrent == oldWidget.isCurrent || _controller == null) {
       return;
     }
 
     if (!widget.isCurrent) {
+      ++_pauseRevision;
+      _resumeAfterPause = false;
       _loadTimer?.cancel();
       unawaited(_notifier.pause());
       return;
@@ -129,6 +157,33 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
     // Prevent unnecessary loading when swiping between assets.
     _loadTimer = Timer(const Duration(milliseconds: 200), _loadVideo);
+  }
+
+  Future<void> _resumePausedPlayback(int revision) async {
+    await _pendingPause;
+    if (!mounted ||
+        revision != _pauseRevision ||
+        !_playbackForeground ||
+        widget.playbackPaused ||
+        !widget.isCurrent ||
+        !_resumeAfterPause) {
+      return;
+    }
+    if (_isVideoReady) {
+      _resumeAfterPause = false;
+      await _notifier.play();
+    }
+  }
+
+  void _queuePause() {
+    final notifier = _notifier;
+    // Reopening a menu before native acknowledgement must not leave an older
+    // pause able to arrive after a newer resume.
+    _pendingPause = (_pendingPause ?? Future<void>.value()).then((_) async {
+      if (mounted) {
+        await notifier.pause();
+      }
+    });
   }
 
   @override
@@ -149,15 +204,21 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       }
       return;
     }
+    _playbackForeground = state == AppLifecycleState.resumed;
     switch (state) {
       case AppLifecycleState.resumed:
-        if (_shouldPlayOnForeground) {
-          await _notifier.play();
+        if (widget.isCurrent && !widget.playbackPaused) {
+          if (_resumeAfterPause) {
+            await _resumePausedPlayback(_pauseRevision);
+          } else if (_shouldPlayOnForeground) {
+            await _notifier.play();
+          }
         }
       case AppLifecycleState.paused:
         _shouldPlayOnForeground = await _controller?.isPlaying() ?? true;
         if (_shouldPlayOnForeground && mounted) {
-          await _notifier.pause();
+          _queuePause();
+          await _pendingPause;
         }
       default:
     }
@@ -337,6 +398,12 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
     final autoPlayVideo = ref.read(appConfigProvider).viewer.autoPlayVideo;
     if (widget.forceAutoPlay || autoPlayVideo || widget.asset.isMotionPhoto) {
+      if (widget.playbackPaused || !_playbackForeground) {
+        _resumeAfterPause = true;
+        _queuePause();
+        return;
+      }
+      _resumeAfterPause = false;
       await _notifier.play();
     }
   }

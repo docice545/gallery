@@ -436,7 +436,7 @@ class _MemoriesCollectionCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final memories = ref.watch(allMemoriesProvider(false));
+    final memories = ref.watch(visibleAllMemoriesProvider(false));
 
     return LayoutBuilder(
       builder: (context, constraints) {

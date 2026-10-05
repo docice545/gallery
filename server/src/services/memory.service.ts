@@ -41,6 +41,7 @@ import { createMemoryRules } from 'src/services/memory-rules/memory-type.registr
 import { type ReservableMemory, planReservation } from 'src/services/memory-rules/reservation.util.js';
 import { MemoryThemeSearchAdapter } from 'src/services/memory-rules/theme-search.adapter.js';
 import { addAssets, removeAssets } from 'src/utils/asset.util.js';
+import { MemorySuppressedException, memoryData } from 'src/utils/memory-candidate.js';
 import { findOrFail } from 'src/utils/misc.js';
 import { getPreferences } from 'src/utils/preferences.js';
 
@@ -241,19 +242,23 @@ export class MemoryService extends BaseService {
     const hideAt = target.endOf('day').toISO();
     const memories = await this.assetRepository.getByDayOfYear([ownerId], target);
     await Promise.all(
-      memories.map(({ year, assets }) =>
-        this.memoryRepository.create(
-          {
-            ownerId,
-            type: MemoryType.OnThisDay,
-            data: { year },
-            memoryAt: target.set({ year }).toISO()!,
-            showAt,
-            hideAt,
-          },
-          new Set(assets.map(({ id }) => id)),
-        ),
-      ),
+      memories.map(async ({ year, assets }) => {
+        try {
+          await this.memoryRepository.create(
+            {
+              ownerId,
+              type: MemoryType.OnThisDay,
+              data: { year },
+              memoryAt: target.set({ year }).toISO()!,
+              showAt,
+              hideAt,
+            },
+            new Set(assets.map(({ id }) => id)),
+          );
+        } catch (error) {
+          if (!(error instanceof MemorySuppressedException)) throw error;
+        }
+      }),
     );
   }
 
@@ -483,24 +488,29 @@ export class MemoryService extends BaseService {
         .endOf('day')
         .toJSDate();
 
-      await this.memoryRepository.create(
-        {
-          ownerId,
-          type: MemoryType.Rule,
-          data: {
-            ruleId: candidate.ruleId,
-            dedupeKey: candidate.dedupeKey,
-            title: candidate.title,
-            subtitle: candidate.subtitle,
-            score: candidate.score,
-            context: candidate.context,
+      try {
+        await this.memoryRepository.create(
+          {
+            ownerId,
+            type: MemoryType.Rule,
+            data: {
+              ruleId: candidate.ruleId,
+              dedupeKey: candidate.dedupeKey,
+              title: candidate.title,
+              subtitle: candidate.subtitle,
+              score: candidate.score,
+              context: candidate.context,
+            },
+            memoryAt: candidate.memoryAt.toJSDate(),
+            showAt,
+            hideAt,
           },
-          memoryAt: candidate.memoryAt.toJSDate(),
-          showAt,
-          hideAt,
-        },
-        new Set(candidate.assetIds),
-      );
+          new Set(candidate.assetIds),
+        );
+      } catch (error) {
+        if (error instanceof MemorySuppressedException) continue;
+        throw error;
+      }
       // A card that stands in for the day's plain "N years ago" memory replaces it rather than
       // sitting beside it — the two hold substantially the same photos. Safe to run after the
       // insert: the on-this-day loop writes up to DAYS ahead and runs first inside this lock,
@@ -573,12 +583,13 @@ export class MemoryService extends BaseService {
     availableTypes: Set<string>,
     userTypes: Record<string, boolean>,
   ): boolean {
-    const candidateState = (memory.data as Record<string, unknown> | null)?.candidateState;
+    const data = memoryData(memory.data);
+    const candidateState = data.candidateState;
     if (candidateState === 'pending' || candidateState === 'dismissed') return false;
     if (memory.isSaved) {
       return true;
     }
-    const key = getMemoryTypeKeyForMemory(memory.type, memory.data);
+    const key = getMemoryTypeKeyForMemory(memory.type, data);
     if (key === undefined || getMemoryTypeMetadata(key) === undefined) {
       return true;
     }
@@ -625,6 +636,11 @@ export class MemoryService extends BaseService {
   async update(auth: AuthDto, id: string, dto: MemoryUpdateDto): Promise<MemoryResponseDto> {
     await this.requireAccess({ auth, permission: Permission.MemoryUpdate, ids: [id] });
 
+    if (dto.isHidden) {
+      const memory = await this.memoryRepository.hideForUser(id, auth.user.id);
+      return mapMemory(memory, auth);
+    }
+
     const changes = {
       isSaved: dto.isSaved,
       memoryAt: dto.memoryAt,
@@ -640,7 +656,7 @@ export class MemoryService extends BaseService {
 
   async remove(auth: AuthDto, id: string): Promise<void> {
     await this.requireAccess({ auth, permission: Permission.MemoryDelete, ids: [id] });
-    await this.memoryRepository.delete(id);
+    await this.memoryRepository.deleteForUser(id, auth.user.id);
   }
 
   async addAssets(auth: AuthDto, id: string, dto: BulkIdsDto): Promise<BulkIdResponseDto[]> {

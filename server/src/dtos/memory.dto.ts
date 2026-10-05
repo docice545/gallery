@@ -6,6 +6,7 @@ import { HistoryBuilder } from 'src/decorators.js';
 import { AssetResponseSchema, mapAsset } from 'src/dtos/asset-response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { AssetOrderWithRandomSchema, MemoryType, MemoryTypeSchema } from 'src/enum.js';
+import { memoryData } from 'src/utils/memory-candidate.js';
 import { isoDateToDate, isoDatetimeToDate, nonEmptyPartial, stringToBool } from 'src/validation.js';
 
 const MemorySearchSchema = z
@@ -38,6 +39,7 @@ const getMemoryDisplay = (data: Record<string, unknown>) => {
 };
 
 const MemoryUpdateSchema = nonEmptyPartial({
+  isHidden: z.literal(true).describe('Permanently hide this memory without deleting its assets'),
   isSaved: z.boolean().describe('Is memory saved'),
   seenAt: isoDatetimeToDate.describe('Date when memory was seen'),
   memoryAt: isoDatetimeToDate.describe('Memory date'),
@@ -131,7 +133,7 @@ export class MemoryCandidateResponseDto extends createZodDto(
 ) {}
 
 export const mapMemory = (entity: Memory, auth: AuthDto): MemoryResponseDto => {
-  const data = entity.data as AnyMemoryData;
+  const data = memoryData(entity.data) as AnyMemoryData;
   const { title, subtitle } = getMemoryDisplay(data);
 
   return {

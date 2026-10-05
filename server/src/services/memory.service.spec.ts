@@ -4,6 +4,7 @@ import type { OnThisDayData, RuleMemoryData } from 'src/types.js';
 import { defaults } from 'src/dtos/config.dto.js';
 import { MemoryType, SystemMetadataKey, UserMetadataKey } from 'src/enum.js';
 import { MemoryService, RULE_DAILY_LIMIT } from 'src/services/memory.service.js';
+import { MemorySuppressedException } from 'src/utils/memory-candidate.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { MemoryFactory } from 'test/factories/memory.factory.js';
 import { getForMemory } from 'test/mappers.js';
@@ -1658,6 +1659,16 @@ describe(MemoryService.name, () => {
   });
 
   describe('create', () => {
+    it('does not turn a durable user suppression into a successful direct AI creation', async () => {
+      mocks.memory.create.mockRejectedValue(new MemorySuppressedException());
+      await expect(
+        sut.create(factory.auth(), {
+          type: MemoryType.Rule,
+          data: { ruleId: 'gallery_ai_highlight', title: 'Renamed by AI' },
+          memoryAt: new Date(),
+        }),
+      ).rejects.toBeInstanceOf(MemorySuppressedException);
+    });
     it('should skip assets the user does not have access to', async () => {
       const [assetId, userId] = newUuids();
       const memory = MemoryFactory.create({ ownerId: userId });
@@ -1755,7 +1766,94 @@ describe(MemoryService.name, () => {
     });
   });
 
+  describe('suppressed nightly generation', () => {
+    it('skips a hidden two-years-ago memory while still creating unrelated years', async () => {
+      const ownerId = newUuid();
+      const target = DateTime.utc(2026, 10, 5);
+      mocks.asset.getByDayOfYear.mockResolvedValue([
+        { year: 2024, assets: [AssetFactory.create({ ownerId })] },
+        { year: 2023, assets: [AssetFactory.create({ ownerId })] },
+      ] as any);
+      mocks.memory.create
+        .mockRejectedValueOnce(new MemorySuppressedException())
+        .mockResolvedValueOnce(MemoryFactory.create() as any);
+
+      await expect((sut as any).createOnThisDayMemories(ownerId, target)).resolves.toBeUndefined();
+      expect(mocks.memory.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates actual generation failures instead of treating every error as suppression', async () => {
+      mocks.asset.getByDayOfYear.mockResolvedValue([{ year: 2024, assets: [AssetFactory.create()] }] as any);
+      mocks.memory.create.mockRejectedValue(new Error('database unavailable'));
+      await expect((sut as any).createOnThisDayMemories(newUuid(), DateTime.utc(2026, 10, 5))).rejects.toThrow(
+        'database unavailable',
+      );
+    });
+
+    it('does not consume a rule slot or replace an on-this-day memory for a suppressed candidate', async () => {
+      const ownerId = newUuid();
+      const target = DateTime.utc(2026, 10, 5);
+      mocks.memory.hasRuleMemory.mockResolvedValue(false);
+      vi.spyOn(sut as any, 'evaluateRuleCandidates').mockResolvedValue([
+        {
+          ruleId: 'birthday',
+          dedupeKey: 'hidden',
+          title: 'Hidden',
+          score: 100,
+          assetIds: [newUuid()],
+          memoryAt: target,
+          supersedesOnThisDayYears: [2024],
+        },
+        {
+          ruleId: 'birthday',
+          dedupeKey: 'new',
+          title: 'Another moment',
+          score: 90,
+          assetIds: [newUuid()],
+          memoryAt: target,
+        },
+      ]);
+      mocks.memory.create
+        .mockRejectedValueOnce(new MemorySuppressedException())
+        .mockResolvedValueOnce(MemoryFactory.create() as any);
+
+      await expect((sut as any).createRuleMemories(ownerId, target, ['birthday'])).resolves.toBeUndefined();
+      expect(mocks.memory.create).toHaveBeenCalledTimes(2);
+      expect(mocks.memory.deleteOnThisDay).not.toHaveBeenCalled();
+    });
+  });
+
   describe('update', () => {
+    it.each([MemoryType.OnThisDay, MemoryType.Rule])(
+      'hides an owned %s memory without touching assets',
+      async (type) => {
+        const auth = factory.auth();
+        const memory = MemoryFactory.create({
+          ownerId: auth.user.id,
+          type,
+          deletedAt: new Date(),
+          data: type === MemoryType.Rule ? { ruleId: 'gallery_ai_highlight' } : { year: 2024 },
+        });
+        mocks.access.memory.checkOwnerAccess.mockResolvedValue(new Set([memory.id]));
+        mocks.memory.hideForUser.mockResolvedValue(getForMemory(memory));
+
+        await expect(sut.update(auth, memory.id, { isHidden: true })).resolves.toMatchObject({
+          id: memory.id,
+          deletedAt: memory.deletedAt,
+        });
+        expect(mocks.memory.hideForUser).toHaveBeenCalledWith(memory.id, auth.user.id);
+        expect(mocks.memory.update).not.toHaveBeenCalled();
+        expect(mocks.memory.removeAssetIds).not.toHaveBeenCalled();
+        expect(mocks.asset.deleteAll).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses to hide a memory owned by another user', async () => {
+      await expect(sut.update(factory.auth(), newUuid(), { isHidden: true })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(mocks.memory.hideForUser).not.toHaveBeenCalled();
+    });
     it('should require access', async () => {
       await expect(sut.update(factory.auth(), 'not-found', { isSaved: true })).rejects.toBeInstanceOf(
         BadRequestException,
@@ -1805,17 +1903,21 @@ describe(MemoryService.name, () => {
       await expect(sut.remove(factory.auth(), newUuid())).rejects.toBeInstanceOf(BadRequestException);
 
       expect(mocks.memory.delete).not.toHaveBeenCalled();
+      expect(mocks.memory.deleteForUser).not.toHaveBeenCalled();
     });
 
     it('should delete a memory', async () => {
       const memoryId = newUuid();
 
       mocks.access.memory.checkOwnerAccess.mockResolvedValue(new Set([memoryId]));
-      mocks.memory.delete.mockResolvedValue();
+      mocks.memory.deleteForUser.mockResolvedValue();
 
       await expect(sut.remove(factory.auth(), memoryId)).resolves.toBeUndefined();
 
-      expect(mocks.memory.delete).toHaveBeenCalledWith(memoryId);
+      expect(mocks.memory.deleteForUser).toHaveBeenCalledWith(memoryId, expect.any(String));
+      expect(mocks.memory.delete).not.toHaveBeenCalled();
+      expect(mocks.memory.removeAssetIds).not.toHaveBeenCalled();
+      expect(mocks.asset.deleteAll).not.toHaveBeenCalled();
     });
   });
 

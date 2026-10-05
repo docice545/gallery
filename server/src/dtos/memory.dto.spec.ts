@@ -1,4 +1,4 @@
-import { MemoryCreateDto, MemoryResponseDto, mapMemory } from 'src/dtos/memory.dto.js';
+import { MemoryCreateDto, MemoryResponseDto, MemoryUpdateDto, mapMemory } from 'src/dtos/memory.dto.js';
 import { MemoryType } from 'src/enum.js';
 import { RuleMemoryData } from 'src/types.js';
 import { MemoryFactory } from 'test/factories/memory.factory.js';
@@ -6,6 +6,15 @@ import { getForMemory } from 'test/mappers.js';
 import { factory } from 'test/small.factory.js';
 
 describe('Memory DTOs', () => {
+  describe('MemoryUpdateDto', () => {
+    it('accepts explicit permanent hide on the existing update API', () => {
+      expect(MemoryUpdateDto.schema.parse({ isHidden: true })).toEqual({ isHidden: true });
+    });
+
+    it('does not provide a bypass to revive a suppressed memory', () => {
+      expect(MemoryUpdateDto.schema.safeParse({ isHidden: false }).success).toBe(false);
+    });
+  });
   describe('MemoryCreateDto', () => {
     it('should accept generic rule memory data', () => {
       const result = MemoryCreateDto.schema.safeParse({
@@ -42,6 +51,20 @@ describe('Memory DTOs', () => {
   });
 
   describe('mapMemory', () => {
+    it('preserves titles and rule metadata from legacy double-encoded display updates', () => {
+      const memory = MemoryFactory.create({
+        type: MemoryType.Rule,
+        data: [
+          { ruleId: 'gallery_ai_highlight', title: 'Original' },
+          JSON.stringify({ title: 'Generated title', subtitle: 'Generated description', candidateState: 'saved' }),
+        ] as any,
+      });
+      const result = mapMemory(getForMemory(memory) as any, factory.auth());
+      expect(result.title).toBe('Generated title');
+      expect(result.subtitle).toBe('Generated description');
+      expect(result.data.ruleId).toBe('gallery_ai_highlight');
+      expect(MemoryResponseDto.schema.safeEncode(result).success).toBe(true);
+    });
     it('surfaces generated display text on an existing on-this-day memory', () => {
       const memory = MemoryFactory.create({
         type: MemoryType.OnThisDay,

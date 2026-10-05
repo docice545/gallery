@@ -17,7 +17,7 @@ class MemoryLane extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final memoryLane = ref.watch(memoryLaneProvider);
+    final memoryLane = ref.watch(visibleMemoryLaneProvider);
     final memories = memoryLane.value ?? const [];
     if (memories.isEmpty) {
       return const MemoryCandidates();

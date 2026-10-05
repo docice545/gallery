@@ -2373,6 +2373,8 @@ export type MemoryStatisticsResponseDto = {
     total: number;
 };
 export type MemoryUpdateDto = {
+    /** Permanently hide this memory without deleting its assets */
+    isHidden?: true;
     /** Is memory saved */
     isSaved?: boolean;
     /** Memory date */

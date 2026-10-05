@@ -9,6 +9,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/memory/memory_actions.widget.dart';
 import 'package:immich_mobile/presentation/widgets/memory/memory_bottom_info.widget.dart';
 import 'package:immich_mobile/presentation/widgets/memory/memory_card.widget.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
@@ -41,6 +42,7 @@ class MemoryPage extends HookConsumerWidget {
     const bgColor = Colors.black;
     final currentAsset = useState<RemoteAsset?>(null);
     final photoInteracting = useState(false);
+    final actionsPaused = useState(false);
 
     /// The list of all of the asset page controllers
     final memoryAssetPageControllers = List.generate(memories.length, (i) => usePageController());
@@ -212,7 +214,7 @@ class MemoryPage extends HookConsumerWidget {
         backgroundColor: bgColor,
         body: SafeArea(
           child: PageView.builder(
-            physics: photoInteracting.value
+            physics: photoInteracting.value || actionsPaused.value
                 ? const NeverScrollableScrollPhysics()
                 : const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             scrollDirection: Axis.vertical,
@@ -277,7 +279,7 @@ class MemoryPage extends HookConsumerWidget {
                     child: Stack(
                       children: [
                         PageView.builder(
-                          physics: photoInteracting.value
+                          physics: photoInteracting.value || actionsPaused.value
                               ? const NeverScrollableScrollPhysics()
                               : const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                           controller: assetController,
@@ -295,13 +297,22 @@ class MemoryPage extends HookConsumerWidget {
                                     title: title,
                                     showTitle: index == 0,
                                     isCurrent: mIndex == currentMemoryIndex.value && index == currentAssetPage.value,
+                                    isPaused: actionsPaused.value,
                                     onInteractionChanged: (value) {
                                       if (mIndex == currentMemoryIndex.value && index == currentAssetPage.value) {
                                         photoInteracting.value = value;
                                       }
                                     },
-                                    onPrevious: () => toPreviousAsset(index),
-                                    onNext: () => toNextAsset(index),
+                                    onPrevious: () {
+                                      if (!actionsPaused.value) {
+                                        toPreviousAsset(index);
+                                      }
+                                    },
+                                    onNext: () {
+                                      if (!actionsPaused.value) {
+                                        toNextAsset(index);
+                                      }
+                                    },
                                   ),
                                 ),
                                 if (!asset.isImage)
@@ -313,7 +324,9 @@ class MemoryPage extends HookConsumerWidget {
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.translucent,
                                             onTap: () {
-                                              toPreviousAsset(index);
+                                              if (!actionsPaused.value) {
+                                                toPreviousAsset(index);
+                                              }
                                             },
                                           ),
                                         ),
@@ -323,7 +336,9 @@ class MemoryPage extends HookConsumerWidget {
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.translucent,
                                             onTap: () {
-                                              toNextAsset(index);
+                                              if (!actionsPaused.value) {
+                                                toNextAsset(index);
+                                              }
                                             },
                                           ),
                                         ),
@@ -350,6 +365,18 @@ class MemoryPage extends HookConsumerWidget {
                             color: Colors.white.withValues(alpha: 0.2),
                             elevation: 0,
                             child: const Icon(Icons.close_rounded, color: Colors.white),
+                          ),
+                        ),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: MemoryActions(
+                            memory: memories[mIndex],
+                            onPausedChanged: (paused) => actionsPaused.value = paused,
+                            onRemoved: () async {
+                              await context.maybePop();
+                              await restoreEdgeToEdge();
+                            },
                           ),
                         ),
                         if (currentAsset.value != null && currentAsset.value!.isVideo)

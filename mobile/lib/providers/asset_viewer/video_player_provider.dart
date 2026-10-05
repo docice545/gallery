@@ -102,7 +102,9 @@ class VideoPlayerNotifier extends StateNotifier<VideoPlayerState> {
       _log.severe('Error playing video: $e');
     }
 
-    _startBufferingTimer();
+    if (mounted) {
+      _startBufferingTimer();
+    }
   }
 
   Future<void> _flushSeek() async {

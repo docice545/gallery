@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -16,6 +19,23 @@ class _PlaybackInfo extends Fake implements PlaybackInfo {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('a native play acknowledgement after disposal cannot create a buffering timer', () {
+    fakeAsync((async) {
+      final controller = _MockVideoController();
+      final acknowledgement = Completer<void>();
+      when(() => controller.play()).thenAnswer((_) => acknowledgement.future);
+      final notifier = VideoPlayerNotifier(wakelockEnabled: false);
+      notifier.attachController(controller);
+      unawaited(notifier.play());
+      async.flushMicrotasks();
+      verify(() => controller.play()).called(1);
+      notifier.dispose();
+      acknowledgement.complete();
+      async.flushMicrotasks();
+      expect(async.nonPeriodicTimerCount, 0);
+    });
+  });
 
   test('preview provider has separate controller ownership and never changes the viewer wake lock', () async {
     const wakelockChannel = 'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle';

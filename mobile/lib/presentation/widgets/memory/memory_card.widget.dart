@@ -15,6 +15,7 @@ class MemoryCard extends StatelessWidget {
   final String title;
   final bool showTitle;
   final bool isCurrent;
+  final bool isPaused;
   final Function()? onVideoEnded;
   final ValueChanged<bool>? onInteractionChanged;
   final VoidCallback? onPrevious;
@@ -25,6 +26,7 @@ class MemoryCard extends StatelessWidget {
     required this.title,
     required this.showTitle,
     this.isCurrent = false,
+    this.isPaused = false,
     this.onVideoEnded,
     this.onInteractionChanged,
     this.onPrevious,
@@ -68,6 +70,7 @@ class MemoryCard extends StatelessWidget {
                     key: ValueKey(asset.id),
                     asset: asset,
                     isCurrent: isCurrent,
+                    playbackPaused: isPaused,
                     showControls: false,
                     forceAutoPlay: true,
                     image: FullImage(asset, size: context.sizeData, fit: BoxFit.contain),
