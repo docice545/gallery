@@ -4,6 +4,12 @@
 
 Архитектура, ограничения scanner и будущего application-layer apply: [design](../../specs/2026-10-05-google-photos-albums-design.md). Реальные HP/Synology mount paths и ownership библиотек здесь не выдумываются.
 
+**Production scope: только Anna/chudo_anna**, owner `bb8ccc0b-9322-40ea-9ae5-672d497b3e01`.
+Generic tool и multi-owner synthetic tests сохраняются, но реальные JSON extraction,
+path mapping, dry-run и будущая реконструкция albums не выполняются для docice,
+Lenia или других пользователей. Anna automatic-stack exclusion остаётся без изменений:
+album migration не зависит от automatic stacking.
+
 ## Требования и запуск тестов
 
 Python 3.10+; только стандартная библиотека, без `pip install`.
@@ -75,9 +81,13 @@ Metadata можно восстановить отдельно от Synology medi
 ]
 ```
 
-Работает наиболее длинный prefix. `..`, относительный target и конфликтующие mappings запрещены. Без mapping `sourceMedia` формируется из пути metadata root и Google title; совпадение с server originalPath нельзя предполагать.
+Работает наиболее длинный prefix. `..`, относительный target и конфликтующие mappings запрещены. Report сохраняет использованную пару в `sourcePathMapping`; без mapping это поле равно `null`, а `sourceMedia` формируется из metadata root и Google title. Такой staging path не является проверенным mapping на server.
+
+**Граница доверия:** соответствие путей проверяет владелец до запуска. Tool проверяет синтаксис mapping и ownership Gallery asset, но не может доказать, что выбранный NAS файл действительно произошёл из этого Takeout item. Неверный mapping на другой файл с тем же именем и совместимыми dimensions/duration может дать `HIGH_CONFIDENCE` с metadata differences. Такой результат требует проверки человеком, а не автоматического одобрения.
 
 `--hash-media` необязателен и выключен по умолчанию. Он потоково читает **только реально находящийся рядом с source metadata оригинал**, порциями 1 MiB, для независимого SHA1/size доказательства. Никогда не хэширует mapped Gallery target для подтверждения собственного предположения. Если metadata-only дерево не содержит media, content hash просто недоступен. Ничего не пишется в исходник; на больших видео чтение может быть долгим. Symlink files/directories не читаются.
+
+Оригиналы уже находятся в Gallery/Synology. **Повторно копировать или импортировать примерно 200 GB Takeout media не требуется.** Metadata-only дерево достаточно для совпадений по проверенному path-map либо другим реально доступным независимым доказательствам; оно не гарантирует распознавание каждого item. Без original Takeout bytes недоступен путь получения независимого checksum/size через `--hash-media`, а некоторые indexed sidecars нельзя связать с соседним media file. Такие случаи остаются `AMBIGUOUS`/`MISSING`; repaired Synology file не считается byte-identical Google original.
 
 ## Dry-run
 
@@ -94,19 +104,24 @@ python3 tools/google-photos-albums/takeout_albums.py \
 После будущего восстановления JSON и проверки path map на HP (не выполнять сейчас):
 
 ```bash
-# API key своего owner должен уже находиться в GALLERY_TAKEOUT_API_KEY.
+# Только read-only API key Anna должен уже находиться в GALLERY_TAKEOUT_API_KEY.
 # Это только чтение Gallery; JSON/media на Synology не меняются.
 python3 /opt/gallery-fork/tools/google-photos-albums/takeout_albums.py \
-  --owner de9b2d19-cd6a-4b82-8230-33e17134a3bf \
-  --takeout /mnt/hp-data/takeout-metadata/docice \
+  --owner bb8ccc0b-9322-40ea-9ae5-672d497b3e01 \
+  --takeout /mnt/hp-data/takeout-metadata/chudo_anna \
   --photos-root-confirmed \
   --server https://imm.lampax.top \
   --api-key-env GALLERY_TAKEOUT_API_KEY \
-  --path-map /mnt/hp-data/takeout-audit/docice-path-map.json \
-  --output /mnt/hp-data/takeout-audit/docice-dry-run.json
+  --path-map /mnt/hp-data/takeout-audit/chudo_anna-path-map.json \
+  --output /mnt/hp-data/takeout-audit/chudo_anna-dry-run.json
 ```
 
 Это **предлагаемые отдельные audit/metadata locations**, не утверждение о существующих Synology mounts. Каталоги/output parent должны быть подготовлены владельцем отдельно; tool не создаёт дерево на NAS. При повторном запуске используйте новое audit filename или `--output -` (JSON в stdout). Существующий output не перезаписывается. Output запрещён внутри source metadata, mapped media roots и всех известных inventory media directories, а также вместо входного snapshot/ledger/path-map. Файл создаётся с ограниченными правами (0600). Mapping содержит личные filenames/paths/Google metadata; храните его как приватный аудит.
+
+Этот real-data command пока **не запускать**: нужны независимо проверенные Anna JSON,
+исходное Photos tree, actual server/Synology paths, Anna path-map, Anna read-only key
+и private audit directory. Эти prerequisites из Cloud не подтверждены. При отсутствии
+любого prerequisite работа заканчивается на подготовке; `apply` отсутствует.
 
 ## Что доказывает parser
 
@@ -114,24 +129,37 @@ python3 /opt/gallery-fork/tools/google-photos-albums/takeout_albums.py \
 - Title-only `metadata.json` новой схемы является **кандидатом** `REQUIRES_ALBUM_CONFIRMATION`: не считается доказанным альбомом и не увеличивает `albumsToCreate`.
 - Произвольные директории и произвольный JSON с title не являются альбомами. Membership определяется direct sidecars этого подтверждённого album directory, не рекурсивно по unrelated subdirectories.
 - Capture time — `photoTakenTime.timestamp`; `creationTime` не подменяет время съёмки.
+- Дополнительные `fileSize`, `width`, `height`, typed `contentChecksum` и video `durationMilliseconds` используются только при наличии. Типичные Google sidecars могут не содержать их. Для source принимается только явно обозначенная целочисленная duration в миллисекундах; произвольный numeric `duration`, seconds и timecode не угадываются. Gallery API `duration` уже имеет определённые единицы: milliseconds.
 - Полный Google title помогает при truncated `.supplemental-metadata.json`. Если export basename был изменён и доказательств недостаточно, результат остаётся AMBIGUOUS/MISSING.
 - JSON-only suffix `(1)` нельзя без доказательств трактовать как base media или duplicate JSON. Неопределённая association остаётся AMBIGUOUS.
 - Edited sidecar filename не сопоставляется с unedited original. JPEG и HEIC не считаются взаимозаменяемыми.
 - Extension classification совпадает с текущими image/raw/HEIF/video sets `server/src/utils/mime-types.ts`, включая CR3/NEF/ARW/RAF, HIF/JXL, WMV/TS и другие server-supported types. Parser не декодирует и не конвертирует эти файлы. Test проверяет parity; при upstream изменении набора extensions нужно обновить standalone constants.
 - Обычное видео остаётся обычным видео. Серверный `livePhotoVideoId` позволяет уверенно сопоставленный motion component представить членством существующего logical still asset; скрытый unlinked video никогда не добавляется как самостоятельный item. Ни формат Motion/Live, ни связь файлов не меняются.
 
-## Confidence и воспроизводимость
+## Confidence, repaired metadata и воспроизводимость
 
-| Результат       | Доказательства                                                                                                            |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| EXACT           | Единственное непротиворечивое совпадение owner/type + typed content hash, либо explicit path + capture time/size          |
-| HIGH_CONFIDENCE | Единственное непротиворечивое совпадение owner/type + explicit path, либо original filename + capture time (до 1 секунды) |
-| AMBIGUOUS       | Несколько равно сильных matches, недостаточные filename-only признаки или неопределённая indexed sidecar association      |
-| MISSING         | Нет подходящего owner-scoped asset; upload не предлагается                                                                |
+На production часть media ранее получила исправленные dates/EXIF. Capture time, byte checksum, file size и filesystem mtime поэтому не считаются неизменяемыми сами по себе. Tool **не устанавливает причину различий**: EXIF repair — возможное объяснение, а не доказательство identity.
 
-Path/hash EXACT превосходит более слабое filename+time совпадение; более слабые candidates остаются в evidence. Несколько одинаково EXACT assets, включая content duplicates, всегда AMBIGUOUS. Противоречия size/hash/capture time/dimensions отклоняют candidate; rotated dimensions допускаются. Trashed/offline/locked assets и unlinked hidden media исключены.
+| Результат       | Доказательства                                                                                                                                                                                                                                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EXACT           | Единственное независимое совпадение owner/type + сравнимый typed content hash, включая capture drift; либо unchanged path identity + capture time/size при отсутствии metadata differences                                                                                                                                                                             |
+| HIGH_CONFIDENCE | Единственный проверенный mapped path + media type + совпавший Gallery `originalFileName` (полное имя с extension), в том числе с repaired capture/hash/size; hash identity с противоречащим reported size; unchanged source path без второго доказательства; либо единственный совместимый original filename + capture time без differences и неразрешённых duplicates |
+| AMBIGUOUS       | Несколько независимых identity proofs; duplicate filename без доказуемого различения; недостаточные filename-only признаки; metadata differences без независимой identity; неразрешённая indexed sidecar association                                                                                                                                                   |
+| MISSING         | Нет разрешённого owner-scoped candidate либо все найденные структурно несовместимы; upload не предлагается                                                                                                                                                                                                                                                             |
 
-Mapping JSON сохраняет owner, source JSON provenance, source media/path, Google metadata, target asset, confidence/evidence, target albums, причины ambiguity/missing и diagnostics. Дубликаты records объединяются только по одинаковой доказуемой source association + metadata, сохраняя все source JSON. Один target asset допустим в нескольких albums; logical still+motion membership дедуплицируется. Summary `matches` считает metadata records, а `uniqueMatchedAssets` — уникальные existing assets.
+- Capture matching сохраняет предел **одна секунда**. Timestamp mismatch не расширяет tolerance; при сильном независимом identity evidence он записывается как difference вместо автоматического `MISSING`.
+- `contentChecksum` сравнивается только при одинаковом подтверждённом algorithm. Несправнимые алгоритмы и path hashes не становятся ни совпадением, ни byte mismatch. Настоящий совпавший hash сохраняет `EXACT` при изменённой date; reported size inconsistency консервативно снижает его до `HIGH_CONFIDENCE`.
+- Capture/hash/size mismatch сохраняется в `metadataDifferences`: source/asset values и provenance. При verified mapped path это `HIGH_CONFIDENCE`, а без независимого identity proof — `AMBIGUOUS`, если candidate существует. Same filename или совпавшие size/dimensions/duration сами по себе не достаточны.
+- Для drift path proof нужен совпавший Gallery `originalFileName`, а не только basename вычисленного mapped path: последний был бы повтором предположения mapping. Renamed original filename без independent matching hash остаётся `AMBIGUOUS`.
+- Проверяются orientation-independent dimensions и точная duration в milliseconds. Противоречащие dimensions/duration отклоняют candidate; нет broad fuzzy matching. `fileModifiedAt`, filesystem mtime и `updatedAt` не участвуют в выборе.
+- Verified path/hash identity превосходит filename+time evidence. Но разные независимые identity proofs **не ранжируются друг против друга**: например, hash указывает на один asset, а path-map на другой — `AMBIGUOUS`, даже если confidence labels различаются. Byte-identical duplicates также остаются `AMBIGUOUS`.
+- Неустранённый same-name candidate с repaired date блокирует выбор другого asset только по совпавшей date. Его нельзя исключить как «не тот файл» на основании date/hash drift.
+- Unresolved `(N)` association может обойти ambiguity только при **реально совпавшем сравнимом independent content hash**. Наличие любого checksum без совпадения этого не разрешает.
+- Trashed/offline/locked assets и unlinked hidden media исключены. Все `HIGH_CONFIDENCE` и metadata differences требуют ручного review; `AMBIGUOUS`/`MISSING` никогда не становятся automatic memberships.
+
+Выбранный item с `metadataDifferences` получает `requiresMetadataReview=true`; соответствующий album — `reviewRequired=true`. Это действует и для `EXACT` content-hash match с изменённой date. Confidence сообщает о силе identity evidence, а не разрешает применять результат без review.
+
+Mapping JSON сохраняет owner, source JSON provenance, source media/path, `sourcePathMapping`, `sourceEvidence`, `assetEvidence`, `identityBasis`, `metadataDifferences`, Google metadata, target asset, confidence/evidence, target albums, причины ambiguity/missing и diagnostics. Timestamp provenance — Google `photoTakenTime.timestamp` против текущего Gallery `fileCreatedAt`; history repair сервер не предоставляет. Дубликаты records объединяются только по одинаковой доказуемой source association + metadata, сохраняя все source JSON. Один target asset допустим в нескольких albums; logical still+motion membership дедуплицируется. Summary `matches` считает metadata records, а `uniqueMatchedAssets` — уникальные existing assets.
 
 Нет wall-clock timestamp и случайных IDs: одинаковые входы дают одинаковый JSON. Альбомам не придумываются order/cover. Unknown/malformed/unsupported records попадают в diagnostics; errors чтения директории прекращают сканирование, не создавая ложный полный отчёт. Непонятные records внутри album требуют review.
 

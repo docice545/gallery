@@ -205,10 +205,11 @@ Scanner игнорирует настоящую .json extension, не созда
 JSON как XMP/EXIF. Два real fast-glob tests это подтвердили. Вернуть JSON рядом
 с media допустимо для этой семантики, но directory traversal/watch overhead
 ненулевой, unlink может создать noop removal job; HP/NFS/SMB ошибки не проверены.
-Поэтому предпочтительно отдельное новое metadata-only место на SSD:
+Актуальное production-уточнение владельца: реальная миграция требуется только
+Anna/chudo_anna. Прежняя подготовка для остальных пользователей отменена;
+generic tool и synthetic multi-owner tests остаются. Предпочтительно отдельное
+metadata-only место на SSD:
 
-- /mnt/hp-data/takeout-metadata/docice/
-- /mnt/hp-data/takeout-metadata/lenia/
 - /mnt/hp-data/takeout-metadata/chudo_anna/
 
 Это плановые места, не утверждение о существующих NAS mounts. Реальные Synology
@@ -218,10 +219,11 @@ read-only discovery (findmnt, selected Docker mounts, admin GET /libraries).
 Оригинальный HP/container путь нельзя угадать по /mnt/hp-data/immich.
 
 После discovery подготовить read-only path-map: metadata relative prefix →
-проверенный server originalPath prefix. Для docice выбран audit file
-/mnt/hp-data/takeout-audit/docice-path-map.json. Отдельный API key именно docice
+проверенный server originalPath prefix. Для Anna выбран audit file
+/mnt/hp-data/takeout-audit/chudo_anna-path-map.json. Отдельный API key именно Anna
 передаётся через GALLERY_TAKEOUT_API_KEY с read scopes; пароль/ключ не помещается
-в команду или Git. Другие пользователи запускаются отдельно со своим root/key/UUID.
+в команду или Git. Реальная миграция docice, Lenia и остальных пользователей
+не выполняется. Это никак не меняет Anna automatic-stack exclusion.
 Соответствие Google export выбранному человеку подтверждает владелец; Gallery
 asset owner всегда проверяет инструмент.
 
@@ -376,19 +378,19 @@ trash-web-unit.log, trash-web-eslint-baseline.log и google-albums-unittest.log.
 ## K. NEXT STEP: одна REAL DATA DRY-RUN команда
 
 Выполнять **после** восстановления только Google Photos JSON в указанное isolated
-место, read-only discovery actual paths, подготовки проверенного docice-path-map
+место, read-only discovery actual paths, подготовки проверенного chudo_anna-path-map
 и отдельного audit output parent. GALLERY_TAKEOUT_API_KEY должен уже содержать
-ключ docice с user.read/asset.read/album.read. Command не содержит credentials;
+ключ Anna с user.read/asset.read/album.read. Command не содержит credentials;
 ничего не создаёт в Gallery, не пишет Synology или БД, только новый приватный
 локальный report/mapping. Существующий report не перезаписывает.
 
 ```bash
 python3 /opt/gallery-fork/tools/google-photos-albums/takeout_albums.py \
-  --owner de9b2d19-cd6a-4b82-8230-33e17134a3bf \
-  --takeout /mnt/hp-data/takeout-metadata/docice \
+  --owner bb8ccc0b-9322-40ea-9ae5-672d497b3e01 \
+  --takeout /mnt/hp-data/takeout-metadata/chudo_anna \
   --photos-root-confirmed \
   --server https://imm.lampax.top \
   --api-key-env GALLERY_TAKEOUT_API_KEY \
-  --path-map /mnt/hp-data/takeout-audit/docice-path-map.json \
-  --output /mnt/hp-data/takeout-audit/docice-dry-run.json
+  --path-map /mnt/hp-data/takeout-audit/chudo_anna-path-map.json \
+  --output /mnt/hp-data/takeout-audit/chudo_anna-dry-run.json
 ```

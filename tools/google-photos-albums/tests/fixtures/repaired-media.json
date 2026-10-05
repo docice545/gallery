@@ -1,0 +1,25 @@
+{
+  "albumMetadata": {
+    "access": "protected",
+    "date": { "timestamp": "1577836800" },
+    "description": "Synthetic metadata-repair regression fixture",
+    "title": "Synthetic repaired media"
+  },
+  "photoSidecar": {
+    "creationTime": { "timestamp": "1609459200" },
+    "description": "Synthetic photo, no personal media",
+    "height": 3000,
+    "photoTakenTime": { "timestamp": "1577836800" },
+    "title": "IMG_REPAIRED.JPG",
+    "width": 4000
+  },
+  "videoSidecar": {
+    "creationTime": { "timestamp": "1609459200" },
+    "description": "Synthetic video, no personal media",
+    "durationMilliseconds": 30000,
+    "height": 1080,
+    "photoTakenTime": { "timestamp": "1577836800" },
+    "title": "VID_REPAIRED.MP4",
+    "width": 1920
+  }
+}

@@ -419,10 +419,15 @@ class TakeoutTests(unittest.TestCase):
         self.assertIn("size", evidence)
         self.assertIn("dimensions (orientation independent)", evidence)
 
-    def test_mismatching_capture_timestamp_rejects_match(self):
+    def test_unmapped_capture_timestamp_difference_is_ambiguous(self):
         self.item()
         self.asset(fileCreatedAt="2021-01-01T00:00:00Z")
-        self.assertEqual(self.build()["items"][0]["confidence"], "MISSING")
+        row = self.build()["items"][0]
+        self.assertEqual(row["confidence"], "AMBIGUOUS")
+        self.assertIsNone(row["assetId"])
+        self.assertEqual(
+            row["candidates"][0]["metadataDifferences"][0]["field"], "captureTimestamp"
+        )
 
     def test_explicit_path_map_matches_metadata_staged_elsewhere(self):
         self.item()
@@ -680,7 +685,7 @@ class TakeoutTests(unittest.TestCase):
         )["items"][0]
         self.assertNotIn("content checksum", row["evidence"])
 
-    def test_independent_source_hash_rejects_wrong_mapped_target_bytes(self):
+    def test_independent_source_hash_records_mapped_byte_difference(self):
         self.item()
         (self.root / "Holiday/IMG_0001.JPG").write_bytes(b"actual source bytes")
         target = self.base / "gallery-originals"
@@ -698,7 +703,23 @@ class TakeoutTests(unittest.TestCase):
             hash_media=True,
             path_maps=[{"metadataPrefix": "Holiday", "assetPrefix": str(target)}],
         )["items"][0]
-        self.assertEqual(row["confidence"], "MISSING")
+        # The operator asserts this exact path mapping. Byte differences alone
+        # cannot disprove logical identity after EXIF repair, and must not be
+        # hidden by hashing the mapped target as if it were the source.
+        self.assertEqual(row["confidence"], "HIGH_CONFIDENCE")
+        self.assertEqual(row["identityBasis"], "VERIFIED_MAPPED_PATH")
+        difference = next(
+            d for d in row["metadataDifferences"] if d["field"] == "contentChecksum"
+        )
+        self.assertNotEqual(difference["sourceValue"], difference["assetValue"])
+        self.assertEqual(
+            difference["sourceValue"][1],
+            hashlib.sha1(b"actual source bytes").hexdigest(),
+        )
+        self.assertEqual(
+            difference["sourceProvenance"], "independent source media bytes"
+        )
+        self.assertEqual(media.read_bytes(), b"incorrect target bytes")
 
     def test_output_cannot_be_in_snapshot_original_directory_without_map(self):
         originals = self.base / "nas-originals"

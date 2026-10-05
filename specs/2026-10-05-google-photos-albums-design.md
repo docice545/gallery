@@ -7,6 +7,24 @@ Synology по сообщению владельца; отсутствие JSON �
 Fixtures синтетические. Production, Synology и PostgreSQL из этой среды не
 опрашивались и не изменялись.
 
+## Актуальный production scope: только Anna
+
+Единственный пользователь для реальной JSON extraction, path-map, dry-run и
+будущей реконструкции albums — **Anna/chudo_anna**,
+`bb8ccc0b-9322-40ea-9ae5-672d497b3e01`. Docice, Lenia и все остальные исключены
+из реальной миграции. Generic tool и synthetic multi-owner tests не ограничиваются
+Anna и не удаляются. При discovery библиотек выбирать только Anna owner scope.
+Anna automatic-stack exclusion намеренная и не связана с album migration;
+worker, timer и exclusion не изменять.
+
+Production paths: `/mnt/hp-data/takeout-metadata/chudo_anna`,
+`/mnt/hp-data/takeout-audit/chudo_anna-path-map.json`,
+`/mnt/hp-data/takeout-audit/chudo_anna-dry-run.json`. Использовать только Anna
+owner-specific read-only API key. Пока не подтверждены восстановленные Anna JSON,
+исходное Photos tree, настоящие Synology/Gallery paths, проверенный path-map,
+credentials и private audit directory, real-data dry-run запрещён. Текущая работа
+заканчивается подготовкой; production apply не реализован.
+
 ## Что известно о HP, а что ещё требует read-only discovery
 
 Подтверждённые владельцем пути: checkout `/mnt/hp-data/gallery-fork`, его bind
@@ -26,11 +44,11 @@ mount `/opt/gallery-fork`, Gradle `/mnt/hp-data/build-cache/gradle`, Pub
 Известны лишь предоставленные владельцем UUID, без привязки к конкретной
 External Library:
 
-| Пользователь | Явный owner scope                      |
-| ------------ | -------------------------------------- |
-| docice       | `de9b2d19-cd6a-4b82-8230-33e17134a3bf` |
-| Lenia        | `47f6a3fc-75d9-4214-899f-8b4234eb8202` |
-| chudo_anna   | `bb8ccc0b-9322-40ea-9ae5-672d497b3e01` |
+| Пользователь | Явный owner scope                      | Реальная миграция  |
+| ------------ | -------------------------------------- | ------------------ |
+| docice       | `de9b2d19-cd6a-4b82-8230-33e17134a3bf` | Исключён           |
+| Lenia        | `47f6a3fc-75d9-4214-899f-8b4234eb8202` | Исключён           |
+| chudo_anna   | `bb8ccc0b-9322-40ea-9ae5-672d497b3e01` | Единственный scope |
 
 Следующие команды предназначены владельцу HP, только для чтения; в Codex они
 не выполнялись. Они не выводят полный Compose config, env контейнера или
@@ -102,8 +120,6 @@ filter, а не тест production Synology.
 затрагивать наблюдаемое media дерево:
 
 ```text
-/mnt/hp-data/takeout-metadata/docice/Takeout/<исходный Photos root>/...
-/mnt/hp-data/takeout-metadata/lenia/Takeout/<исходный Photos root>/...
 /mnt/hp-data/takeout-metadata/chudo_anna/Takeout/<исходный Photos root>/...
 ```
 
@@ -187,7 +203,7 @@ Hidden motion video может присутствовать в inventory для 
 
 Доступны `id`, `ownerId`, `libraryId` (deprecated nullable), `type`,
 `originalPath`, `originalFileName`, `fileCreatedAt`, `localDateTime`,
-`width/height`, `visibility`, `livePhotoVideoId`, `isTrashed`, `isOffline`,
+`width/height`, `duration` (integer milliseconds), `visibility`, `livePhotoVideoId`, `isTrashed`, `isOffline`,
 `isEdited`; через `exifInfo`: `fileSizeInByte`, `exifImageWidth/Height`,
 `dateTimeOriginal`, `timeZone`. JSON может не содержать size/dimensions/hash;
 их отсутствие не заменять выдуманными значениями.
@@ -219,17 +235,60 @@ Owner-scoped matcher использует explicit path-map, source/title/origin
 media type, capture timestamp и дополнительные реальные size/dimensions/hash
 при наличии. Название одного файла никогда не достаточный критерий. Timestamp
 `photoTakenTime` использовать как capture evidence; `creationTime` означает
-время Google ingestion и не равно съёмке по умолчанию.
+время Google ingestion и не равно съёмке по умолчанию. `fileModifiedAt`,
+filesystem mtime и `updatedAt` не используются как identity proof.
 
-- `EXACT`: единственный кандидат с подтверждённым content identity либо
-  mapped original path + capture timestamp (допуск одна секунда) или реальный
-  size; согласованы type/owner, нет противоречий доступной metadata.
-- `HIGH_CONFIDENCE`: единственный mapped original path без второго доступного
-  доказательства либо original filename + type + capture time (одна секунда).
-  Size/dimensions, когда доступны, дополнительно проверяются на противоречие.
-- `AMBIGUOUS`: несколько кандидатов, противоречие или недостаточно evidence;
-  target asset не выбирается случайно.
-- `MISSING`: подходящего разрешённого существующего asset нет. Никакого upload.
+### Production media после date/EXIF repair
+
+По дополнительному сообщению владельца часть Synology originals уже проходила
+metadata/date repair. Текущий Gallery timestamp, EXIF, byte hash, size и mtime
+могут отличаться от Google export для того же logical media. Предыдущий matcher
+отклонял любой date/hash/size mismatch, поэтому такой item мог ошибочно стать
+`MISSING` даже при сильном path evidence. Установить причину различий по API
+нельзя: server отдаёт текущий `fileCreatedAt`, а не provenance/history repair.
+
+Новая policy разделяет identity proofs, mutable differences и structural
+contradictions. Она не расширяет capture tolerance и не вводит fuzzy matching:
+
+- `EXACT`: единственный сравнимый typed content hash, даже при capture drift;
+  либо unchanged original path + capture time (до одной секунды) или реальный
+  size, без metadata differences. Content-hash match с inconsistent reported
+  size консервативно становится `HIGH_CONFIDENCE`.
+- `HIGH_CONFIDENCE`: единственный operator-verified mapped path + media type +
+  совпавший Gallery `originalFileName`, включая полную extension, при возможных
+  capture/hash/size differences. Совпадение basename вычисленного mapped path
+  само по себе не заменяет проверку `originalFileName`. Без differences также
+  допустим единственный compatible filename + capture-time match, если нет
+  неразрешённых same-name candidates.
+- `AMBIGUOUS`: несколько independent identity proofs, недостаточные признаки
+  или candidate с metadata drift без независимого proof. Same-name duplicate с
+  другой current date нельзя отбросить, чтобы второй duplicate победил только
+  по совпавшему timestamp. Hash и mapped path, указывающие на разные assets,
+  остаются ambiguous независимо от confidence label; content duplicates тоже.
+- `MISSING`: нет eligible owner-scoped candidate либо кандидаты структурно
+  несовместимы. Ни copied media, ни upload не предлагаются.
+
+Capture/hash/size differences не доказывают repair и не создают identity:
+они записываются в `metadataDifferences` с source/asset values и provenance.
+Dimensions сравниваются orientation-independent; несовместимые dimensions или
+duration отклоняют candidate. Duration принимается для видео как явно
+обозначенный source `durationMilliseconds` и определённый Gallery DTO `duration`
+в миллисекундах; arbitrary numeric Google `duration`, seconds/timecode и missing
+metadata не угадываются. Size/dimensions/duration не заменяют identity proof.
+
+Использованный longest-prefix mapping сохраняется как `sourcePathMapping`.
+`null` означает fallback location metadata root, а не проверенный server map;
+такой fallback не поддерживает repaired-metadata path proof. Verification —
+утверждение оператора, подтверждённое его read-only discovery: tool проверяет
+синтаксис, owner и inventory equality, но не может доказать происхождение NAS
+файла. Неверный mapping на same-name structurally compatible файл может получить
+`HIGH_CONFIDENCE` с differences. Это граница доверия, а не гарантия EXIF repair.
+
+Каждый выбранный item с differences имеет `requiresMetadataReview=true`, и его
+album получает `reviewRequired=true`, в том числе при `EXACT` hash identity с
+capture drift. Source/target evidence сохраняется и для недостаточных/rejected
+candidates. Future apply должен требовать review, а не принимать confidence
+label или false review flag за разрешение мутации.
 
 Конкретные реализованные thresholds/reason strings описаны в
 [`tools/google-photos-albums/README.md`](../tools/google-photos-albums/README.md).
@@ -242,7 +301,30 @@ Inventory индексируется один раз по path/name/typed conten
 может сопоставиться только с разрешённым owner-scoped still parent; offline,
 trashed, Locked и непарный Hidden не являются разрешёнными целями.
 Неразрешённый `(N)` в sidecar filename не сворачивается в unindexed original:
-при JSON-only данных и без content identity результат AMBIGUOUS.
+при JSON-only данных и без реально совпавшего comparable independent content
+hash результат AMBIGUOUS. Само наличие checksum, его mismatch или несовпадающие
+algorithms не снимают неопределённость association.
+
+### Достаточность metadata-only restore
+
+По-прежнему **не требуется повторно копировать/импортировать примерно 200 GB
+Takeout originals**. Path-map плюс текущий owner-scoped Gallery inventory и
+настоящие sidecars позволяют доказать identity без original Google bytes.
+Однако это не гарантия match для каждого item: если NAS структура изменилась,
+dates исправлены, а других независимых доказательств нет, результат остаётся
+AMBIGUOUS/MISSING до отдельного разбора, а не получает выдуманный confidence.
+
+JSON-only restore теряет два optional источника evidence: независимый
+streaming SHA1/size original Takeout media (`--hash-media`) и наличие media
+рядом с indexed sidecar для проверки его exact filename association. Обычные
+Google sidecars могут не содержать dimensions/size/duration/content hashes;
+их отсутствие допустимо и явно видно в evidence. Typed independent checksum
+в sidecar/проверенном manifest можно использовать и без bytes, но нельзя
+придумывать его или вычислять по repaired mapped Synology target ради
+самоподтверждения mapping. Если для конкретного спорного item нужен original
+byte proof, потребуется отдельное ограниченное read-only доказательство из
+архивного export; это не означает перенос всей библиотеки и не внедрено как
+обязательное условие dry-run.
 
 ## Настоящий пользовательский album и пределы Takeout
 

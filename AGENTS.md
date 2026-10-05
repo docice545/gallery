@@ -23,6 +23,14 @@ and Big-LaMa model are already on SSD, and Docker root remains on NVMe. Do not
 move or duplicate them. iOS readiness findings and native validation boundaries
 are recorded in [`specs/2026-10-05-ios-readiness-design.md`](specs/2026-10-05-ios-readiness-design.md).
 
+Future real Google Takeout album reconstruction is scoped to **Anna/chudo_anna only**
+(`bb8ccc0b-9322-40ea-9ae5-672d497b3e01`). See
+[`specs/2026-10-05-google-photos-albums-design.md`](specs/2026-10-05-google-photos-albums-design.md).
+Keep the tooling generic and owner-scoped, but do not prepare/run real migrations for docice,
+Lenia or other users. Anna's automatic-stack exclusion is independent and remains unchanged.
+Real dry-run requires verified Anna JSON, paths, path-map, read-only credentials and private output;
+otherwise stop at synthetic preparation. No media reimport, album creation or production apply.
+
 Gallery is a community fork of [Immich](https://github.com/immich-app/immich), a self-hosted photo and video management solution. The fork is currently based on **Immich v2.7.5** and regularly rebased onto upstream. Source package names are still `immich` / `immich-web` so the rebase path stays clean — only branding, Docker image names, and fork-only code diverge.
 
 Fork-specific features layered on top of upstream include: shared spaces, smart search & filters, user groups, S3-compatible storage, auto-classification, video duplicate detection, pet detection, Google Photos import, image editing & video trimming, and structured JSON logging. See `README.md` for the full list and docs links.

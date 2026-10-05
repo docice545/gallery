@@ -173,6 +173,19 @@ def positive_integer(value: Any) -> int | None:
         return None
 
 
+def duration_milliseconds(value: Any) -> int | None:
+    """Only explicit integer milliseconds; do not guess seconds or timecodes."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        if not re.fullmatch(r"[0-9]{1,10}", value):
+            return None
+        value = int(value)
+    if isinstance(value, int) and 0 <= value <= 2_147_483_647:
+        return value
+    return None
+
+
 def content_checksum(value: Any) -> tuple[str, str] | None:
     """Only explicitly identified content hashes are trustworthy for external assets."""
     if not isinstance(value, dict):
@@ -260,11 +273,22 @@ def normalize_path_maps(path_maps: list[dict[str, Any]]) -> list[tuple[str, str]
 
 
 def mapped_path(relative: str, root: Path, path_maps: list[tuple[str, str]]) -> str:
+    mapping = source_path_mapping(relative, path_maps)
+    if mapping:
+        source, target = mapping["metadataPrefix"], mapping["assetPrefix"]
+        suffix = relative[len(source) :].lstrip("/") if source else relative
+        return str(PurePosixPath(target) / suffix)
+    return str(root / relative)
+
+
+def source_path_mapping(
+    relative: str, path_maps: list[tuple[str, str]]
+) -> dict[str, str] | None:
+    """Record the operator-verified mapping; a metadata staging path is not one."""
     for source, target in path_maps:
         if not source or relative == source or relative.startswith(source + "/"):
-            suffix = relative[len(source) :].lstrip("/") if source else relative
-            return str(PurePosixPath(target) / suffix)
-    return str(root / relative)
+            return {"metadataPrefix": source, "assetPrefix": target}
+    return None
 
 
 def read_media_evidence(path: Path, hash_media: bool) -> dict[str, Any]:
@@ -522,6 +546,7 @@ def parse_takeout(
                 {
                     "sourceJson": relative,
                     "sourceMedia": source_media,
+                    "sourcePathMapping": source_path_mapping(media_relative, path_maps),
                     "sourceRelativePath": media_relative,
                     "directory": parent,
                     "googleMetadata": data,
@@ -530,11 +555,25 @@ def parse_takeout(
                     "sourceAssociationEvidence": association,
                     "associationUncertain": association_uncertain,
                     "captureTimestamp": timestamp(data.get("photoTakenTime")),
+                    "captureTimestampProvenance": "Google photoTakenTime.timestamp",
                     "fileSize": positive_integer(
                         extra.get("fileSize", data.get("fileSize"))
                     ),
                     "width": positive_integer(data.get("width")),
                     "height": positive_integer(data.get("height")),
+                    # Standard Google sidecars may omit this. Never guess units
+                    # for an arbitrary numeric duration/creationTime/mtime field.
+                    "durationMilliseconds": duration_milliseconds(
+                        data.get("durationMilliseconds")
+                    )
+                    if kind == "VIDEO"
+                    else None,
+                    "fileSizeProvenance": "independent source media bytes"
+                    if "fileSize" in extra
+                    else "Google sidecar fileSize",
+                    "contentChecksumProvenance": "independent source media bytes"
+                    if "contentChecksum" in extra
+                    else "explicit typed sidecar contentChecksum",
                     "contentChecksum": content_checksum(
                         extra.get("contentChecksum", data.get("contentChecksum"))
                     ),
@@ -646,9 +685,15 @@ def asset_evidence(row: dict[str, Any]) -> dict[str, Any]:
         "path": row.get("originalPath"),
         "name": row.get("originalFileName"),
         "timestamp": timestamp(row.get("fileCreatedAt")),
+        "timestampProvenance": "Gallery fileCreatedAt; repair history unavailable",
         "size": positive_integer(row.get("fileSize", exif.get("fileSizeInByte"))),
         "width": positive_integer(row.get("width", exif.get("exifImageWidth"))),
         "height": positive_integer(row.get("height", exif.get("exifImageHeight"))),
+        "durationMilliseconds": duration_milliseconds(
+            row.get("durationMilliseconds", row.get("duration"))
+        )
+        if str(row.get("type", "")).upper() == "VIDEO"
+        else None,
         "checksum": checksum,
     }
 
@@ -733,9 +778,24 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
             continue
         reasons = ["owner scope", "media type"]
         contradictions = []
-        for label, source, target in (
-            ("size", item["fileSize"], evidence["size"]),
-            ("content checksum", item["contentChecksum"], evidence["checksum"]),
+        differences = []
+        for label, field, source, target, source_provenance, target_provenance in (
+            (
+                "size",
+                "fileSize",
+                item["fileSize"],
+                evidence["size"],
+                item["fileSizeProvenance"],
+                "Gallery fileSize/exifInfo.fileSizeInByte",
+            ),
+            (
+                "content checksum",
+                "contentChecksum",
+                item["contentChecksum"],
+                evidence["checksum"],
+                item["contentChecksumProvenance"],
+                "explicit typed inventory content checksum",
+            ),
         ):
             if (
                 source is not None
@@ -743,7 +803,15 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
                 and (label != "content checksum" or source[0] == target[0])
             ):
                 if source != target:
-                    contradictions.append(label + " differs")
+                    differences.append(
+                        {
+                            "field": field,
+                            "sourceValue": source,
+                            "assetValue": target,
+                            "sourceProvenance": source_provenance,
+                            "assetProvenance": target_provenance,
+                        }
+                    )
                 else:
                     reasons.append(label)
         if (
@@ -758,6 +826,14 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
                 contradictions.append("dimensions differ")
             else:
                 reasons.append("dimensions (orientation independent)")
+        if (
+            item["durationMilliseconds"] is not None
+            and evidence["durationMilliseconds"] is not None
+        ):
+            if item["durationMilliseconds"] != evidence["durationMilliseconds"]:
+                contradictions.append("duration milliseconds differ")
+            else:
+                reasons.append("duration milliseconds")
         time_matches = (
             item["captureTimestamp"] is not None
             and evidence["timestamp"] is not None
@@ -768,34 +844,87 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
             and evidence["timestamp"] is not None
             and not time_matches
         ):
-            contradictions.append("capture timestamp differs")
+            differences.append(
+                {
+                    "field": "captureTimestamp",
+                    "sourceValue": item["captureTimestamp"],
+                    "assetValue": evidence["timestamp"],
+                    "sourceProvenance": item["captureTimestampProvenance"],
+                    "assetProvenance": evidence["timestampProvenance"],
+                }
+            )
         if time_matches:
             reasons.append("capture timestamp within one second")
         if item["isEdited"] and not path_matches and not name_matches:
             contradictions.append("edited variant needs its own path/name")
         if contradictions:
-            rejected.append({"assetId": evidence["id"], "reasons": contradictions})
+            rejected.append(
+                {
+                    "assetId": evidence["id"],
+                    "reasons": contradictions,
+                    "assetEvidence": evidence,
+                    "metadataDifferences": differences,
+                }
+            )
             continue
         if path_matches:
-            reasons.append("explicit/original source path")
+            reasons.append(
+                "verified mapped source path"
+                if item["sourcePathMapping"]
+                else "original source location path (no explicit mapping)"
+            )
         if name_matches:
             reasons.append("original filename")
+        mapped_identity = bool(
+            path_matches and item["sourcePathMapping"] and name_matches
+        )
+        reasons.extend(
+            difference["field"]
+            + " differs; possible metadata repair, not identity proof"
+            for difference in differences
+        )
         if hash_matches:
-            classification = "EXACT"
-        elif path_matches and (time_matches or "size" in reasons):
-            classification = "EXACT"
-        elif path_matches or (name_matches and time_matches):
+            identity_basis = "CONTENT_HASH"
+            # Identical comparable bytes prove identity even when database dates
+            # changed. A reported size inconsistency is conservatively reviewed.
+            classification = (
+                "HIGH_CONFIDENCE"
+                if any(d["field"] == "fileSize" for d in differences)
+                else "EXACT"
+            )
+        elif mapped_identity:
+            identity_basis = "VERIFIED_MAPPED_PATH"
+            classification = (
+                "EXACT"
+                if not differences and (time_matches or "size" in reasons)
+                else "HIGH_CONFIDENCE"
+            )
+        elif path_matches and not differences:
+            identity_basis = "SOURCE_PATH"
+            classification = (
+                "EXACT" if time_matches or "size" in reasons else "HIGH_CONFIDENCE"
+            )
+        elif name_matches and time_matches and not differences:
+            identity_basis = "FILENAME_CAPTURE_TIME"
             classification = "HIGH_CONFIDENCE"
         else:
-            # A unique filename, dimensions, or size alone is insufficient.
+            # Mutable differences cannot disprove logical identity, but do not
+            # supply missing proof. Dimensions/duration/size alone cannot do so.
             insufficient.append(
                 {
                     "assetId": evidence["id"],
                     "evidence": reasons
-                    + ["original filename only; insufficient identity evidence"],
+                    + ["insufficient independent identity evidence"],
+                    "assetEvidence": evidence,
+                    "metadataDifferences": differences,
                 }
             )
             continue
+        details = {
+            "identityBasis": identity_basis,
+            "assetEvidence": evidence,
+            "metadataDifferences": differences,
+        }
         if related_parents:
             for parent in related_parents:
                 candidates.append(
@@ -809,6 +938,7 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
                             "server-linked motion component; logical still asset membership"
                         ],
                         "livePhotoVideoId": row["id"],
+                        **details,
                     }
                 )
         else:
@@ -818,39 +948,47 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
                     "confidence": classification,
                     "evidence": reasons,
                     "livePhotoVideoId": row.get("livePhotoVideoId"),
+                    **details,
                 }
             )
     candidates.sort(key=lambda row: row["assetId"])
-    if item["associationUncertain"] and item["contentChecksum"] is None:
+    if item["associationUncertain"] and not any(
+        row["identityBasis"] == "CONTENT_HASH" for row in candidates
+    ):
         return {
             "assetId": None,
             "confidence": "AMBIGUOUS",
             "evidence": [],
             "candidates": candidates + insufficient,
             "rejectedCandidates": rejected,
+            "metadataDifferences": [],
             "ambiguityReason": item["sourceAssociationEvidence"],
         }
-    # Verified content/path identity outranks filename+time evidence. Equally exact
-    # matches (including byte-identical duplicates) remain ambiguous.
+    # Identity proofs outrank mutable filename+time evidence, not each other.
+    # A repaired same-name candidate must not be eliminated to let another
+    # candidate win on its date alone. No numeric scores or wider time window.
     strongest = [
-        row for row in candidates if row["confidence"] == "EXACT"
-    ] or candidates
+        row for row in candidates if row["identityBasis"] != "FILENAME_CAPTURE_TIME"
+    ]
+    if not strongest and not insufficient:
+        strongest = candidates
     if len(strongest) == 1:
         weaker = [row["assetId"] for row in candidates if row not in strongest]
         return {
             **strongest[0],
-            "candidates": candidates,
+            "candidates": candidates + insufficient,
             "weakerCandidateIds": weaker,
             "rejectedCandidates": rejected,
         }
-    if strongest:
+    if strongest or candidates:
         return {
             "assetId": None,
             "confidence": "AMBIGUOUS",
             "evidence": [],
-            "candidates": candidates,
+            "candidates": candidates + insufficient,
             "rejectedCandidates": rejected,
-            "ambiguityReason": "More than one owner-scoped asset satisfies reliable evidence; never choose by score or list order",
+            "metadataDifferences": [],
+            "ambiguityReason": "Multiple identity proofs or unresolved same-name candidates; mutable date/hash differences cannot choose between them",
         }
     if insufficient:
         return {
@@ -859,6 +997,7 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
             "evidence": [],
             "candidates": sorted(insufficient, key=lambda row: row["assetId"]),
             "rejectedCandidates": rejected,
+            "metadataDifferences": [],
             "ambiguityReason": "Filename candidates exist, but none has sufficient identity evidence",
         }
     return {
@@ -867,6 +1006,7 @@ def match_item(item: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, 
         "evidence": [],
         "candidates": [],
         "rejectedCandidates": rejected,
+        "metadataDifferences": [],
         "missingReason": "No eligible owner-scoped asset has enough consistent evidence; no upload is proposed",
     }
 
@@ -926,10 +1066,26 @@ def build_mapping(
             "sourceMedia": source["sourceMedia"],
             "sourceRelativePath": source["sourceRelativePath"],
             "sourceAssociationEvidence": source["sourceAssociationEvidence"],
+            "sourcePathMapping": source["sourcePathMapping"],
+            "sourceEvidence": {
+                name: source[name]
+                for name in (
+                    "captureTimestamp",
+                    "captureTimestampProvenance",
+                    "fileSize",
+                    "fileSizeProvenance",
+                    "width",
+                    "height",
+                    "durationMilliseconds",
+                    "contentChecksum",
+                    "contentChecksumProvenance",
+                )
+            },
             "googleMetadata": source["googleMetadata"],
             "targetAlbumKeys": source["albumKeys"],
             **match,
         }
+        item["requiresMetadataReview"] = bool(item["metadataDifferences"])
         if item["key"] in item_keys:
             item_keys[item["key"]]["sourceJsons"].append(source["sourceJson"])
             duplicate_records.append(source["sourceJson"])
@@ -994,6 +1150,7 @@ def build_mapping(
                     or counts["MISSING"]
                     or title_collisions
                     or album_diagnostics
+                    or any(member["requiresMetadataReview"] for member in members)
                 ),
             }
         )
