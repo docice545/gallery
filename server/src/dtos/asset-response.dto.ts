@@ -65,6 +65,12 @@ export const AssetResponseSchema = SanitizedAssetResponseSchema.extend(
       .string()
       .meta({ format: 'date-time' })
       .describe('The UTC timestamp when the asset was originally uploaded to Immich.'),
+    deletedAt: z
+      .string()
+      .meta({ format: 'date-time' })
+      .nullable()
+      .optional()
+      .describe('The UTC timestamp when the asset entered trash, null when not trashed.'),
     ownerId: z.uuidv4().describe('Owner user ID'),
     owner: UserResponseSchema.optional(),
     libraryId: z
@@ -228,6 +234,7 @@ export function mapAsset(entity: MaybeDehydrated<MapAsset>, options: AssetMapOpt
     isFavorite: options.auth?.user.id === entity.ownerId && entity.isFavorite,
     isArchived: entity.visibility === AssetVisibility.Archive,
     isTrashed: !!entity.deletedAt,
+    deletedAt: entity.deletedAt ? asDateTimeString(entity.deletedAt) : null,
     visibility: entity.visibility,
     duration: entity.duration,
     exifInfo: entity.exifInfo ? mapExif(entity.exifInfo) : undefined,

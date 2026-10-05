@@ -665,11 +665,25 @@ export function withTags(eb: ExpressionBuilder<DB, 'asset'>) {
   ).as('tags');
 }
 
+export function timeBucketDateColumn(order: AssetOrderBy = AssetOrderBy.TakenAt) {
+  switch (order) {
+    case AssetOrderBy.CreatedAt: {
+      return 'asset.createdAt';
+    }
+    case AssetOrderBy.DeletedAt: {
+      return 'asset.deletedAt';
+    }
+    default: {
+      return 'localDateTime';
+    }
+  }
+}
+
 export function truncatedDate<O>(
   order: AssetOrderBy = AssetOrderBy.TakenAt,
   bucketSize: TimeBucketSize = TimeBucketSize.Month,
 ) {
-  return sql<O>`date_trunc(${sql.lit(dateTruncUnitForTimeBucketSize(bucketSize))}, ${sql.ref(order === AssetOrderBy.CreatedAt ? 'asset.createdAt' : 'localDateTime')} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
+  return sql<O>`date_trunc(${sql.lit(dateTruncUnitForTimeBucketSize(bucketSize))}, ${sql.ref(timeBucketDateColumn(order))} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
 }
 
 export function withTagId<O>(qb: SelectQueryBuilder<DB, 'asset', O>, tagId: string) {

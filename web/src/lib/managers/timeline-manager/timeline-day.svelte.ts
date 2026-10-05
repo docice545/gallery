@@ -97,7 +97,16 @@ export class TimelineDay {
 
   sortAssets(sortOrder: AssetOrder = AssetOrder.Desc) {
     const sortFn = plainDateTimeCompare.bind(undefined, sortOrder === AssetOrder.Asc);
-    this.viewerAssets.sort((a, b) => sortFn(a.asset.fileCreatedAt, b.asset.fileCreatedAt));
+    this.viewerAssets.sort((a, b) => {
+      const comparison = sortFn(
+        this.orderBy === AssetOrderBy.DeletedAt ? getOrderingDate(a.asset, this.orderBy) : a.asset.fileCreatedAt,
+        this.orderBy === AssetOrderBy.DeletedAt ? getOrderingDate(b.asset, this.orderBy) : b.asset.fileCreatedAt,
+      );
+      if (comparison !== 0 || this.orderBy !== AssetOrderBy.DeletedAt) {
+        return comparison;
+      }
+      return sortOrder === AssetOrder.Asc ? a.asset.id.localeCompare(b.asset.id) : b.asset.id.localeCompare(a.asset.id);
+    });
   }
 
   getFirstAsset() {
@@ -128,6 +137,7 @@ export class TimelineDay {
     const processedIds = new SvelteSet<string>();
     const moveAssets: MoveAsset[] = [];
     let changedGeometry = false;
+    let deletionOrderChanged = false;
 
     if (ids.size === 0) {
       return { moveAssets, processedIds, unprocessedIds, changedGeometry };
@@ -142,18 +152,27 @@ export class TimelineDay {
       const oldTime = { ...getOrderingDate(asset, this.orderBy) };
       const callbackResult = callback(asset);
       let remove = (callbackResult as { remove?: boolean } | undefined)?.remove ?? false;
-      const newTime = getOrderingDate(asset, this.orderBy);
-      if (oldTime.year !== newTime.year || oldTime.month !== newTime.month || oldTime.day !== newTime.day) {
-        const { year, month, day } = newTime;
-        remove = true;
-        moveAssets.push({ asset, date: { year, month, day } });
+      remove ||= this.timelineMonth.timelineManager.isExcluded(asset);
+      if (!remove) {
+        const newTime = getOrderingDate(asset, this.orderBy);
+        if (oldTime.year !== newTime.year || oldTime.month !== newTime.month || oldTime.day !== newTime.day) {
+          const { year, month, day } = newTime;
+          remove = true;
+          moveAssets.push({ asset, date: { year, month, day } });
+        } else if (this.orderBy === AssetOrderBy.DeletedAt && plainDateTimeCompare(true, oldTime, newTime) !== 0) {
+          deletionOrderChanged = true;
+        }
       }
       unprocessedIds.delete(assetId);
       processedIds.add(assetId);
-      if (remove || this.timelineMonth.timelineManager.isExcluded(asset)) {
+      if (remove) {
         this.viewerAssets.splice(index, 1);
         changedGeometry = true;
       }
+    }
+    if (deletionOrderChanged) {
+      this.sortAssets(this.timelineMonth.timelineManager.getAssetOrder());
+      changedGeometry = true;
     }
     return { moveAssets, processedIds, unprocessedIds, changedGeometry };
   }

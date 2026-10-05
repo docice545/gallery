@@ -23362,7 +23362,7 @@
             "name": "orderBy",
             "required": false,
             "in": "query",
-            "description": "Date to group and order assets by (takenAt for date taken, createdAt for date added to Immich)",
+            "description": "Date to group and order assets by (takenAt for date taken, createdAt for date added, deletedAt for trash deletion date; requires isTrashed=true)",
             "schema": {
               "$ref": "#/components/schemas/AssetOrderBy"
             }
@@ -23792,7 +23792,7 @@
             "name": "orderBy",
             "required": false,
             "in": "query",
-            "description": "Date to group and order assets by (takenAt for date taken, createdAt for date added to Immich)",
+            "description": "Date to group and order assets by (takenAt for date taken, createdAt for date added, deletedAt for trash deletion date; requires isTrashed=true)",
             "schema": {
               "$ref": "#/components/schemas/AssetOrderBy"
             }
@@ -24227,7 +24227,7 @@
             "name": "orderBy",
             "required": false,
             "in": "query",
-            "description": "Date to group and order assets by (takenAt for date taken, createdAt for date added to Immich)",
+            "description": "Date to group and order assets by (takenAt for date taken, createdAt for date added, deletedAt for trash deletion date; requires isTrashed=true)",
             "schema": {
               "$ref": "#/components/schemas/AssetOrderBy"
             }
@@ -29802,7 +29802,8 @@
         "description": "Asset sorting property",
         "enum": [
           "takenAt",
-          "createdAt"
+          "createdAt",
+          "deletedAt"
         ],
         "type": "string"
       },
@@ -29823,6 +29824,12 @@
           "createdAt": {
             "description": "The UTC timestamp when the asset was originally uploaded to Immich.",
             "format": "date-time",
+            "type": "string"
+          },
+          "deletedAt": {
+            "description": "The UTC timestamp when the asset entered trash, null when not trashed.",
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "duplicateId": {
@@ -45134,6 +45141,14 @@
           "createdAt": {
             "description": "Array of UTC timestamps when each asset was originally uploaded to Immich",
             "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deletedAt": {
+            "description": "Array of UTC deletion timestamps (null for assets outside trash), aligned with asset IDs",
+            "items": {
+              "nullable": true,
               "type": "string"
             },
             "type": "array"

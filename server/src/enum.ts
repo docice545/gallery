@@ -105,6 +105,7 @@ export const AssetOrderSchema = z.enum(AssetOrder).describe('Asset sort order').
 export enum AssetOrderBy {
   TakenAt = 'takenAt',
   CreatedAt = 'createdAt',
+  DeletedAt = 'deletedAt',
 }
 
 export const AssetOrderBySchema = z.enum(AssetOrderBy).describe('Asset sorting property').meta({ id: 'AssetOrderBy' });

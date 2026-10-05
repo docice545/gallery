@@ -19,6 +19,7 @@
   import type { TimelineGrouping, TimelineTemporalAnchor } from '$lib/managers/timeline-manager/types';
   import { getTimelineBucketZoomTarget, type ActivatableTimelineBucket } from '$lib/utils/timeline-zoom-navigation';
   import { getTimelineTopVisibleAnchor } from '$lib/managers/timeline-manager/timeline-anchor';
+  import { AssetOrder, AssetOrderBy } from '@immich/sdk';
   import { t } from 'svelte-i18n';
   import type { PageData } from './$types';
 
@@ -31,7 +32,7 @@
   let timelineManager = $state<TimelineManager>() as TimelineManager;
   let timelineGrouping = $state<TimelineGrouping>('day');
   let temporalAnchor = $state<TimelineTemporalAnchor | undefined>();
-  const baseTimelineOptions = { isTrashed: true };
+  const baseTimelineOptions = { isTrashed: true, orderBy: AssetOrderBy.DeletedAt, order: AssetOrder.Desc };
   const options = $derived({
     ...baseTimelineOptions,
     grouping: timelineGrouping,

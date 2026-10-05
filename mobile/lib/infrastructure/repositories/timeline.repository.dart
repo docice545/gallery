@@ -841,6 +841,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     temporalScope: temporalScope,
     origin: TimelineOrigin.trash,
     joinLocal: true,
+    sortBy: SortAssetsBy.deleted,
   );
 
   TimelineQuery archived(
@@ -1359,7 +1360,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
   }) {
     if (groupBy == GroupAssetsBy.none) {
       final query = _db.remoteAssetEntity.count(
-        where: (row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope),
+        where: (row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope, sortBy: sortBy),
       );
       return query.map(_generateBuckets).watchSingle();
     }
@@ -1369,7 +1370,10 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
 
     final query = _db.remoteAssetEntity.selectOnly()
       ..addColumns([assetCountExp, dateExp])
-      ..where(filter(_db.remoteAssetEntity) & _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope))
+      ..where(
+        filter(_db.remoteAssetEntity) &
+            _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope, sortBy: sortBy),
+      )
       ..groupBy([dateExp])
       ..orderBy([OrderingTerm.desc(dateExp)]);
 
@@ -1399,11 +1403,13 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
               ),
             ])
             ..addColumns([_db.localAssetEntity.id])
-            ..where(filter(_db.remoteAssetEntity) & _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope))
+            ..where(
+              filter(_db.remoteAssetEntity) &
+                  _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope, sortBy: sortBy),
+            )
             ..orderBy([
-              OrderingTerm.desc(
-                sortBy == SortAssetsBy.uploaded ? _db.remoteAssetEntity.uploadedAt : _db.remoteAssetEntity.createdAt,
-              ),
+              OrderingTerm.desc(_db.remoteAssetEntity.sortTimestamp(sortBy)),
+              if (sortBy == SortAssetsBy.deleted) OrderingTerm.asc(_db.remoteAssetEntity.id),
             ])
             ..limit(count, offset: offset);
 
@@ -1412,8 +1418,11 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
           .get();
     } else {
       final query = _db.remoteAssetEntity.select()
-        ..where((row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope))
-        ..orderBy([(row) => OrderingTerm.desc(sortBy == SortAssetsBy.uploaded ? row.uploadedAt : row.createdAt)])
+        ..where((row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope, sortBy: sortBy))
+        ..orderBy([
+          (row) => OrderingTerm.desc(row.sortTimestamp(sortBy)),
+          if (sortBy == SortAssetsBy.deleted) (row) => OrderingTerm.asc(row.id),
+        ])
         ..limit(count, offset: offset);
 
       return query.map((row) => row.toDto()).get();
@@ -1681,13 +1690,17 @@ BaseAsset _scopedMainAssetFromRow(QueryRow row) {
   );
 }
 
-Expression<bool> _remoteWithinTemporalScope($RemoteAssetEntityTable row, TimelineTemporalScope scope) {
+Expression<bool> _remoteWithinTemporalScope(
+  $RemoteAssetEntityTable row,
+  TimelineTemporalScope scope, {
+  SortAssetsBy sortBy = SortAssetsBy.taken,
+}) {
   if (scope.isEmpty) {
     return const Constant(true);
   }
   final start = _scopeDateFormat.format(scope.start!);
   final end = _scopeDateFormat.format(scope.end!);
-  final dateExp = row.effectiveCreatedAt(GroupAssetsBy.day);
+  final dateExp = row.effectiveCreatedAt(GroupAssetsBy.day, sortBy: sortBy);
   return dateExp.isBiggerOrEqualValue(start) & dateExp.isSmallerOrEqualValue(end);
 }
 
@@ -1717,9 +1730,17 @@ extension on Expression<DateTime> {
 }
 
 extension on $RemoteAssetEntityTable {
+  Expression<DateTime> sortTimestamp(SortAssetsBy sortBy) => switch (sortBy) {
+    SortAssetsBy.taken => createdAt,
+    SortAssetsBy.uploaded => uploadedAt,
+    SortAssetsBy.deleted => deletedAt,
+  };
+
   Expression<String> effectiveCreatedAt(GroupAssetsBy groupBy, {SortAssetsBy sortBy = SortAssetsBy.taken}) {
-    if (sortBy == SortAssetsBy.uploaded) {
-      return uploadedAt.dateFmt(groupBy, toLocal: true);
+    if (sortBy != SortAssetsBy.taken) {
+      // Upload/deletion instants use the device's calendar, independently of the
+      // original capture timezone. Never rewrite capture metadata for Trash.
+      return sortTimestamp(sortBy).dateFmt(groupBy, toLocal: true);
     }
 
     return coalesce([localDateTime.dateFmt(groupBy), createdAt.dateFmt(groupBy, toLocal: true)]);

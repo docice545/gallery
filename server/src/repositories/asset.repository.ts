@@ -48,6 +48,7 @@ import {
   inSharedAlbum,
   isStaleAssetForeignKeyConstraint,
   removeUndefinedKeys,
+  timeBucketDateColumn,
   tokenizeForSearch,
   truncatedDate,
   unnest,
@@ -1718,11 +1719,8 @@ export class AssetRepository {
     // round-trip is lossy in both directions. The explicit `Z` keeps the comparison pinned to UTC.
     const requestedBucketStarts = requestedBuckets.map((tb) => sql<Date>`${`${tb}T00:00:00Z`}::timestamptz`);
 
-    // Narrow on the same column the buckets are derived from (createdAt for the
-    // "date added" timeline, localDateTime otherwise) so createdAt-grouped covers
-    // are not dropped by a localDateTime range filter.
-    const bucketDateColumn =
-      options.orderBy === AssetOrderBy.CreatedAt ? sql.ref('asset.createdAt') : sql.ref('localDateTime');
+    // Covers must narrow on the same date column as counts and full buckets.
+    const bucketDateColumn = sql.ref(timeBucketDateColumn(options.orderBy));
 
     return this.db
       .with('asset', (qb) =>
@@ -1734,6 +1732,7 @@ export class AssetRepository {
               'asset.id',
               'asset.localDateTime', // projected for ORDER BY only
               'asset.fileCreatedAt', // projected for ORDER BY only
+              'asset.deletedAt', // projected for trash cover ORDER BY only
               sql<string | null>`encode("thumbhash", 'base64')`.as('representativeThumbhash'),
               eb.fn
                 .coalesce(
@@ -1764,7 +1763,13 @@ export class AssetRepository {
         'ratio as representativeRatio',
       ])
       .orderBy('timeBucket', order)
-      .orderBy(sql`("localDateTime" AT TIME ZONE 'UTC')::date`, order)
+      .orderBy(
+        options.orderBy === AssetOrderBy.DeletedAt
+          ? sql.ref('deletedAt')
+          : sql`("localDateTime" AT TIME ZONE 'UTC')::date`,
+        order,
+      )
+      .$if(options.orderBy === AssetOrderBy.DeletedAt, (qb) => qb.orderBy('id', order))
       .orderBy('fileCreatedAt', order)
       .execute() as any as Promise<TimeBucketCoverItem[]>;
   }
@@ -1805,6 +1810,7 @@ export class AssetRepository {
             sql`asset."isFavorite" and asset."ownerId" = ${auth.user.id}`.as('isFavorite'),
             sql`asset.type = 'IMAGE'`.as('isImage'),
             sql`asset."deletedAt" is not null`.as('isTrashed'),
+            'asset.deletedAt',
             'asset.livePhotoVideoId',
             sql`extract(epoch from (asset."localDateTime" AT TIME ZONE 'UTC' - asset."fileCreatedAt" at time zone 'UTC'))::real / 3600`.as(
               'localOffsetHours',
@@ -1852,9 +1858,12 @@ export class AssetRepository {
           .orderBy(
             options.orderBy === AssetOrderBy.CreatedAt
               ? sql`"createdAt"`
-              : sql`(asset."localDateTime" AT TIME ZONE 'UTC')::date`,
+              : options.orderBy === AssetOrderBy.DeletedAt
+                ? sql.ref('asset.deletedAt')
+                : sql`(asset."localDateTime" AT TIME ZONE 'UTC')::date`,
             order,
           )
+          .$if(options.orderBy === AssetOrderBy.DeletedAt, (qb) => qb.orderBy('asset.id', order))
           .orderBy('asset.fileCreatedAt', order)
           .orderBy('asset.originalFileName', order),
       )
@@ -1869,6 +1878,7 @@ export class AssetRepository {
             eb.fn.coalesce(eb.fn('array_agg', ['isImage']), sql.lit('{}')).as('isImage'),
             // TODO: isTrashed is redundant as it will always be all true or false depending on the options
             eb.fn.coalesce(eb.fn('array_agg', ['isTrashed']), sql.lit('{}')).as('isTrashed'),
+            eb.fn.coalesce(eb.fn('array_agg', ['deletedAt']), sql.lit('{}')).as('deletedAt'),
             eb.fn.coalesce(eb.fn('array_agg', ['livePhotoVideoId']), sql.lit('{}')).as('livePhotoVideoId'),
             eb.fn.coalesce(eb.fn('array_agg', ['fileCreatedAt']), sql.lit('{}')).as('fileCreatedAt'),
             eb.fn.coalesce(eb.fn('array_agg', ['localOffsetHours']), sql.lit('{}')).as('localOffsetHours'),

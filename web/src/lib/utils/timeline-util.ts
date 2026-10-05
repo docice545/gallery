@@ -155,6 +155,7 @@ export const toTimelineAsset = (unknownAsset: AssetResponseDto | TimelineAsset):
     thumbhash: assetResponse.thumbhash,
     localDateTime,
     createdAt,
+    deletedAt: assetResponse.deletedAt ? fromISODateTimeUTCToObject(assetResponse.deletedAt) : null,
     fileCreatedAt,
     isFavorite: assetResponse.isFavorite,
     visibility: assetResponse.visibility,
@@ -218,5 +219,14 @@ export function setDifference<T>(setA: Set<T>, setB: Set<T>): SvelteSet<T> {
   return result;
 }
 
-export const getOrderingDate = (asset: TimelineAsset, order: AssetOrderBy) =>
-  order === AssetOrderBy.CreatedAt ? asset.createdAt : asset.localDateTime;
+export const getOrderingDate = (asset: TimelineAsset, order: AssetOrderBy) => {
+  if (order === AssetOrderBy.DeletedAt) {
+    // Only trash supports this order. Older responses have no deletion timestamp;
+    // callers must not guess a deletion date from capture/upload/update metadata.
+    if (!asset.deletedAt) {
+      throw new Error('Trash deletion date is missing');
+    }
+    return asset.deletedAt;
+  }
+  return order === AssetOrderBy.CreatedAt ? asset.createdAt : asset.localDateTime;
+};

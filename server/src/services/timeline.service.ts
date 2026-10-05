@@ -7,7 +7,7 @@ import {
   TimeBucketDto,
   TimeBucketsResponseDto,
 } from 'src/dtos/time-bucket.dto.js';
-import { AssetVisibility, Permission, TimeBucketSize } from 'src/enum.js';
+import { AssetOrderBy, AssetVisibility, Permission, TimeBucketSize } from 'src/enum.js';
 import { TimeBucketOptions } from 'src/repositories/asset.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -176,6 +176,10 @@ export class TimelineService extends BaseService {
   }
 
   private async timeBucketChecks(auth: AuthDto, dto: Partial<TimeBucketDto>) {
+    if (dto.orderBy === AssetOrderBy.DeletedAt && dto.isTrashed !== true) {
+      throw new BadRequestException('deletedAt ordering requires isTrashed=true');
+    }
+
     if (dto.visibility === AssetVisibility.Locked) {
       requireElevatedPermission(auth);
     }

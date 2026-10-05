@@ -68,6 +68,7 @@ export const toResponseDto = (...timelineAsset: TimelineAsset[]) => {
     fileCreatedAt: [],
     localOffsetHours: [],
     createdAt: [],
+    deletedAt: [],
     ownerId: [],
     projectionType: [],
     ratio: [],
@@ -87,6 +88,7 @@ export const toResponseDto = (...timelineAsset: TimelineAsset[]) => {
     bucketAssets.livePhotoVideoId.push(asset.livePhotoVideoId!);
     bucketAssets.fileCreatedAt.push(fileCreatedAt);
     bucketAssets.createdAt.push(fromTimelinePlainDateTime(asset.createdAt).toISO());
+    bucketAssets.deletedAt?.push(asset.deletedAt ? fromTimelinePlainDateTime(asset.deletedAt).toISO() : null);
     bucketAssets.ownerId.push(asset.ownerId);
     bucketAssets.projectionType.push(asset.projectionType!);
     bucketAssets.ratio.push(asset.ratio);

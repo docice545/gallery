@@ -1687,6 +1687,8 @@ export type AssetResponseDto = {
     checksum: string;
     /** The UTC timestamp when the asset was originally uploaded to Immich. */
     createdAt: string;
+    /** The UTC timestamp when the asset entered trash, null when not trashed. */
+    deletedAt?: string | null;
     /** Duplicate group ID */
     duplicateId?: string | null;
     /** Video/gif duration in milliseconds (null for static images) */
@@ -4232,6 +4234,8 @@ export type TimeBucketAssetResponseDto = {
     country?: (string | null)[];
     /** Array of UTC timestamps when each asset was originally uploaded to Immich */
     createdAt: string[];
+    /** Array of UTC deletion timestamps (null for assets outside trash), aligned with asset IDs */
+    deletedAt?: (string | null)[];
     /** Array of video/gif durations in milliseconds (null for static images) */
     duration: (number | null)[];
     /** Array of file creation timestamps in UTC */
@@ -11886,7 +11890,8 @@ export enum TimeBucketSize {
 }
 export enum AssetOrderBy {
     TakenAt = "takenAt",
-    CreatedAt = "createdAt"
+    CreatedAt = "createdAt",
+    DeletedAt = "deletedAt"
 }
 export enum WorkflowResult {
     Completed = "completed",

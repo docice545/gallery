@@ -1,5 +1,5 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { AssetType, AssetVisibility, SharedSpaceRole, TimeBucketSize } from 'src/enum.js';
+import { AssetOrderBy, AssetType, AssetVisibility, SharedSpaceRole, TimeBucketSize } from 'src/enum.js';
 import { TimelineService } from 'src/services/timeline.service.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
 import { factory, newUuid } from 'test/small.factory.js';
@@ -19,6 +19,43 @@ describe(TimelineService.name, () => {
       hiddenAlbumIds: [],
       hiddenAlbumSpacePairs: [],
       hiddenLibraryIds: [],
+    });
+  });
+
+  describe('deletion date ordering', () => {
+    it.each([undefined, false])(
+      'rejects non-trash deletion ordering before accessing repositories (%s)',
+      async (isTrashed) => {
+        const options = { orderBy: AssetOrderBy.DeletedAt, isTrashed };
+        await expect(sut.getTimeBuckets(authStub.user1, options)).rejects.toThrow(BadRequestException);
+        await expect(sut.getTimeBucket(authStub.user1, { ...options, timeBucket: '2026-10-01' })).rejects.toThrow(
+          BadRequestException,
+        );
+        await expect(
+          sut.getTimeBucketCovers(authStub.user1, {
+            ...options,
+            timeBuckets: ['2026-10-01'],
+            bucketSize: TimeBucketSize.Month,
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(mocks.asset.getTimeBuckets).not.toHaveBeenCalled();
+        expect(mocks.asset.getTimeBucket).not.toHaveBeenCalled();
+        expect(mocks.asset.getTimeBucketCovers).not.toHaveBeenCalled();
+      },
+    );
+
+    it('keeps deletion buckets owner-scoped and leaves personal timeline hiding out of trash', async () => {
+      mocks.asset.getTimeBuckets.mockResolvedValue([]);
+      await sut.getTimeBuckets(authStub.user1, { orderBy: AssetOrderBy.DeletedAt, isTrashed: true });
+      expect(mocks.asset.getTimeBuckets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: AssetOrderBy.DeletedAt,
+          isTrashed: true,
+          userIds: [authStub.user1.user.id],
+        }),
+        authStub.user1,
+      );
+      expect(mocks.sharedSpace.getTimelineHiddenScope).not.toHaveBeenCalled();
     });
   });
 
