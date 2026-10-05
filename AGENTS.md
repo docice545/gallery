@@ -16,6 +16,13 @@ that the external process does not honor. The automatic-stacking research below 
 to run a second algorithm. Production scripts, timers and VPN/AWG/Xray/DNS are outside this task's
 scope; no production deployment without an explicit instruction.
 
+HP storage paths are documented in
+[`specs/testing/2026-10-04-photos-hp-build.md`](specs/testing/2026-10-04-photos-hp-build.md):
+`/opt/gallery-fork` is a bind mount of the SSD checkout, existing Gradle/Pub caches
+and Big-LaMa model are already on SSD, and Docker root remains on NVMe. Do not
+move or duplicate them. iOS readiness findings and native validation boundaries
+are recorded in [`specs/2026-10-05-ios-readiness-design.md`](specs/2026-10-05-ios-readiness-design.md).
+
 Gallery is a community fork of [Immich](https://github.com/immich-app/immich), a self-hosted photo and video management solution. The fork is currently based on **Immich v2.7.5** and regularly rebased onto upstream. Source package names are still `immich` / `immich-web` so the rebase path stays clean — only branding, Docker image names, and fork-only code diverge.
 
 Fork-specific features layered on top of upstream include: shared spaces, smart search & filters, user groups, S3-compatible storage, auto-classification, video duplicate detection, pet detection, Google Photos import, image editing & video trimming, and structured JSON logging. See `README.md` for the full list and docs links.

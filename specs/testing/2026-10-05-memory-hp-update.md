@@ -6,6 +6,26 @@
 Схема БД/Drift и signing key в этой задаче не менялись. iOS signing services
 не устанавливаются. Existing AI Memories/carousel/auto-stack scripts не меняются.
 
+## Существующий storage layout
+
+По подтверждению владельца 2026-10-05 `/opt/gallery-fork` — bind mount с
+`/mnt/hp-data/gallery-fork` на SSD. `~/.gradle` → `/mnt/hp-data/build-cache/gradle`,
+`~/.pub-cache` → `/mnt/hp-data/build-cache/pub-cache`, Big-LaMa checkpoint:
+`/mnt/hp-data/gallery-inpainting/models/big-lama.pt`; Gallery/Immich data:
+`/mnt/hp-data/immich/...`. Docker root остаётся на NVMe. Это один checkout и одна
+существующая копия модели. Пути уточнены владельцем в инструкции продолжения;
+[read-only проверка](2026-10-04-photos-hp-build.md#фактический-ssd-layout-hp)
+показывает фактические mounts и build environment, а
+[проверка модели](2026-10-05-magic-eraser-hp.md#проверка-существующей-модели-и-mount)
+использует действующий read-only mount.
+
+Никакие данные не переносить и не дублировать; модель повторно не скачивать.
+Не менять Android `key.jks`/alias `foto`, Big-LaMa deployment или Docker data-root.
+Блоки установки ниже относятся к отдельному будущему обновлению владельцем.
+В текущей задаче framing/SSD/iOS readiness audit они **не выполняются**;
+production server 5.7.1, PostgreSQL/Redis/ML, VPN/DNS/AWG и внешний auto-stack
+worker остаются без изменений.
+
 ## Только Gallery server
 
 Сначала сделать обычный backup по вашей принятой production процедуре. Блок

@@ -14,158 +14,85 @@ PostgreSQL и Redis не заменяются.
 возможны более долгие задержки под нагрузкой. UHD 630/OpenVINO не используются
 этим CPU image; GPU-драйверы и `/dev/dri` для него не нужны.
 
-## Подготовка без изменения работающих контейнеров
+## Существующий SSD layout и deployment
+
+По подтверждению владельца 2026-10-05 `/opt/gallery-fork` — bind mount с
+`/mnt/hp-data/gallery-fork` на SSD. `~/.gradle` указывает на
+`/mnt/hp-data/build-cache/gradle`, `~/.pub-cache` — на
+`/mnt/hp-data/build-cache/pub-cache`. **Big-LaMa checkpoint уже хранится на SSD**:
+`/mnt/hp-data/gallery-inpainting/models/big-lama.pt`; использовать ту же модель
+через существующий read-only mount. Gallery/Immich data: `/mnt/hp-data/immich/...`.
+Docker root остаётся на NVMe. Эти пути подтверждены владельцем; действующий
+container mount не изменяется.
+Общая [read-only проверка layout](2026-10-04-photos-hp-build.md#фактический-ssd-layout-hp)
+показывает bind mount, caches, Flutter metadata и Docker root.
+
+`inpainting/compose.example.yml` — исходный пример, а не доказательство активной
+конфигурации HP. Его `/opt/gallery-inpainting/models:/models:ro` не разрешает
+создать новый каталог или вторую модель: существующий путь может быть bind mount
+или symlink на SSD. Не применять example поверх действующего deployment,
+не менять Compose overrides, model mount, token или network, не пересоздавать
+контейнеры. Параметры CPU/RAM/512px выше описывают исходный example; фактические
+настройки работающего HP этой задачей из Cloud не проверялись.
+
+Ранее этот runbook содержал download/install и ручную активацию sidecar. Для
+существующего HP они заменены проверкой уже подключённой модели. Не запускать
+`curl` для checkpoint, `install`, `cp`, `mv`, `chmod`, создание token/env files,
+Docker build или `compose up` ради подтверждения SSD layout. В текущей задаче
+Big-LaMa deployment, production server 5.7.1, PostgreSQL/Redis/ML, VPN/DNS/AWG,
+AI Memories и внешний auto-stack worker остаются без изменений.
+
+## Проверка существующей модели и mount
+
+Это **read-only команды для владельца HP**, не выполнение Codex на production.
+Docker metadata передаётся только в локальный parser; он выводит model source,
+а не tokens или полный config. Не использовать `set -x`. Поиск основан на
+Compose service label, а не на предполагаемом container name.
 
 ```bash
 set -euo pipefail
 cd /opt/gallery-fork
 
-# Сохраняем локальные изменения/историю: допускается только чистый fast-forward.
-test "$(git branch --show-current)" = work
-git rev-parse HEAD
-git status --short
-test -z "$(git status --porcelain)"
-git fetch origin refs/heads/work:refs/remotes/origin/work
-git merge --ff-only origin/work
-test "$(git rev-parse HEAD)" = "$(git rev-parse origin/work)"
-git merge-base --is-ancestor 5928803825f85c1807f71d8c9e40a9b65a6329b1 HEAD
+mapfile -t hp_lama_containers < <(docker ps -a \
+  --filter label=com.docker.compose.service=gallery-inpainting --format '{{.ID}}')
+test "${#hp_lama_containers[@]}" -eq 1
+hp_lama_container=${hp_lama_containers[0]}
 
-# Проверяем ресурсы; не останавливаем существующий ML для освобождения RAM.
-free -h
-docker stats --no-stream
+# Находим существующий host source для настроенного INPAINTING_MODEL_PATH.
+# Требуем read-only bind mount; каталог и checkpoint не создаются/не меняются.
+hp_lama_path=$(docker inspect "$hp_lama_container" | python3 -c '
+import json,pathlib,sys
+c=json.load(sys.stdin)[0]
+env=dict(x.split("=",1) for x in c["Config"]["Env"] if "=" in x)
+model=pathlib.PurePosixPath(env.get("INPAINTING_MODEL_PATH","/models/big-lama.pt"))
+assert model.is_absolute(), "Model path must be absolute"
+matches=[m for m in c["Mounts"] if model==pathlib.PurePosixPath(m["Destination"]) or pathlib.PurePosixPath(m["Destination"]) in model.parents]
+assert matches, "Existing model mount not found; do not download or copy a model"
+m=max(matches,key=lambda x:len(pathlib.PurePosixPath(x["Destination"]).parts))
+assert m["Type"]=="bind" and not m["RW"], "Verify the existing read-only model bind mount without changing deployment"
+relative=model.relative_to(pathlib.PurePosixPath(m["Destination"]))
+print(pathlib.Path(m["Source"]).joinpath(*relative.parts))')
 
-# Модель хранится отдельно от production Memories и от Git checkout.
-sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /opt/gallery-inpainting/models
+test -s "$hp_lama_path"
+hp_lama_real=$(realpath -e "$hp_lama_path")
+printf 'Existing Big-LaMa: %s -> %s\n' "$hp_lama_path" "$hp_lama_real"
+findmnt --target "$hp_lama_real" --output TARGET,SOURCE,FSTYPE,OPTIONS
+lsblk --output NAME,TYPE,TRAN,ROTA,MOUNTPOINTS
 hp_lama_sha=344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
-hp_lama_path=/opt/gallery-inpainting/models/big-lama.pt
-if [ ! -f "$hp_lama_path" ]; then
-  curl --fail --location --show-error \
-    https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt \
-    -o "$hp_lama_path.partial"
-  printf '%s  %s\n' "$hp_lama_sha" "$hp_lama_path.partial" | sha256sum --check
-  mv "$hp_lama_path.partial" "$hp_lama_path"
-fi
-printf '%s  %s\n' "$hp_lama_sha" "$hp_lama_path" | sha256sum --check
-chmod 0644 "$hp_lama_path"
+printf '%s  %s\n' "$hp_lama_sha" "$hp_lama_real" | sha256sum --check
 
-# Создаём приватную конфигурацию один раз. Токен не печатается и не коммитится.
-# Существующий файл сохраняется; прежде чем менять его, проверьте его локально.
-if ! sudo test -e /opt/immich/gallery-inpainting.env; then
-  (
-    umask 077
-    hp_eraser_env=$(mktemp /tmp/gallery-inpainting-env.XXXXXX)
-    trap 'rm -f "$hp_eraser_env"' EXIT
-    printf 'GALLERY_INPAINTING_URL=http://gallery-inpainting:3004\n' > "$hp_eraser_env"
-    printf 'GALLERY_INPAINTING_TOKEN=' >> "$hp_eraser_env"
-    openssl rand -hex 32 >> "$hp_eraser_env"
-    printf 'INPAINTING_MODEL_SHA256=%s\n' "$hp_lama_sha" >> "$hp_eraser_env"
-    sudo install -m 0600 "$hp_eraser_env" /opt/immich/gallery-inpainting.env
-  )
-fi
-
-# Новая модель загружается только при подготовке; фотографии никуда не отправляются.
-# Образ содержит CPU Torch и HTTP worker, checkpoint монтируется отдельно.
-docker build -f inpainting/Dockerfile \
-  -t gallery-inpainting:docice-work inpainting
-
-# Пересобираем API с прежней совместимой release version, не меняя main.
-docker build -f server/Dockerfile \
-  --build-arg BUILD_VERSION=5.7.1 \
-  --build-arg BUILD_REPOSITORY=docice545/gallery \
-  --build-arg BUILD_SOURCE_REF=work \
-  --build-arg BUILD_SOURCE_COMMIT="$(git rev-parse HEAD)" \
-  --build-arg BUILD_IMAGE=gallery-server:docice-work \
-  -t gallery-server:docice-work .
-
-# Проверяем release manifest до пересоздания production server.
-# Этот процесс не запускает Gallery и не подключается к production БД.
-test "$(docker run --rm --entrypoint node gallery-server:docice-work \
-  -p 'JSON.parse(require("node:fs").readFileSync("/usr/src/app/server/package.json", "utf8")).version')" = 5.7.1
-
-# Ластик не добавляет и не изменяет schema/migrations.
-test -z "$(git diff --name-only 5928803825f85c1807f71d8c9e40a9b65a6329b1 HEAD -- server/src/schema mobile/drift_schemas mobile/lib/data/db)"
+# Только status/image/resource metadata, без environment credentials.
+docker inspect --format '{{.Name}} image={{.Config.Image}} state={{.State.Status}} read_only={{.HostConfig.ReadonlyRootfs}} cpus={{.HostConfig.NanoCpus}} memory={{.HostConfig.Memory}}' "$hp_lama_container"
+docker inspect --format '{{.Name}} image={{.Config.Image}} state={{.State.Status}}' immich_server
 ```
 
-## Ручная активация после проверки конфигурации
-
-Используйте `inpainting/compose.example.yml` вместе с существующим
-`/opt/immich/docker-compose.yml`. Убедитесь, что `immich-server` и новый service
-имеют общую приватную Docker network. Пример рассчитан на стандартную Compose
-`default` network; если HP использует именованные custom networks, адаптируйте
-только сеть нового service к существующей сети server. Не заменяйте сети server
-так, чтобы пропала связь с PostgreSQL/Redis. Порт 3004 не публикуется на хосте.
-
-Файл токена имеет режим 0600; команды Compose ниже запускаются с `sudo`, чтобы
-не ослаблять права. Не выводите полный Compose config, содержащий токен.
-
-```bash
-set -euo pipefail
-cd /opt/immich
-hp_eraser_compose=/opt/gallery-fork/inpainting/compose.example.yml
-
-# Проверяем только image и сети, не выводя credentials.
-sudo docker compose --project-directory /opt/immich \
-  -f /opt/immich/docker-compose.yml -f "$hp_eraser_compose" config --format json | \
-  python3 -c 'import json,sys; c=json.load(sys.stdin); s=c["services"]; assert s["immich-server"]["image"]=="gallery-server:docice-work"; assert not s["gallery-inpainting"].get("ports"); a=set(s["immich-server"].get("networks",{})); b=set(s["gallery-inpainting"].get("networks",{})); assert a & b, "Inpainting and server need a common private network"; print("Images, private port and shared network validated")'
-
-# Запоминаем ID контейнеров, которые не должны пересоздаваться.
-hp_eraser_before=$(mktemp /tmp/gallery-eraser-before.XXXXXX)
-docker inspect --format '{{.Name}} {{.Id}}' \
-  immich_postgres immich_redis immich_machine_learning > "$hp_eraser_before"
-
-# Только новый AI worker. Existing dependencies не пересоздаём.
-sudo docker compose --project-directory /opt/immich \
-  -f /opt/immich/docker-compose.yml -f "$hp_eraser_compose" \
-  up -d --no-deps --no-build --pull never gallery-inpainting
-
-# Ждём private health: токен берётся внутри контейнера и не выводится.
-sudo docker compose --project-directory /opt/immich \
-  -f /opt/immich/docker-compose.yml -f "$hp_eraser_compose" \
-  exec -T gallery-inpainting python -c \
-  'import json,os,time,urllib.request
-for attempt in range(20):
-  try:
-    r=urllib.request.Request("http://127.0.0.1:3004/health",headers={"Authorization":"Bearer "+os.environ["GALLERY_INPAINTING_TOKEN"]})
-    h=json.load(urllib.request.urlopen(r,timeout=10))
-    if h["ready"] and h["engine"]=="big-lama":
-      print(h)
-      break
-  except OSError:
-    pass
-  time.sleep(1)
-else:
-  raise SystemExit("Inpainting worker is not ready")'
-
-# Только Gallery API получает optional URL/token; PG/Redis/ML не трогаем.
-sudo docker compose --project-directory /opt/immich \
-  -f /opt/immich/docker-compose.yml -f "$hp_eraser_compose" \
-  up -d --no-deps --no-build --pull never --force-recreate immich-server
-
-# Ждём health server, затем проверяем прежнюю release version.
-hp_eraser_server_healthy=false
-for hp_attempt in {1..60}; do
-  if [ "$(docker inspect --format '{{.State.Health.Status}}' immich_server)" = healthy ]; then
-    hp_eraser_server_healthy=true
-    break
-  fi
-  sleep 2
-done
-test "$hp_eraser_server_healthy" = true
-docker inspect --format '{{.Name}} {{.State.Status}} {{.State.Health.Status}}' immich_server
-test "$(docker inspect --format '{{.Image}}' immich_server)" = \
-  "$(docker image inspect --format '{{.Id}}' gallery-server:docice-work)"
-docker exec immich_server node --input-type=module -e \
-  'const r=await fetch("http://127.0.0.1:2283/api/server/version"); if(!r.ok) throw new Error(`HTTP ${r.status}`); const v=await r.json(); console.log(v); if(v.major!==5||v.minor!==7||v.patch!==1||v.prerelease!==null) process.exit(1);'
-curl --fail --silent --show-error https://imm.lampax.top/api/server/version | \
-  python3 -c 'import json,sys; v=json.load(sys.stdin); print(v); assert (v["major"],v["minor"],v["patch"])==(5,7,1)'
-
-# У остальных production-контейнеров должны сохраниться ID.
-hp_eraser_after=$(mktemp /tmp/gallery-eraser-after.XXXXXX)
-docker inspect --format '{{.Name}} {{.Id}}' \
-  immich_postgres immich_redis immich_machine_learning > "$hp_eraser_after"
-diff -u "$hp_eraser_before" "$hp_eraser_after"
-rm "$hp_eraser_before" "$hp_eraser_after"
-```
+Сопоставить SOURCE device из `findmnt` с `lsblk`: модель должна использовать
+существующий SSD. Directory bind mount может иметь логический `/opt/...` source;
+`realpath` раскрывает symlink, а backing filesystem определяет `findmnt`.
+Если service не найден, найдено несколько экземпляров, mount не read-only или
+checksum отличается, остановить проверку и выяснить фактическую конфигурацию.
+Это не разрешение скачивать/копировать модель, менять permissions, mount или
+перезапускать deployment. Сохраняется один existing checkpoint и один worker.
 
 Нет новых таблиц, миграций или обязательных background cron scripts. Результат
 попадает в обычный asset ingestion. Server API session временная: restart
@@ -173,6 +100,10 @@ rm "$hp_eraser_before" "$hp_eraser_after"
 replicas этой версии нужна одна replica/привязка editing session к одному process.
 
 ## Mobile и физические проверки
+
+Блок сборки ниже сохранён для отдельной будущей сборки владельцем; текущий
+framing/SSD/iOS audit не выполняет HP build, установку APK или deployment.
+Android использует прежний `key.jks`, alias **`foto`** и прежний certificate.
 
 После fetch потребуется обновлённый ignored Dart OpenAPI client, localization
 keys/loader и `build_runner` для optional argument существующего editor route.

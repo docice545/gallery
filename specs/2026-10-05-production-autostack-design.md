@@ -15,7 +15,17 @@
   `/opt/noodle-auto-stacks/noodle-gallery-maintenance.py`.
 - Systemd: `noodle-gallery-maintenance.service` и `noodle-gallery-maintenance.timer`;
   timer enabled, active (waiting); первый запуск через 5 минут, затем примерно каждый час.
-- Репозиторий HP: `/opt/gallery-fork`; Compose: `/opt/immich/docker-compose.yml`;
+- Репозиторий HP: `/opt/gallery-fork` — **bind mount** с
+  `/mnt/hp-data/gallery-fork` на SSD; это один checkout, а не две копии.
+  `~/.gradle` → `/mnt/hp-data/build-cache/gradle`, `~/.pub-cache` →
+  `/mnt/hp-data/build-cache/pub-cache`. Big-LaMa checkpoint:
+  `/mnt/hp-data/gallery-inpainting/models/big-lama.pt`, подключён существующим
+  read-only model mount. Gallery/Immich data: `/mnt/hp-data/immich/...`.
+  **Docker root остаётся на NVMe**. Не переносить и не дублировать checkout,
+  caches или checkpoint, не скачивать модель повторно, не менять Docker data-root.
+  Read-only проверки для владельца: [SSD layout](testing/2026-10-04-photos-hp-build.md#фактический-ssd-layout-hp)
+  и [Big-LaMa mount](testing/2026-10-05-magic-eraser-hp.md#проверка-существующей-модели-и-mount).
+  Compose: `/opt/immich/docker-compose.yml`;
   Gallery service `immich-server`, контейнер `immich_server`, custom image `gallery-server:docice-work`.
 - Внешние AI Memories, `/opt/gallery-ai/gallery_ai_memories.py`, `gallery-ai-daily.service/timer`
   и `gallery-memory-carousel` остаются отдельной инфраструктурой.

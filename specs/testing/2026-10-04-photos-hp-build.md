@@ -6,10 +6,80 @@
 image `gallery-server:docice-work`. Новых миграций, изменений схемы или API в этой
 задаче нет. Внешние AI Memories/carousel/auto-stack остаются без изменений.
 
-Сервер остаётся release **5.7.1**; новый мобильный клиент — **5.7.2 build 2**.
+Сервер остаётся release **5.7.1**; мобильный клиент **5.7.2 build 2** уже собран
+и установлен по уточнению владельца в инструкции продолжения. Новая release
+сборка в текущей задаче не требуется. Блок сборки ниже сохраняет историческую
+воспроизводимую команду; для следующего обновления номер определяет отдельная задача.
 Версия сервера задаётся аргументом Docker `BUILD_VERSION=5.7.1`. Переменная Compose
 `IMMICH_VERSION`, тег образа и `BUILD_SOURCE_REF` сами по себе версию API не задают.
 Runtime environment override для версии не нужен.
+
+## Фактический SSD layout HP
+
+Layout подтверждён владельцем 2026-10-05; в Cloud диски HP не проверялись.
+
+| Данные | Текущее размещение |
+| --- | --- |
+| Checkout и его build outputs | `/opt/gallery-fork` — **bind mount** каталога `/mnt/hp-data/gallery-fork` на SSD; это один checkout |
+| Gradle cache | `~/.gradle` → `/mnt/hp-data/build-cache/gradle`; сохранить существующий cache и связь |
+| Flutter/Dart Pub cache | `~/.pub-cache` → `/mnt/hp-data/build-cache/pub-cache`; сохранить существующий cache и связь |
+| Big-LaMa checkpoint | `/mnt/hp-data/gallery-inpainting/models/big-lama.pt`; использовать существующий read-only model mount, см. [проверку ластика](2026-10-05-magic-eraser-hp.md#проверка-существующей-модели-и-mount) |
+| Gallery/Immich data | `/mnt/hp-data/immich/...`; это подтверждённое размещение данных, не сведения о путях Synology external libraries |
+| Docker root | Остаётся на NVMe; checkout на SSD не переносит Docker images/layers/volumes на SSD |
+
+Физические пути выше уточнены владельцем в инструкции продолжения. Старое имя
+вроде `/opt/gallery-inpainting/models` само по себе не определяет диск.
+Не создавать второй checkout, caches или checkpoint, не скачивать модель
+повторно, не менять bind mounts, `fstab`, Docker `data-root` или signing.
+Android использует прежний `android/key.jks`, alias **`foto`** и прежний certificate.
+
+Ниже — **только read-only проверки для владельца HP**, не команды Codex на
+production. Запускать в той же shell/build environment, где обычно собирается
+APK. Они выводят только paths/mounts, без паролей, токенов и полного environment.
+Если Gradle запускается с `-g`/`--gradle-user-home` или `-Dgradle.user.home`,
+сопоставить этот override с показанным путём, не менять его.
+
+```bash
+set -euo pipefail
+cd /opt/gallery-fork
+
+# realpath раскрывает symlinks; backing directory bind mount проверяет findmnt.
+findmnt --mountpoint /opt/gallery-fork --output TARGET,SOURCE,FSTYPE,OPTIONS
+findmnt --target /mnt/hp-data/gallery-fork --output TARGET,SOURCE,FSTYPE,OPTIONS
+test "$(stat -c '%d:%i' /opt/gallery-fork)" = \
+  "$(stat -c '%d:%i' /mnt/hp-data/gallery-fork)"
+realpath -e /opt/gallery-fork /mnt/hp-data/gallery-fork
+
+hp_gradle_cache=${GRADLE_USER_HOME:-$HOME/.gradle}
+hp_pub_cache=${PUB_CACHE:-$HOME/.pub-cache}
+for hp_cache_path in "$hp_gradle_cache" "$hp_pub_cache"; do
+  test -d "$hp_cache_path"
+  hp_cache_real=$(realpath -e "$hp_cache_path")
+  printf 'Cache: %s -> %s\n' "$hp_cache_path" "$hp_cache_real"
+  findmnt --target "$hp_cache_real" --output TARGET,SOURCE,FSTYPE,OPTIONS
+done
+
+# Existing Flutter metadata показывает фактический package path этой сборки.
+# pub get здесь не запускается: если metadata отсутствует, проверка останавливается.
+hp_pigeon_root=$(python3 -c 'import json,pathlib,urllib.parse as u; p=pathlib.Path("mobile/.dart_tool/package_config.json").resolve(); c=json.loads(p.read_text()); r=next(x["rootUri"] for x in c["packages"] if x["name"]=="pigeon"); uri=u.urlparse(u.urljoin(p.as_uri(),r)); assert uri.scheme=="file"; print(pathlib.Path(u.unquote(uri.path)).resolve(strict=True))')
+printf 'Flutter package metadata (pigeon): %s\n' "$hp_pigeon_root"
+findmnt --target "$hp_pigeon_root" --output TARGET,SOURCE,FSTYPE,OPTIONS
+
+hp_docker_root=$(docker info --format '{{.DockerRootDir}}')
+hp_docker_root_real=$(realpath -e "$hp_docker_root")
+printf 'Docker root: %s -> %s\n' "$hp_docker_root" "$hp_docker_root_real"
+findmnt --target "$hp_docker_root_real" --output TARGET,SOURCE,FSTYPE,OPTIONS
+lsblk --output NAME,TYPE,TRAN,ROTA,MOUNTPOINTS
+```
+
+Сверить block device из `findmnt` с `lsblk`: caches/model/checkout уже используют
+SSD, Docker root — NVMe. Несовпадение требует выяснения текущей конфигурации;
+оно не является разрешением на перенос данных. Остальные блоки этого runbook —
+сохранённая инструкция для отдельного будущего build/deployment владельцем.
+В задаче framing/SSD/iOS audit они **не выполняются**, server 5.7.1,
+PostgreSQL/Redis/ML, Big-LaMa deployment, VPN/DNS/AWG и внешний worker сохраняются.
+
+## Отдельная будущая сборка и установка владельцем
 
 Выполняйте блоки последовательно в Bash. При ошибке остановитесь и исправьте её;
 команды не выполняют reset, force push, обновление зависимостей или compose down.
@@ -124,8 +194,9 @@ test -z "$(git ls-files -- android/key.jks android/key.properties)"
 test -f generated/openapi/pubspec.yaml
 flutter pub get --enforce-lockfile
 
-# Pigeon: используем проверенный на этом HP прямой запуск через package_config.
-hp_pigeon_bin=/home/doctoriceadm/.pub-cache/hosted/pub.dev/pigeon-27.3.0/bin/pigeon.dart
+# Pigeon: используем existing package_config, сохраняя Pub cache на SSD.
+# Не подставляем новый cache path и не создаём второй cache в $HOME.
+hp_pigeon_bin=$(python3 -c 'import json,pathlib,urllib.parse as u; p=pathlib.Path(".dart_tool/package_config.json").resolve(); c=json.loads(p.read_text()); r=next(x["rootUri"] for x in c["packages"] if x["name"]=="pigeon"); uri=u.urlparse(u.urljoin(p.as_uri(),r)); assert uri.scheme=="file"; print(pathlib.Path(u.unquote(uri.path)).resolve(strict=True)/"bin/pigeon.dart")')
 test -f "$hp_pigeon_bin"
 for hp_pigeon_file in pigeon/*.dart; do
   dart --packages=.dart_tool/package_config.json "$hp_pigeon_bin" \

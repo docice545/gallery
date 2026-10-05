@@ -1,0 +1,10 @@
+{
+  "access": "protected",
+  "date": {
+    "formatted": "Jan 1, 2020, 12:00:00 AM UTC",
+    "timestamp": "1577836800"
+  },
+  "description": "Synthetic fixture, no private data",
+  "geoData": { "altitude": 0, "latitude": 0, "longitude": 0 },
+  "title": "Семейный отпуск"
+}

@@ -1,0 +1,9 @@
+{
+  "albumData": {
+    "access": "protected",
+    "date": { "timestamp": "1577836800" },
+    "description": "An older documented Takeout representation",
+    "geoData": { "altitude": 0, "latitude": 0, "longitude": 0 },
+    "title": "Synthetic legacy album"
+  }
+}
