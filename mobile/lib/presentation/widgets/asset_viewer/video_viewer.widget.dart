@@ -46,6 +46,7 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
   /// Viewer playback and callers without a presentation contract stay unchanged.
   final Size? timelinePreviewImageSize;
   final Size? timelinePreviewRequiredSize;
+  final Alignment timelinePreviewAlignment;
   final VoidCallback? onPreviewCompleted;
 
   /// Checks the scope's current token synchronously while widget removal is pending.
@@ -64,6 +65,7 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
     this.timelinePreview = false,
     this.timelinePreviewImageSize,
     this.timelinePreviewRequiredSize,
+    this.timelinePreviewAlignment = Alignment.center,
     this.onPreviewCompleted,
     this.previewIsActive,
   });
@@ -585,10 +587,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
         children: [
           if (!_isVideoReady || widget.asset.isMotionPhoto || isCasting) Center(child: widget.image),
           if (!isCasting) ...[
-            Visibility.maintain(
-              visible: _isVideoReady,
-              child: NativeVideoPlayerView(onViewReady: _initController),
-            ),
+            Visibility.maintain(visible: _isVideoReady, child: _buildNativeSurface()),
             if (!widget.timelinePreview)
               Center(
                 child: AnimatedOpacity(
@@ -599,6 +598,36 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
               ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildNativeSurface() {
+    final surface = NativeVideoPlayerView(onViewReady: _initController);
+    if (!widget.timelinePreview) {
+      return surface;
+    }
+    // Keep the same widget hierarchy while metadata arrives: rebuilding must
+    // resize the existing platform view rather than create another controller.
+    return ClipRect(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final viewport = Size(constraints.maxWidth, constraints.maxHeight);
+          final info = _controller?.videoInfo;
+          final videoSize = info == null
+              ? widget.timelinePreviewImageSize ?? viewport
+              : Size(info.width.toDouble(), info.height.toDouble());
+          final valid =
+              viewport.width.isFinite &&
+              viewport.height.isFinite &&
+              canPresentTimelineMotion(imageSize: viewport, videoSize: videoSize, requiredSize: viewport);
+          final canvas = valid ? timelineMotionCanvasSize(viewportSize: viewport, videoSize: videoSize) : viewport;
+          return FittedBox(
+            fit: BoxFit.cover,
+            alignment: widget.timelinePreviewAlignment,
+            child: SizedBox(width: canvas.width, height: canvas.height, child: surface),
+          );
+        },
       ),
     );
   }

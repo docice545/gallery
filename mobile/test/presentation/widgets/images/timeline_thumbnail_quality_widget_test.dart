@@ -405,12 +405,13 @@ void main() {
       faces: thumbnail.faces,
     );
     final fitted = tester.widget<FittedBox>(
-      find.descendant(of: find.byType(TimelineLivePhotoTile), matching: find.byType(FittedBox)),
+      find.ancestor(of: find.byType(NativeVideoViewer), matching: find.byType(FittedBox)),
     );
     expect(fitted.fit, expected.fit);
     expect(fitted.alignment, expected.alignment);
     final nativePreview = tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer));
     expect(nativePreview.timelinePreviewImageSize, thumbnail.framingImageSize);
+    expect(nativePreview.timelinePreviewAlignment, fitted.alignment);
     final request = buildTimelineThumbnailRequest(
       viewportSize: viewport,
       devicePixelRatio: 3,
@@ -443,7 +444,7 @@ void main() {
     await startPreview(tester);
 
     final fitted = tester.widget<FittedBox>(
-      find.descendant(of: find.byType(TimelineLivePhotoTile), matching: find.byType(FittedBox)),
+      find.ancestor(of: find.byType(NativeVideoViewer), matching: find.byType(FittedBox)),
     );
     expect(fitted.fit, BoxFit.contain);
     expect(fitted.alignment, Alignment.center);
@@ -457,6 +458,7 @@ void main() {
     expect(framing.alignment, fitted.alignment);
     final nativePreview = tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer));
     expect(nativePreview.timelinePreviewImageSize, thumbnail.framingImageSize);
+    expect(nativePreview.timelinePreviewAlignment, fitted.alignment);
     final request = buildTimelineThumbnailRequest(
       viewportSize: tester.getSize(find.byType(Thumbnail)),
       devicePixelRatio: 3,
@@ -495,7 +497,7 @@ void main() {
     expect(tester.state(find.byType(Thumbnail)), same(stillState));
     expect(tester.state(find.byType(NativeVideoViewer)), same(previewState));
     final fitted = tester.widget<FittedBox>(
-      find.descendant(of: find.byType(TimelineLivePhotoTile), matching: find.byType(FittedBox)),
+      find.ancestor(of: find.byType(NativeVideoViewer), matching: find.byType(FittedBox)),
     );
     expect(fitted.fit, BoxFit.contain);
     final request = buildTimelineThumbnailRequest(

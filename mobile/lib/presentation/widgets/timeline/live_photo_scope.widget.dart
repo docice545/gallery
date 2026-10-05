@@ -408,6 +408,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                       showControls: false,
                       timelinePreview: true,
                       timelinePreviewImageSize: widget.framingImageSize,
+                      timelinePreviewAlignment: framing.alignment,
                       timelinePreviewRequiredSize: widget.framingImageSize == null
                           ? null
                           : buildTimelineThumbnailRequest(

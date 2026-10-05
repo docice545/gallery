@@ -1,20 +1,19 @@
-import 'dart:math' as math;
-
 import 'package:flutter/painting.dart';
 
-/// The native player aspect-fits inside the still image's canvas. Only reveal
-/// its surface when that preserves the crop and has enough actual source pixels.
-/// No spatial registration exists for pairs with different fields of view.
+/// Validate presentation geometry, not pixel parity with the original still.
+/// Samsung/Apple paired videos commonly have fewer pixels and a different camera
+/// crop. Rejecting those consumes the viewport's one-shot without ever playing.
+/// The sharp still remains the baseline before and after the short motion pass.
 bool canPresentTimelineMotion({required Size imageSize, required Size videoSize, required Size requiredSize}) {
   bool valid(Size size) => size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0;
-  if (!valid(imageSize) || !valid(videoSize) || !valid(requiredSize)) {
-    return false;
-  }
-  // Accommodate integer codec dimension rounding, not a different camera crop.
-  final aspectTolerance = math.max(1 / imageSize.height, 1 / videoSize.height);
-  // Full-source scale arithmetic can put an exact integer target just above it.
-  const pixelTolerance = 1e-9;
-  return (imageSize.aspectRatio - videoSize.aspectRatio).abs() <= aspectTolerance &&
-      videoSize.width + pixelTolerance >= requiredSize.width &&
-      videoSize.height + pixelTolerance >= requiredSize.height;
+  return valid(imageSize) && valid(videoSize) && valid(requiredSize);
+}
+
+/// Give the aspect-fitting native surface its own source aspect, then cover the
+/// existing still canvas. Bounds stay in logical tile pixels, not original pixels.
+Size timelineMotionCanvasSize({required Size viewportSize, required Size videoSize}) {
+  final aspect = videoSize.aspectRatio;
+  return aspect > viewportSize.aspectRatio
+      ? Size(viewportSize.height * aspect, viewportSize.height)
+      : Size(viewportSize.width, viewportSize.width / aspect);
 }

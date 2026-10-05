@@ -21,7 +21,7 @@ void main() {
       (name: 'portrait', image: const Size(4000, 6000), video: const Size(1080, 1620)),
       (name: 'landscape', image: const Size(6000, 4000), video: const Size(1620, 1080)),
     ]) {
-      test('accepts ${example.name} video with enough pixels for the planned high-DPR cover presentation', () {
+      test('accepts ${example.name} motion with the planned high-DPR still presentation', () {
         final requiredSize = _plannedSize(example.image);
         expect(requiredSize.shortestSide, greaterThanOrEqualTo(_viewport.shortestSide * 3));
         expect(
@@ -30,14 +30,14 @@ void main() {
         );
       });
 
-      test('rejects ${example.name} video with swapped orientation despite enough source pixels', () {
+      test('accepts ${example.name} pair with a different source aspect', () {
         final videoSize = Size(example.image.height, example.image.width);
         final requiredSize = _plannedSize(example.image);
         expect(videoSize.width, greaterThan(requiredSize.width));
         expect(videoSize.height, greaterThan(requiredSize.height));
         expect(
           canPresentTimelineMotion(imageSize: example.image, videoSize: videoSize, requiredSize: requiredSize),
-          isFalse,
+          isTrue,
         );
       });
     }
@@ -59,7 +59,7 @@ void main() {
       );
       expect(
         canPresentTimelineMotion(imageSize: imageSize, videoSize: videoSize, requiredSize: coverRequirement),
-        isFalse,
+        isTrue,
       );
     });
 
@@ -79,14 +79,14 @@ void main() {
     }
 
     for (final pixelDifference in [-2.0, 2.0]) {
-      test('rejects $pixelDifference codec pixels of aspect mismatch', () {
+      test('accepts $pixelDifference codec pixels of aspect mismatch', () {
         expect(
           canPresentTimelineMotion(
             imageSize: _sourceImage,
             videoSize: Size(_video.width + pixelDifference, _video.height),
             requiredSize: const Size(512, 1024),
           ),
-          isFalse,
+          isTrue,
         );
       });
     }
@@ -123,12 +123,35 @@ void main() {
     });
 
     for (final axis in ['width', 'height']) {
-      test('rejects a video one source pixel below the requested presentation $axis', () {
+      test('accepts motion below the still presentation $axis requirement', () {
         final requiredSize = Size(_video.width + (axis == 'width' ? 1 : 0), _video.height + (axis == 'height' ? 1 : 0));
         expect(
           canPresentTimelineMotion(imageSize: _sourceImage, videoSize: _video, requiredSize: requiredSize),
-          isFalse,
+          isTrue,
         );
+      });
+    }
+
+    test('Samsung 4:3 still and 16:9 720p motion remain eligible on a high-DPI full-width row', () {
+      const image = Size(4000, 3000);
+      const video = Size(1280, 720);
+      final request = buildTimelineThumbnailRequest(
+        viewportSize: const Size(360, 270),
+        devicePixelRatio: 4,
+        imageSize: image,
+      );
+      expect(request.requiredSize.longestSide, 1440);
+      expect(canPresentTimelineMotion(imageSize: image, videoSize: video, requiredSize: request.requiredSize), isTrue);
+    });
+
+    for (final video in [const Size(1920, 1080), const Size(1080, 1920), const Size(640, 480)]) {
+      test('motion canvas $video covers the still canvas using bounded logical dimensions', () {
+        final canvas = timelineMotionCanvasSize(viewportSize: _viewport, videoSize: video);
+        expect(canvas.aspectRatio, closeTo(video.aspectRatio, 1e-9));
+        expect(canvas.width, greaterThanOrEqualTo(_viewport.width));
+        expect(canvas.height, greaterThanOrEqualTo(_viewport.height));
+        expect(canvas.longestSide, lessThanOrEqualTo(320));
+        expect(canvas.shortestSide, _viewport.shortestSide);
       });
     }
 

@@ -299,80 +299,73 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  for (final scenario in ['different aspect ratio', 'insufficient source pixels', 'unknown native dimensions']) {
-    testWidgets('timeline motion with $scenario retains the still and consumes its preview once', (tester) async {
-      final VideoInfo? videoInfo = switch (scenario) {
-        'different aspect ratio' => VideoInfo.fromJson({'height': 1440, 'width': 1920, 'duration': 2000}),
-        'insufficient source pixels' => VideoInfo.fromJson({'height': 360, 'width': 640, 'duration': 2000}),
-        _ => null,
-      };
-      when(() => controller.videoInfo).thenReturn(videoInfo);
+  for (final video in [
+    (name: 'Samsung 16:9 motion from 4:3 still', size: const Size(1280, 720)),
+    (name: 'motion below high-DPI still resolution', size: const Size(640, 360)),
+    (name: 'portrait motion', size: const Size(720, 1280)),
+  ]) {
+    testWidgets('${video.name} plays once and returns to the sharp still', (tester) async {
+      when(() => controller.videoInfo).thenReturn(
+        VideoInfo.fromJson({'height': video.size.height.toInt(), 'width': video.size.width.toInt(), 'duration': 2000}),
+      );
       await mountPreview(
         tester,
-        timelinePreviewImageSize: const Size(4032, 2268),
-        timelinePreviewRequiredSize: const Size(960, 540),
+        timelinePreviewImageSize: const Size(4000, 3000),
+        timelinePreviewRequiredSize: const Size(1440, 1080),
       );
-      expect(nativeSurfaceVisibility(tester).visible, isFalse);
-      expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue), findsOneWidget);
-      expect(calls.take(3), ['volume:0.0', 'loop:false', 'load']);
-      expect(calls, isNot(contains('play')));
-      expect(calls.last, 'pause');
-      expect(completions, 1);
-
-      // Improved native metadata and late callbacks cannot revive a consumed
-      // one-shot reservation while the scope removes its native child.
-      when(
-        () => controller.videoInfo,
-      ).thenReturn(VideoInfo.fromJson({'height': 1080, 'width': 1920, 'duration': 2000}));
+      expect(nativeSurfaceVisibility(tester).visible, isTrue);
+      expect(calls.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+      final canvas = tester.widget<SizedBox>(
+        find.ancestor(of: find.byType(NativeVideoPlayerView), matching: find.byType(SizedBox)).first,
+      );
+      expect(canvas.width! / canvas.height!, closeTo(video.size.aspectRatio, 1e-9));
+      expect(completions, 0);
+      ended.notifyListeners();
       ready.notifyListeners();
       ended.notifyListeners();
-      error.value = 'late decoder error';
-      ready.notifyListeners();
-      await tester.pump(const Duration(seconds: 8));
-      expect(nativeSurfaceVisibility(tester).visible, isFalse);
-      expect(calls, isNot(contains('play')));
-      expect(calls.where((call) => call == 'load'), hasLength(1));
+      await tester.pump();
+      expect(calls.where((call) => call == 'play'), hasLength(1));
       expect(completions, 1);
+      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       debugDefaultTargetPlatformOverride = null;
     });
   }
 
-  testWidgets('a larger timeline presentation target finishes active motion and never replays after shrinking', (
-    tester,
-  ) async {
-    when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 540, 'width': 960, 'duration': 2000}));
+  testWidgets('unknown native geometry retains the still and consumes its preview once', (tester) async {
+    when(() => controller.videoInfo).thenReturn(null);
     await mountPreview(
       tester,
       timelinePreviewImageSize: const Size(4032, 2268),
-      timelinePreviewRequiredSize: const Size(640, 360),
+      timelinePreviewRequiredSize: const Size(960, 540),
     );
-    expect(nativeSurfaceVisibility(tester).visible, isTrue);
-    expect(calls.where((call) => call == 'play'), hasLength(1));
-    expect(completions, 0);
-
-    // A larger cell or DPR raises the physical presentation target beyond the same
-    // loaded source. The main feed must release the reservation on that update.
-    await mountPreview(
-      tester,
-      timelinePreviewImageSize: const Size(4032, 2268),
-      timelinePreviewRequiredSize: const Size(1280, 720),
-    );
-    expect(completions, 1);
-    expect(calls.last, 'pause');
     expect(nativeSurfaceVisibility(tester).visible, isFalse);
-    expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue), findsOneWidget);
-
-    await mountPreview(
-      tester,
-      timelinePreviewImageSize: const Size(4032, 2268),
-      timelinePreviewRequiredSize: const Size(640, 360),
-    );
+    expect(calls, isNot(contains('play')));
+    expect(completions, 1);
+    when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 1080, 'width': 1920, 'duration': 2000}));
     ready.notifyListeners();
     ended.notifyListeners();
+    await tester.pump(const Duration(seconds: 8));
+    expect(calls, isNot(contains('play')));
+    expect(completions, 1);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('DPR or cell resize does not interrupt or restart the current motion pass', (tester) async {
+    when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 540, 'width': 960, 'duration': 2000}));
+    for (final target in [const Size(640, 360), const Size(1280, 720), const Size(640, 360)]) {
+      await mountPreview(tester, timelinePreviewImageSize: const Size(4032, 2268), timelinePreviewRequiredSize: target);
+      expect(completions, 0);
+      expect(nativeSurfaceVisibility(tester).visible, isTrue);
+      expect(calls.where((call) => call == 'play'), hasLength(1));
+    }
+    ended.notifyListeners();
+    ready.notifyListeners();
     await tester.pump();
-    expect(calls.where((call) => call == 'play'), hasLength(1));
     expect(calls.where((call) => call == 'load'), hasLength(1));
+    expect(calls.where((call) => call == 'play'), hasLength(1));
     expect(completions, 1);
     expect(nativeSurfaceVisibility(tester).visible, isFalse);
     await tester.pumpWidget(const SizedBox());
