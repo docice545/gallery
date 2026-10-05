@@ -7,6 +7,7 @@ import 'package:immich_mobile/extensions/duration_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
+import 'package:immich_mobile/presentation/widgets/images/timeline_thumbnail_request.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
@@ -59,8 +60,9 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
     // Only synchronized geometry is used. Edited previews have another coordinate
     // system; keep their existing framing until an edit-aware transform exists.
     final remoteId = asset?.remoteId;
+    final timelineQuality = FaceAwareThumbnailScope.enabledOf(context);
     final faces =
-        FaceAwareThumbnailScope.enabledOf(context) &&
+        timelineQuality &&
             asset?.isImage == true &&
             asset?.isEdited == false &&
             remoteId != null &&
@@ -69,6 +71,10 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
         : const <Rect>[];
     final width = asset?.width;
     final height = asset?.height;
+    final framingImageSize =
+        timelineQuality && asset?.isEdited == false && width != null && height != null && width > 0 && height > 0
+        ? Size(width.toDouble(), height.toDouble())
+        : null;
     // PhotoKit aspectFill must not pre-crop the source to a square before Flutter
     // can position its face-aware crop. Keep the existing bounded decode budget.
     final decodeSize = faces.isNotEmpty && width != null && height != null && width > 0 && height > 0
@@ -134,13 +140,34 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                     // but other solutions have failed thus far.
                     key: ValueKey(isCurrentAsset),
                     tag: '${asset?.heroTag}_$heroIndex',
-                    child: Thumbnail.fromAsset(
-                      asset: asset,
-                      size: decodeSize,
-                      remoteSize: widget.remoteSize,
-                      fit: widget.fit,
-                      faces: faces,
-                    ),
+                    child: timelineQuality
+                        ? LayoutBuilder(
+                            builder: (context, constraints) {
+                              final request = buildTimelineThumbnailRequest(
+                                viewportSize: constraints.biggest,
+                                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                                imageSize: framingImageSize,
+                                faces: faces,
+                                fit: widget.fit,
+                              );
+                              return Thumbnail.fromAsset(
+                                asset: asset,
+                                size: request.decodeSize,
+                                remoteSize: request.decodeSize,
+                                remoteMediaSize: request.remoteMediaSize,
+                                framingImageSize: framingImageSize,
+                                fit: widget.fit,
+                                faces: faces,
+                              );
+                            },
+                          )
+                        : Thumbnail.fromAsset(
+                            asset: asset,
+                            size: decodeSize,
+                            remoteSize: widget.remoteSize,
+                            fit: widget.fit,
+                            faces: faces,
+                          ),
                     // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
                     placeholderBuilder: (context, heroSize, child) {
                       if (!_hideIndicators) {
@@ -171,7 +198,12 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                 ),
                 if (asset != null && asset.isImage && asset.isMotionPhoto)
                   Positioned.fill(
-                    child: TimelineLivePhotoTile(asset: asset, faces: faces),
+                    child: TimelineLivePhotoTile(
+                      asset: asset,
+                      faces: faces,
+                      framingImageSize: framingImageSize,
+                      requireMatchingFraming: timelineQuality,
+                    ),
                   ),
                 if (asset != null)
                   AnimatedOpacity(

@@ -169,6 +169,8 @@ void main() {
     bool Function()? previewIsActive,
     bool? loopOverride,
     bool timelinePreview = true,
+    Size? timelinePreviewImageSize,
+    Size? timelinePreviewRequiredSize,
     bool playbackPaused = false,
     bool isCurrent = true,
     VoidCallback? onPreviewCompleted,
@@ -186,6 +188,8 @@ void main() {
               image: const ColoredBox(color: Colors.blue),
               isCurrent: isCurrent,
               timelinePreview: timelinePreview,
+              timelinePreviewImageSize: timelinePreviewImageSize,
+              timelinePreviewRequiredSize: timelinePreviewRequiredSize,
               playbackPaused: playbackPaused,
               forceAutoPlay: !timelinePreview,
               showControls: false,
@@ -227,6 +231,166 @@ void main() {
     await tester.pump();
     debugDefaultTargetPlatformOverride = null;
   }
+
+  Visibility nativeSurfaceVisibility(WidgetTester tester) => tester.widget<Visibility>(
+    find.ancestor(of: find.byType(NativeVideoPlayerView), matching: find.byType(Visibility)),
+  );
+
+  for (final portrait in [false, true]) {
+    testWidgets('${portrait ? 'portrait' : 'landscape'} matched timeline canvas reveals one muted motion pass', (
+      tester,
+    ) async {
+      if (portrait) {
+        when(
+          () => controller.videoInfo,
+        ).thenReturn(VideoInfo.fromJson({'height': 1920, 'width': 1080, 'duration': 2000}));
+      }
+      when(() => controller.loadVideoSource(any())).thenAnswer((_) async => calls.add('load'));
+      await mountPreview(
+        tester,
+        timelinePreviewImageSize: portrait ? const Size(2268, 4032) : const Size(4032, 2268),
+        timelinePreviewRequiredSize: portrait ? const Size(360, 640) : const Size(640, 360),
+      );
+      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      expect(calls, ['volume:0.0', 'loop:false', 'load']);
+      expect(completions, 0);
+
+      ready.notifyListeners();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump();
+      expect(nativeSurfaceVisibility(tester).visible, isTrue);
+      expect(calls.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+      expect(container.read(timelinePreviewVideoPlayerProvider(asset.id)).status, VideoPlaybackStatus.playing);
+      expect(completions, 0);
+
+      ready.notifyListeners();
+      ended.notifyListeners();
+      ready.notifyListeners();
+      ended.notifyListeners();
+      await tester.pump();
+      expect(calls.where((call) => call == 'play'), hasLength(1));
+      expect(completions, 1);
+      expect(calls.last, 'pause');
+      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
+  testWidgets('1080 by 608 motion plays when it satisfies the physical presentation requirement', (tester) async {
+    when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 608, 'width': 1080, 'duration': 2000}));
+    await mountPreview(
+      tester,
+      timelinePreviewImageSize: const Size(4032, 2268),
+      timelinePreviewRequiredSize: const Size(1080, 607.5),
+    );
+    expect(nativeSurfaceVisibility(tester).visible, isTrue);
+    expect(calls.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+    expect(completions, 0);
+
+    ready.notifyListeners();
+    ended.notifyListeners();
+    await tester.pump();
+    expect(nativeSurfaceVisibility(tester).visible, isFalse);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(completions, 1);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  for (final scenario in ['different aspect ratio', 'insufficient source pixels', 'unknown native dimensions']) {
+    testWidgets('timeline motion with $scenario retains the still and consumes its preview once', (tester) async {
+      final VideoInfo? videoInfo = switch (scenario) {
+        'different aspect ratio' => VideoInfo.fromJson({'height': 1440, 'width': 1920, 'duration': 2000}),
+        'insufficient source pixels' => VideoInfo.fromJson({'height': 360, 'width': 640, 'duration': 2000}),
+        _ => null,
+      };
+      when(() => controller.videoInfo).thenReturn(videoInfo);
+      await mountPreview(
+        tester,
+        timelinePreviewImageSize: const Size(4032, 2268),
+        timelinePreviewRequiredSize: const Size(960, 540),
+      );
+      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue), findsOneWidget);
+      expect(calls.take(3), ['volume:0.0', 'loop:false', 'load']);
+      expect(calls, isNot(contains('play')));
+      expect(calls.last, 'pause');
+      expect(completions, 1);
+
+      // Improved native metadata and late callbacks cannot revive a consumed
+      // one-shot reservation while the scope removes its native child.
+      when(
+        () => controller.videoInfo,
+      ).thenReturn(VideoInfo.fromJson({'height': 1080, 'width': 1920, 'duration': 2000}));
+      ready.notifyListeners();
+      ended.notifyListeners();
+      error.value = 'late decoder error';
+      ready.notifyListeners();
+      await tester.pump(const Duration(seconds: 8));
+      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      expect(calls, isNot(contains('play')));
+      expect(calls.where((call) => call == 'load'), hasLength(1));
+      expect(completions, 1);
+      await tester.pumpWidget(const SizedBox());
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
+  testWidgets('a larger timeline presentation target finishes active motion and never replays after shrinking', (
+    tester,
+  ) async {
+    when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 540, 'width': 960, 'duration': 2000}));
+    await mountPreview(
+      tester,
+      timelinePreviewImageSize: const Size(4032, 2268),
+      timelinePreviewRequiredSize: const Size(640, 360),
+    );
+    expect(nativeSurfaceVisibility(tester).visible, isTrue);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(completions, 0);
+
+    // A larger cell or DPR raises the physical presentation target beyond the same
+    // loaded source. The main feed must release the reservation on that update.
+    await mountPreview(
+      tester,
+      timelinePreviewImageSize: const Size(4032, 2268),
+      timelinePreviewRequiredSize: const Size(1280, 720),
+    );
+    expect(completions, 1);
+    expect(calls.last, 'pause');
+    expect(nativeSurfaceVisibility(tester).visible, isFalse);
+    expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue), findsOneWidget);
+
+    await mountPreview(
+      tester,
+      timelinePreviewImageSize: const Size(4032, 2268),
+      timelinePreviewRequiredSize: const Size(640, 360),
+    );
+    ready.notifyListeners();
+    ended.notifyListeners();
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(calls.where((call) => call == 'load'), hasLength(1));
+    expect(completions, 1);
+    expect(nativeSurfaceVisibility(tester).visible, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('an ordinary video viewer without the timeline contract plays a small differently shaped source', (
+    tester,
+  ) async {
+    asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 240, 'width': 320, 'duration': 2000}));
+    await mountPreview(tester, timelinePreview: false);
+    expect(nativeSurfaceVisibility(tester).visible, isTrue);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(completions, 0);
+    expect(container.read(videoPlayerProvider(asset.id)).status, VideoPlaybackStatus.playing);
+    await finishMemoryViewer(tester);
+  });
 
   testWidgets('memory menu pause resumes the loaded video without fetching or reloading it', (tester) async {
     asset = asset.copyWith(type: .video, livePhotoVideoId: null);

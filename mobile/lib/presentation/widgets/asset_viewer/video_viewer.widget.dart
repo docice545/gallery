@@ -7,6 +7,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_presentation.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
@@ -40,6 +41,11 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
 
   /// A muted, single-pass timeline preview, isolated from asset-viewer state.
   final bool timelinePreview;
+
+  /// Shared still geometry and unrounded bounded physical requirement for the main feed.
+  /// Viewer playback and callers without a presentation contract stay unchanged.
+  final Size? timelinePreviewImageSize;
+  final Size? timelinePreviewRequiredSize;
   final VoidCallback? onPreviewCompleted;
 
   /// Checks the scope's current token synchronously while widget removal is pending.
@@ -56,6 +62,8 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
     this.loopOverride,
     this.forceAutoPlay = false,
     this.timelinePreview = false,
+    this.timelinePreviewImageSize,
+    this.timelinePreviewRequiredSize,
     this.onPreviewCompleted,
     this.previewIsActive,
   });
@@ -97,6 +105,21 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       !_previewFinished &&
       (widget.previewIsActive?.call() ?? true);
 
+  bool get _canPresentPreview {
+    final imageSize = widget.timelinePreviewImageSize;
+    final requiredSize = widget.timelinePreviewRequiredSize;
+    if (imageSize == null || requiredSize == null) {
+      return true;
+    }
+    final info = _controller?.videoInfo;
+    return info != null &&
+        canPresentTimelineMotion(
+          imageSize: imageSize,
+          videoSize: Size(info.width.toDouble(), info.height.toDouble()),
+          requiredSize: requiredSize,
+        );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -128,6 +151,11 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   @override
   void didUpdateWidget(NativeVideoViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (widget.timelinePreview && _isVideoReady && !_canPresentPreview) {
+      _finishPreview();
+      return;
+    }
 
     if (widget.playbackPaused != oldWidget.playbackPaused) {
       final revision = ++_pauseRevision;
@@ -378,6 +406,13 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       return;
     }
 
+    if (widget.timelinePreview && !_canPresentPreview) {
+      // Keep the sharp still visible. Complete this one-shot reservation rather
+      // than expose a blurry or differently cropped native surface.
+      _finishPreview();
+      return;
+    }
+
     setState(() => _isVideoReady = true);
 
     if (widget.timelinePreview) {
@@ -430,6 +465,9 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     _loadTimer?.cancel();
     _previewTimeout?.cancel();
     unawaited(_attachedNotifier?.pause());
+    if (_isVideoReady) {
+      setState(() => _isVideoReady = false);
+    }
     widget.onPreviewCompleted?.call();
   }
 

@@ -24,7 +24,8 @@ class RemoteImageProvider extends CancellableImageProvider<RemoteImageProvider>
     required String thumbhash,
     this.edited = true,
     this.decodeSize,
-  }) : url = getThumbnailUrlForRemoteId(assetId, thumbhash: thumbhash, edited: edited);
+    AssetMediaSize remoteMediaSize = AssetMediaSize.thumbnail,
+  }) : url = getThumbnailUrlForRemoteId(assetId, type: remoteMediaSize, thumbhash: thumbhash, edited: edited);
 
   @override
   Future<RemoteImageProvider> obtainKey(ImageConfiguration configuration) {

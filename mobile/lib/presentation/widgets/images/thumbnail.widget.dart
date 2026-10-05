@@ -11,6 +11,7 @@ import 'package:immich_mobile/presentation/widgets/images/thumb_hash_provider.da
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:logging/logging.dart';
+import 'package:openapi/api.dart';
 
 final log = Logger('ThumbnailWidget');
 
@@ -22,10 +23,14 @@ class Thumbnail extends StatefulWidget {
   final BoxFit fit;
   final List<Rect> faces;
 
+  /// Upright full-image geometry shared with the timeline's motion surface.
+  final Size? framingImageSize;
+
   const Thumbnail({
     this.imageProvider,
     this.fit = BoxFit.cover,
     this.faces = const [],
+    this.framingImageSize,
     this.thumbhashProvider,
     super.key,
   });
@@ -35,6 +40,7 @@ class Thumbnail extends StatefulWidget {
     required String thumbhash,
     this.fit = BoxFit.cover,
     this.faces = const [],
+    this.framingImageSize,
 
     /// Physical size to decode, or null for the source size.
     Size? decodeSize,
@@ -46,12 +52,14 @@ class Thumbnail extends StatefulWidget {
     required BaseAsset? asset,
     this.fit = BoxFit.cover,
     this.faces = const [],
+    this.framingImageSize,
 
     /// Decode size for local thumbnails. This does not affect the widget size.
     Size size = kThumbnailResolution,
 
     /// Physical size to decode for remote thumbnails.
     Size? remoteSize,
+    AssetMediaSize remoteMediaSize = AssetMediaSize.thumbnail,
     super.key,
   }) : thumbhashProvider = switch (asset) {
          RemoteAsset() when asset.thumbHash != null && asset.localId == null => ThumbHashProvider(
@@ -59,7 +67,9 @@ class Thumbnail extends StatefulWidget {
          ),
          _ => null,
        },
-       imageProvider = asset == null ? null : getThumbnailImageProvider(asset, size: size, remoteSize: remoteSize);
+       imageProvider = asset == null
+           ? null
+           : getThumbnailImageProvider(asset, size: size, remoteSize: remoteSize, remoteMediaSize: remoteMediaSize);
 
   @override
   State<Thumbnail> createState() => _ThumbnailState();
@@ -248,6 +258,7 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
           fadeValue: _fadeAnimation.value,
           fit: widget.fit,
           faces: widget.faces,
+          framingImageSize: widget.framingImageSize,
           placeholderGradient: gradient,
         );
       },
@@ -271,6 +282,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
   final double fadeValue;
   final BoxFit fit;
   final List<Rect> faces;
+  final Size? framingImageSize;
   final Gradient placeholderGradient;
 
   const _ThumbnailLeaf({
@@ -279,6 +291,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
     required this.fadeValue,
     required this.fit,
     required this.faces,
+    required this.framingImageSize,
     required this.placeholderGradient,
   });
 
@@ -290,6 +303,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       fadeValue: fadeValue,
       fit: fit,
       faces: faces,
+      framingImageSize: framingImageSize,
       placeholderGradient: placeholderGradient,
     );
   }
@@ -302,6 +316,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       ..fadeValue = fadeValue
       ..fit = fit
       ..faces = faces
+      ..framingImageSize = framingImageSize
       ..placeholderGradient = placeholderGradient;
   }
 }
@@ -312,6 +327,7 @@ class _ThumbnailRenderBox extends RenderBox {
   double _fadeValue;
   BoxFit _fit;
   List<Rect> _faces;
+  Size? _framingImageSize;
   Gradient _placeholderGradient;
 
   @override
@@ -323,6 +339,7 @@ class _ThumbnailRenderBox extends RenderBox {
     required this._fadeValue,
     required this._fit,
     required this._faces,
+    required this._framingImageSize,
     required this._placeholderGradient,
   });
 
@@ -362,7 +379,7 @@ class _ThumbnailRenderBox extends RenderBox {
   }
 
   ThumbnailFraming _framing(ui.Image image) => faceAwareThumbnailFraming(
-    imageSize: Size(image.width.toDouble(), image.height.toDouble()),
+    imageSize: _framingImageSize ?? Size(image.width.toDouble(), image.height.toDouble()),
     viewportSize: size,
     faces: _faces,
     fit: _fit,
@@ -404,6 +421,13 @@ class _ThumbnailRenderBox extends RenderBox {
   set faces(List<Rect> value) {
     if (_faces != value) {
       _faces = value;
+      markNeedsPaint();
+    }
+  }
+
+  set framingImageSize(Size? value) {
+    if (_framingImageSize != value) {
+      _framingImageSize = value;
       markNeedsPaint();
     }
   }

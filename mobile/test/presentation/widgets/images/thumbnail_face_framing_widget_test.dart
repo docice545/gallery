@@ -370,23 +370,26 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('local face-aware decode requests preserve portrait aspect within the existing size budget', (
+  testWidgets('local face-aware decode requests preserve portrait aspect at the bounded physical tile size', (
     tester,
   ) async {
     final stream = StreamController<List<Rect>>();
     addTearDown(stream.close);
     final asset = motion(id: 'local-backed-motion').copyWith(localId: 'local-photo');
     await mountTile(tester, asset, faces: () => stream.stream);
-    expect(localRequests.last.sublist(2, 4), [320, 320]);
+    expect(localRequests.last.sublist(2, 4), [504, 896]);
+    final requestCount = localRequests.length;
 
     stream.add(const [_topFace]);
     await tester.pump();
     await tester.pump();
     final provider = tester.widget<Thumbnail>(find.byType(Thumbnail)).imageProvider! as LocalThumbProvider;
-    expect(provider.size, const Size(180, 320));
-    expect(localRequests.last.sublist(2, 4), [180, 320]);
+    expect(provider.size, const Size(504, 896));
+    expect(localRequests.last.sublist(2, 4), [504, 896]);
+    expect(localRequests.length, requestCount, reason: 'a fitting face update only changes framing');
     expect(provider.size.width / provider.size.height, 900 / 1600);
-    expect(provider.size.longestSide, 320);
+    expect(provider.size.shortestSide, greaterThanOrEqualTo(160 * 3));
+    expect(provider.size.longestSide, lessThanOrEqualTo(1440));
     expect(tester.takeException(), isNull);
   });
 }

@@ -7,6 +7,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
+import 'package:immich_mobile/presentation/widgets/images/timeline_thumbnail_request.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
@@ -276,9 +277,17 @@ class _LivePhotoScope extends InheritedWidget {
 /// Overlay outside the thumbnail Hero, below the existing badges. It neither
 /// participates in hit testing nor changes selection, navigation or tile size.
 class TimelineLivePhotoTile extends StatefulWidget {
-  const TimelineLivePhotoTile({super.key, required this.asset, this.faces = const []});
+  const TimelineLivePhotoTile({
+    super.key,
+    required this.asset,
+    this.faces = const [],
+    this.framingImageSize,
+    this.requireMatchingFraming = false,
+  });
   final BaseAsset asset;
   final List<Rect> faces;
+  final Size? framingImageSize;
+  final bool requireMatchingFraming;
 
   @override
   State<TimelineLivePhotoTile> createState() => _TimelineLivePhotoTileState();
@@ -353,6 +362,16 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
       return const SizedBox.expand();
     }
     void onCompleted() => scope.controller.complete(_token);
+    if (widget.requireMatchingFraming && widget.framingImageSize == null) {
+      // Edited/unknown still geometry cannot be registered to the motion frame.
+      // Consume only this viewport's reservation; never try the next live photo.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scope == scope) {
+          onCompleted();
+        }
+      });
+      return const SizedBox.expand();
+    }
     return IgnorePointer(
       child:
           scope.widget.previewBuilder?.call(widget.asset, onCompleted) ??
@@ -362,14 +381,16 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                 final width = widget.asset.width;
                 final height = widget.asset.height;
                 final hasDimensions = width != null && height != null && width > 0 && height > 0;
-                final aspect = hasDimensions ? width / height : constraints.maxWidth / constraints.maxHeight;
+                final imageSize =
+                    widget.framingImageSize ?? (hasDimensions ? Size(width.toDouble(), height.toDouble()) : null);
+                final aspect = imageSize != null ? imageSize.aspectRatio : constraints.maxWidth / constraints.maxHeight;
                 final tileAspect = constraints.maxWidth / constraints.maxHeight;
                 // Size the platform view in logical tile pixels, never in the
                 // original photo's multi-megapixel dimensions.
                 final previewWidth = aspect > tileAspect ? constraints.maxHeight * aspect : constraints.maxWidth;
                 final previewHeight = aspect > tileAspect ? constraints.maxHeight : constraints.maxWidth / aspect;
                 final framing = faceAwareThumbnailFraming(
-                  imageSize: Size(previewWidth, previewHeight),
+                  imageSize: imageSize ?? Size(previewWidth, previewHeight),
                   viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
                   faces: widget.faces,
                 );
@@ -386,6 +407,15 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                       isCurrent: true,
                       showControls: false,
                       timelinePreview: true,
+                      timelinePreviewImageSize: widget.framingImageSize,
+                      timelinePreviewRequiredSize: widget.framingImageSize == null
+                          ? null
+                          : buildTimelineThumbnailRequest(
+                              viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
+                              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                              imageSize: widget.framingImageSize,
+                              faces: widget.faces,
+                            ).requiredSize,
                       previewIsActive: () => scope.controller.activeToken == _token,
                       onPreviewCompleted: onCompleted,
                     ),

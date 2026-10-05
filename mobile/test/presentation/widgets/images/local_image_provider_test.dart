@@ -1,8 +1,10 @@
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/infrastructure/loaders/image_request.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/local_image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/images/timeline_thumbnail_request.dart';
 
 import '../../../unit/factories/local_asset_factory.dart';
 
@@ -20,6 +22,34 @@ void main() {
   setUp(() {
     cache = ImageCache();
     loads = 0;
+  });
+
+  group('LocalImageRequest timeline dimensions', () {
+    for (final (name, imageSize, expectedWidth, expectedHeight) in [
+      ('wide', const Size(30000, 10), 1440, 1),
+      ('tall', const Size(10, 30000), 1, 1440),
+    ]) {
+      test('$name subpixel axis remains a bounded thumbnail request', () {
+        final plan = buildTimelineThumbnailRequest(
+          viewportSize: const Size.square(160),
+          devicePixelRatio: 3,
+          imageSize: imageSize,
+        );
+        final request = LocalImageRequest(localId: 'asset', size: plan.decodeSize, assetType: AssetType.image);
+
+        expect(plan.decodeSize.longestSide, 1440);
+        expect(plan.decodeSize.shortestSide, closeTo(0.48, 1e-12));
+        expect(request.width, expectedWidth);
+        expect(request.height, expectedHeight);
+      });
+    }
+
+    test('Size.zero preserves the full viewer original-size sentinel', () {
+      final request = LocalImageRequest(localId: 'asset', size: Size.zero, assetType: AssetType.image);
+
+      expect(request.width, 0);
+      expect(request.height, 0);
+    });
   });
 
   group('LocalFullImageProvider.previewTargetSize', () {
