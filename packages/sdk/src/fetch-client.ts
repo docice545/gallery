@@ -2368,6 +2368,41 @@ export type MemoryCandidateCreateDto = {
 export type MemoryCandidateDecisionDto = {
     action: Action2;
 };
+export type MemoryLifecycleDto = {
+    /** Full stored membership, including assets excluded from display */
+    assetIds: string[];
+    /** Memory data */
+    data: {
+        [key: string]: any;
+    };
+    deletedAt?: string;
+    /** SHA-256 of sorted unique asset IDs joined by commas */
+    fingerprint: string;
+    hideAt?: string;
+    id: string;
+    isSaved: boolean;
+    seenAt?: string;
+    showAt?: string;
+    "type": MemoryType;
+};
+export type MemoryLifecycleResponseDto = {
+    items: MemoryLifecycleDto[];
+    /** Pass as after for the next page; absent when exhausted */
+    nextCursor?: string;
+};
+export type MemoryRejectionDto = {
+    assetIds: string[];
+    fingerprint: string;
+    id: string;
+    /** Linked memory ID; null after hard deletion */
+    memoryId: string | null;
+    state: State2;
+};
+export type MemoryRejectionsResponseDto = {
+    items: MemoryRejectionDto[];
+    /** Pass as after for the next page; absent when exhausted */
+    nextCursor?: string;
+};
 export type MemoryStatisticsResponseDto = {
     /** Total number of memories */
     total: number;
@@ -7370,6 +7405,40 @@ export function decideMemoryCandidate({ id, memoryCandidateDecisionDto }: {
     })));
 }
 /**
+ * Retrieve an owner-only memory lifecycle snapshot
+ */
+export function getMemoryLifecycle({ after, size }: {
+    after?: string;
+    size?: number;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: MemoryLifecycleResponseDto;
+    }>(`/memories/lifecycle${QS.query(QS.explode({
+        after,
+        size
+    }))}`, {
+        ...opts
+    }));
+}
+/**
+ * Retrieve an owner-only memory rejection snapshot
+ */
+export function getMemoryRejections({ after, size }: {
+    after?: string;
+    size?: number;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: MemoryRejectionsResponseDto;
+    }>(`/memories/rejections${QS.query(QS.explode({
+        after,
+        size
+    }))}`, {
+        ...opts
+    }));
+}
+/**
  * Retrieve memories statistics
  */
 export function memoriesStatistics({ $for, id, isSaved, isTrashed, isUpcoming, order, page, size, $type }: {
@@ -11498,6 +11567,9 @@ export enum Action2 {
     Save = "save",
     Dismiss = "dismiss",
     Later = "later"
+}
+export enum State2 {
+    Dismissed = "dismissed"
 }
 export enum PartnerDirection {
     SharedBy = "shared-by",

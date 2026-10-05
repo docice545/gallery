@@ -31,6 +31,58 @@ const OnThisDaySchema = z
 
 const MemoryDataSchema = z.record(z.string(), z.unknown()).describe('Memory data');
 
+export class MemoryLifecycleSearchDto extends createZodDto(
+  z
+    .object({
+      after: z.uuidv4().optional().describe('Last returned ID; omit to restart snapshot polling'),
+      size: z.coerce.number().int().min(1).max(1000).default(100).describe('Maximum number of snapshot items'),
+    })
+    .meta({ id: 'MemoryLifecycleSearchDto' }),
+) {}
+
+const MemoryLifecycleSchema = z
+  .object({
+    id: z.uuidv4(),
+    type: MemoryTypeSchema,
+    data: MemoryDataSchema,
+    isSaved: z.boolean(),
+    seenAt: isoDatetimeToDate.optional(),
+    showAt: isoDatetimeToDate.optional(),
+    hideAt: isoDatetimeToDate.optional(),
+    deletedAt: isoDatetimeToDate.optional(),
+    assetIds: z.array(z.uuidv4()).describe('Full stored membership, including assets excluded from display'),
+    fingerprint: z.string().describe('SHA-256 of sorted unique asset IDs joined by commas'),
+  })
+  .meta({ id: 'MemoryLifecycleDto' });
+
+export class MemoryLifecycleResponseDto extends createZodDto(
+  z
+    .object({
+      items: z.array(MemoryLifecycleSchema),
+      nextCursor: z.uuidv4().optional().describe('Pass as after for the next page; absent when exhausted'),
+    })
+    .meta({ id: 'MemoryLifecycleResponseDto' }),
+) {}
+
+export class MemoryRejectionsResponseDto extends createZodDto(
+  z
+    .object({
+      items: z.array(
+        z
+          .object({
+            id: z.uuidv4(),
+            fingerprint: z.string(),
+            assetIds: z.array(z.uuidv4()),
+            state: z.literal('dismissed'),
+            memoryId: z.uuidv4().nullable().describe('Linked memory ID; null after hard deletion'),
+          })
+          .meta({ id: 'MemoryRejectionDto' }),
+      ),
+      nextCursor: z.uuidv4().optional().describe('Pass as after for the next page; absent when exhausted'),
+    })
+    .meta({ id: 'MemoryRejectionsResponseDto' }),
+) {}
+
 const getMemoryDisplay = (data: Record<string, unknown>) => {
   return {
     title: typeof data.title === 'string' ? data.title : undefined,

@@ -45,6 +45,39 @@ const userId = '00000000-0000-0000-0000-000000000000';
 describe(MemoryRepository.name, () => {
   const sut = new MemoryRepository(offlineKysely());
 
+  describe('owner-only integration snapshots', () => {
+    it('reads full membership without display, candidate, date or sharing filters', async () => {
+      const { sut, last } = recordingRepository();
+      const after = '11111111-1111-4111-8111-111111111111';
+      await sut.getLifecycle(userId, { after, size: 2 });
+      expect(last().sql).toContain('from "memory_asset"');
+      expect(last().sql).toContain('"ownerId" = $1');
+      expect(last().sql).toContain('"id" > $2');
+      expect(last().sql).toContain('order by "id" asc limit $3');
+      expect(last().parameters).toEqual([userId, after, 3]);
+      expect(last().sql).not.toContain('join');
+      expect(last().sql).not.toContain('"visibility"');
+      expect(last().sql).not.toContain('"deletedAt" is null');
+      expect(last().sql).not.toContain('"showAt" <=');
+      expect(last().sql).not.toContain('memory_candidate');
+      expect(last().sql).not.toContain('partner');
+      expect(last().sql).not.toContain('shared_space');
+    });
+
+    it('reads only owned dismissed history without requiring a surviving memory', async () => {
+      const { sut, last } = recordingRepository();
+      const after = '11111111-1111-4111-8111-111111111111';
+      await sut.getRejections(userId, { after, size: 2 });
+      expect(last().sql).toContain('from "memory_candidate"');
+      expect(last().sql).toContain('"ownerId" = $1 and "state" = $2 and "id" > $3');
+      expect(last().sql).toContain('order by "id" asc limit $4');
+      expect(last().parameters).toEqual([userId, 'dismissed', after, 3]);
+      expect(last().sql).not.toContain('join');
+      expect(last().sql).not.toContain('createdAt');
+      expect(last().sql).not.toContain('remindAt');
+    });
+  });
+
   describe('accessibleSearchBuilder', () => {
     it('album arm requires showInTimeline on memory projection surfaces', () => {
       const sut = new MemoryRepository(offlineKysely());

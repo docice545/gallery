@@ -171,6 +171,7 @@ void main() {
     bool timelinePreview = true,
     bool playbackPaused = false,
     bool isCurrent = true,
+    VoidCallback? onPreviewCompleted,
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -188,7 +189,10 @@ void main() {
               playbackPaused: playbackPaused,
               forceAutoPlay: !timelinePreview,
               showControls: false,
-              onPreviewCompleted: () => completions++,
+              onPreviewCompleted: () {
+                completions++;
+                onPreviewCompleted?.call();
+              },
               previewIsActive: previewIsActive,
               loopOverride: loopOverride,
             ),
@@ -488,7 +492,20 @@ void main() {
   });
 
   testWidgets('source failures complete the preview once', (tester) async {
-    await mountPreview(tester, sourcePath: '${temporaryDirectory.path}/missing.mp4');
+    final completed = Completer<void>();
+    await mountPreview(
+      tester,
+      sourcePath: '${temporaryDirectory.path}/missing.mp4',
+      onPreviewCompleted: () {
+        if (!completed.isCompleted) {
+          completed.complete();
+        }
+      },
+    );
+    // File.exists uses real async IO. Wait for its actual error completion,
+    // rather than assuming a fixed number of event-queue turns is sufficient.
+    await tester.runAsync(() => completed.future.timeout(const Duration(seconds: 5)));
+    await tester.pump();
     expect(completions, 1);
     expect(calls, isNot(contains('load')));
     error.value = 'native error';

@@ -13,6 +13,9 @@ import {
   MemoryCandidateDecisionDto,
   MemoryCandidateResponseDto,
   MemoryCreateDto,
+  MemoryLifecycleResponseDto,
+  MemoryLifecycleSearchDto,
+  MemoryRejectionsResponseDto,
   MemoryResponseDto,
   MemorySearchDto,
   MemoryUpdateDto,
@@ -41,7 +44,12 @@ import { createMemoryRules } from 'src/services/memory-rules/memory-type.registr
 import { type ReservableMemory, planReservation } from 'src/services/memory-rules/reservation.util.js';
 import { MemoryThemeSearchAdapter } from 'src/services/memory-rules/theme-search.adapter.js';
 import { addAssets, removeAssets } from 'src/utils/asset.util.js';
-import { MemorySuppressedException, memoryData } from 'src/utils/memory-candidate.js';
+import {
+  MemorySuppressedException,
+  memoryAssetIds,
+  memoryData,
+  memoryFingerprint,
+} from 'src/utils/memory-candidate.js';
 import { findOrFail } from 'src/utils/misc.js';
 import { getPreferences } from 'src/utils/preferences.js';
 
@@ -83,6 +91,30 @@ const isVisibleOn = (row: Pick<MemoryOverlapRow, 'showAt' | 'hideAt'>, target: D
 
 @Injectable()
 export class MemoryService extends BaseService {
+  async getLifecycle(auth: AuthDto, dto: MemoryLifecycleSearchDto): Promise<MemoryLifecycleResponseDto> {
+    const rows = await this.memoryRepository.getLifecycle(auth.user.id, dto);
+    const items = rows.slice(0, dto.size).map((row) => ({
+      ...row,
+      data: memoryData(row.data),
+      seenAt: row.seenAt ?? undefined,
+      showAt: row.showAt ?? undefined,
+      hideAt: row.hideAt ?? undefined,
+      deletedAt: row.deletedAt ?? undefined,
+      fingerprint: memoryFingerprint(row.assetIds),
+    }));
+    return { items, nextCursor: rows.length > dto.size ? items.at(-1)?.id : undefined };
+  }
+
+  async getRejections(auth: AuthDto, dto: MemoryLifecycleSearchDto): Promise<MemoryRejectionsResponseDto> {
+    const rows = await this.memoryRepository.getRejections(auth.user.id, dto);
+    const items = rows.slice(0, dto.size).map((row) => ({
+      ...row,
+      assetIds: memoryAssetIds(row.assetIds),
+      state: 'dismissed' as const,
+    }));
+    return { items, nextCursor: rows.length > dto.size ? items.at(-1)?.id : undefined };
+  }
+
   async createCandidate(auth: AuthDto, dto: MemoryCandidateCreateDto): Promise<MemoryCandidateResponseDto> {
     const ids = [...new Set(dto.assetIds)];
     const allowed = await this.accessRepository.asset.checkOwnerAccess(

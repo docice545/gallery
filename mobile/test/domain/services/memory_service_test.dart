@@ -43,6 +43,30 @@ void main() {
   });
 
   group('management', () {
+    test('viewing an owned memory acknowledges seenAt without saving or deleting', () async {
+      when(() => mockApiRepository.markViewed(any(), any())).thenAnswer((_) async {});
+      await sut.markViewed(memory('own-memory'), 'user-1');
+      verify(() => mockApiRepository.markViewed('own-memory', any())).called(1);
+      verifyNever(() => mockApiRepository.hide(any()));
+      verifyNever(() => mockApiRepository.delete(any()));
+      verifyNever(() => mockRepository.markRemoved(any(), any()));
+    });
+
+    test('shared, already seen and removed memories are not marked on behalf of their owner', () async {
+      await sut.markViewed(memory('shared', ownerId: 'other-user'), 'user-1');
+      await sut.markViewed(memory('seen').copyWith(seenAt: DateTime.utc(2026)), 'user-1');
+      await sut.markViewed(memory('hidden').copyWith(deletedAt: DateTime.utc(2026)), 'user-1');
+      await sut.markViewed(memory('no-session'), null);
+      verifyNever(() => mockApiRepository.markViewed(any(), any()));
+    });
+
+    test('offline viewing remains usable and never becomes rejection', () async {
+      when(() => mockApiRepository.markViewed(any(), any())).thenThrow(Exception('offline'));
+      await sut.markViewed(memory('own-memory'), 'user-1');
+      verifyNever(() => mockRepository.markRemoved(any(), any()));
+      verifyNever(() => mockApiRepository.delete(any()));
+    });
+
     test('hide marks only the acknowledged memory cache as removed', () async {
       final removedAt = DateTime.utc(2026, 10, 5);
       when(

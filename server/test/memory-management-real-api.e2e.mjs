@@ -52,11 +52,11 @@ async function check(name, operation) {
   console.log(`PASS ${name}`);
 }
 
-async function api(path, { method = 'GET', body, auth = token, status, raw = false } = {}) {
+async function api(path, { method = 'GET', body, auth = token, apiKey, status, raw = false } = {}) {
   const response = await fetch(new URL(path, base), {
     method,
     headers: {
-      ...(auth && { Authorization: `Bearer ${auth}` }),
+      ...(apiKey ? { 'x-api-key': apiKey } : auth && { Authorization: `Bearer ${auth}` }),
       ...(body && !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
     },
     body: body instanceof FormData ? body : body && JSON.stringify(body),
@@ -113,13 +113,41 @@ function memoryBody(ids, { ai = false, date = captureDate } = {}) {
   return {
     type: ai ? 'rule' : 'on_this_day',
     data: ai
-      ? { ruleId: 'gallery_ai_highlight', title: 'Synthetic AI highlight', dedupeKey: randomUUID() }
+      ? {
+          ruleId: 'gallery_ai_highlight',
+          generator: 'family-memory-generator',
+          version: '3.7',
+          theme: 'synthetic-holiday',
+          score: 0.82,
+          context: { selection: 'diverse', providerIndependent: true },
+          title: 'Synthetic AI highlight',
+          subtitle: 'Synthetic photo and video collection',
+          dedupeKey: randomUUID(),
+        }
       : { year: new Date(date).getUTCFullYear() },
     memoryAt: date,
     showAt: today.toISO(),
     hideAt: today.endOf('day').toISO(),
     assetIds: ids,
   };
+}
+
+async function snapshot(path, apiKey) {
+  const items = [];
+  let after;
+  for (let page = 0; page < 50; page++) {
+    const query = new URLSearchParams({ size: '2', ...(after && { after }) });
+    const result = await api(`${path}?${query}`, { apiKey });
+    assert.ok(result.items.length <= 2);
+    items.push(...result.items);
+    if (!result.nextCursor) {
+      assert.equal(new Set(items.map((item) => item.id)).size, items.length);
+      return items;
+    }
+    assert.notEqual(result.nextCursor, after);
+    after = result.nextCursor;
+  }
+  assert.fail('Snapshot pagination did not terminate');
 }
 
 async function sync(auth) {
@@ -183,6 +211,7 @@ try {
     { ApiService },
     { WebsocketRepository },
     { MemoryService },
+    { MemoryRepository },
     { DatabaseRepository },
     { AssetRepository },
     { MetadataService },
@@ -193,6 +222,7 @@ try {
     import('../dist/services/api.service.js'),
     import('../dist/repositories/websocket.repository.js'),
     import('../dist/services/memory.service.js'),
+    import('../dist/repositories/memory.repository.js'),
     import('../dist/repositories/database.repository.js'),
     import('../dist/repositories/asset.repository.js'),
     import('../dist/services/metadata.service.js'),
@@ -234,6 +264,23 @@ try {
   };
   await api('admin/users', { method: 'POST', body: unrelated });
   const unrelatedToken = (await api('auth/login', { method: 'POST', body: unrelated })).accessToken;
+  // These synthetic secrets stay only in this process, never in reports/files.
+  const generatorKey = (
+    await api('api-keys', {
+      method: 'POST',
+      body: { name: 'Synthetic external generator', permissions: ['memory.read', 'memory.create', 'memory.update'] },
+    })
+  ).secret;
+  const unrelatedKey = (
+    await api('api-keys', {
+      method: 'POST',
+      auth: unrelatedToken,
+      body: { name: 'Synthetic unrelated owner', permissions: ['memory.read'] },
+    })
+  ).secret;
+  const insufficientKey = (
+    await api('api-keys', { method: 'POST', body: { name: 'Synthetic asset reader', permissions: ['asset.read'] } })
+  ).secret;
 
   await check('real fresh API startup, all migrations and no schema drift', async () => {
     assert.deepEqual(await api('server/ping'), { res: 'pong' });
@@ -265,7 +312,7 @@ try {
     videoPath,
   ]);
   const videoId = await uploadBytes(await readFile(videoPath), 'synthetic-memory-video.mp4');
-  const hideIds = assets.slice(2, 7).map((asset) => asset.id);
+  const hideIds = [...assets.slice(2, 6).map((asset) => asset.id), videoId];
   const deleteIds = assets.slice(7, 12).map((asset) => asset.id);
   const ordinaryHide = await api('memories', {
     method: 'POST',
@@ -276,6 +323,55 @@ try {
   const aiDeleteBody = memoryBody(deleteIds, { ai: true });
   const aiHide = await api('memories', { method: 'POST', body: aiHideBody });
   const aiDelete = await api('memories', { method: 'POST', body: aiDeleteBody });
+  await check(
+    'owner API keys read complete mixed-media lifecycle snapshots without exposing other owners',
+    async () => {
+      const rows = await snapshot('memories/lifecycle', generatorKey);
+      assert.equal(rows.length, 4);
+      const row = rows.find((item) => item.id === aiHide.id);
+      assert.deepEqual(row.data, aiHideBody.data);
+      assert.deepEqual(new Set(row.assetIds), new Set(hideIds));
+      assert.equal(row.fingerprint, digest(Buffer.from([...new Set(hideIds)].sort().join(','))));
+      assert.ok(aiHide.assets.some((asset) => asset.type === 'VIDEO'));
+      assert.ok(aiHide.assets.some((asset) => asset.type === 'IMAGE'));
+      assert.deepEqual(await snapshot('memories/lifecycle', unrelatedKey), []);
+      assert.deepEqual(await snapshot('memories/rejections', unrelatedKey), []);
+      await api('memories/lifecycle', { auth: null, status: 401 });
+      await api('memories/rejections', { apiKey: insufficientKey, status: 403 });
+    },
+  );
+
+  await check('viewed and saved are independent positive signals and updates preserve external metadata', async () => {
+    const seenAt = today.plus({ hours: 12 }).toISO();
+    const viewed = await api(`memories/${aiHide.id}`, {
+      method: 'PUT',
+      apiKey: generatorKey,
+      body: { seenAt },
+    });
+    assert.equal(viewed.seenAt, seenAt);
+    assert.equal(viewed.isSaved, false);
+    assert.deepEqual(viewed.data, aiHideBody.data);
+    const saved = await api(`memories/${aiHide.id}`, {
+      method: 'PATCH',
+      apiKey: generatorKey,
+      body: { isSaved: true, title: 'Edited display title' },
+    });
+    assert.equal(saved.isSaved, true);
+    assert.equal(saved.seenAt, seenAt);
+    assert.deepEqual(saved.data, { ...aiHideBody.data, title: 'Edited display title' });
+    aiHideBody.data.title = 'Edited display title';
+    assert.deepEqual(await snapshot('memories/rejections', generatorKey), []);
+  });
+
+  await check('internal retention disappearance creates no user rejection', async () => {
+    const body = memoryBody([assets[6].id], { ai: true });
+    body.showAt = today.minus({ days: 10 }).toISO();
+    const expired = await api('memories', { method: 'POST', apiKey: generatorKey, body });
+    await app.get(MemoryRepository).cleanup(1);
+    await api(`memories/${expired.id}`, { apiKey: generatorKey, status: 400 });
+    assert.deepEqual(await snapshot('memories/rejections', generatorKey), []);
+    assert.ok((await snapshot('memories/lifecycle', generatorKey)).some((row) => row.id === aiHide.id && row.isSaved));
+  });
   const initialSync = await sync(secondToken);
   await check('ordinary two-years-ago and AI memories are visible to both owner sessions', async () => {
     assert.equal(ordinaryHide.data.year, today.year - 2);
@@ -361,6 +457,21 @@ try {
     assert.ok(history.rows.some((row) => row.memoryId === null && row.assetIds.includes(deleteIds[0])));
   });
 
+  await check(
+    'rejection snapshot survives hard deletion and correlates through canonical owner fingerprints',
+    async () => {
+      const rejected = await snapshot('memories/rejections', generatorKey);
+      assert.equal(rejected.length, 4);
+      const aiRejection = rejected.find(
+        (row) => row.fingerprint === digest(Buffer.from([...deleteIds].sort().join(','))),
+      );
+      assert.equal(aiRejection.state, 'dismissed');
+      assert.equal(aiRejection.memoryId, null);
+      assert.deepEqual(new Set(aiRejection.assetIds), new Set(deleteIds));
+      assert.deepEqual(await snapshot('memories/rejections', unrelatedKey), []);
+    },
+  );
+
   await check('existing sync delivers soft-delete updates and hard-delete tombstones to another session', async () => {
     const rows = await sync(secondToken);
     for (const memory of [ordinaryHide, aiHide]) {
@@ -375,7 +486,8 @@ try {
 
   await check('production-style POST refuses identical, reordered and Jaccard 0.8 AI recreation', async () => {
     for (const body of [aiHideBody, aiDeleteBody]) {
-      await api('memories', { method: 'POST', body, status: 409 });
+      const suppressed = await api('memories', { method: 'POST', apiKey: generatorKey, body, status: 409 });
+      assert.equal(suppressed.code, 'MEMORY_SUPPRESSED');
       await api('memories', { method: 'POST', body: { ...body, assetIds: [...body.assetIds].reverse() }, status: 409 });
       await api('memories', {
         method: 'POST',
@@ -486,6 +598,8 @@ try {
       assert.equal((await api('memories/statistics', { auth: freshToken })).total, 0);
       await api('memories', { method: 'POST', body: aiDeleteBody, auth: freshToken, status: 409 });
       await api('memories/candidates', { method: 'POST', body: aiHideBody, auth: freshToken, status: 409 });
+      assert.equal((await snapshot('memories/rejections', generatorKey)).length, 6);
+      assert.deepEqual(await snapshot('memories/rejections', unrelatedKey), []);
       await app.get(MemoryService).createOnThisDayMemories(owner.id, today);
       assert.deepEqual(await api('memories', { auth: freshToken }), []);
       assert.equal((await app.get(DatabaseRepository).getSchemaDrift()).items.length, 0);

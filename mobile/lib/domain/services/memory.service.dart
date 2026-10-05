@@ -12,6 +12,19 @@ class MemoryService {
 
   MemoryService(this._repository, this._apiRepository);
 
+  Future<void> markViewed(Memory memory, String? viewerId) async {
+    if (viewerId != memory.ownerId || memory.seenAt != null || memory.deletedAt != null) {
+      return;
+    }
+    try {
+      await _apiRepository.markViewed(memory.id, DateTime.now().toUtc());
+    } catch (error, stackTrace) {
+      // Offline viewing must still work. An absent timestamp is unknown, not a
+      // negative reaction; a later viewer entry can retry the acknowledgement.
+      log.warning('Failed to acknowledge memory viewing', error, stackTrace);
+    }
+  }
+
   Future<void> hide(String memoryId) async {
     final hidden = await _apiRepository.hide(memoryId);
     await _markRemoved(memoryId, hidden.deletedAt!);

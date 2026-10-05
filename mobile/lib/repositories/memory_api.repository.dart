@@ -17,6 +17,22 @@ class MemoryApiRepository extends ApiRepository {
 
   MemoryApiRepository(this._apiService);
 
+  /// Viewing is an independent positive signal, never a save or rejection.
+  Future<void> markViewed(String id, DateTime seenAt) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/memories/$id',
+      'PUT',
+      <QueryParam>[],
+      {'seenAt': seenAt.toUtc().toIso8601String()},
+      <String, String>{},
+      <String, String>{},
+      'application/json',
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, response.body);
+    }
+  }
+
   /// Keep deletion on the upstream memory endpoint: it only removes the memory,
   /// never its photo/video assets.
   Future<void> delete(String id) async {

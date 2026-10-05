@@ -105,6 +105,24 @@ void main() {
   });
 
   group('memory management', () {
+    test('view acknowledgement sends only seenAt through the existing update API', () async {
+      late http.BaseRequest captured;
+      apiClient.client = _StubClient((request) async {
+        captured = request;
+        return jsonResponse(jsonEncode(memoryDto('highlight').toJson()));
+      });
+      final seenAt = DateTime.utc(2026, 10, 5, 12);
+      await sut.markViewed('highlight', seenAt);
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/api/memories/highlight');
+      expect(jsonDecode((captured as http.Request).body), {'seenAt': seenAt.toIso8601String()});
+    });
+
+    test('view acknowledgement propagates failed server responses to the service', () async {
+      stubResponse(() => jsonResponse('{"message":"Unavailable"}', status: 503));
+      await expectLater(sut.markViewed('highlight', DateTime.utc(2026)), throwsA(isA<api.ApiException>()));
+    });
+
     test('delete uses only the upstream memory endpoint', () async {
       late http.BaseRequest captured;
       apiClient.client = _StubClient((request) async {

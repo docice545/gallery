@@ -1,6 +1,20 @@
-import { memoryAssetIds, memoryData, memoryFingerprint, similarMemoryAssets } from 'src/utils/memory-candidate.js';
+import {
+  MemorySuppressedException,
+  memoryAssetIds,
+  memoryData,
+  memoryFingerprint,
+  similarMemoryAssets,
+} from 'src/utils/memory-candidate.js';
 
 describe('memory candidate deduplication', () => {
+  it('exposes a stable suppression code without changing the conflict status or message', () => {
+    const error = new MemorySuppressedException();
+    expect(error.code).toBe('MEMORY_SUPPRESSED');
+    expect(error.getStatus()).toBe(409);
+    expect(error.message).toBe('A similar memory was hidden or deleted by the user');
+    expect(error.getResponse()).toEqual({ message: error.message, code: error.code });
+  });
+
   it('ignores order and duplicate asset ids', () => {
     expect(memoryFingerprint(['a', 'b', 'a'])).toBe(memoryFingerprint(['b', 'a']));
   });

@@ -13,6 +13,10 @@ access, существующий sync stream, долговечность пос�
 отказ API повторно создавать AI Memory или candidate по подавленным asset IDs.
 Проверка включает порядок IDs, изменённые title/date/dedupeKey, сходство Jaccard
 ровно 0,8, ручное скрытие ранее сохранённого candidate и отказ позднего Save.
+Дополнение для внешнего AI проверяет owner-scoped lifecycle/rejection snapshots
+через реальные API keys, полный mixed photo/video membership, metadata при
+seen/save/title updates, internal retention без rejection, typed 409 и privacy
+постороннего owner. Нет новых database tables или migration.
 Новые rejection записи проверяются как JSONB массивы; одна запись намеренно
 преобразуется в JSONB строку старого формата для проверки совместимости без
 миграции. Memory с фото и видео удаляется вместе со связями, оба originals
@@ -98,7 +102,8 @@ node test/memory-management-real-api.e2e.mjs
 В конце закрываются Nest, его Redis pub/sub connections, EXIF process и DB client;
 directory удаляется. Принудительный успешный `process.exit` не используется.
 
-Проверено 2026-10-05: **14/14 contracts passed, естественный exit 0**; собственные
+Проверено 2026-10-05: исходный прогон **14/14**, окончательный расширенный
+**18/18 contracts passed, естественный exit 0**; собственные
 PostgreSQL/Redis контейнеры и fixture directory удалены. Первый restart запуск
 прошёл assertions, но выявил утечку соединений в harness: `app.module` создаёт
 postgres.js instance при import, который нельзя повторно использовать после

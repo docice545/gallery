@@ -8,6 +8,9 @@ import {
   MemoryCandidateDecisionDto,
   MemoryCandidateResponseDto,
   MemoryCreateDto,
+  MemoryLifecycleResponseDto,
+  MemoryLifecycleSearchDto,
+  MemoryRejectionsResponseDto,
   MemoryResponseDto,
   MemorySearchDto,
   MemoryStatisticsResponseDto,
@@ -22,6 +25,36 @@ import { UUIDParamDto } from 'src/validation.js';
 @Controller('memories')
 export class MemoryController {
   constructor(private service: MemoryService) {}
+
+  @Get('lifecycle')
+  @Authenticated({ permission: Permission.MemoryRead })
+  @Endpoint({
+    summary: 'Retrieve an owner-only memory lifecycle snapshot',
+    description:
+      'Read all owned memories, including hidden and upcoming rows, with full stored asset membership. IDs are sorted ascending. Follow nextCursor as after, then restart without after on each polling cycle; this is not an incremental event feed.',
+    history: new HistoryBuilder().added('v1').beta('v1'),
+  })
+  getMemoryLifecycle(
+    @Auth() auth: AuthDto,
+    @Query() dto: MemoryLifecycleSearchDto,
+  ): Promise<MemoryLifecycleResponseDto> {
+    return this.service.getLifecycle(auth, dto);
+  }
+
+  @Get('rejections')
+  @Authenticated({ permission: Permission.MemoryRead })
+  @Endpoint({
+    summary: 'Retrieve an owner-only memory rejection snapshot',
+    description:
+      'Read durable dismissed memberships, including rows whose memory was deleted. Follow nextCursor as after, then restart without after on each polling cycle. No decision timestamp is available. External producers must keep an owner-scoped ledger to correlate provider dedupe keys after hard deletion.',
+    history: new HistoryBuilder().added('v1').beta('v1'),
+  })
+  getMemoryRejections(
+    @Auth() auth: AuthDto,
+    @Query() dto: MemoryLifecycleSearchDto,
+  ): Promise<MemoryRejectionsResponseDto> {
+    return this.service.getRejections(auth, dto);
+  }
 
   @Get('candidates')
   @Authenticated({ permission: Permission.MemoryRead })

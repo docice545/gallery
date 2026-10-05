@@ -1,4 +1,11 @@
-import { MemoryCreateDto, MemoryResponseDto, MemoryUpdateDto, mapMemory } from 'src/dtos/memory.dto.js';
+import {
+  MemoryCreateDto,
+  MemoryLifecycleSearchDto,
+  MemoryRejectionsResponseDto,
+  MemoryResponseDto,
+  MemoryUpdateDto,
+  mapMemory,
+} from 'src/dtos/memory.dto.js';
 import { MemoryType } from 'src/enum.js';
 import { RuleMemoryData } from 'src/types.js';
 import { MemoryFactory } from 'test/factories/memory.factory.js';
@@ -6,6 +13,32 @@ import { getForMemory } from 'test/mappers.js';
 import { factory } from 'test/small.factory.js';
 
 describe('Memory DTOs', () => {
+  describe('MemoryLifecycleSearchDto', () => {
+    it('defaults to bounded snapshots and strips untrusted owner filters', () => {
+      expect(MemoryLifecycleSearchDto.schema.parse({ ownerId: 'another-user', since: '2020-01-01' })).toEqual({
+        size: 100,
+      });
+    });
+
+    it('accepts a UUIDv4 keyset cursor and coerces page size', () => {
+      const after = factory.uuid();
+      expect(MemoryLifecycleSearchDto.schema.parse({ after, size: '1000' })).toEqual({ after, size: 1000 });
+    });
+
+    it.each([{ after: 'invalid' }, { size: 0 }, { size: 1001 }, { size: 1.5 }])(
+      'rejects invalid pagination %j',
+      (dto) => {
+        expect(MemoryLifecycleSearchDto.schema.safeParse(dto).success).toBe(false);
+      },
+    );
+  });
+
+  it('requires rejection state and allows the memory link to be lost after hard deletion', () => {
+    const item = { id: factory.uuid(), fingerprint: 'fingerprint', assetIds: [], state: 'dismissed', memoryId: null };
+    expect(MemoryRejectionsResponseDto.schema.safeParse({ items: [item] }).success).toBe(true);
+    expect(MemoryRejectionsResponseDto.schema.safeParse({ items: [{ ...item, state: 'saved' }] }).success).toBe(false);
+  });
+
   describe('MemoryUpdateDto', () => {
     it('accepts explicit permanent hide on the existing update API', () => {
       expect(MemoryUpdateDto.schema.parse({ isHidden: true })).toEqual({ isHidden: true });

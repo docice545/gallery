@@ -23,6 +23,7 @@
   import { getAssetBulkActions } from '$lib/services/asset.service';
   import { locale } from '$lib/stores/preferences.store';
   import { getAssetMediaUrl, handlePromiseError, memoryLaneTitle } from '$lib/utils';
+  import { markMemoryViewed } from '$lib/utils/memory-viewed';
   import { fromISODateTimeUTC, toTimelineAsset } from '$lib/utils/timeline-util';
   import { AssetMediaSize, AssetTypeEnum, getAssetInfo, type AssetResponseDto } from '@immich/sdk';
   import { ActionButton, IconButton, Text } from '@immich/ui';
@@ -50,6 +51,7 @@
   import { t } from 'svelte-i18n';
   import type { Attachment } from 'svelte/attachments';
   import { Tween } from 'svelte/motion';
+  import { SvelteSet } from 'svelte/reactivity';
   import MemoryPhotoViewer from './MemoryPhotoViewer.svelte';
   import MemoryVideoViewer from './MemoryVideoViewer.svelte';
 
@@ -60,6 +62,23 @@
   let playerInitialized = $state(false);
   let paused = $state(false);
   const current = $derived(memoryManager.current);
+  const viewedMemories = new SvelteSet<string>();
+  $effect(() => {
+    const memory = current?.memory;
+    if (
+      !memory ||
+      !authManager.authenticated ||
+      memory.ownerId !== authManager.user.id ||
+      viewedMemories.has(memory.id)
+    ) {
+      return;
+    }
+    viewedMemories.add(memory.id);
+    // A failed/offline acknowledgement must not interrupt photo/video viewing.
+    void markMemoryViewed(memory, authManager.user.id).catch((error) =>
+      console.warn('Memory view acknowledgement failed', error),
+    );
+  });
   const currentAssetId = $derived(current?.asset.id);
   // where the asset sits in its memory, for the progress bar and counter
   const assetIndex = $derived(current ? current.memory.assets.findIndex(({ id }) => id === currentAssetId) : -1);

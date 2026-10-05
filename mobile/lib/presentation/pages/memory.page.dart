@@ -14,6 +14,8 @@ import 'package:immich_mobile/presentation/widgets/memory/memory_bottom_info.wid
 import 'package:immich_mobile/presentation/widgets/memory/memory_card.widget.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
+import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/utils/memory_card_text.dart';
 import 'package:immich_mobile/utils/system_ui.utils.dart';
 import 'package:immich_mobile/widgets/memories/memory_epilogue.dart';
@@ -43,6 +45,16 @@ class MemoryPage extends HookConsumerWidget {
     final currentAsset = useState<RemoteAsset?>(null);
     final photoInteracting = useState(false);
     final actionsPaused = useState(false);
+    final viewedMemories = useRef(<String>{});
+    final viewerId = ref.watch(currentUserProvider.select((user) => user?.id));
+
+    useEffect(() {
+      final memory = currentMemory.value;
+      if (viewerId == memory.ownerId && viewedMemories.value.add(memory.id)) {
+        unawaited(ref.read(memoryManagementServiceProvider).markViewed(memory, viewerId));
+      }
+      return null;
+    }, [currentMemory.value.id, viewerId]);
 
     /// The list of all of the asset page controllers
     final memoryAssetPageControllers = List.generate(memories.length, (i) => usePageController());

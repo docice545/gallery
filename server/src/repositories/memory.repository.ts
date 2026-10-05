@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 import { InjectKysely } from 'nestjs-kysely';
 import type { IBulkAsset } from 'src/types.js';
 import { Chunked, ChunkedSet, DummyValue, GenerateSql } from 'src/decorators.js';
-import { MemorySearchDto } from 'src/dtos/memory.dto.js';
+import { MemoryLifecycleSearchDto, MemorySearchDto } from 'src/dtos/memory.dto.js';
 import { AssetOrderWithRandom, AssetVisibility, MemoryType } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
@@ -26,6 +26,42 @@ import {
 @Injectable()
 export class MemoryRepository implements IBulkAsset {
   constructor(@InjectKysely() private db: Kysely<DB>) {}
+
+  /** Owner-only integration snapshot: read stored membership, not the viewer's asset projection. */
+  async getLifecycle(ownerId: string, { after, size }: MemoryLifecycleSearchDto) {
+    const rows = await this.db
+      .selectFrom('memory')
+      .select(['id', 'type', 'data', 'isSaved', 'seenAt', 'showAt', 'hideAt', 'deletedAt'])
+      .select((eb) =>
+        jsonArrayFrom(
+          eb
+            .selectFrom('memory_asset')
+            .select('assetId')
+            .whereRef('memoriesId', '=', 'memory.id')
+            .orderBy('assetId', 'asc'),
+        ).as('assetIds'),
+      )
+      .where('ownerId', '=', ownerId)
+      .$if(after !== undefined, (qb) => qb.where('id', '>', after!))
+      .orderBy('id', 'asc')
+      .limit(size + 1)
+      .execute();
+
+    return rows.map((row) => ({ ...row, assetIds: row.assetIds.map(({ assetId }) => assetId) }));
+  }
+
+  /** Durable explicit user decisions survive hard deletion; proposal creation is not decision time. */
+  getRejections(ownerId: string, { after, size }: MemoryLifecycleSearchDto) {
+    return this.db
+      .selectFrom('memory_candidate')
+      .select(['id', 'fingerprint', 'assetIds', 'state', 'memoryId'])
+      .where('ownerId', '=', ownerId)
+      .where('state', '=', 'dismissed')
+      .$if(after !== undefined, (qb) => qb.where('id', '>', after!))
+      .orderBy('id', 'asc')
+      .limit(size + 1)
+      .execute();
+  }
 
   async createCandidate(memory: Insertable<MemoryTable>, assetIds: string[]) {
     const ownerId = memory.ownerId;

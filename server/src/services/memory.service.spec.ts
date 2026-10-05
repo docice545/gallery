@@ -4,7 +4,7 @@ import type { OnThisDayData, RuleMemoryData } from 'src/types.js';
 import { defaults } from 'src/dtos/config.dto.js';
 import { MemoryType, SystemMetadataKey, UserMetadataKey } from 'src/enum.js';
 import { MemoryService, RULE_DAILY_LIMIT } from 'src/services/memory.service.js';
-import { MemorySuppressedException } from 'src/utils/memory-candidate.js';
+import { MemorySuppressedException, memoryFingerprint } from 'src/utils/memory-candidate.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { MemoryFactory } from 'test/factories/memory.factory.js';
 import { getForMemory } from 'test/mappers.js';
@@ -124,6 +124,101 @@ describe(MemoryService.name, () => {
 
   it('should be defined', () => {
     expect(sut).toBeDefined();
+  });
+
+  describe('owner-only lifecycle snapshots', () => {
+    it('uses the authenticated owner and normalizes legacy data without changing saved/viewed state', async () => {
+      const auth = factory.auth();
+      const assetIds = [newUuid(), newUuid()];
+      const seenAt = new Date('2026-10-05T12:00:00Z');
+      const row = {
+        id: newUuid(),
+        type: MemoryType.Rule,
+        data: [
+          { ruleId: 'gallery_ai_highlight', generator: 'gallery_ai', version: '3.7', theme: 'beach' },
+          JSON.stringify({ title: 'A day at the beach', subtitle: 'Together', context: { score: 0.8 } }),
+        ] as any,
+        isSaved: true,
+        seenAt,
+        showAt: null,
+        hideAt: null,
+        deletedAt: null,
+        assetIds,
+      };
+      mocks.memory.getLifecycle.mockResolvedValue([row]);
+      const result = await sut.getLifecycle(auth, { size: 100 });
+      expect(mocks.memory.getLifecycle).toHaveBeenCalledWith(auth.user.id, { size: 100 });
+      expect(result).toEqual({
+        items: [
+          {
+            ...row,
+            data: {
+              ruleId: 'gallery_ai_highlight',
+              generator: 'gallery_ai',
+              version: '3.7',
+              theme: 'beach',
+              title: 'A day at the beach',
+              subtitle: 'Together',
+              context: { score: 0.8 },
+            },
+            showAt: undefined,
+            hideAt: undefined,
+            deletedAt: undefined,
+            fingerprint: memoryFingerprint(assetIds),
+          },
+        ],
+        nextCursor: undefined,
+      });
+      expect(mocks.memory.update).not.toHaveBeenCalled();
+      expect(mocks.sharedSpace.getTimelineHiddenScope).not.toHaveBeenCalled();
+    });
+
+    it('returns a cursor for the last emitted lifecycle row only when more rows exist', async () => {
+      const auth = factory.auth();
+      const row = {
+        id: newUuid(),
+        type: MemoryType.Rule,
+        data: {},
+        isSaved: false,
+        seenAt: null,
+        showAt: null,
+        hideAt: null,
+        deletedAt: new Date(),
+        assetIds: [],
+      };
+      mocks.memory.getLifecycle.mockResolvedValue([row, { ...row, id: newUuid() }]);
+      const result = await sut.getLifecycle(auth, { after: newUuid(), size: 1 });
+      expect(result.items).toHaveLength(1);
+      expect(result.nextCursor).toBe(row.id);
+      expect(result.items[0].deletedAt).toBe(row.deletedAt);
+      expect(result.items[0].seenAt).toBeUndefined();
+    });
+
+    it('normalizes legacy rejection memberships without requiring a linked memory', async () => {
+      const auth = factory.auth();
+      const assetIds = [newUuid(), newUuid()];
+      const row = {
+        id: newUuid(),
+        fingerprint: memoryFingerprint(assetIds),
+        assetIds: JSON.stringify(assetIds) as any,
+        state: 'dismissed' as const,
+        memoryId: null,
+      };
+      mocks.memory.getRejections.mockResolvedValue([row, { ...row, id: newUuid() }]);
+      const dto = { after: newUuid(), size: 1 };
+      const result = await sut.getRejections(auth, dto);
+      expect(mocks.memory.getRejections).toHaveBeenCalledWith(auth.user.id, dto);
+      expect(result).toEqual({ items: [{ ...row, assetIds }], nextCursor: row.id });
+      expect(mocks.memory.get).not.toHaveBeenCalled();
+    });
+
+    it('returns exhausted empty snapshots without a cursor', async () => {
+      const auth = factory.auth();
+      mocks.memory.getLifecycle.mockResolvedValue([]);
+      mocks.memory.getRejections.mockResolvedValue([]);
+      await expect(sut.getLifecycle(auth, { size: 100 })).resolves.toEqual({ items: [], nextCursor: undefined });
+      await expect(sut.getRejections(auth, { size: 100 })).resolves.toEqual({ items: [], nextCursor: undefined });
+    });
   });
 
   describe('candidate decisions', () => {
@@ -1137,6 +1232,35 @@ describe(MemoryService.name, () => {
       await runJob();
 
       expect(mocks.memory.delete).not.toHaveBeenCalled();
+    });
+
+    it('keeps scheduled external unknown-rule memories intact and lets them claim mixed asset IDs', async () => {
+      const external = overlapRow({
+        id: 'external',
+        assets: ['photo', 'video'],
+        data: {
+          ruleId: 'gallery_ai_highlight',
+          dedupeKey: 'highlight-2026-09-01',
+          title: 'A day by the sea',
+          subtitle: 'Photos and video',
+          score: 0.9,
+          context: { place: 'beach' },
+          generator: 'gallery_ai',
+          version: '3.7',
+          theme: 'beach',
+        },
+      });
+      mocks.memory.getForOverlapReconcile.mockResolvedValue([
+        external,
+        overlapRow({ id: 'native', assets: ['photo', ...ids('s', 11)], data: { ruleId: 'season_recap', score: 130 } }),
+      ] as any);
+
+      await runJob();
+
+      expect(mocks.memory.delete).not.toHaveBeenCalled();
+      expect(mocks.memory.removeAssetIds).toHaveBeenCalledExactlyOnceWith('native', ['photo']);
+      expect(external.assets).toEqual([{ id: 'photo' }, { id: 'video' }]);
+      expect(external.data).toMatchObject({ ruleId: 'gallery_ai_highlight', version: '3.7', theme: 'beach' });
     });
 
     // Pins the claim-order guarantee spec §5.2 is built on: a rule memory must claim ahead of a

@@ -3,8 +3,13 @@ import { createHash } from 'node:crypto';
 
 /** A durable user choice, distinct from a transient generation or database failure. */
 export class MemorySuppressedException extends ConflictException {
+  readonly code = 'MEMORY_SUPPRESSED';
+
   constructor() {
-    super('A similar memory was hidden or deleted by the user');
+    super({
+      message: 'A similar memory was hidden or deleted by the user',
+      code: 'MEMORY_SUPPRESSED',
+    });
   }
 }
 
