@@ -5,6 +5,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/duration_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
+import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
@@ -12,6 +13,7 @@ import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart'
 import 'package:immich_mobile/providers/backup/asset_upload_progress.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/thumbnail_framing.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 
 class ThumbnailTile extends ConsumerStatefulWidget {
@@ -54,6 +56,24 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
   @override
   Widget build(BuildContext context) {
     final asset = widget.asset;
+    // Only synchronized geometry is used. Edited previews have another coordinate
+    // system; keep their existing framing until an edit-aware transform exists.
+    final remoteId = asset?.remoteId;
+    final faces =
+        FaceAwareThumbnailScope.enabledOf(context) &&
+            asset?.isImage == true &&
+            asset?.isEdited == false &&
+            remoteId != null &&
+            widget.fit == BoxFit.cover
+        ? ref.watch(thumbnailFaceBoundsProvider(remoteId)).value ?? const <Rect>[]
+        : const <Rect>[];
+    final width = asset?.width;
+    final height = asset?.height;
+    // PhotoKit aspectFill must not pre-crop the source to a square before Flutter
+    // can position its face-aware crop. Keep the existing bounded decode budget.
+    final decodeSize = faces.isNotEmpty && width != null && height != null && width > 0 && height > 0
+        ? applyBoxFit(BoxFit.contain, Size(width.toDouble(), height.toDouble()), widget.size).destination
+        : widget.size;
     final heroIndex = widget.heroOffset ?? TabsRouterScope.of(context)?.controller.activeIndex ?? 0;
     final isCurrentAsset = ref.watch(assetViewerProvider.select((current) => current.currentAsset == asset));
 
@@ -114,7 +134,13 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                     // but other solutions have failed thus far.
                     key: ValueKey(isCurrentAsset),
                     tag: '${asset?.heroTag}_$heroIndex',
-                    child: Thumbnail.fromAsset(asset: asset, size: widget.size, remoteSize: widget.remoteSize),
+                    child: Thumbnail.fromAsset(
+                      asset: asset,
+                      size: decodeSize,
+                      remoteSize: widget.remoteSize,
+                      fit: widget.fit,
+                      faces: faces,
+                    ),
                     // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
                     placeholderBuilder: (context, heroSize, child) {
                       if (!_hideIndicators) {
@@ -144,7 +170,9 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                   ),
                 ),
                 if (asset != null && asset.isImage && asset.isMotionPhoto)
-                  Positioned.fill(child: TimelineLivePhotoTile(asset: asset)),
+                  Positioned.fill(
+                    child: TimelineLivePhotoTile(asset: asset, faces: faces),
+                  ),
                 if (asset != null)
                   AnimatedOpacity(
                     opacity: _hideIndicators ? 0.0 : 1.0,

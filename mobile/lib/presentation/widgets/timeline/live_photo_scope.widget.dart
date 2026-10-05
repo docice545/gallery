@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
+import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
@@ -275,8 +276,9 @@ class _LivePhotoScope extends InheritedWidget {
 /// Overlay outside the thumbnail Hero, below the existing badges. It neither
 /// participates in hit testing nor changes selection, navigation or tile size.
 class TimelineLivePhotoTile extends StatefulWidget {
-  const TimelineLivePhotoTile({super.key, required this.asset});
+  const TimelineLivePhotoTile({super.key, required this.asset, this.faces = const []});
   final BaseAsset asset;
+  final List<Rect> faces;
 
   @override
   State<TimelineLivePhotoTile> createState() => _TimelineLivePhotoTileState();
@@ -366,8 +368,14 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                 // original photo's multi-megapixel dimensions.
                 final previewWidth = aspect > tileAspect ? constraints.maxHeight * aspect : constraints.maxWidth;
                 final previewHeight = aspect > tileAspect ? constraints.maxHeight : constraints.maxWidth / aspect;
+                final framing = faceAwareThumbnailFraming(
+                  imageSize: Size(previewWidth, previewHeight),
+                  viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
+                  faces: widget.faces,
+                );
                 return FittedBox(
-                  fit: BoxFit.cover,
+                  fit: framing.fit,
+                  alignment: framing.alignment,
                   child: SizedBox(
                     width: previewWidth,
                     height: previewHeight,

@@ -71,6 +71,23 @@ void main() {
   });
 
   group('LocalThumbProvider caching', () {
+    test('aspect-correct face thumbnail does not reuse a pre-cropped square decode', () {
+      cache.putIfAbsent(
+        LocalThumbProvider(id: 'asset-1', assetType: AssetType.image, size: const Size.square(320)),
+        load,
+      );
+      cache.putIfAbsent(
+        LocalThumbProvider(id: 'asset-1', assetType: AssetType.image, size: const Size(180, 320)),
+        load,
+      );
+
+      expect(loads, 2);
+      final a = LocalThumbProvider(id: 'asset-1', assetType: AssetType.image, size: const Size(180, 320));
+      final b = LocalThumbProvider(id: 'asset-1', assetType: AssetType.image, size: const Size(180, 320));
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+    });
+
     test('editing on device re-renders the thumbnail', () {
       cache.putIfAbsent(LocalThumbProvider(id: 'asset-1', assetType: AssetType.image, checksum: 'before'), load);
       cache.putIfAbsent(LocalThumbProvider(id: 'asset-1', assetType: AssetType.image, checksum: 'after'), load);

@@ -8,6 +8,7 @@ import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumb_hash_provider.dart';
+import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:logging/logging.dart';
 
@@ -19,13 +20,21 @@ class Thumbnail extends StatefulWidget {
   final ImageProvider? imageProvider;
   final ImageProvider? thumbhashProvider;
   final BoxFit fit;
+  final List<Rect> faces;
 
-  const Thumbnail({this.imageProvider, this.fit = BoxFit.cover, this.thumbhashProvider, super.key});
+  const Thumbnail({
+    this.imageProvider,
+    this.fit = BoxFit.cover,
+    this.faces = const [],
+    this.thumbhashProvider,
+    super.key,
+  });
 
   Thumbnail.remote({
     required String remoteId,
     required String thumbhash,
     this.fit = BoxFit.cover,
+    this.faces = const [],
 
     /// Physical size to decode, or null for the source size.
     Size? decodeSize,
@@ -36,6 +45,7 @@ class Thumbnail extends StatefulWidget {
   Thumbnail.fromAsset({
     required BaseAsset? asset,
     this.fit = BoxFit.cover,
+    this.faces = const [],
 
     /// Decode size for local thumbnails. This does not affect the widget size.
     Size size = kThumbnailResolution,
@@ -237,6 +247,7 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
           previousImage: _previousImage,
           fadeValue: _fadeAnimation.value,
           fit: widget.fit,
+          faces: widget.faces,
           placeholderGradient: gradient,
         );
       },
@@ -259,6 +270,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
   final ui.Image? previousImage;
   final double fadeValue;
   final BoxFit fit;
+  final List<Rect> faces;
   final Gradient placeholderGradient;
 
   const _ThumbnailLeaf({
@@ -266,6 +278,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
     required this.previousImage,
     required this.fadeValue,
     required this.fit,
+    required this.faces,
     required this.placeholderGradient,
   });
 
@@ -276,6 +289,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       previousImage: previousImage,
       fadeValue: fadeValue,
       fit: fit,
+      faces: faces,
       placeholderGradient: placeholderGradient,
     );
   }
@@ -287,6 +301,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       ..previousImage = previousImage
       ..fadeValue = fadeValue
       ..fit = fit
+      ..faces = faces
       ..placeholderGradient = placeholderGradient;
   }
 }
@@ -296,6 +311,7 @@ class _ThumbnailRenderBox extends RenderBox {
   ui.Image? _previousImage;
   double _fadeValue;
   BoxFit _fit;
+  List<Rect> _faces;
   Gradient _placeholderGradient;
 
   @override
@@ -306,6 +322,7 @@ class _ThumbnailRenderBox extends RenderBox {
     required this._previousImage,
     required this._fadeValue,
     required this._fit,
+    required this._faces,
     required this._placeholderGradient,
   });
 
@@ -315,11 +332,13 @@ class _ThumbnailRenderBox extends RenderBox {
     final canvas = context.canvas;
 
     if (_previousImage != null && _fadeValue < 1.0) {
+      final framing = _framing(_previousImage!);
       paintImage(
         canvas: canvas,
         rect: rect,
         image: _previousImage!,
-        fit: _fit,
+        fit: framing.fit,
+        alignment: framing.alignment,
         filterQuality: FilterQuality.low,
         opacity: 1.0,
       );
@@ -329,16 +348,25 @@ class _ThumbnailRenderBox extends RenderBox {
     }
 
     if (_image != null) {
+      final framing = _framing(_image!);
       paintImage(
         canvas: canvas,
         rect: rect,
         image: _image!,
-        fit: _fit,
+        fit: framing.fit,
+        alignment: framing.alignment,
         filterQuality: FilterQuality.low,
         opacity: _fadeValue,
       );
     }
   }
+
+  ThumbnailFraming _framing(ui.Image image) => faceAwareThumbnailFraming(
+    imageSize: Size(image.width.toDouble(), image.height.toDouble()),
+    viewportSize: size,
+    faces: _faces,
+    fit: _fit,
+  );
 
   @override
   void performLayout() {
@@ -369,6 +397,13 @@ class _ThumbnailRenderBox extends RenderBox {
   set fit(BoxFit value) {
     if (_fit != value) {
       _fit = value;
+      markNeedsPaint();
+    }
+  }
+
+  set faces(List<Rect> value) {
+    if (_faces != value) {
+      _faces = value;
       markNeedsPaint();
     }
   }

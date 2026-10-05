@@ -5,6 +5,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/feature_message/feature_message_dialog.widget.dart';
 import 'package:immich_mobile/presentation/widgets/filter_sheet/filter_sheet.widget.dart';
+import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/memory/memory_lane.widget.dart';
 import 'package:immich_mobile/presentation/widgets/photos_filter/filter_subheader.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
@@ -86,19 +87,21 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
                 return false;
               },
               child: TimelineLivePhotoScope(
-                child: Timeline(
-                  denseLayout: true,
-                  topSliverWidget: SliverMainAxisGroup(
-                    slivers: [
-                      const PhotosFilterSubheader(),
-                      if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
-                    ],
+                child: FaceAwareThumbnailScope(
+                  child: Timeline(
+                    denseLayout: true,
+                    topSliverWidget: SliverMainAxisGroup(
+                      slivers: [
+                        const PhotosFilterSubheader(),
+                        if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
+                      ],
+                    ),
+                    topSliverWidgetHeight: showMemories ? _memoryLaneHeight : 0,
+                    showStorageIndicator: true,
+                    appBar: const PhotosTimelineAppBar(),
+                    bottomSliverWidget: const _SearchLoadMoreFooter(),
+                    emptyWidget: const TimelineEmptyState(),
                   ),
-                  topSliverWidgetHeight: showMemories ? _memoryLaneHeight : 0,
-                  showStorageIndicator: true,
-                  appBar: const PhotosTimelineAppBar(),
-                  bottomSliverWidget: const _SearchLoadMoreFooter(),
-                  emptyWidget: const TimelineEmptyState(),
                 ),
               ),
             ),
