@@ -104,6 +104,10 @@ OpenAPI and the TypeScript/Dart clients must be regenerated from the matching se
 
 ### Existing automatic stack maintenance
 
+The authoritative HP owner policy, Motion Photo separation and compatibility limits are recorded
+in [the production auto-stack contract](2026-10-05-production-autostack-design.md). Its native-API-only
+mutation rule supersedes any older direct-SQL integration suggestion.
+
 1. Fetch `GET /api/stacks/suppressions?page=1`, incrementing pages until fewer than 1000 entries
    arrive. Entries contain `assetId` for the authenticated owner only. Cache per maintenance pass,
    never globally across owners.
@@ -112,10 +116,12 @@ OpenAPI and the TypeScript/Dart clients must be regenerated from the matching se
 3. Send `automatic: true` in every automatic `POST /api/stacks` body, alongside the existing
    `assetIds`. Treat HTTP 400 suppression as a user decision, not a transient failure to retry.
    The server also checks children expanded from existing primaries, atomically.
-4. A script writing SQL directly must use the same transaction lock
-   `pg_advisory_xact_lock(hashtext(ownerId), 179107)` and check `stack_suppression` again inside
-   the transaction before mutating *any* member. Prefer the API. Reading the list once then writing
-   SQL without a transactional recheck leaves a race with a user's removal.
+4. External maintenance must perform every stack mutation through the native API. Direct PostgreSQL
+   creation, extension, primary changes, detach and deletion are prohibited. The server's API-backed
+   automatic create already checks suppression under its transaction lock; an external script must
+   not reproduce or bypass that transaction. Suppression discovery alone is not an atomic guard for
+   automatic primary updates: preserve the existing primary until a separate integration supplies
+   reliable user-decision protection.
 
 Ordinary client/manual `POST /stacks` omits `automatic`; manual regrouping remains available.
 No automatic opt-in was applied to unknown existing production scripts.

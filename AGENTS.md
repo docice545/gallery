@@ -4,6 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+### Production constraints for `docice545/gallery`
+
+Before changing stacks, asset visibility, Live/Motion Photo, jobs or deployment, read
+[`specs/2026-10-05-production-autostack-design.md`](specs/2026-10-05-production-autostack-design.md).
+The HP instance uses **one external** `noodle-gallery-maintenance` auto-stack process, not an
+in-app worker. Preserve the native Stack API, asset-preserving DELETE, owner boundaries and manual
+suppression. Anna is intentionally excluded from automatic stacks but **not** Motion Photo cleanup.
+Per-user opt-in/out must preserve that policy and existing manual decisions; do not add a switch
+that the external process does not honor. The automatic-stacking research below is not authorization
+to run a second algorithm. Production scripts, timers and VPN/AWG/Xray/DNS are outside this task's
+scope; no production deployment without an explicit instruction.
+
 Gallery is a community fork of [Immich](https://github.com/immich-app/immich), a self-hosted photo and video management solution. The fork is currently based on **Immich v2.7.5** and regularly rebased onto upstream. Source package names are still `immich` / `immich-web` so the rebase path stays clean — only branding, Docker image names, and fork-only code diverge.
 
 Fork-specific features layered on top of upstream include: shared spaces, smart search & filters, user groups, S3-compatible storage, auto-classification, video duplicate detection, pet detection, Google Photos import, image editing & video trimming, and structured JSON logging. See `README.md` for the full list and docs links.
