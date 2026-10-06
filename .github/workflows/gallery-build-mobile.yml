@@ -1,580 +1,64 @@
-name: Gallery Build Mobile
-
-# For production releases, trigger via gallery-release-mobile.yml.
-# A non-empty version input here stamps that version and uploads the
-# Android AAB to Play internal / iOS IPA to TestFlight. Leave version
-# empty for an upload-free smoke build; use build_target=android for a
-# Play-only dry run.
-
+name: Inspect exact SideStore failing IPA
 on:
   workflow_dispatch:
-    inputs:
-      refresh_ios_pods_lock:
-        description: 'Maintenance only: regenerate CocoaPods lock on macOS into a review branch; no build/signing.'
-        required: false
-        type: boolean
-        default: false
-      environment:
-        description: 'Target environment'
-        required: true
-        default: 'development'
-        type: choice
-        options:
-          - development
-          - production
-      version:
-        description: 'Fork version to stamp and deploy (e.g. v4.48.5). Leave empty for a smoke build with no store upload.'
-        required: false
-        type: string
-        default: ''
-      build_target:
-        description: 'Mobile platform(s) to build. Use android for a Play-only dry run.'
-        required: true
-        default: 'both'
-        type: choice
-        options:
-          - both
-          - android
-          - ios
-  workflow_call:
-    inputs:
-      refresh_ios_pods_lock:
-        required: false
-        type: boolean
-        default: false
-      ref:
-        required: false
-        type: string
-      environment:
-        description: 'Target environment'
-        required: true
-        default: 'development'
-        type: string
-      version:
-        description: 'Fork version to stamp (e.g. v4.48.5). When set, the build is stamped with this version and deployed to the stores; when empty, the job runs as a smoke build only.'
-        required: false
-        type: string
-        default: ''
-      build_target:
-        description: 'Mobile platform(s) to build.'
-        required: false
-        type: string
-        default: 'both'
-    secrets:
-      KEY_JKS:
-        required: false
-      ALIAS:
-        required: false
-      ANDROID_KEY_PASSWORD:
-        required: false
-      ANDROID_STORE_PASSWORD:
-        required: false
-      PLAY_STORE_JSON_KEY:
-        required: false
-      APP_STORE_CONNECT_API_KEY_ID:
-        required: false
-      APP_STORE_CONNECT_API_KEY_ISSUER_ID:
-        required: false
-      APP_STORE_CONNECT_API_KEY:
-        required: false
-      IOS_CERTIFICATE_P12:
-        required: false
-      IOS_CERTIFICATE_PASSWORD:
-        required: false
-      FASTLANE_TEAM_ID:
-        required: false
-  pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/gallery-build-mobile.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/gallery-build-mobile.yml'
-
-concurrency:
-  # Literal prefix — when called via workflow_call from Release Gallery,
-  # ${{ github.workflow }} resolves to the caller's name and the group
-  # string collides with the parent run, deadlocking the reusable call.
-  group: gallery-build-mobile-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions: {}
-
+permissions:
+  actions: read
+  contents: read
 jobs:
-  refresh-ios-pods-lock:
-    name: Regenerate iOS CocoaPods lock for review
-    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'docice545/gallery' && inputs.refresh_ios_pods_lock && inputs.build_target == 'ios' && inputs.version == '' }}
-    permissions:
-      contents: write
-    runs-on: macos-15
-    steps:
-      - name: Select Xcode 26
-        run: |
-          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-          xcode_version="$(xcodebuild -version | tr '\n' ' ')"
-          echo "::notice title=iOS Xcode toolchain::$xcode_version"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          # Only this explicit maintenance job can push its generated lock to a
-          # unique review branch. Normal builds retain contents:read/no credentials.
-          persist-credentials: true
-      - name: Setup Mise
-        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
-        with:
-          github_token: ${{ github.token }}
-          working_directory: ./mobile
-      - name: Setup Flutter SDK
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: 'stable'
-          flutter-version-file: ./mobile/pubspec.yaml
-          cache: true
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@c515ec17f69368147deb311832da000dd229d338 # v1.297.0
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: ./mobile/ios
-      - name: Refresh and verify CocoaPods lock
-        working-directory: ./mobile
-        run: |
-          set -o pipefail
-          if bash scripts/ios_build_only.sh --refresh-pods-lock 2>&1 | tee "$RUNNER_TEMP/ios-build-only.log"; then
-            :
-          else
-            build_status=$?
-            python3 - "$RUNNER_TEMP/ios-build-only.log" <<'PY'
-          import sys
-          from pathlib import Path
-          tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-160:])
-          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print('::error title=Unsigned iOS build failure::' + escaped)
-          PY
-            exit "$build_status"
-          fi
-
-      - name: Save only generated Podfile.lock for review
-        env:
-          LOCK_BRANCH: codex/ios-pods-lock-${{ github.run_id }}
-        run: |
-          if git diff --quiet -- mobile/ios/Podfile.lock; then
-            echo '::error::CocoaPods produced no Podfile.lock change; no review commit created.'
-            exit 1
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch -c "$LOCK_BRANCH"
-          git add -- mobile/ios/Podfile.lock
-          git commit -m 'fix(ios): synchronize CocoaPods lock with Flutter plugins'
-          git push origin "HEAD:refs/heads/$LOCK_BRANCH"
-          echo "::notice title=CocoaPods lock review branch::$LOCK_BRANCH"
-
-  build-sign-android:
-    name: Build and sign Android
-    permissions:
-      contents: read
-    # Skip when PR from a fork
-    if: ${{ !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
-    environment: mobile-build
+  inspect:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          ref: ${{ inputs.ref || github.sha }}
-          persist-credentials: false
-          token: ${{ github.token }}
-          fetch-depth: 0
-          fetch-tags: true
-
-      - uses: ./.github/actions/apply-branding
-        with:
-          version: ${{ inputs.version }}
-
-      - name: Setup Mise
-        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
-        with:
-          github_token: ${{ github.token }}
-          working_directory: ./mobile
-
-      - name: Create the Keystore
-        env:
-          KEY_JKS: ${{ secrets.KEY_JKS }}
-        working-directory: ./mobile
-        run: printf "%s" $KEY_JKS | base64 -d > android/key.jks
-
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      # Release runs (inputs.version set) must NOT restore the shared,
-      # static-key main Gradle cache. A poisoned sqlite3_flutter_libs native
-      # build cached under this key silently omits libsqlite3.so from both
-      # the AAB and APK (drift/sqlite3 FFI then crashes at DB init), and the
-      # poison persists across every main run until the cache is evicted.
-      # Release builds run cache-free + flutter clean so the .so is always
-      # regenerated; CI/smoke runs keep the cache for speed.
-      - name: Restore Gradle Cache
-        id: cache-gradle-restore
-        if: inputs.version == ''
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.android/sdk
-            mobile/android/.gradle
-            mobile/.dart_tool
-          key: build-mobile-gradle-${{ runner.os }}-main
-
-      - name: Setup Flutter SDK
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: 'stable'
-          flutter-version-file: ./mobile/pubspec.yaml
-          cache: true
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
-        with:
-          packages: ''
-
-      # Release runs skip the Gradle cache restore above, so the runner is
-      # already pristine — flutter clean guarantees no pre-build state can
-      # survive into the release build's native library packaging.
-      - name: Clean build (release runs)
-        if: inputs.version != ''
-        working-directory: ./mobile
-        run: flutter clean
-
-      - name: Get Packages
-        run: mise //mobile:install:ci
-
-      - name: Perform codegen
-        run: mise //mobile:codegen
-
-      - name: Compute build metadata
-        id: build-meta
-        working-directory: ./mobile
+          github-token: ${{ github.token }}
+          repository: docice545/gallery
+          run-id: '37511542010'
+          artifact-ids: '11436990368'
+          path: inspection
+      - name: Inspect actual IPA metadata and all Cyrillic name occurrences
         run: |
-          version_name=$(awk -F'[ +]' '/^version:/ {print $2}' pubspec.yaml)
-          # Globally-monotonic versionCode: minutes since the Unix epoch at
-          # build time, plus an attempt offset.
-          #
-          # The previous scheme (`git rev-list --count HEAD`) was branch-relative.
-          # Every branch publishes to the SAME de.opennoodle.gallery Play Store /
-          # TestFlight tracks, but the rolling upstream-rebase branches carry
-          # ~700+ more commits than main. An RC mobile build dispatched from one
-          # of those branches therefore uploaded a HIGHER versionCode than a
-          # later main release could produce, and Play rejected the main rollout
-          # with "does not allow any existing users to upgrade to the newly added
-          # APKs" (existing internal testers were already on the higher RC code).
-          #
-          # Wall-clock minutes are monotonic across every branch and trigger:
-          # whatever is built last always gets the highest code. ~29.7M today —
-          # far above any commit count and far below Android's 2.1e9 ceiling
-          # (good past the year 5000). Minute granularity plus the per-attempt
-          # offset keeps same-run re-runs collision-free.
-          version_code=$(( $(date +%s) / 60 + GITHUB_RUN_ATTEMPT - 1 ))
-          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
-          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
-          echo "Building $version_name ($version_code) attempt=$GITHUB_RUN_ATTEMPT"
-
-      - name: Build signed Android App Bundle
-        working-directory: ./mobile
-        env:
-          ALIAS: ${{ secrets.ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          VERSION_NAME: ${{ steps.build-meta.outputs.version_name }}
-          VERSION_CODE: ${{ steps.build-meta.outputs.version_code }}
-        run: |
-          flutter build appbundle --release \
-            --build-name="$VERSION_NAME" \
-            --build-number="$VERSION_CODE"
-
-      # Guard: a poisoned native build silently drops libsqlite3.so from the
-      # AAB, which then crashes every install at DB init. Fail here BEFORE
-      # the Play Store upload so a broken bundle can never reach users.
-      - name: Verify App Bundle bundles libsqlite3.so
-        working-directory: ./mobile
-        run: |
-          aab="build/app/outputs/bundle/release/app-release.aab"
-          missing=0
-          for abi in arm64-v8a armeabi-v7a; do
-            if unzip -Z1 "$aab" | grep -qx "base/lib/$abi/libsqlite3.so"; then
-              echo "OK: base/lib/$abi/libsqlite3.so present in AAB"
-            else
-              echo "::error::libsqlite3.so missing from AAB for ABI $abi"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::App Bundle is missing the sqlite3 native library (sqlite3_flutter_libs) — refusing to ship a broken build to Play Store."
-            exit 1
-          fi
-
-      - name: Publish Android App Bundle artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: app-release-aab
-          path: mobile/build/app/outputs/bundle/release/app-release.aab
-
-      - name: Build signed Android APK
-        if: inputs.version != ''
-        working-directory: ./mobile
-        env:
-          ALIAS: ${{ secrets.ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          VERSION_NAME: ${{ steps.build-meta.outputs.version_name }}
-          VERSION_CODE: ${{ steps.build-meta.outputs.version_code }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          flutter build apk --release \
-            --build-name="$VERSION_NAME" \
-            --build-number="$VERSION_CODE"
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             "build/app/outputs/flutter-apk/gallery-${VERSION}.apk"
-
-      # Same guard for the sideloadable APK attached to the GitHub release.
-      - name: Verify APK bundles libsqlite3.so
-        if: inputs.version != ''
-        working-directory: ./mobile
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          apk="build/app/outputs/flutter-apk/gallery-${VERSION}.apk"
-          missing=0
-          for abi in arm64-v8a armeabi-v7a; do
-            if unzip -Z1 "$apk" | grep -qx "lib/$abi/libsqlite3.so"; then
-              echo "OK: lib/$abi/libsqlite3.so present in APK"
-            else
-              echo "::error::libsqlite3.so missing from APK for ABI $abi"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::APK is missing the sqlite3 native library (sqlite3_flutter_libs) — refusing to ship a broken build."
-            exit 1
-          fi
-
-      - name: Publish Android APK artifact
-        if: inputs.version != ''
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: gallery-apk
-          path: mobile/build/app/outputs/flutter-apk/gallery-${{ inputs.version }}.apk
-          if-no-files-found: error
-
-      - name: Setup Ruby
-        if: inputs.version != ''
-        uses: ruby/setup-ruby@c515ec17f69368147deb311832da000dd229d338 # v1.297.0
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: ./mobile/android/gallery-release
-
-      - name: Write Play Store service account key
-        if: inputs.version != ''
-        working-directory: ./mobile/android/gallery-release
-        env:
-          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
-        run: printf '%s' "$PLAY_STORE_JSON_KEY" > fastlane/play-store-key.json
-
-      - name: Upload to Play Store internal track
-        if: inputs.version != ''
-        working-directory: ./mobile/android/gallery-release
-        run: bundle exec fastlane android internal
-
-      - name: Remove Play Store service account key
-        if: always()
-        working-directory: ./mobile/android/gallery-release
-        run: rm -f fastlane/play-store-key.json
-
-      # Never save from a release run: it would overwrite the shared CI
-      # cache with release-build state (and the restore step is skipped on
-      # release runs, so its cache-primary-key output is empty anyway).
-      - name: Save Gradle Cache
-        id: cache-gradle-save
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        if: github.ref == 'refs/heads/main' && inputs.version == ''
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.android/sdk
-            mobile/android/.gradle
-            mobile/.dart_tool
-          key: build-mobile-gradle-${{ runner.os }}-main
-
-  build-sign-ios:
-    name: Verify or explicitly release iOS
-    permissions:
-      contents: read
-    if: ${{ !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
-    environment: mobile-build
-    runs-on: macos-15
-
-    steps:
-      - name: Select Xcode 26
-        run: |
-          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-          xcode_version="$(xcodebuild -version | tr '\n' ' ')"
-          echo "::notice title=iOS Xcode toolchain::$xcode_version"
-
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-          persist-credentials: false
-          fetch-tags: true
-
-      - uses: ./.github/actions/apply-branding
-        with:
-          version: ${{ inputs.version }}
-
-      - name: Setup Mise
-        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
-        with:
-          github_token: ${{ github.token }}
-          working_directory: ./mobile
-
-      - name: Setup Flutter SDK
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          channel: 'stable'
-          flutter-version-file: ./mobile/pubspec.yaml
-          cache: true
-
-      # Resolve Flutter plugins via CocoaPods (which honors the Podfile's
-      # `platform :ios, '15.0'`) instead of Swift Package Manager. Flutter's
-      # SPM integration pins the generated FlutterGeneratedPluginSwiftPackage
-      # to the framework's default iOS floor (13.0) and only raises it during
-      # `flutter build`; fastlane archives via `xcodebuild` directly, so the
-      # floor stays at 13.0 and SwiftPM rejects background_downloader (iOS 14+).
-      - name: Use CocoaPods for Flutter plugins (disable SwiftPM)
-        run: flutter config --no-enable-swift-package-manager
-
-      # Must precede `mise //mobile:install:ci`: upstream #30722 made the
-      # `install` task depend on a new `install:ios` task that runs
-      # `cd ios && pod install` on macOS, so CocoaPods now runs inside the
-      # dependency install rather than only in the explicit step below.
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@c515ec17f69368147deb311832da000dd229d338 # v1.297.0
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-          working-directory: ./mobile/ios
-
-      - name: Install Flutter dependencies
-        if: inputs.version != ''
-        run: mise //mobile:install:ci
-
-      - name: Perform codegen
-        if: inputs.version != ''
-        run: mise //mobile:codegen
-
-      - name: Install CocoaPods dependencies
-        if: inputs.version != ''
-        working-directory: ./mobile/ios
-        run: bundle exec pod install --deployment
-
-      - name: Create API Key
-        if: inputs.version != ''
-        env:
-          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-        working-directory: ./mobile/ios
-        run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$API_KEY_CONTENT" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
-
-      - name: Import Certificate
-        if: inputs.version != ''
-        env:
-          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
-        working-directory: ./mobile/ios
-        run: echo "$IOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
-
-      - name: Create keychain and import certificate
-        if: inputs.version != ''
-        env:
-          KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-        working-directory: ./mobile/ios
-        run: |
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security find-identity -v -p codesigning build.keychain
-
-      - name: Build and deploy to TestFlight
-        if: inputs.version != ''
-        env:
-          FASTLANE_TEAM_ID: ${{ secrets.FASTLANE_TEAM_ID }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_NAME: build.keychain
-          KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
-          ENVIRONMENT: ${{ inputs.environment || 'production' }}
-          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
-          FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
-        working-directory: ./mobile/ios
-        run: bundle exec fastlane gha_release_prod
-
-      - name: Build iOS (no upload)
-        if: inputs.version == ''
-        working-directory: ./mobile
-        run: |
-          set -o pipefail
-          if bash scripts/ios_build_only.sh 2>&1 | tee "$RUNNER_TEMP/ios-build-only.log"; then
-            :
-          else
-            build_status=$?
-            python3 - "$RUNNER_TEMP/ios-build-only.log" <<'PY'
-          import sys
+          python3 - <<'PYTHON'
+          import hashlib, json, plistlib, zipfile
           from pathlib import Path
-          tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-160:])
-          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print('::error title=Unsigned iOS build failure::' + escaped)
-          PY
-            exit "$build_status"
-          fi
-
-      - name: Clean up keychain
-        if: always() && inputs.version != ''
-        run: security delete-keychain build.keychain || true
-
-      - name: Upload unsigned archive
-        if: inputs.version == ''
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: ios-unsigned-archive
-          path: mobile/build/ios/archive/Runner.xcarchive
-          if-no-files-found: error
-
-      - name: Upload IPA artifact
-        if: inputs.version != ''
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: ios-release-ipa
-          path: mobile/build/ios/ipa/gallery.ipa
-          if-no-files-found: error
-
-      - name: Upload unsigned IPA for user-side signing
-        if: inputs.version == ''
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: ios-unsigned-ipa
-          path: mobile/build/ios/ipa/Photos-unsigned.ipa
-          if-no-files-found: error
+          files = list(Path("inspection").rglob("*.ipa"))
+          assert len(files) == 1, files
+          ipa = files[0]
+          report = {"source_run": 37511542010, "source_artifact": 11436990368,
+                    "ipa_name": ipa.name, "ipa_sha256": hashlib.sha256(ipa.read_bytes()).hexdigest(),
+                    "targets": [], "all_photo_name_occurrences": []}
+          def exact_paths(value, prefix="$", found=None):
+              if found is None: found = []
+              if value == "Фото": found.append(prefix)
+              elif isinstance(value, dict):
+                  for key, item in value.items(): exact_paths(item, prefix + "." + str(key), found)
+              elif isinstance(value, list):
+                  for i, item in enumerate(value): exact_paths(item, prefix + "[" + str(i) + "]", found)
+              return found
+          with zipfile.ZipFile(ipa) as z:
+              assert z.testzip() is None
+              roots = [n for n in z.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist") and n.count("/") == 2]
+              assert len(roots) == 1, roots
+              app = roots[0].removesuffix("Info.plist")
+              for relative in ("Info.plist", "PlugIns/ShareExtension.appex/Info.plist", "PlugIns/WidgetExtension.appex/Info.plist"):
+                  data = plistlib.loads(z.read(app + relative))
+                  keys = ["CFBundleDisplayName", "CFBundleName", "CFBundleIdentifier", "CFBundleExecutable",
+                          "CFBundleShortVersionString", "CFBundleVersion", "MinimumOSVersion", "AppGroupId",
+                          "CFBundleDevelopmentRegion", "CFBundleLocalizations", "NSExtension", "BGTaskSchedulerPermittedIdentifiers"]
+                  report["targets"].append({"path": app + relative, **{k:data[k] for k in keys if k in data}})
+              for name in sorted(z.namelist()):
+                  if name.endswith("/"): continue
+                  raw = z.read(name)
+                  counts = {enc:raw.count("Фото".encode(enc)) for enc in ("utf-8", "utf-16-le", "utf-16-be")}
+                  matches = []
+                  if name.endswith((".plist", ".strings")):
+                      try: matches = exact_paths(plistlib.loads(raw))
+                      except Exception: pass
+                  elif name.endswith(".json"):
+                      try: matches = exact_paths(json.loads(raw))
+                      except Exception: pass
+                  if any(counts.values()) or matches:
+                      report["all_photo_name_occurrences"].append({"path":name, "literal_counts":counts, "exact_value_paths":matches})
+          print("IOS_IPA_AUDIT_BEGIN")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          print("IOS_IPA_AUDIT_END")
+          PYTHON
