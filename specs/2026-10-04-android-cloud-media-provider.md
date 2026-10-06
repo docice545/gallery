@@ -4,7 +4,16 @@ Research date: 2026-10-04. This is a feasibility assessment for the custom,
 sideloaded Android application `de.opennoodle.gallery`; it does not implement a
 provider or establish device support.
 
-## Decision
+## Decision and scope of the original assessment
+
+**Update, 2026-10-06:** the user explicitly requested a community ADB/Shizuku
+pilot. [The follow-up design](2026-10-06-cloud-media-shizuku-design.md) verifies
+`immich-cloud-media`, the original Immich provider PR and Shizuku's native
+UserService. That route can configure admission with the user's shell permission;
+**rish is unnecessary**. The ordinary-app restrictions below still apply, but
+they are not evidence that an opt-in Shizuku implementation is impossible.
+The target is Samsung S23, Android 16, One UI 8.5. No device activation or
+provider implementation has been performed by this research.
 
 Do not add a CloudMediaProvider to this fork as a purported working integration.
 The public API permits an ordinary application to declare a provider, but this
@@ -18,8 +27,11 @@ Consequently, we cannot promise that this application will expose its server
 library in the stock Samsung system Photo Picker without platform approval or
 integration. This is a restriction on normal platform admission, not a claim
 that no test device or modified Android configuration could ever run a provider.
-No rooting, shell override, DeviceConfig modification, fake MediaStore entries,
-or background library mirror is part of the proposed product workflow.
+The original assessment did not include a shell-assisted workflow. The new
+follow-up considers a narrow, reversible DeviceConfig override through Shizuku,
+with existing providers preserved and actual admission verified. It requires
+neither root nor fake MediaStore entries nor a background original-file mirror.
+No phone/system configuration was changed.
 
 The practical workflows remain:
 
@@ -145,11 +157,14 @@ verified from those reference pages.
 
 Публичный provider contract реализуем обычным приложением: permission защищает
 доступ **к provider**, а не требует platform signature от самого приложения.
-Но manifest/provider implementation не даёт sideloaded `de.opennoodle.gallery`
-допуск в системный список. Без официального допуска платформы/OEM добавлять
-provider сейчас недостаточно для цели пользователя; fake provider и overrides
-системной безопасности не реализованы. Наличие только Google/None на Samsung
-согласуется с gate, но конкретная Samsung allowlist здесь не проверена.
+Но manifest/provider implementation само по себе не даёт sideloaded
+`de.opennoodle.gallery` допуск в системный список. Это ограничение обычного app
+UID; отдельно авторизованный пользователем Shizuku shell UID может выполнить
+community workaround. Его проверенная архитектура, сохранение существующей
+allowlist и границы физической проверки описаны в
+[дополнении 6 октября](2026-10-06-cloud-media-shizuku-design.md).
+Наличие только Google/None на Samsung согласуется с gate, но конкретная
+Samsung allowlist здесь не проверена. Provider и fake MediaStore не добавлены.
 
 API существует с Android 13/API 33; наличие класса не равно доступности cloud
 источника в конкретном Photo Picker module/OEM. Прямой `developer.android.com`
