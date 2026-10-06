@@ -36,7 +36,8 @@ target 'Runner' do
   
   # share_handler addition start
   target 'ShareExtension' do
-    platform :ios, '16.0'
+    # Both consumers must share the pod platform so CocoaPods builds one models
+    # framework. The extension's own Xcode deployment target remains iOS 16.
     inherit! :search_paths
     pod "share_handler_ios_models", :path => ".symlinks/plugins/share_handler_ios/ios/Models"
   end
@@ -44,6 +45,14 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  # Different consumer platforms create duplicate archive outputs even when
+  # post_install later gives both variants the same deployment target.
+  shared_models = installer.pod_targets.select { |target| target.root_spec.name == 'share_handler_ios_models' }
+  unless shared_models.length == 1
+    raise "Expected one shared share_handler_ios_models pod target, found #{shared_models.length}"
+  end
+  puts 'Verified a single share_handler_ios_models pod target for Runner and ShareExtension.'
+
   installer.generated_projects.each do |project|
     project.targets.each do |target|
         target.build_configurations.each do |config|

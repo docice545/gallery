@@ -14,8 +14,11 @@ Xcode archive и iPhone здесь не компилировались/не пр
 | WidgetExtension | 17.0            | Требуется существующими AppIntentConfiguration/AppIntentTimelineProvider, `.containerBackground` и `.contentMarginsDisabled`; widgets недоступны на iOS 15/16                                         |
 
 Debug/Profile/Release сохраняют указанные значения во всех трёх targets. Main application не
-поднято до 16/17. Podfile явно задаёт ShareExtension iOS 16; post-install больше не понижает
-dependencies с более высоким собственным floor до 15. `App.framework` содержит minimum iOS 15.
+поднято до 16/17. Pods обоих consumers наследуют общий minimum iOS 15: это позволяет CocoaPods
+собирать один `share_handler_ios_models.framework`, используемый Runner и ShareExtension.
+Собственный Xcode target ShareExtension остаётся iOS 16. `post_install` проверяет, что shared models
+имеют ровно один pod target, и не понижает dependencies с более высоким собственным floor до 15.
+`App.framework` содержит minimum iOS 15.
 Library versions в `Podfile.lock` сохранены; изменился checksum изменённого Podfile. CocoaPods
 tool закреплён на уже указанной в lock версии 1.17.0. IDs, target names, App Groups и entitlements
 не переименованы.
@@ -188,3 +191,19 @@ are also emitted as an escaped error annotation, preserving the original nonzero
 exit status. This enables diagnosis through the API without weakening verification.
 No paid signing, App Store Connect configuration, production or Takeout work is
 part of this correction.
+
+## Shared CocoaPods framework archive correction (2026-10-06)
+
+Run `37415192681` passed frozen CocoaPods installation, then Xcode reported
+`Multiple commands produce .../share_handler_ios_models.framework`. Different
+Podfile consumer platforms (Runner 15 / ShareExtension 16) generated two pod
+variants with the same framework output name. Raising both variants in
+`post_install` cannot deduplicate targets already resolved by CocoaPods.
+
+ShareExtension now inherits the common pod platform 15, while its own native
+Xcode deployment target stays 16. The shared model pod supports iOS 9 and needs
+no dependency upgrade. A post-install check requires one shared model pod target
+before compilation. Refresh the Podfile checksum with the existing macOS
+maintenance mode, verify `--deployment`, then run the normal unsigned archive.
+The Flutter CocoaPods-only-plugin warning is unrelated: Flutter 3.47.2 emits it
+even with SwiftPM disabled. No SwiftPM references or package locks need removal.
