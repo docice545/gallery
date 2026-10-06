@@ -96,13 +96,47 @@ if [[ "$mode" == '--prepare-only' || "$mode" == '--refresh-pods-lock' ]]; then
   exit 0
 fi
 
-# Remove only the lane's previous archive, so a successful command that produced
-# no new artifact cannot accidentally pass using an old build.
-archive="$mobile_dir/build/ios/archive/Runner.xcarchive"
-if [[ -e "$archive" || -L "$archive" ]]; then
-  rm -rf -- "$archive"
-fi
+# Flutter names the archive after PRODUCT_NAME, which branding can change.
+# Clear only this project's owned archive outputs before building, so neither
+# a stale canonical nor a stale branded archive can satisfy verification.
+archive_dir="$mobile_dir/build/ios/archive"
+archive="$archive_dir/Runner.xcarchive"
+python3 - "$archive_dir" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+if directory.is_symlink():
+    raise SystemExit('Refusing cleanup of a symlinked archive output directory')
+for previous in directory.glob('*.xcarchive'):
+    if previous.is_symlink() or previous.is_file():
+        previous.unlink()
+    elif previous.is_dir():
+        shutil.rmtree(previous)
+PY
 mise exec -- flutter build ipa --release --no-codesign
+
+# Require exactly one fresh, real archive, then keep the existing canonical
+# artifact contract. Renaming the outer archive leaves all bundle identities,
+# display names and compiled contents unchanged.
+python3 - "$archive_dir" "$archive" <<'PY'
+import sys
+from pathlib import Path
+
+directory, canonical = map(Path, sys.argv[1:])
+archives = list(directory.glob('*.xcarchive'))
+if not archives:
+    raise SystemExit('iOS archive verification failed: Expected Runner.xcarchive is missing (no fresh Flutter archive)')
+if len(archives) != 1:
+    raise SystemExit(f'Expected exactly one fresh Flutter archive, found {len(archives)}')
+generated = archives[0]
+if generated.is_symlink() or not generated.is_dir():
+    raise SystemExit('Fresh Flutter archive must be a directory, not a symlink')
+if generated != canonical:
+    generated.rename(canonical)
+    print('Normalized fresh Flutter product archive to Runner.xcarchive.')
+PY
 python3 "$mobile_dir/scripts/verify_ios_archive.py" "$archive" --branding-config "$repo_dir/branding/config.json"
 echo "Unsigned build-only archive verified: $archive"
 echo "::notice title=iOS unsigned archive verified::Runner and both extensions verified; Flutter $actual_flutter."

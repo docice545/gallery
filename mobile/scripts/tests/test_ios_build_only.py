@@ -168,7 +168,14 @@ class LaneTests(unittest.TestCase):
                 "    if os.environ.get('TEST_BUILD_FAIL'): raise SystemExit(7)\n"
                 "    if os.environ.get('TEST_COPY_ARCHIVE'):\n"
                 "        import shutil\n"
-                "        shutil.copytree(os.environ['TEST_COPY_ARCHIVE'],Path.cwd()/'build/ios/archive/Runner.xcarchive')\n"
+                "        source=os.environ['TEST_COPY_ARCHIVE']\n"
+                "        archive=Path.cwd()/'build/ios/archive'/os.environ.get('TEST_ARCHIVE_NAME','Runner.xcarchive')\n"
+                "        archive.parent.mkdir(parents=True,exist_ok=True)\n"
+                "        if os.environ.get('TEST_ARCHIVE_SYMLINK'):\n"
+                "            archive.symlink_to(source,target_is_directory=True)\n"
+                "        else: shutil.copytree(source,archive)\n"
+                "        if os.environ.get('TEST_EXTRA_ARCHIVE_NAME'):\n"
+                "            shutil.copytree(source,archive.parent/os.environ['TEST_EXTRA_ARCHIVE_NAME'])\n"
             )
             executable.chmod(0o755)
 
@@ -286,6 +293,78 @@ class LaneTests(unittest.TestCase):
         result = self.run_lane("--skip-prepare")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.mobile / "build/ios/archive/Runner.xcarchive").exists())
+
+    def test_branded_archive_names_normalize_and_verify(self):
+        fixture = self.root / "fixture.xcarchive"
+        make_archive(fixture)
+        self.environment["TEST_COPY_ARCHIVE"] = str(fixture)
+        canonical = self.mobile / "build/ios/archive/Runner.xcarchive"
+        for name in ("Noodle Gallery.xcarchive", "Галерея 📷.xcarchive"):
+            with self.subTest(name=name):
+                self.environment["TEST_ARCHIVE_NAME"] = name
+                result = self.run_lane("--skip-prepare")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    verifier.verify_archive(canonical),
+                    canonical / "Products/Applications/Photos.app",
+                )
+                self.assertFalse(canonical.is_symlink())
+                self.assertFalse((canonical.parent / name).exists())
+                self.assertIn(
+                    f"Unsigned build-only archive verified: {canonical}", result.stdout
+                )
+
+    def test_stale_branded_archive_cannot_hide_missing_new_artifact(self):
+        stale = self.mobile / "build/ios/archive/Noodle Gallery.xcarchive"
+        make_archive(stale)
+        sentinel = stale.parent / "preserve.txt"
+        sentinel.write_text("unrelated archive-directory file")
+        result = self.run_lane("--skip-prepare")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(stale.exists())
+        self.assertEqual(sentinel.read_text(), "unrelated archive-directory file")
+        self.assertNotIn("Unsigned build-only archive verified", result.stdout)
+
+    def test_multiple_fresh_archives_are_rejected(self):
+        fixture = self.root / "fixture.xcarchive"
+        make_archive(fixture)
+        self.environment.update(
+            TEST_COPY_ARCHIVE=str(fixture),
+            TEST_ARCHIVE_NAME="Noodle Gallery.xcarchive",
+            TEST_EXTRA_ARCHIVE_NAME="Unexpected.xcarchive",
+        )
+        result = self.run_lane("--skip-prepare")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.mobile / "build/ios/archive/Runner.xcarchive").exists())
+        self.assertNotIn("Unsigned build-only archive verified", result.stdout)
+
+    def test_symlink_archive_output_is_rejected(self):
+        fixture = self.root / "fixture.xcarchive"
+        application = make_archive(fixture)
+        self.environment.update(
+            TEST_COPY_ARCHIVE=str(fixture),
+            TEST_ARCHIVE_SYMLINK="1",
+        )
+        for name in ("Noodle Gallery.xcarchive", "Runner.xcarchive"):
+            with self.subTest(name=name):
+                self.environment["TEST_ARCHIVE_NAME"] = name
+                result = self.run_lane("--skip-prepare")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("Unsigned build-only archive verified", result.stdout)
+                self.assertEqual(verifier.verify_archive(fixture), application)
+
+    def test_symlink_archive_directory_is_rejected_before_cleanup(self):
+        external = self.root / "external"
+        archive = external / "Preserved.xcarchive"
+        application = make_archive(archive)
+        output = self.mobile / "build/ios/archive"
+        output.parent.mkdir(parents=True)
+        output.symlink_to(external, target_is_directory=True)
+        result = self.run_lane("--skip-prepare")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("ipa" in command for command in self.commands()))
+        self.assertTrue(output.is_symlink())
+        self.assertEqual(verifier.verify_archive(archive), application)
 
     def test_build_failure_propagates(self):
         self.environment["TEST_BUILD_FAIL"] = "1"

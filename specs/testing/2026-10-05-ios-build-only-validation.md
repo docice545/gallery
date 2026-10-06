@@ -85,11 +85,12 @@ optional `ios_release=false`: обычные PR/main builds не получаю�
 3. Выполняет `bundle exec pod install --deployment`, без `pod update` и без изменения dependency
    resolutions. macOS environment должен предварительно установить проектные mise tools и
    Ruby/Gemfile dependencies; CI уже делает это существующими setup steps.
-4. Удаляет только свой предыдущий `mobile/build/ios/archive/Runner.xcarchive`, чтобы stale archive
-   не превратил отсутствие нового результата в успех.
+4. Удаляет только `.xcarchive` outputs из принадлежащего lane каталога `mobile/build/ios/archive`,
+   чтобы stale canonical/branded archive не превратил отсутствие нового результата в успех.
 5. Выполняет `flutter build ipa --release --no-codesign`. Здесь `ipa` — Flutter archive command;
    unsigned build не экспортирует installable signed IPA.
-6. Требует настоящий archive, ровно один app bundle, plist и непустой executable для Runner,
+6. Требует ровно один новый, настоящий `.xcarchive` output, нормализует имя внешнего каталога в
+   `Runner.xcarchive` и проверяет ровно один app bundle, plist и непустой executable для Runner,
    ShareExtension и WidgetExtension; проверяет compiled minimum versions, relative extension IDs и существующие fork bundle/App Group IDs из branding config.
    Отсутствующий/пустой artifact, неверный floor или несовместимый extension ID — ошибка.
 
@@ -207,3 +208,16 @@ before compilation. Refresh the Podfile checksum with the existing macOS
 maintenance mode, verify `--deployment`, then run the normal unsigned archive.
 The Flutter CocoaPods-only-plugin warning is unrelated: Flutter 3.47.2 emits it
 even with SwiftPM disabled. No SwiftPM references or package locks need removal.
+
+## Flutter product archive path correction (2026-10-06)
+
+Run `37416943171` compiled and archived successfully, producing
+`build/ios/archive/Noodle Gallery.xcarchive` (423.8 MB). Flutter names this output
+after the Xcode product, not the Runner scheme. The subsequent verifier failed
+because it expected `Runner.xcarchive`.
+
+The lane now removes only its own previous archive outputs, requires one fresh
+non-symlink archive, and renames the outer directory to the canonical artifact
+path before full bundle verification. Application contents and identities are
+unchanged. Missing, competing or symlink outputs fail; a stale branded archive
+cannot make a build with no fresh output pass.
