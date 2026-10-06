@@ -411,6 +411,7 @@ class LaneTests(unittest.TestCase):
                 "flutter",
                 "build",
                 "ipa",
+                "--verbose",
                 "--release",
                 "--no-codesign",
                 "--build-name=5.7.2",

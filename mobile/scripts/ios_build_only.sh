@@ -127,7 +127,9 @@ for previous in directory.glob('*.xcarchive'):
     elif previous.is_dir():
         shutil.rmtree(previous)
 PY
-mise exec -- flutter build ipa --release --no-codesign --build-name="$app_version" --build-number="$app_build"
+# Keep the underlying xcodebuild diagnostic in CI logs: Flutter's abbreviated
+# output otherwise collapses native failures into an unhelpful exit code.
+mise exec -- flutter build ipa --verbose --release --no-codesign --build-name="$app_version" --build-number="$app_build"
 
 # Require exactly one fresh, real archive, then keep the existing canonical
 # artifact contract. Renaming the outer archive leaves all bundle identities,
