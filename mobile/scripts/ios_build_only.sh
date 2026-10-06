@@ -3,8 +3,8 @@
 set -euo pipefail
 
 mode="${1:-}"
-if [[ "$#" -gt 1 || ( "$mode" != '' && "$mode" != '--prepare-only' && "$mode" != '--skip-prepare' ) ]]; then
-  echo 'Usage: ios_build_only.sh [--prepare-only|--skip-prepare]' >&2
+if [[ "$#" -gt 1 || ( "$mode" != '' && "$mode" != '--prepare-only' && "$mode" != '--skip-prepare' && "$mode" != '--refresh-pods-lock' ) ]]; then
+  echo 'Usage: ios_build_only.sh [--prepare-only|--skip-prepare|--refresh-pods-lock]' >&2
   exit 2
 fi
 if [[ "$(uname -s)" != Darwin ]]; then
@@ -83,10 +83,16 @@ PY
   mise exec -- flutter pub run build_runner build
   mise exec -- dart format lib/routing/router.gr.dart
 
-  # Locked dependency installation, never `pod update` or a resolver upgrade.
-  (cd ios && bundle exec pod install --deployment)
+  # Normal builds are frozen. Maintenance explicitly regenerates a stale graph
+  # with `pod install` (preserving existing locked versions), then verifies it.
+  # The resulting Podfile.lock must be reviewed/committed before a normal build.
+  if [[ "$mode" == '--refresh-pods-lock' ]]; then
+    (cd ios && bundle exec pod install && bundle exec pod install --deployment)
+  else
+    (cd ios && bundle exec pod install --deployment)
+  fi
 fi
-if [[ "$mode" == '--prepare-only' ]]; then
+if [[ "$mode" == '--prepare-only' || "$mode" == '--refresh-pods-lock' ]]; then
   exit 0
 fi
 
@@ -99,3 +105,4 @@ fi
 mise exec -- flutter build ipa --release --no-codesign
 python3 "$mobile_dir/scripts/verify_ios_archive.py" "$archive" --branding-config "$repo_dir/branding/config.json"
 echo "Unsigned build-only archive verified: $archive"
+echo "::notice title=iOS unsigned archive verified::Runner and both extensions verified; Flutter $actual_flutter."

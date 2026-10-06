@@ -155,3 +155,36 @@ Run не создан: нет run ID/URL, Xcode log, unsigned archive или IPA
 у подключения, затем повторить credentials-free dispatch на актуальном `origin/work`.
 Apple credentials для этой стадии не требуются. Native gate остаётся
 `NEEDS_MAC_VALIDATION`; физические проверки отдельно `NEEDS_PHYSICAL_IPHONE_VALIDATION`.
+
+## CocoaPods graph correction (2026-10-06)
+
+Run `37411808876` reached CocoaPods deployment verification and stopped before
+Xcode compilation. The tracked `mobile/ios/Podfile.lock` still described the older
+mixed Flutter SwiftPM/CocoaPods graph: 19 SwiftPM-capable plugin pods were omitted.
+The current lane disables Flutter SwiftPM, so all CocoaPods-capable plugins must
+be present. Updating only `PODFILE CHECKSUM` was insufficient.
+
+Only the CocoaPods lock needs native dependency regeneration for this failure.
+`pubspec.lock` remains frozen; existing `Package.resolved` files are not this
+failure's cause. Plugin registrant, `.flutter-plugins-dependencies`, `.symlinks`,
+`Pods` and `Flutter/ephemeral` remain ignored generated files.
+
+The explicit `--refresh-pods-lock` maintenance mode runs the same pinned Flutter
+preparation, `bundle exec pod install` (not `pod update`), immediately followed by
+`bundle exec pod install --deployment`, then exits without compilation/signing.
+Normal and `--prepare-only` modes still install only with `--deployment`.
+
+When macOS is unavailable locally, the existing workflow can perform this
+maintenance with `refresh_ios_pods_lock=true`, `build_target=ios`, empty `version`.
+It stages **only** `Podfile.lock` into a unique
+`codex/ios-pods-lock-<run-id>` review branch. Review that commit, fast-forward it
+into `work`, push, then run the normal unsigned build from the committed lock.
+Only the explicit fork/dispatch maintenance job has `contents:write`; normal
+build jobs keep `contents:read`. This mode does not make stale-lock builds pass:
+it does not compile or produce an app archive.
+
+Failed command output is retained in the ordinary Actions log; the final 160 lines
+are also emitted as an escaped error annotation, preserving the original nonzero
+exit status. This enables diagnosis through the API without weakening verification.
+No paid signing, App Store Connect configuration, production or Takeout work is
+part of this correction.

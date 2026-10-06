@@ -161,6 +161,9 @@ class LaneTests(unittest.TestCase):
                 "with open(os.environ['TEST_LOG'],'a') as log: log.write(json.dumps([command,*sys.argv[1:]])+'\\n')\n"
                 "if command=='uname': print(os.environ.get('TEST_OS','Darwin'))\n"
                 "if command=='mise' and '--machine' in sys.argv: print(json.dumps({'frameworkVersion':os.environ.get('TEST_FLUTTER','3.47.2')}))\n"
+                "if command=='bundle' and sys.argv[1:4]==['exec','pod','install']:\n"
+                "    failure='TEST_POD_FAIL_DEPLOYMENT' if '--deployment' in sys.argv else 'TEST_POD_FAIL_REFRESH'\n"
+                "    if os.environ.get(failure): raise SystemExit(8)\n"
                 "if command=='mise' and 'build' in sys.argv and 'ipa' in sys.argv:\n"
                 "    if os.environ.get('TEST_BUILD_FAIL'): raise SystemExit(7)\n"
                 "    if os.environ.get('TEST_COPY_ARCHIVE'):\n"
@@ -180,10 +183,7 @@ class LaneTests(unittest.TestCase):
     def commands(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
-    def test_full_prepare_runs_all_generators_and_locked_install(self):
-        result = self.run_lane("--prepare-only")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        commands = self.commands()
+    def assert_full_preparation(self, commands):
         self.assertIn(["mise", "run", "//:open-api-dart"], commands)
         self.assertIn(
             ["mise", "exec", "--", "flutter", "pub", "get", "--enforce-lockfile"],
@@ -201,8 +201,59 @@ class LaneTests(unittest.TestCase):
             "build_runner",
         ):
             self.assertTrue(any(generator in command for command in commands))
-        self.assertIn(["bundle", "exec", "pod", "install", "--deployment"], commands)
+
+    def pod_commands(self, commands):
+        return [
+            command for command in commands if command[:3] == ["bundle", "exec", "pod"]
+        ]
+
+    def test_full_prepare_runs_all_generators_and_locked_install(self):
+        result = self.run_lane("--prepare-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.commands()
+        self.assert_full_preparation(commands)
+        self.assertEqual(
+            self.pod_commands(commands),
+            [["bundle", "exec", "pod", "install", "--deployment"]],
+        )
         self.assertFalse(any("ipa" in command for command in commands))
+
+    def test_explicit_refresh_installs_then_verifies_without_archiving(self):
+        result = self.run_lane("--refresh-pods-lock")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.commands()
+        self.assert_full_preparation(commands)
+        self.assertEqual(
+            self.pod_commands(commands),
+            [
+                ["bundle", "exec", "pod", "install"],
+                ["bundle", "exec", "pod", "install", "--deployment"],
+            ],
+        )
+        self.assertFalse(any("ipa" in command for command in commands))
+        self.assertNotIn("Unsigned build-only archive verified", result.stdout)
+        self.assertFalse((self.mobile / "build/ios/archive/Runner.xcarchive").exists())
+
+    def test_refresh_pod_failure_propagates_without_archiving(self):
+        for failing_step, expected_calls in (
+            ("TEST_POD_FAIL_REFRESH", [["bundle", "exec", "pod", "install"]]),
+            (
+                "TEST_POD_FAIL_DEPLOYMENT",
+                [
+                    ["bundle", "exec", "pod", "install"],
+                    ["bundle", "exec", "pod", "install", "--deployment"],
+                ],
+            ),
+        ):
+            with self.subTest(failing_step=failing_step):
+                self.log.unlink(missing_ok=True)
+                self.environment[failing_step] = "1"
+                result = self.run_lane("--refresh-pods-lock")
+                self.environment.pop(failing_step)
+                self.assertEqual(result.returncode, 8, result.stderr)
+                commands = self.commands()
+                self.assertEqual(self.pod_commands(commands), expected_calls)
+                self.assertFalse(any("ipa" in command for command in commands))
 
     def test_non_macos_is_explicit_failure(self):
         self.environment["TEST_OS"] = "Linux"
@@ -244,8 +295,12 @@ class LaneTests(unittest.TestCase):
         fixture = self.root / "fixture.xcarchive"
         make_archive(fixture)
         self.environment["TEST_COPY_ARCHIVE"] = str(fixture)
-        result = self.run_lane("--skip-prepare")
+        result = self.run_lane()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.pod_commands(self.commands()),
+            [["bundle", "exec", "pod", "install", "--deployment"]],
+        )
         self.assertIn(
             [
                 "mise",
@@ -268,6 +323,85 @@ class LaneTests(unittest.TestCase):
                 for command in self.commands()
             )
         )
+
+
+class WorkflowShellTests(unittest.TestCase):
+    def wrapper_steps(self):
+        workflow = yaml.load(
+            (REPOSITORY / ".github/workflows/gallery-build-mobile.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        for job, name, arguments in (
+            (
+                "refresh-ios-pods-lock",
+                "Refresh and verify CocoaPods lock",
+                ["--refresh-pods-lock"],
+            ),
+            ("build-sign-ios", "Build iOS (no upload)", []),
+        ):
+            step = next(
+                item
+                for item in workflow["jobs"][job]["steps"]
+                if item.get("name") == name
+            )
+            yield step, arguments
+
+    def run_wrapper(self, step, status):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "ios_build_only.sh").write_text(
+                "#!/usr/bin/env bash\n"
+                "python3 - \"$@\" <<'PY'\n"
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['TEST_ARGUMENTS']).write_text(json.dumps(sys.argv[1:]))\n"
+                "print('first 50% diagnostic', flush=True)\n"
+                "print('last diagnostic', file=sys.stderr, flush=True)\n"
+                "raise SystemExit(int(os.environ['TEST_STATUS']))\n"
+                "PY\n"
+            )
+            arguments = root / "arguments.json"
+            result = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-e", "-c", step["run"]],
+                cwd=root,
+                env=dict(
+                    os.environ,
+                    RUNNER_TEMP=str(root),
+                    TEST_ARGUMENTS=str(arguments),
+                    TEST_STATUS=str(status),
+                ),
+                capture_output=True,
+                text=True,
+            )
+            return (
+                result,
+                json.loads(arguments.read_text()),
+                (root / "ios-build-only.log").read_text(),
+            )
+
+    def test_failure_keeps_exit_code_and_emits_escaped_annotation(self):
+        for step, expected_arguments in self.wrapper_steps():
+            with self.subTest(step=step["name"]):
+                result, arguments, log = self.run_wrapper(step, 7)
+                self.assertEqual(result.returncode, 7, result.stderr)
+                self.assertEqual(arguments, expected_arguments)
+                self.assertEqual(log, "first 50% diagnostic\nlast diagnostic\n")
+                self.assertIn(
+                    "::error title=Unsigned iOS build failure::"
+                    "first 50%25 diagnostic%0Alast diagnostic",
+                    result.stdout,
+                )
+
+    def test_success_keeps_zero_and_emits_no_error(self):
+        for step, expected_arguments in self.wrapper_steps():
+            with self.subTest(step=step["name"]):
+                result, arguments, log = self.run_wrapper(step, 0)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(arguments, expected_arguments)
+                self.assertEqual(log, "first 50% diagnostic\nlast diagnostic\n")
+                self.assertNotIn("::error", result.stdout)
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -382,6 +516,49 @@ class ConfigurationTests(unittest.TestCase):
                 ("APP_STORE_CONNECT", "IOS_CERTIFICATE", "FASTLANE_TEAM")
             ):
                 self.assertEqual(value["required"], "false")
+
+    def test_pod_lock_maintenance_is_explicit_and_writes_only_review_branch(self):
+        workflow = yaml.load(
+            (REPOSITORY / ".github/workflows/gallery-build-mobile.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        for trigger in ("workflow_dispatch", "workflow_call"):
+            option = workflow["on"][trigger]["inputs"]["refresh_ios_pods_lock"]
+            self.assertEqual(option["type"], "boolean")
+            self.assertEqual(option["default"], "false")
+        job = workflow["jobs"]["refresh-ios-pods-lock"]
+        for gate in (
+            "github.event_name == 'workflow_dispatch'",
+            "github.repository == 'docice545/gallery'",
+            "inputs.refresh_ios_pods_lock",
+            "inputs.build_target == 'ios'",
+            "inputs.version == ''",
+        ):
+            self.assertIn(gate, job["if"])
+        self.assertEqual(job["permissions"], {"contents": "write"})
+        self.assertNotIn("secrets.", json.dumps(job))
+        save = next(step for step in job["steps"] if "git push" in step.get("run", ""))
+        self.assertEqual(
+            save["env"]["LOCK_BRANCH"], "codex/ios-pods-lock-${{ github.run_id }}"
+        )
+        self.assertEqual(
+            re.findall(r"^\s*git add .*", save["run"], re.M),
+            ["git add -- mobile/ios/Podfile.lock"],
+        )
+        self.assertEqual(
+            re.findall(r"^\s*git push .*", save["run"], re.M),
+            ['git push origin "HEAD:refs/heads/$LOCK_BRANCH"'],
+        )
+        for name in ("build-sign-android", "build-sign-ios"):
+            build = workflow["jobs"][name]
+            self.assertIn("!inputs.refresh_ios_pods_lock", build["if"])
+            self.assertEqual(build["permissions"], {"contents": "read"})
+            checkout = next(
+                step
+                for step in build["steps"]
+                if step.get("uses", "").startswith("actions/checkout@")
+            )
+            self.assertEqual(checkout["with"]["persist-credentials"], "false")
 
     def test_legacy_workflow_release_is_explicit(self):
         workflow = yaml.load(

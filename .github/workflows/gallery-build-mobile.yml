@@ -9,6 +9,11 @@ name: Gallery Build Mobile
 on:
   workflow_dispatch:
     inputs:
+      refresh_ios_pods_lock:
+        description: 'Maintenance only: regenerate CocoaPods lock on macOS into a review branch; no build/signing.'
+        required: false
+        type: boolean
+        default: false
       environment:
         description: 'Target environment'
         required: true
@@ -33,6 +38,10 @@ on:
           - ios
   workflow_call:
     inputs:
+      refresh_ios_pods_lock:
+        required: false
+        type: boolean
+        default: false
       ref:
         required: false
         type: string
@@ -94,12 +103,81 @@ concurrency:
 permissions: {}
 
 jobs:
+  refresh-ios-pods-lock:
+    name: Regenerate iOS CocoaPods lock for review
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'docice545/gallery' && inputs.refresh_ios_pods_lock && inputs.build_target == 'ios' && inputs.version == '' }}
+    permissions:
+      contents: write
+    runs-on: macos-15
+    steps:
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          xcode_version="$(xcodebuild -version | tr '\n' ' ')"
+          echo "::notice title=iOS Xcode toolchain::$xcode_version"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          # Only this explicit maintenance job can push its generated lock to a
+          # unique review branch. Normal builds retain contents:read/no credentials.
+          persist-credentials: true
+      - name: Setup Mise
+        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: 'stable'
+          flutter-version-file: ./mobile/pubspec.yaml
+          cache: true
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@c515ec17f69368147deb311832da000dd229d338 # v1.297.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ./mobile/ios
+      - name: Refresh and verify CocoaPods lock
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          if bash scripts/ios_build_only.sh --refresh-pods-lock 2>&1 | tee "$RUNNER_TEMP/ios-build-only.log"; then
+            :
+          else
+            build_status=$?
+            python3 - "$RUNNER_TEMP/ios-build-only.log" <<'PY'
+          import sys
+          from pathlib import Path
+          tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-160:])
+          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Unsigned iOS build failure::' + escaped)
+          PY
+            exit "$build_status"
+          fi
+
+      - name: Save only generated Podfile.lock for review
+        env:
+          LOCK_BRANCH: codex/ios-pods-lock-${{ github.run_id }}
+        run: |
+          if git diff --quiet -- mobile/ios/Podfile.lock; then
+            echo '::error::CocoaPods produced no Podfile.lock change; no review commit created.'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$LOCK_BRANCH"
+          git add -- mobile/ios/Podfile.lock
+          git commit -m 'fix(ios): synchronize CocoaPods lock with Flutter plugins'
+          git push origin "HEAD:refs/heads/$LOCK_BRANCH"
+          echo "::notice title=CocoaPods lock review branch::$LOCK_BRANCH"
+
   build-sign-android:
     name: Build and sign Android
     permissions:
       contents: read
     # Skip when PR from a fork
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
+    if: ${{ !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
     environment: mobile-build
     runs-on: ubuntu-latest
 
@@ -338,13 +416,16 @@ jobs:
     name: Verify or explicitly release iOS
     permissions:
       contents: read
-    if: ${{ !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
+    if: ${{ !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
     environment: mobile-build
     runs-on: macos-15
 
     steps:
       - name: Select Xcode 26
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          xcode_version="$(xcodebuild -version | tr '\n' ' ')"
+          echo "::notice title=iOS Xcode toolchain::$xcode_version"
 
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -455,7 +536,20 @@ jobs:
         if: inputs.version == ''
         working-directory: ./mobile
         run: |
-          bash scripts/ios_build_only.sh
+          set -o pipefail
+          if bash scripts/ios_build_only.sh 2>&1 | tee "$RUNNER_TEMP/ios-build-only.log"; then
+            :
+          else
+            build_status=$?
+            python3 - "$RUNNER_TEMP/ios-build-only.log" <<'PY'
+          import sys
+          from pathlib import Path
+          tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-160:])
+          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Unsigned iOS build failure::' + escaped)
+          PY
+            exit "$build_status"
+          fi
 
       - name: Clean up keychain
         if: always() && inputs.version != ''
