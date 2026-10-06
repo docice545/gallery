@@ -30,18 +30,18 @@ The practical workflows remain:
 
 ## Public API and platform gates
 
-| Question | Verified result |
-| --- | --- |
-| Public API | `android.provider.CloudMediaProvider` and `CloudMediaProviderContract`. Both are present in the Android 13 public API surface, API 33. They are absent from the examined Android 12/API 31 surface. |
-| Minimum for a direct implementation | Gate use of these framework classes on Android 13/API 33 or later. Cloud functionality also depends on the installed MediaProvider/Photo Picker implementation and configuration; an Android version number alone does not establish availability. The separate existence/backport of a local Photo Picker does not prove cloud-provider admission. |
-| Manifest registration | An exported provider with its own authority and the `android.content.action.CLOUD_MEDIA_PROVIDER` intent filter; its permission must be `com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS`. |
-| Signature permission | MediaProvider declares that permission as `signature`. It protects access **to** the provider by the system. An ordinary provider application can require that permission on its component without itself being platform-signed or holding it. It does not grant the application permission to configure the system picker. |
-| Admission | `CloudProviderUtils.getAvailableCloudProvidersInternal()` checks the required provider read permission and, when enforcement is enabled, requires the provider's **package name** in `ConfigStore.getAllowedCloudProviderPackages()`. |
-| Platform configuration | The examined implementation uses DeviceConfig namespace `mediaprovider`, keys `allowed_cloud_providers`, `cloud_media_feature_enabled`, and `cloud_media_enforce_provider_allowlist`. Allowlist enforcement defaults to `true`. Cloud queries also require an enabled feature flag and a nonempty configured allowlist. These are system policy controls, not application settings. |
-| Provider selection | Normal selection applies the allowlist. `MediaProvider.getResultForSetCloudProvider()` accepts its own UID or the shell; other callers receive `SecurityException`. A shell-only test override is not a public application integration mechanism. |
-| Number of selected sources | The examined controller tracks one selected cloud-provider authority alongside the local provider. Installing another provider does not automatically select it. |
-| Google Play / certification | AOSP's discovery checks do not examine Play installation, purchase, or a certification token. Publishing in Google Play therefore cannot be claimed sufficient, and this source does not prove that Play distribution is intrinsically required. Any commercial onboarding/certification and platform allowlist admission must be established separately with the platform operator. No approval for this package has been established. |
-| Samsung / One UI | Device model, Android/One UI version, installed picker/module and platform policy matter. No Samsung device was available and no evidence establishes that Samsung admits this sideloaded package. Support cannot be inferred from compiling against SDK 36. |
+| Question                            | Verified result                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public API                          | `android.provider.CloudMediaProvider` and `CloudMediaProviderContract`. Both are present in the Android 13 public API surface, API 33. They are absent from the examined Android 12/API 31 surface.                                                                                                                                                                                                                                     |
+| Minimum for a direct implementation | Gate use of these framework classes on Android 13/API 33 or later. Cloud functionality also depends on the installed MediaProvider/Photo Picker implementation and configuration; an Android version number alone does not establish availability. The separate existence/backport of a local Photo Picker does not prove cloud-provider admission.                                                                                     |
+| Manifest registration               | An exported provider with its own authority and the `android.content.action.CLOUD_MEDIA_PROVIDER` intent filter; its permission must be `com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS`.                                                                                                                                                                                                                          |
+| Signature permission                | MediaProvider declares that permission as `signature`. It protects access **to** the provider by the system. An ordinary provider application can require that permission on its component without itself being platform-signed or holding it. It does not grant the application permission to configure the system picker.                                                                                                             |
+| Admission                           | `CloudProviderUtils.getAvailableCloudProvidersInternal()` checks the required provider read permission and, when enforcement is enabled, requires the provider's **package name** in `ConfigStore.getAllowedCloudProviderPackages()`.                                                                                                                                                                                                   |
+| Platform configuration              | The examined implementation uses DeviceConfig namespace `mediaprovider`, keys `allowed_cloud_providers`, `cloud_media_feature_enabled`, and `cloud_media_enforce_provider_allowlist`. Allowlist enforcement defaults to `true`. Cloud queries also require an enabled feature flag and a nonempty configured allowlist. These are system policy controls, not application settings.                                                     |
+| Provider selection                  | Normal selection applies the allowlist. `MediaProvider.getResultForSetCloudProvider()` accepts its own UID or the shell; other callers receive `SecurityException`. A shell-only test override is not a public application integration mechanism.                                                                                                                                                                                       |
+| Number of selected sources          | The examined controller tracks one selected cloud-provider authority alongside the local provider. Installing another provider does not automatically select it.                                                                                                                                                                                                                                                                        |
+| Google Play / certification         | AOSP's discovery checks do not examine Play installation, purchase, or a certification token. Publishing in Google Play therefore cannot be claimed sufficient, and this source does not prove that Play distribution is intrinsically required. Any commercial onboarding/certification and platform allowlist admission must be established separately with the platform operator. No approval for this package has been established. |
+| Samsung / One UI                    | Device model, Android/One UI version, installed picker/module and platform policy matter. No Samsung device was available and no evidence establishes that Samsung admits this sideloaded package. Support cannot be inferred from compiling against SDK 36.                                                                                                                                                                            |
 
 The allowlist behavior is present in the examined Android 14 source as well as
 the current AOSP MediaProvider source; it is not just a missing Flutter plugin.
@@ -122,3 +122,39 @@ and [Photo Picker](https://developer.android.com/training/data-storage/shared/ph
 This environment allowed retrieval of the AOSP mirror sources; commercial
 integration terms and Samsung-specific allowlists were not independently
 verified from those reference pages.
+
+## Проверка продолжения мобильной задачи, 6 октября 2026
+
+Повторно проверен более новый release source Android 16/QPR1:
+`android-16.0.0_r3`, commit `78a0bebdc478a3e827618944f9998c5e21fc9712`.
+Ранее проверенный mirror `main` не обновлялся после 10 марта 2025 года,
+поэтому его нельзя называть подтверждением всех текущих OEM реализаций.
+
+В Android 16 restriction сохраняется:
+
+- [CloudProviderUtils, строки 145–152](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/78a0bebdc478a3e827618944f9998c5e21fc9712/src/com/android/providers/media/photopicker/util/CloudProviderUtils.java#L145-L152)
+  исключает package, отсутствующий в allowlist, при discovery.
+- [ConfigStore, строка 74](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/78a0bebdc478a3e827618944f9998c5e21fc9712/src/com/android/providers/media/ConfigStore.java#L74)
+  задаёт `DEFAULT_ENFORCE_CLOUD_PROVIDER_ALLOWLIST = true`;
+  [строки 376–389](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/78a0bebdc478a3e827618944f9998c5e21fc9712/src/com/android/providers/media/ConfigStore.java#L376-L389)
+  требуют непустую allowlist для feature-enabled.
+- [PickerSyncController, строки 539–542](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/78a0bebdc478a3e827618944f9998c5e21fc9712/src/com/android/providers/media/photopicker/PickerSyncController.java#L539-L542)
+  сохраняет эту проверку при обычном выборе provider.
+- [MediaProvider, строки 8032–8043](https://github.com/aosp-mirror/platform_packages_providers_mediaprovider/blob/78a0bebdc478a3e827618944f9998c5e21fc9712/src/com/android/providers/media/MediaProvider.java#L8032-L8043)
+  допускает служебный selection request только от собственного UID или shell.
+
+Публичный provider contract реализуем обычным приложением: permission защищает
+доступ **к provider**, а не требует platform signature от самого приложения.
+Но manifest/provider implementation не даёт sideloaded `de.opennoodle.gallery`
+допуск в системный список. Без официального допуска платформы/OEM добавлять
+provider сейчас недостаточно для цели пользователя; fake provider и overrides
+системной безопасности не реализованы. Наличие только Google/None на Samsung
+согласуется с gate, но конкретная Samsung allowlist здесь не проверена.
+
+API существует с Android 13/API 33; наличие класса не равно доступности cloud
+источника в конкретном Photo Picker module/OEM. Прямой `developer.android.com`
+в этой среде вернул proxy tunnel HTTP 403, поэтому ограничения подтверждены
+официальным AOSP release source, а не неподтверждёнными условиями сертификации.
+Новые Samsung policy и более поздние недоступные mirror releases остаются
+границей проверки. Основные рабочие сценарии — Share original из «Фото» через
+временный cache и Download original в MediaStore — сохранены.
