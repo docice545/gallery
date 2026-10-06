@@ -564,7 +564,7 @@ export class LibraryService extends BaseService {
     }
 
     if (assetIdsToOnline.length > 0) {
-      promises.push(this.assetRepository.updateAll(assetIdsToOnline, { isOffline: false, deletedAt: null }));
+      promises.push(this.assetJobRepository.setOnlineForLibrarySync(assetIdsToOnline));
     }
 
     if (trashedAssetIdsToOnline.length > 0) {

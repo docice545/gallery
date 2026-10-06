@@ -577,6 +577,49 @@ describe(LibraryService.name, () => {
   });
 
   describe('handleSyncAssets', () => {
+    it('should preserve user trash when an offline asset is trashed during the file check', async () => {
+      const { sut, ctx } = setup();
+      const assetRepo = ctx.get(AssetRepository);
+      const storageRepo = ctx.get(StorageRepository);
+      const library = await ctx.createLibrary({ importPaths: [importPath] });
+      const { asset } = await ctx.newAsset({
+        ownerId: library.ownerId,
+        libraryId: library.id,
+        originalPath: await createFile(join(importPath, 'concurrent-trash.png')),
+        isExternal: true,
+        isOffline: true,
+        deletedAt: new Date('2026-10-04T09:00:00Z'),
+        status: AssetStatus.Active,
+      });
+      const statStarted = Promise.withResolvers<void>();
+      const stat = Promise.withResolvers<Awaited<ReturnType<StorageRepository['stat']>>>();
+      const statSpy = vi.spyOn(storageRepo, 'stat').mockImplementation(() => {
+        statStarted.resolve();
+        return stat.promise;
+      });
+      const deletedAt = new Date('2026-10-05T09:00:00Z');
+
+      try {
+        const sync = sut.handleSyncAssets({
+          libraryId: library.id,
+          importPaths: library.importPaths,
+          exclusionPatterns: library.exclusionPatterns,
+          assetIds: [asset.id],
+          progressCounter: 1,
+          totalAssets: 1,
+        });
+        await statStarted.promise;
+        await assetRepo.updateAll([asset.id], { status: AssetStatus.Trashed, deletedAt });
+        stat.resolve({ mtime: asset.fileModifiedAt } as Awaited<ReturnType<StorageRepository['stat']>>);
+
+        await expect(sync).resolves.toBe(JobStatus.Success);
+        const updated = await assetRepo.getById(asset.id);
+        expect(updated).toEqual(expect.objectContaining({ isOffline: false, status: AssetStatus.Trashed, deletedAt }));
+      } finally {
+        statSpy.mockRestore();
+      }
+    });
+
     it('should set an asset offline if its file is missing', async () => {
       const { sut, ctx } = setup();
       const assetRepo = ctx.get(AssetRepository);
@@ -792,8 +835,9 @@ describe(LibraryService.name, () => {
       ).resolves.toBe(JobStatus.Success);
 
       const updated = await assetRepo.getById(asset.id);
-      expect(updated).toEqual(expect.objectContaining({ isOffline: false }));
-      expect(updated?.deletedAt).toBeInstanceOf(Date);
+      expect(updated).toEqual(
+        expect.objectContaining({ isOffline: false, status: AssetStatus.Trashed, deletedAt: asset.deletedAt }),
+      );
     });
 
     it('should queue sidecar checks for assets whose file changed', async () => {
