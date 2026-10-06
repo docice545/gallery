@@ -46,9 +46,22 @@ def make_archive(archive):
                     "CFBundleExecutable": "binary",
                     "MinimumOSVersion": minimum,
                     "AppGroupId": "group.de.opennoodle.gallery.share",
+                    "CFBundleShortVersionString": "5.7.2",
+                    "CFBundleVersion": "5",
                 }
             )
         )
+    metadata_path = application / "Info.plist"
+    metadata = plistlib.loads(metadata_path.read_bytes())
+    metadata["CFBundleIcons"] = {
+        "CFBundlePrimaryIcon": {
+            "CFBundleIconName": "AppIcon",
+            "CFBundleIconFiles": ["AppIcon60x60"],
+        }
+    }
+    metadata_path.write_bytes(plistlib.dumps(metadata))
+    (application / "AppIcon60x60@2x.png").write_bytes(b"compiled-icon-fixture")
+    (application / "Assets.car").write_bytes(b"compiled-catalog-fixture")
     return application
 
 
@@ -125,14 +138,24 @@ class LaneTests(unittest.TestCase):
         self.mobile = self.root / "mobile"
         scripts = self.mobile / "scripts"
         scripts.mkdir(parents=True)
-        for file in ("ios_build_only.sh", "verify_ios_archive.py"):
+        for file in (
+            "ios_build_only.sh",
+            "verify_ios_archive.py",
+            "package_unsigned_ios.py",
+        ):
             shutil.copyfile(SCRIPTS / file, scripts / file)
         self.script = scripts / "ios_build_only.sh"
         (self.mobile / "mise.toml").write_text(
             '[tools."aqua:flutter/flutter"]\nversion = "3.47.2"\n'
         )
-        (self.mobile / "pubspec.yaml").write_text("environment:\n  flutter: 3.47.2\n")
+        (self.mobile / "pubspec.yaml").write_text(
+            "version: 5.7.2+5\nenvironment:\n  flutter: 3.47.2\n"
+        )
         (self.mobile / "ios").mkdir()
+        shutil.copytree(
+            REPOSITORY / "mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset",
+            self.mobile / "ios/Runner/Assets.xcassets/AppIcon.appiconset",
+        )
         (self.mobile / "pigeon").mkdir()
         for definition in (REPOSITORY / "mobile/pigeon").glob("*.dart"):
             shutil.copyfile(definition, self.mobile / "pigeon" / definition.name)
@@ -390,9 +413,13 @@ class LaneTests(unittest.TestCase):
                 "ipa",
                 "--release",
                 "--no-codesign",
+                "--build-name=5.7.2",
+                "--build-number=5",
             ],
             self.commands(),
         )
+        self.assertTrue((self.mobile / "build/ios/ipa/Photos-unsigned.ipa").is_file())
+        self.assertIn("requires user-side signing", result.stdout)
         self.assertFalse(
             any(
                 any(

@@ -101,6 +101,18 @@ fi
 # a stale canonical nor a stale branded archive can satisfy verification.
 archive_dir="$mobile_dir/build/ios/archive"
 archive="$archive_dir/Runner.xcarchive"
+app_metadata="$(python3 - "$mobile_dir/pubspec.yaml" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+version = re.search(r'^version: (\d+\.\d+\.\d+)\+(\d+)\s*$', Path(sys.argv[1]).read_text(), re.MULTILINE)
+if not version:
+    raise SystemExit('Flutter application version/build is missing or invalid')
+print(*version.groups())
+PY
+)"
+read -r app_version app_build <<< "$app_metadata"
 python3 - "$archive_dir" <<'PY'
 import shutil
 import sys
@@ -115,7 +127,7 @@ for previous in directory.glob('*.xcarchive'):
     elif previous.is_dir():
         shutil.rmtree(previous)
 PY
-mise exec -- flutter build ipa --release --no-codesign
+mise exec -- flutter build ipa --release --no-codesign --build-name="$app_version" --build-number="$app_build"
 
 # Require exactly one fresh, real archive, then keep the existing canonical
 # artifact contract. Renaming the outer archive leaves all bundle identities,
@@ -137,6 +149,17 @@ if generated != canonical:
     generated.rename(canonical)
     print('Normalized fresh Flutter product archive to Runner.xcarchive.')
 PY
-python3 "$mobile_dir/scripts/verify_ios_archive.py" "$archive" --branding-config "$repo_dir/branding/config.json"
+python3 "$mobile_dir/scripts/verify_ios_archive.py" "$archive" \
+  --branding-config "$repo_dir/branding/config.json" \
+  --expected-version "$app_version" --expected-build "$app_build" \
+  --app-icon-catalog "$mobile_dir/ios/Runner/Assets.xcassets/AppIcon.appiconset"
 echo "Unsigned build-only archive verified: $archive"
-echo "::notice title=iOS unsigned archive verified::Runner and both extensions verified; Flutter $actual_flutter."
+echo "::notice title=iOS unsigned archive verified::Runner and both extensions verified; $app_version ($app_build); Flutter $actual_flutter."
+
+# No signing/export credentials: package only the verified compiled app. The
+# user-side Personal Team/SideStore pilot signs this IPA before installation.
+unsigned_ipa="$mobile_dir/build/ios/ipa/Photos-unsigned.ipa"
+python3 "$mobile_dir/scripts/package_unsigned_ios.py" "$archive" "$unsigned_ipa" \
+  --branding-config "$repo_dir/branding/config.json" \
+  --expected-version "$app_version" --expected-build "$app_build" \
+  --app-icon-catalog "$mobile_dir/ios/Runner/Assets.xcassets/AppIcon.appiconset"
