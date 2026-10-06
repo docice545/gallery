@@ -154,6 +154,7 @@ PY
 python3 "$mobile_dir/scripts/verify_ios_archive.py" "$archive" \
   --branding-config "$repo_dir/branding/config.json" \
   --expected-version "$app_version" --expected-build "$app_build" \
+  --expected-display-name Foto --expected-russian-display-name Фото \
   --app-icon-catalog "$mobile_dir/ios/Runner/Assets.xcassets/AppIcon.appiconset"
 echo "Unsigned build-only archive verified: $archive"
 echo "::notice title=iOS unsigned archive verified::Runner and both extensions verified; $app_version ($app_build); Flutter $actual_flutter."

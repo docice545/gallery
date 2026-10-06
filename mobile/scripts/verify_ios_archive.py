@@ -86,6 +86,8 @@ def verify_archive(
     expected_version: str | None = None,
     expected_build: str | None = None,
     app_icon_catalog: Path | None = None,
+    expected_display_name: str | None = None,
+    expected_russian_display_name: str | None = None,
 ) -> Path:
     if not archive.is_dir():
         raise ValueError("Expected Runner.xcarchive is missing")
@@ -108,6 +110,20 @@ def verify_archive(
         identifier = metadata.get("CFBundleIdentifier")
         if not isinstance(identifier, str) or not identifier:
             raise ValueError("Compiled bundle identifier is missing")
+        if expected_display_name is not None:
+            # SideSign reads the raw plist, not localizedInfoDictionary. Apple
+            # registration also prefixes extension names with the parent name.
+            registration_name = metadata.get("CFBundleDisplayName")
+            if not isinstance(registration_name, str):
+                registration_name = metadata.get("CFBundleName")
+            if (
+                not isinstance(registration_name, str)
+                or not registration_name
+                or not registration_name.isascii()
+            ):
+                raise ValueError("Compiled App ID registration name must be nonempty ASCII")
+            if suffix is None and registration_name != expected_display_name:
+                raise ValueError("Compiled Runner base display name differs from expected registration name")
         if suffix is None:
             app_id = identifier
             if bundle_id is not None and identifier != bundle_id:
@@ -139,6 +155,12 @@ def verify_archive(
         if suffix is None and app_icon_catalog is not None:
             verify_app_icon_catalog(app_icon_catalog)
             verify_compiled_app_icon(application, metadata)
+    if expected_russian_display_name is not None:
+        localized = plistlib.loads(
+            (application / "ru.lproj/InfoPlist.strings").read_bytes()
+        )
+        if localized.get("CFBundleDisplayName") != expected_russian_display_name:
+            raise ValueError("Compiled Russian display name differs from expected user-facing name")
     return application
 
 
@@ -149,6 +171,8 @@ def main() -> None:
     parser.add_argument("--expected-version")
     parser.add_argument("--expected-build")
     parser.add_argument("--app-icon-catalog", type=Path)
+    parser.add_argument("--expected-display-name")
+    parser.add_argument("--expected-russian-display-name")
     args = parser.parse_args()
     try:
         branding = (
@@ -163,7 +187,15 @@ def main() -> None:
             expected_version=args.expected_version,
             expected_build=args.expected_build,
             app_icon_catalog=args.app_icon_catalog,
+            expected_display_name=args.expected_display_name,
+            expected_russian_display_name=args.expected_russian_display_name,
         )
+        if args.expected_display_name is not None:
+            print(
+                "Verified ASCII App ID registration names; "
+                f"Runner base={args.expected_display_name}; "
+                f"Russian display={args.expected_russian_display_name}"
+            )
     except (ValueError, OSError, plistlib.InvalidFileException) as error:
         parser.exit(1, f"iOS archive verification failed: {error}\n")
 

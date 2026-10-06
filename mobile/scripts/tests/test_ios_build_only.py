@@ -43,6 +43,9 @@ def make_archive(archive):
             plistlib.dumps(
                 {
                     "CFBundleIdentifier": identifier,
+                    "CFBundleDisplayName": (
+                        "Foto" if bundle == application else bundle.stem
+                    ),
                     "CFBundleExecutable": "binary",
                     "MinimumOSVersion": minimum,
                     "AppGroupId": "group.de.opennoodle.gallery.share",
@@ -62,6 +65,10 @@ def make_archive(archive):
     metadata_path.write_bytes(plistlib.dumps(metadata))
     (application / "AppIcon60x60@2x.png").write_bytes(b"compiled-icon-fixture")
     (application / "Assets.car").write_bytes(b"compiled-catalog-fixture")
+    (application / "ru.lproj").mkdir()
+    (application / "ru.lproj/InfoPlist.strings").write_bytes(
+        plistlib.dumps({"CFBundleDisplayName": "Фото"})
+    )
     return application
 
 

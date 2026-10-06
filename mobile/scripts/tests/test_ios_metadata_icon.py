@@ -66,7 +66,21 @@ class VersionSourceTests(unittest.TestCase):
             metadata["CFBundleShortVersionString"], "$(FLUTTER_BUILD_NAME)"
         )
         self.assertEqual(metadata["CFBundleVersion"], "$(FLUTTER_BUILD_NUMBER)")
-        self.assertEqual(metadata["CFBundleDisplayName"], "Фото")
+        self.assertEqual(metadata["CFBundleDisplayName"], "Foto")
+
+    def test_russian_launcher_name_is_a_localized_resource(self):
+        self.assertEqual(
+            (IOS / "Runner/ru.lproj/InfoPlist.strings").read_text().strip(),
+            '"CFBundleDisplayName" = "Фото";',
+        )
+        project = (IOS / "Runner.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("path = ru.lproj/InfoPlist.strings", project)
+        resources = re.search(
+            r"97C146EC1CF9000F007C117D /\* Resources \*/ = \{(.*?)\n\t\t\};",
+            project,
+            re.DOTALL,
+        ).group(1)
+        self.assertIn("InfoPlist.strings in Resources", resources)
 
     def test_all_target_configurations_derive_versions_from_flutter(self):
         project = (IOS / "Runner.xcodeproj/project.pbxproj").read_text()
@@ -103,6 +117,62 @@ class VersionSourceTests(unittest.TestCase):
                 f"Pods-ShareExtension.{configuration}.xcconfig",
                 project,
             )
+
+
+class AppIdRegistrationNameTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.archive = Path(self.directory.name) / "Runner.xcarchive"
+        self.application = make_archive(self.archive)
+        for bundle, name in (
+            (self.application, "Foto"),
+            (self.application / "PlugIns/ShareExtension.appex", "Foto Share"),
+            (self.application / "PlugIns/WidgetExtension.appex", "Widget"),
+        ):
+            path = bundle / "Info.plist"
+            metadata = plistlib.loads(path.read_bytes())
+            metadata.update(CFBundleDisplayName=name, CFBundleName="TechnicalName")
+            path.write_bytes(plistlib.dumps(metadata))
+        self.localized = self.application / "ru.lproj/InfoPlist.strings"
+        self.localized.parent.mkdir()
+        self.localized.write_bytes(plistlib.dumps({"CFBundleDisplayName": "Фото"}))
+
+    def verify(self):
+        return verifier.verify_archive(
+            self.archive,
+            expected_display_name="Foto",
+            expected_russian_display_name="Фото",
+        )
+
+    def test_ascii_base_names_and_russian_localization_pass(self):
+        self.assertEqual(self.verify(), self.application)
+
+    def test_cyrillic_runner_or_extension_registration_name_fails(self):
+        for relative in (
+            "Info.plist",
+            "PlugIns/ShareExtension.appex/Info.plist",
+            "PlugIns/WidgetExtension.appex/Info.plist",
+        ):
+            with self.subTest(relative=relative):
+                path = self.application / relative
+                original = path.read_bytes()
+                metadata = plistlib.loads(original)
+                metadata["CFBundleDisplayName"] = "Фото"
+                path.write_bytes(plistlib.dumps(metadata))
+                with self.assertRaisesRegex(ValueError, "registration name"):
+                    self.verify()
+                path.write_bytes(original)
+
+    def test_missing_russian_resource_fails(self):
+        self.localized.unlink()
+        with self.assertRaises(OSError):
+            self.verify()
+
+    def test_wrong_russian_display_name_fails(self):
+        self.localized.write_bytes(plistlib.dumps({"CFBundleDisplayName": "Foto"}))
+        with self.assertRaisesRegex(ValueError, "Russian display name"):
+            self.verify()
 
 
 class AppIconCatalogTests(unittest.TestCase):
