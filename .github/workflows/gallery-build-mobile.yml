@@ -1,6 +1,13 @@
 name: Inspect exact SideStore failing IPA
 on:
   workflow_dispatch:
+    inputs:
+      source_run:
+        required: true
+        type: string
+      artifact_id:
+        required: true
+        type: string
 permissions:
   actions: read
   contents: read
@@ -12,18 +19,21 @@ jobs:
         with:
           github-token: ${{ github.token }}
           repository: docice545/gallery
-          run-id: '37511542010'
-          artifact-ids: '11436990368'
+          run-id: ${{ inputs.source_run }}
+          artifact-ids: ${{ inputs.artifact_id }}
           path: inspection
       - name: Inspect actual IPA metadata and all Cyrillic name occurrences
+        env:
+          SOURCE_RUN: ${{ inputs.source_run }}
+          SOURCE_ARTIFACT: ${{ inputs.artifact_id }}
         run: |
           python3 - <<'PYTHON'
-          import hashlib, json, plistlib, zipfile
+          import hashlib, json, os, plistlib, zipfile
           from pathlib import Path
           files = list(Path("inspection").rglob("*.ipa"))
           assert len(files) == 1, files
           ipa = files[0]
-          report = {"source_run": 37511542010, "source_artifact": 11436990368,
+          report = {"source_run": int(os.environ["SOURCE_RUN"]), "source_artifact": int(os.environ["SOURCE_ARTIFACT"]),
                     "ipa_name": ipa.name, "ipa_sha256": hashlib.sha256(ipa.read_bytes()).hexdigest(),
                     "targets": [], "all_photo_name_occurrences": []}
           def exact_paths(value, prefix="$", found=None):
@@ -45,6 +55,11 @@ jobs:
                           "CFBundleShortVersionString", "CFBundleVersion", "MinimumOSVersion", "AppGroupId",
                           "CFBundleDevelopmentRegion", "CFBundleLocalizations", "NSExtension", "BGTaskSchedulerPermittedIdentifiers"]
                   report["targets"].append({"path": app + relative, **{k:data[k] for k in keys if k in data}})
+              russian = app + "ru.lproj/InfoPlist.strings"
+              if russian in z.namelist():
+                  report["russian_launcher_localization"] = plistlib.loads(z.read(russian))
+              root_name = report["targets"][0]["CFBundleDisplayName"]
+              report["app_id_registration_names"] = [root_name] + [root_name + " " + t["CFBundleDisplayName"] for t in report["targets"][1:]]
               for name in sorted(z.namelist()):
                   if name.endswith("/"): continue
                   raw = z.read(name)
