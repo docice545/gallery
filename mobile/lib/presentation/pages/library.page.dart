@@ -1,6 +1,8 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/library_card.model.dart';
 import 'package:immich_mobile/domain/models/person.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/extensions/asyncvalue_extensions.dart';
@@ -15,12 +17,14 @@ import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/people.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/user.provider.dart';
+import 'package:immich_mobile/providers/library/library_layout.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/shared_space.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:immich_mobile/widgets/common/immich_sliver_app_bar.dart';
+import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_mobile/widgets/map/map_thumbnail.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
@@ -31,15 +35,35 @@ class LibraryPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final navHeight = ref.watch(bottomNavHeightProvider);
+    final cards = ref.watch(libraryCardsProvider);
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          const ImmichSliverAppBar(snap: false, floating: false, pinned: true, showUploadButton: false),
-          const _ActionButtonGrid(),
-          const _CollectionCards(),
-          const _QuickAccessButtonList(),
-          // Bottom clearance for the floating nav pill so the last list item
-          // isn't obscured when scrolled to the end.
+          ImmichSliverAppBar(
+            snap: false,
+            floating: false,
+            pinned: true,
+            showUploadButton: false,
+            actions: [
+              IconButton(
+                key: const Key('library-customize'),
+                tooltip: context.t.library_customize,
+                icon: const Icon(Icons.tune_rounded),
+                onPressed: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  useSafeArea: true,
+                  builder: (_) => const LibraryCustomizationSheet(),
+                ),
+              ),
+            ],
+          ),
+          const LibraryCardsSliver(),
+          if (cards.any((card) => card.action == LibraryCardAction.partners))
+            const SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              sliver: SliverToBoxAdapter(child: _VisiblePartnerList()),
+            ),
           SliverToBoxAdapter(child: SizedBox(height: navHeight + 16)),
         ],
       ),
@@ -47,77 +71,105 @@ class LibraryPage extends ConsumerWidget {
   }
 }
 
-class _ActionButtonGrid extends ConsumerWidget {
-  const _ActionButtonGrid();
+/// Every registry action has one destination. Shared by the cards and route
+/// regression tests; no global Photos filters are changed by these shortcuts.
+@visibleForTesting
+PageRouteInfo libraryCardRoute(LibraryCardAction action) => switch (action) {
+  LibraryCardAction.favorites => const FavoriteRoute(),
+  LibraryCardAction.archive => const ArchiveRoute(),
+  LibraryCardAction.sharedLinks => const SharedLinkRoute(),
+  LibraryCardAction.trash => const TrashRoute(),
+  LibraryCardAction.spaces => const SpacesRoute(),
+  LibraryCardAction.people => const PeopleCollectionRoute(),
+  LibraryCardAction.places => PlaceRoute(currentLocation: null),
+  LibraryCardAction.onDevice => const LocalAlbumsRoute(),
+  LibraryCardAction.albums => const AlbumsRoute(),
+  LibraryCardAction.memories => const MemoryListRoute(),
+  LibraryCardAction.folders => FolderRoute(),
+  LibraryCardAction.lockedFolder => const LockedFolderRoute(),
+  LibraryCardAction.partners => const PartnerRoute(),
+  LibraryCardAction.recentlyAdded => const RecentlyAddedRoute(),
+  LibraryCardAction.videos => const VideoRoute(),
+  LibraryCardAction.livePhotos => const LivePhotosRoute(),
+};
+
+/// Pack consecutive presentation types into rows in the exact user order.
+/// Hidden/unavailable entries have already been filtered; a partial final row
+/// expands to fill its width instead of reserving slots for missing cards.
+@visibleForTesting
+List<List<LibraryCardDescriptor>> libraryCardRows(List<LibraryCardDescriptor> cards, int columns) {
+  assert(columns > 0);
+  final rows = <List<LibraryCardDescriptor>>[];
+  for (final card in cards) {
+    if (rows.isEmpty || rows.last.length == columns || rows.last.first.presentation != card.presentation) {
+      rows.add([]);
+    }
+    rows.last.add(card);
+  }
+  return rows;
+}
+
+@visibleForTesting
+class LibraryCardsSliver extends ConsumerWidget {
+  const LibraryCardsSliver({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isTrashEnable = ref.watch(serverInfoProvider.select((state) => state.serverFeatures.trash));
-
-    return SliverPadding(
-      padding: const EdgeInsets.only(left: 16, top: 16, right: 16, bottom: 12),
-      sliver: SliverToBoxAdapter(
-        child: Column(
-          children: [
-            Row(
-              children: [
-                _ActionButton(
-                  icon: Icons.favorite_outline_rounded,
-                  onTap: () => context.pushRoute(const FavoriteRoute()),
-                  label: context.t.favorites,
-                ),
-                const SizedBox(width: 8),
-                _ActionButton(
-                  icon: Icons.archive_outlined,
-                  onTap: () => context.pushRoute(const ArchiveRoute()),
-                  label: context.t.archived,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _ActionButton(
-                  icon: Icons.link_outlined,
-                  onTap: () => context.pushRoute(const SharedLinkRoute()),
-                  label: context.t.shared_links,
-                ),
-                isTrashEnable ? const SizedBox(width: 8) : const SizedBox.shrink(),
-                isTrashEnable
-                    ? _ActionButton(
-                        icon: Icons.delete_outline_rounded,
-                        onTap: () => context.pushRoute(const TrashRoute()),
-                        label: context.t.trash,
-                      )
-                    : const SizedBox.shrink(),
-              ],
-            ),
-          ],
+    final cards = ref.watch(libraryCardsProvider);
+    if (cards.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: Padding(padding: const EdgeInsets.all(24), child: Text(context.t.library_empty)),
         ),
+      );
+    }
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      sliver: SliverLayoutBuilder(
+        builder: (context, constraints) {
+          final rows = libraryCardRows(cards, constraints.crossAxisExtent > 600 ? 4 : 2);
+          return SliverList.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, index) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < rows[index].length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    Expanded(child: _LibraryCard(card: rows[index][i])),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.icon, required this.onTap, required this.label});
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final String label;
+class _LibraryCard extends StatelessWidget {
+  final LibraryCardDescriptor card;
+  const _LibraryCard({required this.card});
 
   @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: FilledButton.icon(
-        onPressed: onTap,
-        label: Padding(
-          padding: const EdgeInsets.only(left: 4.0),
-          child: Text(label, style: TextStyle(color: context.colorScheme.onSurface, fontSize: 15)),
-        ),
+  Widget build(BuildContext context) => KeyedSubtree(
+    key: ValueKey('library-card-${card.id}'),
+    child: switch (card.previewKind) {
+      LibraryCardPreviewKind.spaces => const _SpacesCollectionCard(),
+      LibraryCardPreviewKind.people => const _PeopleCollectionCard(),
+      LibraryCardPreviewKind.places => const _PlacesCollectionCard(),
+      LibraryCardPreviewKind.onDevice => const _LocalAlbumsCollectionCard(),
+      LibraryCardPreviewKind.albums => const AlbumsCollectionCard(),
+      LibraryCardPreviewKind.memories => const _MemoriesCollectionCard(),
+      null => FilledButton.icon(
+        onPressed: () => context.pushRoute(libraryCardRoute(card.action)),
+        label: Text(card.titleKey.tr(), style: TextStyle(color: context.colorScheme.onSurface, fontSize: 15)),
         style: FilledButton.styleFrom(
           elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           backgroundColor: context.colorScheme.surfaceContainerLow,
           alignment: Alignment.centerLeft,
           shape: RoundedRectangleBorder(
@@ -125,32 +177,99 @@ class _ActionButton extends StatelessWidget {
             side: BorderSide(color: context.colorScheme.onSurface.withAlpha(10), width: 1),
           ),
         ),
-        icon: Icon(icon, color: context.primaryColor),
+        icon: Icon(card.icon, color: context.primaryColor),
       ),
-    );
-  }
+    },
+  );
 }
 
-class _CollectionCards extends StatelessWidget {
-  const _CollectionCards();
+/// Hidden and unavailable cards remain in the editor, so hiding a destination
+/// is always reversible. Availability does not overwrite the user's choice.
+@visibleForTesting
+class LibraryCustomizationSheet extends ConsumerWidget {
+  const LibraryCustomizationSheet({super.key});
+
+  Future<void> _save(BuildContext context, Future<void> operation) async {
+    try {
+      await operation;
+    } catch (_) {
+      if (context.mounted) {
+        ImmichToast.show(context: context, msg: context.t.library_save_failed, toastType: ToastType.error);
+      }
+    }
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return const SliverPadding(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      sliver: SliverToBoxAdapter(
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _SpacesCollectionCard(),
-            _PeopleCollectionCard(),
-            _PlacesCollectionCard(),
-            _LocalAlbumsCollectionCard(),
-            AlbumsCollectionCard(),
-            _MemoriesCollectionCard(),
-          ],
-        ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final layout = ref.watch(libraryLayoutProvider);
+    final features = ref.watch(serverInfoProvider.select((state) => state.serverFeatures));
+    final cards = layout.orderedCards();
+    final notifier = ref.read(libraryLayoutProvider.notifier);
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .85,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+            child: Row(
+              children: [
+                Expanded(child: Text(context.t.library_customize, style: context.textTheme.titleLarge)),
+                IconButton(
+                  tooltip: context.t.close,
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ReorderableListView.builder(
+              buildDefaultDragHandles: false,
+              itemCount: cards.length,
+              onReorderItem: (oldIndex, newIndex) =>
+                  _save(context, notifier.reorder(oldIndex, newIndex > oldIndex ? newIndex + 1 : newIndex)),
+              itemBuilder: (context, index) {
+                final card = cards[index];
+                final available = card.isAvailable(trashAvailable: features.trash, mapAvailable: features.map);
+                return ListTile(
+                  key: ValueKey('library-setting-${card.id}'),
+                  leading: Icon(card.icon),
+                  title: Text(card.titleKey.tr()),
+                  subtitle: available ? null : Text(context.t.library_unavailable),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Switch(
+                        key: ValueKey('library-visible-${card.id}'),
+                        value: layout.isVisible(card.id),
+                        onChanged: (visible) => _save(context, notifier.setVisible(card.id, visible)),
+                      ),
+                      ReorderableDragStartListener(
+                        index: index,
+                        child: Semantics(
+                          label: card.titleKey.tr(),
+                          child: const Padding(padding: EdgeInsets.all(12), child: Icon(Icons.drag_handle)),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextButton.icon(
+                key: const Key('library-reset'),
+                onPressed: () => _save(context, notifier.resetDefaults()),
+                icon: const Icon(Icons.restart_alt),
+                label: Text(context.t.library_reset_defaults),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -165,17 +284,17 @@ class _SpacesCollectionCard extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isTablet = constraints.maxWidth > 600;
-        final widthFactor = isTablet ? 0.25 : 0.5;
-        final size = context.width * widthFactor - 20.0;
+        final size = constraints.maxWidth.isFinite ? constraints.maxWidth : context.width * .5 - 20;
+        final previewHeight = size.clamp(0.0, 224.0);
 
         return GestureDetector(
-          onTap: () => context.pushRoute(const SpacesRoute()),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.pushRoute(libraryCardRoute(LibraryCardAction.spaces)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: size,
+                height: previewHeight,
                 width: size,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -251,17 +370,17 @@ class _PeopleCollectionCard extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isTablet = constraints.maxWidth > 600;
-        final widthFactor = isTablet ? 0.25 : 0.5;
-        final size = context.width * widthFactor - 20.0;
+        final size = constraints.maxWidth.isFinite ? constraints.maxWidth : context.width * .5 - 20;
+        final previewHeight = size.clamp(0.0, 224.0);
 
         return GestureDetector(
-          onTap: () => context.pushRoute(const PeopleCollectionRoute()),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.pushRoute(libraryCardRoute(LibraryCardAction.people)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                height: size,
+                height: previewHeight,
                 width: size,
                 decoration: BoxDecoration(
                   borderRadius: const BorderRadius.all(Radius.circular(20)),
@@ -316,17 +435,17 @@ class _PlacesCollectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isTablet = constraints.maxWidth > 600;
-        final widthFactor = isTablet ? 0.25 : 0.5;
-        final size = context.width * widthFactor - 20.0;
+        final size = constraints.maxWidth.isFinite ? constraints.maxWidth : context.width * .5 - 20;
+        final previewHeight = size.clamp(0.0, 224.0);
 
         return GestureDetector(
-          onTap: () => context.pushRoute(PlaceRoute(currentLocation: null)),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.pushRoute(libraryCardRoute(LibraryCardAction.places)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: size,
+                height: previewHeight,
                 width: size,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -370,17 +489,17 @@ class _LocalAlbumsCollectionCard extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isTablet = constraints.maxWidth > 600;
-        final widthFactor = isTablet ? 0.25 : 0.5;
-        final size = context.width * widthFactor - 20.0;
+        final size = constraints.maxWidth.isFinite ? constraints.maxWidth : context.width * .5 - 20;
+        final previewHeight = size.clamp(0.0, 224.0);
 
         return GestureDetector(
-          onTap: () => context.pushRoute(const LocalAlbumsRoute()),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.pushRoute(libraryCardRoute(LibraryCardAction.onDevice)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: size,
+                height: previewHeight,
                 width: size,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -440,17 +559,17 @@ class _MemoriesCollectionCard extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isTablet = constraints.maxWidth > 600;
-        final widthFactor = isTablet ? 0.25 : 0.5;
-        final size = context.width * widthFactor - 20.0;
+        final size = constraints.maxWidth.isFinite ? constraints.maxWidth : context.width * .5 - 20;
+        final previewHeight = size.clamp(0.0, 224.0);
 
         return GestureDetector(
-          onTap: () => context.pushRoute(const MemoryListRoute()),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => context.pushRoute(libraryCardRoute(LibraryCardAction.memories)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                height: size,
+                height: previewHeight,
                 width: size,
                 decoration: BoxDecoration(
                   borderRadius: const BorderRadius.all(Radius.circular(20)),
@@ -469,7 +588,7 @@ class _MemoriesCollectionCard extends ConsumerWidget {
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                       physics: const NeverScrollableScrollPhysics(),
-                      children: memories.take(4).map((memory) {
+                      children: memories.where((memory) => memory.assets.isNotEmpty).take(4).map((memory) {
                         return ClipRRect(
                           borderRadius: const BorderRadius.all(Radius.circular(10)),
                           child: Thumbnail.remote(
@@ -512,15 +631,7 @@ final sharedWithPartnerProvider = StreamProvider.autoDispose<Iterable<Partner>>(
   return ref.watch(partnerServiceProvider).search(currentUser.id, .sharedWith);
 });
 
-/// Albums entry point on the Library tab.
-///
-/// Public (unlike its sibling cards) so a widget test can pin the route it
-/// pushes: with Spaces occupying the middle nav slot by default
-/// (`SettingsKey.navShowSpaces`), the Library tab is where the albums list is
-/// reached from — this card and the `albums` tile in [_QuickAccessButtonList]
-/// are its only two entry points. Pumping the whole [DriftLibraryPage] to cover
-/// that would mean standing up the app bar's auth/server stack plus a maplibre
-/// platform view.
+/// Public Library Albums preview used by the route regression test.
 @visibleForTesting
 class AlbumsCollectionCard extends ConsumerWidget {
   const AlbumsCollectionCard({super.key});
@@ -532,18 +643,18 @@ class AlbumsCollectionCard extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isTablet = constraints.maxWidth > 600;
-        final widthFactor = isTablet ? 0.25 : 0.5;
-        final size = context.width * widthFactor - 20.0;
+        final size = constraints.maxWidth.isFinite ? constraints.maxWidth : context.width * .5 - 20;
+        final previewHeight = size.clamp(0.0, 224.0);
 
         return GestureDetector(
+          behavior: HitTestBehavior.opaque,
           key: const Key('library-albums-card'),
-          onTap: () => context.pushRoute(const AlbumsRoute()),
+          onTap: () => context.pushRoute(libraryCardRoute(LibraryCardAction.albums)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: size,
+                height: previewHeight,
                 width: size,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -600,85 +711,13 @@ class AlbumsCollectionCard extends ConsumerWidget {
   }
 }
 
-class _QuickAccessButtonList extends ConsumerWidget {
-  const _QuickAccessButtonList();
+class _VisiblePartnerList extends ConsumerWidget {
+  const _VisiblePartnerList();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final partnerSharedWithAsync = ref.watch(sharedWithPartnerProvider);
-    final partners = partnerSharedWithAsync.valueOrNull ?? [];
-
-    return SliverPadding(
-      padding: const EdgeInsets.only(left: 16, top: 12, right: 16, bottom: 32),
-      sliver: SliverToBoxAdapter(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(color: context.colorScheme.onSurface.withAlpha(10), width: 1),
-            borderRadius: const BorderRadius.all(Radius.circular(20)),
-            gradient: LinearGradient(
-              colors: [
-                context.colorScheme.primary.withAlpha(10),
-                context.colorScheme.primary.withAlpha(15),
-                context.colorScheme.primary.withAlpha(20),
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-          ),
-          child: ListView(
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              ListTile(
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
-                ),
-                leading: const Icon(Icons.workspaces_outlined, size: 26),
-                title: Text(
-                  context.t.spaces,
-                  style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                onTap: () => context.pushRoute(const SpacesRoute()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.folder_outlined, size: 26),
-                title: Text(
-                  context.t.folders,
-                  style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                onTap: () => context.pushRoute(FolderRoute()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.lock_outline_rounded, size: 26),
-                title: Text(
-                  context.t.locked_folder,
-                  style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                onTap: () => context.pushRoute(const LockedFolderRoute()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.group_outlined, size: 26),
-                title: Text(
-                  context.t.partners,
-                  style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                onTap: () => context.pushRoute(const PartnerRoute()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_album_outlined, size: 26),
-                title: Text(
-                  context.t.albums,
-                  style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                onTap: () => context.pushRoute(const AlbumsRoute()),
-              ),
-              _PartnerList(partners: partners.toList()),
-            ],
-          ),
-        ),
-      ),
-    );
+    final partners = ref.watch(sharedWithPartnerProvider).valueOrNull ?? [];
+    return _PartnerList(partners: partners.toList());
   }
 }
 

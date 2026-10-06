@@ -49,7 +49,9 @@ import '../table/remote/shared_space_album_hidden.dart';
 -- hidden via the member flag). A single VISIBLE path re-admits the asset,
 -- which the sibling OR arms below already provide for free — so the owner
 -- arm only needs to subtract assets that have NO other, visible path.
-mergedAsset(:current_user_id AS TEXT):
+-- Filters are disabled for the main timeline. Live Photos uses the same visibility,
+-- deduplication and backup-selection query with paired-still and temporal predicates.
+mergedAsset(:current_user_id AS TEXT, :live_photos_only AS BOOLEAN OR NULL, :scope_start AS TEXT OR NULL, :scope_end AS TEXT OR NULL):
 SELECT
 	rae.id as remote_id,
 	(SELECT lae.id FROM local_asset_entity lae WHERE lae.checksum = rae.checksum LIMIT 1) as local_id,
@@ -81,6 +83,9 @@ LEFT JOIN
 WHERE
 	rae.deleted_at IS NULL
 	AND rae.visibility = 0 -- timeline visibility
+AND (COALESCE(:live_photos_only, 0) = 0 OR (rae."type" = 1 AND rae.live_photo_video_id IS NOT NULL))
+AND (:scope_start IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) >= :scope_start)
+AND (:scope_end IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) <= :scope_end)
 	AND (
 		(
 			-- A partner's asset is never filtered by MY hidden rows: the subtraction below
@@ -197,10 +202,13 @@ AND NOT EXISTS (
     INNER JOIN local_album_entity la on laa.album_id = la.id
     WHERE laa.asset_id = lae.id AND la.backup_selection = 2 -- excluded
 )
+AND (COALESCE(:live_photos_only, 0) = 0 OR (lae."type" = 1 AND lae.playback_style = 4))
+AND (:scope_start IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') >= :scope_start)
+AND (:scope_end IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= :scope_end)
 ORDER BY created_at DESC
 LIMIT $limit;
 
-mergedBucket(:group_by AS INTEGER, :current_user_id AS TEXT):
+mergedBucket(:group_by AS INTEGER, :current_user_id AS TEXT, :live_photos_only AS BOOLEAN OR NULL, :scope_start AS TEXT OR NULL, :scope_end AS TEXT OR NULL):
 SELECT
 	COUNT(*) as asset_count,
 	bucket_date
@@ -228,6 +236,9 @@ FROM
 	WHERE
 		rae.deleted_at IS NULL
 		AND rae.visibility = 0 -- timeline visibility
+AND (COALESCE(:live_photos_only, 0) = 0 OR (rae."type" = 1 AND rae.live_photo_video_id IS NOT NULL))
+AND (:scope_start IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) >= :scope_start)
+AND (:scope_end IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) <= :scope_end)
 		AND (
 			(
 				-- A partner's asset is never filtered by MY hidden rows: the subtraction below
@@ -324,6 +335,9 @@ FROM
 		INNER JOIN local_album_entity la on laa.album_id = la.id
 		WHERE laa.asset_id = lae.id AND la.backup_selection = 2 -- excluded
 	)
+	AND (COALESCE(:live_photos_only, 0) = 0 OR (lae."type" = 1 AND lae.playback_style = 4))
+	AND (:scope_start IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') >= :scope_start)
+AND (:scope_end IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= :scope_end)
 )
 GROUP BY bucket_date
 ORDER BY bucket_date DESC;

@@ -39,6 +39,7 @@ enum TimelineOrigin {
   folder,
   recentlyAdded,
   remoteSpace,
+  livePhotos,
 }
 
 class TimelineFactory {
@@ -130,6 +131,15 @@ class TimelineFactory {
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) => TimelineService(
     _timelineRepository.video(userIds, currentUserId, groupBy ?? this.groupBy, temporalScope: temporalScope),
+  );
+
+  TimelineService livePhotos(
+    List<String> userIds,
+    String currentUserId, {
+    GroupAssetsBy? groupBy,
+    TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+  }) => TimelineService(
+    _timelineRepository.livePhotos(userIds, currentUserId, groupBy ?? this.groupBy, temporalScope: temporalScope),
   );
 
   TimelineService place(

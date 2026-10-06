@@ -48,22 +48,52 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     origin: TimelineOrigin.main,
   );
 
+  /// The same owner, space, stack-primary and local-backup boundaries as Photos,
+  /// restricted in SQL to still assets with an existing paired-motion identity.
+  /// Hidden motion videos are resources of their still, never extra tiles.
+  TimelineQuery livePhotos(
+    List<String> userIds,
+    String currentUserId,
+    GroupAssetsBy groupBy, {
+    TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+  }) => (
+    bucketSource: () =>
+        _watchMainBucket(userIds, currentUserId, groupBy: groupBy, temporalScope: temporalScope, livePhotosOnly: true),
+    assetSource: (offset, count) => _getMainBucketAssets(
+      userIds,
+      currentUserId,
+      offset: offset,
+      count: count,
+      temporalScope: temporalScope,
+      livePhotosOnly: true,
+    ),
+    origin: TimelineOrigin.livePhotos,
+  );
+
   Stream<List<Bucket>> _watchMainBucket(
     List<String> userIds,
     String currentUserId, {
     GroupAssetsBy groupBy = GroupAssetsBy.day,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+    bool livePhotosOnly = false,
   }) {
     if (groupBy == GroupAssetsBy.none) {
       throw UnsupportedError("GroupAssetsBy.none is not supported for watchMainBucket");
     }
 
-    if (!temporalScope.isEmpty) {
+    if (!livePhotosOnly && !temporalScope.isEmpty) {
       return _watchScopedMainBucket(userIds, currentUserId, groupBy: groupBy, temporalScope: temporalScope);
     }
 
     return _db.mergedAssetDrift
-        .mergedBucket(userIds: userIds, currentUserId: currentUserId, groupBy: groupBy.index)
+        .mergedBucket(
+          userIds: userIds,
+          currentUserId: currentUserId,
+          groupBy: groupBy.index,
+          livePhotosOnly: livePhotosOnly,
+          scopeStart: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.start!),
+          scopeEnd: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.end!),
+        )
         .map((row) {
           final date = row.bucketDate.truncateDate(groupBy);
           return TimeBucket(date: date, assetCount: row.assetCount);
@@ -77,8 +107,9 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     required int offset,
     required int count,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+    bool livePhotosOnly = false,
   }) {
-    if (!temporalScope.isEmpty) {
+    if (!livePhotosOnly && !temporalScope.isEmpty) {
       return _getScopedMainBucketAssets(
         userIds,
         currentUserId,
@@ -89,7 +120,14 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     }
 
     return _db.mergedAssetDrift
-        .mergedAsset(userIds: userIds, currentUserId: currentUserId, limit: (_) => Limit(count, offset))
+        .mergedAsset(
+          userIds: userIds,
+          currentUserId: currentUserId,
+          livePhotosOnly: livePhotosOnly,
+          scopeStart: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.start!),
+          scopeEnd: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.end!),
+          limit: (_) => Limit(count, offset),
+        )
         .map(
           (row) => row.remoteId != null && row.ownerId != null
               ? RemoteAsset(
