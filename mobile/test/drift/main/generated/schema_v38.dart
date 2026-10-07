@@ -4361,6 +4361,433 @@ class SharedSpaceAlbumHiddenEntityCompanion
   }
 }
 
+class Settings extends Table with TableInfo<Settings, SettingsData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  Settings(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<String> key = GeneratedColumn<String>(
+    'key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> value = GeneratedColumn<String>(
+    'value',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT CURRENT_TIMESTAMP',
+    defaultValue: const CustomExpression('CURRENT_TIMESTAMP'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [key, value, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'settings';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {key};
+  @override
+  SettingsData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SettingsData(
+      key: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}value'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  Settings createAlias(String alias) {
+    return Settings(attachedDatabase, alias);
+  }
+
+  @override
+  bool get withoutRowId => true;
+  @override
+  bool get isStrict => true;
+  @override
+  List<String> get customConstraints => const ['PRIMARY KEY("key")'];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class SettingsData extends DataClass implements Insertable<SettingsData> {
+  final String key;
+  final String? value;
+  final String updatedAt;
+  const SettingsData({required this.key, this.value, required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['key'] = Variable<String>(key);
+    if (!nullToAbsent || value != null) {
+      map['value'] = Variable<String>(value);
+    }
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  factory SettingsData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SettingsData(
+      key: serializer.fromJson<String>(json['key']),
+      value: serializer.fromJson<String?>(json['value']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'key': serializer.toJson<String>(key),
+      'value': serializer.toJson<String?>(value),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  SettingsData copyWith({
+    String? key,
+    Value<String?> value = const Value.absent(),
+    String? updatedAt,
+  }) => SettingsData(
+    key: key ?? this.key,
+    value: value.present ? value.value : this.value,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  SettingsData copyWithCompanion(SettingsCompanion data) {
+    return SettingsData(
+      key: data.key.present ? data.key.value : this.key,
+      value: data.value.present ? data.value.value : this.value,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SettingsData(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(key, value, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SettingsData &&
+          other.key == this.key &&
+          other.value == this.value &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SettingsCompanion extends UpdateCompanion<SettingsData> {
+  final Value<String> key;
+  final Value<String?> value;
+  final Value<String> updatedAt;
+  const SettingsCompanion({
+    this.key = const Value.absent(),
+    this.value = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  SettingsCompanion.insert({
+    required String key,
+    this.value = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  }) : key = Value(key);
+  static Insertable<SettingsData> custom({
+    Expression<String>? key,
+    Expression<String>? value,
+    Expression<String>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (key != null) 'key': key,
+      if (value != null) 'value': value,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  SettingsCompanion copyWith({
+    Value<String>? key,
+    Value<String?>? value,
+    Value<String>? updatedAt,
+  }) {
+    return SettingsCompanion(
+      key: key ?? this.key,
+      value: value ?? this.value,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (key.present) {
+      map['key'] = Variable<String>(key.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<String>(value.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SettingsCompanion(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class StoreEntity extends Table with TableInfo<StoreEntity, StoreEntityData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  StoreEntity(this.attachedDatabase, [this._alias]);
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  late final GeneratedColumn<String> stringValue = GeneratedColumn<String>(
+    'string_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  late final GeneratedColumn<int> intValue = GeneratedColumn<int>(
+    'int_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, stringValue, intValue];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'store_entity';
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  StoreEntityData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return StoreEntityData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      stringValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}string_value'],
+      ),
+      intValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}int_value'],
+      ),
+    );
+  }
+
+  @override
+  StoreEntity createAlias(String alias) {
+    return StoreEntity(attachedDatabase, alias);
+  }
+
+  @override
+  bool get withoutRowId => true;
+  @override
+  bool get isStrict => true;
+  @override
+  List<String> get customConstraints => const ['PRIMARY KEY(id)'];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class StoreEntityData extends DataClass implements Insertable<StoreEntityData> {
+  final int id;
+  final String? stringValue;
+  final int? intValue;
+  const StoreEntityData({required this.id, this.stringValue, this.intValue});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || stringValue != null) {
+      map['string_value'] = Variable<String>(stringValue);
+    }
+    if (!nullToAbsent || intValue != null) {
+      map['int_value'] = Variable<int>(intValue);
+    }
+    return map;
+  }
+
+  factory StoreEntityData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return StoreEntityData(
+      id: serializer.fromJson<int>(json['id']),
+      stringValue: serializer.fromJson<String?>(json['stringValue']),
+      intValue: serializer.fromJson<int?>(json['intValue']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'stringValue': serializer.toJson<String?>(stringValue),
+      'intValue': serializer.toJson<int?>(intValue),
+    };
+  }
+
+  StoreEntityData copyWith({
+    int? id,
+    Value<String?> stringValue = const Value.absent(),
+    Value<int?> intValue = const Value.absent(),
+  }) => StoreEntityData(
+    id: id ?? this.id,
+    stringValue: stringValue.present ? stringValue.value : this.stringValue,
+    intValue: intValue.present ? intValue.value : this.intValue,
+  );
+  StoreEntityData copyWithCompanion(StoreEntityCompanion data) {
+    return StoreEntityData(
+      id: data.id.present ? data.id.value : this.id,
+      stringValue: data.stringValue.present
+          ? data.stringValue.value
+          : this.stringValue,
+      intValue: data.intValue.present ? data.intValue.value : this.intValue,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StoreEntityData(')
+          ..write('id: $id, ')
+          ..write('stringValue: $stringValue, ')
+          ..write('intValue: $intValue')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, stringValue, intValue);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is StoreEntityData &&
+          other.id == this.id &&
+          other.stringValue == this.stringValue &&
+          other.intValue == this.intValue);
+}
+
+class StoreEntityCompanion extends UpdateCompanion<StoreEntityData> {
+  final Value<int> id;
+  final Value<String?> stringValue;
+  final Value<int?> intValue;
+  const StoreEntityCompanion({
+    this.id = const Value.absent(),
+    this.stringValue = const Value.absent(),
+    this.intValue = const Value.absent(),
+  });
+  StoreEntityCompanion.insert({
+    required int id,
+    this.stringValue = const Value.absent(),
+    this.intValue = const Value.absent(),
+  }) : id = Value(id);
+  static Insertable<StoreEntityData> custom({
+    Expression<int>? id,
+    Expression<String>? stringValue,
+    Expression<int>? intValue,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (stringValue != null) 'string_value': stringValue,
+      if (intValue != null) 'int_value': intValue,
+    });
+  }
+
+  StoreEntityCompanion copyWith({
+    Value<int>? id,
+    Value<String?>? stringValue,
+    Value<int?>? intValue,
+  }) {
+    return StoreEntityCompanion(
+      id: id ?? this.id,
+      stringValue: stringValue ?? this.stringValue,
+      intValue: intValue ?? this.intValue,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (stringValue.present) {
+      map['string_value'] = Variable<String>(stringValue.value);
+    }
+    if (intValue.present) {
+      map['int_value'] = Variable<int>(intValue.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StoreEntityCompanion(')
+          ..write('id: $id, ')
+          ..write('stringValue: $stringValue, ')
+          ..write('intValue: $intValue')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class RemoteAlbumEntity extends Table
     with TableInfo<RemoteAlbumEntity, RemoteAlbumEntityData> {
   @override
@@ -10877,221 +11304,6 @@ class AssetFaceEntityCompanion extends UpdateCompanion<AssetFaceEntityData> {
   }
 }
 
-class StoreEntity extends Table with TableInfo<StoreEntity, StoreEntityData> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  StoreEntity(this.attachedDatabase, [this._alias]);
-  late final GeneratedColumn<int> id = GeneratedColumn<int>(
-    'id',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
-  );
-  late final GeneratedColumn<String> stringValue = GeneratedColumn<String>(
-    'string_value',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    $customConstraints: 'NULL',
-  );
-  late final GeneratedColumn<int> intValue = GeneratedColumn<int>(
-    'int_value',
-    aliasedName,
-    true,
-    type: DriftSqlType.int,
-    requiredDuringInsert: false,
-    $customConstraints: 'NULL',
-  );
-  @override
-  List<GeneratedColumn> get $columns => [id, stringValue, intValue];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'store_entity';
-  @override
-  Set<GeneratedColumn> get $primaryKey => {id};
-  @override
-  StoreEntityData map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return StoreEntityData(
-      id: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}id'],
-      )!,
-      stringValue: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}string_value'],
-      ),
-      intValue: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}int_value'],
-      ),
-    );
-  }
-
-  @override
-  StoreEntity createAlias(String alias) {
-    return StoreEntity(attachedDatabase, alias);
-  }
-
-  @override
-  bool get withoutRowId => true;
-  @override
-  bool get isStrict => true;
-  @override
-  List<String> get customConstraints => const ['PRIMARY KEY(id)'];
-  @override
-  bool get dontWriteConstraints => true;
-}
-
-class StoreEntityData extends DataClass implements Insertable<StoreEntityData> {
-  final int id;
-  final String? stringValue;
-  final int? intValue;
-  const StoreEntityData({required this.id, this.stringValue, this.intValue});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    if (!nullToAbsent || stringValue != null) {
-      map['string_value'] = Variable<String>(stringValue);
-    }
-    if (!nullToAbsent || intValue != null) {
-      map['int_value'] = Variable<int>(intValue);
-    }
-    return map;
-  }
-
-  factory StoreEntityData.fromJson(
-    Map<String, dynamic> json, {
-    ValueSerializer? serializer,
-  }) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return StoreEntityData(
-      id: serializer.fromJson<int>(json['id']),
-      stringValue: serializer.fromJson<String?>(json['stringValue']),
-      intValue: serializer.fromJson<int?>(json['intValue']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'stringValue': serializer.toJson<String?>(stringValue),
-      'intValue': serializer.toJson<int?>(intValue),
-    };
-  }
-
-  StoreEntityData copyWith({
-    int? id,
-    Value<String?> stringValue = const Value.absent(),
-    Value<int?> intValue = const Value.absent(),
-  }) => StoreEntityData(
-    id: id ?? this.id,
-    stringValue: stringValue.present ? stringValue.value : this.stringValue,
-    intValue: intValue.present ? intValue.value : this.intValue,
-  );
-  StoreEntityData copyWithCompanion(StoreEntityCompanion data) {
-    return StoreEntityData(
-      id: data.id.present ? data.id.value : this.id,
-      stringValue: data.stringValue.present
-          ? data.stringValue.value
-          : this.stringValue,
-      intValue: data.intValue.present ? data.intValue.value : this.intValue,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('StoreEntityData(')
-          ..write('id: $id, ')
-          ..write('stringValue: $stringValue, ')
-          ..write('intValue: $intValue')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(id, stringValue, intValue);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is StoreEntityData &&
-          other.id == this.id &&
-          other.stringValue == this.stringValue &&
-          other.intValue == this.intValue);
-}
-
-class StoreEntityCompanion extends UpdateCompanion<StoreEntityData> {
-  final Value<int> id;
-  final Value<String?> stringValue;
-  final Value<int?> intValue;
-  const StoreEntityCompanion({
-    this.id = const Value.absent(),
-    this.stringValue = const Value.absent(),
-    this.intValue = const Value.absent(),
-  });
-  StoreEntityCompanion.insert({
-    required int id,
-    this.stringValue = const Value.absent(),
-    this.intValue = const Value.absent(),
-  }) : id = Value(id);
-  static Insertable<StoreEntityData> custom({
-    Expression<int>? id,
-    Expression<String>? stringValue,
-    Expression<int>? intValue,
-  }) {
-    return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (stringValue != null) 'string_value': stringValue,
-      if (intValue != null) 'int_value': intValue,
-    });
-  }
-
-  StoreEntityCompanion copyWith({
-    Value<int>? id,
-    Value<String?>? stringValue,
-    Value<int?>? intValue,
-  }) {
-    return StoreEntityCompanion(
-      id: id ?? this.id,
-      stringValue: stringValue ?? this.stringValue,
-      intValue: intValue ?? this.intValue,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<int>(id.value);
-    }
-    if (stringValue.present) {
-      map['string_value'] = Variable<String>(stringValue.value);
-    }
-    if (intValue.present) {
-      map['int_value'] = Variable<int>(intValue.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('StoreEntityCompanion(')
-          ..write('id: $id, ')
-          ..write('stringValue: $stringValue, ')
-          ..write('intValue: $intValue')
-          ..write(')'))
-        .toString();
-  }
-}
-
 class TrashedLocalAssetEntity extends Table
     with TableInfo<TrashedLocalAssetEntity, TrashedLocalAssetEntityData> {
   @override
@@ -12032,218 +12244,6 @@ class AssetEditEntityCompanion extends UpdateCompanion<AssetEditEntityData> {
   }
 }
 
-class Settings extends Table with TableInfo<Settings, SettingsData> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  Settings(this.attachedDatabase, [this._alias]);
-  late final GeneratedColumn<String> key = GeneratedColumn<String>(
-    'key',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-    $customConstraints: 'NOT NULL',
-  );
-  late final GeneratedColumn<String> value = GeneratedColumn<String>(
-    'value',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    $customConstraints: 'NULL',
-  );
-  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
-    'updated_at',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    $customConstraints: 'NOT NULL DEFAULT CURRENT_TIMESTAMP',
-    defaultValue: const CustomExpression('CURRENT_TIMESTAMP'),
-  );
-  @override
-  List<GeneratedColumn> get $columns => [key, value, updatedAt];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'settings';
-  @override
-  Set<GeneratedColumn> get $primaryKey => {key};
-  @override
-  SettingsData map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return SettingsData(
-      key: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}key'],
-      )!,
-      value: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}value'],
-      ),
-      updatedAt: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}updated_at'],
-      )!,
-    );
-  }
-
-  @override
-  Settings createAlias(String alias) {
-    return Settings(attachedDatabase, alias);
-  }
-
-  @override
-  bool get withoutRowId => true;
-  @override
-  bool get isStrict => true;
-  @override
-  List<String> get customConstraints => const ['PRIMARY KEY("key")'];
-  @override
-  bool get dontWriteConstraints => true;
-}
-
-class SettingsData extends DataClass implements Insertable<SettingsData> {
-  final String key;
-  final String? value;
-  final String updatedAt;
-  const SettingsData({required this.key, this.value, required this.updatedAt});
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['key'] = Variable<String>(key);
-    if (!nullToAbsent || value != null) {
-      map['value'] = Variable<String>(value);
-    }
-    map['updated_at'] = Variable<String>(updatedAt);
-    return map;
-  }
-
-  factory SettingsData.fromJson(
-    Map<String, dynamic> json, {
-    ValueSerializer? serializer,
-  }) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return SettingsData(
-      key: serializer.fromJson<String>(json['key']),
-      value: serializer.fromJson<String?>(json['value']),
-      updatedAt: serializer.fromJson<String>(json['updatedAt']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'key': serializer.toJson<String>(key),
-      'value': serializer.toJson<String?>(value),
-      'updatedAt': serializer.toJson<String>(updatedAt),
-    };
-  }
-
-  SettingsData copyWith({
-    String? key,
-    Value<String?> value = const Value.absent(),
-    String? updatedAt,
-  }) => SettingsData(
-    key: key ?? this.key,
-    value: value.present ? value.value : this.value,
-    updatedAt: updatedAt ?? this.updatedAt,
-  );
-  SettingsData copyWithCompanion(SettingsCompanion data) {
-    return SettingsData(
-      key: data.key.present ? data.key.value : this.key,
-      value: data.value.present ? data.value.value : this.value,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('SettingsData(')
-          ..write('key: $key, ')
-          ..write('value: $value, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => Object.hash(key, value, updatedAt);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is SettingsData &&
-          other.key == this.key &&
-          other.value == this.value &&
-          other.updatedAt == this.updatedAt);
-}
-
-class SettingsCompanion extends UpdateCompanion<SettingsData> {
-  final Value<String> key;
-  final Value<String?> value;
-  final Value<String> updatedAt;
-  const SettingsCompanion({
-    this.key = const Value.absent(),
-    this.value = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-  });
-  SettingsCompanion.insert({
-    required String key,
-    this.value = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-  }) : key = Value(key);
-  static Insertable<SettingsData> custom({
-    Expression<String>? key,
-    Expression<String>? value,
-    Expression<String>? updatedAt,
-  }) {
-    return RawValuesInsertable({
-      if (key != null) 'key': key,
-      if (value != null) 'value': value,
-      if (updatedAt != null) 'updated_at': updatedAt,
-    });
-  }
-
-  SettingsCompanion copyWith({
-    Value<String>? key,
-    Value<String?>? value,
-    Value<String>? updatedAt,
-  }) {
-    return SettingsCompanion(
-      key: key ?? this.key,
-      value: value ?? this.value,
-      updatedAt: updatedAt ?? this.updatedAt,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (key.present) {
-      map['key'] = Variable<String>(key.value);
-    }
-    if (value.present) {
-      map['value'] = Variable<String>(value.value);
-    }
-    if (updatedAt.present) {
-      map['updated_at'] = Variable<String>(updatedAt.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('SettingsCompanion(')
-          ..write('key: $key, ')
-          ..write('value: $value, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-}
-
 class AssetOcrEntity extends Table
     with TableInfo<AssetOcrEntity, AssetOcrEntityData> {
   @override
@@ -12887,6 +12887,8 @@ class DatabaseAtV38 extends GeneratedDatabase {
       SharedSpaceAlbumLinkEntity(this);
   late final SharedSpaceAlbumHiddenEntity sharedSpaceAlbumHiddenEntity =
       SharedSpaceAlbumHiddenEntity(this);
+  late final Settings settings = Settings(this);
+  late final StoreEntity storeEntity = StoreEntity(this);
   late final RemoteAlbumEntity remoteAlbumEntity = RemoteAlbumEntity(this);
   late final LocalAlbumEntity localAlbumEntity = LocalAlbumEntity(this);
   late final LocalAlbumAssetEntity localAlbumAssetEntity =
@@ -12998,11 +13000,9 @@ class DatabaseAtV38 extends GeneratedDatabase {
   late final MemoryAssetEntity memoryAssetEntity = MemoryAssetEntity(this);
   late final PersonEntity personEntity = PersonEntity(this);
   late final AssetFaceEntity assetFaceEntity = AssetFaceEntity(this);
-  late final StoreEntity storeEntity = StoreEntity(this);
   late final TrashedLocalAssetEntity trashedLocalAssetEntity =
       TrashedLocalAssetEntity(this);
   late final AssetEditEntity assetEditEntity = AssetEditEntity(this);
-  late final Settings settings = Settings(this);
   late final AssetOcrEntity assetOcrEntity = AssetOcrEntity(this);
   late final Index idxPartnerSharedWithId = Index(
     'idx_partner_shared_with_id',
@@ -13076,6 +13076,8 @@ class DatabaseAtV38 extends GeneratedDatabase {
     sharedSpaceAlbumAssetEntity,
     sharedSpaceAlbumLinkEntity,
     sharedSpaceAlbumHiddenEntity,
+    settings,
+    storeEntity,
     remoteAlbumEntity,
     localAlbumEntity,
     localAlbumAssetEntity,
@@ -13115,10 +13117,8 @@ class DatabaseAtV38 extends GeneratedDatabase {
     memoryAssetEntity,
     personEntity,
     assetFaceEntity,
-    storeEntity,
     trashedLocalAssetEntity,
     assetEditEntity,
-    settings,
     assetOcrEntity,
     idxPartnerSharedWithId,
     idxLatLng,

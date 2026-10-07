@@ -58,6 +58,18 @@ checksum, deletion time, local mutation revision and the existing endpoint scope
 filename, original path, token or API key and never recreate remote/user rows.
 No DB schema migration or parallel asset model is introduced.
 
+The locked Android codegen check exposed a Drift serialization-order change:
+importing the existing `settings` and `store_entity` tables in
+`merged_asset.drift` moves their exported entity IDs from 53/50 to 11/12.
+The imports are required for reactive query invalidation. The current v38
+snapshot was regenerated with pinned `drift_dev` 2.34.0; previous snapshots and
+`schemaVersion = 38` remain unchanged. Comparing entities by name and resolving
+numeric reference IDs to target names proves all 33 tables, 36 indexes, columns,
+defaults, constraints, reference targets, fixed SQL and options are identical.
+Only discovery order and internal serialization IDs differ. The frozen
+`make-migrations` check and existing migration/Trash regression tests must pass
+against this snapshot; there is no new SQLite migration.
+
 Replayed active rows inherit the retained tombstone. Until a remote row is
 re-delivered, main/Live Photos SQL also suppresses its local checksum twin.
 The subquery scopes by current endpoint and timeline owners; its indexed key

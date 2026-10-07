@@ -1247,6 +1247,102 @@
     },
     {
       "id": 11,
+      "references": [],
+      "type": "table",
+      "data": {
+        "name": "settings",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "key",
+            "getter_name": "key",
+            "moor_type": "string",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "value",
+            "getter_name": "value",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "updated_at",
+            "getter_name": "updatedAt",
+            "moor_type": "dateTime",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": "const CustomExpression('CURRENT_TIMESTAMP')",
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": true,
+        "constraints": [],
+        "strict": true,
+        "explicit_pk": [
+          "key"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "references": [],
+      "type": "table",
+      "data": {
+        "name": "store_entity",
+        "was_declared_in_moor": false,
+        "columns": [
+          {
+            "name": "id",
+            "getter_name": "id",
+            "moor_type": "int",
+            "nullable": false,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "string_value",
+            "getter_name": "stringValue",
+            "moor_type": "string",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          },
+          {
+            "name": "int_value",
+            "getter_name": "intValue",
+            "moor_type": "int",
+            "nullable": true,
+            "customConstraints": null,
+            "default_dart": null,
+            "default_client_dart": null,
+            "dsl_features": []
+          }
+        ],
+        "is_virtual": false,
+        "without_rowid": true,
+        "constraints": [],
+        "strict": true,
+        "explicit_pk": [
+          "id"
+        ]
+      }
+    },
+    {
+      "id": 13,
       "references": [
         1
       ],
@@ -1370,9 +1466,9 @@
       }
     },
     {
-      "id": 12,
+      "id": 14,
       "references": [
-        11
+        13
       ],
       "type": "table",
       "data": {
@@ -1488,10 +1584,10 @@
       }
     },
     {
-      "id": 13,
+      "id": 15,
       "references": [
         3,
-        12
+        14
       ],
       "type": "table",
       "data": {
@@ -1576,7 +1672,7 @@
       }
     },
     {
-      "id": 14,
+      "id": 16,
       "references": [
         10
       ],
@@ -1590,7 +1686,7 @@
       }
     },
     {
-      "id": 15,
+      "id": 17,
       "references": [
         4
       ],
@@ -1604,7 +1700,7 @@
       }
     },
     {
-      "id": 16,
+      "id": 18,
       "references": [
         9
       ],
@@ -1618,7 +1714,7 @@
       }
     },
     {
-      "id": 17,
+      "id": 19,
       "references": [
         9
       ],
@@ -1632,7 +1728,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 20,
       "references": [
         8
       ],
@@ -1646,7 +1742,7 @@
       }
     },
     {
-      "id": 19,
+      "id": 21,
       "references": [
         8
       ],
@@ -1660,7 +1756,7 @@
       }
     },
     {
-      "id": 20,
+      "id": 22,
       "references": [
         7
       ],
@@ -1674,7 +1770,7 @@
       }
     },
     {
-      "id": 21,
+      "id": 23,
       "references": [
         7
       ],
@@ -1688,7 +1784,7 @@
       }
     },
     {
-      "id": 22,
+      "id": 24,
       "references": [
         5
       ],
@@ -1702,7 +1798,7 @@
       }
     },
     {
-      "id": 23,
+      "id": 25,
       "references": [
         5
       ],
@@ -1716,13 +1812,13 @@
       }
     },
     {
-      "id": 24,
+      "id": 26,
       "references": [
-        13
+        15
       ],
       "type": "index",
       "data": {
-        "on": 13,
+        "on": 15,
         "name": "idx_local_album_asset_album_asset",
         "sql": "CREATE INDEX IF NOT EXISTS idx_local_album_asset_album_asset ON local_album_asset_entity (album_id, asset_id)",
         "unique": false,
@@ -1730,7 +1826,7 @@
       }
     },
     {
-      "id": 25,
+      "id": 27,
       "references": [
         3
       ],
@@ -1744,7 +1840,7 @@
       }
     },
     {
-      "id": 26,
+      "id": 28,
       "references": [
         3
       ],
@@ -1758,7 +1854,7 @@
       }
     },
     {
-      "id": 27,
+      "id": 29,
       "references": [
         3
       ],
@@ -1772,7 +1868,7 @@
       }
     },
     {
-      "id": 28,
+      "id": 30,
       "references": [
         2
       ],
@@ -1786,7 +1882,7 @@
       }
     },
     {
-      "id": 29,
+      "id": 31,
       "references": [
         1
       ],
@@ -1800,7 +1896,7 @@
       }
     },
     {
-      "id": 30,
+      "id": 32,
       "references": [
         1
       ],
@@ -1814,7 +1910,7 @@
       }
     },
     {
-      "id": 31,
+      "id": 33,
       "references": [
         1
       ],
@@ -1828,7 +1924,7 @@
       }
     },
     {
-      "id": 32,
+      "id": 34,
       "references": [
         1
       ],
@@ -1842,7 +1938,7 @@
       }
     },
     {
-      "id": 33,
+      "id": 35,
       "references": [
         1
       ],
@@ -1856,7 +1952,7 @@
       }
     },
     {
-      "id": 34,
+      "id": 36,
       "references": [
         1
       ],
@@ -1870,7 +1966,7 @@
       }
     },
     {
-      "id": 35,
+      "id": 37,
       "references": [
         1
       ],
@@ -1884,7 +1980,7 @@
       }
     },
     {
-      "id": 36,
+      "id": 38,
       "references": [],
       "type": "table",
       "data": {
@@ -2014,7 +2110,7 @@
       }
     },
     {
-      "id": 37,
+      "id": 39,
       "references": [
         0
       ],
@@ -2089,7 +2185,7 @@
       }
     },
     {
-      "id": 38,
+      "id": 40,
       "references": [
         0
       ],
@@ -2176,7 +2272,7 @@
       }
     },
     {
-      "id": 39,
+      "id": 41,
       "references": [
         1
       ],
@@ -2432,10 +2528,10 @@
       }
     },
     {
-      "id": 40,
+      "id": 42,
       "references": [
         1,
-        11
+        13
       ],
       "type": "table",
       "data": {
@@ -2506,9 +2602,9 @@
       }
     },
     {
-      "id": 41,
+      "id": 43,
       "references": [
-        11,
+        13,
         0
       ],
       "type": "table",
@@ -2594,7 +2690,7 @@
       }
     },
     {
-      "id": 42,
+      "id": 44,
       "references": [
         1
       ],
@@ -2690,7 +2786,7 @@
       }
     },
     {
-      "id": 43,
+      "id": 45,
       "references": [
         0
       ],
@@ -2776,7 +2872,7 @@
       }
     },
     {
-      "id": 44,
+      "id": 46,
       "references": [],
       "type": "table",
       "data": {
@@ -2878,7 +2974,7 @@
       }
     },
     {
-      "id": 45,
+      "id": 47,
       "references": [
         4
       ],
@@ -2974,7 +3070,7 @@
       }
     },
     {
-      "id": 46,
+      "id": 48,
       "references": [
         0
       ],
@@ -3138,10 +3234,10 @@
       }
     },
     {
-      "id": 47,
+      "id": 49,
       "references": [
         1,
-        46
+        48
       ],
       "type": "table",
       "data": {
@@ -3212,7 +3308,7 @@
       }
     },
     {
-      "id": 48,
+      "id": 50,
       "references": [
         0
       ],
@@ -3356,10 +3452,10 @@
       }
     },
     {
-      "id": 49,
+      "id": 51,
       "references": [
         1,
-        48
+        50
       ],
       "type": "table",
       "data": {
@@ -3533,55 +3629,7 @@
       }
     },
     {
-      "id": 50,
-      "references": [],
-      "type": "table",
-      "data": {
-        "name": "store_entity",
-        "was_declared_in_moor": false,
-        "columns": [
-          {
-            "name": "id",
-            "getter_name": "id",
-            "moor_type": "int",
-            "nullable": false,
-            "customConstraints": null,
-            "default_dart": null,
-            "default_client_dart": null,
-            "dsl_features": []
-          },
-          {
-            "name": "string_value",
-            "getter_name": "stringValue",
-            "moor_type": "string",
-            "nullable": true,
-            "customConstraints": null,
-            "default_dart": null,
-            "default_client_dart": null,
-            "dsl_features": []
-          },
-          {
-            "name": "int_value",
-            "getter_name": "intValue",
-            "moor_type": "int",
-            "nullable": true,
-            "customConstraints": null,
-            "default_dart": null,
-            "default_client_dart": null,
-            "dsl_features": []
-          }
-        ],
-        "is_virtual": false,
-        "without_rowid": true,
-        "constraints": [],
-        "strict": true,
-        "explicit_pk": [
-          "id"
-        ]
-      }
-    },
-    {
-      "id": 51,
+      "id": 52,
       "references": [],
       "type": "table",
       "data": {
@@ -3756,7 +3804,7 @@
       }
     },
     {
-      "id": 52,
+      "id": 53,
       "references": [
         1
       ],
@@ -3846,54 +3894,6 @@
         "strict": true,
         "explicit_pk": [
           "id"
-        ]
-      }
-    },
-    {
-      "id": 53,
-      "references": [],
-      "type": "table",
-      "data": {
-        "name": "settings",
-        "was_declared_in_moor": false,
-        "columns": [
-          {
-            "name": "key",
-            "getter_name": "key",
-            "moor_type": "string",
-            "nullable": false,
-            "customConstraints": null,
-            "default_dart": null,
-            "default_client_dart": null,
-            "dsl_features": []
-          },
-          {
-            "name": "value",
-            "getter_name": "value",
-            "moor_type": "string",
-            "nullable": true,
-            "customConstraints": null,
-            "default_dart": null,
-            "default_client_dart": null,
-            "dsl_features": []
-          },
-          {
-            "name": "updated_at",
-            "getter_name": "updatedAt",
-            "moor_type": "dateTime",
-            "nullable": false,
-            "customConstraints": null,
-            "default_dart": "const CustomExpression('CURRENT_TIMESTAMP')",
-            "default_client_dart": null,
-            "dsl_features": []
-          }
-        ],
-        "is_virtual": false,
-        "without_rowid": true,
-        "constraints": [],
-        "strict": true,
-        "explicit_pk": [
-          "key"
         ]
       }
     },
@@ -4080,11 +4080,11 @@
     {
       "id": 55,
       "references": [
-        38
+        40
       ],
       "type": "index",
       "data": {
-        "on": 38,
+        "on": 40,
         "name": "idx_partner_shared_with_id",
         "sql": "CREATE INDEX IF NOT EXISTS idx_partner_shared_with_id ON partner_entity (shared_with_id)",
         "unique": false,
@@ -4094,11 +4094,11 @@
     {
       "id": 56,
       "references": [
-        39
+        41
       ],
       "type": "index",
       "data": {
-        "on": 39,
+        "on": 41,
         "name": "idx_lat_lng",
         "sql": "CREATE INDEX IF NOT EXISTS idx_lat_lng ON remote_exif_entity (latitude, longitude)",
         "unique": false,
@@ -4108,11 +4108,11 @@
     {
       "id": 57,
       "references": [
-        39
+        41
       ],
       "type": "index",
       "data": {
-        "on": 39,
+        "on": 41,
         "name": "idx_remote_exif_city",
         "sql": "CREATE INDEX IF NOT EXISTS idx_remote_exif_city\nON remote_exif_entity (city) WHERE city IS NOT NULL\n",
         "unique": false,
@@ -4122,11 +4122,11 @@
     {
       "id": 58,
       "references": [
-        40
+        42
       ],
       "type": "index",
       "data": {
-        "on": 40,
+        "on": 42,
         "name": "idx_remote_album_asset_album_asset",
         "sql": "CREATE INDEX IF NOT EXISTS idx_remote_album_asset_album_asset ON remote_album_asset_entity (album_id, asset_id)",
         "unique": false,
@@ -4136,11 +4136,11 @@
     {
       "id": 59,
       "references": [
-        42
+        44
       ],
       "type": "index",
       "data": {
-        "on": 42,
+        "on": 44,
         "name": "idx_remote_asset_cloud_id",
         "sql": "CREATE INDEX IF NOT EXISTS idx_remote_asset_cloud_id ON remote_asset_cloud_id_entity (cloud_id)",
         "unique": false,
@@ -4150,11 +4150,11 @@
     {
       "id": 60,
       "references": [
-        45
+        47
       ],
       "type": "index",
       "data": {
-        "on": 45,
+        "on": 47,
         "name": "idx_shared_space_album_folder_space",
         "sql": "CREATE INDEX IF NOT EXISTS idx_shared_space_album_folder_space ON shared_space_album_folder_entity (space_id)",
         "unique": false,
@@ -4164,11 +4164,11 @@
     {
       "id": 61,
       "references": [
-        48
+        50
       ],
       "type": "index",
       "data": {
-        "on": 48,
+        "on": 50,
         "name": "idx_person_owner_id",
         "sql": "CREATE INDEX IF NOT EXISTS idx_person_owner_id ON person_entity (owner_id)",
         "unique": false,
@@ -4178,11 +4178,11 @@
     {
       "id": 62,
       "references": [
-        49
+        51
       ],
       "type": "index",
       "data": {
-        "on": 49,
+        "on": 51,
         "name": "idx_asset_face_person_id",
         "sql": "CREATE INDEX IF NOT EXISTS idx_asset_face_person_id ON asset_face_entity (person_id)",
         "unique": false,
@@ -4192,11 +4192,11 @@
     {
       "id": 63,
       "references": [
-        49
+        51
       ],
       "type": "index",
       "data": {
-        "on": 49,
+        "on": 51,
         "name": "idx_asset_face_asset_id",
         "sql": "CREATE INDEX IF NOT EXISTS idx_asset_face_asset_id ON asset_face_entity (asset_id)",
         "unique": false,
@@ -4206,11 +4206,11 @@
     {
       "id": 64,
       "references": [
-        49
+        51
       ],
       "type": "index",
       "data": {
-        "on": 49,
+        "on": 51,
         "name": "idx_asset_face_visible_person",
         "sql": "CREATE INDEX IF NOT EXISTS idx_asset_face_visible_person\nON asset_face_entity (person_id, asset_id)\nWHERE is_visible = 1 AND deleted_at IS NULL\n",
         "unique": false,
@@ -4220,11 +4220,11 @@
     {
       "id": 65,
       "references": [
-        51
+        52
       ],
       "type": "index",
       "data": {
-        "on": 51,
+        "on": 52,
         "name": "idx_trashed_local_asset_checksum",
         "sql": "CREATE INDEX IF NOT EXISTS idx_trashed_local_asset_checksum ON trashed_local_asset_entity (checksum)",
         "unique": false,
@@ -4234,11 +4234,11 @@
     {
       "id": 66,
       "references": [
-        51
+        52
       ],
       "type": "index",
       "data": {
-        "on": 51,
+        "on": 52,
         "name": "idx_trashed_local_asset_album",
         "sql": "CREATE INDEX IF NOT EXISTS idx_trashed_local_asset_album ON trashed_local_asset_entity (album_id)",
         "unique": false,
@@ -4248,11 +4248,11 @@
     {
       "id": 67,
       "references": [
-        52
+        53
       ],
       "type": "index",
       "data": {
-        "on": 52,
+        "on": 53,
         "name": "idx_asset_edit_asset_id",
         "sql": "CREATE INDEX IF NOT EXISTS idx_asset_edit_asset_id ON asset_edit_entity (asset_id)",
         "unique": false,
@@ -4371,6 +4371,24 @@
         {
           "dialect": "sqlite",
           "sql": "CREATE TABLE IF NOT EXISTS \"shared_space_album_hidden_entity\" (\"space_id\" TEXT NOT NULL REFERENCES shared_space_entity (id) ON DELETE CASCADE, \"album_id\" TEXT NOT NULL, \"user_id\" TEXT NOT NULL, PRIMARY KEY (\"space_id\", \"album_id\", \"user_id\")) WITHOUT ROWID, STRICT;"
+        }
+      ]
+    },
+    {
+      "name": "settings",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"settings\" (\"key\" TEXT NOT NULL, \"value\" TEXT NULL, \"updated_at\" TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), PRIMARY KEY (\"key\")) WITHOUT ROWID, STRICT;"
+        }
+      ]
+    },
+    {
+      "name": "store_entity",
+      "sql": [
+        {
+          "dialect": "sqlite",
+          "sql": "CREATE TABLE IF NOT EXISTS \"store_entity\" (\"id\" INTEGER NOT NULL, \"string_value\" TEXT NULL, \"int_value\" INTEGER NULL, PRIMARY KEY (\"id\")) WITHOUT ROWID, STRICT;"
         }
       ]
     },
@@ -4726,15 +4744,6 @@
       ]
     },
     {
-      "name": "store_entity",
-      "sql": [
-        {
-          "dialect": "sqlite",
-          "sql": "CREATE TABLE IF NOT EXISTS \"store_entity\" (\"id\" INTEGER NOT NULL, \"string_value\" TEXT NULL, \"int_value\" INTEGER NULL, PRIMARY KEY (\"id\")) WITHOUT ROWID, STRICT;"
-        }
-      ]
-    },
-    {
       "name": "trashed_local_asset_entity",
       "sql": [
         {
@@ -4749,15 +4758,6 @@
         {
           "dialect": "sqlite",
           "sql": "CREATE TABLE IF NOT EXISTS \"asset_edit_entity\" (\"id\" TEXT NOT NULL, \"asset_id\" TEXT NOT NULL REFERENCES remote_asset_entity (id) ON DELETE CASCADE, \"action\" INTEGER NOT NULL, \"parameters\" BLOB NOT NULL, \"sequence\" INTEGER NOT NULL, PRIMARY KEY (\"id\")) WITHOUT ROWID, STRICT;"
-        }
-      ]
-    },
-    {
-      "name": "settings",
-      "sql": [
-        {
-          "dialect": "sqlite",
-          "sql": "CREATE TABLE IF NOT EXISTS \"settings\" (\"key\" TEXT NOT NULL, \"value\" TEXT NULL, \"updated_at\" TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), PRIMARY KEY (\"key\")) WITHOUT ROWID, STRICT;"
         }
       ]
     },
