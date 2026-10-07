@@ -239,19 +239,22 @@ class GalleryCloudMediaProvider : CloudMediaProvider() {
       return AssetFileDescriptor(openRemote(session, item, "${item.assetId}/video/playback", signal), 0, AssetFileDescriptor.UNKNOWN_LENGTH)
     }
     if (!previews.tryAcquire()) throw FileNotFoundException("Too many active cloud previews")
-    val dir = File(context!!.cacheDir, "gallery-cloud-previews").apply { mkdirs() }
-    // Only this directory is owned here. Unlinked descriptors remain readable by
-    // Android; no systemTemp/share/upload/Live Photo handoff cleanup is involved.
-    dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > TimeUnit.HOURS.toMillis(1) }?.forEach { it.delete() }
-    val file = File.createTempFile("preview-", ".media", dir)
-    val thumbnail = if (maxOf(size.x, size.y) <= 250) "thumbnail" else "preview"
-    val call = client().newCall(request(session, "${item.assetId}/thumbnail?size=$thumbnail").build())
-    signal?.setOnCancelListener { call.cancel() }
+    var file: File? = null
     try {
+      // Acquire owns setup failures too: a full cache volume must not permanently
+      // consume a preview slot before the network/finally block is reached.
+      val dir = File(context!!.cacheDir, "gallery-cloud-previews").apply { mkdirs() }
+      // Only this directory is owned here. Unlinked descriptors remain readable by
+      // Android; no systemTemp/share/upload/Live Photo handoff cleanup is involved.
+      dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > TimeUnit.HOURS.toMillis(1) }?.forEach { it.delete() }
+      val previewFile = File.createTempFile("preview-", ".media", dir).also { file = it }
+      val thumbnail = if (maxOf(size.x, size.y) <= 250) "thumbnail" else "preview"
+      val call = client().newCall(request(session, "${item.assetId}/thumbnail?size=$thumbnail").build())
+      signal?.setOnCancelListener { call.cancel() }
       call.execute().use { response ->
         if (!response.isSuccessful) throw IOException("Cloud preview HTTP ${response.code}")
         val body = response.body ?: throw IOException("Missing cloud preview")
-        body.byteStream().use { input -> file.outputStream().use { output ->
+        body.byteStream().use { input -> previewFile.outputStream().use { output ->
           val buffer = ByteArray(32 * 1024)
           var total = 0L
           while (true) {
@@ -266,10 +269,13 @@ class GalleryCloudMediaProvider : CloudMediaProvider() {
       }
       catalog.item(catalog.requireSession(session.scope), item.assetId)
       signal?.throwIfCanceled()
-      val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-      file.delete()
+      val fd = ParcelFileDescriptor.open(previewFile, ParcelFileDescriptor.MODE_READ_ONLY)
+      previewFile.delete()
       return AssetFileDescriptor(fd, 0, AssetFileDescriptor.UNKNOWN_LENGTH)
     } catch (e: Exception) { throw FileNotFoundException("Unable to open cloud preview").apply { initCause(e) } }
-    finally { signal?.setOnCancelListener(null); file.delete(); previews.release() }
+    finally {
+      try { signal?.setOnCancelListener(null); file?.delete() }
+      finally { previews.release() }
+    }
   }
 }

@@ -66,6 +66,10 @@ internal class CloudRangeReader(
     val current = client.newCall(request)
     call = current
     try {
+      // close may run while the request/session builder is preparing the call.
+      // Once published, recheck before execute: earlier cancellation prevents
+      // network work, and later cancellation can now cancel this exact call.
+      guard()
       current.execute().use { response ->
         guard()
         if (!response.isSuccessful) throw IOException("Cloud media HTTP ${response.code}")

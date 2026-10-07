@@ -13,6 +13,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -106,6 +107,38 @@ class CloudRangeReaderTest {
       reading.get(3, TimeUnit.SECONDS)
       assertThrows(IOException::class.java) { r.read(0, 10, ByteArray(10)) }
     } finally { r.close(); worker.shutdownNow() }
+  }
+  @Test fun cancellationDuringRequestPreparationNeverStartsNetwork() {
+    val preparing = CountDownLatch(1)
+    val prepared = CountDownLatch(1)
+    val client = OkHttpClient.Builder().readTimeout(1, TimeUnit.SECONDS).build()
+    val r = CloudRangeReader(client, {
+      preparing.countDown()
+      check(prepared.await(3, TimeUnit.SECONDS))
+      Request.Builder().url(server.url("/original"))
+    }, {})
+    server.dispatcher = object : Dispatcher() {
+      override fun dispatch(request: RecordedRequest) = MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+    }
+    val worker = Executors.newSingleThreadExecutor()
+    val closer = Thread { r.close() }
+    try {
+      val reading = worker.submit { assertThrows(IOException::class.java) { r.size() } }
+      assertTrue(preparing.await(3, TimeUnit.SECONDS))
+      closer.start()
+      // close publishes cancellation before waiting for read's monitor. Wait for
+      // that barrier rather than racing the request builder against a sleep.
+      val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+      while (closer.state != Thread.State.BLOCKED && System.nanoTime() < deadline) Thread.yield()
+      assertEquals(Thread.State.BLOCKED, closer.state)
+      prepared.countDown()
+      reading.get(3, TimeUnit.SECONDS)
+      closer.join(3000)
+      assertFalse(closer.isAlive)
+      assertEquals(0, server.requestCount)
+    } finally {
+      prepared.countDown(); r.close(); closer.join(3000); worker.shutdownNow()
+    }
   }
   @Test fun malformedInputIsRejectedWithoutNetwork() {
     reader().use { r ->
