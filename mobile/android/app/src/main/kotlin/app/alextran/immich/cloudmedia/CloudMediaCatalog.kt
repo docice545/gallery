@@ -114,7 +114,7 @@ internal class CloudMediaCatalog(private val context: Context) {
     val hash = digest.digest().joinToString("") { "%02x".format(it) }
     val key = "snapshot.${session.scope}"
     val generationKey = "generation.${session.scope}"
-    if (prefs.getString(key, null) != hash) {
+    if (prefs.getString(key, null) != hash || !prefs.contains(generationKey)) {
       val generation = maxOf(System.currentTimeMillis(), prefs.getLong(generationKey, 0) + 1)
       check(prefs.edit().putString(key, hash).putLong(generationKey, generation).commit())
     }
