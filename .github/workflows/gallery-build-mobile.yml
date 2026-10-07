@@ -145,6 +145,18 @@ jobs:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - name: Full locked code generation
         run: bash mobile/scripts/android_media_codegen.sh
+      - name: Prepare the pinned Flutter Gradle wrapper
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          # Flutter normally injects these ignored files before its first build.
+          # Unit tests run first here; use the same pinned SDK artifact without
+          # replacing the tracked Gradle distribution/version configuration.
+          wrapper="$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper"
+          test -s gradle/wrapper/gradle-wrapper.properties
+          test -s "$wrapper/gradle/wrapper/gradle-wrapper.jar"
+          install -m 755 "$wrapper/gradlew" gradlew
+          install -m 644 "$wrapper/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
       - name: Native Kotlin/AIDL/streaming policy tests
         working-directory: mobile/android
         run: ./gradlew :app:testDebugUnitTest --console=plain
