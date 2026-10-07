@@ -6,16 +6,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/locales.dart';
 import 'package:immich_mobile/generated/codegen_loader.g.dart';
 import 'package:immich_mobile/presentation/pages/library.page.dart';
-import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
-import 'package:immich_mobile/providers/infrastructure/remote_album.provider.dart';
+import 'package:immich_mobile/providers/library/library_album_preview.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
-
-/// [RemoteAlbumNotifier] stub: the card only reads `state.albums` (for up to
-/// four thumbnails), and an empty list keeps the test off the network.
-class _FakeRemoteAlbumNotifier extends RemoteAlbumNotifier {
-  @override
-  RemoteAlbumState build() => const RemoteAlbumState(albums: []);
-}
 
 /// A router that hosts [AlbumsCollectionCard] and re-declares
 /// `AlbumsRoute` under its production NAME with a cheap stand-in, so the
@@ -58,7 +50,7 @@ void main() {
         useFallbackTranslations: true,
         assetLoader: const CodegenLoader(),
         child: ProviderScope(
-          overrides: [remoteAlbumProvider.overrideWith(_FakeRemoteAlbumNotifier.new)],
+          overrides: [libraryAlbumPreviewProvider.overrideWith((ref) => Stream.value([]))],
           child: Builder(
             builder: (context) => MaterialApp.router(
               debugShowCheckedModeBanner: false,

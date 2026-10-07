@@ -17,9 +17,11 @@ import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/people.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/user.provider.dart';
+import 'package:immich_mobile/providers/library/library_album_preview.provider.dart';
 import 'package:immich_mobile/providers/library/library_layout.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/shared_space.provider.dart';
+import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
@@ -638,8 +640,8 @@ class AlbumsCollectionCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final albumState = ref.watch(remoteAlbumProvider);
-    final albums = albumState.albums;
+    final previews = ref.watch(libraryAlbumPreviewProvider);
+    final syncing = ref.watch(syncStatusProvider.select((state) => state.isRemoteSyncing));
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -665,31 +667,72 @@ class AlbumsCollectionCard extends ConsumerWidget {
                       end: Alignment.bottomCenter,
                     ),
                   ),
-                  child: GridView.count(
-                    crossAxisCount: 2,
-                    padding: const EdgeInsets.all(12),
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: albums.take(4).map((album) {
-                      final thumbnailId = album.thumbnailAssetId;
-                      if (thumbnailId == null) {
-                        return DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: context.colorScheme.surfaceContainerHigh,
-                            borderRadius: const BorderRadius.all(Radius.circular(10)),
-                          ),
-                          child: Icon(Icons.photo_album_outlined, color: context.colorScheme.primary),
+                  child: previews.when(
+                    skipLoadingOnRefresh: false,
+                    skipLoadingOnReload: false,
+                    loading: () => const Center(key: Key('library-albums-loading'), child: CircularProgressIndicator()),
+                    error: (_, _) => Center(
+                      key: const Key('library-albums-error'),
+                      child: IconButton(
+                        tooltip: context.t.retry,
+                        icon: const Icon(Icons.refresh),
+                        onPressed: () => ref.invalidate(libraryAlbumPreviewProvider),
+                      ),
+                    ),
+                    data: (albums) {
+                      if (albums.isEmpty) {
+                        if (syncing) {
+                          return const Center(key: Key('library-albums-loading'), child: CircularProgressIndicator());
+                        }
+                        return Center(
+                          key: const Key('library-albums-empty'),
+                          child: Icon(Icons.photo_album_outlined, size: 48, color: context.colorScheme.primary),
                         );
                       }
-                      return ClipRRect(
-                        borderRadius: const BorderRadius.all(Radius.circular(10)),
-                        child: Image(
-                          image: RemoteImageProvider(url: getThumbnailUrlForRemoteId(thumbnailId)),
-                          fit: BoxFit.cover,
-                        ),
+                      return GridView.count(
+                        key: const Key('library-albums-mosaic'),
+                        crossAxisCount: 2,
+                        padding: const EdgeInsets.all(12),
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: albums.map((album) {
+                          Widget fallback({bool retry = false}) => DecoratedBox(
+                            key: ValueKey('library-album-fallback-${album.albumId}'),
+                            decoration: BoxDecoration(
+                              color: context.colorScheme.surfaceContainerHigh,
+                              borderRadius: const BorderRadius.all(Radius.circular(10)),
+                            ),
+                            child: retry
+                                ? IconButton(
+                                    tooltip: context.t.retry,
+                                    icon: Icon(Icons.refresh, color: context.colorScheme.primary),
+                                    onPressed: () => ref.invalidate(libraryAlbumPreviewProvider),
+                                  )
+                                : Icon(Icons.photo_album_outlined, color: context.colorScheme.primary),
+                          );
+                          final thumbnailId = album.thumbnailId;
+                          if (thumbnailId == null) {
+                            return fallback();
+                          }
+                          return ClipRRect(
+                            key: ValueKey('library-album-preview-${album.albumId}-$thumbnailId'),
+                            borderRadius: const BorderRadius.all(Radius.circular(10)),
+                            child: Image(
+                              image: RemoteImageProvider.thumbnail(
+                                assetId: thumbnailId,
+                                thumbhash: album.thumbHash ?? '',
+                              ),
+                              fit: BoxFit.cover,
+                              frameBuilder: (_, child, frame, synchronous) => frame != null || synchronous
+                                  ? child
+                                  : const Center(child: CircularProgressIndicator()),
+                              errorBuilder: (_, _, _) => fallback(retry: true),
+                            ),
+                          );
+                        }).toList(),
                       );
-                    }).toList(),
+                    },
                   ),
                 ),
               ),

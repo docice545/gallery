@@ -16,11 +16,74 @@ import 'package:immich_mobile/infrastructure/repositories/remote_album.repositor
 
 enum SortRemoteAlbumsBy { id, updatedAt }
 
+/// A bounded Library mosaic entry. A null cover still represents a real album.
+typedef LibraryAlbumPreview = ({String albumId, String? thumbnailId, String? thumbHash});
+
 @DriftAccessor()
 class RemoteAlbumRepository extends DatabaseAccessor<Drift> with $RemoteAlbumRepositoryMixin {
   RemoteAlbumRepository(super.attachedDatabase);
 
   Drift get _db => attachedDatabase;
+
+  /// Library must follow sync writes, not the album page's one-shot list cache.
+  /// Album membership scopes the result to the authenticated user. Choose the
+  /// configured cover when eligible, otherwise a real, eligible album member.
+  Stream<List<LibraryAlbumPreview>> watchLibraryPreview(String currentUserId) {
+    return _db
+        .customSelect(
+          '''
+          WITH previews AS (
+            SELECT album.id AS album_id, album.updated_at,
+              (SELECT asset.id
+               FROM remote_album_asset_entity member
+               JOIN remote_asset_entity asset ON asset.id = member.asset_id
+               WHERE member.album_id = album.id
+                 AND asset.deleted_at IS NULL
+                 AND asset.visibility IN (?, ?)
+                 AND asset.id NOT IN (
+                   SELECT still.live_photo_video_id FROM remote_asset_entity still
+                   WHERE still.live_photo_video_id IS NOT NULL
+                 )
+               ORDER BY (asset.id = album.thumbnail_asset_id) DESC,
+                        asset.created_at DESC, asset.id
+               LIMIT 1) AS thumbnail_id
+            FROM remote_album_entity album
+            WHERE EXISTS (
+              SELECT 1 FROM remote_album_user_entity membership
+              WHERE membership.album_id = album.id AND membership.user_id = ?
+            )
+          )
+          SELECT previews.album_id, previews.thumbnail_id, cover.thumb_hash
+          FROM previews
+          LEFT JOIN remote_asset_entity cover ON cover.id = previews.thumbnail_id
+          ORDER BY previews.thumbnail_id IS NULL, previews.updated_at DESC, previews.album_id
+          LIMIT 4
+          ''',
+          variables: [
+            Variable<int>(AssetVisibility.timeline.index),
+            Variable<int>(AssetVisibility.archive.index),
+            Variable<String>(currentUserId),
+          ],
+          readsFrom: {
+            _db.remoteAlbumEntity,
+            _db.remoteAlbumUserEntity,
+            _db.remoteAlbumAssetEntity,
+            _db.remoteAssetEntity,
+          },
+        )
+        .watch()
+        .map(
+          (rows) => rows
+              .map(
+                (row) => (
+                  albumId: row.read<String>('album_id'),
+                  thumbnailId: row.readNullable<String>('thumbnail_id'),
+                  thumbHash: row.readNullable<String>('thumb_hash'),
+                ),
+              )
+              .toList(),
+        );
+  }
 
   Future<List<RemoteAlbum>> getAll({
     Set<SortRemoteAlbumsBy> sortBy = const {SortRemoteAlbumsBy.updatedAt},
