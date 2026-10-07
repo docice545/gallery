@@ -266,6 +266,7 @@ void main() {
         expect(await _timeBuckets(TimelineRepository(ctx.db).trash('owner', GroupAssetsBy.day)), buckets.current);
         expect((await repository.trash('owner', GroupAssetsBy.day).assetSource(0, 1)).single.createdAt, capture);
 
+        await sync.confirmRestore((await sync.getRestoreCandidates({'synced': 'owner'})).single);
         await apply(null);
         expect(await buckets.moveNext().timeout(const Duration(seconds: 2)), isTrue);
         expect(buckets.current, isEmpty);

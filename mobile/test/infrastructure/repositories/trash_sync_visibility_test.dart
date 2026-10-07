@@ -5,12 +5,16 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/local/asset.drift.dart';
+import 'package:immich_mobile/data/db/main/table/remote/asset.drift.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/infrastructure/repositories/remote_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -32,6 +36,7 @@ void main() {
     timeline = TimelineRepository(ctx.db);
     await ctx.newUser(id: 'owner');
     await ctx.newAuthUser(id: 'owner');
+    await StoreRepository(ctx.db).upsert(StoreKey.serverEndpoint, 'https://gallery.invalid/api');
   });
   tearDown(() => ctx.dispose());
 
@@ -127,9 +132,22 @@ void main() {
         await expectPhotosEmpty();
         await expectTrashVisible();
 
+        // A delayed pre-Trash payload (including media mtime newer than the
+        // capture date) is not a server restore. Both the server row and its
+        // checksum-linked local twin must stay outside every Photos query.
+        await stream(payload(libraryId: libraryId), v2: v2);
+        await expectPhotosEmpty();
+        await expectTrashVisible();
+
         await sync.reset();
         await ctx.newUser(id: 'owner');
         await ctx.newAuthUser(id: 'owner');
+        // Reset must not erase identity while delayed pages arrive. The local
+        // checksum twin is also suppressed before any remote row returns.
+        await expectPhotosEmpty();
+        await stream(payload(libraryId: libraryId), v2: v2);
+        await expectPhotosEmpty();
+        await expectTrashVisible();
         await stream(
           payload(libraryId: libraryId, trashDate: deletedAt),
           v2: v2,
@@ -137,7 +155,9 @@ void main() {
         await expectPhotosEmpty();
         await expectTrashVisible();
 
-        // Only a server restore (deletedAt=null) reintroduces this identity.
+        // Only a verified current server restore, not an unversioned null
+        // from a backfill/Space/album stream, reintroduces this identity.
+        await sync.confirmRestore((await sync.getRestoreCandidates({'still': 'owner'})).single);
         await stream(payload(libraryId: libraryId), v2: v2);
         for (final source in photosQueries()) {
           expect((await source.assetSource(0, 100)).map((asset) => asset.id), ['still']);
@@ -221,6 +241,11 @@ void main() {
     expect((await reopened.trash('owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), ['still']);
     await SyncStreamRepository(cache).updateAssetsV2([dto]);
     expect(await reopened.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10), isEmpty);
+    // Reconnect may replay an older page after restart; persistence is the
+    // guard, not a process-local/widget hide set.
+    await SyncStreamRepository(cache).updateAssetsV2([api.SyncAssetV2.fromJson(payload())!]);
+    expect(await reopened.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10), isEmpty);
+    expect((await reopened.trash('owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), ['still']);
   });
 
   test('trashed Live still retains hidden paired motion without a standalone tile', () async {
@@ -231,10 +256,160 @@ void main() {
     final motion = (await RemoteAssetRepository(ctx.db).get('motion'))!;
     expect(still.livePhotoVideoId, motion.id);
     expect(motion.visibility, AssetVisibility.hidden);
+    await sync.confirmRestore((await sync.getRestoreCandidates({'still': 'owner'})).single);
     await stream(payload(), v2: true);
     expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
       'still',
     ]);
+  });
+
+  test('restore confirmation cannot clear a newer Trash tombstone or another owner', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    expect(await sync.getRestoreCandidates({'still': 'another-owner'}), isEmpty);
+    final checked = (await sync.getRestoreCandidates({'still': 'owner'})).single;
+    final newerTrash = deletedAt.add(const Duration(seconds: 5));
+    await sync.updateAssetsV2([api.SyncAssetV2.fromJson(payload(trashDate: newerTrash))!]);
+    await sync.confirmRestore(checked);
+    await sync.updateAssetsV2([api.SyncAssetV2.fromJson(payload())!]);
+    await expectPhotosEmpty();
+    expect((await RemoteAssetRepository(ctx.db).get('still'))!.deletedAt, newerTrash);
+  });
+
+  test('same SQLite second restore-retrash invalidates the prior confirmation', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    final checked = (await sync.getRestoreCandidates({'still': 'owner'})).single;
+    final remote = RemoteAssetRepository(ctx.db);
+    await remote.restoreTrash(['still']);
+    await remote.trash(['still']);
+    // Pin the second-precision DB timestamp to the old value. The actions
+    // still use the real repository; this deterministically constructs the
+    // ABA collision without timing/sleeps or assuming a sufficiently fast CPU.
+    await (ctx.db.remoteAssetEntity.update()..where((row) => row.id.equals('still'))).write(
+      RemoteAssetEntityCompanion(deletedAt: Value(checked.deletedAt)),
+    );
+    await sync.confirmRestore(checked);
+    await stream(payload(), v2: true);
+    await expectPhotosEmpty();
+    expect((await remote.get('still'))!.isTrashed, isTrue);
+  });
+
+  test('reset Trash metadata is scoped by endpoint and owner, and logout removes it', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    await sync.reset();
+    expect(await sync.getRestoreCandidates({'still': 'other-owner'}), isEmpty);
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+    final previousServer = (await sync.getRestoreCandidates({'still': 'owner'})).single;
+    await StoreRepository(ctx.db).upsert(StoreKey.serverEndpoint, 'https://other-gallery.invalid/api');
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
+    await sync.confirmRestore(previousServer);
+    await StoreRepository(ctx.db).upsert(StoreKey.serverEndpoint, 'https://gallery.invalid/api');
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+    await StoreRepository(ctx.db).upsert(StoreKey.serverEndpoint, 'https://other-gallery.invalid/api');
+    await ctx.newUser(id: 'owner');
+    await stream(payload(), v2: true);
+    expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isFalse);
+    await sync.reset(retainTrash: false);
+    final retained = await (ctx.db.settingsEntity.select()..where((row) => row.key.like('sync.trash-reset.%'))).get();
+    expect(retained, isEmpty);
+    expect(await ctx.db.remoteAssetEntity.select().get(), isEmpty);
+  });
+
+  test('new confirmed Trash during reset invalidates an in-flight restore snapshot', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    await sync.reset();
+    final checked = (await sync.getRestoreCandidates({'still': 'owner'})).single;
+    // The cached UI can still complete a server Trash operation while reset
+    // has removed the row; keep its newer tombstone in the retained metadata.
+    await RemoteAssetRepository(ctx.db).trash(['still']);
+    await sync.confirmRestore(checked);
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+    await ctx.newUser(id: 'owner');
+    await stream(payload(), v2: true);
+    await expectPhotosEmpty();
+    expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isTrue);
+  });
+
+  test('explicit Restore All and permanent server Delete clear only their retained identities', () async {
+    await ctx.newUser(id: 'other');
+    await stream(payload(trashDate: deletedAt), v2: true);
+    await ctx.newRemoteAsset(id: 'other-trash', ownerId: 'other', deletedAt: deletedAt);
+    await sync.reset();
+    final remote = RemoteAssetRepository(ctx.db);
+    await remote.restoreAllTrash('owner');
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
+    expect(await sync.getRestoreCandidates({'other-trash': 'other'}), hasLength(1));
+    await sync.deleteAssetsV1([api.SyncAssetDeleteV1(assetId: 'other-trash')]);
+    expect(await sync.getRestoreCandidates({'other-trash': 'other'}), isEmpty);
+    await ctx.newUser(id: 'owner');
+    await stream(payload(), v2: true);
+    expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isFalse);
+  });
+
+  test('reset metadata survives SQLite reopen without recreating inaccessible asset rows', () async {
+    final directory = await Directory.systemTemp.createTemp('gallery-trash-reset-test-');
+    final file = File('${directory.path}/cache.sqlite');
+    var cache = Drift(DatabaseConnection(NativeDatabase(file), closeStreamsSynchronously: true));
+    addTearDown(() async {
+      await cache.close();
+      await directory.delete(recursive: true);
+    });
+    await StoreRepository(cache).upsert(StoreKey.serverEndpoint, 'https://gallery.invalid/api');
+    await cache.into(cache.userEntity).insert(await ctx.db.select(ctx.db.userEntity).getSingle());
+    await SyncStreamRepository(cache).updateAssetsV2([api.SyncAssetV2.fromJson(payload(trashDate: deletedAt))!]);
+    await SyncStreamRepository(cache).reset();
+    await cache.close();
+    cache = Drift(DatabaseConnection(NativeDatabase(file), closeStreamsSynchronously: true));
+    final reloaded = SyncStreamRepository(cache);
+    expect(await cache.remoteAssetEntity.select().get(), isEmpty);
+    expect(await cache.userEntity.select().get(), isEmpty);
+    final checked = (await reloaded.getRestoreCandidates({'still': 'owner'})).single;
+    await cache.into(cache.userEntity).insert(await ctx.db.select(ctx.db.userEntity).getSingle());
+    await reloaded.updateAssetsV2([api.SyncAssetV2.fromJson(payload())!]);
+    final photos = TimelineRepository(cache).main(['owner'], 'owner', GroupAssetsBy.day);
+    expect(await photos.assetSource(0, 10), isEmpty);
+    await reloaded.confirmRestore(checked);
+    await reloaded.updateAssetsV2([api.SyncAssetV2.fromJson(payload())!]);
+    expect((await photos.assetSource(0, 10)).map((asset) => asset.id), ['still']);
+  });
+
+  test('upload placeholder cannot bypass retained Trash during reset', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    await sync.reset();
+    await ctx.newUser(id: 'owner');
+    await RemoteAlbumRepository(ctx.db).upsertRemoteAssetStub(
+      remoteId: 'still',
+      ownerId: 'owner',
+      source: LocalAsset(
+        id: 'local-still',
+        name: 'IMG_1000.JPG',
+        checksum: 'still-checksum',
+        type: AssetType.image,
+        playbackStyle: AssetPlaybackStyle.livePhoto,
+        isEdited: false,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await expectPhotosEmpty();
+    expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isTrue);
+  });
+
+  test('successful explicit single/all Restore remains eligible and is owner-scoped', () async {
+    final remote = RemoteAssetRepository(ctx.db);
+    await stream(payload(trashDate: deletedAt), v2: true);
+    await ctx.newUser(id: 'other');
+    await ctx.newRemoteAsset(id: 'other-trash', ownerId: 'other', deletedAt: deletedAt);
+    await remote.restoreTrash(['still']);
+    await stream(payload(), v2: true);
+    expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
+      'still',
+    ]);
+    await remote.trash(['still']);
+    await remote.restoreAllTrash('owner');
+    expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
+      'still',
+    ]);
+    expect((await remote.get('other-trash'))!.isTrashed, isTrue);
   });
 
   test('V2 nullable dimensions and duration survive temporal Photos reads', () async {

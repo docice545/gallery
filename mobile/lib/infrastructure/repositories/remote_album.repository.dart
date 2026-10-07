@@ -409,26 +409,30 @@ class RemoteAlbumRepository extends DatabaseAccessor<Drift> with $RemoteAlbumRep
     required String ownerId,
     required LocalAsset source,
   }) async {
-    await _db
-        .into(_db.remoteAssetEntity)
-        .insert(
-          RemoteAssetEntityCompanion(
-            id: Value(remoteId),
-            ownerId: Value(ownerId),
-            checksum: Value(source.checksum ?? remoteId),
-            name: Value(source.name),
-            type: Value(source.type),
-            createdAt: Value(source.createdAt),
-            updatedAt: Value(source.updatedAt),
-            width: Value(source.width),
-            height: Value(source.height),
-            durationMs: Value(source.durationMs),
-            isFavorite: Value(source.isFavorite),
-            visibility: const Value(AssetVisibility.timeline),
-            isEdited: Value(source.isEdited),
-          ),
-          mode: InsertMode.insertOrIgnore,
-        );
+    await _db.transaction(() async {
+      final retainedTrash = await _db.syncStreamRepository.getRestoreCandidates({remoteId: ownerId});
+      await _db
+          .into(_db.remoteAssetEntity)
+          .insert(
+            RemoteAssetEntityCompanion(
+              id: Value(remoteId),
+              ownerId: Value(ownerId),
+              checksum: Value(source.checksum ?? remoteId),
+              name: Value(source.name),
+              type: Value(source.type),
+              createdAt: Value(source.createdAt),
+              updatedAt: Value(source.updatedAt),
+              width: Value(source.width),
+              height: Value(source.height),
+              durationMs: Value(source.durationMs),
+              isFavorite: Value(source.isFavorite),
+              deletedAt: Value(retainedTrash.firstOrNull?.deletedAt),
+              visibility: const Value(AssetVisibility.timeline),
+              isEdited: Value(source.isEdited),
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+    });
   }
 
   Future<void> addUsers(String albumId, List<String> userIds) {

@@ -17,7 +17,7 @@ class AuthRepository {
   const AuthRepository(this._drift, this._settings);
 
   Future<void> clearLocalData() async {
-    await SyncStreamRepository(_drift).reset();
+    await SyncStreamRepository(_drift).reset(retainTrash: false);
   }
 
   bool getEndpointSwitchingFeature() {

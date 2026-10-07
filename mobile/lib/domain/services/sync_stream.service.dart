@@ -218,9 +218,49 @@ class SyncStreamService {
     }
 
     final type = batch.first.type;
+    await _confirmAssetRestores(batch);
+    if (isCancelled) {
+      return;
+    }
     await _handleSyncData(type, batch.map((e) => e.data));
     await _syncApiRepository.ack([batch.last.ack]);
     batch.clear();
+  }
+
+  Future<void> _confirmAssetRestores(List<SyncEvent> batch) async {
+    final ownersById = <String, String>{};
+    for (final event in batch) {
+      switch (event.data) {
+        case SyncAssetV1(:final id, :final ownerId, deletedAt: null):
+        case SyncAssetV2(:final id, :final ownerId, deletedAt: null):
+          ownersById[id] = ownerId;
+      }
+    }
+    if (ownersById.isEmpty) {
+      return;
+    }
+
+    final candidates = await _syncStreamRepository.getRestoreCandidates(ownersById);
+    for (final candidate in candidates) {
+      if (isCancelled) {
+        return;
+      }
+      // A conflicting unversioned stream is not authoritative. Fetch only
+      // this rare state transition, not each asset/thumbnail. Errors propagate
+      // before ACK so the existing sync retry can resolve a genuine restore.
+      final current = await (_cancellation == null
+          ? _api.assetsApi.getAssetInfo(candidate.id)
+          : _api.assetsApi.getAssetInfo(candidate.id, abortTrigger: _cancellation.future));
+      if (isCancelled) {
+        return;
+      }
+      if (current == null || current.id != candidate.id || current.ownerId != candidate.ownerId) {
+        throw StateError('Unable to verify asset Trash state');
+      }
+      if (!current.isTrashed) {
+        await _syncStreamRepository.confirmRestore(candidate);
+      }
+    }
   }
 
   Future<void> _handleSyncData(SyncEntityType type, Iterable<Object> data) async {

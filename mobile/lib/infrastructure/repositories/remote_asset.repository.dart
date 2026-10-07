@@ -116,44 +116,60 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
   }
 
   Future<void> trash(List<String> ids) {
-    return _db.batch((batch) async {
-      for (final id in ids) {
-        batch.update(
-          _db.remoteAssetEntity,
-          RemoteAssetEntityCompanion(deletedAt: Value(DateTime.now())),
-          where: (e) => e.id.equals(id),
-        );
-      }
+    return _db.transaction(() async {
+      final deletedAt = DateTime.now();
+      await _db.syncStreamRepository.updateRetainedTrash(ids, deletedAt);
+      await _db.batch((batch) {
+        for (final id in ids) {
+          batch.update(
+            _db.remoteAssetEntity,
+            RemoteAssetEntityCompanion(deletedAt: Value(deletedAt)),
+            where: (e) => e.id.equals(id),
+          );
+        }
+      });
     });
   }
 
   Future<void> restoreTrash(List<String> ids) {
-    return _db.batch((batch) async {
-      for (final id in ids) {
-        batch.update(
-          _db.remoteAssetEntity,
-          const RemoteAssetEntityCompanion(deletedAt: Value(null)),
-          where: (e) => e.id.equals(id),
-        );
-      }
+    return _db.transaction(() async {
+      await _db.syncStreamRepository.clearRetainedTrash(ids: ids);
+      await _db.batch((batch) {
+        for (final id in ids) {
+          batch.update(
+            _db.remoteAssetEntity,
+            const RemoteAssetEntityCompanion(deletedAt: Value(null)),
+            where: (e) => e.id.equals(id),
+          );
+        }
+      });
     });
   }
 
   Future<void> emptyTrash(String ownerId) async {
-    await _db.remoteAssetEntity.deleteWhere((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId));
+    await _db.transaction(() async {
+      await _db.syncStreamRepository.clearRetainedTrash(ownerId: ownerId);
+      await _db.remoteAssetEntity.deleteWhere((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId));
+    });
   }
 
   Future<void> restoreAllTrash(String ownerId) async {
-    await (_db.remoteAssetEntity.update()..where((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId))).write(
-      const RemoteAssetEntityCompanion(deletedAt: Value(null)),
-    );
+    await _db.transaction(() async {
+      await _db.syncStreamRepository.clearRetainedTrash(ownerId: ownerId);
+      await (_db.remoteAssetEntity.update()..where((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId))).write(
+        const RemoteAssetEntityCompanion(deletedAt: Value(null)),
+      );
+    });
   }
 
   Future<void> deleteAssets(List<String> ids) {
-    return _db.batch((batch) {
-      for (final id in ids) {
-        batch.deleteWhere(_db.remoteAssetEntity, (row) => row.id.equals(id));
-      }
+    return _db.transaction(() async {
+      await _db.syncStreamRepository.clearRetainedTrash(ids: ids);
+      await _db.batch((batch) {
+        for (final id in ids) {
+          batch.deleteWhere(_db.remoteAssetEntity, (row) => row.id.equals(id));
+        }
+      });
     });
   }
 

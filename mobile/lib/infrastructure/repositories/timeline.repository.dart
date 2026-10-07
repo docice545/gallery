@@ -183,6 +183,8 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
       _scopedMainBucketSql(userIds, groupBy),
       variables: _scopedMainVariables(userIds, currentUserId, temporalScope),
       readsFrom: {
+        _db.settingsEntity,
+        _db.storeEntity,
         _db.remoteAssetEntity,
         _db.stackEntity,
         _db.sharedSpaceAssetEntity,
@@ -217,6 +219,8 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
             Variable<int>(offset),
           ],
           readsFrom: {
+            _db.settingsEntity,
+            _db.storeEntity,
             _db.remoteAssetEntity,
             _db.stackEntity,
             _db.sharedSpaceAssetEntity,
@@ -1572,6 +1576,19 @@ AND STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= ?3
 AND NOT EXISTS (
   SELECT 1 FROM remote_asset_entity rae WHERE rae.checksum = lae.checksum AND rae.owner_id IN ($userIdsSql)
 )
+AND (lae.checksum IS NULL OR lae.checksum NOT IN (
+  SELECT JSON_EXTRACT(retained_trash.value, '\$.checksum')
+  FROM settings retained_trash
+  WHERE retained_trash.key >= 'sync.trash-reset.'
+    AND retained_trash.key < 'sync.trash-reset/'
+    AND CASE WHEN retained_trash.key LIKE 'sync.trash-reset.%' THEN
+      JSON_EXTRACT(retained_trash.value, '\$.ownerId') IN ($userIdsSql)
+      -- StoreKey.serverEndpoint.id = 12; scope prevents cross-server carryover.
+      AND JSON_EXTRACT(retained_trash.value, '\$.endpoint') =
+        COALESCE((SELECT string_value FROM store_entity WHERE id = 12), '')
+    ELSE 0 END
+))
+
 AND EXISTS (
   SELECT 1 FROM local_album_asset_entity laa
   INNER JOIN local_album_entity la on laa.album_id = la.id
