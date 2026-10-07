@@ -28,6 +28,11 @@ internal data class CloudItem(
 
 /** Reads the existing WAL database. No second REST/sync/checkpoint or library mirror. */
 internal class CloudMediaCatalog(private val context: Context) {
+  companion object {
+    // Provider and notification instances share the same preferences. Publish a
+    // snapshot version once, even when both discover a DB change concurrently.
+    private val collectionLock = Any()
+  }
   private val prefs = context.getSharedPreferences("gallery.cloudmedia", Context.MODE_PRIVATE)
   private val file get() = File(PathUtils.getDataDirectory(context), "immich.sqlite")
   private val projection by lazy {
@@ -79,11 +84,10 @@ internal class CloudMediaCatalog(private val context: Context) {
    * 30k items in RAM. A changed snapshot makes Android reset its prior collection.
    * Stable media IDs are separate from this snapshot version.
    */
-  @Synchronized
-  fun collection(session: CloudSession): Pair<String, Long> {
+  fun collection(session: CloudSession): Pair<String, Long> = synchronized(collectionLock) {
     requireSession(session.scope)
     val revision = revision()
-    snapshotCache?.takeIf { it.first == session.scope && it.second == revision }?.let { return it.third }
+    snapshotCache?.takeIf { it.first == session.scope && it.second == revision }?.let { return@synchronized it.third }
     val digest = MessageDigest.getInstance("SHA-256")
     digest.update(session.scope.toByteArray())
     read { db ->
@@ -109,12 +113,13 @@ internal class CloudMediaCatalog(private val context: Context) {
     check(revision == revision()) { "Gallery catalog changed during snapshot; retry query" }
     val hash = digest.digest().joinToString("") { "%02x".format(it) }
     val key = "snapshot.${session.scope}"
+    val generationKey = "generation.${session.scope}"
     if (prefs.getString(key, null) != hash) {
-      val generation = maxOf(System.currentTimeMillis(), prefs.getLong("generation", 0) + 1)
-      check(prefs.edit().putString(key, hash).putLong("generation", generation).commit())
+      val generation = maxOf(System.currentTimeMillis(), prefs.getLong(generationKey, 0) + 1)
+      check(prefs.edit().putString(key, hash).putLong(generationKey, generation).commit())
     }
-    val generation = prefs.getLong("generation", 0)
-    return ("${session.scope}.$hash.$generation" to generation).also {
+    val generation = prefs.getLong(generationKey, 0)
+    ("${session.scope}.$hash.$generation" to generation).also {
       snapshotCache = Triple(session.scope, revision, it)
     }
   }
