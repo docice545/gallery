@@ -22,6 +22,7 @@ import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart'
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
 import 'package:immich_mobile/services/gcast.service.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:native_video_player/native_video_player.dart';
 
@@ -174,6 +175,7 @@ void main() {
     bool playbackPaused = false,
     bool isCurrent = true,
     VoidCallback? onPreviewCompleted,
+    bool injectController = true,
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -206,7 +208,9 @@ void main() {
     );
     // The native view is replaced by its normal unsupported-platform placeholder
     // on Linux. Inject the controller through the production ready callback.
-    tester.widget<NativeVideoPlayerView>(find.byType(NativeVideoPlayerView)).onViewReady!(controller);
+    if (injectController) {
+      tester.widget<NativeVideoPlayerView>(find.byType(NativeVideoPlayerView)).onViewReady!(controller);
+    }
     await tester.runAsync(() => pumpEventQueue());
     await tester.pump();
   }
@@ -235,6 +239,60 @@ void main() {
   Visibility nativeSurfaceVisibility(WidgetTester tester) => tester.widget<Visibility>(
     find.ancestor(of: find.byType(NativeVideoPlayerView), matching: find.byType(Visibility)),
   );
+
+  testWidgets('Android platform view is actually created and loads while the still is visible', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final nativeCalls = <MethodCall>[];
+    final channels = <MethodChannel>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform_views,
+      (call) async {
+        if (call.method == 'create') {
+          final args = call.arguments as Map;
+          final channel = MethodChannel('me.albemala.native_video_player.api.${args['id']}');
+          channels.add(channel);
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+            call,
+          ) async {
+            nativeCalls.add(call);
+            if (call.method == 'getVideoInfo') {
+              return {'height': 720, 'width': 1280, 'duration': 2000};
+            }
+            if (call.method == 'setVolume' || call.method == 'setLoop' || call.method == 'setPlaybackSpeed') {
+              return true;
+            }
+            if (call.method == 'getPlaybackPosition') {
+              return 0;
+            }
+            return null;
+          });
+        }
+        if (call.method == 'resize') {
+          return {'width': 150.0, 'height': 150.0};
+        }
+        return null;
+      },
+    );
+    try {
+      await mountPreview(tester, injectController: false);
+      await tester.pump();
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump();
+      expect(channels, hasLength(1), reason: 'hidden still-first presentation must not prevent native view creation');
+      expect(nativeCalls.map((c) => c.method), contains('loadVideoSource'));
+      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      final loadIndex = nativeCalls.indexWhere((c) => c.method == 'loadVideoSource');
+      expect(nativeCalls.take(loadIndex).any((c) => c.method == 'setVolume' && c.arguments == 0.0), isTrue);
+      expect(nativeCalls.take(loadIndex).any((c) => c.method == 'setLoop' && c.arguments == false), isTrue);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    } finally {
+      for (final channel in channels) {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+      }
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 
   for (final portrait in [false, true]) {
     testWidgets('${portrait ? 'portrait' : 'landscape'} matched timeline canvas reveals one muted motion pass', (
@@ -674,7 +732,14 @@ void main() {
   });
 
   testWidgets('native playback errors release the preview and suppress late readiness', (tester) async {
+    final playing = Completer<void>();
+    when(() => controller.play()).thenAnswer((_) async {
+      calls.add('play');
+      status.value = PlaybackStatus.playing;
+      playing.complete();
+    });
     await mountPreview(tester);
+    await tester.runAsync(() => playing.future.timeout(const Duration(seconds: 3)));
     error.value = 'decoder failure';
     ready.notifyListeners();
     ended.notifyListeners();
@@ -881,5 +946,62 @@ void main() {
     expect(calls, isNot(contains('play')));
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('runtime stages distinguish source, native readiness and natural end without media identity', (
+    tester,
+  ) async {
+    final records = <String>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.INFO;
+    final listener = Logger('NativeVideoViewer').onRecord.listen((record) => records.add(record.message));
+    final playing = Completer<void>();
+    when(() => controller.play()).thenAnswer((_) async {
+      calls.add('play');
+      status.value = PlaybackStatus.playing;
+      playing.complete();
+    });
+    try {
+      await mountPreview(tester);
+      await tester.runAsync(() => playing.future.timeout(const Duration(seconds: 3)));
+      ended.notifyListeners();
+      await tester.pump();
+      expect(records, containsAll(['Timeline motion: selected', 'Timeline motion: platform-view-created']));
+      expect(records, contains('Timeline motion: source:explicit-local'));
+      expect(records, contains('Timeline motion: native-ready:1920x1080'));
+      expect(records, contains('Timeline motion: play-request-accepted'));
+      expect(records, contains('Timeline motion: finished:ended'));
+      expect(records, isNot(contains('Timeline motion: finished:timeout')));
+      expect(records.join(), isNot(contains(filePath)));
+      expect(records.join(), isNot(contains(asset.id)));
+    } finally {
+      await tester.runAsync(listener.cancel);
+      Logger.root.level = previousLevel;
+      await tester.pumpWidget(const SizedBox());
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('source failure diagnostics omit filename, URL and exception details', (tester) async {
+    const privateDetail = 'private-name.jpg https://example.test/api?token=private-test-token';
+    when(() => assetService.getAsset(any())).thenThrow(StateError(privateDetail));
+    final records = <String>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.INFO;
+    final listener = Logger('NativeVideoViewer').onRecord.listen((record) => records.add(record.message));
+    try {
+      await mountPreview(tester);
+      expect(completions, 1);
+      expect(records, contains('Timeline motion: source-failed:StateError'));
+      expect(records, contains('Timeline motion: finished:source-unavailable'));
+      expect(records.join(), isNot(contains(privateDetail)));
+      expect(records.join(), isNot(contains(asset.name)));
+      expect(records.join(), isNot(contains('private-test-token')));
+    } finally {
+      await tester.runAsync(listener.cancel);
+      Logger.root.level = previousLevel;
+      await tester.pumpWidget(const SizedBox());
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 }

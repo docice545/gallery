@@ -13,6 +13,7 @@ import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart'
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/filter_sheet.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
+import 'package:logging/logging.dart';
 
 typedef LivePhotoPreviewBuilder = Widget Function(BaseAsset asset, VoidCallback onCompleted);
 
@@ -43,6 +44,8 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
   bool _scrolling = false;
   final Set<int> _pointers = {};
   bool _refreshScheduled = false;
+  final Map<String, String> _lastDiagnostics = {};
+  static final _log = Logger('TimelineLivePhoto');
   late bool _settingEnabled;
   late bool _selecting;
   late bool _filterSheetVisible;
@@ -137,6 +140,11 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
       final active =
           (_modalRoute?.isCurrent ?? true) && (_routeData?.isActive ?? true) && TickerMode.valuesOf(context).enabled;
       final enabled = _settingEnabled && !_selecting && !_filterSheetVisible && _foreground && active;
+      _traceDecision(
+        'state',
+        'enabled=$enabled setting=$_settingEnabled selecting=$_selecting '
+            'filter=$_filterSheetVisible foreground=$_foreground route=$active scrolling=$_scrolling',
+      );
       controller.setEnabled(enabled);
       // There is no active player while scrolling/touching. Defer geometry work
       // until settling so it does not compete with rendering the scroll frames.
@@ -149,6 +157,7 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
   void _measureTiles() {
     final scopeBox = context.findRenderObject();
     if (scopeBox is! RenderBox || !scopeBox.hasSize) {
+      _traceDecision('geometry', 'geometry-unavailable');
       controller.updateCandidates(const []);
       return;
     }
@@ -177,7 +186,22 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
         ),
       );
     }
+    final live = candidates.where((c) => c.asset.isImage && c.asset.isMotionPhoto);
+    // One record per changed settled measurement; no IDs, filenames or per-frame
+    // playback logs. Helps distinguish ineligibility from source/decoder failure.
+    _traceDecision(
+      'geometry',
+      'registered=${candidates.length} live=${live.length} '
+          'visible=${live.where((c) => c.visibleFraction >= livePhotoVisibilityThreshold).length}',
+    );
     controller.updateCandidates(candidates);
+  }
+
+  void _traceDecision(String name, String value) {
+    if (_lastDiagnostics[name] != value) {
+      _lastDiagnostics[name] = value;
+      _log.info('Timeline motion: $value');
+    }
   }
 
   bool _onScroll(ScrollNotification notification) {
@@ -367,6 +391,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
       // Consume only this viewport's reservation; never try the next live photo.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scope == scope) {
+          _TimelineLivePhotoScopeState._log.info('Timeline motion: skipped:still-geometry-unavailable');
           onCompleted();
         }
       });

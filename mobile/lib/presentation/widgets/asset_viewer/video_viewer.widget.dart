@@ -87,6 +87,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   bool _previewFinished = false;
   bool _previewForeground = true;
   bool _previewAttached = true;
+  bool _previewAdvanced = false;
   bool _isLoading = false;
   bool _resumeAfterPause = false;
   bool _playbackForeground = true;
@@ -129,7 +130,8 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     _playbackForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     if (widget.timelinePreview) {
-      _previewTimeout = Timer(const Duration(seconds: 8), _finishPreview);
+      _previewTrace('selected');
+      _previewTimeout = Timer(const Duration(seconds: 8), () => _finishPreview(reason: 'timeout'));
     }
     _videoSource = _createSource();
   }
@@ -139,6 +141,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (widget.timelinePreview) {
       // Pause before child platform-view disposal; later async source/load work is stale.
       _previewAttached = false;
+      _previewTrace('lease-revoked');
       unawaited(_attachedNotifier?.pause());
     }
     super.deactivate();
@@ -155,7 +158,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     super.didUpdateWidget(oldWidget);
 
     if (widget.timelinePreview && _isVideoReady && !_canPresentPreview) {
-      _finishPreview();
+      _finishPreview(reason: 'invalid-geometry');
       return;
     }
 
@@ -230,7 +233,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (widget.timelinePreview) {
       _previewForeground = state == AppLifecycleState.resumed;
       if (!_previewForeground) {
-        _finishPreview();
+        _finishPreview(reason: 'backgrounded');
       }
       return;
     }
@@ -274,6 +277,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
           throw Exception('No file found for the video');
         }
 
+        _previewTrace('source:explicit-local');
         return await VideoSource.init(
           path: CurrentPlatform.isAndroid ? file.uri.toString() : file.path,
           type: VideoSourceType.file,
@@ -315,6 +319,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
         // Pass a file:// URI so Android's Uri.parse doesn't
         // interpret characters like '#' as fragment identifiers.
+        _previewTrace('source:local-pair');
         return await VideoSource.init(
           path: CurrentPlatform.isAndroid ? file.uri.toString() : file.path,
           type: VideoSourceType.file,
@@ -343,15 +348,18 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       final String assetId = remoteAsset.livePhotoVideoId ?? remoteAsset.id;
       final String videoUrl = '$serverEndpoint/assets/$assetId/$postfixUrl';
 
+      _previewTrace('source:server-pair-playback');
       return await VideoSource.init(
         path: videoUrl,
         type: VideoSourceType.network,
         headers: ApiService.getRequestHeaders(),
       );
     } catch (error) {
-      _log.severe('Error creating video source for asset ${widget.asset.name}: $error');
       if (widget.timelinePreview) {
-        _finishPreview();
+        _previewTrace('source-failed:${error.runtimeType}');
+        _finishPreview(reason: 'source-unavailable');
+      } else {
+        _log.severe('Error creating video source for asset ${widget.asset.name}: $error');
       }
       return null;
     }
@@ -411,20 +419,23 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (widget.timelinePreview && !_canPresentPreview) {
       // Keep the sharp still visible. Complete this one-shot reservation rather
       // than expose a blurry or differently cropped native surface.
-      _finishPreview();
+      _finishPreview(reason: 'invalid-native-geometry');
       return;
     }
 
     setState(() => _isVideoReady = true);
 
     if (widget.timelinePreview) {
+      final info = _controller?.videoInfo;
+      _previewTrace('native-ready:${info?.width}x${info?.height}');
       try {
         if (_canPreview) {
           await _controller?.play();
+          _previewTrace('play-request-accepted');
         }
       } catch (error) {
-        _log.warning('Error playing timeline preview', error);
-        _finishPreview();
+        _previewTrace('play-failed:${error.runtimeType}');
+        _finishPreview(reason: 'play-failed');
       }
       return;
     }
@@ -459,11 +470,20 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     }
   }
 
-  void _finishPreview() {
+  /// Bounded stage logs: no filenames, IDs, URLs, pairing identifiers or tokens.
+  /// A native command acknowledgement is distinct from actual position progress.
+  void _previewTrace(String stage) {
+    if (widget.timelinePreview) {
+      _log.info('Timeline motion: $stage');
+    }
+  }
+
+  void _finishPreview({String reason = 'ended'}) {
     if (!mounted || !widget.timelinePreview || !_previewAttached || _previewFinished) {
       return;
     }
     _previewFinished = true;
+    _previewTrace('finished:$reason');
     _loadTimer?.cancel();
     _previewTimeout?.cancel();
     unawaited(_attachedNotifier?.pause());
@@ -475,13 +495,17 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
   void _onPlaybackError() {
     if (_controller?.onError.value != null) {
-      _finishPreview();
+      _finishPreview(reason: 'native-error');
     }
   }
 
   void _onPlaybackPositionChanged() {
     if (!mounted || (widget.timelinePreview && !_canPreview)) {
       return;
+    }
+    if (widget.timelinePreview && !_previewAdvanced && (_controller?.playbackInfo?.position ?? 0) > 0) {
+      _previewAdvanced = true;
+      _previewTrace('position-advanced');
     }
     _notifier.onNativePositionChanged();
   }
@@ -514,7 +538,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (source == null || !mounted || (widget.timelinePreview && !_canPreview)) {
       _isLoading = false;
       if (source == null && widget.timelinePreview) {
-        _finishPreview();
+        _finishPreview(reason: 'source-unavailable');
       }
       return;
     }
@@ -532,9 +556,10 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
         }
         _previewConfigured = true;
         await nc.loadVideoSource(source);
+        _previewTrace('native-load-accepted');
       } catch (error) {
-        _log.warning('Error loading timeline preview', error);
-        _finishPreview();
+        _previewTrace('load-failed:${error.runtimeType}');
+        _finishPreview(reason: 'load-failed');
       } finally {
         _isLoading = false;
       }
@@ -569,6 +594,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     }
 
     _controller = nc;
+    _previewTrace('platform-view-created');
 
     if (widget.isCurrent) {
       unawaited(_loadVideo());
