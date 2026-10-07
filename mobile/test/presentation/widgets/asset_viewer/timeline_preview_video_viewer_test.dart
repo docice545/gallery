@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -57,6 +58,8 @@ void main() {
   late ValueNotifier<String?> error;
   late List<String> calls;
   late int completions;
+  late Completer<void> sourceStarted;
+  late Completer<void> sourceCompleted;
   late Drift db;
   const wakelockChannel = 'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle';
 
@@ -117,6 +120,8 @@ void main() {
     error = ValueNotifier(null);
     calls = [];
     completions = 0;
+    sourceStarted = Completer<void>();
+    sourceCompleted = Completer<void>();
     controller = _MockVideoController();
     when(() => controller.onPlaybackReady).thenReturn(ready);
     when(() => controller.onPlaybackEnded).thenReturn(ended);
@@ -128,6 +133,9 @@ void main() {
     when(() => controller.playbackInfo).thenAnswer((_) => _PlaybackInfo(status.value));
     when(() => controller.setVolume(any())).thenAnswer((invocation) async {
       calls.add('volume:${invocation.positionalArguments.single}');
+      if (!sourceStarted.isCompleted) {
+        sourceStarted.complete();
+      }
     });
     when(() => controller.setLoop(any())).thenAnswer((invocation) async {
       calls.add('loop:${invocation.positionalArguments.single}');
@@ -162,6 +170,17 @@ void main() {
     );
   });
 
+  Future<void> waitForFixture(WidgetTester tester, bool Function() completed, String reason) async {
+    final elapsed = Stopwatch()..start();
+    while (!completed() && elapsed.elapsed < const Duration(seconds: 3)) {
+      // Real file IO and fake-zone continuations both need a turn. Awaiting a
+      // fixture Completer inside runAsync alone cannot flush those continuations.
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump();
+    }
+    expect(completed(), isTrue, reason: reason);
+  }
+
   Future<void> mountPreview(
     WidgetTester tester, {
     String? sourcePath,
@@ -176,6 +195,7 @@ void main() {
     bool isCurrent = true,
     VoidCallback? onPreviewCompleted,
     bool injectController = true,
+    bool waitForSource = true,
   }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -197,6 +217,9 @@ void main() {
               showControls: false,
               onPreviewCompleted: () {
                 completions++;
+                if (!sourceCompleted.isCompleted) {
+                  sourceCompleted.complete();
+                }
                 onPreviewCompleted?.call();
               },
               previewIsActive: previewIsActive,
@@ -210,6 +233,15 @@ void main() {
     // on Linux. Inject the controller through the production ready callback.
     if (injectController) {
       tester.widget<NativeVideoPlayerView>(find.byType(NativeVideoPlayerView)).onViewReady!(controller);
+    }
+    if (injectController && waitForSource) {
+      // Local source checks perform real IO. Wait for a native configuration
+      // boundary or explicit source failure before flushing playback microtasks.
+      await waitForFixture(
+        tester,
+        () => sourceStarted.isCompleted || sourceCompleted.isCompleted,
+        'source must configure the native player or report its failure',
+      );
     }
     await tester.runAsync(() => pumpEventQueue());
     await tester.pump();
@@ -244,6 +276,7 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final nativeCalls = <MethodCall>[];
     final channels = <MethodChannel>[];
+    final loaded = Completer<void>();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform_views,
       (call) async {
@@ -255,6 +288,9 @@ void main() {
             call,
           ) async {
             nativeCalls.add(call);
+            if (call.method == 'loadVideoSource' && !loaded.isCompleted) {
+              loaded.complete();
+            }
             if (call.method == 'getVideoInfo') {
               return {'height': 720, 'width': 1280, 'duration': 2000};
             }
@@ -275,12 +311,17 @@ void main() {
     );
     try {
       await mountPreview(tester, injectController: false);
+      await waitForFixture(
+        tester,
+        () => loaded.isCompleted,
+        'the actual platform channel must accept its media source',
+      );
       await tester.pump();
       await tester.runAsync(() => pumpEventQueue());
       await tester.pump();
       expect(channels, hasLength(1), reason: 'hidden still-first presentation must not prevent native view creation');
       expect(nativeCalls.map((c) => c.method), contains('loadVideoSource'));
-      expect(nativeSurfaceVisibility(tester).visible, isFalse);
+      expect(nativeSurfaceVisibility(tester).visible, isTrue);
       final loadIndex = nativeCalls.indexWhere((c) => c.method == 'loadVideoSource');
       expect(nativeCalls.take(loadIndex).any((c) => c.method == 'setVolume' && c.arguments == 0.0), isTrue);
       expect(nativeCalls.take(loadIndex).any((c) => c.method == 'setLoop' && c.arguments == false), isTrue);
@@ -293,6 +334,82 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  for (final timelinePreview in [true, false]) {
+    testWidgets(
+      timelinePreview
+          ? 'timeline submits its Android surface for painting before readiness, without autoplaying early'
+          : 'ordinary viewer keeps its Android surface unpainted before readiness',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final nativeCalls = <MethodCall>[];
+        final channels = <MethodChannel>[];
+        final loaded = Completer<void>();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform_views,
+          (call) async {
+            if (call.method == 'create') {
+              final args = call.arguments as Map;
+              final channel = MethodChannel('me.albemala.native_video_player.api.${args['id']}');
+              channels.add(channel);
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+                call,
+              ) async {
+                nativeCalls.add(call);
+                if (call.method == 'loadVideoSource' && !loaded.isCompleted) {
+                  loaded.complete();
+                }
+                if (call.method == 'setVolume' || call.method == 'setLoop' || call.method == 'setPlaybackSpeed') {
+                  return true;
+                }
+                return null;
+              });
+            }
+            if (call.method == 'resize') {
+              return {'width': 150.0, 'height': 150.0};
+            }
+            // Null create response selects real hybrid-composition rendering.
+            return null;
+          },
+        );
+        try {
+          await mountPreview(tester, timelinePreview: timelinePreview, injectController: false);
+          await waitForFixture(
+            tester,
+            () => loaded.isCompleted,
+            'the actual platform channel must accept its media source',
+          );
+          await tester.pump();
+          await tester.runAsync(() => pumpEventQueue());
+          await tester.pump();
+          expect(channels, hasLength(1));
+          expect(nativeCalls.map((call) => call.method), contains('loadVideoSource'));
+          expect(nativeCalls.map((call) => call.method), isNot(contains('play')));
+          expect(
+            find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.blue),
+            findsOneWidget,
+          );
+          expect(
+            tester.layers.whereType<PlatformViewLayer>(),
+            timelinePreview ? hasLength(1) : isEmpty,
+            reason: timelinePreview
+                ? 'Android SurfaceView needs a painted platform layer to establish its native decode surface'
+                : 'the timeline handshake must not change normal viewer presentation',
+          );
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          if (!timelinePreview) {
+            container.dispose();
+          }
+          await tester.pump();
+          for (final channel in channels) {
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+          }
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+  }
 
   for (final portrait in [false, true]) {
     testWidgets('${portrait ? 'portrait' : 'landscape'} matched timeline canvas reveals one muted motion pass', (
@@ -591,7 +708,21 @@ void main() {
 
   testWidgets('a memory video becoming non-current while backgrounded never resumes on foreground', (tester) async {
     asset = asset.copyWith(type: .video, livePhotoVideoId: null);
+    final firstPlayback = Completer<void>();
+    when(() => controller.play()).thenAnswer((_) async {
+      calls.add('play');
+      status.value = PlaybackStatus.playing;
+      if (!firstPlayback.isCompleted) {
+        firstPlayback.complete();
+      }
+    });
     await mountPreview(tester, timelinePreview: false);
+    // File.exists and source creation perform real IO. Establish this test's
+    // playing precondition before the menu/background transition, rather than
+    // assume pumpEventQueue has already completed that IO under suite load.
+    await waitForFixture(tester, () => firstPlayback.isCompleted, 'the memory must be playing before its menu opens');
+    await tester.pump();
+    expect(calls.where((call) => call == 'play'), hasLength(1));
     final acknowledgement = Completer<void>();
     when(() => controller.pause()).thenAnswer((_) async {
       calls.add('pending-pause');
@@ -764,7 +895,7 @@ void main() {
   testWidgets('removal while muting prevents subsequent load and autoplay', (tester) async {
     final muted = Completer<void>();
     when(() => controller.setVolume(any())).thenAnswer((_) => muted.future);
-    await mountPreview(tester);
+    await mountPreview(tester, waitForSource: false);
     ready.notifyListeners();
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
@@ -797,7 +928,7 @@ void main() {
   testWidgets('a stale source cannot load or play after the preview is removed', (tester) async {
     final pendingAsset = Completer<BaseAsset?>();
     when(() => assetService.getAsset(any())).thenAnswer((_) => pendingAsset.future);
-    await mountPreview(tester);
+    await mountPreview(tester, waitForSource: false);
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
     pendingAsset.complete(asset);

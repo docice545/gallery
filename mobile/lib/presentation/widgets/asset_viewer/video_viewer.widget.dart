@@ -487,9 +487,8 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     _loadTimer?.cancel();
     _previewTimeout?.cancel();
     unawaited(_attachedNotifier?.pause());
-    if (_isVideoReady) {
-      setState(() => _isVideoReady = false);
-    }
+    // Finishing before readiness also changes whether the native surface paints.
+    setState(() => _isVideoReady = false);
     widget.onPreviewCompleted?.call();
   }
 
@@ -613,7 +612,13 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
         children: [
           if (!_isVideoReady || widget.asset.isMotionPhoto || isCasting) Center(child: widget.image),
           if (!isCasting) ...[
-            Visibility.maintain(visible: _isVideoReady, child: _buildNativeSurface()),
+            // Android hybrid composition needs a painted SurfaceView to prepare
+            // the decoder. The native container stays transparent before its
+            // first frame; iOS and ordinary viewers keep their existing ready gate.
+            Visibility.maintain(
+              visible: _isVideoReady || (widget.timelinePreview && CurrentPlatform.isAndroid && !_previewFinished),
+              child: _buildNativeSurface(),
+            ),
             if (!widget.timelinePreview)
               Center(
                 child: AnimatedOpacity(
