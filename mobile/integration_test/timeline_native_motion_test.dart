@@ -92,7 +92,13 @@ void main() {
     final stages = <String>[];
     final previousLevel = Logger.root.level;
     Logger.root.level = Level.INFO;
-    final events = Logger('NativeVideoViewer').onRecord.listen((record) => stages.add(record.message));
+    final events = Logger('NativeVideoViewer').onRecord.listen((record) {
+      // With hierarchical logging disabled this stream includes other loggers.
+      // Capture only the bounded stages designed for anonymous playback diagnosis.
+      if (record.loggerName == 'NativeVideoViewer' && record.message.startsWith('Timeline motion: ')) {
+        stages.add(record.message);
+      }
+    });
     var advanced = false;
     final observedStates = <String>{};
     String diagnostics() =>
