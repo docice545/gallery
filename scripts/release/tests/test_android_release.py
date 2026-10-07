@@ -21,6 +21,47 @@ HEAD = "a" * 40
 
 
 class AndroidReleaseGuards(unittest.TestCase):
+    def test_release_build_regenerates_mode_specific_plugins(self):
+        command = release.apk_build_command("5.7.2", 6)
+        self.assertEqual(command[:3], ["flutter", "build", "apk"])
+        self.assertIn("--release", command)
+        self.assertIn("--pub", command)
+        self.assertNotIn("--no-pub", command)
+
+    def test_dependency_snapshot_ignores_generated_timestamp_but_not_packages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            mobile = Path(temporary)
+            config = mobile / ".dart_tool/package_config.json"
+            config.parent.mkdir()
+            (mobile / "pubspec.lock").write_text("locked dependency versions")
+            package = {
+                "name": "plugin",
+                "rootUri": "file:///existing-cache/plugin/",
+                "packageUri": "lib/",
+                "languageVersion": "3.13",
+            }
+            config.write_text(
+                json.dumps({"generated": "before", "packages": [package]})
+            )
+            before = release.dependency_snapshot(mobile)
+            config.write_text(json.dumps({"generated": "after", "packages": [package]}))
+            self.assertEqual(before, release.dependency_snapshot(mobile))
+            package["rootUri"] = "file:///different-cache/plugin/"
+            config.write_text(json.dumps({"generated": "after", "packages": [package]}))
+            self.assertNotEqual(before, release.dependency_snapshot(mobile))
+
+    def test_dependency_snapshot_rejects_changed_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            mobile = Path(temporary)
+            config = mobile / ".dart_tool/package_config.json"
+            config.parent.mkdir()
+            config.write_text(json.dumps({"packages": []}))
+            lock = mobile / "pubspec.lock"
+            lock.write_text("tested versions")
+            before = release.dependency_snapshot(mobile)
+            lock.write_text("different versions")
+            self.assertNotEqual(before, release.dependency_snapshot(mobile))
+
     def test_expected_sha_must_be_full(self):
         with patch.object(release, "run") as run:
             with self.assertRaisesRegex(release.ReleaseError, "40-character"):
@@ -41,21 +82,61 @@ class AndroidReleaseGuards(unittest.TestCase):
         with patch.object(
             release,
             "run",
-            side_effect=["work\n", HEAD, " M mobile/lib/user-work.dart\n"],
+            side_effect=[
+                "work\n",
+                HEAD,
+                "https://github.com/docice545/gallery.git",
+                " M mobile/lib/user-work.dart\n",
+            ],
         ) as run:
             with self.assertRaisesRegex(release.ReleaseError, "not clean"):
                 release.repository_check(Path("/unused"), HEAD)
-            self.assertEqual(len(run.call_args_list), 3)
+            self.assertEqual(len(run.call_args_list), 4)
             self.assertTrue(
                 all(
-                    call.args[0][1] in {"branch", "rev-parse", "status"}
+                    call.args[0][1] in {"branch", "rev-parse", "remote", "status"}
                     for call in run.call_args_list
                 )
             )
 
     def test_matching_clean_repository_is_accepted(self):
-        with patch.object(release, "run", side_effect=["work\n", HEAD, ""]):
+        with patch.object(
+            release,
+            "run",
+            side_effect=[
+                "work\n",
+                HEAD,
+                "https://github.com/docice545/gallery.git",
+                "",
+            ],
+        ):
             release.repository_check(Path("/unused"), HEAD)
+
+    def test_supported_https_and_ssh_origins(self):
+        for origin in (
+            "https://github.com/docice545/gallery.git",
+            "git@github.com:docice545/gallery.git",
+        ):
+            with (
+                self.subTest(origin=origin),
+                patch.object(release, "run", side_effect=["work", HEAD, origin, ""]),
+            ):
+                release.repository_check(Path("/unused"), HEAD)
+
+    def test_wrong_or_credential_bearing_origin_fails_without_echoing_it(self):
+        for origin in (
+            "https://github.com/unrelated/gallery.git",
+            "https://private-token@github.com/docice545/gallery.git",
+        ):
+            with (
+                self.subTest(origin=origin),
+                patch.object(release, "run", side_effect=["work", HEAD, origin]),
+            ):
+                with self.assertRaises(release.ReleaseError) as error:
+                    release.repository_check(Path("/unused"), HEAD)
+                self.assertIn("docice545/gallery", str(error.exception))
+                self.assertNotIn("private-token", str(error.exception))
+                self.assertNotIn(origin, str(error.exception))
 
     def test_sdk_environment_must_agree(self):
         with self.assertRaisesRegex(release.ReleaseError, "disagree"):

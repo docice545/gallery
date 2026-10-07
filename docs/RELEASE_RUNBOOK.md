@@ -82,6 +82,16 @@ JUnit suite → release APK → фактические package/version/certifica
 кода не запускает production DB migrations. Native emulator CI остаётся отдельным
 доказательством; HP-команда не выдаёт его за физический Samsung тест.
 
+После native tests выполняется ещё один `flutter pub get --enforce-lockfile`,
+затем APK строится со штатным `--pub`. Это необходимо для Flutter 3.47:
+`--no-pub` пропускает mode-specific plugin registrant regeneration и оставляет
+`integration_test` после debug/integration сборки, хотя release Gradle уже
+исключает dev-only plugin. Стандартная Flutter release regeneration сама
+исключает этот plugin; integration tests и dependencies не удаляются. SHA-256
+lockfile и нормализованный resolved package graph проверяются до/после refresh
+и после build. Изменение versions/paths/packages запрещает успешный handoff;
+generated timestamp package_config не считается изменением dependency graph.
+
 Build lock исключает одновременные Android release builds. В случае повторного
 запуска уже завершённый artifact заново проверяется и возвращается с `PASS REUSED`;
 это не заявляет повторного выполнения tests. Незавершённую сборку можно повторить;

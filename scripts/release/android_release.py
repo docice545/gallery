@@ -32,6 +32,7 @@ STAGES = [
     "flutter-analyze",
     "flutter-tests",
     "android-native-tests",
+    "release-locked-dependencies",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 GRADLE_REPORT = "mobile/android/build/reports/problems/problems-report.html"
@@ -59,6 +60,37 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+def dependency_snapshot(mobile: Path) -> tuple[str, str]:
+    """Ignore config timestamps, but retain the tested resolved package graph."""
+    config = json.loads((mobile / ".dart_tool/package_config.json").read_text())
+    packages = sorted(
+        [
+            {
+                key: package.get(key)
+                for key in ("name", "rootUri", "packageUri", "languageVersion")
+            }
+            for package in config["packages"]
+        ],
+        key=lambda package: package["name"],
+    )
+    graph = hashlib.sha256(json.dumps(packages, sort_keys=True).encode()).hexdigest()
+    return digest(mobile / "pubspec.lock"), graph
+
+
+def apk_build_command(name: str, number: int) -> list[str]:
+    # Flutter 3.47 skips release-mode registrant regeneration with --no-pub.
+    # Normal --pub refresh removes dev-only plugins after native integration tests.
+    return [
+        "flutter",
+        "build",
+        "apk",
+        "--release",
+        f"--build-name={name}",
+        f"--build-number={number}",
+        "--pub",
+    ]
+
+
 def repository_check(root: Path, expected: str) -> None:
     if not re.fullmatch(r"[0-9a-f]{40}", expected):
         raise ReleaseError(
@@ -69,6 +101,14 @@ def repository_check(root: Path, expected: str) -> None:
     if run(["git", "rev-parse", "HEAD"], root).strip() != expected:
         raise ReleaseError(
             "HEAD differs from --expected-head; no fetch/merge/reset is performed"
+        )
+    origin = run(["git", "remote", "get-url", "origin"], root).strip()
+    if origin.removesuffix(".git") not in {
+        "https://github.com/docice545/gallery",
+        "git@github.com:docice545/gallery",
+    }:
+        raise ReleaseError(
+            "origin must identify docice545/gallery on GitHub; credentials are not printed"
         )
     if run(["git", "status", "--porcelain"], root).strip():
         raise ReleaseError(
@@ -125,7 +165,7 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
             print(f"FAIL {name}: {error}")
 
     check(
-        "reviewed HEAD / work / clean working tree",
+        "reviewed repository / HEAD / work / clean working tree",
         lambda: repository_check(root, expected),
     )
     check(
@@ -412,6 +452,17 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
         )
         restore_owned_report(root, original_report, apk.parent)
         repository_check(root, expected)
+        tested_dependencies = dependency_snapshot(mobile)
+        stage(
+            "release-locked-dependencies",
+            ["flutter", "pub", "get", "--enforce-lockfile"],
+            mobile,
+        )
+        if dependency_snapshot(mobile) != tested_dependencies:
+            raise ReleaseError(
+                "locked release refresh changed the tested dependency graph"
+            )
+        repository_check(root, expected)
         source_apk = mobile / "build/app/outputs/flutter-apk/app-release.apk"
         # Never accept an old APK if Flutter fails to emit a new artifact.
         if source_apk.exists():
@@ -422,21 +473,15 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
             os.replace(source_apk, previous)
         stage(
             "apk-build",
-            [
-                "flutter",
-                "build",
-                "apk",
-                "--release",
-                f"--build-name={version_name(root)}",
-                f"--build-number={number}",
-                "--no-pub",
-            ],
+            apk_build_command(version_name(root), number),
             mobile,
         )
         if not source_apk.is_file():
             raise ReleaseError(
                 "Flutter did not produce a fresh APK; stale output rejected"
             )
+        if dependency_snapshot(mobile) != tested_dependencies:
+            raise ReleaseError("release build changed the tested dependency graph")
         restore_owned_report(root, original_report, apk.parent)
         repository_check(root, expected)
         if signing_stats(root) != before_keys:

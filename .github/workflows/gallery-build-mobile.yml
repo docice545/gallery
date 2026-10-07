@@ -203,7 +203,13 @@ jobs:
             exit 1
           fi
           version_name="$(awk -F'[ +]' '/^version:/ {print $2}' pubspec.yaml)"
-          flutter build apk --release --target-platform android-arm64 --build-name="$version_name" --build-number=6 --no-pub
+          # Native tests generate the debug registrant, including dev plugins.
+          # Flutter 3.47 requires its normal pub-enabled release preparation to
+          # regenerate that registrant for the release-only Gradle classpath.
+          flutter pub get --enforce-lockfile
+          lock_sha="$(sha256sum pubspec.lock)"
+          flutter build apk --release --target-platform android-arm64 --build-name="$version_name" --build-number=6
+          test "$lock_sha" = "$(sha256sum pubspec.lock)"
           apk=build/app/outputs/flutter-apk/app-release.apk
           test -s "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
