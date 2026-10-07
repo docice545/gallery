@@ -193,7 +193,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: mobile
-          script: flutter test --no-pub integration_test/timeline_native_motion_test.dart -d emulator-5554 --reporter expanded
+          script: bash scripts/android_native_motion_test.sh
       - name: Build release-mode validation APK (CI debug certificate)
         working-directory: mobile
         run: |
