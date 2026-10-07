@@ -37,6 +37,14 @@ indexing/historical warmup. Smart Search's default `not-locked` visibility is
 broader than Photos; external requests must explicitly choose their intended
 timeline/Trash policy instead of assuming a server version number defines it.
 
+`SmartInfoService.handleEncodeClip` also has an explicit **ordinary-video** path:
+probe, sample representative frames (eight for duration ≥2 s), encode through the
+existing local ML service and combine embeddings. `AssetJobRepository.streamForEncodeClip`
+does not impose a photo-only type filter; hidden assets are skipped. Missing preview,
+probe/frame/ML failures can leave no embedding. Existing `smart-info.service.spec.ts`
+tests cover video success, duration edges, sampling and failures. This is evidence
+of code support, **not** a measurement of production video embedding coverage.
+
 ## Existing VAAPI work, preserved
 
 The task added in `30b2d01b41` records `h264_vaapi` with
@@ -67,6 +75,8 @@ Anna/chudo_anna's album/media migration is **complete and closed**.
    ordinary photo, ordinary source video and hidden Live/Motion companion:
    collected → eligible → planned → JSON accepted → resolved → rendered;
    per-stage exclusion reasons and final manifest asset types.
+   Include existing-embedding/preview availability and visibility for ordinary
+   source videos already in those sets; do not regenerate embeddings to obtain it.
 4. That job's generated plan/validated JSON with anonymous asset IDs,
    renderer command/filter graph, stderr/fallback reason and actual output
    ffprobe summary. This localises video exclusion without making up statistics.
