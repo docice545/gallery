@@ -45,3 +45,6 @@
 -keep class okio.** { *; }
 -keep class com.example.ok_http.** { *; }
 ##---------------End: proguard configuration for ok_http JNI ----------
+
+# Shizuku creates this fixed AIDL service by its manifest-independent class name.
+-keep class app.alextran.immich.cloudmedia.CloudAdmissionService { *; }
