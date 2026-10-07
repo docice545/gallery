@@ -159,7 +159,22 @@ jobs:
           install -m 644 "$wrapper/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
       - name: Native Kotlin/AIDL/streaming policy tests
         working-directory: mobile/android
-        run: ./gradlew :app:testDebugUnitTest --console=plain
+        run: |
+          if ./gradlew :app:testDebugUnitTest --console=plain; then
+            exit 0
+          fi
+          # Keep the real failure visible without requiring artifact access just
+          # to obtain JUnit's full cause (Gradle's default console truncates it).
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          for path in Path('../build/app/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              for case in ET.parse(path).getroot().findall('testcase'):
+                  for failure in case.findall('failure'):
+                      print(case.get('classname'), case.get('name'), failure.get('message'))
+                      print(failure.text or '')
+          PY
+          exit 1
       - name: Shared Flutter regression tests
         working-directory: mobile
         run: |

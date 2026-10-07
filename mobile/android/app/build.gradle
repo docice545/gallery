@@ -95,7 +95,9 @@ dependencies {
   implementation "dev.rikka.shizuku:api:13.1.5"
   implementation "dev.rikka.shizuku:provider:13.1.5"
   testImplementation "junit:junit:4.13.2"
-  testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
+  // maplibre_gl already selects OkHttp 5.4.0 in the Android graph. A 4.x
+  // MockWebServer uses removed OkHttp internals and cannot run against it.
+  testImplementation "com.squareup.okhttp3:mockwebserver:5.4.0"
   implementation libs.okhttp
   implementation libs.cronet.embedded
   implementation libs.media3.datasource.okhttp
