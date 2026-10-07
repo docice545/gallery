@@ -140,6 +140,9 @@ jobs:
           distribution: zulu
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          # The action's legacy default asks for the removed SDK package "tools".
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - name: Full locked code generation
         run: bash mobile/scripts/android_media_codegen.sh
       - name: Native Kotlin/AIDL/streaming policy tests
