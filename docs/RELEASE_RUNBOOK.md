@@ -6,6 +6,20 @@ VPN/AWG/Xray/DNS и не повторяет закрытую миграцию An
 сборка с постоянным Android ключом не выполнялась: **PREPARED / NEEDS_HP_VALIDATION**.
 Прохождение CI/dev проверок не означает физическую проверку S23/iPhone.
 
+## Проверенный CI handoff: 5.7.2 build 6
+
+| Platform                             | Успешный run / source SHA                                                                                                           | Artifact                                               | SHA-256 файла внутри artifact                                      |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| Android, release-mode / CI debug key | [37656011448](https://github.com/docice545/gallery/actions/runs/37656011448), attempt 2; `17fc9ede3b934b76617e3c03f70109ff33d6d38b` | `android-media-pilot-validation-apk`, ID `11501431124` | `07c82ca3b90decb4df005f1d273c473a161a5339a03e59334fd056dad39fbf82` |
+| iOS, unsigned / Xcode 26.2           | [37661916279](https://github.com/docice545/gallery/actions/runs/37661916279); `102559e9d887c1defdb1d9037b0b691fb3d75371`            | `ios-unsigned-ipa`, ID `11500939142`                   | `24b453f4a7a4e15094e7bed6e1dd095ce617fac384d110f92b4d31684dff089c` |
+
+`ios-unsigned-archive` — ID `11501298710`. Это SHA файлов APK/IPA,
+не SHA внешних artifact ZIP. Native/archive verification выполнены в CI;
+локальное скачивание в Codex заблокировано storage allowlist. Команды ниже
+используются на обычной сети оператора. APK из CI не устанавливать поверх
+HP-key-signed приложения: для него нужен HP build из раздела 3.
+Финальный documentation HEAD брать из итогового handoff отдельно от source SHA.
+
 ## 1. Зафиксировать проверенный исходный commit
 
 Используйте полный SHA из итогового handoff, а не автоматически выбранный
@@ -183,8 +197,8 @@ python3 mobile/scripts/release/ios_unsigned.py dispatch \
 значением `git rev-parse HEAD` автоматически.
 
 ```bash
-export GALLERY_IOS_SOURCE_HEAD='<EXACT_SUCCESSFUL_IOS_RUN_SOURCE_SHA>'
-python3 mobile/scripts/release/ios_unsigned.py fetch --run '<SUCCESSFUL_RUN_ID>' \
+export GALLERY_IOS_SOURCE_HEAD=102559e9d887c1defdb1d9037b0b691fb3d75371
+python3 mobile/scripts/release/ios_unsigned.py fetch --run 37661916279 \
   --expected-commit "$GALLERY_IOS_SOURCE_HEAD" \
   --version 5.7.2 --build 6 --output "$GALLERY_RELEASE_DIR/ios"
 ```
@@ -317,13 +331,13 @@ run ID и исходный artifact должны соответствовать 
    включая reboot и восстановление после неудачного refresh. Автоматизация iOS
    не гарантирует продление при любой сети/состоянии устройства.
 
-| Tool                                               | Проверено здесь                                                             | Реальный release gate                                                           |
-| -------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Android `android_release.py`                       | guards/failure/idempotency tests, read-only preflight                       | **PREPARED BUT NEEDS HP VALIDATION**: постоянный ключ доступен только на HP     |
-| Existing unsigned iOS workflow + `ios_unsigned.py` | metadata/provenance/guards tests                                            | Финальный macOS run и artifact фиксируются в handoff; physical install отдельно |
-| `prepare_sidestore.py`                             | deterministic mapping, safe ZIP/staging, check-only и mocked codesign tests | **PREPARED BUT NEEDS MACOS AND PHYSICAL IPHONE VALIDATION**                     |
-| Server deployment/rollback                         | Server изменений нет                                                        | **NOT REQUIRED**                                                                |
-| Memories/VAAPI setup/rollback                      | External runtime не изменён                                                 | **NOT REQUIRED**                                                                |
+| Tool                                               | Проверено здесь                                                               | Реальный release gate                                                        |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Android `android_release.py`                       | guards/failure/idempotency tests, read-only preflight                         | **PREPARED BUT NEEDS HP VALIDATION**: постоянный ключ доступен только на HP  |
+| Existing unsigned iOS workflow + `ios_unsigned.py` | metadata/provenance/guards tests; actual macOS build and archive verification | **TESTED** in CI; Cloud download policy and physical install remain separate |
+| `prepare_sidestore.py`                             | deterministic mapping, safe ZIP/staging, check-only и mocked codesign tests   | **PREPARED BUT NEEDS MACOS AND PHYSICAL IPHONE VALIDATION**                  |
+| Server deployment/rollback                         | Server изменений нет                                                          | **NOT REQUIRED**                                                             |
+| Memories/VAAPI setup/rollback                      | External runtime не изменён                                                   | **NOT REQUIRED**                                                             |
 
 Повторяемые тесты tooling:
 
