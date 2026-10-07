@@ -112,7 +112,11 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
         if (call.method == "disable") {
           CloudMediaCatalog(requireNotNull(context)).setEnabled(null)
           CloudMediaChanges.changed()
-          if (!hasPermission()) { runOperation("status", result); return }
+          val journalPending = requireNotNull(context).getSharedPreferences("gallery.cloudmedia", Context.MODE_PRIVATE)
+            .contains("recoveryJournal")
+          if (!journalPending || !shizukuReady()) { runOperation("status", result); return }
+          // If shell is running but permission was revoked, request it below
+          // for this explicit recovery. Opt-out has already taken effect.
         }
         if (!shizukuReady()) { result.error("shizukuUnavailable", "Start wireless Shizuku first", null); return }
         if (!hasPermission()) {
