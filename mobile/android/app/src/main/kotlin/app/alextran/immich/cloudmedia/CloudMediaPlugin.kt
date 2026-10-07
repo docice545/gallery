@@ -144,11 +144,13 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
               val session = catalog.session(false) ?: throw IllegalStateException("signedOut")
               val inspected = remote.inspect()
               check(!cancelled.get() && attached) { "cancelled" }
+              // Validate feature/enforcement even when our owned override already
+              // contains the package and no new privileged write is necessary.
+              val journal = CloudAdmissionPolicy.plan(inspected.snapshot(), ctx.packageName, inspected.getString("selectedPackage"))
               val existingJournal = prefs.getString("recoveryJournal", null)?.let { decodeJournal(it) }
               if (existingJournal != null) {
                 check(CloudAdmissionPolicy.verifyAdmitted(inspected.snapshot(), existingJournal.written)) { "externallyChanged" }
               } else {
-                val journal = CloudAdmissionPolicy.plan(inspected.snapshot(), ctx.packageName, inspected.getString("selectedPackage"))
                 if (journal != null) {
                   // Durable BEFORE the privileged mutation. Lost Binder reply,
                   // cancellation or process death cannot lose recovery ownership.

@@ -12,6 +12,13 @@ internal object CloudAdmissionPolicy {
   private val packageName = Regex("[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)+")
   const val GOOGLE_PHOTOS = "com.google.android.apps.photos"
 
+  // println adds one terminator. Preserve actual flag whitespace for exact undo.
+  fun commandValue(stdout: String): String = stdout.removeSuffix("\n").removeSuffix("\r")
+
+  fun verifyOverrideSnapshot(listed: List<String>, raw: String?, effective: String?): Boolean =
+    listed.size <= 1 && listed.isNotEmpty() == (raw != null) &&
+      (raw == null || (raw == effective && listed.single().substringAfter('=') == raw))
+
   fun requireCaller(processUid: Int, callingUid: Int, ownerUid: Int, api: Int, lifecycle: Boolean = false) {
     if (processUid != 2000 || (callingUid != ownerUid && !(lifecycle && callingUid == 2000))) {
       throw SecurityException("Wireless shell service and application owner are required")
@@ -21,6 +28,7 @@ internal object CloudAdmissionPolicy {
 
   fun packages(value: String?): List<String> {
     require((value?.length ?: 0) <= 8192) { "Allowlist exceeds supported size" }
+    require(value?.any { it == '\n' || it == '\r' || it == '\u0000' } != true) { "Unsupported multiline allowlist" }
     if (value.isNullOrBlank()) return emptyList()
     return value.split(',').map { it.trim() }.also { parts ->
       require(parts.all { packageName.matches(it) }) { "Unsupported allowlist format" }

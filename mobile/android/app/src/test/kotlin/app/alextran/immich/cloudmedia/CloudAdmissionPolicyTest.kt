@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CloudAdmissionPolicyTest {
+  @Test fun commandValuePreservesFlagWhitespaceForExactUndo() {
+    assertEquals(" a.b,b.c ", CloudAdmissionPolicy.commandValue(" a.b,b.c \n"))
+    assertEquals("", CloudAdmissionPolicy.commandValue("\n"))
+    assertEquals("a.b", CloudAdmissionPolicy.commandValue("a.b\r\n"))
+  }
+  @Test fun independentRawPresenceMustAgreeWithOverrideListing() {
+    val row = "mediaprovider/allowed_cloud_providers= a.b,b.c "
+    assertTrue(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row), " a.b,b.c ", " a.b,b.c "))
+    assertTrue(CloudAdmissionPolicy.verifyOverrideSnapshot(emptyList(), null, "a.b"))
+    assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(emptyList(), "a.b", "a.b"))
+    assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row), null, "a.b"))
+    assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row), " a.b,b.c ", "different.value"))
+    assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row, row), " a.b,b.c ", " a.b,b.c "))
+    assertThrows(IllegalArgumentException::class.java) { CloudAdmissionPolicy.packages("a.b,\nc.d") }
+  }
   private val own = "de.opennoodle.gallery"
   private fun state(value: String? = "com.google.android.apps.photos,com.example.cloud", present: Boolean = false) =
     AdmissionSnapshot(value, present, if (present) value else null, "true", "true", null, 0)

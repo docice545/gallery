@@ -63,7 +63,7 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     val stderr = output(process.errorStream)
     try {
       if (!process.waitFor(8, TimeUnit.SECONDS)) throw IOException("Admission command timed out")
-      val out = stdout.get(1, TimeUnit.SECONDS).trim()
+      val out = CloudAdmissionPolicy.commandValue(stdout.get(1, TimeUnit.SECONDS))
       val err = stderr.get(1, TimeUnit.SECONDS).trim()
       if (cancelled || process.exitValue() != 0 || err.isNotEmpty() ||
         Regex("(?im)^(error|exception|permission denial|unknown command)[: ]").containsMatchIn(out)) {
@@ -84,11 +84,14 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     }
     val overrides = command("/system/bin/device_config", "list_local_overrides").lineSequence()
       .filter { it.startsWith("mediaprovider/allowed_cloud_providers=") }.toList()
-    check(overrides.size <= 1) { "Inconsistent local override" }
-    val previousOverride = if (overrides.isEmpty()) null else command("/system/bin/device_config", "get",
-      "device_config_overrides", "mediaprovider:allowed_cloud_providers")
+    // Read raw presence independently. An OEM list-format difference must not
+    // make an existing override look absent and allow destructive clear/undo.
+    val previousOverride = command("/system/bin/device_config", "get",
+      "device_config_overrides", "mediaprovider:allowed_cloud_providers").takeUnless { it == "null" }
     val effective = get("allowed_cloud_providers")
-    if (overrides.isNotEmpty()) check(previousOverride == effective) { "Local override is not applied consistently" }
+    check(CloudAdmissionPolicy.verifyOverrideSnapshot(overrides, previousOverride, effective)) {
+      "Local override presence/value is not applied consistently"
+    }
     val selectedOutput = command("/system/bin/content", "call", "--uri", "content://media", "--method", "get_cloud_provider")
     check(selectedOutput.contains("get_cloud_provider_result=")) { "Unable to inspect selected provider" }
     val selected = Regex("get_cloud_provider_result=([^,} ]+)").find(selectedOutput)?.groupValues?.get(1)
