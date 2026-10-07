@@ -9,6 +9,11 @@ name: Gallery Build Mobile
 on:
   workflow_dispatch:
     inputs:
+      android_media_pilot:
+        description: 'Verify Android media on an emulator and retain a validation APK. No production signing, store upload or deployment.'
+        required: false
+        type: boolean
+        default: false
       refresh_ios_pods_lock:
         description: 'Maintenance only: regenerate CocoaPods lock on macOS into a review branch; no build/signing.'
         required: false
@@ -38,6 +43,10 @@ on:
           - ios
   workflow_call:
     inputs:
+      android_media_pilot:
+        required: false
+        type: boolean
+        default: false
       refresh_ios_pods_lock:
         required: false
         type: boolean
@@ -103,6 +112,89 @@ concurrency:
 permissions: {}
 
 jobs:
+  verify-android-media:
+    name: Android media pilot (no publishing)
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'docice545/gallery' && inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && inputs.build_target == 'android' && inputs.version == '' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Mise
+        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Setup pinned Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version-file: ./mobile/pubspec.yaml
+          cache: true
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Full locked code generation
+        run: bash mobile/scripts/android_media_codegen.sh
+      - name: Native Kotlin/AIDL/streaming policy tests
+        working-directory: mobile/android
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+      - name: Shared Flutter regression tests
+        working-directory: mobile
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+      - name: Enable emulator KVM on this disposable CI runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-gallery-ci-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Actual Android native timeline playback
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: mobile
+          script: flutter test --no-pub integration_test/timeline_native_motion_test.dart -d emulator-5554 --reporter expanded
+      - name: Build release-mode validation APK (CI debug certificate)
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          if [[ -e android/key.jks || -e android/key.properties ]]; then
+            echo '::error::Production signing material is forbidden in the validation lane.'
+            exit 1
+          fi
+          version_name="$(awk -F'[ +]' '/^version:/ {print $2}' pubspec.yaml)"
+          flutter build apk --release --target-platform android-arm64 --build-name="$version_name" --build-number=6 --no-pub
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$RUNNER_TEMP/gallery-apk-badging.txt"
+          sed -n '1,3p' "$RUNNER_TEMP/gallery-apk-badging.txt"
+          sha256sum "$apk"
+          echo '::notice::Validation APK uses the disposable CI debug certificate. It cannot update the HP release-key installation. Rebuild on HP with the existing foto key for the S23 pilot.'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-media-pilot-validation-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: android-media-pilot-native-tests
+          path: |
+            mobile/build/app/reports/tests/testDebugUnitTest/
+            mobile/build/app/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+
   refresh-ios-pods-lock:
     name: Regenerate iOS CocoaPods lock for review
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'docice545/gallery' && inputs.refresh_ios_pods_lock && inputs.build_target == 'ios' && inputs.version == '' }}
@@ -177,7 +269,7 @@ jobs:
     permissions:
       contents: read
     # Skip when PR from a fork
-    if: ${{ !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
+    if: ${{ !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
     environment: mobile-build
     runs-on: ubuntu-latest
 
@@ -416,7 +508,7 @@ jobs:
     name: Verify or explicitly release iOS
     permissions:
       contents: read
-    if: ${{ !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
+    if: ${{ !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
     environment: mobile-build
     runs-on: macos-15
 
