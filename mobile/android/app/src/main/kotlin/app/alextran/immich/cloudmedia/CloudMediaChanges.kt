@@ -22,7 +22,11 @@ internal object CloudMediaChanges {
     if (Build.VERSION.SDK_INT >= 35) {
       // Collection ID + canonical query changes, including logout, force picker
       // resync. No account/media identifiers or credentials are logged.
-      runCatching { MediaStore.notifyCloudMediaChangedEvent(ctx.contentResolver, "${ctx.packageName}.cloudmedia") }
+      runCatching {
+        val catalog = CloudMediaCatalog(ctx)
+        val collection = catalog.session()?.let { catalog.collection(it).first } ?: "disabled"
+        MediaStore.notifyCloudMediaChangedEvent(ctx.contentResolver, "${ctx.packageName}.cloudmedia", collection)
+      }
     }
   }
 
