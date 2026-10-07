@@ -46,10 +46,14 @@ void main() {
     await SettingsRepository.instance.write(SettingsKey.timelineAutoplayLivePhotos, true);
     await NetworkApi().setRequestHeaders({'X-Gallery-Smoke': 'true'}, [endpoint], token);
     var authorizedReads = 0;
+    var rejectedReads = 0;
+    var rangeReads = 0;
+    var servedBytes = 0;
     final serving = server.listen((request) async {
       if (!request.uri.path.endsWith('/video/playback') ||
           request.headers.value('X-Gallery-Smoke') != 'true' ||
           !(request.headers.value('Cookie') ?? '').contains('immich_access_token=$token')) {
+        rejectedReads++;
         request.response.statusCode = 403;
         await request.response.close();
         return;
@@ -59,6 +63,7 @@ void main() {
       var end = bytes.length - 1;
       final range = request.headers.value('Range');
       if (range != null) {
+        rangeReads++;
         final match = RegExp(r'bytes=(\d+)-(\d*)').firstMatch(range);
         if (match != null) {
           start = int.parse(match[1]!);
@@ -73,6 +78,7 @@ void main() {
       request.response.headers.set('Accept-Ranges', 'bytes');
       request.response.contentLength = end - start + 1;
       request.response.add(bytes.sublist(start, end + 1));
+      servedBytes += end - start + 1;
       await request.response.close();
     });
     final assets = [
@@ -88,6 +94,13 @@ void main() {
     Logger.root.level = Level.INFO;
     final events = Logger('NativeVideoViewer').onRecord.listen((record) => stages.add(record.message));
     var advanced = false;
+    final observedStates = <String>{};
+    String diagnostics() =>
+        'lifecycle=${binding.lifecycleState}; '
+        'authorizedReads=$authorizedReads; rejectedReads=$rejectedReads; '
+        'rangeReads=$rangeReads; servedBytes=$servedBytes; '
+        'observedStates=${observedStates.take(24).join(', ')}; '
+        'stages=${stages.take(40).join(' | ')}';
     try {
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -126,13 +139,20 @@ void main() {
         for (final asset in assets) {
           final state = container.read(timelinePreviewVideoPlayerProvider(asset.id));
           advanced = advanced || state.position > Duration.zero;
+          observedStates.add(
+            '${state.status.name}:${state.position.inMilliseconds}/${state.duration.inMilliseconds}ms',
+          );
         }
       }
-      expect(authorizedReads, greaterThan(0), reason: 'the authenticated native HTTP media source must actually open');
+      expect(
+        authorizedReads,
+        greaterThan(0),
+        reason: 'the authenticated native HTTP media source must actually open; ${diagnostics()}',
+      );
       expect(
         advanced,
         isTrue,
-        reason: 'native decoded playback position must advance, not just a mocked ready callback',
+        reason: 'native decoded playback position must advance, not just a mocked ready callback; ${diagnostics()}',
       );
       expect(stages.where((stage) => stage == 'Timeline motion: selected'), hasLength(1));
       expect(stages.where((stage) => stage == 'Timeline motion: finished:ended'), hasLength(1));
@@ -146,6 +166,9 @@ void main() {
       );
       expect(stages.where((stage) => stage == 'Timeline motion: finished:ended'), hasLength(1));
     } finally {
+      // Bounded synthetic diagnostics must survive a failed assertion in CI.
+      // Do not print request URLs, headers, tokens or production asset IDs.
+      debugPrint('Native timeline smoke: ${diagnostics()}', wrapWidth: 1024);
       await tester.pumpWidget(const SizedBox());
       await events.cancel();
       Logger.root.level = previousLevel;
