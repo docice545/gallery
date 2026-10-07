@@ -1,6 +1,7 @@
 """Offline release-tool regressions; no Xcode, Apple provisioning or install claim."""
 
 import argparse
+import json
 import plistlib
 import shutil
 import stat
@@ -302,6 +303,25 @@ class SideStoreSeedTests(IpaFixture):
 
 
 class WorkflowProvenanceTests(unittest.TestCase):
+    def cached_output(self, root, **changes):
+        output = root / "release"
+        output.mkdir()
+        ipa = output / "Photos-unsigned.ipa"
+        ipa.write_bytes(b"cached-content-hash-fixture")
+        receipt = {
+            "repository": ios_unsigned.REPOSITORY,
+            "commit": COMMIT,
+            "run_id": 123,
+            "artifact_name": ios_unsigned.ARTIFACT,
+            "artifact_id": 42,
+            "version": "5.7.2",
+            "build": "6",
+            "sha256": ios_artifact.sha256(ipa),
+            **changes,
+        }
+        (output / "release-manifest.json").write_text(json.dumps(receipt))
+        return output
+
     def responses(self, *, paid="skipped", sha=COMMIT, artifact=True):
         return [
             {
@@ -438,6 +458,77 @@ class WorkflowProvenanceTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "checksum"),
             ):
                 ios_unsigned.fetch(123, COMMIT, output, "5.7.2", "6")
+
+    def test_dispatch_retry_reuses_verified_original_run_without_new_ci(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = self.cached_output(Path(temporary))
+            with (
+                patch.object(ios_unsigned, "preflight") as preflight,
+                patch.object(ios_unsigned, "api", side_effect=self.responses()),
+                patch.object(ios_unsigned, "dispatch") as launch,
+            ):
+                result = ios_unsigned.dispatch_or_reuse(
+                    COMMIT, wait=True, output=output, version="5.7.2", build="6"
+                )
+            launch.assert_not_called()
+            preflight.assert_called_once_with(COMMIT)
+            self.assertEqual(result["run_id"], 123)
+            self.assertIn("already exists", result["status"])
+
+    def test_dispatch_retry_rejects_wrong_receipt_before_new_ci(self):
+        for changes in (
+            {"commit": "b" * 40},
+            {"version": "5.7.1"},
+            {"sha256": "0" * 64},
+            {"run_id": True},
+        ):
+            with (
+                self.subTest(changes=changes),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                output = self.cached_output(Path(temporary), **changes)
+                before = (output / "Photos-unsigned.ipa").read_bytes()
+                with (
+                    patch.object(ios_unsigned, "preflight"),
+                    patch.object(ios_unsigned, "dispatch") as launch,
+                    patch.object(ios_unsigned, "api") as api,
+                    self.assertRaises(ValueError),
+                ):
+                    ios_unsigned.dispatch_or_reuse(
+                        COMMIT, wait=True, output=output, version="5.7.2", build="6"
+                    )
+                launch.assert_not_called()
+                api.assert_not_called()
+                self.assertEqual((output / "Photos-unsigned.ipa").read_bytes(), before)
+
+    def test_dispatch_retry_still_requires_successful_unsigned_remote_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = self.cached_output(Path(temporary))
+            with (
+                patch.object(ios_unsigned, "preflight"),
+                patch.object(
+                    ios_unsigned, "api", side_effect=self.responses(paid="success")
+                ),
+                patch.object(ios_unsigned, "dispatch") as launch,
+                self.assertRaisesRegex(ValueError, "Paid"),
+            ):
+                ios_unsigned.dispatch_or_reuse(
+                    COMMIT, wait=True, output=output, version="5.7.2", build="6"
+                )
+            launch.assert_not_called()
+
+    def test_dispatch_existing_unowned_output_fails_without_new_ci(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            with (
+                patch.object(ios_unsigned, "preflight"),
+                patch.object(ios_unsigned, "dispatch") as launch,
+                self.assertRaisesRegex(ValueError, "no owned"),
+            ):
+                ios_unsigned.dispatch_or_reuse(
+                    COMMIT, wait=True, output=output, version="5.7.2", build="6"
+                )
+            launch.assert_not_called()
 
 
 if __name__ == "__main__":

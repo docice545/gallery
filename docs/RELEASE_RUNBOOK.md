@@ -10,6 +10,10 @@ VPN/AWG/Xray/DNS и не повторяет закрытую миграцию An
 
 Используйте полный SHA из итогового handoff, а не автоматически выбранный
 последний HEAD. Номер версии APK сам по себе не доказывает commit сборки.
+В handoff различаются **итоговый checkout HEAD** и **source SHA конкретного CI
+artifact**. Если после сборки добавлен только отчёт, SHA этого документационного
+commit не подменяет source SHA уже готовых APK/IPA. Scripts проверяют точное
+значение, а не эквивалентность исходного кода между commits.
 
 ```bash
 set -euo pipefail
@@ -140,6 +144,9 @@ Postflight сверяет реальный application ID/version/certificate, s
 **не может обновить установленное HP release-key приложение**. Используйте
 проверенный HP `Foto.apk`, устанавливайте поверх существующего приложения без
 удаления данных. APK, keys, `key.properties` и profiles не коммитить.
+У CI APK source SHA берётся из соответствующего Actions run; у нового HP APK —
+из его `manifest.json`, где он обязан совпасть с `GALLERY_EXPECTED_HEAD`.
+Более поздний commit только с отчётом не меняет provenance старого CI APK.
 
 Физический S23 / Android 16 / One UI 8.5: проверить сохранение session/data,
 Trash после stale sync/restart, Library Albums late preview и hide/reorder/reset,
@@ -167,21 +174,35 @@ python3 mobile/scripts/release/ios_unsigned.py preflight \
 python3 mobile/scripts/release/ios_unsigned.py dispatch \
   --expected-commit "$GALLERY_EXPECTED_HEAD" --wait \
   --version 5.7.2 --build 6 --output "$GALLERY_RELEASE_DIR/ios"
+```
 
-# Если этот точный run уже успешен, повторный build не нужен: получить его artifact.
+Если точный unsigned run из handoff уже успешен, **пропустить dispatch** и
+загрузить его artifact следующим блоком. `GALLERY_IOS_SOURCE_HEAD` — полный
+`head_sha` этого run; он может отличаться от итогового checkout HEAD, если после
+сборки был добавлен только проверенный документационный отчёт. Не заменять его
+значением `git rev-parse HEAD` автоматически.
+
+```bash
+export GALLERY_IOS_SOURCE_HEAD='<EXACT_SUCCESSFUL_IOS_RUN_SOURCE_SHA>'
 python3 mobile/scripts/release/ios_unsigned.py fetch --run '<SUCCESSFUL_RUN_ID>' \
-  --expected-commit "$GALLERY_EXPECTED_HEAD" \
+  --expected-commit "$GALLERY_IOS_SOURCE_HEAD" \
   --version 5.7.2 --build 6 --output "$GALLERY_RELEASE_DIR/ios"
 ```
 
 Успех должен включать настоящую macOS/Xcode compilation, archive verification
 всех трёх bundles и `ios-unsigned-archive` / `ios-unsigned-ipa`; missing artifact
 является failure. Не использовать старый run/версию за новый release.
-Точный новый run/HEAD/artifact/digest фиксируется в итоговом handoff. Download
+Точный новый run/source SHA/artifact/digest и итоговый checkout HEAD фиксируются
+отдельно в handoff. `release-manifest.json.commit` содержит source SHA IPA,
+не более поздний HEAD документационного отчёта. Download
 проверяет provenance/run SHA, отсутствие paid steps, package metadata всех
 трёх targets, ASCII base names и русскую localization. На выходе:
 `Photos-unsigned.ipa`, `.sha256`, `release-manifest.json`. Недоступность download
 или native artifact — честный failure; сборка не заменяется другой IPA.
+Повторный `dispatch --wait --output` с уже готовым handoff проверяет тот же
+checkout, receipt/version/build/hash и исходный успешный run, затем возвращает
+существующий artifact без нового CI запуска. Чужой, повреждённый или
+несоответствующий output останавливает команду до dispatch.
 
 Обычная unsigned IPA сохраняет Runner + ShareExtension + WidgetExtension.
 Последующий бесплатный SideStore/LocalDevVPN этап выполняется на физическом

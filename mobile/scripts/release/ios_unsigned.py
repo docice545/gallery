@@ -273,6 +273,57 @@ def fetch(run_id: int, expected: str, output: Path, version: str, build: str) ->
         return result
 
 
+def dispatch_or_reuse(
+    expected: str,
+    *,
+    wait: bool,
+    output: Path | None,
+    version: str | None,
+    build: str | None,
+) -> dict:
+    if output is not None and (output.exists() or output.is_symlink()):
+        # Retry the one-command handoff without spending another CI run and
+        # then rejecting a valid artifact's earlier run ID. Keep strict proof.
+        preflight(expected)
+        if output.is_symlink():
+            raise ValueError("Release output directory must not be a symlink")
+        manifest = output / "release-manifest.json"
+        if not manifest.is_file() or manifest.is_symlink():
+            raise ValueError(
+                "Existing output has no owned release receipt; no new workflow dispatched"
+            )
+        prior = json.loads(manifest.read_text())
+        if not isinstance(prior, dict) or any(
+            prior.get(key) != value
+            for key, value in {
+                "repository": REPOSITORY,
+                "commit": expected,
+                "artifact_name": ARTIFACT,
+                "version": version,
+                "build": build,
+            }.items()
+        ):
+            raise ValueError(
+                "Existing output receipt identity differs; no new workflow dispatched"
+            )
+        run_id = prior.get("run_id")
+        if (
+            type(run_id) is not int
+            or run_id <= 0
+            or prior.get("sha256") != sha256(output / "Photos-unsigned.ipa")
+        ):
+            raise ValueError(
+                "Existing output receipt/checksum is invalid; no new workflow dispatched"
+            )
+        return fetch(run_id, expected, output, version, build)
+    run_id = dispatch(expected, wait=wait)
+    return (
+        fetch(run_id, expected, output, version, build)
+        if output is not None
+        else {"run_id": run_id, "artifact_name": ARTIFACT}
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="operation", required=True)
@@ -316,13 +367,12 @@ def main() -> None:
         elif args.operation == "dispatch":
             if args.output and (not args.wait or not args.version or not args.build):
                 raise ValueError("dispatch --output requires --wait --version --build")
-            run_id = dispatch(args.expected_commit, wait=args.wait)
-            result = (
-                fetch(
-                    run_id, args.expected_commit, args.output, args.version, args.build
-                )
-                if args.output
-                else {"run_id": run_id, "artifact_name": ARTIFACT}
+            result = dispatch_or_reuse(
+                args.expected_commit,
+                wait=args.wait,
+                output=args.output,
+                version=args.version,
+                build=args.build,
             )
         elif args.operation == "fetch":
             result = fetch(
