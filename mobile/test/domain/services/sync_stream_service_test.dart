@@ -12,6 +12,7 @@ import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
@@ -396,9 +397,12 @@ void main() {
         await simulateEvents([incoming]);
         expect((await context.db.select(context.db.remoteAssetEntity).getSingle()).deletedAt, isNotNull);
 
+        await RemoteAssetRepository(context.db).restoreTrash(['remote-1']);
+        expect((await context.db.select(context.db.remoteAssetEntity).getSingle()).deletedAt, isNull);
         when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
         await simulateEvents([incoming]);
         expect((await context.db.select(context.db.remoteAssetEntity).getSingle()).deletedAt, isNull);
+        expect(await realRepository.getRestoreCandidates({'remote-1': 'owner'}), isEmpty);
         verify(() => assetsApi.getAssetInfo('remote-1')).called(2);
       });
     }

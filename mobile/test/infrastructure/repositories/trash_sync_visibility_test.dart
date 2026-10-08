@@ -336,6 +336,10 @@ void main() {
     await sync.reset();
     final remote = RemoteAssetRepository(ctx.db);
     await remote.restoreAllTrash('owner');
+    // Restore is optimistic. Its retained identity remains until the server
+    // accepts the request, then the other owner's marker remains untouched.
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+    await remote.confirmRestoreAllTrash('owner');
     expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
     expect(await sync.getRestoreCandidates({'other-trash': 'other'}), hasLength(1));
     await sync.deleteAssetsV1([api.SyncAssetDeleteV1(assetId: 'other-trash')]);
@@ -343,6 +347,56 @@ void main() {
     await ctx.newUser(id: 'owner');
     await stream(payload(), v2: true);
     expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isFalse);
+  });
+
+  test('failed bulk restore after reset preserves the deletion date and blocks stale active replay', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    await sync.reset();
+    final remote = RemoteAssetRepository(ctx.db);
+
+    await remote.restoreAllTrash('owner');
+    expect(await remote.get('still'), isNull);
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+
+    await remote.rollbackRestoreAllTrash('owner');
+    await ctx.newUser(id: 'owner');
+    await stream(payload(), v2: true);
+
+    await expectPhotosEmpty();
+    await expectTrashVisible();
+    expect((await remote.get('still'))!.deletedAt, deletedAt);
+  });
+
+  test('optimistic single restore keeps its retained date through stale active sync', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    final remote = RemoteAssetRepository(ctx.db);
+
+    await remote.restoreTrash(['still']);
+    expect((await remote.get('still'))!.isTrashed, isFalse);
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+
+    await stream(payload(), v2: true);
+    await expectPhotosEmpty();
+    await expectTrashVisible();
+    expect((await remote.get('still'))!.deletedAt, deletedAt);
+  });
+
+  test('authoritative restore clears the retained tombstone after optimistic local restore', () async {
+    await stream(payload(trashDate: deletedAt), v2: true);
+    final remote = RemoteAssetRepository(ctx.db);
+
+    await remote.restoreTrash(['still']);
+    final candidate = (await sync.getRestoreCandidates({'still': 'owner'})).single;
+    expect((await remote.get('still'))!.isTrashed, isFalse);
+
+    await sync.confirmRestore(candidate);
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
+
+    await stream(payload(), v2: true);
+    expect(
+      (await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((a) => a.id),
+      ['still'],
+    );
   });
 
   test('reset metadata survives SQLite reopen without recreating inaccessible asset rows', () async {
@@ -400,12 +454,14 @@ void main() {
     await ctx.newUser(id: 'other');
     await ctx.newRemoteAsset(id: 'other-trash', ownerId: 'other', deletedAt: deletedAt);
     await remote.restoreTrash(['still']);
+    await remote.confirmRestoreTrash(['still']);
     await stream(payload(), v2: true);
     expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
       'still',
     ]);
     await remote.trash(['still']);
     await remote.restoreAllTrash('owner');
+    await remote.confirmRestoreAllTrash('owner');
     expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
       'still',
     ]);

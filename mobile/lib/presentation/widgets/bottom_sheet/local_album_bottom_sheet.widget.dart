@@ -42,10 +42,9 @@ class _LocalAlbumBottomSheetState extends ConsumerState<LocalAlbumBottomSheet> {
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: const <ActionColumnButton>[
+        .new(action: DeleteAction(source: .timeline)),
         .new(action: AssetDebugAction(source: .timeline)),
         .new(action: ShareAction(source: .timeline)),
-        .new(action: DeleteAction(source: .timeline)),
-        .new(action: CleanupLocalAction(source: .timeline)),
         .new(action: UploadAction(source: .timeline)),
       ],
       // #965: the same picker the main timeline offers. A selection here is local-only, and

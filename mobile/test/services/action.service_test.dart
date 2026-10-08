@@ -85,4 +85,39 @@ void main() {
       verify(() => remoteAssetRepository.updateRating(assetId, null)).called(1);
     });
   });
+
+  group('ActionService.restoreAllTrash', () {
+    const ownerId = 'owner';
+
+    test('restores local rows before the server and rolls back on failure', () async {
+      final calls = <String>[];
+      when(() => remoteAssetRepository.restoreAllTrash(ownerId)).thenAnswer((_) async => calls.add('local-restore'));
+      when(() => assetApiRepository.restoreAllTrash()).thenAnswer((_) async {
+        calls.add('server-restore');
+        throw Exception('offline');
+      });
+      when(() => remoteAssetRepository.rollbackRestoreAllTrash(ownerId))
+          .thenAnswer((_) async => calls.add('local-rollback'));
+
+      await expectLater(sut.restoreAllTrash(ownerId), throwsException);
+
+      expect(calls, ['local-restore', 'server-restore', 'local-rollback']);
+      verifyNever(() => remoteAssetRepository.confirmRestoreAllTrash(ownerId));
+    });
+
+    test('clears retained local tombstones only after the server accepts restore', () async {
+      final calls = <String>[];
+      when(() => remoteAssetRepository.restoreAllTrash(ownerId)).thenAnswer((_) async => calls.add('local-restore'));
+      when(() => assetApiRepository.restoreAllTrash()).thenAnswer((_) async {
+        calls.add('server-restore');
+        return 2;
+      });
+      when(() => remoteAssetRepository.confirmRestoreAllTrash(ownerId))
+          .thenAnswer((_) async => calls.add('clear-retained'));
+
+      await expectLater(sut.restoreAllTrash(ownerId), completion(2));
+
+      expect(calls, ['local-restore', 'server-restore', 'clear-retained']);
+    });
+  });
 }

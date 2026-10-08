@@ -15,17 +15,21 @@ import 'package:immich_mobile/services/toast.service.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 
-typedef _State = ({List<String> localIds, List<String> remoteIds, bool trash});
+typedef _State = ({List<String> localIds, List<String> localOnlyIds, List<String> remoteIds, bool trash});
 
 final _stateProvider = Provider.family.autoDispose<_State?, ActionSource>((ref, source) {
   final assets = ref.watch(assetsActionProvider(source));
   final authUserId = ref.watch(authUserProvider).id;
 
   final localIds = <String>[];
+  final localOnlyIds = <String>[];
   final ownedRemote = <RemoteAsset>[];
   for (final asset in assets) {
     if (asset.localId case final localId?) {
       localIds.add(localId);
+      if (asset.isLocalOnly) {
+        localOnlyIds.add(localId);
+      }
     }
     if (asset case final RemoteAsset remote when remote.ownerId == authUserId) {
       ownedRemote.add(remote);
@@ -41,7 +45,12 @@ final _stateProvider = Provider.family.autoDispose<_State?, ActionSource>((ref, 
   final trash =
       ownedRemote.isEmpty || (trashEnabled && !ownedRemote.every((asset) => asset.isTrashed || asset.isLocked));
 
-  return (localIds: localIds, remoteIds: ownedRemote.map((asset) => asset.id).toList(growable: false), trash: trash);
+  return (
+    localIds: localIds,
+    localOnlyIds: localOnlyIds,
+    remoteIds: ownedRemote.map((asset) => asset.id).toList(growable: false),
+    trash: trash,
+  );
 }, dependencies: [assetsActionProvider]);
 
 class DeleteAction extends AssetActionBuilder {
@@ -67,7 +76,7 @@ class DeleteAction extends AssetActionBuilder {
       return;
     }
 
-    final (:localIds, :remoteIds, :trash) = state;
+    final (:localIds, :localOnlyIds, :remoteIds, :trash) = state;
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
     final clearSelection = ref.read(clearSelectionProvider(source));
@@ -79,7 +88,7 @@ class DeleteAction extends AssetActionBuilder {
       if (remoteIds.isEmpty) {
         message = await _removeLocalAssets(context, ref, localIds);
       } else if (trash) {
-        message = await _moveToTrash(context, ref, remoteIds, localIds);
+        message = await _moveToTrash(context, ref, remoteIds, localOnlyIds);
         undo = .new(onUndo: () => assetService.restoreTrash(remoteIds));
       } else {
         message = await _deletePermanently(context, ref, remoteIds, localIds);
@@ -109,18 +118,22 @@ class DeleteAction extends AssetActionBuilder {
     BuildContext context,
     WidgetRef ref,
     List<String> remoteIds,
-    List<String> localIds,
+    List<String> localOnlyIds,
   ) async {
     final assetService = ref.read(assetServiceProvider);
-    if (localIds.isNotEmpty) {
-      await _cleanupLocalAssets(context, ref, localIds);
-      if (!context.mounted) {
-        return null;
-      }
-    }
-
+    // Moving a backed-up asset to server Trash must not delete its device
+    // original. Besides preserving a recoverable NAS/device copy, this avoids
+    // Android's MediaStore bulk-trash permission flow for an otherwise server
+    // operation (which is unreliable on some One UI releases). Device cleanup
+    // remains an explicit Free up space action in Settings.
     final message = context.t.trash_action_prompt(count: remoteIds.length);
     await assetService.trash(remoteIds);
+    // A device-only selection has no server Trash entry. Keep that path
+    // recoverable through the platform's local trash, while preserving local
+    // originals for every backed-up asset moved to server Trash.
+    if (localOnlyIds.isNotEmpty && context.mounted) {
+      await _cleanupLocalAssets(context, ref, localOnlyIds);
+    }
     return message;
   }
 

@@ -58,6 +58,7 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: <ActionColumnButton>[
+        .new(action: DeleteAction(source: .timeline)),
         const .new(action: AssetDebugAction(source: .timeline)),
         const .new(action: ShareAction(source: .timeline)),
         const .new(action: ShareLinkAction(source: .timeline)),
@@ -68,14 +69,12 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
         ],
         const .new(action: DownloadAction(source: .timeline)),
         if (ownsAlbum) ...const [
-          .new(action: DeleteAction(source: .timeline)),
           .new(action: EditDateTimeAction(source: .timeline)),
           .new(action: EditLocationAction(source: .timeline)),
           .new(action: LockAction(source: .timeline)),
           .new(action: StackAction(source: .timeline)),
           .new(action: ManageStackAction(source: .timeline)),
         ],
-        const .new(action: CleanupLocalAction(source: .timeline)),
         if (ownsAlbum) ...[
           ActionColumnButton(
             action: RemoveFromAlbumAction(source: .timeline, albumId: widget.album.id),

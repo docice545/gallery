@@ -59,9 +59,21 @@ class ActionService {
   }
 
   Future<int> restoreAllTrash(String userId) async {
-    final count = await _assetApiRepository.restoreAllTrash();
+    // Remove local tombstones first so every timeline stream reacts
+    // immediately. Keep retained identities until the server accepts the
+    // restore; they also cover cache resets where no remote row is present.
     await _remoteAssetRepository.restoreAllTrash(userId);
-    return count;
+    try {
+      final count = await _assetApiRepository.restoreAllTrash();
+      await _remoteAssetRepository.confirmRestoreAllTrash(userId);
+      return count;
+    } catch (error, stack) {
+      try {
+        await _remoteAssetRepository.rollbackRestoreAllTrash(userId);
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
+    }
   }
 
   Future<bool> updateDescription(String assetId, String description) async {

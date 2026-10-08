@@ -94,8 +94,18 @@ class AssetService {
       return;
     }
 
-    await _apiRepository.restoreTrash(remoteIds);
+    // Update Drift first so a user-initiated restore is reflected by every
+    // timeline immediately. If the request fails, put the local tombstone
+    // back with its original deletion date. Retain the marker until the
+    // server accepts the restore or sync verifies an ambiguous outcome.
     await _remoteRepository.restoreTrash(remoteIds);
+    try {
+      await _apiRepository.restoreTrash(remoteIds);
+      await _remoteRepository.confirmRestoreTrash(remoteIds);
+    } catch (error, stack) {
+      await _remoteRepository.rollbackRestoreTrash(remoteIds);
+      Error.throwWithStackTrace(error, stack);
+    }
   }
 
   Future<void> stack(String userId, List<String> remoteIds) async {
@@ -182,8 +192,17 @@ class AssetService {
       return;
     }
 
-    await _apiRepository.delete(remoteIds, false);
+    // Persist the local tombstone before waiting on the network. Timeline
+    // bucket queries are Drift streams, so this removes the assets from the
+    // visible timeline in the same transaction as the mutation. Keep that
+    // tombstone when the request errors: a timeout may mean the server already
+    // accepted Trash, and sync can verify an active response before clearing it.
     await _remoteRepository.trash(remoteIds);
+    try {
+      await _apiRepository.delete(remoteIds, false);
+    } catch (error, stack) {
+      Error.throwWithStackTrace(error, stack);
+    }
   }
 
   Future<void> delete(List<String> remoteIds) async {
@@ -191,6 +210,9 @@ class AssetService {
       return;
     }
 
+    // Permanent deletion cannot be rolled back from the local cache. Keep the
+    // server-first order so an offline/failed request never drops the only
+    // locally cached metadata before the backend confirms the operation.
     await _apiRepository.delete(remoteIds, true);
     await _remoteRepository.deleteAssets(remoteIds);
   }

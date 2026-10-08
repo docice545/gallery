@@ -96,14 +96,25 @@ void main() {
         verify(() => assetService.trash([mine.id])).called(1);
       });
 
-      testWidgets('trashes a merged asset and removes its device copy', (tester) async {
+      testWidgets('trashes a merged asset without deleting its device copy', (tester) async {
         final asset = owned(localId: 'local');
 
         await pumpDelete(tester, {asset});
         await tester.pumpAndSettle();
 
-        verify(() => cleanupService.deleteLocalAssets(['local'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssets(any()));
         verify(() => assetService.trash([asset.id])).called(1);
+      });
+
+      testWidgets('trashes backed-up assets while moving local-only selections to device Trash', (tester) async {
+        final backedUp = owned(localId: 'backed-up-local');
+        final localOnly = LocalAssetFactory.create(id: 'local-only');
+
+        await pumpDelete(tester, {backedUp, localOnly});
+        await tester.pumpAndSettle();
+
+        verify(() => assetService.trash([backedUp.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssets(['local-only'])).called(1);
       });
 
       testWidgets('offers an undo that restores the trashed assets', (tester) async {

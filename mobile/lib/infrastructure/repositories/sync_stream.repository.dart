@@ -331,7 +331,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       }
       final row = await (_db.remoteAssetEntity.select()..where((row) => row.id.equals(checked.id))).getSingleOrNull();
       if (row != null &&
-          (row.ownerId != checked.ownerId || row.checksum != checked.checksum || row.deletedAt != checked.deletedAt)) {
+          (row.ownerId != checked.ownerId ||
+              row.checksum != checked.checksum ||
+              (row.deletedAt != null && row.deletedAt != checked.deletedAt))) {
         return;
       }
       if (checked.retainedKey != null) {
@@ -393,6 +395,15 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     return result;
   }
 
+  Future<List<String>> getRetainedTrashIds(String ownerId) async {
+    final prefix = await _trashResetPrefix();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix$ownerId/%'))).get();
+    return [
+      for (final row in rows)
+        if (row.value != null) _decodeRetained(row.key, row.value!).id,
+    ];
+  }
+
   /// Only called after a successful explicit Restore/Delete API operation.
   /// Works during reset before the corresponding asset row is re-delivered.
   Future<void> clearRetainedTrash({Iterable<String>? ids, String? ownerId}) async {
@@ -409,21 +420,37 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     });
   }
 
-  Future<void> updateRetainedTrash(Iterable<String> ids, DateTime deletedAt) async {
+  Future<void> updateRetainedTrash(
+    Iterable<String> ids,
+    DateTime deletedAt, {
+    bool preserveExistingDates = false,
+  }) async {
     final endpoint = await _trashEndpoint();
     final prefix = await _trashResetPrefix();
     final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
     final wanted = ids.toSet();
     final identities = <String, ({String ownerId, String checksum})>{};
+    final deletionDates = <String, DateTime>{};
     for (final row in rows) {
       final state = _decodeRetained(row.key, row.value!);
       if (wanted.contains(state.id)) {
         identities[state.id] = (ownerId: state.ownerId, checksum: state.checksum);
+        deletionDates[state.id] = state.deletedAt;
       }
     }
-    final existing = await (_db.remoteAssetEntity.select()..where((row) => row.id.isIn(wanted))).get();
+    final wantedIds = wanted.toList(growable: false);
+    final existing = <RemoteAssetEntityData>[];
+    for (var start = 0; start < wantedIds.length; start += 500) {
+      final slice = wantedIds.skip(start).take(500);
+      existing.addAll(await (_db.remoteAssetEntity.select()..where((row) => row.id.isIn(slice))).get());
+    }
     for (final row in existing) {
-      identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
+      if (!preserveExistingDates || row.deletedAt != null) {
+        identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
+      }
+      if (row.deletedAt != null) {
+        deletionDates[row.id] = row.deletedAt!;
+      }
     }
     await _db.batch((batch) {
       for (final entry in identities.entries) {
@@ -437,12 +464,52 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
                 'id': entry.key,
                 'ownerId': entry.value.ownerId,
                 'checksum': entry.value.checksum,
-                'deletedAt': (deletedAt.millisecondsSinceEpoch ~/ 1000) * 1000,
+                'deletedAt': ((preserveExistingDates ? deletionDates[entry.key] ?? deletedAt : deletedAt)
+                        .millisecondsSinceEpoch ~/
+                    1000) *
+                    1000,
                 'revision': const Uuid().v4(),
               }),
             ),
           ),
           mode: InsertMode.insertOrReplace,
+        );
+      }
+    });
+  }
+
+  /// Reapply the retained server Trash state after an optimistic restore fails.
+  ///
+  /// A retained entry may already have been removed by an authoritative sync
+  /// check, which means the server confirmed the restore. In that case leave
+  /// the active local row alone. Missing rows remain protected by the retained
+  /// entry and will be reconciled when the server streams them again.
+  Future<void> restoreRetainedTrashRows({Iterable<String>? ids, String? ownerId}) async {
+    final prefix = await _trashResetPrefix();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    final allowedIds = ids?.toSet();
+    final snapshots = <AssetTrashSnapshot>[];
+    for (final row in rows) {
+      if (row.value == null) {
+        continue;
+      }
+      final snapshot = _decodeRetained(row.key, row.value!);
+      if ((ownerId == null || snapshot.ownerId == ownerId) &&
+          (allowedIds == null || allowedIds.contains(snapshot.id))) {
+        snapshots.add(snapshot);
+      }
+    }
+
+    await _db.batch((batch) {
+      for (final snapshot in snapshots) {
+        batch.update(
+          _db.remoteAssetEntity,
+          RemoteAssetEntityCompanion(deletedAt: Value(snapshot.deletedAt)),
+          where: (row) =>
+              row.id.equals(snapshot.id) &
+              row.ownerId.equals(snapshot.ownerId) &
+              row.checksum.equals(snapshot.checksum) &
+              row.deletedAt.isNull(),
         );
       }
     });
@@ -484,7 +551,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               mode: InsertMode.insertOrReplace,
               onConflict: DoUpdate(
                 (_) =>
-                    companion.copyWith(deletedAt: asset.deletedAt == null ? const Value.absent() : companion.deletedAt),
+                    companion.copyWith(
+                      deletedAt: asset.deletedAt == null && retained[asset.id] == null
+                          ? const Value.absent()
+                          : companion.deletedAt,
+                    ),
               ),
             );
           }
@@ -533,7 +604,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               mode: InsertMode.insertOrReplace,
               onConflict: DoUpdate(
                 (_) =>
-                    companion.copyWith(deletedAt: asset.deletedAt == null ? const Value.absent() : companion.deletedAt),
+                    companion.copyWith(
+                      deletedAt: asset.deletedAt == null && retained[asset.id] == null
+                          ? const Value.absent()
+                          : companion.deletedAt,
+                    ),
               ),
             );
           }
