@@ -269,7 +269,7 @@ was saved; this does not establish applied access. The diagnostic run compiled/i
 its assertion that native playback position advanced. Authentication opened the
 synthetic media, but native progress was false. `752d90a174` retains bounded
 state/source/load/readiness/completion diagnostics on failure without weakening
-that assertion; run `37605054032` is checking the same player. `e64f838d5b` filters
+that assertion; run `37605054032` retained the same real-player gate. `e64f838d5b` filters
 logging to the intended anonymous stage records. That run failed earlier in frozen Drift snapshot verification; its full log
 identified the serialization-order issue described above. Native paint regression
 was separately reproduced and corrected without weakening the real-player test.
@@ -305,9 +305,31 @@ locally: it removed that dev-only registration and left `pubspec.lock` unchanged
 `17fc9ede3b` updates CI and the HP release tool to perform frozen dependency
 refresh followed by normal pub-enabled release preparation. CI verifies that the
 lockfile remains unchanged; the HP tool also compares the tested resolved package
-graph. The next Android run is [`37656011448`](https://github.com/docice545/gallery/actions/runs/37656011448),
-at source `17fc9ede3b934b76617e3c03f70109ff33d6d38b`; it is still running.
-No successful release APK, certificate verification or APK SHA is claimed yet.
+graph. The Android gate subsequently passed in [run `37656011448`](https://github.com/docice545/gallery/actions/runs/37656011448),
+at source `17fc9ede3b934b76617e3c03f70109ff33d6d38b`, attempt **2**.
+Attempt 1 failed downloading a corrupted NDK ZIP; the same commit was retried
+without a dependency or source change. Attempt 2 completed in **35m 1s**:
+frozen codegen, native unit-test stage, Flutter analyze, **4,505 PASS / 1 SKIP**,
+actual native playback integration (**1 PASS**), release APK and both uploads
+all succeeded. The exact current native JUnit XML count could not be fetched;
+the stage itself passed. The previous run's verified 24-test count is retained
+separately above.
+
+The build log verifies `de.opennoodle.gallery`, **5.7.2 build 6**, compile SDK 36.
+Artifact **11501431124**, `android-media-pilot-validation-apk`, contains the
+ARM64 release-mode APK. The **APK file** SHA-256 is
+`07c82ca3b90decb4df005f1d273c473a161a5339a03e59334fd056dad39fbf82`.
+The CI debug certificate SHA-256 is
+`e0eb3f0537899459b605e1003e91e2d309ee081569c4c44f743c04d1870875d7`;
+it is not the HP `foto` certificate and cannot update that installation.
+The artifact **ZIP**, separately, is 50,852,792 bytes with digest
+`fcfd3545b4065a8675ff73993b93e0c5686ab92315006389b7762e718f7178c6`.
+Native reports were uploaded as `android-media-pilot-native-tests`, ID
+**11501665897**. Full official attempt-2 logs were retrieved; direct artifact
+and job-log storage redirects were denied by the current Cloud destination
+policy. No network/TLS bypass was used and no downloaded APK byte inspection
+is claimed. A narrow `productionresultssa8.blob.core.windows.net` addition was
+saved in the existing environment draft; publication/application remains separate.
 
 Two earlier CI setup failures were diagnosed and corrected without dependency
 upgrades: the SDK action's removed `tools` package, then the ignored Flutter Gradle
@@ -330,7 +352,7 @@ The new provider/admission implementation is Android-only. Shared Flutter loggin
 uses the existing logger; the new pre-ready paint exception is Android-only.
 iOS paired source, sharp face-aware timeline, native
 Pigeon/Swift contracts, targets, entitlements, bundle IDs and signing are unchanged.
-Shared tests pass. Any unsigned native iOS compile result must be reported separately;
+Shared tests and the subsequent real unsigned macOS build pass, as recorded below;
 no physical iPhone validation or signing is implied.
 
 ## Reproducible release tooling
@@ -361,7 +383,39 @@ rejecting its differing run ID. Wrong receipts/checksums fail before dispatch.
 The runbook distinguishes final checkout HEAD from each actual artifact source
 SHA. The latest iOS-related suite passes **86 tests**, and packaging passes
 **22 tests**; shell syntax, Python compilation, Ruff and Prettier pass.
-Native iOS compilation for this new handoff has not yet run.
+Unsigned iOS [run `37661916279`](https://github.com/docice545/gallery/actions/runs/37661916279)
+completed **SUCCESS**, exact source `102559e9d887c1defdb1d9037b0b691fb3d75371`.
+The actual runner was **macos-15-arm64 / macOS 15.7.9**, **Xcode 26.2 (17C52)**,
+Flutter 3.47.2. Full required codegen passed, including build_runner **353 outputs**.
+Frozen CocoaPods reported `Verifying no changes`, 28 dependencies / 30 pods.
+Xcode reported **ARCHIVE SUCCEEDED**. Archive verification retained
+Runner + ShareExtension + WidgetExtension, **5.7.2 (6)**, ASCII registration-facing
+base names and Russian launcher localization **Фото**. Paid credential/certificate/
+TestFlight steps were **SKIPPED**; strict release-tool provenance validation
+against the actual successful run passed.
+
+Artifacts: `ios-unsigned-archive`, ID **11501298710**, 129,374,539 bytes; outer ZIP
+SHA-256 `2e7bd859941a550b96a399f3d5439d894500d0ec648a9b6ad1a8279ba5e4a9a0`.
+`ios-unsigned-ipa`, ID **11500939142**, 32,854,445 bytes; outer ZIP SHA-256
+`4e691d8a0f5f06bf42a11ee6a27826369325a91bc68d7a3321f418f81e2f8899`.
+The **Photos-unsigned.ipa file** SHA-256 printed by the CI packager is
+`24b453f4a7a4e15094e7bed6e1dd095ce617fac384d110f92b4d31684dff089c`.
+This is an unsigned IPA requiring the separate user-side Personal Team/SideStore
+pilot. The official complete build log was retrieved. Artifact download in this
+Cloud environment was denied at `productionresultssa11.blob.core.windows.net`;
+no local IPA byte inspection, real seed codesign or physical installation is
+claimed. Host additions **8 and 11** were saved without replacing the existing
+allowlist/presets; the draft reports `requires_publish`, not applied access.
+Download/fetch can run from the operator's ordinary network, or be retried after
+the saved Cloud network configuration actually becomes active.
+
+Non-fatal generator warnings are recorded rather than hidden: two `JSON_EXTRACT`
+unknown-inferred-type diagnostics at `merged_asset.drift:198` and `:344` were
+introduced by the earlier Trash commit `176008c753d`, not by the release fix and
+not pre-existing before this task. SQL regression tests, codegen, Flutter analyze
+and native archives passed. Existing unchanged Swift Sendable/exhaustive-switch,
+plugin, ImageMagick and toolchain warnings also remain. No frozen verification
+was disabled to obtain the successful build.
 
 The release-fix Git push initially received repeated remote Internal Server Errors.
 Read-only/API diagnostics verified exact committed blobs/tree; a REST commit
@@ -389,3 +443,84 @@ auto-stack/Anna exclusion, VPN/AWG/Xray/DNS/nginx/Lampac were untouched.
 - **HP:** supply the existing external source and anonymized completed-job evidence
   before changing selection/rendering. Validate the already-deployed VAAPI path on
   selected fixtures without another historical analysis or unrelated service restart.
+
+## Final operator checks
+
+The latest read-only iOS preflight verified the clean `work` checkout and exact
+GitHub revision. Android preflight verified repository/version/SDK 36 and safely
+refused a production build because this cloud environment has neither the HP
+signing files nor Mise on PATH. No replacement keys were generated. The final
+Dart format check inspected **1,259 files, 0 changed**; Ruff, Prettier, Python
+compilation and shell syntax passed.
+
+## Commits and changed components
+
+The latest continuation starts at `04f2e1ecf6ccb8b460383ee8a3fd37bfafc50748`.
+Its implementation commits are `17fc9ede3b` (release registrant/locked refresh)
+and `ab0d0205c3` (idempotent unsigned handoff); `102559e9d8` preserves the
+validation record. The final evidence update is documentation-only. Exact
+artifact source SHAs are recorded above and do not become the later report HEAD.
+
+Changed files in this latest continuation:
+
+- `.github/workflows/gallery-build-mobile.yml`
+- `scripts/release/android_release.py`
+- `scripts/release/tests/test_android_release.py`
+- `mobile/scripts/release/ios_unsigned.py`
+- `mobile/scripts/tests/test_ios_release_tools.py`
+- `docs/RELEASE_RUNBOOK.md`
+- `specs/testing/2026-10-07-media-validation.md`
+
+The preserved development series since the earlier clean baseline is below,
+so a later session can distinguish completed code from genuine remaining work.
+No existing commit was rebased, squashed, dropped or force-pushed.
+
+```text
+30c6468d431fa144cfde63bed7e33f4f936f640a feat(android): add opt-in cloud media provider with reversible Shizuku admission
+4f0dbca11980ec743047a7e256ba1ea6a0c80b9d test(mobile): exercise native timeline motion and trace runtime stages
+bcf9862aab1e6d400d440d48ea2a119cf1ca2ecf ci(android): verify media pilot on emulator and retain validation APK
+12ec82d56f94cb7515b000cef0d7fde5776c01cd docs: record external Memories and VAAPI source boundary
+c9f1485db7f644c51340445ae22f43ccac6d8c1d fix(android): allow pending Shizuku recovery after permission revocation
+1529fa6599e089832ce6df257373909e43c10990 ci(android): install supported SDK packages for media verification
+df780a0704156f62994248b1949ce0b090fb12ca fix(android): validate and preserve exact cloud admission override state
+09fc1052465261ee8e0f921c8a0f0647cf7e9899 ci(android): prepare pinned Flutter wrapper before native unit tests
+23ba669255020414846817e00dda8010c7359088 docs: identify existing ordinary video embedding path for Memories audit
+9691508fe32e725c5d773faf3714b3b882f1cc62 fix(android): include current collection ID in cloud media notifications
+56ed1fec095240fc04f50e763fbcba39656ae8d3 fix(android): serialize account-scoped cloud collection version publication
+a3eed5f95e68f7824432c5a9cd33cb2c4f0278f3 fix(android): initialize scoped generation for an existing cloud snapshot
+329c8b08e7e213e4f53379f90679d96ad6c3815b test(android): align MockWebServer with existing OkHttp graph and expose JUnit causes
+caf35d659788f8bb204e84855c5dab94a2f9a67c ci(android): expose unchanged native playback failure in check annotations
+337f1430744bc7b30c801202188ad98becca6a69 fix(android): close cloud preview setup and request cancellation races
+c7f7c44c7d486ed4e6d589c2b1f8daa8637f6661 fix(mobile): keep Library album preview reactive during sync
+36840b87523dfb302688bb08371eae385937cc1f chore(mobile): advance verified media handoff to build 6
+5b5a039f1a40b26483404a9d9b9befbd488b68e8 build(mobile): add reproducible Android and free iOS release handoff tooling
+176008c753d24a28299e8910330776f8b30f049b fix(mobile): preserve Trash across stale sync and cache resets
+752d90a174e6c3988638e897b257bf321f744670 test(android): retain native motion stage evidence on failure
+e64f838d5b0d2efed64b89be9f12278043b5d4a3 test(android): restrict playback diagnostics to anonymous stages
+56dc72218be14ad2059b134b4c4d5a4f019608d7 build(mobile): align v38 snapshot discovery order without schema changes
+04f2e1ecf6ccb8b460383ee8a3fd37bfafc50748 fix(android): paint timeline surface during native decoder preparation
+17fc9ede3b934b76617e3c03f70109ff33d6d38b fix(build): regenerate release plugin registration after native tests
+ab0d0205c30b313b97bbcf64641bb073de864dd5 fix(release): reuse verified unsigned iOS handoff on retry
+102559e9d887c1defdb1d9037b0b691fb3d75371 docs(testing): preserve media validation and release evidence
+```
+
+## Remaining work and next-session boundary
+
+There is no remaining repository compilation blocker in the verified Android
+or unsigned iOS lanes. The later report commit contains documentation only;
+its SHA is reported separately from the compiled source SHAs.
+
+- HP: run the committed Android preflight/build/postflight using the existing
+  `foto` key, then validate on S23 without uninstalling user data.
+- iPhone/Mac: fetch this exact IPA, perform the separate SideStore seed pilot
+  with the real Personal Team ID, and validate signing/App Groups/extensions,
+  Live Photos, background cancellation and refresh physically.
+- Cloud: artifact byte downloads require activating the saved narrow storage-host
+  additions; current CI build/archive verification is already successful.
+- Memories/VAAPI: the next code investigation needs the actual external generator/
+  renderer source and anonymized stage evidence from one already completed job.
+  Do not re-run historical analysis or the closed Anna migration.
+
+**NO SERVER DEPLOYMENT REQUIRED.** No production or signing-key operation was
+performed. All completed code commits were pushed without history rewriting;
+final HEAD/origin/work equality and clean status are reported in the final handoff.
