@@ -10,6 +10,7 @@ import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:openapi/api.dart' show ApiException;
 
 import '../../infrastructure/repository.mock.dart';
 import '../../repository.mocks.dart';
@@ -165,7 +166,10 @@ void main() {
 
     test('writes the local tombstone before the server request', () async {
       final calls = <String>[];
-      when(() => remoteRepository.trash(ids)).thenAnswer((_) async => calls.add('local'));
+      when(() => remoteRepository.beginTrashOperation(ids, restore: false)).thenAnswer((_) async {
+        calls.add('local');
+        return [];
+      });
       when(() => apiRepository.delete(ids, false)).thenAnswer((_) async => calls.add('server'));
 
       await sut.trash(ids);
@@ -174,16 +178,16 @@ void main() {
     });
 
     test('keeps the local tombstone when the server request is ambiguous', () async {
-      when(() => remoteRepository.trash(ids)).thenAnswer((_) async {});
+      when(() => remoteRepository.beginTrashOperation(ids, restore: false)).thenAnswer((_) async => []);
       when(() => apiRepository.delete(ids, false)).thenThrow(Exception('offline'));
 
       await expectLater(sut.trash(ids), throwsException);
 
       verifyInOrder([
-        () => remoteRepository.trash(ids),
+        () => remoteRepository.beginTrashOperation(ids, restore: false),
         () => apiRepository.delete(ids, false),
       ]);
-      verifyNever(() => remoteRepository.restoreTrash(ids));
+      verifyNever(() => remoteRepository.beginTrashOperation(ids, restore: true));
     });
   });
 
@@ -192,28 +196,35 @@ void main() {
 
     test('clears the local tombstone before the server request', () async {
       final calls = <String>[];
-      when(() => remoteRepository.restoreTrash(ids)).thenAnswer((_) async => calls.add('local'));
+      when(() => remoteRepository.beginTrashOperation(ids, restore: true)).thenAnswer((_) async {
+        calls.add('local');
+        return [];
+      });
       when(() => apiRepository.restoreTrash(ids)).thenAnswer((_) async => calls.add('server'));
-      when(() => remoteRepository.confirmRestoreTrash(ids)).thenAnswer((_) async => calls.add('confirm'));
+      when(
+        () => remoteRepository.completeTrashOperation([], success: true),
+      ).thenAnswer((_) async => calls.add('confirm'));
 
       await sut.restoreTrash(ids);
 
       expect(calls, ['local', 'server', 'confirm']);
     });
 
-    test('rolls back the optimistic restore while preserving the original Trash date', () async {
-      when(() => remoteRepository.restoreTrash(ids)).thenAnswer((_) async {});
-      when(() => apiRepository.restoreTrash(ids)).thenThrow(Exception('offline'));
-      when(() => remoteRepository.rollbackRestoreTrash(ids)).thenAnswer((_) async {});
+    test('rolls back an explicitly rejected restore', () async {
+      when(() => remoteRepository.beginTrashOperation(ids, restore: true)).thenAnswer((_) async => []);
+      when(() => apiRepository.restoreTrash(ids)).thenThrow(ApiException(403, 'Forbidden'));
+      when(
+        () => remoteRepository.completeTrashOperation([], success: false, definiteFailure: true),
+      ).thenAnswer((_) async {});
 
-      await expectLater(sut.restoreTrash(ids), throwsException);
+      await expectLater(sut.restoreTrash(ids), throwsA(isA<ApiException>()));
 
       verifyInOrder([
-        () => remoteRepository.restoreTrash(ids),
+        () => remoteRepository.beginTrashOperation(ids, restore: true),
         () => apiRepository.restoreTrash(ids),
-        () => remoteRepository.rollbackRestoreTrash(ids),
+        () => remoteRepository.completeTrashOperation([], success: false, definiteFailure: true),
       ]);
-      verifyNever(() => remoteRepository.confirmRestoreTrash(ids));
+      verifyNever(() => remoteRepository.completeTrashOperation([], success: true));
     });
   });
 

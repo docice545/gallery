@@ -11,6 +11,7 @@ import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.drift.dart';
+import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/utils/option.dart';
 
 @DriftAccessor()
@@ -115,46 +116,44 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
     }).get();
   }
 
-  Future<void> trash(List<String> ids) {
+  Future<void> trash(List<String> ids) async {
+    await _changeTrash(ids, restore: false);
+  }
+
+  Future<void> restoreTrash(List<String> ids) async {
+    await _changeTrash(ids, restore: true);
+  }
+
+  Future<List<AssetTrashSnapshot>> beginTrashOperation(List<String> ids, {required bool restore}) =>
+      _changeTrash(ids, restore: restore, pending: true);
+
+  Future<List<AssetTrashSnapshot>> _changeTrash(List<String> ids, {required bool restore, bool pending = false}) {
     return _db.transaction(() async {
       final deletedAt = DateTime.now();
-      await _db.syncStreamRepository.updateRetainedTrash(ids, deletedAt);
+      final snapshots = await _db.syncStreamRepository.updateRetainedTrash(
+        ids,
+        deletedAt,
+        preserveExistingDates: restore,
+        operation: pending ? (restore ? 'restore' : 'trash') : null,
+      );
       await _db.batch((batch) {
         for (final id in ids) {
           batch.update(
             _db.remoteAssetEntity,
-            RemoteAssetEntityCompanion(deletedAt: Value(deletedAt)),
+            RemoteAssetEntityCompanion(deletedAt: Value(restore ? null : deletedAt)),
             where: (e) => e.id.equals(id),
           );
         }
       });
+      return snapshots;
     });
   }
 
-  Future<void> restoreTrash(List<String> ids) {
-    return _db.transaction(() async {
-      // Retain the exact server Trash date while the API request is in flight.
-      // Sync can verify an ambiguous outcome and clear this marker itself.
-      await _db.syncStreamRepository.updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true);
-      await _db.batch((batch) {
-        for (final id in ids) {
-          batch.update(
-            _db.remoteAssetEntity,
-            const RemoteAssetEntityCompanion(deletedAt: Value(null)),
-            where: (e) => e.id.equals(id),
-          );
-        }
-      });
-    });
-  }
-
-  Future<void> confirmRestoreTrash(List<String> ids) {
-    return _db.transaction(() => _db.syncStreamRepository.clearRetainedTrash(ids: ids));
-  }
-
-  Future<void> rollbackRestoreTrash(List<String> ids) {
-    return _db.transaction(() => _db.syncStreamRepository.restoreRetainedTrashRows(ids: ids));
-  }
+  Future<void> completeTrashOperation(
+    List<AssetTrashSnapshot> snapshots, {
+    required bool success,
+    bool definiteFailure = false,
+  }) => _db.syncStreamRepository.completeTrashOperation(snapshots, success: success, definiteFailure: definiteFailure);
 
   Future<void> emptyTrash(String ownerId) async {
     await _db.transaction(() async {
@@ -164,29 +163,20 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
   }
 
   Future<void> restoreAllTrash(String ownerId) async {
-    await _db.transaction(() async {
+    await _restoreAllTrash(ownerId);
+  }
+
+  Future<List<AssetTrashSnapshot>> beginRestoreAllTrash(String ownerId) => _restoreAllTrash(ownerId, pending: true);
+
+  Future<List<AssetTrashSnapshot>> _restoreAllTrash(String ownerId, {bool pending = false}) {
+    return _db.transaction(() async {
       final retainedIds = await _db.syncStreamRepository.getRetainedTrashIds(ownerId);
       final query = _db.remoteAssetEntity.selectOnly()
         ..addColumns([_db.remoteAssetEntity.id])
         ..where(_db.remoteAssetEntity.deletedAt.isNotNull() & _db.remoteAssetEntity.ownerId.equals(ownerId));
       final rowIds = await query.map((row) => row.read(_db.remoteAssetEntity.id)!).get();
-      await _db.syncStreamRepository.updateRetainedTrash(
-        {...retainedIds, ...rowIds},
-        DateTime.now(),
-        preserveExistingDates: true,
-      );
-      await (_db.remoteAssetEntity.update()..where((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId))).write(
-        const RemoteAssetEntityCompanion(deletedAt: Value(null)),
-      );
+      return _changeTrash({...retainedIds, ...rowIds}.toList(), restore: true, pending: pending);
     });
-  }
-
-  Future<void> confirmRestoreAllTrash(String ownerId) {
-    return _db.transaction(() => _db.syncStreamRepository.clearRetainedTrash(ownerId: ownerId));
-  }
-
-  Future<void> rollbackRestoreAllTrash(String ownerId) {
-    return _db.transaction(() => _db.syncStreamRepository.restoreRetainedTrashRows(ownerId: ownerId));
   }
 
   Future<void> deleteAssets(List<String> ids) {

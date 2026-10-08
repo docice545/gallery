@@ -14,6 +14,7 @@ final assetApiRepositoryProvider = Provider((ref) => AssetApiRepository(ref.watc
 
 class AssetApiRepository extends ApiRepository {
   final ApiService _apiService;
+  Future<void> _trashRequestTail = Future<void>.value();
 
   AssetApiRepository(this._apiService);
 
@@ -21,23 +22,35 @@ class AssetApiRepository extends ApiRepository {
   StacksApi get _stacksApi => _apiService.stacksApi;
   TrashApi get _trashApi => _apiService.trashApi;
 
-  Future<void> delete(List<String> ids, bool force) async {
-    await _api.deleteAssets(AssetBulkDeleteDto(ids: ids, force: Optional.present(force)));
+  // Order mutation requests independently of optimistic UI updates. Otherwise
+  // a delayed Restore can reach the server after a subsequent Trash.
+  Future<T> _serializeTrashRequest<T>(Future<T> Function() request) {
+    final result = _trashRequestTail.then((_) => request());
+    _trashRequestTail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
   }
 
-  Future<void> restoreTrash(List<String> ids) async {
+  static bool isDefiniteTrashRejection(Object error) =>
+      error is ApiException &&
+      error.innerException == null &&
+      const {400, 401, 403, 404, 405, 409, 413, 415, 422, 429}.contains(error.code);
+
+  Future<void> delete(List<String> ids, bool force) =>
+      _serializeTrashRequest(() => _api.deleteAssets(AssetBulkDeleteDto(ids: ids, force: Optional.present(force))));
+
+  Future<void> restoreTrash(List<String> ids) => _serializeTrashRequest(() async {
     await _trashApi.restoreAssets(BulkIdsDto(ids: ids));
-  }
+  });
 
   Future<int> emptyTrash() async {
     final response = await _trashApi.emptyTrash();
     return response?.count ?? 0;
   }
 
-  Future<int> restoreAllTrash() async {
+  Future<int> restoreAllTrash() => _serializeTrashRequest(() async {
     final response = await _trashApi.restoreTrash();
     return response?.count ?? 0;
-  }
+  });
 
   Future<StackResponse> stack(List<String> ids) async {
     final responseDto = await checkNull(_stacksApi.createStack(StackCreateDto(assetIds: ids)));

@@ -335,11 +335,11 @@ void main() {
     await ctx.newRemoteAsset(id: 'other-trash', ownerId: 'other', deletedAt: deletedAt);
     await sync.reset();
     final remote = RemoteAssetRepository(ctx.db);
-    await remote.restoreAllTrash('owner');
+    final snapshots = await remote.beginRestoreAllTrash('owner');
     // Restore is optimistic. Its retained identity remains until the server
     // accepts the request, then the other owner's marker remains untouched.
-    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
-    await remote.confirmRestoreAllTrash('owner');
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
+    await remote.completeTrashOperation(snapshots, success: true);
     expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
     expect(await sync.getRestoreCandidates({'other-trash': 'other'}), hasLength(1));
     await sync.deleteAssetsV1([api.SyncAssetDeleteV1(assetId: 'other-trash')]);
@@ -354,11 +354,11 @@ void main() {
     await sync.reset();
     final remote = RemoteAssetRepository(ctx.db);
 
-    await remote.restoreAllTrash('owner');
+    final snapshots = await remote.beginRestoreAllTrash('owner');
     expect(await remote.get('still'), isNull);
-    expect(await sync.getRestoreCandidates({'still': 'owner'}), hasLength(1));
+    expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
 
-    await remote.rollbackRestoreAllTrash('owner');
+    await remote.completeTrashOperation(snapshots, success: false, definiteFailure: true);
     await ctx.newUser(id: 'owner');
     await stream(payload(), v2: true);
 
@@ -393,10 +393,7 @@ void main() {
     expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
 
     await stream(payload(), v2: true);
-    expect(
-      (await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((a) => a.id),
-      ['still'],
-    );
+    expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((a) => a.id), ['still']);
   });
 
   test('reset metadata survives SQLite reopen without recreating inaccessible asset rows', () async {
@@ -453,15 +450,15 @@ void main() {
     await stream(payload(trashDate: deletedAt), v2: true);
     await ctx.newUser(id: 'other');
     await ctx.newRemoteAsset(id: 'other-trash', ownerId: 'other', deletedAt: deletedAt);
-    await remote.restoreTrash(['still']);
-    await remote.confirmRestoreTrash(['still']);
+    final single = await remote.beginTrashOperation(['still'], restore: true);
+    await remote.completeTrashOperation(single, success: true);
     await stream(payload(), v2: true);
     expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
       'still',
     ]);
     await remote.trash(['still']);
-    await remote.restoreAllTrash('owner');
-    await remote.confirmRestoreAllTrash('owner');
+    final all = await remote.beginRestoreAllTrash('owner');
+    await remote.completeTrashOperation(all, success: true);
     expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 10)).map((asset) => asset.id), [
       'still',
     ]);

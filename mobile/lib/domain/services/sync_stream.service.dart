@@ -127,6 +127,12 @@ class SyncStreamService {
     if (isCancelled) {
       return false;
     }
+    // Incremental sync may contain no asset events after a lost HTTP response.
+    // Resolve only uncertain outcomes; live mutation requests remain protected.
+    await _reconcilePendingTrash();
+    if (isCancelled) {
+      return false;
+    }
     previousLength = migrations.length;
     await _runPostSyncTasks(migrations);
 
@@ -260,6 +266,25 @@ class SyncStreamService {
       if (!current.isTrashed) {
         await _syncStreamRepository.confirmRestore(candidate);
       }
+    }
+  }
+
+  Future<void> _reconcilePendingTrash() async {
+    final snapshots = await _syncStreamRepository.getPendingTrashOperations();
+    for (final snapshot in snapshots) {
+      if (isCancelled) {
+        return;
+      }
+      final current = await (_cancellation == null
+          ? _api.assetsApi.getAssetInfo(snapshot.id)
+          : _api.assetsApi.getAssetInfo(snapshot.id, abortTrigger: _cancellation.future));
+      if (isCancelled) {
+        return;
+      }
+      if (current == null || current.id != snapshot.id || current.ownerId != snapshot.ownerId) {
+        throw StateError('Unable to verify pending asset Trash state');
+      }
+      await _syncStreamRepository.reconcilePendingTrash(snapshot, isTrashed: current.isTrashed);
     }
   }
 

@@ -9,6 +9,7 @@ import 'package:immich_mobile/infrastructure/repositories/store.repository.dart'
 import 'package:immich_mobile/repositories/shared_space_api.repository.dart';
 import 'package:immich_mobile/services/action.service.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:openapi/api.dart' show ApiException;
 
 import '../infrastructure/repository.mock.dart';
 import '../repository.mocks.dart';
@@ -91,29 +92,37 @@ void main() {
 
     test('restores local rows before the server and rolls back on failure', () async {
       final calls = <String>[];
-      when(() => remoteAssetRepository.restoreAllTrash(ownerId)).thenAnswer((_) async => calls.add('local-restore'));
+      when(() => remoteAssetRepository.beginRestoreAllTrash(ownerId)).thenAnswer((_) async {
+        calls.add('local-restore');
+        return [];
+      });
       when(() => assetApiRepository.restoreAllTrash()).thenAnswer((_) async {
         calls.add('server-restore');
-        throw Exception('offline');
+        throw ApiException(403, 'Forbidden');
       });
-      when(() => remoteAssetRepository.rollbackRestoreAllTrash(ownerId))
-          .thenAnswer((_) async => calls.add('local-rollback'));
+      when(
+        () => remoteAssetRepository.completeTrashOperation([], success: false, definiteFailure: true),
+      ).thenAnswer((_) async => calls.add('local-rollback'));
 
-      await expectLater(sut.restoreAllTrash(ownerId), throwsException);
+      await expectLater(sut.restoreAllTrash(ownerId), throwsA(isA<ApiException>()));
 
       expect(calls, ['local-restore', 'server-restore', 'local-rollback']);
-      verifyNever(() => remoteAssetRepository.confirmRestoreAllTrash(ownerId));
+      verifyNever(() => remoteAssetRepository.completeTrashOperation([], success: true));
     });
 
     test('clears retained local tombstones only after the server accepts restore', () async {
       final calls = <String>[];
-      when(() => remoteAssetRepository.restoreAllTrash(ownerId)).thenAnswer((_) async => calls.add('local-restore'));
+      when(() => remoteAssetRepository.beginRestoreAllTrash(ownerId)).thenAnswer((_) async {
+        calls.add('local-restore');
+        return [];
+      });
       when(() => assetApiRepository.restoreAllTrash()).thenAnswer((_) async {
         calls.add('server-restore');
         return 2;
       });
-      when(() => remoteAssetRepository.confirmRestoreAllTrash(ownerId))
-          .thenAnswer((_) async => calls.add('clear-retained'));
+      when(
+        () => remoteAssetRepository.completeTrashOperation([], success: true),
+      ).thenAnswer((_) async => calls.add('clear-retained'));
 
       await expectLater(sut.restoreAllTrash(ownerId), completion(2));
 

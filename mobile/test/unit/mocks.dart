@@ -71,6 +71,14 @@ class RepositoryMocks {
   }
 
   void _stubRemoteAssetRepository() {
+    when(() => remoteAsset.repo.beginTrashOperation(any(), restore: any(named: 'restore'))).thenAnswer((_) async => []);
+    when(
+      () => remoteAsset.repo.completeTrashOperation(
+        any(),
+        success: any(named: 'success'),
+        definiteFailure: any(named: 'definiteFailure'),
+      ),
+    ).thenAnswer((_) async {});
     when(remoteAsset.getExif).thenAnswer((_) async => null);
     when(remoteAsset.getAssetEdits).thenAnswer((_) async => const []);
     when(remoteAsset.update).thenAnswer((_) async {});

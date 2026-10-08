@@ -21,8 +21,27 @@ reported by the user had this exact cause.
 
 - Newly delivered active assets are inserted normally. An upsert with null
   `deletedAt` never clears an existing tombstone on conflict.
-- The existing successful native Restore/Restore All actions still update the
-  local DB after API success. They clear any retained reset tombstone atomically.
+- Trash/Restore/Restore All update the local DB optimistically in the same
+  transaction as their retained mutation snapshot. A definite HTTP rejection
+  rolls back only that revision to its previous local state. Transport errors,
+  timeouts and server errors retain an uncertain operation; failure is never
+  interpreted as server acceptance.
+- The retained JSON uses `operation` (`trash`/`restore`) and `phase`
+  (`inFlight`/`uncertain`), preserving the existing endpoint/owner/UUID scope.
+  Live requests are excluded from sync restore confirmation. Stream upserts
+  preserve pending Trash and Restore UI state, including stale opposite states.
+  Successful or rejected responses apply only to the exact captured JSON
+  revision, never all current owner/asset markers. A newer Trash survives late
+  single and bulk Restore acknowledgements. REST mutations are serialized so
+  a Restore request cannot overtake the next Trash request.
+- Uncertain operations are checked against the current asset endpoint after
+  every successful sync stream, including zero-event syncs. A network failure
+  retains them for the existing sync retry. Foreground cold start marks
+  abandoned in-flight operations uncertain before accepting UI actions;
+  background sync engines never reclassify live foreground requests. If a
+  rejected action rolled back to an earlier optimistic operation, that earlier
+  outcome remains uncertain until the server check, rather than becoming an
+  assumed confirmed state.
 - Before processing an asset-bearing sync batch, only IDs that are already
   known trashed and whose incoming state is null are checked through the existing
   `GET /assets/{id}` endpoint. The same asset ID and owner must be returned.
@@ -41,7 +60,8 @@ reported by the user had this exact cause.
   either before or during reset. Stack/EXIF/metadata writes do not touch `deletedAt`.
 
 There is no polling, per-thumbnail request, widget-only exclusion or server/API
-change. A GET occurs only for a conflicting Trash-to-active transition. This may
+change. A GET occurs only for a conflicting Trash-to-active transition or an
+uncertain persisted mutation. This may
 temporarily keep a genuinely restored asset hidden while the network is offline;
 it becomes eligible after the authoritative check succeeds.
 
@@ -54,7 +74,8 @@ successful local Trash operation also writes an opaque UUID revision there, so
 the guard works even before any reset and survives same-second mutation races.
 Entries
 use `sync.trash-reset.<endpoint SHA-256>/<owner>/<asset>` and hold asset ID, owner,
-checksum, deletion time, local mutation revision and the existing endpoint scope. They contain no media,
+checksum, deletion time, local mutation revision, pending mutation/rollback state
+and the existing endpoint scope. They contain no media,
 filename, original path, token or API key and never recreate remote/user rows.
 No DB schema migration or parallel asset model is introduced.
 

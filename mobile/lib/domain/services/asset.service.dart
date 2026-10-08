@@ -94,17 +94,20 @@ class AssetService {
       return;
     }
 
-    // Update Drift first so a user-initiated restore is reflected by every
-    // timeline immediately. If the request fails, put the local tombstone
-    // back with its original deletion date. Retain the marker until the
-    // server accepts the restore or sync verifies an ambiguous outcome.
-    await _remoteRepository.restoreTrash(remoteIds);
+    final snapshots = await _remoteRepository.beginTrashOperation(remoteIds, restore: true);
     try {
       await _apiRepository.restoreTrash(remoteIds);
-      await _remoteRepository.confirmRestoreTrash(remoteIds);
+      await _remoteRepository.completeTrashOperation(snapshots, success: true);
     } catch (error, stack) {
-      await _remoteRepository.rollbackRestoreTrash(remoteIds);
-      Error.throwWithStackTrace(error, stack);
+      try {
+        await _remoteRepository.completeTrashOperation(
+          snapshots,
+          success: false,
+          definiteFailure: AssetApiRepository.isDefiniteTrashRejection(error),
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
     }
   }
 
@@ -192,16 +195,20 @@ class AssetService {
       return;
     }
 
-    // Persist the local tombstone before waiting on the network. Timeline
-    // bucket queries are Drift streams, so this removes the assets from the
-    // visible timeline in the same transaction as the mutation. Keep that
-    // tombstone when the request errors: a timeout may mean the server already
-    // accepted Trash, and sync can verify an active response before clearing it.
-    await _remoteRepository.trash(remoteIds);
+    final snapshots = await _remoteRepository.beginTrashOperation(remoteIds, restore: false);
     try {
       await _apiRepository.delete(remoteIds, false);
+      await _remoteRepository.completeTrashOperation(snapshots, success: true);
     } catch (error, stack) {
-      Error.throwWithStackTrace(error, stack);
+      try {
+        await _remoteRepository.completeTrashOperation(
+          snapshots,
+          success: false,
+          definiteFailure: AssetApiRepository.isDefiniteTrashRejection(error),
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
     }
   }
 

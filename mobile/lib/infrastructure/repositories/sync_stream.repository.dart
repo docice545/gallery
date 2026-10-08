@@ -86,8 +86,13 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               final rows = await (_db.remoteAssetEntity.select()..where((row) => row.deletedAt.isNotNull())).get();
               final endpoint = await _trashEndpoint();
               final prefix = await _trashResetPrefix();
+              final retained = await _retainedTrash({for (final row in rows) row.id: row.ownerId});
               await _db.batch((batch) {
                 for (final row in rows) {
+                  // Preserve mutation revisions and pending outcomes across a reset.
+                  if (retained.containsKey(row.id)) {
+                    continue;
+                  }
                   batch.insert(
                     _db.settingsEntity,
                     SettingsEntityCompanion.insert(
@@ -312,12 +317,18 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         );
       }
     }
+    // A current active GET cannot resolve a request that has not completed yet.
+    // Pending mutations are reconciled separately, including on an empty sync.
+    candidates.removeWhere((_, snapshot) => _pendingState(snapshot)?['operation'] != null);
     return candidates.values.toList();
   }
 
   /// The read may race a newer local Trash action. Only clear the state that
   /// was actually checked, never a replacement tombstone/asset identity.
   Future<void> confirmRestore(AssetTrashSnapshot checked) async {
+    if (_pendingState(checked)?['operation'] != null) {
+      return;
+    }
     await _db.transaction(() async {
       if (checked.scope != await _trashResetPrefix()) {
         return;
@@ -378,6 +389,117 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     );
   }
 
+  Map<String, dynamic>? _pendingState(AssetTrashSnapshot? snapshot) =>
+      snapshot?.retainedValue == null ? null : jsonDecode(snapshot!.retainedValue!) as Map<String, dynamic>;
+
+  /// Only the foreground cold-start path calls this, before accepting actions.
+  /// A request abandoned with the previous engine has an unknown outcome.
+  Future<void> recoverPendingTrashOperations() async {
+    await _db.transaction(() async {
+      final prefix = await _trashResetPrefix();
+      final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+      for (final row in rows) {
+        if (row.value == null) {
+          continue;
+        }
+        final state = jsonDecode(row.value!) as Map<String, dynamic>;
+        if (state['phase'] == 'inFlight') {
+          state['phase'] = 'uncertain';
+          await (_db.settingsEntity.update()..where((r) => r.key.equals(row.key))).write(
+            SettingsEntityCompanion(value: Value(jsonEncode(state))),
+          );
+        }
+      }
+    });
+  }
+
+  Future<List<AssetTrashSnapshot>> getPendingTrashOperations() async {
+    final prefix = await _trashResetPrefix();
+    final owners = await _db.authUserEntity.select().map((row) => row.id).get();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    return [
+      for (final row in rows)
+        if (row.value != null)
+          if (jsonDecode(row.value!) case {'phase': 'uncertain', 'ownerId': final String ownerId})
+            if (owners.contains(ownerId)) _decodeRetained(row.key, row.value!),
+    ];
+  }
+
+  Future<void> completeTrashOperation(
+    List<AssetTrashSnapshot> snapshots, {
+    required bool success,
+    bool definiteFailure = false,
+  }) async {
+    for (final snapshot in snapshots) {
+      final state = _pendingState(snapshot)!;
+      final bool? trashed = success
+          ? state['operation'] == 'trash'
+          : definiteFailure
+          ? state['previousDeletedAt'] != null
+          : null;
+      await _resolveTrashOperation(snapshot, trashed, rollback: definiteFailure);
+    }
+  }
+
+  Future<void> reconcilePendingTrash(AssetTrashSnapshot snapshot, {required bool isTrashed}) =>
+      _resolveTrashOperation(snapshot, isTrashed);
+
+  Future<void> _resolveTrashOperation(AssetTrashSnapshot snapshot, bool? trashed, {bool rollback = false}) async {
+    await _db.transaction(() async {
+      if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
+        return;
+      }
+      final retained =
+          await (_db.settingsEntity.select()
+                ..where((r) => r.key.equals(snapshot.retainedKey!) & r.value.equals(snapshot.retainedValue!)))
+              .getSingleOrNull();
+      if (retained == null) {
+        return; // A newer Trash/Restore owns this asset now.
+      }
+      final row = await (_db.remoteAssetEntity.select()..where((r) => r.id.equals(snapshot.id))).getSingleOrNull();
+      if (row != null && (row.ownerId != snapshot.ownerId || row.checksum != snapshot.checksum)) {
+        return;
+      }
+      final state = _pendingState(snapshot)!;
+      final unresolvedPrevious = rollback && state['previousPending'] == true;
+      if (trashed == null) {
+        state['phase'] = 'uncertain';
+      } else {
+        state.remove('operation');
+        state.remove('phase');
+        final previous = state.remove('previousDeletedAt');
+        final previousTrashDate = state.remove('previousTrashDate');
+        state.remove('previousPending');
+        if (rollback && trashed) {
+          state['deletedAt'] = previous;
+        }
+        if (row != null) {
+          await (_db.remoteAssetEntity.update()..where((r) => r.id.equals(snapshot.id))).write(
+            RemoteAssetEntityCompanion(
+              deletedAt: Value(
+                trashed ? DateTime.fromMillisecondsSinceEpoch(state['deletedAt'] as int, isUtc: true) : null,
+              ),
+            ),
+          );
+        }
+        // A definite rejection rolls back this action, but cannot prove the
+        // outcome of the preceding optimistic operation it was based on.
+        if (unresolvedPrevious) {
+          state['operation'] = trashed ? 'trash' : 'restore';
+          state['phase'] = 'uncertain';
+          state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
+        }
+      }
+      if (trashed == false && !unresolvedPrevious) {
+        await _db.settingsEntity.deleteWhere((r) => r.key.equals(snapshot.retainedKey!));
+      } else {
+        await (_db.settingsEntity.update()..where((r) => r.key.equals(snapshot.retainedKey!))).write(
+          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        );
+      }
+    });
+  }
+
   Future<Map<String, AssetTrashSnapshot>> _retainedTrash(Map<String, String> ownersById) async {
     if (ownersById.isEmpty) {
       return const {};
@@ -420,10 +542,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     });
   }
 
-  Future<void> updateRetainedTrash(
+  Future<List<AssetTrashSnapshot>> updateRetainedTrash(
     Iterable<String> ids,
     DateTime deletedAt, {
     bool preserveExistingDates = false,
+    String? operation,
   }) async {
     final endpoint = await _trashEndpoint();
     final prefix = await _trashResetPrefix();
@@ -431,11 +554,17 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     final wanted = ids.toSet();
     final identities = <String, ({String ownerId, String checksum})>{};
     final deletionDates = <String, DateTime>{};
+    final previousDates = <String, DateTime?>{};
+    final pendingIds = <String>{};
     for (final row in rows) {
       final state = _decodeRetained(row.key, row.value!);
       if (wanted.contains(state.id)) {
         identities[state.id] = (ownerId: state.ownerId, checksum: state.checksum);
         deletionDates[state.id] = state.deletedAt;
+        previousDates[state.id] = _pendingState(state)?['operation'] == 'restore' ? null : state.deletedAt;
+        if (_pendingState(state)?['operation'] != null) {
+          pendingIds.add(state.id);
+        }
       }
     }
     final wantedIds = wanted.toList(growable: false);
@@ -445,6 +574,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       existing.addAll(await (_db.remoteAssetEntity.select()..where((row) => row.id.isIn(slice))).get());
     }
     for (final row in existing) {
+      previousDates[row.id] = row.deletedAt;
       if (!preserveExistingDates || row.deletedAt != null) {
         identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
       }
@@ -452,67 +582,39 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         deletionDates[row.id] = row.deletedAt!;
       }
     }
+    final snapshots = <AssetTrashSnapshot>[];
     await _db.batch((batch) {
       for (final entry in identities.entries) {
+        final key = '$prefix${entry.value.ownerId}/${entry.key}';
+        final value = jsonEncode({
+          'endpoint': endpoint,
+          'id': entry.key,
+          'ownerId': entry.value.ownerId,
+          'checksum': entry.value.checksum,
+          'deletedAt':
+              ((preserveExistingDates ? deletionDates[entry.key] ?? deletedAt : deletedAt).millisecondsSinceEpoch ~/
+                  1000) *
+              1000,
+          'revision': const Uuid().v4(),
+          if (operation != null) ...{
+            'operation': operation,
+            'phase': 'inFlight',
+            'previousDeletedAt': previousDates[entry.key]?.millisecondsSinceEpoch,
+            if (pendingIds.contains(entry.key)) ...{
+              'previousPending': true,
+              'previousTrashDate': deletionDates[entry.key]?.millisecondsSinceEpoch,
+            },
+          },
+        });
+        snapshots.add(_decodeRetained(key, value));
         batch.insert(
           _db.settingsEntity,
-          SettingsEntityCompanion.insert(
-            key: '$prefix${entry.value.ownerId}/${entry.key}',
-            value: Value(
-              jsonEncode({
-                'endpoint': endpoint,
-                'id': entry.key,
-                'ownerId': entry.value.ownerId,
-                'checksum': entry.value.checksum,
-                'deletedAt': ((preserveExistingDates ? deletionDates[entry.key] ?? deletedAt : deletedAt)
-                        .millisecondsSinceEpoch ~/
-                    1000) *
-                    1000,
-                'revision': const Uuid().v4(),
-              }),
-            ),
-          ),
+          SettingsEntityCompanion.insert(key: key, value: Value(value)),
           mode: InsertMode.insertOrReplace,
         );
       }
     });
-  }
-
-  /// Reapply the retained server Trash state after an optimistic restore fails.
-  ///
-  /// A retained entry may already have been removed by an authoritative sync
-  /// check, which means the server confirmed the restore. In that case leave
-  /// the active local row alone. Missing rows remain protected by the retained
-  /// entry and will be reconciled when the server streams them again.
-  Future<void> restoreRetainedTrashRows({Iterable<String>? ids, String? ownerId}) async {
-    final prefix = await _trashResetPrefix();
-    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
-    final allowedIds = ids?.toSet();
-    final snapshots = <AssetTrashSnapshot>[];
-    for (final row in rows) {
-      if (row.value == null) {
-        continue;
-      }
-      final snapshot = _decodeRetained(row.key, row.value!);
-      if ((ownerId == null || snapshot.ownerId == ownerId) &&
-          (allowedIds == null || allowedIds.contains(snapshot.id))) {
-        snapshots.add(snapshot);
-      }
-    }
-
-    await _db.batch((batch) {
-      for (final snapshot in snapshots) {
-        batch.update(
-          _db.remoteAssetEntity,
-          RemoteAssetEntityCompanion(deletedAt: Value(snapshot.deletedAt)),
-          where: (row) =>
-              row.id.equals(snapshot.id) &
-              row.ownerId.equals(snapshot.ownerId) &
-              row.checksum.equals(snapshot.checksum) &
-              row.deletedAt.isNull(),
-        );
-      }
-    });
+    return snapshots;
   }
 
   Future<void> updateAssetsV1(Iterable<SyncAssetV1> data, {String debugLabel = 'user'}) async {
@@ -535,7 +637,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               ownerId: Value(asset.ownerId),
               localDateTime: Value(asset.localDateTime),
               thumbHash: Value(asset.thumbhash),
-              deletedAt: Value(asset.deletedAt ?? retained[asset.id]?.deletedAt),
+              deletedAt: Value(
+                _pendingState(retained[asset.id])?['operation'] == 'restore'
+                    ? null
+                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
+              ),
               visibility: Value(asset.visibility.toAssetVisibility()),
               livePhotoVideoId: Value(asset.livePhotoVideoId),
               stackId: Value(asset.stackId),
@@ -550,12 +656,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               companion.copyWith(id: Value(asset.id)),
               mode: InsertMode.insertOrReplace,
               onConflict: DoUpdate(
-                (_) =>
-                    companion.copyWith(
-                      deletedAt: asset.deletedAt == null && retained[asset.id] == null
-                          ? const Value.absent()
-                          : companion.deletedAt,
-                    ),
+                (_) => companion.copyWith(
+                  deletedAt: asset.deletedAt == null && retained[asset.id] == null
+                      ? const Value.absent()
+                      : companion.deletedAt,
+                ),
               ),
             );
           }
@@ -588,7 +693,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               ownerId: Value(asset.ownerId),
               localDateTime: Value(asset.localDateTime),
               thumbHash: Value(asset.thumbhash),
-              deletedAt: Value(asset.deletedAt ?? retained[asset.id]?.deletedAt),
+              deletedAt: Value(
+                _pendingState(retained[asset.id])?['operation'] == 'restore'
+                    ? null
+                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
+              ),
               visibility: Value(asset.visibility.toAssetVisibility()),
               livePhotoVideoId: Value(asset.livePhotoVideoId),
               stackId: Value(asset.stackId),
@@ -603,12 +712,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               companion.copyWith(id: Value(asset.id)),
               mode: InsertMode.insertOrReplace,
               onConflict: DoUpdate(
-                (_) =>
-                    companion.copyWith(
-                      deletedAt: asset.deletedAt == null && retained[asset.id] == null
-                          ? const Value.absent()
-                          : companion.deletedAt,
-                    ),
+                (_) => companion.copyWith(
+                  deletedAt: asset.deletedAt == null && retained[asset.id] == null
+                      ? const Value.absent()
+                      : companion.deletedAt,
+                ),
               ),
             );
           }

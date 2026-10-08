@@ -59,17 +59,18 @@ class ActionService {
   }
 
   Future<int> restoreAllTrash(String userId) async {
-    // Remove local tombstones first so every timeline stream reacts
-    // immediately. Keep retained identities until the server accepts the
-    // restore; they also cover cache resets where no remote row is present.
-    await _remoteAssetRepository.restoreAllTrash(userId);
+    final snapshots = await _remoteAssetRepository.beginRestoreAllTrash(userId);
     try {
       final count = await _assetApiRepository.restoreAllTrash();
-      await _remoteAssetRepository.confirmRestoreAllTrash(userId);
+      await _remoteAssetRepository.completeTrashOperation(snapshots, success: true);
       return count;
     } catch (error, stack) {
       try {
-        await _remoteAssetRepository.rollbackRestoreAllTrash(userId);
+        await _remoteAssetRepository.completeTrashOperation(
+          snapshots,
+          success: false,
+          definiteFailure: AssetApiRepository.isDefiniteTrashRejection(error),
+        );
       } finally {
         Error.throwWithStackTrace(error, stack);
       }
