@@ -5,9 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/table/remote/exif.drift.dart';
 import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
@@ -80,6 +82,51 @@ void main() {
   });
 
   tearDown(() async => ctx.dispose());
+
+  test('bulk restore reloads an already populated Timeline cache at capture-time positions', () async {
+    await ctx.newRemoteAsset(id: 'recent', ownerId: 'owner', createdAt: DateTime(2026, 10, 1));
+    await ctx.newRemoteAsset(
+      id: 'portrait-live',
+      ownerId: 'owner',
+      createdAt: DateTime(2020, 6, 15),
+      deletedAt: DateTime(2026, 10, 9),
+      livePhotoVideoId: 'hidden-motion',
+      localDateTime: Value(DateTime(2020, 6, 15, 3)),
+    );
+    await ctx.newRemoteAsset(
+      id: 'old-video',
+      ownerId: 'owner',
+      type: AssetType.video,
+      createdAt: DateTime(2018, 2, 4),
+      deletedAt: DateTime(2026, 10, 9),
+    );
+    final reload = StreamIterator(EventStream.shared.where<TimelineReloadEvent>());
+    addTearDown(reload.cancel);
+    final service = TimelineService(repository.main(['owner'], 'owner', GroupAssetsBy.day));
+    addTearDown(service.dispose);
+    expect(await reload.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(service.totalAssets, 1);
+    expect(service.getAssets(0, 1).map((asset) => asset.id), ['recent']);
+
+    await RemoteAssetRepository(ctx.db).restoreAllTrash('owner');
+    expect(await reload.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(service.totalAssets, 3);
+    final assets = await service.loadAssets(0, 3);
+    expect(assets.map((asset) => asset.id), ['recent', 'portrait-live', 'old-video']);
+    expect((assets[1] as RemoteAsset).livePhotoVideoId, 'hidden-motion');
+    expect(assets[1].createdAt, DateTime(2020, 6, 15));
+    expect(assets[2].type, AssetType.video);
+    expect((await repository.main(['owner'], 'owner', GroupAssetsBy.day).bucketSource().first).cast<TimeBucket>(), [
+      TimeBucket(date: DateTime(2026, 10, 1), assetCount: 1),
+      TimeBucket(date: DateTime(2020, 6, 15), assetCount: 1),
+      TimeBucket(date: DateTime(2018, 2, 4), assetCount: 1),
+    ]);
+    // Re-trash forces another buffer invalidation, not a duplicated cached tile.
+    await RemoteAssetRepository(ctx.db).trash(['portrait-live']);
+    expect(await reload.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(service.totalAssets, 2);
+    expect((await service.loadAssets(0, 2)).map((asset) => asset.id), ['recent', 'old-video']);
+  });
 
   test('most recently deleted old photo comes first, independently of capture and upload dates', () async {
     await ctx.newRemoteAsset(

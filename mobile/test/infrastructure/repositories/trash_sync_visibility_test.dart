@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull;
@@ -39,6 +40,66 @@ void main() {
     await StoreRepository(ctx.db).upsert(StoreKey.serverEndpoint, 'https://gallery.invalid/api');
   });
   tearDown(() => ctx.dispose());
+
+  test('search visibility watches durable pending Trash across missing rows and definite rejection', () async {
+    await ctx.newRemoteAsset(id: 'still', ownerId: 'owner');
+    final ids = StreamIterator(sync.watchTrashedAssetIds());
+    addTearDown(ids.cancel);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, isEmpty);
+    final snapshots = await RemoteAssetRepository(ctx.db).beginTrashOperation(['still'], restore: false);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+    // Sync reset can remove the row before replay; the durable marker remains.
+    await ctx.db.remoteAssetEntity.deleteWhere((row) => row.id.equals('still'));
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+    expect(await SyncStreamRepository(ctx.db).watchTrashedAssetIds().first, {'still'});
+    await sync.completeTrashOperation(snapshots, success: false, definiteFailure: true);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    // The reset row is still absent: wait for replay instead of resurrecting a
+    // cached result based solely on the removed marker.
+    expect(ids.current, {'still'});
+    await ctx.newRemoteAsset(id: 'still', ownerId: 'owner');
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, isEmpty);
+  });
+
+  test('permanent deletion cannot reveal an old cached result when its Trash marker is cleared', () async {
+    await ctx.newRemoteAsset(id: 'still', ownerId: 'owner');
+    final remote = RemoteAssetRepository(ctx.db);
+    await remote.trash(['still']);
+    final ids = StreamIterator(sync.watchTrashedAssetIds());
+    addTearDown(ids.cancel);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+    await remote.deleteAssets(['still']);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+    expect(await remote.get('still'), isNull);
+    // An unrelated subsequent DB change must not resurrect the deleted tile.
+    await ctx.newRemoteAsset(id: 'other', ownerId: 'owner');
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+  });
+
+  test('search visibility removes and reapplies the marker for Restore followed by another Trash', () async {
+    await ctx.newRemoteAsset(id: 'still', ownerId: 'owner');
+    final remote = RemoteAssetRepository(ctx.db);
+    await remote.trash(['still']);
+    final ids = StreamIterator(sync.watchTrashedAssetIds());
+    addTearDown(ids.cancel);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+    final restore = await remote.beginTrashOperation(['still'], restore: true);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, isEmpty);
+    await remote.beginTrashOperation(['still'], restore: false);
+    expect(await ids.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+    expect(ids.current, {'still'});
+    await remote.completeTrashOperation(restore, success: true);
+    expect(await sync.watchTrashedAssetIds().first, {'still'});
+  });
 
   Map<String, Object?> payload({String? libraryId, DateTime? trashDate}) => {
     'id': 'still',

@@ -19,6 +19,7 @@ import 'package:immich_mobile/infrastructure/repositories/settings.repository.da
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/models/search/search_filter.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/search.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/user.provider.dart' as infra;
@@ -31,6 +32,8 @@ import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockFactory extends Mock implements TimelineFactory {}
+
+late Drift db;
 
 class _MockSearch extends Mock implements SearchService {}
 
@@ -64,6 +67,7 @@ ProviderContainer _container({required TimelineFactory factory, required SearchS
 
   return ProviderContainer(
     overrides: [
+      driftProvider.overrideWithValue(db),
       timelineFactoryProvider.overrideWithValue(factory),
       searchServiceProvider.overrideWithValue(search),
       infra.userServiceProvider.overrideWithValue(mockUserSvc),
@@ -74,8 +78,6 @@ ProviderContainer _container({required TimelineFactory factory, required SearchS
 }
 
 void main() {
-  late Drift db;
-
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     registerFallbackValue(_FakeFilter());

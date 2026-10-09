@@ -526,6 +526,48 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     ];
   }
 
+  /// Search pages are server snapshots, not reactive Drift rows. Keep cached
+  /// results behind the same durable Trash markers used by incremental sync,
+  /// including a reset where the corresponding remote row is temporarily absent.
+  Stream<Set<String>> watchTrashedAssetIds() async* {
+    final prefix = await _trashResetPrefix();
+    final previouslyHidden = <String>{};
+    yield* _db
+        .customSelect(
+          '''
+          SELECT id FROM remote_asset_entity WHERE deleted_at IS NOT NULL
+          UNION
+          SELECT json_extract(value, '\$.id') AS id FROM settings
+          WHERE key LIKE ? AND CASE WHEN json_valid(value)
+            THEN COALESCE(json_extract(value, '\$.operation'), 'trash') != 'restore'
+            ELSE 0 END
+          ''',
+          variables: [Variable.withString('$prefix%')],
+          readsFrom: {_db.remoteAssetEntity, _db.settingsEntity},
+        )
+        .watch()
+        .asyncMap((rows) async {
+          final hidden = rows.map((row) => row.read<String>('id')).toSet();
+          final unmarked = previouslyHidden.difference(hidden);
+          if (unmarked.isNotEmpty) {
+            // Clearing a marker also happens on permanent deletion/reset, not
+            // just Restore. Do not resurrect a cached search result while its
+            // row is absent; a later authoritative active row can reveal it.
+            final present = await _db
+                .customSelect(
+                  'SELECT id FROM remote_asset_entity WHERE id IN (SELECT value FROM json_each(?))',
+                  variables: [Variable.withString(jsonEncode(unmarked.toList()))],
+                )
+                .get();
+            hidden.addAll(unmarked.difference(present.map((row) => row.read<String>('id')).toSet()));
+          }
+          previouslyHidden
+            ..clear()
+            ..addAll(hidden);
+          return hidden;
+        });
+  }
+
   /// Only called after a successful explicit Restore/Delete API operation.
   /// Works during reset before the corresponding asset row is re-delivered.
   Future<void> clearRetainedTrash({Iterable<String>? ids, String? ownerId}) async {
