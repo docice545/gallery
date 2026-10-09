@@ -158,10 +158,11 @@ Two confirmed defects and one related acknowledgement defect were corrected:
 
 No DB schema/migration, original-file modification, new sync service or retention
 policy change. Server-side corrections require a future reviewed server update;
-they are NOT installed on the HP. Previously queued jobs without a cutoff cannot
-be distinguished safely from legitimate library/motion cleanup; this patch does not
-reinterpret or erase them. Before production adoption, assess/drain legacy deletion
-jobs through a separate approved operator plan, not a global queue reset.
+they are NOT installed on the HP. The deletion-only continuation now makes legacy
+jobs without a cutoff fail closed for Active/Trashed rows and adds explicit guarded
+library/motion cleanup intents. No old payload is guessed or erased. The existing
+FileDelete backlog remains an operator safety gate. See
+`specs/2026-10-09-trash-release-safety-design.md` for the transition and rollback.
 
 ### NAS safety and acceptance boundary
 
