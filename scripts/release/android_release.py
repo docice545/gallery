@@ -151,32 +151,58 @@ def validate_cloud_provider_manifest(xmltree: str) -> None:
     because it reads the binary manifest from the exact artifact being handed
     to the user.
     """
-    blocks: list[str] = []
+    blocks: list[list[str]] = []
     current: list[str] | None = None
+    depth = 0
     for line in xmltree.splitlines():
+        element = re.match(r"^(\s*)E:", line)
+        if current is not None and element and len(element[1]) <= depth:
+            blocks.append(current)
+            current = None
         if re.match(r"^\s*E: provider \(line=", line):
-            if current is not None:
-                blocks.append("\n".join(current))
             current = [line]
+            depth = len(line) - len(line.lstrip())
         elif current is not None:
             current.append(line)
     if current is not None:
-        blocks.append("\n".join(current))
-    provider = next((block for block in blocks if CLOUD_PROVIDER_CLASS in block), None)
-    if provider is None:
+        blocks.append(current)
+
+    def attributes(lines: list[str]) -> dict[str, str]:
+        result = {}
+        for line in lines[1:]:
+            if re.match(r"^\s*E:", line):
+                break
+            match = re.match(r"^\s*A: android:(\w+)(?:\([^)]*\))?=(.*)$", line)
+            if match:
+                if match[1] in result:
+                    raise ReleaseError("duplicate CloudMediaProvider manifest attribute")
+                result[match[1]] = match[2].strip()
+        return result
+
+    def string(value: str | None) -> str | None:
+        match = re.fullmatch(r'"([^"]*)"(?: \(Raw: "[^"]*"\))?', value or "")
+        return match[1] if match else None
+
+    providers = [block for block in blocks if string(attributes(block).get("name")) == CLOUD_PROVIDER_CLASS]
+    if len(providers) != 1:
         raise ReleaseError("release APK has no Gallery CloudMediaProvider declaration")
-    required = {
-        CLOUD_PROVIDER_AUTHORITY,
-        CLOUD_PROVIDER_ACTION,
-        'android:exported(0x01010010)=true',
-    }
-    permission_pattern = re.compile(
-        rf'android:(?:readPermission|permission)\([^)]*\)="{re.escape(CLOUD_PROVIDER_PERMISSION)}"'
+    provider = providers[0]
+    attrs = attributes(provider)
+    # aapt (SDK 36) emits typed binary booleans, not the source XML spelling.
+    exported = attrs.get("exported") in {"true", "(type 0x12)0xffffffff", "(type 0x12)0x1"}
+    permissions = all(
+        string(attrs.get(key, attrs.get("permission"))) == CLOUD_PROVIDER_PERMISSION
+        for key in ("readPermission", "writePermission")
     )
-    if not all(value in provider for value in required) or not permission_pattern.search(provider):
+    action = any(
+        re.match(r"^\s*E: action \(line=", line)
+        and string(attributes(provider[index:]).get("name")) == CLOUD_PROVIDER_ACTION
+        for index, line in enumerate(provider)
+    )
+    if string(attrs.get("authorities")) != CLOUD_PROVIDER_AUTHORITY or not exported or not permissions or not action:
         raise ReleaseError(
             "release APK CloudMediaProvider declaration is missing authority, "
-            "exported state, provider read permission or intent action"
+            "exported state, signature read/write permissions or intent action"
         )
 
 

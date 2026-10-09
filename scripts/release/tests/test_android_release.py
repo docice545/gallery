@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -253,6 +254,55 @@ class AndroidReleaseGuards(unittest.TestCase):
                 A: android:name=\"android.content.action.CLOUD_MEDIA_PROVIDER\"
         """
         with self.assertRaisesRegex(release.ReleaseError, "missing authority"):
+            release.validate_cloud_provider_manifest(manifest)
+
+    def provider_manifest(self, exported="(type 0x12)0xffffffff"):
+        return f"""  E: application (line=1)
+    E: provider (line=2)
+      A: android:name(0x01010003)="{release.CLOUD_PROVIDER_CLASS}" (Raw: "{release.CLOUD_PROVIDER_CLASS}")
+      A: android:readPermission(0x01010007)="{release.CLOUD_PROVIDER_PERMISSION}"
+      A: android:writePermission(0x01010008)="{release.CLOUD_PROVIDER_PERMISSION}"
+      A: android:exported(0x01010010)={exported}
+      A: android:authorities(0x01010018)="{release.CLOUD_PROVIDER_AUTHORITY}"
+      E: intent-filter (line=3)
+        E: action (line=4)
+          A: android:name(0x01010003)="{release.CLOUD_PROVIDER_ACTION}"
+    E: activity (line=5)
+      A: android:exported(0x01010010)=true
+"""
+
+    def test_sdk36_binary_boolean_and_source_true_are_accepted(self):
+        for value in ["(type 0x12)0xffffffff", "(type 0x12)0x1", "true"]:
+            with self.subTest(value=value):
+                release.validate_cloud_provider_manifest(self.provider_manifest(value))
+
+    def test_false_or_invalid_exported_cannot_borrow_sibling_true(self):
+        for value in ["false", "(type 0x12)0x0", "(type 0x10)0xffffffff", '"true"', ""]:
+            with self.subTest(value=value), self.assertRaises(release.ReleaseError):
+                release.validate_cloud_provider_manifest(self.provider_manifest(value))
+
+    def test_both_signature_permissions_and_exact_authority_are_required(self):
+        for field in ["readPermission", "writePermission", "authorities"]:
+            manifest = self.provider_manifest()
+            manifest = re.sub(rf'(android:{field}\([^)]*\)=)"[^"]*"', r'\1"wrong"', manifest)
+            with self.subTest(field=field), self.assertRaises(release.ReleaseError):
+                release.validate_cloud_provider_manifest(manifest)
+
+    def test_android_common_permission_protects_both_directions(self):
+        manifest = self.provider_manifest().replace('android:readPermission', 'android:permission')
+        manifest = '\n'.join(line for line in manifest.splitlines() if 'android:writePermission' not in line)
+        release.validate_cloud_provider_manifest(manifest)
+        manifest = manifest.replace('      E: intent-filter', '      A: android:writePermission(0x01010008)="wrong"\n      E: intent-filter')
+        with self.assertRaises(release.ReleaseError):
+            release.validate_cloud_provider_manifest(manifest)
+
+    def test_sibling_action_or_nested_provider_name_cannot_satisfy_contract(self):
+        manifest = self.provider_manifest().replace(f'"{release.CLOUD_PROVIDER_ACTION}"', '"wrong"')
+        manifest += f'      E: action (line=6)\n        A: android:name="{release.CLOUD_PROVIDER_ACTION}"\n'
+        with self.assertRaises(release.ReleaseError):
+            release.validate_cloud_provider_manifest(manifest)
+        manifest = self.provider_manifest().replace(f'"{release.CLOUD_PROVIDER_CLASS}"', '"other.Provider"', 1)
+        with self.assertRaises(release.ReleaseError):
             release.validate_cloud_provider_manifest(manifest)
 
     def test_actual_release_identity_and_streamed_checksum(self):
