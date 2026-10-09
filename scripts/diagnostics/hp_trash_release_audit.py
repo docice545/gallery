@@ -126,7 +126,9 @@ try {
     if(job.name==='AssetDelete') {
       const a=assets.get(job.payload.id);
       const originalPossible=job.payload.deleteOnDisk===true&&a&&!a.offline;
-      risk=!a?'asset-missing':job.payload.trashedBefore===undefined?
+      const reason=job.payload.deletionReason;
+      risk=!a?'asset-missing':reason==='library'||reason==='motion'?
+        'explicit-'+reason+'-guard-required':job.payload.trashedBefore===undefined?
         (a.status==='deleted'?'legacy-deleted':'legacy-active-or-trashed'):'cutoff-present-not-proof';
       if(originalPossible&&onExternal(a.path)) risk+=':external-original-unlink-capable';
     } else {
@@ -140,7 +142,7 @@ try {
     counts[key]=(counts[key]??0)+1;
   }
   result.deletionJobs={counts, fileDeleteExamples:examples,
-    legacyAssetDelete:jobs.filter(j=>j.name==='AssetDelete'&&j.payload.trashedBefore===undefined).length,
+    legacyAssetDelete:jobs.filter(j=>j.name==='AssetDelete'&&j.payload.trashedBefore===undefined&&!j.payload.deletionReason).length,
     fileDelete:jobs.filter(j=>j.name==='FileDelete').length,
     maximumAgeDays:Math.max(0,...jobs.map(j=>Number.isFinite(j.ageDays)?j.ageDays:0))};
   result.containerMountPermissionIndications=roots.map((root,index)=>{
@@ -148,7 +150,11 @@ try {
     return {mount:index+1, auditUid:process.getuid(), directoryAccessW_OK:writable,
       actualCreateUnlink:'NOT_TESTED'};
   });
-  const backupRoot=(config.storage.mediaLocation||'/data')+'/backups';
+  // Match StorageService.detectMediaLocation, including the legacy upload mount.
+  const mediaCandidates=['/data','/usr/src/app/upload'].filter(path=>fs.existsSync(path));
+  const mediaRoot=config.storage.mediaLocation||
+    (mediaCandidates.length===1?mediaCandidates[0]:'/usr/src/app/upload');
+  const backupRoot=mediaRoot+'/backups';
   try {
     const files=fs.readdirSync(backupRoot).slice(0,1000);
     const backups=files.filter(x=>x.endsWith('.sql.gz')).map(x=>fs.statSync(backupRoot+'/'+x)).filter(x=>x.isFile());

@@ -8,6 +8,7 @@ on:
       - 'server/**'
       - 'scripts/release/server_build.sh'
       - 'scripts/release/server_artifact_smoke.py'
+      - 'scripts/diagnostics/hp_trash_release_audit.py'
       - '.github/workflows/gallery-trash-server-build.yml'
   workflow_dispatch:
 
