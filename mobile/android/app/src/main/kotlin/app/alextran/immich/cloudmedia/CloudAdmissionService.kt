@@ -30,7 +30,7 @@ internal fun Bundle.journal() = AdmissionJournal(
   CloudAdmissionPolicy.decodeChanges(getString("changes")),
 )
 
-/** Shizuku shell-UID service: only one DeviceConfig key, never session/media access. */
+/** Shizuku shell-UID service: only journaled DeviceConfig keys, never session/media access. */
 class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub() {
   private val ownerUid = context.packageManager.getApplicationInfo(BuildConfig.APPLICATION_ID, 0).uid
   private val lock = ReentrantLock()
@@ -128,9 +128,8 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     if (authority == null) return null
     val provider = context.packageManager.resolveContentProvider(authority, 0)
       ?: throw IOException("Selected provider is not discoverable")
-    check(provider.permission == CloudAdmissionPolicy.CLOUD_PERMISSION ||
-      (provider.readPermission == CloudAdmissionPolicy.CLOUD_PERMISSION &&
-        provider.writePermission == CloudAdmissionPolicy.CLOUD_PERMISSION))
+    check(provider.readPermission == CloudAdmissionPolicy.CLOUD_PERMISSION &&
+      provider.writePermission == CloudAdmissionPolicy.CLOUD_PERMISSION)
     return provider.packageName
   }
 
@@ -138,9 +137,8 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     val snapshot = state()
     val own = context.packageManager.resolveContentProvider("${BuildConfig.APPLICATION_ID}.cloudmedia", 0)
     check(own?.packageName == BuildConfig.APPLICATION_ID && own.exported &&
-      (own.permission == CloudAdmissionPolicy.CLOUD_PERMISSION ||
-        (own.readPermission == CloudAdmissionPolicy.CLOUD_PERMISSION &&
-          own.writePermission == CloudAdmissionPolicy.CLOUD_PERMISSION))) { "Cloud provider is not installed correctly" }
+      own.readPermission == CloudAdmissionPolicy.CLOUD_PERMISSION &&
+      own.writePermission == CloudAdmissionPolicy.CLOUD_PERMISSION) { "Cloud provider is not installed correctly" }
     check(snapshot.androidUser == ownerUid / 100000) { "Switch to this application's Android user" }
     snapshot.bundle().apply { putString("selectedPackage", providerPackage(snapshot.selected)) }
   }
@@ -171,19 +169,12 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     if (CloudAdmissionPolicy.isBefore(current, journal)) {
       return@operation current.bundle() // Idempotent recovery after a lost Binder acknowledgement.
     }
-    check(CloudAdmissionPolicy.canUndo(current, journal)) { "Settings changed externally; recovery will not overwrite them" }
-    if (journal.changes.isEmpty()) {
-      if (journal.before.overridePresent) command("/system/bin/device_config", "override", "mediaprovider", "allowed_cloud_providers",
-        requireNotNull(journal.before.overrideValue))
-      else command("/system/bin/device_config", "clear_override", "mediaprovider", "allowed_cloud_providers")
-    } else {
-      journal.changes.forEach { change ->
-        if (change.before.overridePresent) {
-          command("/system/bin/device_config", "override", change.before.namespace, change.before.key,
-            requireNotNull(change.before.overrideValue))
-        } else {
-          command("/system/bin/device_config", "clear_override", change.before.namespace, change.before.key)
-        }
+    CloudAdmissionPolicy.undoOwnedChanges(journal, ::state) { change ->
+      if (change.before.overridePresent) {
+        command("/system/bin/device_config", "override", change.before.namespace, change.before.key,
+          requireNotNull(change.before.overrideValue))
+      } else {
+        command("/system/bin/device_config", "clear_override", change.before.namespace, change.before.key)
       }
     }
     val after = state()

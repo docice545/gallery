@@ -151,15 +151,24 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
           when (method) {
             "enable" -> {
               val session = catalog.session(false) ?: throw IllegalStateException("signedOut")
-              val inspected = remote.inspect()
+              var inspected = remote.inspect()
               check(!cancelled.get() && attached) { "cancelled" }
               // Validate feature/enforcement even when our owned override already
               // contains the package and no new privileged write is necessary.
-              val journal = CloudAdmissionPolicy.plan(inspected.snapshot(), ctx.packageName, inspected.getString("selectedPackage"))
               val existingJournal = prefs.getString("recoveryJournal", null)?.let { decodeJournal(it) }
-              if (existingJournal != null) {
-                check(CloudAdmissionPolicy.verifyAdmitted(inspected.snapshot(), existingJournal)) { "externallyChanged" }
-              } else {
+              if (existingJournal != null && (existingJournal.changes.isEmpty() ||
+                  !CloudAdmissionPolicy.verifyAdmitted(inspected.snapshot(), existingJournal))) {
+                check(CloudAdmissionPolicy.canUndo(inspected.snapshot(), existingJournal) ||
+                  CloudAdmissionPolicy.isBefore(inspected.snapshot(), existingJournal)) { "externallyChanged" }
+                // Complete interrupted/legacy recovery before planning another activation.
+                // A legacy journal cannot claim ownership of the new feature flag.
+                remote.undo(existingJournal.bundle())
+                check(prefs.edit().remove("recoveryJournal").commit())
+                check(!cancelled.get() && attached) { "cancelled" }
+                inspected = remote.inspect()
+              }
+              val journal = CloudAdmissionPolicy.plan(inspected.snapshot(), ctx.packageName, inspected.getString("selectedPackage"))
+              if (!prefs.contains("recoveryJournal")) {
                 if (journal != null) {
                   // Durable BEFORE the privileged mutation. Lost Binder reply,
                   // cancellation or process death cannot lose recovery ownership.

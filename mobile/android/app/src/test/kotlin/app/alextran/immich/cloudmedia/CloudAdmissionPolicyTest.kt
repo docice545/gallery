@@ -112,6 +112,113 @@ class CloudAdmissionPolicyTest {
     assertEquals(before, journal.before)
     assertTrue(CloudAdmissionPolicy.canUndo(state(journal.written, true), journal))
   }
+
+  private fun written(before: DeviceConfigValue, journal: AdmissionJournal): DeviceConfigValue {
+    val target = journal.changes.single { it.before.key == before.key }.written
+    return before.copy(effective = target, overridePresent = true, overrideValue = target)
+  }
+
+  @Test fun everyInterruptedActivationCanBeUndoneWithoutClaimingUnwrittenKeys() {
+    val before = modernState()
+    val journal = CloudAdmissionPolicy.plan(before, own, null)!!
+    // Failure/cancellation before or after either command, including a lost Binder reply.
+    for (mask in 0..3) {
+      var current = before.copy(values = before.values.mapIndexed { index, value ->
+        if (mask and (1 shl index) != 0) written(value, journal) else value
+      })
+      val restored = mutableListOf<String>()
+      CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { change ->
+        restored.add(change.before.key)
+        current = current.copy(values = current.values.map { if (it.key == change.before.key) change.before else it })
+      }
+      assertEquals(before, current)
+      assertEquals(Integer.bitCount(mask), restored.size)
+      CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { fail("Already restored keys must not be rewritten") }
+      val retry = CloudAdmissionPolicy.plan(current, own, null)!!
+      current = current.copy(values = current.values.map { written(it, retry) })
+      assertTrue(CloudAdmissionPolicy.verifyAdmitted(current, retry))
+      assertNull(CloudAdmissionPolicy.plan(current, own, null)) // A retry cannot claim another mutation.
+    }
+  }
+
+  @Test fun undoRetriesAfterFailureBeforeOrAfterEachMutation() {
+    val before = modernState()
+    val journal = CloudAdmissionPolicy.plan(before, own, null)!!
+    for (failureIndex in 0..1) for (lostReply in listOf(false, true)) {
+      var current = before.copy(values = before.values.map { written(it, journal) })
+      var index = 0
+      assertThrows(java.io.IOException::class.java) {
+        CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { change ->
+          val fails = index++ == failureIndex
+          if (fails && !lostReply) throw java.io.IOException("cancelled before write")
+          current = current.copy(values = current.values.map { if (it.key == change.before.key) change.before else it })
+          if (fails) throw java.io.IOException("lost acknowledgement")
+        }
+      }
+      val expectedPending = current.values.count { it.overridePresent }
+      var retryWrites = 0
+      CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { change ->
+        retryWrites++
+        current = current.copy(values = current.values.map { if (it.key == change.before.key) change.before else it })
+      }
+      assertEquals(expectedPending, retryWrites)
+      assertEquals(before, current)
+      assertTrue(CloudAdmissionPolicy.isBefore(current, journal))
+    }
+  }
+
+  @Test fun externalInterferenceBlocksRecoveryBeforeAnyFurtherWrite() {
+    val before = modernState()
+    val journal = CloudAdmissionPolicy.plan(before, own, null)!!
+    for (mask in 0..3) for (changedKey in before.values.indices) {
+      val current = before.copy(values = before.values.mapIndexed { index, value ->
+        when {
+          index == changedKey -> value.copy(effective = "external", overridePresent = true, overrideValue = "external")
+          mask and (1 shl index) != 0 -> written(value, journal)
+          else -> value
+        }
+      })
+      assertFalse(CloudAdmissionPolicy.canUndo(current, journal))
+      assertFalse(CloudAdmissionPolicy.isBefore(current, journal))
+      assertThrows(IllegalStateException::class.java) {
+        CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { fail("External settings must remain untouched") }
+      }
+    }
+  }
+
+  @Test fun interferenceBetweenUndoCommandsIsDetectedAndNotOverwritten() {
+    val before = modernState()
+    val journal = CloudAdmissionPolicy.plan(before, own, null)!!
+    var current = before.copy(values = before.values.map { written(it, journal) })
+    var writes = 0
+    assertThrows(IllegalStateException::class.java) {
+      CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { change ->
+        writes++
+        current = current.copy(values = listOf(change.before,
+          before.values[1].copy(effective = "external", overridePresent = true, overrideValue = "external")))
+      }
+    }
+    assertEquals(1, writes)
+    assertEquals("external", current.values[1].overrideValue)
+  }
+
+  @Test fun legacyJournalCanRecoverUsingModernSnapshotsWithoutOwningTheFeatureFlag() {
+    val before = state(" com.example.cloud , com.google.android.apps.photos ", true)
+    val journal = CloudAdmissionPolicy.plan(before, own, null)!!
+    assertTrue(journal.changes.isEmpty())
+    assertTrue(CloudAdmissionPolicy.decodeChanges(null).isEmpty())
+    assertTrue(CloudAdmissionPolicy.decodeValues(null).isEmpty())
+    val unrelated = DeviceConfigValue("mediaprovider", "cloud_media_feature_enabled", "false", true, "false")
+    var current = before.copy(values = listOf(
+      DeviceConfigValue("mediaprovider", "allowed_cloud_providers", journal.written, true, journal.written), unrelated))
+    CloudAdmissionPolicy.undoOwnedChanges(journal, { current }) { change ->
+      assertEquals("allowed_cloud_providers", change.before.key)
+      current = current.copy(values = listOf(change.before, unrelated))
+    }
+    assertEquals(before.overrideValue, current.values[0].overrideValue)
+    assertEquals(unrelated, current.values[1])
+    assertTrue(CloudAdmissionPolicy.isBefore(current, journal))
+  }
   @Test fun onlyOwnAppCanRequestShellOperationsAndRootIsRejected() {
     CloudAdmissionPolicy.requireCaller(2000, 10050, 10050, 36)
     assertThrows(SecurityException::class.java) { CloudAdmissionPolicy.requireCaller(0, 10050, 10050, 36) }

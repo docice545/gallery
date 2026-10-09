@@ -93,11 +93,7 @@ internal object CloudAdmissionPolicy {
       if (snapshot.overridePresent) packages(snapshot.overrideValue)
       val merged = mergedProviders(snapshot.effective, ownPackage, currentProviderPackage)
       if (ownPackage in packages(snapshot.effective)) return null
-      val before = DeviceConfigValue(
-        MEDIA_PROVIDER_NAMESPACE, ALLOWED_CLOUD_PROVIDERS,
-        snapshot.effective, snapshot.overridePresent, snapshot.overrideValue,
-      )
-      return AdmissionJournal(snapshot, merged, listOf(AdmissionChange(before, merged)))
+      return AdmissionJournal(snapshot, merged)
     }
 
     val changes = snapshot.values.mapNotNull { before ->
@@ -123,29 +119,60 @@ internal object CloudAdmissionPolicy {
     return merged.joinToString(",")
   }
 
-  fun canUndo(current: AdmissionSnapshot, journal: AdmissionJournal): Boolean {
-    if (current.androidUser != journal.before.androidUser) return false
-    if (journal.changes.isEmpty()) {
-      return current.overridePresent && current.overrideValue == journal.written && current.effective == journal.written
+  private fun changes(journal: AdmissionJournal): List<AdmissionChange> = journal.changes.ifEmpty {
+    listOf(AdmissionChange(DeviceConfigValue(MEDIA_PROVIDER_NAMESPACE, ALLOWED_CLOUD_PROVIDERS,
+      journal.before.effective, journal.before.overridePresent, journal.before.overrideValue), journal.written))
+  }
+
+  private fun value(current: AdmissionSnapshot, change: AdmissionChange): DeviceConfigValue? {
+    if (current.values.isNotEmpty()) return current.values.singleOrNull {
+      it.namespace == change.before.namespace && it.key == change.before.key
     }
-    val currentValues = current.values.associateBy { "${it.namespace}/${it.key}" }
-    return journal.changes.all { change ->
-      val value = currentValues["${change.before.namespace}/${change.before.key}"] ?: return@all false
-      value.overridePresent && value.overrideValue == change.written && value.effective == change.written
+    // Legacy journals/snapshots own only the original allowlist key.
+    if (change.before.namespace != MEDIA_PROVIDER_NAMESPACE || change.before.key != ALLOWED_CLOUD_PROVIDERS) return null
+    return DeviceConfigValue(MEDIA_PROVIDER_NAMESPACE, ALLOWED_CLOUD_PROVIDERS,
+      current.effective, current.overridePresent, current.overrideValue)
+  }
+
+  private fun isWritten(value: DeviceConfigValue, change: AdmissionChange) =
+    value.overridePresent && value.overrideValue == change.written && value.effective == change.written
+
+  private fun isOriginal(value: DeviceConfigValue, change: AdmissionChange) =
+    value.overridePresent == change.before.overridePresent && value.overrideValue == change.before.overrideValue &&
+      (!value.overridePresent || value.effective == change.before.overrideValue)
+
+  // A cancelled two-key write/undo can leave any mix of original and owned values.
+  // Null means external interference: never overwrite even the still-owned keys.
+  private fun pendingUndo(current: AdmissionSnapshot, journal: AdmissionJournal): List<AdmissionChange>? {
+    if (current.androidUser != journal.before.androidUser) return null
+    val pending = mutableListOf<AdmissionChange>()
+    for (change in changes(journal)) {
+      val now = value(current, change) ?: return null
+      when {
+        isOriginal(now, change) -> Unit
+        isWritten(now, change) -> pending.add(change)
+        else -> return null
+      }
     }
+    return pending
+  }
+
+  fun canUndo(current: AdmissionSnapshot, journal: AdmissionJournal): Boolean =
+    pendingUndo(current, journal)?.isNotEmpty() == true
+
+  fun undoOwnedChanges(journal: AdmissionJournal, inspect: () -> AdmissionSnapshot, restore: (AdmissionChange) -> Unit) {
+    for (change in changes(journal)) {
+      // Re-read before each mutation, including retries after a lost acknowledgement.
+      val pending = checkNotNull(pendingUndo(inspect(), journal)) {
+        "Settings changed externally; recovery will not overwrite them"
+      }
+      if (change in pending) restore(change)
+    }
+    check(isBefore(inspect(), journal)) { "Recovery read-back failed" }
   }
 
   fun isBefore(current: AdmissionSnapshot, journal: AdmissionJournal): Boolean {
-    if (current.androidUser != journal.before.androidUser) return false
-    if (journal.changes.isEmpty()) {
-      return current.overridePresent == journal.before.overridePresent &&
-        current.overrideValue == journal.before.overrideValue
-    }
-    val currentValues = current.values.associateBy { "${it.namespace}/${it.key}" }
-    return journal.changes.all { change ->
-      val value = currentValues["${change.before.namespace}/${change.before.key}"] ?: return@all false
-      value.overridePresent == change.before.overridePresent && value.overrideValue == change.before.overrideValue
-    }
+    return pendingUndo(current, journal)?.isEmpty() == true
   }
 
   fun verifyAdmitted(current: AdmissionSnapshot, written: String): Boolean =
