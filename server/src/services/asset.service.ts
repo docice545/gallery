@@ -561,7 +561,10 @@ export class AssetService extends BaseService {
 
     for await (const assets of batched(this.assetJobRepository.streamForDeletedJob(trashedBefore))) {
       await this.jobRepository.queueAll(
-        assets.map(({ id, isOffline }) => ({ name: JobName.AssetDelete, data: { id, deleteOnDisk: !isOffline } })),
+        assets.map(({ id, isOffline }) => ({
+          name: JobName.AssetDelete,
+          data: { id, deleteOnDisk: !isOffline, trashedBefore: trashedBefore.toISOString() },
+        })),
       );
     }
 
@@ -571,6 +574,16 @@ export class AssetService extends BaseService {
   @OnJob({ name: JobName.AssetDelete, queue: QueueName.BackgroundTask })
   async handleAssetDeletion(job: JobOf<JobName.AssetDelete>): Promise<JobStatus> {
     const { id, deleteOnDisk } = job;
+
+    if (job.trashedBefore !== undefined) {
+      const cutoff = new Date(job.trashedBefore);
+      if (Number.isNaN(cutoff.getTime())) {
+        return JobStatus.Failed;
+      }
+      if (!(await this.assetRepository.claimExpiredDeletion(id, cutoff))) {
+        return JobStatus.Skipped;
+      }
+    }
 
     const asset = await this.assetJobRepository.getForAssetDeletion(id);
 
@@ -619,7 +632,7 @@ export class AssetService extends BaseService {
       // here would leave it behind until the trash sweep runs days later. Re-queue instead: the
       // job goes to the back of the queue, by which point the delete storm has usually drained.
       this.logger.warn(`Re-queueing deletion of asset ${id}: still deadlocking after repeated retries`);
-      await this.jobRepository.queue({ name: JobName.AssetDelete, data: { id, deleteOnDisk } });
+      await this.jobRepository.queue({ name: JobName.AssetDelete, data: job });
       return JobStatus.Skipped;
     }
     if (!asset.libraryId) {

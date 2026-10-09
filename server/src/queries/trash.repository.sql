@@ -25,3 +25,5 @@ set
 where
   "status" = $3
   and "id" in ($4)
+returning
+  "id"

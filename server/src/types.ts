@@ -230,6 +230,8 @@ export interface IEntityJob extends IBaseJob {
 
 export interface IAssetDeleteJob extends IEntityJob {
   deleteOnDisk: boolean;
+  /** Retention sweep cutoff; revalidate atomically before irreversible deletion. */
+  trashedBefore?: string;
 }
 
 export interface ILibraryFileJob {

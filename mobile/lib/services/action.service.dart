@@ -62,7 +62,10 @@ class ActionService {
     final snapshots = await _remoteAssetRepository.beginRestoreAllTrash(userId);
     try {
       final count = await _assetApiRepository.restoreAllTrash();
-      await _remoteAssetRepository.completeTrashOperation(snapshots, success: true);
+      // A count cannot identify which of the captured rows was restored when
+      // retention/permanent deletion ran concurrently. Preserve revision-guarded
+      // pending state until ordinary sync verifies each captured asset.
+      await _remoteAssetRepository.completeTrashOperation(snapshots, success: false);
       return count;
     } catch (error, stack) {
       try {

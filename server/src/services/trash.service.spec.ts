@@ -41,7 +41,7 @@ describe(TrashService.name, () => {
 
     it('should restore a batch of assets', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
-      mocks.trash.restoreAll.mockResolvedValue(0);
+      mocks.trash.restoreAll.mockResolvedValue(['asset1', 'asset2']);
 
       await sut.restoreAssets(authStub.user1, { ids: ['asset1', 'asset2'] });
 
@@ -51,7 +51,7 @@ describe(TrashService.name, () => {
 
     it('should clean up conflicting tombstones on restore', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
-      mocks.trash.restoreAll.mockResolvedValue(0);
+      mocks.trash.restoreAll.mockResolvedValue(['asset1', 'asset2']);
 
       await sut.restoreAssets(authStub.user1, { ids: ['asset1', 'asset2'] });
 
@@ -60,6 +60,22 @@ describe(TrashService.name, () => {
         'asset2',
       ]);
     });
+  });
+
+  it('reports and emits only assets actually restored when expiry raced the batch', async () => {
+    mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['expired', 'restorable']));
+    mocks.trash.restoreAll.mockResolvedValue(['restorable']);
+    await expect(sut.restoreAssets(authStub.user1, { ids: ['expired', 'restorable'] })).resolves.toEqual({ count: 1 });
+    expect(mocks.event.emit).toHaveBeenCalledWith('AssetRestoreAll', { assetIds: ['restorable'], userId: 'user-id' });
+    expect(mocks.duplicateRepository.deleteConflictingTombstones).toHaveBeenCalledWith('user-id', ['restorable']);
+  });
+
+  it('does not announce a restoration when no row could be restored', async () => {
+    mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['expired']));
+    mocks.trash.restoreAll.mockResolvedValue([]);
+    await expect(sut.restoreAssets(authStub.user1, { ids: ['expired'] })).resolves.toEqual({ count: 0 });
+    expect(mocks.event.emit).not.toHaveBeenCalled();
+    expect(mocks.duplicateRepository.deleteConflictingTombstones).not.toHaveBeenCalled();
   });
 
   describe('restore', () => {

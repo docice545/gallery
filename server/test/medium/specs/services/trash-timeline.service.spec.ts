@@ -120,4 +120,36 @@ describe('Trash timeline uses authoritative deletion timestamps', () => {
     expect(regular.deletedAt).toEqual([null]);
     expect(new Date(regular.fileCreatedAt[0]).toISOString()).toBe('2020-01-02T10:00:00.000Z');
   });
+
+  it('a restored row cannot be claimed by a queued retention deletion', async () => {
+    const { latest } = await fixture();
+    const assets = new AssetRepository(database);
+    const trash = new TrashRepository(database);
+    expect(await trash.restoreAll([latest.id])).toEqual([latest.id]);
+    expect(await assets.claimExpiredDeletion(latest.id, new Date('2026-10-06T00:00:00Z'))).toBe(false);
+    const row = await database.selectFrom('asset').selectAll().where('id', '=', latest.id).executeTakeFirstOrThrow();
+    expect(row.status).toBe(AssetStatus.Active);
+    expect(row.deletedAt).toBeNull();
+    expect(row.fileCreatedAt).toEqual(latest.fileCreatedAt);
+  });
+
+  it('a new Trash timestamp is protected from the old queued retention cutoff', async () => {
+    const { latest } = await fixture();
+    const assets = new AssetRepository(database);
+    await new TrashRepository(database).restoreAll([latest.id]);
+    await assets.updateAll([latest.id], { status: AssetStatus.Trashed, deletedAt: new Date('2026-10-09T00:00:00Z') });
+    expect(await assets.claimExpiredDeletion(latest.id, new Date('2026-10-06T00:00:00Z'))).toBe(false);
+    const row = await database.selectFrom('asset').selectAll().where('id', '=', latest.id).executeTakeFirstOrThrow();
+    expect(row.status).toBe(AssetStatus.Trashed);
+    expect(row.deletedAt).toEqual(new Date('2026-10-09T00:00:00Z'));
+  });
+
+  it('when retention wins, Restore returns only still-restorable IDs and leaves the claim Deleted', async () => {
+    const { latest, morning } = await fixture();
+    const assets = new AssetRepository(database);
+    expect(await assets.claimExpiredDeletion(latest.id, new Date('2026-10-06T00:00:00Z'))).toBe(true);
+    expect(await new TrashRepository(database).restoreAll([latest.id, morning.id])).toEqual([morning.id]);
+    const row = await database.selectFrom('asset').selectAll().where('id', '=', latest.id).executeTakeFirstOrThrow();
+    expect(row.status).toBe(AssetStatus.Deleted);
+  });
 });

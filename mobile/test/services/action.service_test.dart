@@ -110,7 +110,7 @@ void main() {
       verifyNever(() => remoteAssetRepository.completeTrashOperation([], success: true));
     });
 
-    test('clears retained local tombstones only after the server accepts restore', () async {
+    test('retains pending captured revisions after a count-only bulk Restore acknowledgement', () async {
       final calls = <String>[];
       when(() => remoteAssetRepository.beginRestoreAllTrash(ownerId)).thenAnswer((_) async {
         calls.add('local-restore');
@@ -121,12 +121,12 @@ void main() {
         return 2;
       });
       when(
-        () => remoteAssetRepository.completeTrashOperation([], success: true),
-      ).thenAnswer((_) async => calls.add('clear-retained'));
+        () => remoteAssetRepository.completeTrashOperation([], success: false),
+      ).thenAnswer((_) async => calls.add('await-reconciliation'));
 
       await expectLater(sut.restoreAllTrash(ownerId), completion(2));
 
-      expect(calls, ['local-restore', 'server-restore', 'clear-retained']);
+      expect(calls, ['local-restore', 'server-restore', 'await-reconciliation']);
     });
   });
 }

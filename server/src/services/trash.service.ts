@@ -16,13 +16,15 @@ export class TrashService extends BaseService {
     }
 
     await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
-    await this.trashRepository.restoreAll(ids);
-    await this.duplicateRepository.deleteConflictingTombstones(auth.user.id, ids);
-    await this.eventRepository.emit('AssetRestoreAll', { assetIds: ids, userId: auth.user.id });
+    const restoredIds = await this.trashRepository.restoreAll(ids);
+    if (restoredIds.length > 0) {
+      await this.duplicateRepository.deleteConflictingTombstones(auth.user.id, restoredIds);
+      await this.eventRepository.emit('AssetRestoreAll', { assetIds: restoredIds, userId: auth.user.id });
+    }
 
-    this.logger.log(`Restored ${ids.length} asset(s) from trash`);
+    this.logger.log(`Restored ${restoredIds.length} asset(s) from trash`);
 
-    return { count: ids.length };
+    return { count: restoredIds.length };
   }
 
   async restore(auth: AuthDto): Promise<TrashResponseDto> {

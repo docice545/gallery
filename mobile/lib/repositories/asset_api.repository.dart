@@ -39,7 +39,13 @@ class AssetApiRepository extends ApiRepository {
       _serializeTrashRequest(() => _api.deleteAssets(AssetBulkDeleteDto(ids: ids, force: Optional.present(force))));
 
   Future<void> restoreTrash(List<String> ids) => _serializeTrashRequest(() async {
-    await _trashApi.restoreAssets(BulkIdsDto(ids: ids));
+    final response = await _trashApi.restoreAssets(BulkIdsDto(ids: ids));
+    if (response == null || response.count != ids.toSet().length) {
+      // The response identifies no per-item outcome. Do not acknowledge every
+      // optimistic Restore when expiry/permanent deletion raced this batch.
+      // The existing durable reconciliation will inspect the individual IDs.
+      throw StateError('Restore outcome requires reconciliation');
+    }
   });
 
   Future<int> emptyTrash() async {

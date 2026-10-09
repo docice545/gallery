@@ -1545,7 +1545,10 @@ describe(AssetService.name, () => {
 
       expect(mocks.assetJob.streamForDeletedJob).toHaveBeenCalledWith(new Date());
       expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: true } },
+        {
+          name: JobName.AssetDelete,
+          data: { id: asset.id, deleteOnDisk: true, trashedBefore: new Date().toISOString() },
+        },
       ]);
     });
 
@@ -1559,7 +1562,14 @@ describe(AssetService.name, () => {
 
       expect(mocks.assetJob.streamForDeletedJob).toHaveBeenCalledWith(DateTime.now().minus({ days: 7 }).toJSDate());
       expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: true } },
+        {
+          name: JobName.AssetDelete,
+          data: {
+            id: asset.id,
+            deleteOnDisk: true,
+            trashedBefore: DateTime.now().minus({ days: 7 }).toJSDate().toISOString(),
+          },
+        },
       ]);
     });
 
@@ -1572,7 +1582,10 @@ describe(AssetService.name, () => {
       await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
 
       expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: false } },
+        {
+          name: JobName.AssetDelete,
+          data: { id: asset.id, deleteOnDisk: false, trashedBefore: new Date().toISOString() },
+        },
       ]);
     });
 
@@ -1587,6 +1600,50 @@ describe(AssetService.name, () => {
   });
 
   describe('handleAssetDeletion', () => {
+    const cutoff = '2026-10-01T00:00:00.000Z';
+
+    it.each(['restored', 'restored then trashed after cutoff', 'already removed'])(
+      'skips a stale retention job for an asset %s without deleting files or changing its stack',
+      async () => {
+        mocks.asset.claimExpiredDeletion.mockResolvedValue(false);
+        await expect(
+          sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true, trashedBefore: cutoff }),
+        ).resolves.toBe(JobStatus.Skipped);
+        expect(mocks.asset.claimExpiredDeletion).toHaveBeenCalledWith('asset-1', new Date(cutoff));
+        expect(mocks.assetJob.getForAssetDeletion).not.toHaveBeenCalled();
+        expect(mocks.stack.delete).not.toHaveBeenCalled();
+        expect(mocks.asset.remove).not.toHaveBeenCalled();
+        expect(mocks.job.queue).not.toHaveBeenCalled();
+        expect(mocks.event.emit).not.toHaveBeenCalled();
+      },
+    );
+
+    it('fails closed on a malformed retention cutoff', async () => {
+      await expect(
+        sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true, trashedBefore: 'invalid' }),
+      ).resolves.toBe(JobStatus.Failed);
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.remove).not.toHaveBeenCalled();
+    });
+
+    it('claims expired trash before deletion and preserves the cutoff across a deadlock requeue', async () => {
+      const asset = AssetFactory.create();
+      const job = { id: asset.id, deleteOnDisk: true, trashedBefore: cutoff };
+      mocks.asset.claimExpiredDeletion.mockResolvedValue(true);
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.remove.mockRejectedValue(Object.assign(new Error('deadlock'), { code: '40P01' }));
+      await expect(sut.handleAssetDeletion(job)).resolves.toBe(JobStatus.Skipped);
+      expect(mocks.job.queue).toHaveBeenCalledWith({ name: JobName.AssetDelete, data: job });
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+    });
+
+    it('does not apply the retention claim to library removal or motion-resource cleanup', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: false })).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+    });
+
     // Deleting an asset makes Postgres lock shared_space_person itself to satisfy the
     // representativeFaceId ON DELETE SET NULL foreign key, in face-deletion order. That cycles
     // against concurrent space-people recounts and no application-level ordering can prevent it,

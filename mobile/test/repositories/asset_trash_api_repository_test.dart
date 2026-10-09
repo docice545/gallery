@@ -73,6 +73,20 @@ void main() {
     verify(() => assets.deleteAssets(any())).called(1);
   });
 
+  test('partial/empty Restore acknowledgement remains uncertain rather than acknowledging every ID', () async {
+    when(() => trash.restoreAssets(any())).thenAnswer((_) async => TrashResponseDto(count: 1));
+    Object? failure;
+    try {
+      await repository.restoreTrash(['restored', 'expired']);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure, isA<StateError>());
+    expect(AssetApiRepository.isDefiniteTrashRejection(failure!), isFalse);
+    when(() => trash.restoreAssets(any())).thenAnswer((_) async => TrashResponseDto(count: 0));
+    await expectLater(repository.restoreTrash(['expired']), throwsStateError);
+  });
+
   test('only definite HTTP rejection triggers rollback; transport and server outcomes remain uncertain', () {
     for (final status in [400, 401, 403, 404, 405, 409, 413, 415, 422, 429]) {
       expect(AssetApiRepository.isDefiniteTrashRejection(ApiException(status, 'rejected')), isTrue);

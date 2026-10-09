@@ -1496,6 +1496,20 @@ export class AssetRepository {
     return this.getById(asset.id, { exifInfo: true, faces: {}, edits: true });
   }
 
+  async claimExpiredDeletion(id: string, trashedBefore: Date): Promise<boolean> {
+    // Restore clears deletedAt; a subsequent Trash assigns a new timestamp.
+    // The conditional UPDATE serializes against Restore on the same row. Once
+    // claimed, Deleted is no longer restorable through the Trash API.
+    const claimed = await this.db
+      .updateTable('asset')
+      .where('id', '=', asUuid(id))
+      .where('deletedAt', '<=', trashedBefore)
+      .set({ status: AssetStatus.Deleted })
+      .returning('id')
+      .executeTakeFirst();
+    return claimed !== undefined;
+  }
+
   async remove(asset: { id: string }): Promise<void> {
     await this.db.deleteFrom('asset').where('id', '=', asUuid(asset.id)).execute();
   }
