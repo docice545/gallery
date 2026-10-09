@@ -6,7 +6,15 @@ release_sha="$1"
 output="$2"
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'FAIL full lowercase SHA required'; exit 1; }
 root="$(git rev-parse --show-toplevel)"
-[[ "$(git rev-parse HEAD)" == "$release_sha" ]] || { echo 'FAIL HEAD differs'; exit 1; }
+tooling_sha="$(git rev-parse HEAD)"
+git cat-file -e "${release_sha}^{commit}" 2>/dev/null || { echo 'FAIL source commit unavailable'; exit 1; }
+git merge-base --is-ancestor "$release_sha" "$tooling_sha" || { echo 'FAIL source is not an ancestor of this tooling'; exit 1; }
+# A failed build-only check may be corrected without recompiling a successful
+# native IPA. An older explicit source is permitted ONLY when all application,
+# Dockerfile, branding and dependency inputs are identical to this checkout.
+git diff --quiet "$release_sha" "$tooling_sha" -- server mobile packages web i18n branding \
+  package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs patches .dockerignore \
+  || { echo 'FAIL application/build inputs differ from source; select current SHA'; exit 1; }
 [[ -z "$(git status --porcelain)" ]] || { echo 'FAIL checkout is not clean'; exit 1; }
 origin="$(git remote get-url origin)"
 [[ "$origin" == 'https://github.com/docice545/gallery.git' || "$origin" == 'https://github.com/docice545/gallery' || "$origin" == 'git@github.com:docice545/gallery.git' ]] || { echo 'FAIL wrong repository'; exit 1; }
@@ -43,12 +51,12 @@ const p=require("./server/package.json"); if(p.version!=="5.7.1") process.exit(1
 const fs=require("fs"); if(!fs.existsSync("./server/dist/main.js")) process.exit(1);
 console.log("PASS packaged server version 5.7.1 and compiled entrypoint");'
 docker save "$image" | gzip -n > "$output/gallery-server-linux-amd64.tar.gz"
-python3 - "$output" "$release_sha" "$image" <<'PY'
+python3 - "$output" "$release_sha" "$image" "$tooling_sha" <<'PY'
 import hashlib, json, pathlib, sys
 directory = pathlib.Path(sys.argv[1]); artifact = directory / 'gallery-server-linux-amd64.tar.gz'
 digest = hashlib.file_digest(artifact.open('rb'), 'sha256').hexdigest()
 image = json.loads((directory / 'image-inspect.json').read_text())[0]
-manifest = dict(sourceCommit=sys.argv[2], serverVersion='5.7.1', mobileVersion='5.7.2', mobileBuild=8,
+manifest = dict(sourceCommit=sys.argv[2], toolingCommit=sys.argv[4], serverVersion='5.7.1', mobileVersion='5.7.2', mobileBuild=8,
                 imageTag=sys.argv[3], imageId=image['Id'], platform='linux/amd64', archiveSHA256=digest,
                 deployment='NOT_DEPLOYED', schemaDelta='NONE_FROM_42790b06', signing='NOT_APPLICABLE')
 (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')

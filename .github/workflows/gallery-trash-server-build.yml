@@ -2,15 +2,13 @@ name: Gallery Trash Server Artifact Only
 
 # No registry, release, production credentials, SSH or deployment.
 on:
-  push:
-    branches: ['candidate/gallery-trash-*']
-    paths:
-      - 'server/**'
-      - 'scripts/release/server_build.sh'
-      - 'scripts/release/server_artifact_smoke.py'
-      - 'scripts/diagnostics/hp_trash_release_audit.py'
-      - '.github/workflows/gallery-trash-server-build.yml'
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: 'Optional full approved source SHA; must be an ancestor with identical application/build inputs. Tooling fixes may differ.'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +22,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Prepare existing branding dependencies (isolated runner)
         run: |
           set -euo pipefail
@@ -31,12 +30,12 @@ jobs:
           sudo apt-get install -y jq imagemagick
       - name: Build existing server Dockerfile and export image
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
         run: scripts/release/server_build.sh "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
       - name: Fresh disposable PostgreSQL/Redis HTTP Trash and Restore smoke test
         env:
           GALLERY_ISOLATED_CI: '1'
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
         run: python3 scripts/release/server_artifact_smoke.py "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

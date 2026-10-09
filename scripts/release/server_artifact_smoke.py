@@ -72,7 +72,7 @@ def main():
                 if time.monotonic() > deadline:
                     raise RuntimeError('API did not become healthy') from None
                 time.sleep(2)
-        assert request('/server/version') == {'major': 5, 'minor': 7, 'patch': 1}
+        assert request('/server/version') == {'major': 5, 'minor': 7, 'patch': 1, 'prerelease': None}
         print('PASS compiled image/fresh PostgreSQL migrations/API version 5.7.1')
         stage = 'synthetic upload/Trash/Restore'
         credentials = {'email': 'trash-ci@example.invalid', 'password': secrets.token_urlsafe(24)}

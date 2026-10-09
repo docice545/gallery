@@ -127,7 +127,18 @@ class ReleasePreparation(unittest.TestCase):
     def test_backend_build_refuses_wrong_sha_before_docker(self):
         result = subprocess.run(['bash', str(ROOT / 'scripts/release/server_build.sh'), 'a'*40, '/unused-output'], cwd=ROOT, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('FAIL HEAD differs', result.stdout)
+        self.assertIn('FAIL source commit unavailable', result.stdout)
+
+    def test_backend_smoke_uses_actual_version_dto(self):
+        source = (ROOT / 'scripts/release/server_artifact_smoke.py').read_text()
+        self.assertIn("{'major': 5, 'minor': 7, 'patch': 1, 'prerelease': None}", source)
+
+    def test_old_backend_source_cannot_hide_application_changes(self):
+        source = (ROOT / 'scripts/release/server_build.sh').read_text()
+        self.assertIn('git merge-base --is-ancestor', source)
+        self.assertIn('git diff --quiet "$release_sha" "$tooling_sha" -- server mobile packages web i18n branding', source)
+        self.assertIn('git archive --format=tar "$release_sha"', source)
+        self.assertIn('toolingCommit=sys.argv[4]', source)
 
 
 if __name__ == '__main__':

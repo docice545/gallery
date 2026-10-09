@@ -1,6 +1,8 @@
 # Trash / Restore: release candidate 5.7.2 (8)
 
-Release branch: `candidate/gallery-trash-5.7.2-build8`, based on the reviewed
+Application release SHA: **`6a558b554e26e8c0fc5bc5c99259a92e7ef26a56`**, frozen
+artifact ref `build/gallery-trash-5.7.2-8-6a558b55`. Tooling branch:
+`candidate/gallery-trash-5.7.2-build8`, based on the reviewed
 `da8dee6f085a790561712816738c4caa1df4ffd1`. Production `work` must remain
 `42790b06edc21438811e56e40c431eee37c24894` until explicit integration approval.
 Use the **full release SHA from the final handoff** for every artifact and
@@ -24,8 +26,8 @@ ungated read arm). Neither is changed or disabled. Image rollback below does
 **not** run the defective switch-back SQL. The six pre-existing formatting
 failures outside application/test scope remain documented in that validation.
 
-Release preparation adds 47 Python Android/audit/guard tests (35 existing,
-12 preparation tests), retains 108 iOS tooling tests, and verifies 7 mobile
+Release preparation adds 49 Python Android/audit/guard tests (35 existing,
+14 preparation tests), retains 108 iOS tooling tests, and verifies 7 mobile
 compatibility and 6 server build-version tests. Exact CI run IDs, artifact
 digests and final status are provided in the final handoff; do not substitute
 old baseline artifacts. Native/physical acceptance is a separate gate.
@@ -108,6 +110,18 @@ Workflow: `.github/workflows/gallery-trash-server-build.yml`, artifact
 `gallery-server:trash-<SHA_FIRST_12>` preserves `gallery-server:docice-work`.
 No production deployment script is executed. Fresh CI migration success does
 not replace a production migration-inventory or backup check.
+
+The successful iOS build at the frozen release SHA is **not rerun**. The backend
+smoke harness initially compared the version DTO to only three fields; the
+actual DTO includes mandatory `prerelease: null`. That harness fix and improved
+queue/backup diagnostics are tooling-only later commits. The manually dispatched
+backend workflow takes `source_commit=6a558b554e26e8c0fc5bc5c99259a92e7ef26a56`;
+its receipt records **both** source and tooling commits. `git archive` builds
+that source SHA, and an ancestor/input-equality guard refuses an older source
+if any server/mobile/Dockerfile/branding/dependency input has changed. This
+preserves one exact application revision for backend, Android and iOS while
+allowing a failed validation harness to be corrected. Do not substitute a later
+tooling HEAD as the SHA of the already successful iOS artifact.
 
 ## Android production signing, only after approval
 
