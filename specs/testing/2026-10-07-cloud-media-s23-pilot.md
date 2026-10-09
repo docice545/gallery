@@ -62,28 +62,31 @@ wireless-debugging **shell UID 2000**; root and foreign Binder callers are rejec
 Typed AIDL exposes only inspect/admit/undo/cancel and the reserved service teardown.
 It accepts no arbitrary command, path, account, cookie or server token.
 
-The fixed commands inspect `device_config help`, the per-key effective value and
-local override, the feature/enforcement flags, current Android user and selected
-system provider. The only write is:
+The fixed commands inspect `device_config help`, the effective values and local
+overrides for the `mediaprovider` cloud-media settings, the feature/enforcement
+flags, current Android user and selected system provider. Activation writes the
+two AOSP values used by Android 15/16:
 
 ```text
 device_config override mediaprovider allowed_cloud_providers <validated merged list>
+device_config override mediaprovider cloud_media_feature_enabled true
 ```
 
 Existing packages, Google Photos and the verified selected provider are retained.
 No global enforcement flag is disabled. No provider is silently selected. A private
-durable recovery journal is committed **before** this write; exact read-back is
-required before activation. Bounded command output, timeouts, cancellation, Binder
-death and engine detach retain the journal for uncertain outcomes.
+durable recovery journal is committed **before** these writes;
+exact per-key read-back is required before activation. Bounded command output,
+timeouts, cancellation, Binder death and engine detach retain the journal for
+uncertain outcomes.
 
 Disable immediately stops Gallery media access even when Shizuku is unavailable.
 System undo happens only with shell permission, on the same Android user, and when
-the current override still exactly equals the value written by this app. It restores
-the previous override or clears only this owned key. External changes are not
-overwritten. A write already made by another tool is never claimed as ours. If undo
-is pending, restart wireless Shizuku and press Disable again. Do not uninstall or
-clear Gallery's app data before resolving the journal: that can destroy the only
-record needed for safe recovery.
+every current per-key override still exactly equals the value written by this app.
+It restores each previous override or clears only the keys this activation owned.
+External changes are not overwritten. A write already made by another tool is never
+claimed as ours. If undo is pending, restart wireless Shizuku and press Disable
+again. Do not uninstall or clear Gallery's app data before resolving the journal:
+that can destroy the only record needed for safe recovery.
 
 The API 35+ local override is designed to persist after app/Shizuku stop and reboot;
 normal media reads need neither Shizuku nor wireless debugging. OEM policy, OTA or

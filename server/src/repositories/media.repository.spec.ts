@@ -5,7 +5,13 @@ import sharp from 'sharp';
 import { AssetEditAction, MirrorAxis } from 'src/dtos/editing.dto.js';
 import { Colorspace, ImageFormat } from 'src/enum.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
-import { MediaRepository } from 'src/repositories/media.repository.js';
+import {
+  extractFrameWithSoftwareFallback,
+  findVaapiRenderNode,
+  getVideoFrameInputOptions,
+  getVideoFrameOutputOptions,
+  MediaRepository,
+} from 'src/repositories/media.repository.js';
 import { automock } from 'test/utils.js';
 
 const getPixelColor = async (buffer: Buffer, x: number, y: number) => {
@@ -66,6 +72,67 @@ describe(MediaRepository.name, () => {
   beforeEach(() => {
     // eslint-disable-next-line no-sparse-arrays
     sut = new MediaRepository(automock(LoggingRepository, { args: [, { getEnv: () => ({}) }], strict: false }));
+  });
+
+  describe('VAAPI frame extraction selection', () => {
+    it('returns no device when /dev/dri is unavailable', async () => {
+      const probe = {
+        readdir: vi.fn().mockRejectedValue(new Error('ENOENT')),
+        access: vi.fn(),
+      };
+
+      await expect(findVaapiRenderNode(probe)).resolves.toBeNull();
+      expect(probe.access).not.toHaveBeenCalled();
+    });
+
+    it('selects the first accessible render node and ignores card nodes', async () => {
+      const probe = {
+        readdir: vi.fn().mockResolvedValue(['card0', 'renderD129', 'renderD128']),
+        access: vi.fn().mockResolvedValue(undefined),
+      };
+
+      await expect(findVaapiRenderNode(probe)).resolves.toBe('/dev/dri/renderD128');
+      expect(probe.access).toHaveBeenCalledWith('/dev/dri/renderD128', expect.any(Number));
+    });
+
+    it('builds VAAPI decode and hwdownload options for a selected render node', () => {
+      expect(getVideoFrameInputOptions(1.25, 'vaapi', '/dev/dri/renderD128')).toEqual([
+        '-ss 1.25',
+        '-hwaccel',
+        'vaapi',
+        '-hwaccel_device',
+        '/dev/dri/renderD128',
+        '-hwaccel_output_format',
+        'vaapi',
+      ]);
+      expect(getVideoFrameOutputOptions('vaapi', '/dev/dri/renderD128')).toEqual([
+        '-vf',
+        'hwdownload,format=nv12',
+        '-y',
+        '-frames:v 1',
+        '-q:v 2',
+      ]);
+    });
+
+    it('falls back to software for a hardware extraction failure', async () => {
+      const extract = vi
+        .fn<(path: 'vaapi' | 'software') => Promise<void>>()
+        .mockRejectedValueOnce(new Error('unsupported codec'))
+        .mockResolvedValueOnce(undefined);
+      const onVaapiFailure = vi.fn();
+
+      await expect(extractFrameWithSoftwareFallback(true, extract, onVaapiFailure)).resolves.toBe('software');
+      expect(extract).toHaveBeenNthCalledWith(1, 'vaapi');
+      expect(extract).toHaveBeenNthCalledWith(2, 'software');
+      expect(onVaapiFailure).toHaveBeenCalledWith(expect.any(Error));
+    });
+
+    it('uses software directly when no hardware device was selected', async () => {
+      const extract = vi.fn<(path: 'vaapi' | 'software') => Promise<void>>().mockResolvedValue(undefined);
+
+      await expect(extractFrameWithSoftwareFallback(false, extract)).resolves.toBe('software');
+      expect(extract).toHaveBeenCalledExactlyOnceWith('software');
+    });
   });
 
   describe('applyEdits (single actions)', () => {

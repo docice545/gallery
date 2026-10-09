@@ -222,8 +222,38 @@ class AndroidReleaseGuards(unittest.TestCase):
             f"Signer #{index + 1} certificate SHA-256 digest: {certificate}"
             for index in range(signers)
         )
-        with patch.object(release, "run", side_effect=[package, signature]):
+        manifest = """\
+          E: provider (line=93)
+            A: android:name(0x01010003)=\"app.alextran.immich.cloudmedia.GalleryCloudMediaProvider\"
+            A: android:readPermission(0x01010006)=\"com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS\"
+            A: android:writePermission(0x01010007)=\"com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS\"
+            A: android:exported(0x01010010)=true
+            A: android:authorities(0x01010018)=\"de.opennoodle.gallery.cloudmedia\"
+              E: intent-filter (line=100)
+                  E: action (line=101)
+                    A: android:name(0x01010003)=\"android.content.action.CLOUD_MEDIA_PROVIDER\"
+        """
+        with patch.object(release, "run", side_effect=[package, manifest, signature]):
             return release.apk_metadata(apk, root, root, "5.7.2", 6)
+
+    def test_packaged_cloud_provider_manifest_is_required(self):
+        with self.assertRaisesRegex(release.ReleaseError, "no Gallery CloudMediaProvider"):
+            release.validate_cloud_provider_manifest(
+                "E: provider (line=1)\n A: android:name=\"other.Provider\""
+            )
+
+    def test_packaged_cloud_provider_permission_and_action_are_required(self):
+        manifest = """
+          E: provider (line=1)
+            A: android:name=\"app.alextran.immich.cloudmedia.GalleryCloudMediaProvider\"
+            A: android:readPermission=\"wrong.permission\"
+            A: android:exported(0x01010010)=true
+            A: android:authorities(0x01010018)=\"de.opennoodle.gallery.cloudmedia\"
+              E: intent-filter (line=2)
+                A: android:name=\"android.content.action.CLOUD_MEDIA_PROVIDER\"
+        """
+        with self.assertRaisesRegex(release.ReleaseError, "missing authority"):
+            release.validate_cloud_provider_manifest(manifest)
 
     def test_actual_release_identity_and_streamed_checksum(self):
         metadata = self.apk_check()

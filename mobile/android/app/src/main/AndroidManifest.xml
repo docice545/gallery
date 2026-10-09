@@ -32,15 +32,18 @@
 
     <profileable android:shell="true" />
 
-    <!-- Opt-in pilot on API35+. Signature permission limits queries/FDs to the
-         system Photo Picker; this does not grant that permission to Gallery. -->
+    <!-- Opt-in pilot on API35+. MediaProvider discovers a cloud provider only
+         when its read permission is exactly this signature permission. The
+         permission protects Gallery's provider; it does not grant Gallery the
+         permission or bypass the system allowlist. -->
     <provider
       android:name="app.alextran.immich.cloudmedia.GalleryCloudMediaProvider"
       android:authorities="${applicationId}.cloudmedia"
       android:enabled="@bool/gallery_cloud_provider_enabled"
       android:exported="true"
       android:label="@string/app_name"
-      android:permission="com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS">
+      android:readPermission="com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS"
+      android:writePermission="com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS">
       <intent-filter>
         <action android:name="android.content.action.CLOUD_MEDIA_PROVIDER" />
       </intent-filter>

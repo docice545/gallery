@@ -16,11 +16,19 @@ internal fun AdmissionSnapshot.bundle() = Bundle().apply {
   putString("effective", effective); putBoolean("overridePresent", overridePresent)
   putString("overrideValue", overrideValue); putString("feature", feature)
   putString("enforcement", enforcement); putString("selected", selected); putInt("androidUser", androidUser)
+  putString("settings", CloudAdmissionPolicy.encodeValues(values))
 }
 internal fun Bundle.snapshot() = AdmissionSnapshot(getString("effective"), getBoolean("overridePresent"),
-  getString("overrideValue"), getString("feature"), getString("enforcement"), getString("selected"), getInt("androidUser", -1))
-internal fun AdmissionJournal.bundle() = Bundle().apply { putBundle("before", before.bundle()); putString("written", written) }
-internal fun Bundle.journal() = AdmissionJournal(requireNotNull(getBundle("before")).snapshot(), requireNotNull(getString("written")))
+  getString("overrideValue"), getString("feature"), getString("enforcement"), getString("selected"),
+  getInt("androidUser", -1), CloudAdmissionPolicy.decodeValues(getString("settings")))
+internal fun AdmissionJournal.bundle() = Bundle().apply {
+  putBundle("before", before.bundle()); putString("written", written)
+  putString("changes", CloudAdmissionPolicy.encodeChanges(changes)); putString("plan", planToken)
+}
+internal fun Bundle.journal() = AdmissionJournal(
+  requireNotNull(getBundle("before")).snapshot(), requireNotNull(getString("written")),
+  CloudAdmissionPolicy.decodeChanges(getString("changes")),
+)
 
 /** Shizuku shell-UID service: only one DeviceConfig key, never session/media access. */
 class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub() {
@@ -75,37 +83,54 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     }
   }
 
-  private fun get(key: String) = command("/system/bin/device_config", "get", "mediaprovider", key).takeUnless { it == "null" }
+  private fun get(namespace: String, key: String) =
+    command("/system/bin/device_config", "get", namespace, key).takeUnless { it == "null" }
 
   private fun state(): AdmissionSnapshot {
     val help = command("/system/bin/device_config", "help")
     check(help.contains("list_local_overrides") && help.contains("clear_override") && help.contains("override")) {
       "System does not support reversible local overrides"
     }
-    val overrides = command("/system/bin/device_config", "list_local_overrides").lineSequence()
-      .filter { it.startsWith("mediaprovider/allowed_cloud_providers=") }.toList()
+    val listed = command("/system/bin/device_config", "list_local_overrides").lineSequence()
+      .mapNotNull { line ->
+        val normalized = line.trimStart()
+        val separator = normalized.indexOf('=')
+        if (separator <= 0) return@mapNotNull null
+        val key = normalized.substring(0, separator)
+        if (CloudAdmissionPolicy.settings.any { "${it.first}/${it.second}" == key }) {
+          key to normalized.substring(separator + 1)
+        } else null
+      }.toList()
     // Read raw presence independently. An OEM list-format difference must not
     // make an existing override look absent and allow destructive clear/undo.
-    val previousOverride = command("/system/bin/device_config", "get",
-      "device_config_overrides", "mediaprovider:allowed_cloud_providers").takeUnless { it == "null" }
-    val effective = get("allowed_cloud_providers")
-    check(CloudAdmissionPolicy.verifyOverrideSnapshot(overrides, previousOverride, effective)) {
-      "Local override presence/value is not applied consistently"
+    val values = CloudAdmissionPolicy.settings.map { (namespace, key) ->
+      val overrideValue = command("/system/bin/device_config", "get", "device_config_overrides",
+        "$namespace:$key").takeUnless { it == "null" }
+      DeviceConfigValue(namespace, key, get(namespace, key), overrideValue != null, overrideValue)
     }
+    check(CloudAdmissionPolicy.verifyOverrideSnapshots(listed, values)) {
+      "Local cloud-media overrides are not applied consistently"
+    }
+    val primary = values.first { it.namespace == CloudAdmissionPolicy.MEDIA_PROVIDER_NAMESPACE &&
+      it.key == CloudAdmissionPolicy.ALLOWED_CLOUD_PROVIDERS }
+    val feature = values.first { it.namespace == CloudAdmissionPolicy.MEDIA_PROVIDER_NAMESPACE &&
+      it.key == CloudAdmissionPolicy.CLOUD_MEDIA_FEATURE_ENABLED }
     val selectedOutput = command("/system/bin/content", "call", "--uri", "content://media", "--method", "get_cloud_provider")
     check(selectedOutput.contains("get_cloud_provider_result=")) { "Unable to inspect selected provider" }
     val selected = Regex("get_cloud_provider_result=([^,} ]+)").find(selectedOutput)?.groupValues?.get(1)
       ?.takeUnless { it == "null" }
-    return AdmissionSnapshot(effective, overrides.isNotEmpty(), previousOverride,
-      get("cloud_media_feature_enabled"), get("cloud_media_enforce_provider_allowlist"), selected,
-      command("/system/bin/am", "get-current-user").toInt())
+    return AdmissionSnapshot(primary.effective, primary.overridePresent, primary.overrideValue,
+      feature.effective, get(CloudAdmissionPolicy.MEDIA_PROVIDER_NAMESPACE, "cloud_media_enforce_provider_allowlist"), selected,
+      command("/system/bin/am", "get-current-user").toInt(), values)
   }
 
   private fun providerPackage(authority: String?): String? {
     if (authority == null) return null
     val provider = context.packageManager.resolveContentProvider(authority, 0)
       ?: throw IOException("Selected provider is not discoverable")
-    check(provider.readPermission == "com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS")
+    check(provider.permission == CloudAdmissionPolicy.CLOUD_PERMISSION ||
+      (provider.readPermission == CloudAdmissionPolicy.CLOUD_PERMISSION &&
+        provider.writePermission == CloudAdmissionPolicy.CLOUD_PERMISSION))
     return provider.packageName
   }
 
@@ -113,7 +138,9 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     val snapshot = state()
     val own = context.packageManager.resolveContentProvider("${BuildConfig.APPLICATION_ID}.cloudmedia", 0)
     check(own?.packageName == BuildConfig.APPLICATION_ID && own.exported &&
-      own.readPermission == "com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS") { "Cloud provider is not installed correctly" }
+      (own.permission == CloudAdmissionPolicy.CLOUD_PERMISSION ||
+        (own.readPermission == CloudAdmissionPolicy.CLOUD_PERMISSION &&
+          own.writePermission == CloudAdmissionPolicy.CLOUD_PERMISSION))) { "Cloud provider is not installed correctly" }
     check(snapshot.androidUser == ownerUid / 100000) { "Switch to this application's Android user" }
     snapshot.bundle().apply { putString("selectedPackage", providerPackage(snapshot.selected)) }
   }
@@ -123,27 +150,44 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
     check(state() == before) { "System settings changed before activation" }
     val journal = CloudAdmissionPolicy.plan(before, BuildConfig.APPLICATION_ID, providerPackage(before.selected))
       ?: return@operation before.bundle()
-    check(expected.getString("written") == journal.written) { "Admission plan changed" }
-    command("/system/bin/device_config", "override", "mediaprovider", "allowed_cloud_providers", journal.written)
+    check(expected.getString("plan") == null || expected.getString("plan") == journal.planToken) { "Admission plan changed" }
+    if (journal.changes.isEmpty()) return@operation before.bundle()
+    journal.changes.forEach { change ->
+      command("/system/bin/device_config", "override", change.before.namespace, change.before.key, change.written)
+    }
     val after = state()
-    check(CloudAdmissionPolicy.verifyAdmitted(after, journal.written)) { "Admission read-back failed; recovery is pending" }
+    check(CloudAdmissionPolicy.verifyAdmitted(after, journal)) { "Admission read-back failed; recovery is pending" }
     after.bundle()
   }
 
   override fun undo(journalBundle: Bundle): Bundle = operation {
     val journal = journalBundle.journal()
-    check(journal.written == CloudAdmissionPolicy.plan(journal.before, BuildConfig.APPLICATION_ID,
-      providerPackage(journal.before.selected))?.written) { "Invalid recovery journal" }
+    val expectedPlan = CloudAdmissionPolicy.plan(journal.before, BuildConfig.APPLICATION_ID,
+      providerPackage(journal.before.selected))
+    check(expectedPlan != null && (journal.planToken.isEmpty() || expectedPlan.planToken == journal.planToken)) {
+      "Invalid recovery journal"
+    }
     val current = state()
-    if (current.overridePresent == journal.before.overridePresent && current.overrideValue == journal.before.overrideValue) {
+    if (CloudAdmissionPolicy.isBefore(current, journal)) {
       return@operation current.bundle() // Idempotent recovery after a lost Binder acknowledgement.
     }
     check(CloudAdmissionPolicy.canUndo(current, journal)) { "Settings changed externally; recovery will not overwrite them" }
-    if (journal.before.overridePresent) command("/system/bin/device_config", "override", "mediaprovider", "allowed_cloud_providers",
-      requireNotNull(journal.before.overrideValue))
-    else command("/system/bin/device_config", "clear_override", "mediaprovider", "allowed_cloud_providers")
+    if (journal.changes.isEmpty()) {
+      if (journal.before.overridePresent) command("/system/bin/device_config", "override", "mediaprovider", "allowed_cloud_providers",
+        requireNotNull(journal.before.overrideValue))
+      else command("/system/bin/device_config", "clear_override", "mediaprovider", "allowed_cloud_providers")
+    } else {
+      journal.changes.forEach { change ->
+        if (change.before.overridePresent) {
+          command("/system/bin/device_config", "override", change.before.namespace, change.before.key,
+            requireNotNull(change.before.overrideValue))
+        } else {
+          command("/system/bin/device_config", "clear_override", change.before.namespace, change.before.key)
+        }
+      }
+    }
     val after = state()
-    check(after.overridePresent == journal.before.overridePresent && after.overrideValue == journal.before.overrideValue) { "Recovery read-back failed" }
+    check(CloudAdmissionPolicy.isBefore(after, journal)) { "Recovery read-back failed" }
     after.bundle()
   }
 

@@ -8,6 +8,7 @@ import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/space_album.model.dart';
 import 'package:immich_mobile/domain/services/remote_album.service.dart';
+import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/backup/asset_upload_progress.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
@@ -53,6 +54,20 @@ class ActionNotifier extends Notifier<void> {
   bool _spaceAddInFlight = false;
 
   ActionNotifier() : super();
+
+  /// Space timelines are backed by the remote sync stream. A mutation should
+  /// return to the picker immediately; a failed nudge is harmless because the
+  /// regular sync cycle will reconcile it later.
+  void _nudgeRemoteSync() {
+    try {
+      unawaited(
+        ref.read(backgroundSyncProvider).syncRemote().catchError((_) => false),
+      );
+    } catch (_) {
+      // Test doubles and a disposed provider may throw before returning a
+      // Future. The server mutation itself has already succeeded.
+    }
+  }
 
   @override
   void build() {
@@ -154,6 +169,10 @@ class ActionNotifier extends Notifier<void> {
   Future<ActionResult> addToSpace(ActionSource source, SharedSpaceResponseDto space) {
     return _addToSpaceTarget(source, (ids) async {
       await ref.read(sharedSpaceApiRepositoryProvider).addAssets(space.id, ids);
+      // Space membership is rendered from sync-fed Drift tables. Start the
+      // reconciliation after the successful API mutation, but do not hold the
+      // selection sheet open for a complete sync round.
+      _nudgeRemoteSync();
       return ids.length;
     });
   }
@@ -253,6 +272,10 @@ class ActionNotifier extends Notifier<void> {
     final ids = _getRemoteIdsForSource(source);
     try {
       final removedCount = await _service.removeFromSpace(ids, spaceId);
+      // As with adding to a Space, the local Space timeline is sync-backed.
+      // Reconcile in the background so the action can clear its selection and
+      // return immediately after the server accepts the mutation.
+      _nudgeRemoteSync();
       return ActionResult(count: removedCount, success: true);
     } catch (error, stack) {
       _logger.severe('Failed to remove assets from space', error, stack);
