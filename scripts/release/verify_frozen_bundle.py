@@ -70,4 +70,12 @@ if __name__ == '__main__':
     parser.add_argument('artifacts', type=Path)
     parser.add_argument('new_output', type=Path)
     args = parser.parse_args()
-    verify(args.artifacts, args.new_output)
+    try:
+        verify(args.artifacts, args.new_output)
+    except Exception as error:
+        # This runner handles only public frozen artifacts, never user media or
+        # credentials. Emit a bounded annotation so API-only diagnostics work.
+        message = f'{type(error).__name__}: {error}'[:400]
+        message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print('::error title=Frozen artifact proof::' + message)
+        raise SystemExit(1) from None

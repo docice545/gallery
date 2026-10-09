@@ -5,7 +5,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['tooling/trash-final-predeploy-565ef38']
-    paths: ['.github/workflows/gallery-trash-release-proof.yml']
+    paths:
+      - '.github/workflows/gallery-trash-release-proof.yml'
+      - 'scripts/release/verify_frozen_bundle.py'
 
 permissions:
   contents: read
