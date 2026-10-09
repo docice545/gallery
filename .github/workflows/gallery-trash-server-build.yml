@@ -3,7 +3,7 @@ name: Gallery Trash Server Artifact Only
 # No registry, release, production credentials, SSH or deployment.
 on:
   push:
-    branches: ['release/gallery-trash-*']
+    branches: ['candidate/gallery-trash-*']
     paths:
       - 'server/**'
       - 'scripts/release/server_build.sh'

@@ -1,6 +1,6 @@
 # Trash / Restore: release candidate 5.7.2 (8)
 
-Release branch: `release/gallery-trash-5.7.2-build8`, based on the reviewed
+Release branch: `candidate/gallery-trash-5.7.2-build8`, based on the reviewed
 `da8dee6f085a790561712816738c4caa1df4ffd1`. Production `work` must remain
 `42790b06edc21438811e56e40c431eee37c24894` until explicit integration approval.
 Use the **full release SHA from the final handoff** for every artifact and
@@ -24,8 +24,8 @@ ungated read arm). Neither is changed or disabled. Image rollback below does
 **not** run the defective switch-back SQL. The six pre-existing formatting
 failures outside application/test scope remain documented in that validation.
 
-Release preparation adds 46 Python Android/audit/guard tests (35 existing,
-11 preparation tests), retains 108 iOS tooling tests, and verifies 7 mobile
+Release preparation adds 47 Python Android/audit/guard tests (35 existing,
+12 preparation tests), retains 108 iOS tooling tests, and verifies 7 mobile
 compatibility and 6 server build-version tests. Exact CI run IDs, artifact
 digests and final status are provided in the final handoff; do not substitute
 old baseline artifacts. Native/physical acceptance is a separate gate.
@@ -147,7 +147,9 @@ Use **only** `.github/workflows/gallery-build-mobile.yml`, `build_target=ios`,
 empty `version`, `environment=development`, both maintenance/pilot flags false.
 macOS 15 / Xcode 26.2 / Flutter 3.47.2 and locked CocoaPods invoke existing
 `mobile/scripts/ios_build_only.sh`. Artifacts: `ios-unsigned-archive` and
-`ios-unsigned-ipa` (contains `Photos-unsigned.ipa`). No paid credentials/lane.
+`ios-unsigned-ipa` (contains `Photos-unsigned.ipa`). No paid credentials/lane. The source pubspec version/build are explicitly
+passed into the existing branding action so its historical build-1/tag default
+cannot overwrite 5.7.2 (8).
 
 The final handoff supplies the successful run link, exact source SHA and
 5.7.2 (8) artifact. Download that artifact; **the user signs/installs it using

@@ -107,6 +107,18 @@ class ReleasePreparation(unittest.TestCase):
             self.assertEqual(android.main(), 0)
             self.assertEqual(check.call_args.args[2], 8)
 
+    def test_unsigned_ios_keeps_source_metadata_without_enabling_paid_gate(self):
+        workflow = (ROOT / '.github/workflows/gallery-build-mobile.yml').read_text().split('  build-sign-ios:', 1)[1]
+        metadata = workflow.index('id: ios-source-meta')
+        branding = workflow.index('- uses: ./.github/actions/apply-branding')
+        self.assertLess(metadata, branding)
+        self.assertIn("awk -F'[ +]' '/^version:/ {print $2, $3}' mobile/pubspec.yaml", workflow)
+        self.assertIn('version: ${{ inputs.version || steps.ios-source-meta.outputs.version }}', workflow)
+        self.assertIn('build_number: ${{ steps.ios-source-meta.outputs.build }}', workflow)
+        self.assertIn("if: inputs.version == ''", workflow)
+        self.assertIn("if: inputs.version != ''", workflow)
+        self.assertNotIn('echo "version=', workflow[branding:])
+
     def test_backend_smoke_refuses_non_ci_environment(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(smoke, 'docker') as docker, redirect_stdout(io.StringIO()):
             self.assertEqual(smoke.main(), 1)

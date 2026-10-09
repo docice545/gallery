@@ -581,9 +581,21 @@ jobs:
           persist-credentials: false
           fetch-tags: true
 
+      - name: Preserve committed iOS version and build through branding
+        id: ios-source-meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r app_version app_build <<< "$(awk -F'[ +]' '/^version:/ {print $2, $3}' mobile/pubspec.yaml)"
+          [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$app_build" =~ ^[0-9]+$ ]]
+          echo "version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build=$app_build" >> "$GITHUB_OUTPUT"
+
       - uses: ./.github/actions/apply-branding
         with:
-          version: ${{ inputs.version }}
+          version: ${{ inputs.version || steps.ios-source-meta.outputs.version }}
+          build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Setup Mise
         uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
