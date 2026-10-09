@@ -28,7 +28,7 @@ PIN = '565ef38c0c39f3ee896f5afd055d4d57a676d503'
 PIN_FILE_SHA = '56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c'
 BASE = '42790b06edc21438811e56e40c431eee37c24894'
 HOME = Path('/home/doctoriceadm')
-DEFAULT_TOOL = HOME / 'gallery-trash-release-tooling-565ef38/scripts/release/trash_release.py'
+DEFAULT_TOOL = HOME / 'gallery-trash-release-tooling-565ef38/trash_release.py'
 DEFAULT_AUDIT = HOME / 'gallery-trash-release-audit-20261009T155251367898Z-8d189795a83d.txt'
 DEFAULT_NAS = HOME / 'gallery-nas-recovery-sau5r5go'
 DEFAULT_PG = HOME / 'gallery-recovery-hum85h39'
@@ -37,6 +37,9 @@ MOBILE_HASHES = {
     'ios/Photos-unsigned.ipa': '4abfdbd7007c5f72d85fbb2cc8b35c20891c7342d2c9e6cba85c23792278a6bd',
 }
 PG_TAG = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0'
+PG_DIGEST = 'sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23'
+PG_PINNED_REF = PG_TAG + '@' + PG_DIGEST
+PG_REPO_DIGEST = 'ghcr.io/immich-app/postgres@' + PG_DIGEST
 SUMMARY_SQL = '''SELECT json_build_object(
  'assetCount',(SELECT count(*) FROM asset),
  'libraryCount',(SELECT count(*) FROM library),
@@ -154,15 +157,38 @@ def load_tool(path):
     return tool
 
 
+def postgres_identity(tool, pg):
+    # Config.Image is a launch reference, not the immutable config/image ID.
+    # Only these two exact references are allowed; a mutable tag alone proves nothing.
+    need(pg['Config'].get('Image') in (PG_TAG, PG_PINNED_REF), 'POSTGRES_IMAGE_REFERENCE_CHANGED')
+    image_id = pg.get('Image', '')
+    need(re.fullmatch('sha256:[0-9a-f]{64}', image_id), 'POSTGRES_IMMUTABLE_IMAGE_ID_INVALID')
+    # Local lookup only, no pull/tag/load. Resolve the expected manifest reference
+    # and the running config ID independently; manifest digest != config ID.
+    try:
+        images = json.loads(tool.docker('image', 'inspect', image_id, PG_PINNED_REF))
+    except Exception:
+        raise Stop('POSTGRES_LOCAL_PINNED_IMAGE_LOOKUP_FAILED') from None
+    need(isinstance(images, list) and len(images) == 2 and
+         all(isinstance(row, dict) and row.get('Id') == image_id for row in images),
+         'POSTGRES_PINNED_IMAGE_ID_MISMATCH')
+    need(all(isinstance(row.get('RepoDigests'), list) and PG_REPO_DIGEST in row['RepoDigests'] and
+             row.get('Architecture') == 'amd64' and row.get('Os') == 'linux' for row in images),
+         'POSTGRES_EXPECTED_DIGEST_OR_PLATFORM_MISSING')
+
+
 def topology(tool):
     result = {}
+    pg = None
     for name in (tool.SERVER, *tool.OTHER):
         item = tool.inspect(name)
         need(item['State'].get('Running') and item['State'].get('Health', {}).get('Status') == 'healthy',
              'PRODUCTION_CONTAINER_UNHEALTHY')
         result[name] = {'id': item['Id'], 'image': item['Image']}
-    pg = tool.inspect(tool.POSTGRES)
-    need(pg['Config']['Image'] == PG_TAG, 'POSTGRES_IMAGE_TAG_CHANGED')
+        if name == tool.POSTGRES:
+            pg = item
+    need(pg is not None, 'POSTGRES_CONTAINER_MISSING_FROM_TOPOLOGY')
+    postgres_identity(tool, pg)
     env = dict(x.split('=', 1) for x in pg['Config'].get('Env', []) if '=' in x)
     need(env.get('POSTGRES_USER', 'postgres') == 'postgres' and env.get('POSTGRES_DB', 'immich') == 'immich',
          'POSTGRES_USER_OR_DATABASE_CHANGED')

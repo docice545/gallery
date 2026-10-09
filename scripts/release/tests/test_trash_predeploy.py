@@ -14,7 +14,7 @@ import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -45,9 +45,119 @@ def layer(entries):
     return data.getvalue()
 
 
+class PostgresIdentity(unittest.TestCase):
+    def fixture(self, reference=None):
+        identity = 'sha256:' + 'a' * 64  # Config ID intentionally != manifest digest.
+        pg = {'Id': 'synthetic-pg-container', 'Image': identity,
+              'State': {'Running': True, 'Health': {'Status': 'healthy'}},
+              'Config': {'Image': reference or p.PG_PINNED_REF,
+                         'Env': ['POSTGRES_USER=postgres', 'POSTGRES_DB=immich']}}
+        image = {'Id': identity, 'RepoDigests': [p.PG_REPO_DIGEST], 'Architecture': 'amd64', 'Os': 'linux'}
+        tool = SimpleNamespace(SOURCE=release.SOURCE, SERVER=release.SERVER, POSTGRES=release.POSTGRES, OTHER=release.OTHER,
+            inspect=Mock(side_effect=lambda name: pg if name == release.POSTGRES else {
+                **pg, 'Id': 'synthetic-' + name}),
+            docker=Mock(return_value=json.dumps([image, image])))
+        return tool, pg, image
+
+    def test_expected_digest_pinned_reference_resolves_to_running_immutable_id(self):
+        tool, pg, _ = self.fixture()
+        result = p.topology(tool)
+        self.assertEqual(result[release.POSTGRES]['image'], pg['Image'])
+        self.assertNotEqual(pg['Image'], p.PG_DIGEST)
+        tool.docker.assert_called_once_with('image', 'inspect', pg['Image'], p.PG_PINNED_REF)
+        self.assertEqual(tool.inspect.call_count, 4)
+
+    def test_exact_bare_tag_requires_same_digest_and_immutable_resolution(self):
+        tool, pg, _ = self.fixture(p.PG_TAG)
+        self.assertEqual(p.topology(tool)[release.POSTGRES]['image'], pg['Image'])
+        tool.docker.assert_called_once_with('image', 'inspect', pg['Image'], p.PG_PINNED_REF)
+
+    def test_wrong_tag_digest_repository_or_digest_only_reference_rejected_before_lookup(self):
+        for reference in (p.PG_TAG + '@sha256:' + 'b' * 64, p.PG_TAG + '-unexpected',
+                          p.PG_REPO_DIGEST, 'other/postgres@' + p.PG_DIGEST, 'postgres:14'):
+            with self.subTest(reference=reference):
+                tool, _, _ = self.fixture(reference)
+                with self.assertRaisesRegex(p.Stop, 'REFERENCE_CHANGED'): p.topology(tool)
+                tool.docker.assert_not_called()
+
+    def test_exact_reference_cannot_mask_different_running_or_resolved_id(self):
+        for row in (0, 1):
+            tool, _, image = self.fixture()
+            images = [dict(image), dict(image)]; images[row]['Id'] = 'sha256:' + 'b' * 64
+            tool.docker.return_value = json.dumps(images)
+            with self.assertRaisesRegex(p.Stop, 'PINNED_IMAGE_ID_MISMATCH'): p.topology(tool)
+
+    def test_expected_repo_digest_required_on_both_inspected_images_even_for_bare_tag(self):
+        for reference in (p.PG_TAG, p.PG_PINNED_REF):
+            for row in (0, 1):
+                for value in ([], None, ['other/postgres@' + p.PG_DIGEST],
+                              ['ghcr.io/immich-app/postgres@sha256:' + 'b' * 64]):
+                    tool, _, image = self.fixture(reference)
+                    images = [dict(image), dict(image)]; images[row]['RepoDigests'] = value
+                    tool.docker.return_value = json.dumps(images)
+                    with self.assertRaisesRegex(p.Stop, 'DIGEST_OR_PLATFORM_MISSING'): p.topology(tool)
+
+    def test_wrong_platform_and_invalid_image_id_rejected(self):
+        for field, value in (('Architecture', 'arm64'), ('Os', 'windows')):
+            tool, _, image = self.fixture()
+            tool.docker.return_value = json.dumps([image, {**image, field: value}])
+            with self.assertRaisesRegex(p.Stop, 'DIGEST_OR_PLATFORM_MISSING'): p.topology(tool)
+        tool, pg, _ = self.fixture(); pg['Image'] = p.PG_TAG
+        with self.assertRaisesRegex(p.Stop, 'IMMUTABLE_IMAGE_ID_INVALID'): p.topology(tool)
+        tool.docker.assert_not_called()
+
+    def test_missing_local_pinned_reference_stops_without_pull(self):
+        tool, pg, _ = self.fixture()
+        tool.docker.side_effect = release.Stop('private details must not be forwarded')
+        with self.assertRaisesRegex(p.Stop, '^POSTGRES_LOCAL_PINNED_IMAGE_LOOKUP_FAILED$'):
+            p.topology(tool)
+        tool.docker.assert_called_once_with('image', 'inspect', pg['Image'], p.PG_PINNED_REF)
+
+    def test_invalid_or_incomplete_image_inspection_rejected(self):
+        for value in ('invalid-json', '[]', '{}', '[{}]', '[{},{}]', '[null,null]'):
+            tool, _, _ = self.fixture(); tool.docker.return_value = value
+            with self.assertRaises(p.Stop): p.topology(tool)
+
+    def test_recheck_rejects_changed_immutable_id_in_receipt_even_with_accepted_reference(self):
+        tool, _, _ = self.fixture()
+        before = p.topology(tool)
+        before[release.POSTGRES]['image'] = 'sha256:' + 'b' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            p.save(state / 'predeploy-context.json', {'source': release.SOURCE, 'toolingCommit': p.PIN,
+                                                     'topology': before})
+            with patch.object(p, 'verify_artifacts') as artifacts:
+                with self.assertRaisesRegex(p.Stop, 'PRODUCTION_MOVED_SINCE_PREDEPLOY'):
+                    p.recheck(tool, state)
+                artifacts.assert_not_called()
+
+    def test_database_user_and_database_guards_remain(self):
+        for env in (['POSTGRES_USER=other', 'POSTGRES_DB=immich'],
+                    ['POSTGRES_USER=postgres', 'POSTGRES_DB=other']):
+            tool, pg, _ = self.fixture(); pg['Config']['Env'] = env
+            with self.assertRaisesRegex(p.Stop, 'USER_OR_DATABASE_CHANGED'): p.topology(tool)
+
+
 class Guards(unittest.TestCase):
     def test_pinned_helper_is_unchanged(self):
         self.assertEqual(p.sha(ROOT / 'scripts/release/trash_release.py'), p.PIN_FILE_SHA)
+
+    def test_verified_hp_pinned_tool_path(self):
+        self.assertEqual(str(p.DEFAULT_TOOL),
+                         '/home/doctoriceadm/gallery-trash-release-tooling-565ef38/trash_release.py')
+
+    def test_prepare_refuses_reuse_of_failed_state_before_any_docker_or_state_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); failed = root / 'gallery-predeploy-klailu49'; failed.mkdir()
+            report = failed / 'predeploy-stop.json'; report.write_text('{"existing":true}')
+            before = report.stat().st_mtime_ns
+            with patch.object(p.pwd, 'getpwuid', return_value=SimpleNamespace(pw_name='doctoriceadm')), \
+                 patch.object(p, 'load_tool') as load, patch.object(p.tempfile, 'mkdtemp') as create, \
+                 redirect_stderr(io.StringIO()):
+                self.assertEqual(p.main(['prepare', '--artifacts', str(root), '--state', str(failed)]), 1)
+                load.assert_not_called(); create.assert_not_called()
+            self.assertEqual(report.read_text(), '{"existing":true}')
+            self.assertEqual(report.stat().st_mtime_ns, before)
 
     def test_wrong_pin_rejected_before_docker_access(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(p.subprocess, 'run') as run:

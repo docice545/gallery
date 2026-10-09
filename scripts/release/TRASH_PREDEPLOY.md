@@ -22,8 +22,9 @@ Local staging additionally requires `max(2 × database size, 2 GiB)` free before
 dumping, and `1.2 × previous server image size + 1 GiB` for rollback both before
 and after backup/restore. No automatic disk cleanup is attempted.
 
-The **only new input** is the absolute directory containing the already downloaded,
-extracted frozen artifacts in this layout. Do not download or rebuild them again:
+The verified HP artifact directory is
+`/home/doctoriceadm/gallery-trash-frozen-artifacts`, containing the already
+downloaded/extracted frozen artifacts in this layout. Do not download or rebuild them again:
 
 ```text
 ARTIFACTS/backend/manifest.json
@@ -38,10 +39,23 @@ production signing or device installation occurs here.
 
 Existing default paths, all preserved:
 
-- Tool: `/home/doctoriceadm/gallery-trash-release-tooling-565ef38/scripts/release/trash_release.py`
+- Tool: `/home/doctoriceadm/gallery-trash-release-tooling-565ef38/trash_release.py`
 - Audit: `/home/doctoriceadm/gallery-trash-release-audit-20261009T155251367898Z-8d189795a83d.txt`
 - NAS PASS: `/home/doctoriceadm/gallery-nas-recovery-sau5r5go`
 - Earlier PG PASS: `/home/doctoriceadm/gallery-recovery-hum85h39`
+
+PostgreSQL may use exactly the documented tag or that tag pinned to
+`sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23`.
+In either case, local `docker image inspect` must resolve the pinned reference
+to the running immutable image ID, with the expected repository digest and
+Linux/amd64 platform. No pull/tag/load is attempted to repair missing identity.
+The manifest digest is not compared directly to the image config ID; they are
+different identities. Approved audit/restore receipts still require exact
+immutable ID equality, and container/user/database checks are unchanged.
+
+Do not edit/delete/reuse `/home/doctoriceadm/gallery-predeploy-klailu49`.
+Another `prepare` always creates a new private state directory. It does not use
+the failed state as recovery evidence.
 
 The NAS report, provenance, sample hashes, receipt and scope must agree. NAS samples
 are **not** exported/read/hashed again. Its original verification timestamp is
