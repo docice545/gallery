@@ -26,8 +26,9 @@ ungated read arm). Neither is changed or disabled. Image rollback below does
 **not** run the defective switch-back SQL. The six pre-existing formatting
 failures outside application/test scope remain documented in that validation.
 
-Release preparation adds 49 Python Android/audit/guard tests (35 existing,
-14 preparation tests), retains 108 iOS tooling tests, and verifies 7 mobile
+Release preparation has 58 Python Android/audit/guard tests (35 existing,
+15 preparation tests and 8 diagnostic tests, six with opt-in disposable
+PostgreSQL/Redis fixtures), retains 108 iOS tooling tests, and verifies 7 mobile
 compatibility and 6 server build-version tests. Exact CI run IDs, artifact
 digests and final status are provided in the final handoff; do not substitute
 old baseline artifacts. Native/physical acceptance is a separate gate.
@@ -40,9 +41,10 @@ plan have been reviewed. Application compilation does not authorize unlink.
 
 Run as `doctoriceadm`. The committed
 [`hp_trash_release_audit.py`](../../scripts/diagnostics/hp_trash_release_audit.py)
-creates exactly one new `0600` report at
-`/home/doctoriceadm/gallery-trash-release-audit.txt`; existing files and symlinks
-cause failure. It uses noninteractive Docker read access (or `sudo -n docker`)
+creates exactly one new `0600` report named
+`/home/doctoriceadm/gallery-trash-release-audit-<UTC_TIMESTAMP>-<RANDOM_ID>.txt`;
+it prints the exact path and never overwrites the earlier report, existing files
+or symlinks. It uses noninteractive Docker read access (or `sudo -n docker`)
 and installed backend dependencies. It does not require SSH access from Codex.
 
 The final handoff provides **one complete shell block** fetching the public
@@ -68,6 +70,24 @@ test or proof of SMB/NFS ACL behavior. Visible `#snapshot` is not proof of a
 recoverable snapshot; absence is not proof that Synology lacks snapshots.
 Backup file existence is inventory only, not proof of successful restoration.
 The snapshot/backup operator must confirm recovery independently.
+
+The first HP audit stopped after asset counts because it used
+`kysely_migration`; `DatabaseRepository.createMigrator` uses
+`kysely_migrations`. The typo reproduces PostgreSQL SQLSTATE `42P01` and also
+blocked the diagnostic runtime in backend CI run `37950384176`, after real HTTP
+Trash/Restore had passed. The corrected read-only tool queries the plural table,
+reports fixed stage/error codes without SQL text, and continues independent
+queue, backup and snapshot inventories when a section fails. It uses the
+installed Bull prefix and reads Redis without Queue/Worker constructors or Lua.
+
+`Active` plus non-null `deletedAt` is not automatically user Trash: library scan
+sets it for missing offline external assets, and library removal marks its
+assets before index cleanup. The report groups these expected cases separately
+from online assets in a live library and managed assets, which require review
+and block release until explained. It does not clear dates, restore assets,
+scan media files or infer the 293 observed HP rows' classification from counts
+alone. Queue risk/reference counts, scan limits, backup sizes/age and visible
+snapshot directory counts are sanitized; existence never proves recovery.
 
 ## Version and database compatibility
 

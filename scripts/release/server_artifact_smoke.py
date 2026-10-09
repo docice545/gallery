@@ -128,12 +128,18 @@ def main():
         audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(audit)
         result = json.loads(docker('exec', '-i', server, 'node', '--input-type=module', input=audit.NODE_AUDIT.replace('__MOUNT_ROOTS__', '[]')))
-        assert not result['errors'], result['errors']
+        if result['errors']:
+            # The audit emits only fixed stage names and allowlisted error codes.
+            raise RuntimeError('Read-only diagnostic incomplete: ' + ', '.join(result['errors']))
         assert result['postgres']['readOnly'] == 'on'
         assert result['runningVersion'] == '5.7.1'
         print('PASS diagnostic SELECT/read-only Redis path on the compiled image')
         manifest['isolatedSmoke'] = 'PASS: fresh PG migrations + HTTP Trash/Restore + read-only audit'
         (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        # Public receipt allows verification without downloading the large image.
+        print('PASS backend receipt:', json.dumps({key: manifest[key] for key in (
+            'sourceCommit', 'toolingCommit', 'serverVersion', 'mobileVersion', 'mobileBuild',
+            'imageTag', 'imageId', 'archiveSHA256', 'isolatedSmoke')}, sort_keys=True))
         return 0
     except Exception as error:
         print('FAIL isolated smoke stage:', stage, '; category:', type(error).__name__)
