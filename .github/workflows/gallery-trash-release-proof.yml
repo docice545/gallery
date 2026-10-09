@@ -3,6 +3,9 @@ name: Gallery frozen Trash artifact proof and handoff
 # Reuses all three existing artifacts. No application build, signing or deploy.
 on:
   workflow_dispatch:
+  push:
+    branches: ['tooling/trash-final-predeploy-565ef38']
+    paths: ['.github/workflows/gallery-trash-release-proof.yml']
 
 permissions:
   contents: read
