@@ -602,12 +602,12 @@ def main() -> int:
     parser.add_argument(
         "--build-number",
         type=int,
-        default=6,
-        help="next physical pilot build (default: 6)",
+        default=8,
+        help="next production-key update build (default: 8; installed baseline: 7)",
     )
     args = parser.parse_args()
-    if args.build_number <= 5:
-        parser.error("build number must exceed previously used build 5")
+    if args.build_number <= 7:
+        parser.error("build number must exceed installed production build 7")
     env = os.environ.copy()
     try:
         if args.action == "preflight":

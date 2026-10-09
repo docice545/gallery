@@ -1,12 +1,17 @@
 # «Фото»: воспроизводимая мобильная сборка и проверка
 
+Текущий release — **5.7.2 (8)**. Backend/очереди/согласованный source SHA и
+порядок approval описаны в [Trash release handoff](../specs/testing/2026-10-09-trash-release-handoff.md).
+Исторические artifacts ниже не заменяют новый build. До HP диагностики и
+разрешения deployment/integration ничего на production не выполнять.
+
 Этот runbook выполняет владелец на HP/macOS. Он не обновляет production server,
 PostgreSQL/Redis/ML/Big-LaMa, внешние Memories/auto-stack workers, Synology,
 VPN/AWG/Xray/DNS и не повторяет закрытую миграцию Anna. Из Codex production
 сборка с постоянным Android ключом не выполнялась: **PREPARED / NEEDS_HP_VALIDATION**.
 Прохождение CI/dev проверок не означает физическую проверку S23/iPhone.
 
-## Проверенный CI handoff: 5.7.2 build 6
+## Исторические artifacts build 6 (не текущий release)
 
 | Platform                             | Успешный run / source SHA                                                                                                           | Artifact                                               | SHA-256 файла внутри artifact                                      |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
@@ -75,7 +80,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 unset ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD PR_NUMBER
 
 python3 scripts/release/android_release.py preflight \
-  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 6
+  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
 ```
 
 Preflight выводит `PASS`/`FAIL`, ничего не устанавливает и не создаёт ключей.
@@ -89,7 +94,7 @@ Preflight выводит `PASS`/`FAIL`, ничего не устанавлива
 
 ```bash
 python3 scripts/release/android_release.py build \
-  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 6
+  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
 ```
 
 Порядок: locked OpenAPI/Flutter dependencies → все Pigeon APIs через existing
@@ -132,11 +137,11 @@ Logs находятся в ignored `mobile/build/release-handoff/`, с private p
 
 ```bash
 python3 scripts/release/android_release.py postflight \
-  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 6
+  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
 git status --short
 ```
 
-Ожидается **5.7.2 build 6**, `applicationId=de.opennoodle.gallery`.
+Ожидается **5.7.2 build 8**, `applicationId=de.opennoodle.gallery`.
 Фактический APK обязан пройти `apksigner verify` с единственным сертификатом:
 
 ```text
@@ -148,7 +153,7 @@ ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18
 Versioned handoff содержит `Foto.apk`, `manifest.json` и build logs:
 
 ```text
-/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-6-<HEAD_FIRST_12>/
+/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-8-<HEAD_FIRST_12>/
 ```
 
 Postflight сверяет реальный application ID/version/certificate, streaming SHA-256
@@ -187,7 +192,7 @@ python3 mobile/scripts/release/ios_unsigned.py preflight \
   --expected-commit "$GALLERY_EXPECTED_HEAD"
 python3 mobile/scripts/release/ios_unsigned.py dispatch \
   --expected-commit "$GALLERY_EXPECTED_HEAD" --wait \
-  --version 5.7.2 --build 6 --output "$GALLERY_RELEASE_DIR/ios"
+  --version 5.7.2 --build 8 --output "$GALLERY_RELEASE_DIR/ios"
 ```
 
 Если точный unsigned run из handoff уже успешен, **пропустить dispatch** и
@@ -197,10 +202,11 @@ python3 mobile/scripts/release/ios_unsigned.py dispatch \
 значением `git rev-parse HEAD` автоматически.
 
 ```bash
-export GALLERY_IOS_SOURCE_HEAD=102559e9d887c1defdb1d9037b0b691fb3d75371
-python3 mobile/scripts/release/ios_unsigned.py fetch --run 37661916279 \
+export GALLERY_IOS_SOURCE_HEAD='<FULL_RELEASE_SHA_FROM_FINAL_HANDOFF>'
+export GALLERY_IOS_RUN_ID='<SUCCESSFUL_BUILD_8_RUN_FROM_FINAL_HANDOFF>'
+python3 mobile/scripts/release/ios_unsigned.py fetch --run "$GALLERY_IOS_RUN_ID" \
   --expected-commit "$GALLERY_IOS_SOURCE_HEAD" \
-  --version 5.7.2 --build 6 --output "$GALLERY_RELEASE_DIR/ios"
+  --version 5.7.2 --build 8 --output "$GALLERY_RELEASE_DIR/ios"
 ```
 
 Успех должен включать настоящую macOS/Xcode compilation, archive verification
@@ -237,16 +243,16 @@ export PERSONAL_TEAM_ID='<YOUR_ACTUAL_PERSONAL_TEAM_ID>'
 python3 mobile/scripts/release/prepare_sidestore.py \
   --ipa "$GALLERY_RELEASE_DIR/ios/Photos-unsigned.ipa" \
   --input-sha256 "$IPA_SHA" --team-id "$PERSONAL_TEAM_ID" \
-  --version 5.7.2 --build 6 \
-  --output "$GALLERY_RELEASE_DIR/ios/Photos-5.7.2-6-SideStore-seed-unsigned.ipa" \
+  --version 5.7.2 --build 8 \
+  --output "$GALLERY_RELEASE_DIR/ios/Photos-5.7.2-8-SideStore-seed-unsigned.ipa" \
   --check-only
 
 # Отдельный Mac pilot gate: seed/ad-hoc подготовка, не paid distribution signing.
 python3 mobile/scripts/release/prepare_sidestore.py \
   --ipa "$GALLERY_RELEASE_DIR/ios/Photos-unsigned.ipa" \
   --input-sha256 "$IPA_SHA" --team-id "$PERSONAL_TEAM_ID" \
-  --version 5.7.2 --build 6 \
-  --output "$GALLERY_RELEASE_DIR/ios/Photos-5.7.2-6-SideStore-seed-unsigned.ipa"
+  --version 5.7.2 --build 8 \
+  --output "$GALLERY_RELEASE_DIR/ios/Photos-5.7.2-8-SideStore-seed-unsigned.ipa"
 ```
 
 Входная unsigned IPA остаётся неизменной; seed сохраняет обе extensions.
@@ -268,15 +274,14 @@ CI compilation не заменяет эту физическую проверк�
 
 ## 6. Server deployment и rollback
 
-**NO SERVER DEPLOYMENT REQUIRED для мобильных Trash/Restore/CMP исправлений.**
-Интегрированная CLI-ветка также содержит server-side выбор VAAPI render node и
-software fallback при извлечении кадров для video CLIP. Эта логика не является
-внешним Memories renderer и не требуется для APK/IPA; её применение на HP требует
-отдельной проверки оборудования и разрешения на server update. В этом release
-handoff server не обновляется. Новые server API, миграции и dependencies не добавлены. Production server
-5.7.1, PostgreSQL/Redis/ML и persistent data сохраняются. Server deployment/rollback
-scripts для этой задачи — **NOT REQUIRED**. Не пересобирать image и не пересоздавать
-контейнеры ради установки APK/IPA. Внешние workers и их timers не изменять.
+**Для текущего Trash safety release требуется backend update** после отдельного
+approval. До read-only HP queue/backups/mount report production — NOT READY.
+См. [точный порядок и rollback limits](../specs/testing/2026-10-09-trash-release-handoff.md).
+Новых DB migrations нет; существующие FileDelete не становятся безопасными
+от одной замены image. Только service immich-server, no-deps; не трогать
+PostgreSQL/Redis/ML и persistent volumes. Старая mobile-only формулировка
+NO SERVER DEPLOYMENT REQUIRED относится к прошлому release и больше
+не является инструкцией для этого backend safety патча.
 
 ## 7. Memories / VAAPI и независимый rollback
 

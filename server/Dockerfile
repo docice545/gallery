@@ -5,7 +5,7 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
   PNPM_HOME=/buildcache/pnpm-store \
   PATH="/buildcache/pnpm-store:$PATH"
 
-RUN npm install --global corepack@latest && \
+RUN npm install --global corepack@0.36.0 && \
   corepack enable pnpm && \
   pnpm config set store-dir "$PNPM_HOME"
 

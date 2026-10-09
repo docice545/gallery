@@ -203,18 +203,37 @@ jobs:
             exit 1
           fi
           version_name="$(awk -F'[ +]' '/^version:/ {print $2}' pubspec.yaml)"
+          version_code="$(awk -F'[ +]' '/^version:/ {print $3}' pubspec.yaml)"
+          [[ "$version_code" =~ ^[0-9]+$ ]] && (( version_code > 7 ))
           # Native tests generate the debug registrant, including dev plugins.
           # Flutter 3.47 requires its normal pub-enabled release preparation to
           # regenerate that registrant for the release-only Gradle classpath.
           flutter pub get --enforce-lockfile
           lock_sha="$(sha256sum pubspec.lock)"
-          flutter build apk --release --target-platform android-arm64 --build-name="$version_name" --build-number=6
+          flutter build apk --release --target-platform android-arm64 --build-name="$version_name" --build-number="$version_code"
           test "$lock_sha" = "$(sha256sum pubspec.lock)"
           apk=build/app/outputs/flutter-apk/app-release.apk
           test -s "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$RUNNER_TEMP/gallery-apk-badging.txt"
           sed -n '1,3p' "$RUNNER_TEMP/gallery-apk-badging.txt"
+          python3 - "$apk" "$ANDROID_HOME/build-tools/36.0.0/aapt" "$version_name" "$version_code" <<'PY'
+          import importlib.util, shlex, subprocess, sys, zipfile
+          from pathlib import Path
+          apk, aapt, version, build = sys.argv[1:]
+          spec = importlib.util.spec_from_file_location('release', '../scripts/release/android_release.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          badging = subprocess.check_output([aapt, 'dump', 'badging', apk], text=True)
+          fields = dict(x.split('=', 1) for x in shlex.split(badging.splitlines()[0])[1:] if '=' in x)
+          assert (fields['name'], fields['versionName'], fields['versionCode']) == (module.APP_ID, version, build)
+          module.validate_cloud_provider_manifest(subprocess.check_output([aapt, 'dump', 'xmltree', apk, 'AndroidManifest.xml'], text=True))
+          with zipfile.ZipFile(apk) as archive:
+              assert archive.testzip() is None
+              for library in ('libflutter.so', 'libapp.so', 'libsqlite3.so'):
+                  assert 'lib/arm64-v8a/' + library in archive.namelist(), library
+          print('PASS packaged application/version/manifest/native libraries/ZIP integrity')
+          PY
           sha256sum "$apk"
           echo '::notice::Validation APK uses the disposable CI debug certificate. It cannot update the HP release-key installation. Rebuild on HP with the existing foto key for the S23 pilot.'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
