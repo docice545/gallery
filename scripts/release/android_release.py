@@ -21,10 +21,15 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import zipfile
 
 
 APP_ID = "de.opennoodle.gallery"
 CERTIFICATE_SHA256 = "ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18"
+CI_SOURCE_SHA = "6a558b554e26e8c0fc5bc5c99259a92e7ef26a56"
+CI_APK_SHA256 = "ae3ed08bfe8794e1f12193e5d29733c22c22e7671672726e1a27b869483a4527"
+CI_CERTIFICATE_SHA256 = "d7bfd9bf0ff80fc97c3db14fdf96cf9996488439a8e906d7bece8078eef40410"
+SIGN_EXISTING_CHECKS = ["pinned-ci-apk", "ci-package-manifest-signature", "unchanged-apk-payload", "production-signature"]
 BUILD_TOOLS = "36.0.0"
 STAGES = [
     "locked-codegen",
@@ -310,7 +315,8 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
     return not failures
 
 
-def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int) -> dict:
+def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
+                 certificate: str = CERTIFICATE_SHA256) -> dict:
     if not apk.is_file() or not apk.stat().st_size:
         raise ReleaseError("expected nonempty APK is missing")
     output = run(
@@ -359,7 +365,7 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int) -> di
         signature,
         re.MULTILINE,
     )
-    if len(signers) != 1 or signers[0].lower().replace(":", "") != CERTIFICATE_SHA256:
+    if len(signers) != 1 or signers[0].lower().replace(":", "") != certificate:
         raise ReleaseError(
             "APK is not signed by the existing foto release certificate (CI/debug APK rejected)"
         )
@@ -367,7 +373,7 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int) -> di
         "application_id": APP_ID,
         "version_name": name,
         "version_code": number,
-        "certificate_sha256": CERTIFICATE_SHA256,
+        "certificate_sha256": certificate,
         "apk_sha256": digest(apk),
         "apk_bytes": apk.stat().st_size,
     }
@@ -395,7 +401,11 @@ def postflight(root: Path, expected: str, number: int, env: dict[str, str]) -> d
         or manifest.get("source_branch") != "work"
     ):
         raise ReleaseError("release manifest source provenance does not match")
-    if manifest.get("completed_checks") != STAGES:
+    resigned = manifest.get("delivery_mode") == "resign-verified-ci"
+    if resigned and (expected != CI_SOURCE_SHA or number != 8 or
+                    manifest.get("ci_run") != 37944044747 or manifest.get("ci_input_sha256") != CI_APK_SHA256):
+        raise ReleaseError("resigned APK does not identify the pinned successful CI build")
+    if manifest.get("completed_checks") != (SIGN_EXISTING_CHECKS if resigned else STAGES):
         raise ReleaseError("release manifest does not record all required build checks")
     actual = apk_metadata(apk, sdk_path(env), root, version_name(root), number)
     for field, value in actual.items():
@@ -410,6 +420,65 @@ def postflight(root: Path, expected: str, number: int, env: dict[str, str]) -> d
     print(f"CERTIFICATE_SHA256 {CERTIFICATE_SHA256}")
     print("INFO This verifies the file, not a physical Samsung installation.")
     return manifest
+
+
+def apk_payload(apk: Path) -> dict:
+    """Signing may replace META-INF signatures and the APK signing block only."""
+    with zipfile.ZipFile(apk) as archive:
+        if archive.testzip() is not None or len(archive.namelist()) != len(set(archive.namelist())):
+            raise ReleaseError("APK ZIP integrity failed")
+        files = {name: hashlib.sha256(archive.read(name)).hexdigest()
+                 for name in archive.namelist()
+                 if not re.fullmatch(r"META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))", name, re.IGNORECASE)}
+        if not all(name in files for name in ("classes.dex", "lib/arm64-v8a/libapp.so", "lib/arm64-v8a/libflutter.so")):
+            raise ReleaseError("pinned arm64 APK/native libraries missing")
+        return files
+
+
+def sign_existing(root: Path, expected: str, number: int, source: Path, env: dict[str, str]) -> None:
+    """HP-only signing of the already tested exact APK; no Flutter/Gradle build."""
+    repository_check(root, expected)
+    if expected != CI_SOURCE_SHA or number != 8 or version_name(root) != "5.7.2":
+        raise ReleaseError("sign-existing is limited to the approved 5.7.2 (8) CI source")
+    if digest(source) != CI_APK_SHA256:
+        raise ReleaseError("input APK differs from run 37944044747; nothing signed")
+    sdk = sdk_path(env)
+    apk_metadata(source, sdk, root, "5.7.2", 8, CI_CERTIFICATE_SHA256)
+    payload = apk_payload(source)
+    check_key_files(root)
+    before_keys = signing_stats(root)
+    java = Path(env.get("JAVA_HOME", "")) / "bin/java"
+    if not java.is_file() or not re.search(r'version "17\.', run([str(java), "-version"], root, env)):
+        raise ReleaseError("existing JDK 17 required")
+    apk, receipt = artifact_paths(root, expected, number)
+    if receipt.exists():
+        postflight(root, expected, number, env)
+        print("PASS REUSED signed APK; no rebuild/signing repeated")
+        return
+    if apk.exists():
+        raise ReleaseError("unverified existing Foto.apk; nothing overwritten")
+    apk.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(prefix="sign-existing-", dir=apk.parent) as temporary:
+        output = Path(temporary) / "Foto.apk"
+        run([str(java), str(Path(__file__).with_name("SignExistingApk.java")),
+             str(root / "mobile/android"), str(sdk / f"build-tools/{BUILD_TOOLS}/apksigner"),
+             str(source.resolve()), str(output)], root, env)
+        if before_keys != signing_stats(root):
+            raise ReleaseError("existing signing files changed; output rejected")
+        if apk_payload(output) != payload:
+            raise ReleaseError("signing changed application payload; output rejected")
+        metadata = apk_metadata(output, sdk, root, "5.7.2", 8)
+        run([str(sdk / f"build-tools/{BUILD_TOOLS}/zipalign"), "-c", "-P", "16", "4", str(output)], root, env)
+        repository_check(root, expected)
+        manifest = {"source_commit": expected, "source_branch": "work", "delivery_mode": "resign-verified-ci",
+                    "ci_run": 37944044747, "ci_input_sha256": CI_APK_SHA256,
+                    "completed_checks": SIGN_EXISTING_CHECKS, **metadata}
+        os.rename(output, apk)
+        with receipt.open("x") as handle:
+            json.dump(manifest, handle, indent=2)
+            handle.write("\n")
+    postflight(root, expected, number, env)
+    print("PASS existing CI payload signed; no codegen/tests/mobile rebuild or installation")
 
 
 def signing_stats(root: Path) -> list[tuple]:
@@ -597,7 +666,10 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["preflight", "build", "postflight"])
+    parser.add_argument("action", choices=["preflight", "build", "postflight", "sign-existing"])
+    parser.add_argument("--repository", type=Path, default=ROOT)
+    parser.add_argument("--input-apk", type=Path)
+    parser.add_argument("--authorize-production-signing", action="store_true")
     parser.add_argument("--expected-head", required=True)
     parser.add_argument(
         "--build-number",
@@ -609,12 +681,23 @@ def main() -> int:
     if args.build_number <= 7:
         parser.error("build number must exceed installed production build 7")
     env = os.environ.copy()
+    root = args.repository.resolve()
     try:
+        if args.action == "sign-existing":
+            if not args.authorize_production_signing or not args.input_apk:
+                raise ReleaseError("explicit production signing approval and --input-apk required")
+            lock = root / "mobile/build/release-handoff/.android-release.lock"
+            lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+            with os.fdopen(descriptor, "w") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                sign_existing(root, args.expected_head, args.build_number, args.input_apk, env)
+            return 0
         if args.action == "preflight":
-            return 0 if preflight(ROOT, args.expected_head, env) else 1
+            return 0 if preflight(root, args.expected_head, env) else 1
         if args.action == "build":
-            repository_check(ROOT, args.expected_head)
-            lock = ROOT / "mobile/build/release-handoff/.android-release.lock"
+            repository_check(root, args.expected_head)
+            lock = root / "mobile/build/release-handoff/.android-release.lock"
             lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
             with os.fdopen(descriptor, "w") as handle:
@@ -624,9 +707,9 @@ def main() -> int:
                     raise ReleaseError(
                         "another Android release build is active; do not run Gradle concurrently"
                     ) from error
-                build(ROOT, args.expected_head, args.build_number, env)
+                build(root, args.expected_head, args.build_number, env)
         else:
-            postflight(ROOT, args.expected_head, args.build_number, env)
+            postflight(root, args.expected_head, args.build_number, env)
         return 0
     except (ReleaseError, OSError, ValueError, KeyError) as error:
         print(f"FAIL {args.action.upper()}: {error}", file=sys.stderr)

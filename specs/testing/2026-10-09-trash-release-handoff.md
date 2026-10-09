@@ -33,9 +33,31 @@ compatibility and 6 server build-version tests. Exact CI run IDs, artifact
 digests and final status are provided in the final handoff; do not substitute
 old baseline artifacts. Native/physical acceptance is a separate gate.
 
-**Production is NOT READY** until the read-only HP report, recoverable backups,
-NAS snapshot evidence, all deletion consumers and the queued-job transition
-plan have been reviewed. Application compilation does not authorize unlink.
+**Code/artifacts are READY; production execution is NOT READY** until recovery
+and operator approval. The completed HP audit reports all ten sections PASS,
+errors empty, all live/failed deletion queue states zero, legacy AssetDelete=0,
+FileDelete=0 and inventoryComplete=true. All 293 Active+deletedAt rows are expected
+offline external index tombstones. No job cancellation/migration is currently
+needed; repeat a narrow live queue check immediately before the transition and
+STOP on any new job. Writable Synology mounts remain unchanged. Fourteen intact
+backup files (latest 17 hours old) do not establish recoverability. PostgreSQL
+restore and NAS snapshot/backup byte recovery are still hard gates.
+
+The single operator execution package, prerequisites, rollback and **no-rebuild**
+mobile handoff are in [Release runbook section 0](../../docs/RELEASE_RUNBOOK.md).
+It reuses these successful artifacts from the frozen application source:
+
+- Backend [37953392247](https://github.com/docice545/gallery/actions/runs/37953392247/artifacts/11626603468):
+  `gallery-trash-server-linux-amd64`, source `6a558b55…`, tooling `d3f999e7…`,
+  image `sha256:fecdc0aa17477cdfef901dc32097b852f7f2ca94befeca4c2ea43ca16d6c8b3c`.
+- Android [37944044747](https://github.com/docice545/gallery/actions/runs/37944044747/artifacts/11624073289):
+  `android-media-pilot-validation-apk`, release mode, CI debug-signed, 5.7.2 (8).
+- iOS [37936380827](https://github.com/docice545/gallery/actions/runs/37936380827/artifacts/11618922989):
+  `ios-unsigned-ipa`, `Photos-unsigned.ipa`, 5.7.2 (8); user SideStore signing remains required.
+
+No further build, integration, production mutation, HP signing or device
+installation is performed by execution-package preparation. Later tooling
+commits do not change application/build inputs or invalidate these artifacts.
 
 ## One read-only HP report
 
@@ -99,7 +121,7 @@ snapshot directory counts are sanitized; existence never proves recovery.
   contracts are not changed by this release preparation.
 - **No new schema migration** relative to production `42790b06`; migration files
   and schema definitions are unchanged. Mobile Drift schema is also unchanged.
-  Check the real production `kysely_migration` state against image migration
+  Check the real production `kysely_migrations` state against image migration
   inventory before startup; an unexpected pending migration is STOP.
 - Source history and both earlier review branches are preserved. After approval
   use `git merge --ff-only <FULL_RELEASE_SHA>` only if work is still the stated
@@ -156,21 +178,25 @@ the frozen source and successful Android/iOS artifacts remain valid.
 Existing HP checkout `/opt/gallery-fork` is the SSD bind mount of
 `/mnt/hp-data/gallery-fork`; existing Pub/Gradle caches and model stay on SSD,
 Docker root stays on NVMe. Do not relocate them. After the approved fast-forward
-and backend queue/health gates, use the existing pipeline unchanged except its
-next build guard/default:
+and backend queue/health gates, use the existing signing pipeline's
+`sign-existing` action from the separately extracted execution tooling. This
+re-signs the exact successful CI APK with the existing HP key; it does **not**
+rebuild mobile. The original full `build` action remains for future releases,
+but must not be used to repeat this Stage 1 build:
 
 ```bash
 set -euo pipefail
 cd /opt/gallery-fork
-export GALLERY_EXPECTED_HEAD='<FULL_RELEASE_SHA_FROM_FINAL_HANDOFF>'
+export GALLERY_EXPECTED_HEAD='6a558b554e26e8c0fc5bc5c99259a92e7ef26a56'
 export ANDROID_HOME="$HOME/Android/Sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export PATH="$JAVA_HOME/bin:$PATH"
 unset ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD PR_NUMBER
-python3 scripts/release/android_release.py preflight --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
-python3 scripts/release/android_release.py build --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
-python3 scripts/release/android_release.py postflight --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
+# RELEASE_TOOLING / CI_APK — paths retained by the runbook's single package block.
+python3 "$RELEASE_TOOLING/scripts/release/android_release.py" sign-existing \
+  --repository /opt/gallery-fork --expected-head "$GALLERY_EXPECTED_HEAD" \
+  --build-number 8 --input-apk "$CI_APK" --authorize-production-signing
 ```
 
 Output: `/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-8-<SHA_FIRST_12>/Foto.apk`
@@ -180,8 +206,8 @@ version, manifest, streaming checksum and the existing production certificate
 It never creates/replaces a key. Do not read/export key passwords.
 CI `android-media-pilot-validation-apk` is release-mode but **CI debug-signed**;
 it cannot update the HP-signed S23 installation. Do not uninstall the working
-app to force-install it. Final production `Foto.apk` remains **NOT SIGNED / NOT
-BUILT ON HP** until the operator receives separate approval and runs the above.
+app to force-install it. Final production `Foto.apk` remains **NOT SIGNED ON HP**
+until the operator receives separate approval and runs the above.
 
 ## iOS: preserve the proven delivery route
 
@@ -245,7 +271,7 @@ workers, NAS and networking must stay untouched.
    schema unchanged, login/list/album/timeline. Compare IDs of other containers
    to backup: they must not have changed. Stop on failed validation.
 7. Only after queue safety approval, allow new guarded consumers/normal mutations
-   and resume queue. Then build/sign HP Android update and obtain unsigned iOS
+   and resume queue. Then re-sign the existing Android CI APK on HP and reuse unsigned iOS
    from the **same SHA**, sign in the user's existing SideStore flow.
 8. Physical acceptance uses newly created **disposable** test media, not family
    NAS originals: single/bulk photo/video Trash/Restore, album links, capture date

@@ -1,15 +1,231 @@
 # «Фото»: воспроизводимая мобильная сборка и проверка
 
-Текущий release — **5.7.2 (8)**. Backend/очереди/согласованный source SHA и
-порядок approval описаны в [Trash release handoff](../specs/testing/2026-10-09-trash-release-handoff.md).
-Исторические artifacts ниже не заменяют новый build. До HP диагностики и
-разрешения deployment/integration ничего на production не выполнять.
+Текущий release — **5.7.2 (8)**, source **`6a558b554e26e8c0fc5bc5c99259a92e7ef26a56`**.
+Для текущего Stage 1 использовать **только раздел 0**: все artifacts уже собраны,
+новых mobile/backend builds не требуется. Разделы 1–8 ниже — прежний общий
+build/pilot workflow, а не последовательность текущего deployment.
+Production-аудит завершён; интеграция, recovery validation, deployment,
+возобновление retention и HP signing требуют отдельных разрешений.
 
 Этот runbook выполняет владелец на HP/macOS. Он не обновляет production server,
 PostgreSQL/Redis/ML/Big-LaMa, внешние Memories/auto-stack workers, Synology,
 VPN/AWG/Xray/DNS и не повторяет закрытую миграцию Anna. Из Codex production
 сборка с постоянным Android ключом не выполнялась: **PREPARED / NEEDS_HP_VALIDATION**.
 Прохождение CI/dev проверок не означает физическую проверку S23/iPhone.
+
+## 0. Stage 1: один execution package, без повторных сборок
+
+| Компонент | SUCCESS run / artifact                                                                                                                   | Source / версия                                |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Backend   | [37953392247](https://github.com/docice545/gallery/actions/runs/37953392247/artifacts/11626603468), `gallery-trash-server-linux-amd64`   | `6a558b55…`, server 5.7.1                      |
+| Android   | [37944044747](https://github.com/docice545/gallery/actions/runs/37944044747/artifacts/11624073289), `android-media-pilot-validation-apk` | тот же source, 5.7.2 (8), CI debug certificate |
+| iOS       | [37936380827](https://github.com/docice545/gallery/actions/runs/37936380827/artifacts/11618922989), `ios-unsigned-ipa`                   | тот же source, 5.7.2 (8), unsigned             |
+
+Backend tooling commit `d3f999e7d21c7c7f4e9b9bc5ac1e1af62de6cf3d` отличается
+от source; receipt содержит оба. Последующий execution package также **не меняет
+application source**, не требует CI rebuild и не подменяет SHA artifacts.
+
+### Обязательные prerequisites
+
+1. Отдельно разрешить интеграцию source в `work`; HP checkout должен быть чистым
+   `work` на точном `6a558b55…`. Этот пакет **не выполняет Git merge**. Скопировать
+   tooling отдельно через `git archive`, чтобы source checkout остался точным.
+2. Выполнить проверку восстановления backup в отдельном PostgreSQL с тем же
+   image ID, `--network none`, без production volumes/ports, CPU 1 / RAM 2 GiB.
+   Нужны минимум 3 GiB свободной RAM и 8 GiB Docker disk. Для deployment выбранный
+   SQL/gzip backup должен быть свежим, **младше 1 часа**; 17-часовой backup из
+   аудита достаточен для первоначальной репетиции, но не для финального gate.
+   Новый backup создать штатным, отдельно одобренным способом. Копия старого dump
+   с новым mtime не является свежим backup. Пакет не запускает
+   backup job, не повторяет historical analysis и не меняет production БД.
+3. В DSM/существующей backup-системе подтвердить реальный recovery point **для всех
+   NFS shares с managed/external originals**. Из этого snapshot/backup экспортировать
+   по одному несекретному фото и видео с каждого mount в отдельную локальную HP
+   папку. Не восстанавливать поверх NAS. Сравнить исходные и восстановленные bytes.
+   Проверить scope, дату, доступность recovery point и playback восстановленного
+   видео. Пакет проверяет byte hashes; источник восстановления и полный snapshot
+   scope подтверждает оператор. Видимый каталог snapshot не заменяет этот шаг.
+4. Подготовить существующий admin API key в приватном regular файле `0600`, с
+   `job.create`, `asset.upload/read/download/delete` и нужными
+   account permissions. Значения ключей/паролей не выводить и не помещать в shell
+   history. API доступен по loopback `127.0.0.1:2283`; redirects запрещены.
+5. Docker/Compose доступен `doctoriceadm` напрямую или через уже разрешённый
+   `sudo -n docker`. Пакет не меняет sudoers/groups, NAS permissions или networking.
+   На время перехода согласовать короткое окно без user permanent-delete и без
+   новых library-removal операций. Не останавливать внешние workers/timers.
+
+Полный HP audit — JSON report в TXT, все 10 sections PASS, `errors=[]`, queues
+пустые, `inventoryComplete=true`, legacy/FileDelete ноль. Все 293 Active+deletedAt
+классифицированы offline external index tombstones. Эти строки не «исправлять».
+При изменении image/container/topology, появлении job, несовпадении migration
+inventory или неподтверждённом recovery пакет останавливается. Очереди не чистятся.
+Дополнительный deletion consumer требует отдельного review, а не автоматического
+перезапуска. В текущем Stage 1 **новых schema migrations нет**. Точный runtime
+inventory включает build-time compatibility aliases; неизвестный/pending name — STOP.
+
+`nas-proof.json` — приватный `0600` файл на HP. Keys `mounts` брать **точно** из
+`containers[role=immich_server].externalMounts[].containerMountpoint` audit.
+Для каждого key нужны `operator_attests_snapshot_export: true`, реальный
+`snapshot_reference` и `samples` из photo/video. Ниже только схема, не реальные
+media paths; proof не коммитить и не публиковать:
+
+```json
+{
+  "mounts": {
+    "<containerMountpoint из audit>": {
+      "operator_attests_snapshot_export": true,
+      "snapshot_reference": "<реальный DSM/backup recovery point>",
+      "samples": [
+        { "kind": "photo", "original": "<NAS sample>", "recovered": "<HP restored sample>" },
+        { "kind": "video", "original": "<NAS sample>", "recovered": "<HP restored sample>" }
+      ]
+    }
+  }
+}
+```
+
+### Один последовательный блок оператора
+
+**Не выполнять до соответствующих разрешений.** Полный `GALLERY_TOOLING_SHA`
+брать из финального handoff; это SHA пакета, а не source. Параметры audit/backup/
+proof/key заполнить реальными приватными путями на HP. `set -euo pipefail`
+останавливает блок на первом FAIL. Никаких автоматических retries, очередей
+`clear/remove`, server builds или mobile rebuilds здесь нет.
+
+```bash
+set -euo pipefail
+umask 077
+test "$(id -un)" = doctoriceadm
+: "${GALLERY_TOOLING_SHA:?Полный SHA execution package из handoff}"
+: "${GALLERY_HP_AUDIT:?Путь завершённого PASS audit TXT}"
+: "${GALLERY_SQL_BACKUP:?Путь свежего штатного .sql.gz backup}"
+: "${GALLERY_NAS_PROOF:?Путь приватного nas-proof.json}"
+: "${GALLERY_ADMIN_KEY_FILE:?Путь приватного существующего admin API key}"
+
+# Скачать tooling без изменения checkout/work; artifacts скачиваются один раз.
+git -C /opt/gallery-fork fetch origin candidate/gallery-trash-5.7.2-build8
+test "$(git -C /opt/gallery-fork rev-parse FETCH_HEAD)" = "$GALLERY_TOOLING_SHA"
+release_dir="$(mktemp -d /mnt/hp-data/gallery-trash-release-XXXXXXXX)"
+mkdir -m 700 "$release_dir/tools" "$release_dir/state" "$release_dir/artifacts"
+git -C /opt/gallery-fork archive "$GALLERY_TOOLING_SHA" scripts/release |
+  tar -x -C "$release_dir/tools"
+mkdir "$release_dir/artifacts/backend" "$release_dir/artifacts/android" "$release_dir/artifacts/ios"
+gh run download 37953392247 -R docice545/gallery -n gallery-trash-server-linux-amd64 -D "$release_dir/artifacts/backend"
+gh run download 37944044747 -R docice545/gallery -n android-media-pilot-validation-apk -D "$release_dir/artifacts/android"
+gh run download 37936380827 -R docice545/gallery -n ios-unsigned-ipa -D "$release_dir/artifacts/ios"
+
+runner="$release_dir/tools/scripts/release/trash_execute.sh"
+args=("$release_dir/state" "$release_dir/artifacts" "$GALLERY_HP_AUDIT" "$GALLERY_SQL_BACKUP" "$GALLERY_NAS_PROOF" "$GALLERY_ADMIN_KEY_FILE")
+bash "$runner" verify "${args[@]}"
+
+# Разрешение только на изолированную recovery validation; production пока не меняется.
+GALLERY_RECOVERY_APPROVED=YES bash "$runner" recover "${args[@]}"
+
+# Только после отдельного deployment approval: pause + live queue/schema gates,
+# backup Compose/.env/old image; новый server API-only; остальных не пересоздаёт.
+GALLERY_DEPLOYMENT_APPROVED=YES bash "$runner" deploy "${args[@]}"
+GALLERY_DEPLOYMENT_APPROVED=YES bash "$runner" acceptance "${args[@]}"
+
+# ОТДЕЛЬНОЕ разрешение возобновить существующую 30-day retention/deletion policy.
+# После этого expired managed Trash может штатно удаляться с writable NAS.
+GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_RETENTION_RESUME_APPROVED=YES \
+  bash "$runner" enable-workers "${args[@]}"
+
+# Только после signing approval и integration: переподписать уже готовый APK.
+export ANDROID_HOME="$HOME/Android/Sdk"
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export PATH="$JAVA_HOME/bin:$PATH"
+GALLERY_SIGNING_APPROVED=YES bash "$runner" sign-android "${args[@]}"
+printf 'iOS unsigned IPA: %s\nRelease receipts: %s\n' \
+  "$release_dir/artifacts/ios/Photos-unsigned.ipa" "$release_dir/state"
+```
+
+Повторно не запускать весь блок для скачивания: сохранить `release_dir`, `runner`
+и `args`. Verify/подпись/override/recovery receipts переиспользуются при совпадении;
+deployment journal запрещает слепое повторное deployment. При незавершённом
+restore private log сохраняется, исправить причину и использовать новую state
+папку; не удалять receipt ради обхода gate. Proof/recovery проверены не более
+24 часов назад; backup перед deployment всё ещё младше 1 часа.
+
+### Немедленный rollback и persistence override
+
+При FAIL health/acceptance остановить дальнейшие шаги. Сохранить тот же `state`
+и выполнить только после разрешения:
+
+```bash
+GALLERY_DEPLOYMENT_APPROVED=YES bash "$runner" rollback "${args[@]}"
+```
+
+Rollback сверяет journal/config hashes и live image, требует paused/empty queue
+если workers работали, возвращает **ровно предыдущий image ID** только для
+`immich-server`, затем проверяет health/version и IDs других контейнеров.
+**Старые deletion workers остаются выключенными, очередь paused**. Он не
+откатывает DB, не восстанавливает NAS bytes и не запускает switch-back SQL.
+Если очередь уже непуста, health API недоступен при работающих workers либо
+конфигурация изменилась — STOP для индивидуального решения, не force-delete.
+Нельзя вернуть старые workers без нового queue/recovery review.
+
+Base Compose/.env не редактируются: journal сохраняет их private backups/hashes,
+пакет добавляет только server image/worker environment override. После успешного
+enable всегда использовать фактический Compose base из journal **вместе с**
+`normal-workers.override.json`; после rollback — `rollback-api-only.override.json`.
+Команда `docker compose up` с одним старым base может вернуть прежний image и
+убрать worker gate. Docker restart существующего контейнера сохраняет override
+environment. State/previous-server-image.tar сохранять до окончания приёмки,
+никаких global prune/down/volume removal.
+
+### Mobile handoff и disposable acceptance
+
+Android signer проверяет input SHA/certificate/package/CMP manifest/ARM64 native
+libs, переподписывает прежним alias `foto` через stdin, сверяет неизменность всех
+application ZIP entries и native alignment, затем HP certificate и checksum.
+Не создаёт ключи, не выполняет Flutter/Gradle/codegen, не устанавливает приложение.
+Итог: `/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-8-6a558b554e26/Foto.apk`
+и `manifest.json`, ожидаемый cert
+`ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`.
+Установить поверх build 7 без uninstall/очистки данных. CI APK до переподписи
+не является update. Реальная HP подпись и S23 update пока **NEEDS_HP/DEVICE_VALIDATION**.
+
+iOS `Photos-unsigned.ipa` — прежний SUCCESS artifact, unsigned. Использовать
+только действующую **SideStore + LocalDevVPN** схему и тот же Personal Team/
+bundle mapping для update. Выбрать **Keep App Extensions (Register App ID for
+Each Extension)**; main profile не заменяет отдельные extension App IDs.
+Сохранить Runner/ShareExtension/WidgetExtension и App Group. Если существующая
+установка использует подготовленный seed, применить прежний
+`mobile/scripts/release/prepare_sidestore.py` на Mac **с тем же team/mapping**;
+это отдельная подготовка, не iOS rebuild и не новый signing service. Без этой
+проверки исходный unsigned IPA напрямую не устанавливать. SideStore re-sign,
+7-day refresh и сохранность session/data требуют физического iPhone.
+
+Автоматический `acceptance` загружает **новый уникальный synthetic PNG**, никогда
+не принимает чужой asset ID и отказывается от duplicate upload. Проверяет
+Trash/Restore/idempotence, capture date/localDateTime и original bytes, оставляет
+fixture Active. Он не вызывает permanent delete, retention или NAS unlink.
+На S23/iPhone дополнительно создать отдельные несекретные disposable photo/video/
+Live/Motion fixtures и test album: single/bulk Trash, restart/reconnect, delayed
+sync, Restore→Trash, album membership, chronology/timezone, отсутствие ghosts/
+duplicates, native/local-device confirmation и сохранность session после update.
+Никаких destructive тестов на существующих семейных фото. Permanent/retention
+проверки — только в изолированном storage, не production originals.
+
+### Проверки execution tooling
+
+Guard/failure/identity tests, JDK 17 source-launcher с **mock apksigner**, реальный
+disposable SQL/gzip restore и Compose recreate/rollback выполнены в cloud.
+Rollback orchestration сохраняет ID соседнего fixture container и API-only gate;
+это не проверка HP health/network/конкретной production БД. HP restore выбранного
+backup, DSM recovery, production-key signing и physical acceptance **не выполнены**.
+Для tiny restore fixture cloud disk gate отдельно смоделирован: требование
+8 GiB для реального HP restore не снято и не считается проверенным здесь.
+
+```bash
+GALLERY_RELEASE_TEST_JAVA=/path/to/existing/jdk17/bin/java \
+  python3 -m unittest discover -s scripts/release/tests -p 'test_trash_execution.py'
+# Только isolated local Docker; cached images, без production endpoints:
+GALLERY_DISPOSABLE_RELEASE_TESTS=1 GALLERY_RELEASE_TEST_JAVA=/path/to/existing/jdk17/bin/java \
+  python3 -m unittest discover -s scripts/release/tests -p 'test_trash_execution.py'
+bash -n scripts/release/trash_execute.sh
+```
 
 ## Исторические artifacts build 6 (не текущий release)
 
@@ -275,7 +491,8 @@ CI compilation не заменяет эту физическую проверк�
 ## 6. Server deployment и rollback
 
 **Для текущего Trash safety release требуется backend update** после отдельного
-approval. До read-only HP queue/backups/mount report production — NOT READY.
+approval. HP read-only queue/backups/mount report уже PASS; recovery proof и
+deployment/retention approvals остаются обязательными. Использовать раздел 0.
 См. [точный порядок и rollback limits](../specs/testing/2026-10-09-trash-release-handoff.md).
 Новых DB migrations нет; существующие FileDelete не становятся безопасными
 от одной замены image. Только service immich-server, no-deps; не трогать
@@ -345,7 +562,7 @@ run ID и исходный artifact должны соответствовать 
 | Android `android_release.py`                       | guards/failure/idempotency tests, read-only preflight                         | **PREPARED BUT NEEDS HP VALIDATION**: постоянный ключ доступен только на HP  |
 | Existing unsigned iOS workflow + `ios_unsigned.py` | metadata/provenance/guards tests; actual macOS build and archive verification | **TESTED** in CI; Cloud download policy and physical install remain separate |
 | `prepare_sidestore.py`                             | deterministic mapping, safe ZIP/staging, check-only и mocked codesign tests   | **PREPARED BUT NEEDS MACOS AND PHYSICAL IPHONE VALIDATION**                  |
-| Server deployment/rollback                         | Server изменений нет                                                          | **NOT REQUIRED**                                                             |
+| Server deployment/rollback                         | Disposable SQL restore, guarded Compose recreate/rollback, failure tests      | **PREPARED BUT NEEDS HP VALIDATION**, см. раздел 0                           |
 | Memories/VAAPI setup/rollback                      | External runtime не изменён                                                   | **NOT REQUIRED**                                                             |
 
 Повторяемые тесты tooling:
