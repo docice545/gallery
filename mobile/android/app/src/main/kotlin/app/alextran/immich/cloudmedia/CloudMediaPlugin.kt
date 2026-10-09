@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.MediaStore
 import app.alextran.immich.BuildConfig
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -79,8 +80,16 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
     val ctx = context ?: throw IllegalStateException("Engine is detached")
     val prefs = ctx.getSharedPreferences("gallery.cloudmedia", Context.MODE_PRIVATE)
     val session = if (Build.VERSION.SDK_INT >= 35) runCatching { CloudMediaCatalog(ctx).session(false) }.getOrNull() else null
+    val authority = "${ctx.packageName}.cloudmedia"
+    val admitted = Build.VERSION.SDK_INT >= 35 && runCatching {
+      MediaStore.isSupportedCloudMediaProviderAuthority(ctx.contentResolver, authority)
+    }.getOrDefault(false)
+    val selected = admitted && runCatching {
+      MediaStore.isCurrentCloudMediaProviderAuthority(ctx.contentResolver, authority)
+    }.getOrDefault(false)
     return mapOf("supported" to (Build.VERSION.SDK_INT >= 35), "signedIn" to (session != null),
       "enabled" to (session != null && prefs.getString("enabledScope", null) == session.scope),
+      "admitted" to admitted, "selected" to selected,
       "shizukuRunning" to shizukuReady(), "permissionGranted" to hasPermission(),
       "recoveryPending" to prefs.contains("recoveryJournal"))
   }
@@ -149,7 +158,7 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
               val journal = CloudAdmissionPolicy.plan(inspected.snapshot(), ctx.packageName, inspected.getString("selectedPackage"))
               val existingJournal = prefs.getString("recoveryJournal", null)?.let { decodeJournal(it) }
               if (existingJournal != null) {
-                check(CloudAdmissionPolicy.verifyAdmitted(inspected.snapshot(), existingJournal.written)) { "externallyChanged" }
+                check(CloudAdmissionPolicy.verifyAdmitted(inspected.snapshot(), existingJournal)) { "externallyChanged" }
               } else {
                 if (journal != null) {
                   // Durable BEFORE the privileged mutation. Lost Binder reply,
@@ -157,6 +166,7 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
                   check(prefs.edit().putString("recoveryJournal", encodeJournal(journal)).commit())
                   check(!cancelled.get() && attached) { "cancelled" }
                   inspected.putString("written", journal.written)
+                  inspected.putString("plan", journal.planToken)
                   remote.admit(inspected)
                 }
               }
@@ -164,7 +174,7 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
               check(!cancelled.get() && attached) { "cancelled" }
               catalog.setEnabled(session)
               CloudMediaChanges.changed()
-              status() + mapOf("admitted" to true, "selected" to (inspected.getString("selected") == "${ctx.packageName}.cloudmedia"))
+              status()
             }
             "disable" -> {
               prefs.getString("recoveryJournal", null)?.let {
@@ -177,8 +187,7 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
               val inspected = remote.inspect()
               val ownPackage = ctx.packageName
               val selected = inspected.getString("selected") == "$ownPackage.cloudmedia"
-              status() + mapOf("admitted" to (ownPackage in CloudAdmissionPolicy.packages(inspected.getString("effective"))),
-                "selected" to selected, "shellUid" to 2000, "androidApi" to Build.VERSION.SDK_INT)
+              status() + mapOf("selected" to selected, "shellUid" to 2000, "androidApi" to Build.VERSION.SDK_INT)
             }
           }
         }
@@ -230,6 +239,9 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
 
   private fun encodeJournal(j: AdmissionJournal): String = JSONObject().apply {
     put("written", j.written)
+    put("plan", j.planToken)
+    put("changes", CloudAdmissionPolicy.encodeChanges(j.changes))
+    put("settings", CloudAdmissionPolicy.encodeValues(j.before.values))
     put("before", JSONObject().apply {
       put("effective", j.before.effective ?: JSONObject.NULL); put("overridePresent", j.before.overridePresent)
       put("overrideValue", j.before.overrideValue ?: JSONObject.NULL); put("feature", j.before.feature ?: JSONObject.NULL)
@@ -241,8 +253,10 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
   private fun decodeJournal(raw: String): AdmissionJournal {
     val j = JSONObject(raw); val b = j.getJSONObject("before")
     fun text(key: String) = if (b.isNull(key)) null else b.getString(key)
-    return AdmissionJournal(AdmissionSnapshot(text("effective"), b.getBoolean("overridePresent"), text("overrideValue"),
-      text("feature"), text("enforcement"), text("selected"), b.getInt("androidUser")), j.getString("written"))
+    val before = AdmissionSnapshot(text("effective"), b.getBoolean("overridePresent"), text("overrideValue"),
+      text("feature"), text("enforcement"), text("selected"), b.getInt("androidUser"),
+      CloudAdmissionPolicy.decodeValues(j.optString("settings", null)))
+    return AdmissionJournal(before, j.getString("written"), CloudAdmissionPolicy.decodeChanges(j.optString("changes", null)))
   }
 
   private companion object { const val REQUEST_CODE = 7236 }

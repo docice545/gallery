@@ -36,6 +36,12 @@ STAGES = [
 ]
 ROOT = Path(__file__).resolve().parents[2]
 GRADLE_REPORT = "mobile/android/build/reports/problems/problems-report.html"
+CLOUD_PROVIDER_CLASS = "app.alextran.immich.cloudmedia.GalleryCloudMediaProvider"
+CLOUD_PROVIDER_AUTHORITY = f"{APP_ID}.cloudmedia"
+CLOUD_PROVIDER_PERMISSION = (
+    "com.android.providers.media.permission.MANAGE_CLOUD_MEDIA_PROVIDERS"
+)
+CLOUD_PROVIDER_ACTION = "android.content.action.CLOUD_MEDIA_PROVIDER"
 
 
 class ReleaseError(Exception):
@@ -135,6 +141,43 @@ def version_name(root: Path) -> str:
             "pubspec.yaml must contain an explicit semantic version/build"
         )
     return found.group(1)
+
+
+def validate_cloud_provider_manifest(xmltree: str) -> None:
+    """Check the release APK's actual merged provider declaration.
+
+    A source-manifest check cannot catch a flavor/manifest merge mistake or a
+    provider removed from the packaged APK.  ``aapt dump xmltree`` is used here
+    because it reads the binary manifest from the exact artifact being handed
+    to the user.
+    """
+    blocks: list[str] = []
+    current: list[str] | None = None
+    for line in xmltree.splitlines():
+        if re.match(r"^\s*E: provider \(line=", line):
+            if current is not None:
+                blocks.append("\n".join(current))
+            current = [line]
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        blocks.append("\n".join(current))
+    provider = next((block for block in blocks if CLOUD_PROVIDER_CLASS in block), None)
+    if provider is None:
+        raise ReleaseError("release APK has no Gallery CloudMediaProvider declaration")
+    required = {
+        CLOUD_PROVIDER_AUTHORITY,
+        CLOUD_PROVIDER_ACTION,
+        'android:exported(0x01010010)=true',
+    }
+    permission_pattern = re.compile(
+        rf'android:(?:readPermission|permission)\([^)]*\)="{re.escape(CLOUD_PROVIDER_PERMISSION)}"'
+    )
+    if not all(value in provider for value in required) or not permission_pattern.search(provider):
+        raise ReleaseError(
+            "release APK CloudMediaProvider declaration is missing authority, "
+            "exported state, provider read permission or intent action"
+        )
 
 
 def check_key_files(root: Path) -> None:
@@ -264,6 +307,17 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int) -> di
         raise ReleaseError(
             "actual APK applicationId/version differs from requested release"
         )
+    manifest_xml = run(
+        [
+            str(sdk / f"build-tools/{BUILD_TOOLS}/aapt"),
+            "dump",
+            "xmltree",
+            str(apk),
+            "AndroidManifest.xml",
+        ],
+        root,
+    )
+    validate_cloud_provider_manifest(manifest_xml)
     signature = run(
         [
             str(sdk / f"build-tools/{BUILD_TOOLS}/apksigner"),

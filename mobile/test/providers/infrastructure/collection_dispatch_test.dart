@@ -207,6 +207,43 @@ void main() {
     await container.read(actionProvider.notifier).addToSpace(ActionSource.timeline, theSpace());
 
     expect(container.read(multiSelectProvider).selectedAssets, isEmpty);
+    verify(() => syncManager.syncRemote()).called(1);
+  });
+
+  test('Space add does not wait for remote sync to finish', () async {
+    final syncGate = Completer<bool>();
+    when(() => syncManager.syncRemote()).thenAnswer((_) => syncGate.future);
+    select([remote('a')]);
+
+    final result = await container.read(actionProvider.notifier).addToSpace(ActionSource.timeline, theSpace());
+
+    expect(result.success, isTrue);
+    verify(() => syncManager.syncRemote()).called(1);
+    syncGate.complete(true);
+  });
+
+  test('a failed Space add does not start remote sync', () async {
+    when(() => spaceRepo.addAssets(any(), any())).thenThrow(Exception('offline'));
+    select([remote('a')]);
+
+    final result = await container.read(actionProvider.notifier).addToSpace(ActionSource.timeline, theSpace());
+
+    expect(result.success, isFalse);
+    verifyNever(() => syncManager.syncRemote());
+  });
+
+  test('removing from a Space nudges sync without waiting for it', () async {
+    final syncGate = Completer<bool>();
+    when(() => syncManager.syncRemote()).thenAnswer((_) => syncGate.future);
+    when(() => actionService.removeFromSpace(any(), any())).thenAnswer((_) async => 1);
+    select([remote('a')]);
+
+    final result = await container.read(actionProvider.notifier).removeFromSpace(ActionSource.timeline, 'space-1');
+
+    expect(result.success, isTrue);
+    expect(result.count, 1);
+    verify(() => syncManager.syncRemote()).called(1);
+    syncGate.complete(true);
   });
 
   test('a second add while one is in flight is ignored', () async {

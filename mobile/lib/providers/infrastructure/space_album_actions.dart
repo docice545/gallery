@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/utils/background_sync.dart';
 import 'package:immich_mobile/providers/background_sync.provider.dart';
@@ -15,8 +17,10 @@ import 'package:immich_mobile/repositories/shared_space_api.repository.dart';
 ///   - [deleteFolder]     — DELETE /shared-spaces/{id}/album-folders/{folderId}
 ///   - [moveAlbumToFolder] — PUT   /shared-spaces/{id}/albums/{albumId}/folder
 ///
-/// Each operation calls the API repo, fires the sync-nudge
-/// (`BackgroundSyncManager.syncRemote()`), then returns.
+/// Each operation calls the API repo and fires the sync-nudge
+/// (`BackgroundSyncManager.syncRemote()`). Asset membership mutations use a
+/// best-effort asynchronous nudge so a successful add does not leave the
+/// selection sheet blocked on a complete sync round.
 /// On API failure the exception propagates to the caller (the page is
 /// responsible for showing the error toast and catching the exception).
 ///
@@ -80,7 +84,7 @@ class SpaceAlbumActions {
       return 0;
     }
     final result = await _albumApiRepo.addAssets(albumId, assetIds);
-    await _syncManager.syncRemote();
+    unawaited(_syncManager.syncRemote().catchError((_) => false));
     return result.added.length;
   }
 

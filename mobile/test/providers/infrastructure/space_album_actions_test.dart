@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/utils/background_sync.dart';
@@ -188,6 +190,19 @@ void main() {
 
       expect(count, 1);
       verify(() => syncMgr.syncRemote()).called(1);
+    });
+
+    test('does not wait for the membership sync to finish', () async {
+      final gate = Completer<bool>();
+      when(() => albumApiRepo.addAssets(any(), any())).thenAnswer((_) async => (added: ['a1'], failed: <String>[]));
+      when(() => syncMgr.syncRemote()).thenAnswer((_) => gate.future);
+
+      final actions = container.read(spaceAlbumActionsProvider);
+      final result = await actions.addAssets(_albumId, ['a1']);
+
+      expect(result, 1);
+      verify(() => syncMgr.syncRemote()).called(1);
+      gate.complete(true);
     });
 
     test('does nothing and no nudge when assetIds is empty', () async {

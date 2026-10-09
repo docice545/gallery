@@ -23,6 +23,17 @@ class CloudAdmissionPolicyTest {
   private fun state(value: String? = "com.google.android.apps.photos,com.example.cloud", present: Boolean = false) =
     AdmissionSnapshot(value, present, if (present) value else null, "true", "true", null, 0)
 
+  private fun modernState(
+    mediaProviders: String? = "com.google.android.apps.photos,com.example.cloud",
+    feature: String? = "false",
+  ): AdmissionSnapshot {
+    val values = listOf(
+      DeviceConfigValue("mediaprovider", "allowed_cloud_providers", mediaProviders, false, null),
+      DeviceConfigValue("mediaprovider", "cloud_media_feature_enabled", feature, false, null),
+    )
+    return AdmissionSnapshot(mediaProviders, false, null, feature, "true", null, 0, values)
+  }
+
   @Test fun appendPreservesProvidersAndGoogle() {
     val journal = CloudAdmissionPolicy.plan(state(), own, null)!!
     assertEquals("com.google.android.apps.photos,com.example.cloud,de.opennoodle.gallery", journal.written)
@@ -58,6 +69,42 @@ class CloudAdmissionPolicyTest {
   @Test fun disabledFeatureOrGlobalBypassIsNotSilentlyChanged() {
     assertThrows(IllegalArgumentException::class.java) { CloudAdmissionPolicy.plan(state().copy(feature = "false"), own, null) }
     assertThrows(IllegalArgumentException::class.java) { CloudAdmissionPolicy.plan(state().copy(enforcement = "false"), own, null) }
+  }
+
+  @Test fun android16ActivationPlansAllowlistAndFeatureFlag() {
+    val journal = CloudAdmissionPolicy.plan(modernState(), own, "com.samsung.cloud")!!
+    assertEquals(2, journal.changes.size)
+    assertEquals(
+      listOf("mediaprovider/allowed_cloud_providers", "mediaprovider/cloud_media_feature_enabled"),
+      journal.changes.map { "${it.before.namespace}/${it.before.key}" },
+    )
+    assertEquals("true", journal.changes[1].written)
+    assertEquals(listOf("com.google.android.apps.photos", "com.example.cloud", "com.samsung.cloud", own),
+      CloudAdmissionPolicy.packages(journal.changes[0].written))
+  }
+
+  @Test fun existingModernActivationDoesNotClaimOwnership() {
+    val base = modernState(feature = "true")
+    val admitted = base.copy(
+      values = base.values.map {
+        it.copy(effective = if (it.key == "allowed_cloud_providers") "$own,com.google.android.apps.photos" else "true")
+      },
+      effective = "$own,com.google.android.apps.photos", feature = "true",
+    )
+    assertNull(CloudAdmissionPolicy.plan(admitted, own, null))
+  }
+
+  @Test fun modernRecoveryRequiresEveryWrittenSettingToRemainOwned() {
+    val journal = CloudAdmissionPolicy.plan(modernState(), own, null)!!
+    val after = journal.before.copy(values = journal.before.values.map { value ->
+      val written = journal.changes.first { it.before.namespace == value.namespace && it.before.key == value.key }.written
+      value.copy(effective = written, overridePresent = true, overrideValue = written)
+    })
+    assertTrue(CloudAdmissionPolicy.canUndo(after, journal))
+    val changed = after.copy(values = after.values.map {
+      if (it.key == "cloud_media_feature_enabled") it.copy(effective = "false") else it
+    })
+    assertFalse(CloudAdmissionPolicy.canUndo(changed, journal))
   }
   @Test fun exactPreviousFormattingIsRetainedForRecovery() {
     val before = state(" com.example.cloud , com.google.android.apps.photos ", true)
