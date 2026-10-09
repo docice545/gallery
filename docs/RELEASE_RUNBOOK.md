@@ -1,5 +1,12 @@
 # «Фото»: воспроизводимая мобильная сборка и проверка
 
+**Stage 1 сейчас BLOCKED по расширенному deletion contract.** Актуальные
+[operator gates](GALLERY_BUILD8_HP_HANDOFF.md) и
+[15 acceptance criteria](GALLERY_BUILD8_ACCEPTANCE.md) имеют приоритет над
+прежними deployment-командами ниже. Для нового Docker image-store proof нужны
+новый `trash_predeploy.py` и `trash_image_identity.py` вместе; pinned файл
+565ef38 не изменён. Не вызывать старый deploy/enable напрямую в обход adapter.
+
 Текущий release — **5.7.2 (8)**, source **`6a558b554e26e8c0fc5bc5c99259a92e7ef26a56`**.
 Для текущего Stage 1 использовать **только раздел 0**: все artifacts уже собраны,
 новых mobile/backend builds не требуется. Разделы 1–8 ниже — прежний общий

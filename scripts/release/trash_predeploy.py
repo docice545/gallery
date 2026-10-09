@@ -154,7 +154,71 @@ def load_tool(path):
         return row
 
     tool.queue_empty = strict_queue
+    install_image_adapter(tool)
     return tool
+
+
+def install_image_adapter(tool):
+    """Keep the immutable 565ef38 file intact; adapt only image-store semantics."""
+    spec = importlib.util.spec_from_file_location('trash_image_identity', Path(__file__).with_name('trash_image_identity.py'))
+    identity = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(identity)
+    tool.image_identity = identity
+    config_id, original_verify, original_override, original_save = tool.IMAGE, tool.verify_artifact, tool.override, tool.save
+    tool.ARCHIVE_CONFIG_IMAGE = config_id
+
+    def frozen_verify(directory):
+        current = tool.IMAGE
+        tool.IMAGE = config_id
+        try:
+            return original_verify(directory)
+        finally:
+            tool.IMAGE = current
+
+    def prove(directory):
+        current = tool.IMAGE
+        tool.IMAGE = config_id
+        try:
+            return identity.verify_loaded(tool, directory)
+        finally:
+            tool.IMAGE = current
+
+    def load(directory):
+        archive = frozen_verify(directory)
+        exists = subprocess.run([*tool.DOCKER, 'image', 'inspect', tool.TAG], capture_output=True, timeout=15)
+        if exists.returncode:
+            # Called only by explicitly approved deploy; verification never loads.
+            tool.docker('load', '-i', str(archive), timeout=900)
+        proof = prove(directory)
+        tool.IMAGE = proof['loadedImageId']
+        tool.loaded_image_proof = proof
+
+    def override(state, image, normal=None, name='active-server.override.json'):
+        # Eliminate tag races during recreate/enable. Rollback retains its
+        # separately guarded previous tag/ID from the private journal.
+        return original_override(state, tool.IMAGE if image == tool.TAG else image, normal, name)
+
+    def journal_save(file, value):
+        if file.name == 'deployment.json':
+            need(hasattr(tool, 'loaded_image_proof'), 'VERIFIED_IMAGE_PROOF_REQUIRED_BEFORE_JOURNAL')
+            value = {**value, 'candidateImage': tool.IMAGE, 'candidateImageProof': tool.loaded_image_proof,
+                     'phase': 'PREPARED_BEFORE_QUEUE_PAUSE'}
+        return original_save(file, value)
+
+    tool.verify_artifact, tool.prove_loaded_image, tool.load_artifact = frozen_verify, prove, load
+    tool.override, tool.save = override, journal_save
+
+
+def journal_image(tool, state):
+    journal = private_json(state / 'deployment.json')
+    proof = journal.get('candidateImageProof', {})
+    need(journal.get('source') == tool.SOURCE and proof.get('sourceCommit') == tool.SOURCE and
+         proof.get('configDigest') == tool.ARCHIVE_CONFIG_IMAGE and proof.get('archiveSHA256') == tool.ARCHIVE_SHA and
+         proof.get('loadedImageId') == journal.get('candidateImage') and
+         proof.get('identityKind') in ('CONFIG_DIGEST', 'MANIFEST_DIGEST', 'INDEX_DIGEST') and
+         re.fullmatch(r'sha256:[0-9a-f]{64}', journal.get('candidateImage', '')),
+         'JOURNAL_IMAGE_PROOF_MISSING_OR_CHANGED')
+    tool.IMAGE = journal['candidateImage']
 
 
 def postgres_identity(tool, pg):
@@ -265,7 +329,7 @@ def archive_migrations(tool, backend):
             if member.name == config_name:
                 need(member.isfile() and member.size < 1024 * 1024, 'INVALID_IMAGE_CONFIG')
                 raw = outer.extractfile(member).read()
-                need('sha256:' + hashlib.sha256(raw).hexdigest() == tool.IMAGE, 'IMAGE_CONFIG_DIGEST_MISMATCH')
+                need('sha256:' + hashlib.sha256(raw).hexdigest() == getattr(tool, 'ARCHIVE_CONFIG_IMAGE', tool.IMAGE), 'IMAGE_CONFIG_DIGEST_MISMATCH')
                 config = json.loads(raw)
             elif member.name in layers:
                 need(member.isfile(), 'INVALID_IMAGE_LAYER')
@@ -525,7 +589,7 @@ def recheck(tool, state):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'recheck', 'deploy', 'rollback'))
+    parser.add_argument('action', choices=('verify-image', 'prepare', 'recheck', 'deploy', 'rollback', 'acceptance', 'enable-workers'))
     parser.add_argument('--pinned-tool', type=Path, default=DEFAULT_TOOL)
     parser.add_argument('--artifacts', type=Path)
     parser.add_argument('--audit', type=Path, default=DEFAULT_AUDIT)
@@ -533,6 +597,7 @@ def main(argv=None):
     parser.add_argument('--previous-pg-state', type=Path, default=DEFAULT_PG)
     parser.add_argument('--state', type=Path)
     parser.add_argument('--approve-deployment', action='store_true')
+    parser.add_argument('--approve-retention', action='store_true')
     parser.add_argument('--key', type=Path)
     parser.add_argument('--api', default='http://127.0.0.1:2283/api')
     args = parser.parse_args(argv)
@@ -546,12 +611,19 @@ def main(argv=None):
         need(pwd.getpwuid(os.getuid()).pw_name == 'doctoriceadm', 'RUN_AS_DOCTORICEADM')
         need(sys.version_info >= (3, 11), 'PYTHON_3_11_REQUIRED')
         os.umask(0o077)
-        if args.action in ('deploy', 'rollback'):
+        if args.action in ('deploy', 'rollback', 'acceptance', 'enable-workers'):
             need(args.approve_deployment and os.environ.get('GALLERY_DEPLOYMENT_APPROVED') == 'YES',
                  'SEPARATE_EXPLICIT_DEPLOYMENT_APPROVAL_REQUIRED')
             need(args.key and args.key.is_file() and not args.key.is_symlink() and
                  args.key.stat().st_mode & 0o077 == 0, 'PRIVATE_EXISTING_ADMIN_KEY_FILE_REQUIRED')
-        if args.action == 'prepare':
+        if args.action == 'enable-workers':
+            need(args.approve_retention and os.environ.get('GALLERY_RETENTION_RESUME_APPROVED') == 'YES',
+                 'SEPARATE_EXPLICIT_RETENTION_APPROVAL_REQUIRED')
+        if args.action == 'verify-image':
+            need(args.artifacts and args.artifacts.is_dir() and not args.state, 'ARTIFACT_ROOT_REQUIRED_NEW_STATE_AUTOMATIC')
+            state = Path(tempfile.mkdtemp(prefix='gallery-image-proof-', dir=HOME))
+            print('Private image proof: ' + str(state))
+        elif args.action == 'prepare':
             need(args.artifacts and args.artifacts.is_dir() and not args.state, 'ARTIFACT_ROOT_REQUIRED_NEW_STATE_AUTOMATIC')
             state = Path(tempfile.mkdtemp(prefix='gallery-predeploy-', dir=HOME))
             print('Private state: ' + str(state))
@@ -564,7 +636,10 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             tool = load_tool(args.pinned_tool)
             report['source'] = tool.SOURCE
-            if args.action == 'prepare':
+            if args.action == 'verify-image':
+                verify_artifacts(tool, args.artifacts)
+                save(state / 'loaded-image-proof.json', tool.prove_loaded_image(args.artifacts / 'backend'))
+            elif args.action == 'prepare':
                 prepare(tool, args, state)
                 report.update(result='PASS', queues='EMPTY_AT_CHECK_NOT_RESERVED', freshRestore='PASS',
                               nas='PASS_REUSED_ORIGINAL_TIMESTAMP', deploymentAuthorized=False,
@@ -579,8 +654,15 @@ def main(argv=None):
                     args.audit = Path(context['audit'])
                     tool.deploy(args)
                 else:
-                    tool.queue_empty(require_paused=tool.api_only(tool.inspect(tool.SERVER)))
-                    tool.rollback(args)
+                    journal_image(tool, state)
+                    if args.action == 'rollback':
+                        tool.queue_empty(require_paused=tool.api_only(tool.inspect(tool.SERVER)))
+                        tool.rollback(args)
+                    elif args.action == 'acceptance':
+                        tool.acceptance(args)
+                    else:
+                        args.retention_approved = True
+                        tool.enable(args)
         print('PASS ' + args.action + '; deployment/signing/retention require their separate approvals')
         return 0
     except Exception as error:
@@ -590,9 +672,12 @@ def main(argv=None):
                      'deletion queue is not paused': 'DELETION_QUEUE_NOT_PAUSED',
                      'isolated SQL restore failed; inspect private log locally': 'ISOLATED_SQL_RESTORE_FAILED',
                      'isolated restore fixture cleanup failed; no recovery receipt issued': 'ISOLATED_FIXTURE_CLEANUP_FAILED'}
-        code = str(error) if isinstance(error, Stop) else pin_codes.get(str(error),
+        safe_identity_error = type(error).__name__ == 'IdentityError' and re.fullmatch('[A-Z0-9_]+', str(error))
+        code = str(error) if isinstance(error, Stop) or safe_identity_error else pin_codes.get(str(error),
                'PREDEPLOY_OPERATION_FAILED_' + type(error).__name__)
         print('STOP ' + code, file=sys.stderr)
+        if state and (state / 'deployment.json').is_file():
+            print('DEPLOYMENT_JOURNAL_EXISTS: do not retry deploy; use approved guarded rollback with this same state.', file=sys.stderr)
         if state and args.action == 'prepare':
             report['blocker'] = code
             try:

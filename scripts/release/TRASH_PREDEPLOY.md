@@ -10,7 +10,44 @@ that checkout nor rebuilds any artifact.
 from `565ef38c0c39f3ee896f5afd055d4d57a676d503`. Its default action is preparation;
 deployment and rollback require both an explicit CLI flag and the existing
 `GALLERY_DEPLOYMENT_APPROVED=YES` gate. No retention-enable or signing action is
-exposed by this wrapper.
+allowed without its own explicit gate. The expanded deletion acceptance contract
+is currently **BLOCKED**; see
+[`GALLERY_BUILD8_ACCEPTANCE.md`](../../docs/GALLERY_BUILD8_ACCEPTANCE.md).
+
+## Docker image identity across stores
+
+Download **both** `trash_predeploy.py` and `trash_image_identity.py` from the same
+immutable tooling commit, verify their SHA-256 values, and keep them together.
+The original `565ef38` release file remains byte-for-byte unchanged and pinned.
+
+Classic Docker reports the config digest as image ID. Moby containerd reports the
+target manifest/index digest ([Moby inspect](https://github.com/moby/moby/blob/v28.4.0/daemon/containerd/image_inspect.go),
+[import/export](https://github.com/moby/moby/blob/v28.4.0/daemon/containerd/image_exporter.go),
+[containerd import](https://github.com/moby/moby/blob/v28.4.0/vendor/github.com/containerd/containerd/v2/core/images/archive/importer.go)).
+Containerd may reuse compressed layers with the same uncompressed diff ID.
+An observed alternate ID is not substituted into frozen constants.
+
+`verify-image --artifacts "$ARTIFACTS"` streams the already loaded image by its
+immutable ID through `docker image save`, without extraction or storing layers.
+It verifies exact frozen archive SHA/manifest/tag/config digest, Linux/amd64,
+source/ref/repository, all ordered uncompressed layer SHA-256 diff IDs, and the
+exported config bytes. A differing loaded ID must have a fully hashed,
+single-image descriptor graph connecting it to that config and ordered layer
+digests/sizes. The tag must remain unchanged throughout. Copied labels, arbitrary
+IDs, unrelated indices, extra manifests and tampered/truncated layers fail.
+
+Missing loaded image is STOP; this read-only action never loads/tags/pulls.
+A new private `gallery-image-proof-*` receipt is created; failed states remain
+untouched. Only approved deploy can load an absent image. It makes the same proof,
+records the runtime identity in the private deployment journal and uses the
+immutable ID in Compose overrides. If a journal exists after failure, STOP and
+use approved rollback with that same state, never repeat deploy blindly.
+
+`acceptance` also needs deployment approval and uses a synthetic fixture only.
+`enable-workers` requires deployment approval plus `--approve-retention` and
+`GALLERY_RETENTION_RESUME_APPROVED=YES`. A successful proof does not authorize them.
+Complete HP commands are in
+[`GALLERY_BUILD8_HP_HANDOFF.md`](../../docs/GALLERY_BUILD8_HP_HANDOFF.md).
 
 ## Operator inputs and requirements
 
