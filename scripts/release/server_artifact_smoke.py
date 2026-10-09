@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -14,10 +15,29 @@ import urllib.request
 POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67'
 
 
+def docker_failure_reason(stderr):
+    """Classify CLI failures without emitting arbitrary credential/path text."""
+    value = stderr.lower()
+    for category, phrases in (
+        ('NO_SPACE', ('no space left on device', 'disk quota exceeded')),
+        ('REGISTRY_RATE_LIMIT', ('toomanyrequests', 'pull rate limit')),
+        ('IMAGE_UNAVAILABLE', ('manifest unknown', 'manifest not found', 'not found: manifest')),
+        ('REGISTRY_ACCESS_DENIED', ('pull access denied', 'unauthorized', 'denied:')),
+        ('REGISTRY_NETWORK', ('tls handshake timeout', 'i/o timeout', 'context deadline exceeded', 'connection refused')),
+        ('CONTAINER_NAME_CONFLICT', ('container name', 'already in use')),
+        ('PORT_BIND_FAILED', ('port is already allocated', 'address already in use')),
+        ('INVALID_IMAGE_REFERENCE', ('invalid reference format',)),
+        ('DAEMON_UNAVAILABLE', ('cannot connect to the docker daemon',)),
+    ):
+        if any(phrase in value for phrase in phrases):
+            return category
+    return 'UNCLASSIFIED_CLI_FAILURE'
+
+
 def docker(*args, input=None):
     result = subprocess.run(['docker', *args], input=input, text=True, capture_output=True, timeout=180)
     if result.returncode:
-        raise RuntimeError('Docker fixture operation failed; no credentials printed')
+        raise RuntimeError(f'Docker {args[0]} failed: {docker_failure_reason(result.stderr)} (exit {result.returncode}); private details omitted')
     return result.stdout.strip()
 
 
@@ -34,6 +54,7 @@ def main():
     network = None
     stage = 'create isolated fixtures'
     try:
+        print('CI free runner disk bytes:', shutil.disk_usage(directory).free, flush=True)
         prefix = 'gallery-trash-ci-' + secrets.token_hex(6)
         network = docker('network', 'create', prefix)
         db, redis, server = (prefix + '-' + name for name in ('pg', 'redis', 'server'))
@@ -44,11 +65,12 @@ def main():
                 '-e', f'REDIS_HOSTNAME={redis}', '-e', 'IMMICH_WORKERS_EXCLUDE=microservices',
                 '-p', '127.0.0.1::2283']),
         ]:
-            # -v cleanup affects anonymous volumes created by THIS invocation only.
-            names.append(name)
+            stage = 'create isolated fixture ' + ('postgres' if name == db else 'redis' if name == redis else 'server')
             postgres_command = ['postgres', '-c', 'shared_preload_libraries=vchord.so',
                 '-c', 'config_file=/var/lib/postgresql/data/postgresql.conf'] if name == db else []
             docker('run', '-d', '--name', name, '--network', network, *extra, image, *postgres_command)
+            # Only a successfully created fixture is ours to remove/read logs.
+            names.append(name)
         mapping = json.loads(docker('inspect', server))[0]['NetworkSettings']['Ports']['2283/tcp'][0]
         base = 'http://127.0.0.1:' + mapping['HostPort'] + '/api'
         token = None
@@ -115,9 +137,14 @@ def main():
         return 0
     except Exception as error:
         print('FAIL isolated smoke stage:', stage, '; category:', type(error).__name__)
+        if isinstance(error, RuntimeError):
+            print(str(error))  # This harness creates only sanitized RuntimeErrors.
         # Runner contains only synthetic data. Keep bounded bootstrap logs for diagnosis.
         if names:
-            (directory / 'isolated-smoke.log').write_text(docker('logs', '--tail', '100', names[-1]))
+            try:
+                (directory / 'isolated-smoke.log').write_text(docker('logs', '--tail', '100', names[-1]))
+            except RuntimeError:
+                print('Diagnostic fixture logs unavailable; primary failure preserved')
         return 1
     finally:
         for name in reversed(names):
@@ -126,7 +153,10 @@ def main():
             except Exception:
                 pass
         if network:
-            docker('network', 'rm', network)
+            try:
+                docker('network', 'rm', network)
+            except RuntimeError:
+                print('WARNING owned CI network cleanup failed; no unrelated network touched')
 
 
 if __name__ == '__main__':

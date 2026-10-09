@@ -140,6 +140,20 @@ class ReleasePreparation(unittest.TestCase):
         self.assertIn('git archive --format=tar "$release_sha"', source)
         self.assertIn('toolingCommit=sys.argv[4]', source)
 
+    def test_docker_fixture_failure_classifies_without_echoing_credentials(self):
+        for message, category in (
+            ('write private/file: no space left on device TOKEN=private-secret', 'NO_SPACE'),
+            ('toomanyrequests: unauthenticated pull rate limit', 'REGISTRY_RATE_LIMIT'),
+            ('manifest unknown', 'IMAGE_UNAVAILABLE'),
+            ('secret=anything unknown error', 'UNCLASSIFIED_CLI_FAILURE'),
+        ):
+            with patch.object(smoke.subprocess, 'run', return_value=SimpleNamespace(returncode=125, stdout='', stderr=message)):
+                with self.assertRaisesRegex(RuntimeError, category) as caught:
+                    smoke.docker('run', 'fixture')
+                self.assertNotIn('private-secret', str(caught.exception))
+                self.assertNotIn('private/file', str(caught.exception))
+                self.assertNotIn('anything', str(caught.exception))
+
 
 if __name__ == '__main__':
     unittest.main()
