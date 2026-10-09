@@ -402,6 +402,7 @@ describe(TimelineService.name, () => {
         city: [],
         country: [],
         createdAt: [],
+        deletedAt: [],
         duration: [],
         id: [],
         visibility: [],

@@ -293,6 +293,7 @@ describe(AssetService.name, () => {
         ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Sidecar, path: sidecarPath }),
       ]);
 
+      await sut.deleteAll(factory.auth({ user }), { ids: [asset.id], force: true });
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
 
       expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({
@@ -314,6 +315,7 @@ describe(AssetService.name, () => {
 
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
+      await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
       await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
 
       // stack is deleted as well
@@ -332,6 +334,7 @@ describe(AssetService.name, () => {
 
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
+      await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
       await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
 
       // new primary asset is picked
@@ -375,6 +378,7 @@ describe(AssetService.name, () => {
         ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Sidecar, path: `/path/to/sidecar.xmp` }),
       ]);
 
+      await sut.deleteAll(factory.auth({ user }), { ids: [asset.id], force: true });
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
 
       expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({

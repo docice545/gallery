@@ -1496,6 +1496,71 @@ export class AssetRepository {
     return this.getById(asset.id, { exifInfo: true, faces: {}, edits: true });
   }
 
+  async markDeletionState(
+    ids: string[],
+    options: { deletedAt: Date; status: AssetStatus.Trashed | AssetStatus.Deleted },
+  ): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .updateTable('asset')
+      .where('id', '=', anyUuid(ids))
+      // Once irreversible deletion is claimed, even another Trash request must
+      // not make the row restorable again between the claim and removal.
+      .where('status', '!=', AssetStatus.Deleted)
+      .set(options)
+      .returning('id')
+      .execute();
+    return rows.map(({ id }) => id);
+  }
+
+  async claimDeletion(id: string, cleanup?: { reason: 'library'; libraryId: string } | { reason: 'motion' }) {
+    let query = this.db.updateTable('asset').where('id', '=', asUuid(id)).set({ status: AssetStatus.Deleted });
+    if (cleanup?.reason === 'library') {
+      query = query
+        .where('libraryId', '=', asUuid(cleanup.libraryId))
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('library')
+              .select('id')
+              .where('id', '=', asUuid(cleanup.libraryId))
+              .where('deletedAt', 'is not', null),
+          ),
+        );
+    } else if (cleanup?.reason === 'motion') {
+      query = query
+        .where('type', '=', AssetType.Video)
+        .where('visibility', '=', AssetVisibility.Hidden)
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb.selectFrom('asset as parent').select('parent.id').where('parent.livePhotoVideoId', '=', asUuid(id)),
+            ),
+          ),
+        );
+    } else {
+      // Old jobs carry neither a cutoff nor reliable source information. Only
+      // an already irreversible row can be removed; Active/Trashed rows wait
+      // for a newly guarded retention/library/motion job instead of guessing.
+      query = query
+        .where('status', '=', AssetStatus.Deleted)
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('library')
+                .select('id')
+                .whereRef('library.id', '=', 'asset.libraryId')
+                .where('deletedAt', 'is not', null),
+            ),
+          ),
+        );
+    }
+    return (await query.returning('id').executeTakeFirst()) !== undefined;
+  }
+
   async claimExpiredDeletion(id: string, trashedBefore: Date): Promise<boolean> {
     // Restore clears deletedAt; a subsequent Trash assigns a new timestamp.
     // The conditional UPDATE serializes against Restore on the same row. Once
@@ -1504,6 +1569,27 @@ export class AssetRepository {
       .updateTable('asset')
       .where('id', '=', asUuid(id))
       .where('deletedAt', '<=', trashedBefore)
+      .where((eb) =>
+        eb.or([
+          eb('status', 'in', [AssetStatus.Trashed, AssetStatus.Deleted]),
+          // Preserve the existing expired offline-library index cleanup. Its
+          // current isOffline flag also prevents unlinking the original below.
+          eb.and([eb('status', '=', AssetStatus.Active), eb('isOffline', '=', true)]),
+        ]),
+      )
+      // Library removal only deletes Gallery's index/generated files. An old
+      // retention job must not reinterpret that removal as deleting originals.
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('library')
+              .select('id')
+              .whereRef('library.id', '=', 'asset.libraryId')
+              .where('deletedAt', 'is not', null),
+          ),
+        ),
+      )
       .set({ status: AssetStatus.Deleted })
       .returning('id')
       .executeTakeFirst();
@@ -1512,6 +1598,16 @@ export class AssetRepository {
 
   async remove(asset: { id: string }): Promise<void> {
     await this.db.deleteFrom('asset').where('id', '=', asUuid(asset.id)).execute();
+  }
+
+  async removeForDeletion(asset: { id: string }): Promise<boolean> {
+    const removed = await this.db
+      .deleteFrom('asset')
+      .where('id', '=', asUuid(asset.id))
+      .where('status', '=', AssetStatus.Deleted)
+      .returning('id')
+      .executeTakeFirst();
+    return removed !== undefined;
   }
 
   @GenerateSql({ params: [{ ownerId: DummyValue.UUID, libraryId: DummyValue.UUID, checksum: DummyValue.BUFFER }] })

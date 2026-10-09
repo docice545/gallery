@@ -1272,7 +1272,7 @@ describe(MetadataService.name, () => {
       await sut.handleMetadataExtraction({ id: asset.id });
       expect(mocks.job.queue).toHaveBeenNthCalledWith(1, {
         name: JobName.AssetDelete,
-        data: { id: asset.livePhotoVideoId, deleteOnDisk: true },
+        data: { id: asset.livePhotoVideoId, deleteOnDisk: true, deletionReason: 'motion' },
       });
     });
 

@@ -398,7 +398,10 @@ export class LibraryService extends BaseService {
     )) {
       this.logger.debug(`Queueing deletion of ${assets.length} asset(s) in library ${libraryId}`);
       await this.jobRepository.queueAll(
-        assets.map((asset) => ({ name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: false } })),
+        assets.map((asset) => ({
+          name: JobName.AssetDelete,
+          data: { id: asset.id, deleteOnDisk: false, deletionReason: 'library' as const, libraryId },
+        })),
       );
       hasAssets = true;
     }

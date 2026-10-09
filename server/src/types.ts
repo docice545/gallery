@@ -232,6 +232,9 @@ export interface IAssetDeleteJob extends IEntityJob {
   deleteOnDisk: boolean;
   /** Retention sweep cutoff; revalidate atomically before irreversible deletion. */
   trashedBefore?: string;
+  /** Non-retention cleanup must identify its intent; legacy jobs remain fail closed. */
+  deletionReason?: 'library' | 'motion';
+  libraryId?: string;
 }
 
 export interface ILibraryFileJob {

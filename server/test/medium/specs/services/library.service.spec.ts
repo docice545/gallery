@@ -323,8 +323,14 @@ describe(LibraryService.name, () => {
       await expect(libraryRepo.get(library.id, true)).resolves.toEqual(expect.objectContaining({ id: library.id }));
       // deleteOnDisk is what keeps the files of an external library, so assert it explicitly
       expect(jobs.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: expect.any(String), deleteOnDisk: false } },
-        { name: JobName.AssetDelete, data: { id: expect.any(String), deleteOnDisk: false } },
+        {
+          name: JobName.AssetDelete,
+          data: { id: expect.any(String), deleteOnDisk: false, deletionReason: 'library', libraryId: library.id },
+        },
+        {
+          name: JobName.AssetDelete,
+          data: { id: expect.any(String), deleteOnDisk: false, deletionReason: 'library', libraryId: library.id },
+        },
       ]);
 
       // the asset delete jobs are only queued here, so this just proves the handler itself unlinks nothing

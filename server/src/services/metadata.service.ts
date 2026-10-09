@@ -899,7 +899,7 @@ export class MetadataService extends BaseService {
         if (asset.livePhotoVideoId) {
           await this.jobRepository.queue({
             name: JobName.AssetDelete,
-            data: { id: asset.livePhotoVideoId, deleteOnDisk: true },
+            data: { id: asset.livePhotoVideoId, deleteOnDisk: true, deletionReason: 'motion' },
           });
           this.logger.log(`Removed old motion photo video asset (${asset.livePhotoVideoId})`);
         }

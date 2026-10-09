@@ -575,7 +575,20 @@ export class AssetService extends BaseService {
   async handleAssetDeletion(job: JobOf<JobName.AssetDelete>): Promise<JobStatus> {
     const { id, deleteOnDisk } = job;
 
-    if (job.trashedBefore !== undefined) {
+    if (job.trashedBefore === undefined) {
+      if (job.deletionReason === 'library' && (!job.libraryId || deleteOnDisk)) {
+        return JobStatus.Failed;
+      }
+      const cleanup =
+        job.deletionReason === 'motion'
+          ? { reason: 'motion' as const }
+          : job.deletionReason === 'library' && job.libraryId && !deleteOnDisk
+            ? { reason: 'library' as const, libraryId: job.libraryId }
+            : undefined;
+      if (!(await this.assetRepository.claimDeletion(id, cleanup))) {
+        return JobStatus.Skipped;
+      }
+    } else {
       const cutoff = new Date(job.trashedBefore);
       if (Number.isNaN(cutoff.getTime())) {
         return JobStatus.Failed;
@@ -622,7 +635,11 @@ export class AssetService extends BaseService {
     // null out representativeFaceId. Those locks are taken in face order, so they can cycle against
     // a concurrent space-people recount. Re-drive the victim rather than lose the deletion (#864).
     try {
-      await retryOnDeadlock(() => this.assetRepository.remove(asset));
+      if (!(await retryOnDeadlock(() => this.assetRepository.removeForDeletion(asset)))) {
+        // Only the job which actually removes the row owns its file/events/quota
+        // effects, even when competing jobs fetched the same deletion snapshot.
+        return JobStatus.Skipped;
+      }
     } catch (error) {
       if (!isDeadlockError(error)) {
         throw error;
@@ -647,7 +664,7 @@ export class AssetService extends BaseService {
       if (count === 0) {
         await this.jobRepository.queue({
           name: JobName.AssetDelete,
-          data: { id: asset.livePhotoVideoId, deleteOnDisk },
+          data: { id: asset.livePhotoVideoId, deleteOnDisk, deletionReason: 'motion' },
         });
       }
     }
@@ -676,14 +693,16 @@ export class AssetService extends BaseService {
     const { ids, force } = dto;
 
     await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
-    await this.assetRepository.updateAll(ids, {
+    const changedIds = await this.assetRepository.markDeletionState(ids, {
       deletedAt: new Date(),
       status: force ? AssetStatus.Deleted : AssetStatus.Trashed,
     });
-    await this.eventRepository.emit(force ? 'AssetDeleteAll' : 'AssetTrashAll', {
-      assetIds: ids,
-      userId: auth.user.id,
-    });
+    if (changedIds.length > 0) {
+      await this.eventRepository.emit(force ? 'AssetDeleteAll' : 'AssetTrashAll', {
+        assetIds: changedIds,
+        userId: auth.user.id,
+      });
+    }
   }
 
   async getMetadata(auth: AuthDto, id: string): Promise<AssetMetadataResponseDto[]> {

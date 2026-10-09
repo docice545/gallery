@@ -1472,6 +1472,10 @@ describe(AssetService.name, () => {
   });
 
   describe('deleteAll', () => {
+    beforeEach(() => {
+      mocks.asset.markDeletionState.mockImplementation((ids) => Promise.resolve(ids));
+    });
+
     it('should require asset delete access for all ids', async () => {
       await expect(
         sut.deleteAll(authStub.user1, {
@@ -1496,7 +1500,7 @@ describe(AssetService.name, () => {
 
       await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: false });
 
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset1', 'asset2'], {
+      expect(mocks.asset.markDeletionState).toHaveBeenCalledWith(['asset1', 'asset2'], {
         deletedAt: expect.any(Date),
         status: AssetStatus.Trashed,
       });
@@ -1508,7 +1512,7 @@ describe(AssetService.name, () => {
 
       await sut.deleteAll(authStub.user1, { ids: ['asset1'], force: true });
 
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset1'], {
+      expect(mocks.asset.markDeletionState).toHaveBeenCalledWith(['asset1'], {
         deletedAt: expect.any(Date),
         status: AssetStatus.Deleted,
       });
@@ -1521,6 +1525,23 @@ describe(AssetService.name, () => {
 
       expect(mocks.event.emit).toHaveBeenCalledWith('AssetTrashAll', {
         assetIds: ['asset1'],
+        userId: authStub.user1.user.id,
+      });
+    });
+
+    it('does not announce Trash for an already claimed irreversible deletion', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['claimed']));
+      mocks.asset.markDeletionState.mockResolvedValue([]);
+      await sut.deleteAll(authStub.user1, { ids: ['claimed'], force: false });
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+    });
+
+    it('announces only rows changed in a batch racing permanent deletion', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['claimed', 'active']));
+      mocks.asset.markDeletionState.mockResolvedValue(['active']);
+      await sut.deleteAll(authStub.user1, { ids: ['claimed', 'active'], force: false });
+      expect(mocks.event.emit).toHaveBeenCalledWith('AssetTrashAll', {
+        assetIds: ['active'],
         userId: authStub.user1.user.id,
       });
     });
@@ -1601,6 +1622,23 @@ describe(AssetService.name, () => {
 
   describe('handleAssetDeletion', () => {
     const cutoff = '2026-10-01T00:00:00.000Z';
+    beforeEach(() => {
+      mocks.asset.claimDeletion.mockResolvedValue(true);
+      mocks.asset.removeForDeletion.mockResolvedValue(true);
+    });
+
+    it.each(['active/restored', 'trashed', 'unclassified motion/library'])(
+      'skips a legacy job for %s when no irreversible deletion can be claimed',
+      async () => {
+        mocks.asset.claimDeletion.mockResolvedValue(false);
+        await expect(sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true })).resolves.toBe(JobStatus.Skipped);
+        expect(mocks.asset.claimDeletion).toHaveBeenCalledWith('asset-1', undefined);
+        expect(mocks.assetJob.getForAssetDeletion).not.toHaveBeenCalled();
+        expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+        expect(mocks.stack.delete).not.toHaveBeenCalled();
+        expect(mocks.job.queue).not.toHaveBeenCalled();
+      },
+    );
 
     it.each(['restored', 'restored then trashed after cutoff', 'already removed'])(
       'skips a stale retention job for an asset %s without deleting files or changing its stack',
@@ -1612,7 +1650,7 @@ describe(AssetService.name, () => {
         expect(mocks.asset.claimExpiredDeletion).toHaveBeenCalledWith('asset-1', new Date(cutoff));
         expect(mocks.assetJob.getForAssetDeletion).not.toHaveBeenCalled();
         expect(mocks.stack.delete).not.toHaveBeenCalled();
-        expect(mocks.asset.remove).not.toHaveBeenCalled();
+        expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
         expect(mocks.job.queue).not.toHaveBeenCalled();
         expect(mocks.event.emit).not.toHaveBeenCalled();
       },
@@ -1623,7 +1661,17 @@ describe(AssetService.name, () => {
         sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true, trashedBefore: 'invalid' }),
       ).resolves.toBe(JobStatus.Failed);
       expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
-      expect(mocks.asset.remove).not.toHaveBeenCalled();
+      expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { id: 'asset-1', deletionReason: 'library' as const, deleteOnDisk: false },
+      { id: 'asset-1', deletionReason: 'library' as const, libraryId: 'library-1', deleteOnDisk: true },
+    ])('rejects malformed library cleanup without claiming or removing anything: %j', async (job) => {
+      await expect(sut.handleAssetDeletion(job)).resolves.toBe(JobStatus.Failed);
+      expect(mocks.asset.claimDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
     });
 
     it('claims expired trash before deletion and preserves the cutoff across a deadlock requeue', async () => {
@@ -1631,7 +1679,7 @@ describe(AssetService.name, () => {
       const job = { id: asset.id, deleteOnDisk: true, trashedBefore: cutoff };
       mocks.asset.claimExpiredDeletion.mockResolvedValue(true);
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove.mockRejectedValue(Object.assign(new Error('deadlock'), { code: '40P01' }));
+      mocks.asset.removeForDeletion.mockRejectedValue(Object.assign(new Error('deadlock'), { code: '40P01' }));
       await expect(sut.handleAssetDeletion(job)).resolves.toBe(JobStatus.Skipped);
       expect(mocks.job.queue).toHaveBeenCalledWith({ name: JobName.AssetDelete, data: job });
       expect(mocks.event.emit).not.toHaveBeenCalled();
@@ -1640,8 +1688,16 @@ describe(AssetService.name, () => {
     it('does not apply the retention claim to library removal or motion-resource cleanup', async () => {
       const asset = AssetFactory.create();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: false })).resolves.toBe(JobStatus.Success);
+      await expect(
+        sut.handleAssetDeletion({
+          id: asset.id,
+          deleteOnDisk: false,
+          deletionReason: 'library',
+          libraryId: 'library-1',
+        }),
+      ).resolves.toBe(JobStatus.Success);
       expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.claimDeletion).toHaveBeenCalledWith(asset.id, { reason: 'library', libraryId: 'library-1' });
     });
 
     // Deleting an asset makes Postgres lock shared_space_person itself to satisfy the
@@ -1651,13 +1707,13 @@ describe(AssetService.name, () => {
     it('retries the delete when postgres picks it as a deadlock victim', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove
+      mocks.asset.removeForDeletion
         .mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
-        .mockResolvedValue(void 0);
+        .mockResolvedValue(true);
 
       await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).resolves.toBe(JobStatus.Success);
 
-      expect(mocks.asset.remove).toHaveBeenCalledTimes(2);
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(2);
     });
 
     // A retry must re-drive only the delete. If it re-ran the surrounding work the asset would be
@@ -1665,16 +1721,26 @@ describe(AssetService.name, () => {
     it('does not repeat the surrounding work when the delete is retried', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove
+      mocks.asset.removeForDeletion
         .mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
-        .mockResolvedValue(void 0);
+        .mockResolvedValue(true);
 
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
 
-      expect(mocks.asset.remove).toHaveBeenCalledTimes(2);
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(2);
       expect(mocks.sharedSpace.getSpacePersonsForAsset).toHaveBeenCalledTimes(1);
       expect(mocks.event.emit).toHaveBeenCalledTimes(1);
       expect(mocks.job.queue).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not repeat quota, events or file cleanup when a competing job already removed the row', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.removeForDeletion.mockResolvedValue(false);
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).resolves.toBe(JobStatus.Skipped);
+      expect(mocks.user.updateUsage).not.toHaveBeenCalled();
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
     });
 
     // Losing a deletion is the one genuinely harmful outcome here: the asset is already
@@ -1683,7 +1749,7 @@ describe(AssetService.name, () => {
     it('re-queues the deletion instead of losing it when every retry deadlocks', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove.mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+      mocks.asset.removeForDeletion.mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
 
       await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).resolves.toBe(JobStatus.Skipped);
 
@@ -1698,13 +1764,13 @@ describe(AssetService.name, () => {
     it('does not retry a delete that failed for a non-deadlock reason', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove.mockRejectedValue(Object.assign(new Error('nope'), { code: '23503' }));
+      mocks.asset.removeForDeletion.mockRejectedValue(Object.assign(new Error('nope'), { code: '23503' }));
 
       await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).rejects.toMatchObject({
         code: '23503',
       });
 
-      expect(mocks.asset.remove).toHaveBeenCalledTimes(1);
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(1);
     });
 
     it('should clean up files', async () => {
@@ -1729,7 +1795,7 @@ describe(AssetService.name, () => {
           },
         ],
       ]);
-      expect(mocks.asset.remove).toHaveBeenCalledWith(getForAssetDeletion(asset));
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledWith(getForAssetDeletion(asset));
     });
 
     it('should delete the entire stack if deleted asset was the primary asset and the stack would only contain one asset afterwards', async () => {
@@ -1784,7 +1850,7 @@ describe(AssetService.name, () => {
       });
 
       expect(mocks.job.queue.mock.calls).toEqual([
-        [{ name: JobName.AssetDelete, data: { id: motionAsset.id, deleteOnDisk: true } }],
+        [{ name: JobName.AssetDelete, data: { id: motionAsset.id, deleteOnDisk: true, deletionReason: 'motion' } }],
         [{ name: JobName.FileDelete, data: { files: [asset.originalPath] } }],
       ]);
     });
