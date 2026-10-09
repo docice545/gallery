@@ -48,7 +48,12 @@ def cmd(args):
  return p.stdout
 
 def mount(path):
- rows=json.loads(cmd(['findmnt','-J','-T',str(path),'-o','TARGET,SOURCE,FSTYPE,OPTIONS']))['filesystems']
+ pending=list(json.loads(cmd(['findmnt','-J','-T',str(path),'-o','TARGET,SOURCE,FSTYPE,OPTIONS']))['filesystems'])
+ rows=[]
+ while pending:
+  row=pending.pop(); pending.extend(row.get('children',[]))
+  if row.get('fstype')!='autofs': rows.append(row)
+ # Ignore only the systemd automount wrapper; never pick between actual filesystems.
  need(len(rows)==1,'MOUNT_LOOKUP_AMBIGUOUS')
  return rows[0]
 
