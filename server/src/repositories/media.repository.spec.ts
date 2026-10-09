@@ -6,11 +6,11 @@ import { AssetEditAction, MirrorAxis } from 'src/dtos/editing.dto.js';
 import { Colorspace, ImageFormat } from 'src/enum.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import {
+  MediaRepository,
   extractFrameWithSoftwareFallback,
   findVaapiRenderNode,
   getVideoFrameInputOptions,
   getVideoFrameOutputOptions,
-  MediaRepository,
 } from 'src/repositories/media.repository.js';
 import { automock } from 'test/utils.js';
 

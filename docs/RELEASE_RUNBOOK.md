@@ -268,8 +268,12 @@ CI compilation не заменяет эту физическую проверк�
 
 ## 6. Server deployment и rollback
 
-**NO SERVER DEPLOYMENT REQUIRED.** Эти изменения выполняются в mobile-клиенте:
-новые server API, миграции и server dependencies не добавлены. Production server
+**NO SERVER DEPLOYMENT REQUIRED для мобильных Trash/Restore/CMP исправлений.**
+Интегрированная CLI-ветка также содержит server-side выбор VAAPI render node и
+software fallback при извлечении кадров для video CLIP. Эта логика не является
+внешним Memories renderer и не требуется для APK/IPA; её применение на HP требует
+отдельной проверки оборудования и разрешения на server update. В этом release
+handoff server не обновляется. Новые server API, миграции и dependencies не добавлены. Production server
 5.7.1, PostgreSQL/Redis/ML и persistent data сохраняются. Server deployment/rollback
 scripts для этой задачи — **NOT REQUIRED**. Не пересобирать image и не пересоздавать
 контейнеры ради установки APK/IPA. Внешние workers и их timers не изменять.

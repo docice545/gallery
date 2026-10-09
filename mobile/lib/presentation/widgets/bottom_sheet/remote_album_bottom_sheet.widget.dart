@@ -58,7 +58,7 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: <ActionColumnButton>[
-        .new(action: DeleteAction(source: .timeline)),
+        const .new(action: DeleteAction(source: .timeline)),
         const .new(action: AssetDebugAction(source: .timeline)),
         const .new(action: ShareAction(source: .timeline)),
         const .new(action: ShareLinkAction(source: .timeline)),

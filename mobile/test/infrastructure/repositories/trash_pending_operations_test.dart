@@ -5,6 +5,7 @@ import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/main/table/remote/exif.drift.dart';
 import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
@@ -349,5 +350,74 @@ void main() {
     expect((await RemoteAssetRepository(cache).get('asset'))!.isTrashed, isFalse);
     expect(await reloaded.getPendingTrashOperations(), isEmpty);
     expect(await reloaded.getRestoreCandidates({'asset': 'owner'}), isEmpty);
+  });
+
+  test('native CMP projection follows Trash/Restore across SQLite restart and delayed sync', () async {
+    final projection = await File('android/app/src/main/res/raw/gallery_cloud_media.sql').readAsString();
+    final directory = await Directory.systemTemp.createTemp('gallery-cmp-trash-');
+    final file = File('${directory.path}/cache.sqlite');
+    var cache = Drift(DatabaseConnection(NativeDatabase(file)));
+    addTearDown(() async {
+      await cache.close();
+      await directory.delete(recursive: true);
+    });
+    await cache.into(cache.userEntity).insert(await ctx.db.userEntity.select().getSingle());
+    await cache.into(cache.authUserEntity).insert(await ctx.db.authUserEntity.select().getSingle());
+    await cache.into(cache.remoteAssetEntity).insert(await ctx.db.remoteAssetEntity.select().getSingle());
+    await cache
+        .into(cache.remoteExifEntity)
+        .insert(RemoteExifEntityCompanion.insert(assetId: 'asset', fileSize: const Value(200000)));
+    Future<List<String>> pickerIds() async =>
+        (await cache.customSelect(projection, variables: [const Variable('owner')]).get())
+            .map((row) => row.read<String>('asset_id'))
+            .toList();
+    final checksum = (await RemoteAssetRepository(cache).get('asset'))!.checksum;
+    final stale = dto.SyncAssetV2.fromJson({
+      'id': 'asset',
+      'ownerId': 'owner',
+      'checksum': checksum,
+      'originalFileName': 'photo.jpg',
+      'type': 'IMAGE',
+      'isFavorite': false,
+      'fileCreatedAt': deletionDate.toIso8601String(),
+      'fileModifiedAt': deletionDate.toIso8601String(),
+      'createdAt': deletionDate.toIso8601String(),
+      'localDateTime': deletionDate.toIso8601String(),
+      'visibility': 'timeline',
+      'isEdited': false,
+      'duration': 0,
+      'deletedAt': null,
+      'height': null,
+      'width': null,
+      'libraryId': null,
+      'livePhotoVideoId': null,
+      'stackId': null,
+      'thumbhash': null,
+    })!;
+    expect(await pickerIds(), ['asset']);
+    await RemoteAssetRepository(cache).beginTrashOperation(['asset'], restore: false);
+    expect(await pickerIds(), isEmpty);
+    await cache.close();
+    cache = Drift(DatabaseConnection(NativeDatabase(file)));
+    final reloaded = SyncStreamRepository(cache);
+    await reloaded.recoverPendingTrashOperations();
+    final pending = (await reloaded.getPendingTrashOperations()).single;
+    await reloaded.updateAssetsV2([stale]);
+    expect(await pickerIds(), isEmpty); // Delayed active payload cannot resurrect pending Trash.
+    await reloaded.reconcilePendingTrash(pending, isTrashed: false);
+    expect(await pickerIds(), ['asset']); // Reconnect's authoritative rejection, without an asset event.
+    final repository = RemoteAssetRepository(cache);
+    final trash = await repository.beginTrashOperation(['asset'], restore: false);
+    await repository.completeTrashOperation(trash, success: true);
+    expect(await pickerIds(), isEmpty);
+    final restore = await repository.beginTrashOperation(['asset'], restore: true);
+    expect(await pickerIds(), ['asset']);
+    final retrash = await repository.beginTrashOperation(['asset'], restore: false);
+    await repository.completeTrashOperation(restore, success: true);
+    await reloaded.updateAssetsV2([stale]);
+    expect(await pickerIds(), isEmpty); // Late Restore reply/sync cannot undo the newer intent.
+    await repository.completeTrashOperation(retrash, success: true);
+    expect(await pickerIds(), isEmpty);
+    expect(await cache.remoteAssetEntity.select().get(), hasLength(1)); // No media removal/duplicate import.
   });
 }

@@ -8,8 +8,8 @@ import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/space_album.model.dart';
 import 'package:immich_mobile/domain/services/remote_album.service.dart';
-import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
+import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/backup/asset_upload_progress.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/space_album.provider.dart';
@@ -60,9 +60,7 @@ class ActionNotifier extends Notifier<void> {
   /// regular sync cycle will reconcile it later.
   void _nudgeRemoteSync() {
     try {
-      unawaited(
-        ref.read(backgroundSyncProvider).syncRemote().catchError((_) => false),
-      );
+      unawaited(ref.read(backgroundSyncProvider).syncRemote().catchError((_) => false));
     } catch (_) {
       // Test doubles and a disposed provider may throw before returning a
       // Future. The server mutation itself has already succeeded.
