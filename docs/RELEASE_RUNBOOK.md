@@ -25,154 +25,71 @@ Backend tooling commit `d3f999e7d21c7c7f4e9b9bc5ac1e1af62de6cf3d` отличае
 от source; receipt содержит оба. Последующий execution package также **не меняет
 application source**, не требует CI rebuild и не подменяет SHA artifacts.
 
-### Обязательные prerequisites
+### Финальный pre-deployment gate — без изменения production
 
-1. Отдельно разрешить интеграцию source в `work`; HP checkout должен быть чистым
-   `work` на точном `6a558b55…`. Этот пакет **не выполняет Git merge**. Скопировать
-   tooling отдельно через `git archive`, чтобы source checkout остался точным.
-2. Выполнить проверку восстановления backup в отдельном PostgreSQL с тем же
-   image ID, `--network none`, без production volumes/ports, CPU 1 / RAM 2 GiB.
-   Нужны минимум 3 GiB свободной RAM и 8 GiB Docker disk. Для deployment выбранный
-   SQL/gzip backup должен быть свежим, **младше 1 часа**; 17-часовой backup из
-   аудита достаточен для первоначальной репетиции, но не для финального gate.
-   Новый backup создать штатным, отдельно одобренным способом. Копия старого dump
-   с новым mtime не является свежим backup. Пакет не запускает
-   backup job, не повторяет historical analysis и не меняет production БД.
-3. В DSM/существующей backup-системе подтвердить реальный recovery point **для всех
-   NFS shares с managed/external originals**. Из этого snapshot/backup экспортировать
-   по одному несекретному фото и видео с каждого mount в отдельную локальную HP
-   папку. Не восстанавливать поверх NAS. Сравнить исходные и восстановленные bytes.
-   Проверить scope, дату, доступность recovery point и playback восстановленного
-   видео. Пакет проверяет byte hashes; источник восстановления и полный snapshot
-   scope подтверждает оператор. Видимый каталог snapshot не заменяет этот шаг.
-4. Подготовить существующий admin API key в приватном regular файле `0600`, с
-   `job.create`, `asset.upload/read/download/delete` и нужными
-   account permissions. Значения ключей/паролей не выводить и не помещать в shell
-   history. API доступен по loopback `127.0.0.1:2283`; redirects запрещены.
-5. Docker/Compose доступен `doctoriceadm` напрямую или через уже разрешённый
-   `sudo -n docker`. Пакет не меняет sudoers/groups, NAS permissions или networking.
-   На время перехода согласовать короткое окно без user permanent-delete и без
-   новых library-removal операций. Не останавливать внешние workers/timers.
+Текущий production checkout остаётся чистым `work` на
+`42790b06edc21438811e56e40c431eee37c24894`. Перед этим gate **не делать merge**.
+PG/NAS recovery PASS уже получены; повторный NAS export не нужен. Для нового
+backup обязательно нужен новый isolated restore receipt.
 
-Полный HP audit — JSON report в TXT, все 10 sections PASS, `errors=[]`, queues
-пустые, `inventoryComplete=true`, legacy/FileDelete ноль. Все 293 Active+deletedAt
-классифицированы offline external index tombstones. Эти строки не «исправлять».
-При изменении image/container/topology, появлении job, несовпадении migration
-inventory или неподтверждённом recovery пакет останавливается. Очереди не чистятся.
-Дополнительный deletion consumer требует отдельного review, а не автоматического
-перезапуска. В текущем Stage 1 **новых schema migrations нет**. Точный runtime
-inventory включает build-time compatibility aliases; неизвестный/pending name — STOP.
-
-`nas-proof.json` — приватный `0600` файл на HP. Keys `mounts` брать **точно** из
-`containers[role=immich_server].externalMounts[].containerMountpoint` audit.
-Для каждого key нужны `operator_attests_snapshot_export: true`, реальный
-`snapshot_reference` и `samples` из photo/video. Ниже только схема, не реальные
-media paths; proof не коммитить и не публиковать:
-
-```json
-{
-  "mounts": {
-    "<containerMountpoint из audit>": {
-      "operator_attests_snapshot_export": true,
-      "snapshot_reference": "<реальный DSM/backup recovery point>",
-      "samples": [
-        { "kind": "photo", "original": "<NAS sample>", "recovered": "<HP restored sample>" },
-        { "kind": "video", "original": "<NAS sample>", "recovered": "<HP restored sample>" }
-      ]
-    }
-  }
-}
-```
-
-### Один последовательный блок оператора
-
-**Не выполнять до соответствующих разрешений.** Полный `GALLERY_TOOLING_SHA`
-брать из финального handoff; это SHA пакета, а не source. Параметры audit/backup/
-proof/key заполнить реальными приватными путями на HP. `set -euo pipefail`
-останавливает блок на первом FAIL. Никаких автоматических retries, очередей
-`clear/remove`, server builds или mobile rebuilds здесь нет.
+Использовать [полную операторскую процедуру](../scripts/release/TRASH_PREDEPLOY.md)
+и `scripts/release/trash_predeploy.py` из точного tooling commit в handoff.
+Wrapper сверяет неизменённый pinned tool `565ef38…`, существующий audit/NAS proof,
+container/image/config identities и frozen artifacts. Единственный новый input —
+папка уже скачанных artifacts (`backend/`, `android/`, `ios/`).
 
 ```bash
-set -euo pipefail
-umask 077
-test "$(id -un)" = doctoriceadm
-: "${GALLERY_TOOLING_SHA:?Полный SHA execution package из handoff}"
-: "${GALLERY_HP_AUDIT:?Путь завершённого PASS audit TXT}"
-: "${GALLERY_SQL_BACKUP:?Путь свежего штатного .sql.gz backup}"
-: "${GALLERY_NAS_PROOF:?Путь приватного nas-proof.json}"
-: "${GALLERY_ADMIN_KEY_FILE:?Путь приватного существующего admin API key}"
-
-# Скачать tooling без изменения checkout/work; artifacts скачиваются один раз.
-git -C /opt/gallery-fork fetch origin candidate/gallery-trash-5.7.2-build8
-test "$(git -C /opt/gallery-fork rev-parse FETCH_HEAD)" = "$GALLERY_TOOLING_SHA"
-release_dir="$(mktemp -d /mnt/hp-data/gallery-trash-release-XXXXXXXX)"
-mkdir -m 700 "$release_dir/tools" "$release_dir/state" "$release_dir/artifacts"
-git -C /opt/gallery-fork archive "$GALLERY_TOOLING_SHA" scripts/release |
-  tar -x -C "$release_dir/tools"
-mkdir "$release_dir/artifacts/backend" "$release_dir/artifacts/android" "$release_dir/artifacts/ios"
-gh run download 37953392247 -R docice545/gallery -n gallery-trash-server-linux-amd64 -D "$release_dir/artifacts/backend"
-gh run download 37944044747 -R docice545/gallery -n android-media-pilot-validation-apk -D "$release_dir/artifacts/android"
-gh run download 37936380827 -R docice545/gallery -n ios-unsigned-ipa -D "$release_dir/artifacts/ios"
-
-runner="$release_dir/tools/scripts/release/trash_execute.sh"
-args=("$release_dir/state" "$release_dir/artifacts" "$GALLERY_HP_AUDIT" "$GALLERY_SQL_BACKUP" "$GALLERY_NAS_PROOF" "$GALLERY_ADMIN_KEY_FILE")
-bash "$runner" verify "${args[@]}"
-
-# Разрешение только на изолированную recovery validation; production пока не меняется.
-GALLERY_RECOVERY_APPROVED=YES bash "$runner" recover "${args[@]}"
-
-# Только после отдельного deployment approval: pause + live queue/schema gates,
-# backup Compose/.env/old image; новый server API-only; остальных не пересоздаёт.
-GALLERY_DEPLOYMENT_APPROVED=YES bash "$runner" deploy "${args[@]}"
-GALLERY_DEPLOYMENT_APPROVED=YES bash "$runner" acceptance "${args[@]}"
-
-# ОТДЕЛЬНОЕ разрешение возобновить существующую 30-day retention/deletion policy.
-# После этого expired managed Trash может штатно удаляться с writable NAS.
-GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_RETENTION_RESUME_APPROVED=YES \
-  bash "$runner" enable-workers "${args[@]}"
-
-# Только после signing approval и integration: переподписать уже готовый APK.
-export ANDROID_HOME="$HOME/Android/Sdk"
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-export PATH="$JAVA_HOME/bin:$PATH"
-GALLERY_SIGNING_APPROVED=YES bash "$runner" sign-android "${args[@]}"
-printf 'iOS unsigned IPA: %s\nRelease receipts: %s\n' \
-  "$release_dir/artifacts/ios/Photos-unsigned.ipa" "$release_dir/state"
+# Проверенный script скачан отдельно; checkout и старые backups не меняются.
+python3 -B "$PREDEPLOY_SCRIPT" prepare --artifacts "$ARTIFACTS"
 ```
 
-Повторно не запускать весь блок для скачивания: сохранить `release_dir`, `runner`
-и `args`. Verify/подпись/override/recovery receipts переиспользуются при совпадении;
-deployment journal запрещает слепое повторное deployment. При незавершённом
-restore private log сохраняется, исправить причину и использовать новую state
-папку; не удалять receipt ради обхода gate. Proof/recovery проверены не более
-24 часов назад; backup перед deployment всё ещё младше 1 часа.
+Новая приватная `gallery-predeploy-*` папка содержит streaming SQL/gzip dump
+из running `immich` под `postgres`, gzip CRC/SHA-256 и восстановление **этого же**
+backup в disposable PostgreSQL без production mounts/network/ports. Counts/statuses/
+migrations сравниваются с тем же exported snapshot, из которого сделан dump.
+Existing NAS receipt сохраняет свой timestamp; прежний PG receipt не копируется.
+Все семь queue states читаются атомарно; дополнительно проверяются legacy/orphan
+AssetDelete/FileDelete hashes. SCAN сам по себе не доказывает пустоту очередей.
 
-### Немедленный rollback и persistence override
+**PASS разрешает только передать результат владельцу.** При непустой/неизвестной
+очереди, изменившейся production topology, неверном artifact/migration inventory,
+неудачном restore или истёкшем evidence — STOP. Backup должен быть младше часа,
+NAS PASS — младше 24 часов. Очереди пусты только в момент проверки.
 
-При FAIL health/acceptance остановить дальнейшие шаги. Сохранить тот же `state`
-и выполнить только после разрешения:
+### Backend deployment и rollback — отдельное разрешение
+
+Команды ниже **не входят в preparation block**. `STATE` — напечатанная новая
+приватная папка; `ADMIN_KEY_FILE` — существующий regular 0600 key file, содержимое
+не печатать. После явного deployment approval:
 
 ```bash
-GALLERY_DEPLOYMENT_APPROVED=YES bash "$runner" rollback "${args[@]}"
+python3 -B "$PREDEPLOY_SCRIPT" recheck --state "$STATE"
+GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY_SCRIPT" deploy \
+  --state "$STATE" --key "$ADMIN_KEY_FILE" --approve-deployment
 ```
 
-Rollback сверяет journal/config hashes и live image, требует paused/empty queue
-если workers работали, возвращает **ровно предыдущий image ID** только для
-`immich-server`, затем проверяет health/version и IDs других контейнеров.
-**Старые deletion workers остаются выключенными, очередь paused**. Он не
-откатывает DB, не восстанавливает NAS bytes и не запускает switch-back SQL.
-Если очередь уже непуста, health API недоступен при работающих workers либо
-конфигурация изменилась — STOP для индивидуального решения, не force-delete.
-Нельзя вернуть старые workers без нового queue/recovery review.
+Pinned tool сохраняет Compose/.env/previous image, приостанавливает backgroundTask,
+атомарно проверяет paused/empty state и пересоздаёт только `immich-server` API-only.
+Health/version/source/migration checks и неизменность PostgreSQL/Redis/ML обязательны.
+Новые schema migrations не разрешены. Retention/deletion workers остаются выключены.
+Никаких clear/retry/drain jobs или автоматических rollback/data restore.
 
-Base Compose/.env не редактируются: journal сохраняет их private backups/hashes,
-пакет добавляет только server image/worker environment override. После успешного
-enable всегда использовать фактический Compose base из journal **вместе с**
-`normal-workers.override.json`; после rollback — `rollback-api-only.override.json`.
-Команда `docker compose up` с одним старым base может вернуть прежний image и
-убрать worker gate. Docker restart существующего контейнера сохраняет override
-environment. State/previous-server-image.tar сохранять до окончания приёмки,
-никаких global prune/down/volume removal.
+Если owner отдельно разрешит rollback:
+
+```bash
+GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY_SCRIPT" rollback \
+  --state "$STATE" --key "$ADMIN_KEY_FILE" --approve-deployment
+```
+
+Возвращается только предыдущий server image, API-only, queue paused; production
+DB/NAS не откатываются. Compose config/previous image/journal checks обязательны.
+Старые небезопасные retention workers не возобновляются автоматически. После
+deployment/rollback сохранять state/journal и соответствующий Compose override;
+один старый base `docker compose up` может снять worker gate.
+
+**Activation retention workers и HP production signing — самостоятельные approval
+stages.** Они не запускаются этим workflow. Existing external workers/timers,
+NAS permissions, VPN/DNS и unrelated HP services не меняются.
 
 ### Mobile handoff и disposable acceptance
 
