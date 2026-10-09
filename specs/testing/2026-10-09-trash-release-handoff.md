@@ -123,6 +123,14 @@ preserves one exact application revision for backend, Android and iOS while
 allowing a failed validation harness to be corrected. Do not substitute a later
 tooling HEAD as the SHA of the already successful iOS artifact.
 
+The corrected diagnostic harness in run `37947837093` then identified
+`REGISTRY_RATE_LIMIT` while pulling the pinned GHCR PostgreSQL fixture, before
+the server started; build/export had passed. The artifact-only workflow now
+authenticates that pull with its ephemeral `GITHUB_TOKEN` and `packages: read`.
+It reuses the repository's pinned login action, which logs out after the job.
+No package write permission, long-lived secret or application change is added;
+the frozen source and successful Android/iOS artifacts remain valid.
+
 ## Android production signing, only after approval
 
 Existing HP checkout `/opt/gallery-fork` is the SSD bind mount of

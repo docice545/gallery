@@ -1,6 +1,6 @@
 name: Gallery Trash Server Artifact Only
 
-# No registry, release, production credentials, SSH or deployment.
+# No registry publishing, release/production credentials, SSH or deployment.
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   build:
@@ -32,6 +33,15 @@ jobs:
         env:
           EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
         run: scripts/release/server_build.sh "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
+      # The pinned disposable PostgreSQL fixture is public on GHCR. Anonymous
+      # pulls from shared runner addresses hit the registry's rate limit.
+      # Use only this job's read-only token; login-action logs out after the job.
+      - name: Authenticate read-only GHCR fixture pull
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Fresh disposable PostgreSQL/Redis HTTP Trash and Restore smoke test
         env:
           GALLERY_ISOLATED_CI: '1'
