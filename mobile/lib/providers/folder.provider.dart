@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/models/folder/root_folder.model.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/services/folder.service.dart';
 import 'package:logging/logging.dart';
@@ -50,15 +51,58 @@ class FolderRenderListNotifier extends StateNotifier<AsyncValue<List<RemoteAsset
   final RootFolder _folder;
   final Logger _log = Logger("FolderAssetsNotifier");
   SortOrder? _lastOrder;
+  final _countController = StreamController<int>.broadcast();
+  StreamSubscription<Set<String>>? _trashSubscription;
+  List<RemoteAssetExif> _fetched = const [];
+  Set<String> _trashedIds = const {};
+  bool _trashReady;
+  bool _hasFetched = false;
+  int _fetchRevision = 0;
 
-  FolderRenderListNotifier(this._folderService, this._folder) : super(const AsyncLoading());
+  FolderRenderListNotifier(this._folderService, this._folder, {Stream<Set<String>>? trashedIds})
+    : _trashReady = trashedIds == null,
+      super(const AsyncLoading()) {
+    _trashSubscription = trashedIds?.listen((ids) {
+      if (!mounted) {
+        return;
+      }
+      _trashedIds = ids;
+      _trashReady = true;
+      if (_hasFetched) {
+        _publishAssets();
+      }
+    });
+  }
+
+  Stream<int> get count => _countController.stream;
+
+  List<RemoteAssetExif> getAssets() => List.unmodifiable(
+    _trashReady ? _fetched.where((asset) => !_trashedIds.contains(asset.id)) : const <RemoteAssetExif>[],
+  );
+
+  void _publishAssets() {
+    final assets = getAssets();
+    state = AsyncData(assets);
+    _countController.add(assets.length);
+  }
 
   Future<void> fetchAssets(SortOrder order) async {
     _lastOrder = order;
+    final revision = ++_fetchRevision;
     try {
       final assets = await _folderService.getFolderAssets(_folder, order);
-      state = AsyncData(assets);
+      if (!mounted || revision != _fetchRevision) {
+        return;
+      }
+      // Server snapshots can arrive after optimistic Trash. Apply the current
+      // durable markers rather than putting the old tile back into the folder.
+      _fetched = assets;
+      _hasFetched = true;
+      _publishAssets();
     } catch (e, stack) {
+      if (!mounted || revision != _fetchRevision) {
+        return;
+      }
       _log.severe("Failed to fetch folder assets", e, stack);
       state = AsyncError(e, stack);
     }
@@ -71,6 +115,13 @@ class FolderRenderListNotifier extends StateNotifier<AsyncValue<List<RemoteAsset
     }
     await fetchAssets(order);
   }
+
+  @override
+  void dispose() {
+    unawaited(_trashSubscription?.cancel());
+    unawaited(_countController.close());
+    super.dispose();
+  }
 }
 
 final folderRenderListProvider =
@@ -78,7 +129,11 @@ final folderRenderListProvider =
       ref,
       folder,
     ) {
-      final notifier = FolderRenderListNotifier(ref.watch(folderServiceProvider), folder);
+      final notifier = FolderRenderListNotifier(
+        ref.watch(folderServiceProvider),
+        folder,
+        trashedIds: ref.watch(driftProvider).syncStreamRepository.watchTrashedAssetIds(),
+      );
       ref.listen<int>(syncStatusProvider.select((state) => state.remoteContentChangedCount), (previous, next) {
         if (previous != null && next != previous) {
           unawaited(notifier.refresh());
