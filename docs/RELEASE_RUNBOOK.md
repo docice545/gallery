@@ -249,6 +249,9 @@ GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY" rollback \
 Rollback verifies/reloads the exact saved bridge archive if necessary, restores
 only the immediately previous API plus recognition markers, keeps workers off
 and queue paused, preserves DB/tombstones and checks unrelated container IDs.
+It refuses nonempty or changed queues. Jobs created after deployment require a
+separate reviewed handling plan; never clear them to force rollback. The previous
+API is an emergency availability rollback, not the new build-9 deletion contract.
 It cannot undo a completed NAS unlink. Database + NAS recovery and reconciliation
 need a separate approved recovery procedure; never restore only SQL and claim
 physical media recovered. Keep all old snapshots, backups and new receipts.
