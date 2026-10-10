@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 import urllib.request
 import urllib.error
 
@@ -203,6 +204,13 @@ def main():
         return 0
     except Exception as error:
         print('FAIL isolated smoke stage:', stage, '; category:', type(error).__name__)
+        # Readable through the normal Checks API even when the log-storage host
+        # is not in a cloud environment allowlist. Fixed stage/type/line only.
+        line = traceback.extract_tb(error.__traceback__)[-1].lineno
+        detail = str(error) if isinstance(error, RuntimeError) else ''
+        annotation = f'{stage}; {type(error).__name__}; harness line {line}; {detail}'
+        annotation = annotation.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+        print('::error title=Backend isolated smoke::' + annotation)
         if isinstance(error, RuntimeError):
             print(str(error))  # This harness creates only sanitized RuntimeErrors.
         # Runner contains only synthetic data. Keep bounded bootstrap logs for diagnosis.

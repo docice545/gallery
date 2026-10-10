@@ -125,7 +125,7 @@ def age_ok(value, seconds, code):
     need(0 <= age < seconds, code)
 
 
-def load_tool(path):
+def load_tool(path, candidate=None):
     need(path.is_file() and not path.is_symlink() and sha(path) == PIN_FILE_SHA, 'PINNED_TOOLING_MISMATCH')
     spec = importlib.util.spec_from_file_location('pinned_trash_release', path)
     tool = importlib.util.module_from_spec(spec)
@@ -154,6 +154,9 @@ def load_tool(path):
         return row
 
     tool.queue_empty = strict_queue
+    if candidate is not None:
+        import release_candidate
+        release_candidate.configure(tool, candidate)
     install_image_adapter(tool)
     return tool
 
@@ -348,7 +351,7 @@ def archive_migrations(tool, backend):
     need(config and set(effects) == set(layers), 'IMAGE_CONFIG_OR_LAYER_MISSING')
     env = dict(x.split('=', 1) for x in config.get('config', {}).get('Env', []) if '=' in x)
     need(config.get('architecture') == 'amd64' and config.get('os') == 'linux' and
-         env.get('IMMICH_SOURCE_COMMIT') == tool.SOURCE and env.get('IMMICH_SOURCE_REF') == 'v5.7.1',
+         env.get('IMMICH_SOURCE_COMMIT') == tool.SOURCE and env.get('IMMICH_SOURCE_REF') == getattr(tool, 'SOURCE_REF', 'v5.7.1'),
          'IMAGE_SOURCE_OR_PLATFORM_MISMATCH')
     files = set()
     for layer in layers:
@@ -362,7 +365,11 @@ def archive_migrations(tool, backend):
 
 
 def verify_artifacts(tool, root):
-    for relative, expected in MOBILE_HASHES.items():
+    hashes = MOBILE_HASHES if not hasattr(tool, 'CANDIDATE_PROFILE') else {
+        'android/app-release.apk': tool.CANDIDATE_PROFILE['android']['sha256'],
+        'ios/Photos-unsigned.ipa': tool.CANDIDATE_PROFILE['ios']['sha256'],
+    }
+    for relative, expected in hashes.items():
         file = root / relative
         need(file.is_file() and not file.is_symlink() and sha(file) == expected, 'FROZEN_MOBILE_ARTIFACT_MISMATCH')
     return archive_migrations(tool, root / 'backend')
@@ -492,6 +499,9 @@ def restore_exact(tool, backup, state, expected):
             summary_valid(restored)
             need(comparable(restored) == expected, 'FRESH_RESTORE_COUNTS_OR_MIGRATIONS_DIFFER_FROM_DUMP_SNAPSHOT')
             observed.append(restored)
+            if hasattr(tool, 'CANDIDATE_PROFILE'):
+                import candidate_restore
+                candidate_restore.transition(tool, original, args[1], query, restored, state, backup)
         return result
 
     tool.docker = checked_docker
@@ -533,13 +543,26 @@ def prepare(tool, args, state):
     evidence = reuse_nas(tool, args.nas_state, args.previous_pg_state, audit, state)
     evidence[str(args.audit)] = sha(args.audit)
     migrations = verify_artifacts(tool, args.artifacts)
+    if hasattr(tool, 'CANDIDATE_PROFILE'):
+        proof = tool.prove_loaded_image(args.artifacts / 'backend')
+        tool.IMAGE, tool.loaded_image_proof = proof['loadedImageId'], proof
+        save(state / 'loaded-image-proof.json', proof)
     config = rollback_prerequisites(tool, state)
+    if hasattr(tool, 'CANDIDATE_PROFILE'):
+        import rollback_bridge
+        rollback_bridge.prepare(tool, state, args.artifacts / 'backend')
     need(tool.api(args.api, None, '/server/ping') == {'res': 'pong'} and
          tool.api(args.api, None, '/server/version') == {'major': 5, 'minor': 7, 'patch': 1, 'prerelease': None},
          'CURRENT_GALLERY_API_OR_VERSION_CHANGED')
     print('PASS pinned artifacts, unchanged production, reusable NAS proof and rollback prerequisites')
     backup, summary = fresh_backup(tool, state)
-    need(summary['migrationNames'] == migrations, 'ARTIFACT_MIGRATIONS_DIFFER_NO_SCHEMA_CHANGE_AUTHORIZED')
+    expected = summary['migrationNames']
+    if hasattr(tool, 'CANDIDATE_PROFILE'):
+        from release_candidate import MIGRATION
+        need(MIGRATION not in expected and migrations == sorted([*expected, MIGRATION]),
+             'ONLY_EXACT_ADDITIVE_MIGRATION_ALLOWED')
+    else:
+        need(expected == migrations, 'ARTIFACT_MIGRATIONS_DIFFER_NO_SCHEMA_CHANGE_AUTHORIZED')
     print('PASS new SQL/gzip backup: CRC, SHA-256, private local storage, consistent read-only snapshot')
     restore_exact(tool, backup, state, summary)
     need(topology(tool) == before and all(sha(Path(p)) == h for p, h in evidence.items()) and
@@ -553,7 +576,8 @@ def prepare(tool, args, state):
     save(state / 'predeploy-context.json', {'source': tool.SOURCE, 'toolingCommit': PIN,
          'artifactRoot': str(args.artifacts), 'audit': str(args.audit), 'backup': str(backup),
          'topology': before, 'evidenceHashes': evidence, 'configHashes': config, 'queues': queues,
-         'checkedAt': checked, 'migrations': migrations})
+         'checkedAt': checked, 'migrations': migrations, 'baseMigrations': summary['migrationNames'],
+         'candidateProfile': getattr(tool, 'CANDIDATE_PROFILE', None)})
     print('PASS exact fresh-backup restore, unchanged counts/migrations, atomic empty queues')
 
 
@@ -577,10 +601,23 @@ def recheck(tool, state):
          backup['backupSHA256'] == fresh['backupSHA256'] == restore['backupSHA256'] == sha(Path(context['backup'])) and
          restore['summary'] == fresh['snapshotSummary'] and restore['restore'] == 'PASS_EXACT_DUMP_SNAPSHOT',
          'FRESH_BACKUP_OR_RESTORE_RECEIPT_CHANGED')
-    need(verify_artifacts(tool, Path(context['artifactRoot'])) == context['migrations'] == restore['summary']['migrationNames'],
+    need(context.get('candidateProfile') == getattr(tool, 'CANDIDATE_PROFILE', None), 'CANDIDATE_PROFILE_CHANGED')
+    if hasattr(tool, 'CANDIDATE_PROFILE'):
+        proof = tool.prove_loaded_image(Path(context['artifactRoot']) / 'backend')
+        need(proof == private_json(state / 'loaded-image-proof.json'), 'PREDEPLOY_LOADED_IMAGE_CHANGED')
+        tool.IMAGE, tool.loaded_image_proof = proof['loadedImageId'], proof
+        migration = private_json(state / 'candidate-migration-verified.json')
+        bridge = private_json(state / 'rollback-bridge.json')
+        need(migration == {'backupSHA256': fresh['backupSHA256'], 'sourceCommit': tool.SOURCE,
+             'imageId': tool.IMAGE, 'rollbackImageId': bridge['imageId'],
+             'baseMigrations': context['baseMigrations'], 'targetMigrations': context['migrations'],
+             'validation': 'PASS_ISOLATED_ADDITIVE_UPGRADE_AND_ROLLBACK_STARTUP', 'productionChanged': False},
+             'CANDIDATE_MIGRATION_RECEIPT_CHANGED')
+    need(verify_artifacts(tool, Path(context['artifactRoot'])) == context['migrations'] and
+         restore['summary']['migrationNames'] == context.get('baseMigrations', context['migrations']),
          'FROZEN_ARTIFACT_OR_MIGRATIONS_CHANGED')
     live = json.loads(tool.docker('exec', '-i', tool.SERVER, 'node', '--input-type=module', input=tool.NODE_MIGRATIONS))
-    need(sorted(live) == context['migrations'], 'LIVE_MIGRATIONS_CHANGED')
+    need(sorted(live) == context.get('baseMigrations', context['migrations']), 'LIVE_MIGRATIONS_CHANGED')
     rollback_prerequisites(tool, state)
     tool.queue_empty()  # Last check; no pause/resume/retry/clear during recheck.
     print('PASS immediate pre-deployment recheck; empty at this instant only')
@@ -590,6 +627,9 @@ def recheck(tool, state):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('verify-image', 'prepare', 'recheck', 'deploy', 'rollback', 'acceptance', 'enable-workers'))
+    parser.add_argument('--candidate-profile', type=Path)
+    parser.add_argument('--candidate-profile-sha256')
+    parser.add_argument('--approve-migration', action='store_true')
     parser.add_argument('--pinned-tool', type=Path, default=DEFAULT_TOOL)
     parser.add_argument('--artifacts', type=Path)
     parser.add_argument('--audit', type=Path, default=DEFAULT_AUDIT)
@@ -634,7 +674,11 @@ def main(argv=None):
         fd = os.open(state / '.execution.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as lock, redirect_stdout(sys.stdout):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            tool = load_tool(args.pinned_tool)
+            candidate = None
+            if args.candidate_profile is not None or args.candidate_profile_sha256 is not None:
+                import release_candidate
+                candidate = release_candidate.load(args.candidate_profile, args.candidate_profile_sha256)
+            tool = load_tool(args.pinned_tool, candidate)
             report['source'] = tool.SOURCE
             if args.action == 'verify-image':
                 verify_artifacts(tool, args.artifacts)
@@ -652,12 +696,21 @@ def main(argv=None):
                     context = recheck(tool, state)
                     args.artifact = Path(context['artifactRoot']) / 'backend'
                     args.audit = Path(context['audit'])
+                    if candidate is not None:
+                        need(args.approve_migration and os.environ.get('GALLERY_ADDITIVE_MIGRATION_APPROVED') == 'YES',
+                             'SEPARATE_ADDITIVE_MIGRATION_APPROVAL_REQUIRED')
+                        import rollback_bridge
+                        rollback_bridge.prepare(tool, args.state, args.artifact)
                     tool.deploy(args)
                 else:
                     journal_image(tool, state)
                     if args.action == 'rollback':
                         tool.queue_empty(require_paused=tool.api_only(tool.inspect(tool.SERVER)))
-                        tool.rollback(args)
+                        if candidate is not None:
+                            import rollback_bridge
+                            rollback_bridge.rollback(tool, args)
+                        else:
+                            tool.rollback(args)
                     elif args.action == 'acceptance':
                         tool.acceptance(args)
                     else:
@@ -672,7 +725,7 @@ def main(argv=None):
                      'deletion queue is not paused': 'DELETION_QUEUE_NOT_PAUSED',
                      'isolated SQL restore failed; inspect private log locally': 'ISOLATED_SQL_RESTORE_FAILED',
                      'isolated restore fixture cleanup failed; no recovery receipt issued': 'ISOLATED_FIXTURE_CLEANUP_FAILED'}
-        safe_identity_error = type(error).__name__ == 'IdentityError' and re.fullmatch('[A-Z0-9_]+', str(error))
+        safe_identity_error = type(error).__name__ in ('IdentityError', 'ValueError') and re.fullmatch('[A-Z0-9_]+', str(error))
         code = str(error) if isinstance(error, Stop) or safe_identity_error else pin_codes.get(str(error),
                'PREDEPLOY_OPERATION_FAILED_' + type(error).__name__)
         print('STOP ' + code, file=sys.stderr)

@@ -26,6 +26,8 @@ import zipfile
 
 APP_ID = "de.opennoodle.gallery"
 CERTIFICATE_SHA256 = "ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18"
+CI_BUILD_NUMBER = 8
+CI_RUN = 37944044747
 CI_SOURCE_SHA = "6a558b554e26e8c0fc5bc5c99259a92e7ef26a56"
 CI_APK_SHA256 = "ae3ed08bfe8794e1f12193e5d29733c22c22e7671672726e1a27b869483a4527"
 CI_CERTIFICATE_SHA256 = "d7bfd9bf0ff80fc97c3db14fdf96cf9996488439a8e906d7bece8078eef40410"
@@ -402,8 +404,8 @@ def postflight(root: Path, expected: str, number: int, env: dict[str, str]) -> d
     ):
         raise ReleaseError("release manifest source provenance does not match")
     resigned = manifest.get("delivery_mode") == "resign-verified-ci"
-    if resigned and (expected != CI_SOURCE_SHA or number != 8 or
-                    manifest.get("ci_run") != 37944044747 or manifest.get("ci_input_sha256") != CI_APK_SHA256):
+    if resigned and (expected != CI_SOURCE_SHA or number != CI_BUILD_NUMBER or
+                    manifest.get("ci_run") != CI_RUN or manifest.get("ci_input_sha256") != CI_APK_SHA256):
         raise ReleaseError("resigned APK does not identify the pinned successful CI build")
     if manifest.get("completed_checks") != (SIGN_EXISTING_CHECKS if resigned else STAGES):
         raise ReleaseError("release manifest does not record all required build checks")
@@ -438,12 +440,12 @@ def apk_payload(apk: Path) -> dict:
 def sign_existing(root: Path, expected: str, number: int, source: Path, env: dict[str, str]) -> None:
     """HP-only signing of the already tested exact APK; no Flutter/Gradle build."""
     repository_check(root, expected)
-    if expected != CI_SOURCE_SHA or number != 8 or version_name(root) != "5.7.2":
-        raise ReleaseError("sign-existing is limited to the approved 5.7.2 (8) CI source")
+    if expected != CI_SOURCE_SHA or number != CI_BUILD_NUMBER or version_name(root) != "5.7.2":
+        raise ReleaseError("sign-existing requires the exact approved source/build profile")
     if digest(source) != CI_APK_SHA256:
-        raise ReleaseError("input APK differs from run 37944044747; nothing signed")
+        raise ReleaseError("input APK differs from run in the approved profile; nothing signed")
     sdk = sdk_path(env)
-    apk_metadata(source, sdk, root, "5.7.2", 8, CI_CERTIFICATE_SHA256)
+    apk_metadata(source, sdk, root, "5.7.2", CI_BUILD_NUMBER, CI_CERTIFICATE_SHA256)
     payload = apk_payload(source)
     check_key_files(root)
     before_keys = signing_stats(root)
@@ -467,11 +469,11 @@ def sign_existing(root: Path, expected: str, number: int, source: Path, env: dic
             raise ReleaseError("existing signing files changed; output rejected")
         if apk_payload(output) != payload:
             raise ReleaseError("signing changed application payload; output rejected")
-        metadata = apk_metadata(output, sdk, root, "5.7.2", 8)
+        metadata = apk_metadata(output, sdk, root, "5.7.2", CI_BUILD_NUMBER)
         run([str(sdk / f"build-tools/{BUILD_TOOLS}/zipalign"), "-c", "-P", "16", "4", str(output)], root, env)
         repository_check(root, expected)
         manifest = {"source_commit": expected, "source_branch": "work", "delivery_mode": "resign-verified-ci",
-                    "ci_run": 37944044747, "ci_input_sha256": CI_APK_SHA256,
+                    "ci_run": CI_RUN, "ci_input_sha256": CI_APK_SHA256,
                     "completed_checks": SIGN_EXISTING_CHECKS, **metadata}
         os.rename(output, apk)
         with receipt.open("x") as handle:
@@ -669,6 +671,8 @@ def main() -> int:
     parser.add_argument("action", choices=["preflight", "build", "postflight", "sign-existing"])
     parser.add_argument("--repository", type=Path, default=ROOT)
     parser.add_argument("--input-apk", type=Path)
+    parser.add_argument("--candidate-profile", type=Path)
+    parser.add_argument("--candidate-profile-sha256")
     parser.add_argument("--authorize-production-signing", action="store_true")
     parser.add_argument("--expected-head", required=True)
     parser.add_argument(
@@ -683,6 +687,14 @@ def main() -> int:
     env = os.environ.copy()
     root = args.repository.resolve()
     try:
+        if args.candidate_profile is not None or args.candidate_profile_sha256 is not None:
+            import release_candidate
+            profile = release_candidate.load(args.candidate_profile, args.candidate_profile_sha256)
+            if args.expected_head != profile['sourceCommit'] or args.build_number != profile['mobileBuild']:
+                raise ReleaseError("candidate profile does not match requested source/build")
+            global CI_SOURCE_SHA, CI_BUILD_NUMBER, CI_RUN, CI_APK_SHA256, CI_CERTIFICATE_SHA256
+            CI_SOURCE_SHA, CI_BUILD_NUMBER, CI_RUN = profile['sourceCommit'], profile['mobileBuild'], profile['android']['run']
+            CI_APK_SHA256, CI_CERTIFICATE_SHA256 = profile['android']['sha256'], profile['android']['certificateSHA256']
         if args.action == "sign-existing":
             if not args.authorize_production_signing or not args.input_apk:
                 raise ReleaseError("explicit production signing approval and --input-apk required")

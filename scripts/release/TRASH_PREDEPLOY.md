@@ -1,224 +1,76 @@
-# Stage 1: final pre-deployment gate
+# Gallery build 9 pre-deployment gate
 
-Application/artifacts remain frozen at
-`6a558b554e26e8c0fc5bc5c99259a92e7ef26a56` (server 5.7.1, mobile 5.7.2 build 8).
-Production checkout remains `work` at
-`42790b06edc21438811e56e40c431eee37c24894`. This tooling-only branch neither merges
-that checkout nor rebuilds any artifact.
+Use the exact candidate/profile and operator commands in
+[RELEASE_RUNBOOK.md](../../docs/RELEASE_RUNBOOK.md). Application source is
+`a33fce0093905c4e1df2399e444f3bc03573dca4`, server 5.7.2/mobile 5.7.2 (9).
+Production remains `work` at `42790b06edc21438811e56e40c431eee37c24894`.
 
-`trash_predeploy.py` loads the **unchanged, SHA-256-pinned** `trash_release.py`
-from `565ef38c0c39f3ee896f5afd055d4d57a676d503`. Its default action is preparation;
-deployment and rollback require both an explicit CLI flag and the existing
-`GALLERY_DEPLOYMENT_APPROVED=YES` gate. No retention-enable or signing action is
-allowed without its own explicit gate. The expanded deletion acceptance contract
-is currently **BLOCKED**; see
-[`GALLERY_BUILD8_ACCEPTANCE.md`](../../docs/GALLERY_BUILD8_ACCEPTANCE.md).
+`trash_predeploy.py` loads the unchanged SHA-256-pinned `trash_release.py` from
+`565ef38c0c39f3ee896f5afd055d4d57a676d503`. Historical build-8 defaults remain
+for compatibility; build 9 **requires** `--candidate-profile` and its independently
+verified `--candidate-profile-sha256`. Never apply old artifact hashes/migration
+assumptions to the new candidate.
 
-## Docker image identity across stores
+## Preparation safety
 
-Download **both** `trash_predeploy.py` and `trash_image_identity.py` from the same
-immutable tooling commit, verify their SHA-256 values, and keep them together.
-The original `565ef38` release file remains byte-for-byte unchanged and pinned.
+`prepare` checks exact clean production checkout, healthy container identities,
+5.7.1 API, completed audit, unchanged NAS provenance/sample proof (24-hour gate),
+artifact bytes/source, canonical image config/ordered layers and compiled migrations.
+The documented PG tag or its exact expected digest-pinned reference must resolve
+locally to the running immutable Linux/amd64 identity. No arbitrary tag/digest,
+pull-to-repair, broad permission change or timestamp rewriting is accepted.
 
-Classic Docker reports the config digest as image ID. Moby containerd reports the
-target manifest/index digest ([Moby inspect](https://github.com/moby/moby/blob/v28.4.0/daemon/containerd/image_inspect.go),
-[import/export](https://github.com/moby/moby/blob/v28.4.0/daemon/containerd/image_exporter.go),
-[containerd import](https://github.com/moby/moby/blob/v28.4.0/vendor/github.com/containerd/containerd/v2/core/images/archive/importer.go)).
-Containerd may reuse compressed layers with the same uncompressed diff ID.
-An observed alternate ID is not substituted into frozen constants.
+A new 0700 state has a new 0600 streaming SQL/gzip backup, full gzip CRC/SHA-256,
+and an exported read-only PostgreSQL snapshot. The **same exact fresh backup**
+is restored in a new disposable PG with no production mounts/network/ports,
+one CPU and 2 GiB memory. Counts/statuses/library references and baseline migrations
+must match the dump snapshot; an old restore receipt never certifies a new backup.
 
-`verify-image --artifacts "$ARTIFACTS"` streams the already loaded image by its
-immutable ID through `docker image save`, without extraction or storing layers.
-It verifies exact frozen archive SHA/manifest/tag/config digest, Linux/amd64,
-source/ref/repository, all ordered uncompressed layer SHA-256 diff IDs, and the
-exported config bytes. A differing loaded ID must have a fully hashed,
-single-image descriptor graph connecting it to that config and ordered layer
-digests/sizes. The tag must remain unchanged throughout. Copied labels, arbitrary
-IDs, unrelated indices, extra manifests and tampered/truncated layers fail.
+For build 9 the exact additive migration runs against that isolated restore,
+followed by startup migration recognition using an API-only rollback overlay on
+the exact previous image. Counts/migrations remain unchanged except for the one
+addition; new policies/tombstones must be empty. This is done before any deployment.
 
-Missing loaded image is STOP; this read-only action never loads/tags/pulls.
-A new private `gallery-image-proof-*` receipt is created; failed states remain
-untouched. Only approved deploy can load an absent image. It makes the same proof,
-records the runtime identity in the private deployment journal and uses the
-immutable ID in Compose overrides. If a journal exists after failure, STOP and
-use approved rollback with that same state, never repeat deploy blindly.
+The overlay adds only two ESM migration recognition files. Exact parent ordered
+layers/config, marker bytes, exported archive SHA and immutable image ID are
+verified. Its up/down fail deliberately: it cannot initialize a fresh DB or drop
+evidence. Saved overlay can be reloaded by exact archive SHA, never floating tag.
+No production container is started/recreated during preparation.
 
-`acceptance` also needs deployment approval and uses a synthetic fixture only.
-`enable-workers` requires deployment approval plus `--approve-retention` and
-`GALLERY_RETENTION_RESUME_APPROVED=YES`. A successful proof does not authorize them.
-Complete HP commands are in
-[`GALLERY_BUILD8_HP_HANDOFF.md`](../../docs/GALLERY_BUILD8_HP_HANDOFF.md).
+All seven backgroundTask state counts are read atomically using read-only Redis
+Lua LLEN/ZCARD/HGET, plus bounded legacy/orphan AssetDelete/FileDelete hash inventory.
+SCAN alone never proves empty queues. Missing/truncated/nonempty state is STOP;
+no clear, retry, pause, resume or job execution occurs during prepare/recheck.
 
-## Operator inputs and requirements
+Fresh backup must be under one hour old; NAS PASS under 24 hours. Original NAS
+receipt timestamp is retained. Existing audit/backups/states are never overwritten.
+Expired evidence is STOP pending separate operator revalidation. PASS is only a
+preparation receipt; it does not reserve empty queues or authorize deployment.
 
-Run as `doctoriceadm`, with existing Docker access (or existing passwordless
-`sudo -n docker`), Python 3.11+, local Docker socket, a quiet resource window,
-at least 3 GiB available RAM and 8 GiB free Docker disk. Nothing installs packages
-or changes sudo/group policy. The prior PostgreSQL image must already be cached.
-Local staging additionally requires `max(2 × database size, 2 GiB)` free before
-dumping, and `1.2 × previous server image size + 1 GiB` for rollback both before
-and after backup/restore. No automatic disk cleanup is attempted.
+## Separate approvals
 
-The verified HP artifact directory is
-`/home/doctoriceadm/gallery-trash-frozen-artifacts`, containing the already
-downloaded/extracted frozen artifacts in this layout. Do not download or rebuild them again:
+- Deployment requires `--approve-deployment` and `GALLERY_DEPLOYMENT_APPROVED=YES`.
+- Build-9 migration additionally requires `--approve-migration` and
+  `GALLERY_ADDITIVE_MIGRATION_APPROVED=YES`.
+- Library opt-in requires its own private owner/scope/root plan and
+  `authorize_library.py --approve-library` plus
+  `GALLERY_LIBRARY_DELETION_APPROVED=YES`. Uses the existing admin API, no NAS service.
+- Worker activation and HP Android signing require their separate approvals.
+  Automatic retention is unconditionally skipped in this candidate, even if other
+  workers are separately resumed. No family-library policy is enabled by deployment.
 
-```text
-ARTIFACTS/backend/manifest.json
-ARTIFACTS/backend/gallery-server-linux-amd64.tar.gz
-ARTIFACTS/android/app-release.apk
-ARTIFACTS/ios/Photos-unsigned.ipa
-```
+Deploy backs up only changed Compose/.env/image, pauses/rechecks backgroundTask and
+recreates only `immich-server` API-only. Health/version/source/exact additive
+migration checks and unchanged PostgreSQL/Redis/ML IDs are mandatory. Any deployment
+journal after failure means STOP and use approved rollback, never repeat blindly.
 
-Pinned manifest/checksums identify backend run 37953392247, Android run 37944044747
-and iOS run 37936380827. The Android APK is CI-signed; the IPA is unsigned. No
-production signing or device installation occurs here.
+Rollback uses the exact previous API plus recognition markers, preserves DB
+journals/triggers, keeps deletion workers off/queue paused, and checks unrelated
+services. No down migration, SQL restore, NAS restore or permission change is
+automatic. It cannot undo physical unlink. A later DB+NAS recovery is separately
+approved and must reconcile data, not claim SQL alone recovers files.
 
-Existing default paths, all preserved:
-
-- Tool: `/home/doctoriceadm/gallery-trash-release-tooling-565ef38/trash_release.py`
-- Audit: `/home/doctoriceadm/gallery-trash-release-audit-20261009T155251367898Z-8d189795a83d.txt`
-- NAS PASS: `/home/doctoriceadm/gallery-nas-recovery-sau5r5go`
-- Earlier PG PASS: `/home/doctoriceadm/gallery-recovery-hum85h39`
-
-PostgreSQL may use exactly the documented tag or that tag pinned to
-`sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23`.
-In either case, local `docker image inspect` must resolve the pinned reference
-to the running immutable image ID, with the expected repository digest and
-Linux/amd64 platform. No pull/tag/load is attempted to repair missing identity.
-The manifest digest is not compared directly to the image config ID; they are
-different identities. Approved audit/restore receipts still require exact
-immutable ID equality, and container/user/database checks are unchanged.
-
-Do not edit/delete/reuse `/home/doctoriceadm/gallery-predeploy-klailu49`.
-Another `prepare` always creates a new private state directory. It does not use
-the failed state as recovery evidence.
-
-The NAS report, provenance, sample hashes, receipt and scope must agree. NAS samples
-are **not** exported/read/hashed again. Its original verification timestamp is
-preserved. The pinned 24-hour NAS gate remains in effect; expiry is STOP, never a
-silently refreshed timestamp. An expired receipt requires a separately agreed
-revalidation, not automatically repeating the recovery.
-
-## Preparation (no production mutation)
-
-Download `scripts/release/trash_predeploy.py` from the full tooling commit and
-verify its SHA-256 as supplied in the release handoff. Run `python3 -B ... --help`
-or syntax-check without executing before using it. The copy-paste handoff provides
-the exact pinned download and checksum; avoid a moving branch URL.
-
-```bash
-python3 -B "$PREDEPLOY_SCRIPT" prepare --artifacts "$ARTIFACTS"
-```
-
-Preparation automatically creates one new 0700 local directory
-`/home/doctoriceadm/gallery-predeploy-*`; all backup/evidence/log files are 0600.
-Existing root-owned `/mnt/hp-data/immich/library/backups` is not written, chmodded
-or read for credentials. No existing evidence or backup is overwritten.
-
-1. Verify clean production checkout, all four healthy container identities, API
-   version/ping, completed audit, NAS scope/provenance, frozen mobile checksums,
-   backend manifest/image config digest and compiled migrations directly in the
-   image archive. No backend image is imported during preparation.
-2. Verify the current immutable server image, actual Compose files and local disk
-   space needed for rollback. Configuration hashes are kept private. No image,
-   Compose file, mount or production volume is changed.
-3. Connect inside the existing PostgreSQL container as OS/database `postgres`, DB
-   `immich`, via its Unix socket with `--no-password`. Authentication failure is
-   STOP; no password, env dump or credential extraction is attempted.
-4. Hold a read-only repeatable-read exported snapshot; read counts/migration names
-   and make the SQL dump using **that same snapshot**. Stream gzip to a newly
-   created private local file, verify full gzip CRC, SHA-256 and available disk.
-   A failed dump retains only a `.partial` and private error log, never a PASS.
-5. Use the pinned isolated restore: current immutable PG image, `--network none`,
-   no ports, no production mounts, one CPU/2 GiB limit. Restore the **new exact**
-   backup in a SQL transaction. Compare asset/status/library counts and exact
-   migration names against the dump snapshot; check dangling library references.
-   Only the unique disposable container and its own anonymous volume are removed.
-   A failed cleanup or mismatch cannot issue a fresh restore PASS.
-6. Read all seven backgroundTask state cardinalities together in one **read-only
-   Redis Lua invocation** (`LLEN`, `ZCARD`, `HGET`). Supplement with a bounded
-   `SCAN`/`TYPE`/`HGET`/`ZSCORE` inventory for non-completed AssetDelete/FileDelete
-   job hashes, then another atomic state read. SCAN alone never establishes empty
-   queues. Nonempty, unknown, truncated or orphan/legacy deletion state is STOP.
-   No jobs are executed, retried, paused, resumed, cleared or cancelled.
-
-Successful output includes `PASS`, the private state directory and
-`predeploy-report.json`. `predeploy-context.json`, `fresh-backup.json`,
-`fresh-restore-verified.json` and the **new** `backup-verified.json` bind that exact
-backup to its new restore. Earlier PG evidence is retained only as lineage;
-it never validates the new backup. Input evidence and production container IDs
-are checked unchanged.
-
-**PASS is preparation only.** Queues were empty at the recorded instant, not
-reserved or continuously empty. Backup must still be less than one hour old at
-deployment; NAS evidence less than 24 hours old. Expiry requires fresh preparation
-(new directory, new backup, new restore) unless only the unchanged NAS receipt
-requires its separate operator revalidation. Never edit receipts to bypass this.
-
-Failures emit one sanitized `STOP` and save `predeploy-stop.json` in the new state.
-Private dump/restore logs are for local inspection; do not upload them unredacted.
-If a prerequisite fails, retain the state; do not rerun preparation into it.
-
-## Separate approved deployment procedure — DO NOT RUN NOW
-
-After the owner reviews preparation PASS and explicitly approves backend
-deployment, set `STATE` to the printed private directory, retain the verified
-`PREDEPLOY_SCRIPT`, and supply an existing private 0600 admin API-key file in
-`ADMIN_KEY_FILE`. Never paste its contents into commands or reports.
-
-```bash
-# Только после отдельного разрешения владельца на backend deployment.
-python3 -B "$PREDEPLOY_SCRIPT" recheck --state "$STATE"
-GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY_SCRIPT" deploy \
-  --state "$STATE" --key "$ADMIN_KEY_FILE" --approve-deployment
-```
-
-`deploy` performs the same fresh recheck again, imports only the frozen backend
-image, delegates to pinned tooling, preserves exact Compose/.env backups and the
-previous immutable image/archive, and pauses backgroundTask through its native API.
-It **atomically** rechecks paused/empty queues before recreating only
-`immich-server` with API workers; unrelated PostgreSQL/Redis/ML IDs must remain
-unchanged. It verifies health, API version/source and migration equality.
-Any nonempty queue is STOP; there is no automatic draining, retry or job cleanup.
-
-Deletion/retention workers remain disabled and the queue paused. No destructive
-migration is authorized: exact migration equality is mandatory. The external
-AI/auto-stack processes and unrelated HP services are untouched. Preparation
-does not execute this phase or authorize it.
-
-Acceptance uses only newly uploaded synthetic test media through the pinned
-`trash_execute.sh acceptance` action, after its own production approval. Native
-S23/iPhone checks use exclusively disposable media, verify chronological
-Trash/Restore, album membership, restart/offline/delayed sync, Live/Motion pairs.
-Do not test permanent deletion on real media. Worker activation and Android
-production signing retain their **separate** approval gates in pinned tooling;
-they are not part of this execution block. iOS remains SideStore signing of the
-existing unsigned IPA, with no paid signing service.
-
-## Approved rollback
-
-```bash
-# Только после явного разрешения на rollback.
-GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY_SCRIPT" rollback \
-  --state "$STATE" --key "$ADMIN_KEY_FILE" --approve-deployment
-```
-
-Pinned journal/config/image guards apply; atomic queue guards remain installed.
-Only the previous server image is restored, still **API-only**; deletion workers
-stay disabled and the queue paused. Other container identities must remain
-unchanged. No production database, backup or NAS snapshot is automatically restored.
-Restoring the old binary cannot undo physical deletions or DB writes made after
-deployment, and must not resume the old unsafe retention implementation. A later
-data recovery or retention resumption requires separate explicit approval.
-
-## Validation boundary
-
-New tests exercise synthetic evidence/checksum/approval guards, gzip backup failure,
-an actual isolated PostgreSQL snapshot/dump/restore with concurrent writes to the
-**test** DB, restore-count mismatch cleanup and actual isolated Redis cardinalities.
-They use unique local cloud containers, no HP/NAS data. Pinned existing rollback
-fixture tests cover recreation of only the disposable Compose server and retention
-of its unrelated service. Full application suites/artifact builds are not repeated.
-End-to-end execution on the operator's HP remains **NEEDS HP VALIDATION** until
-this block is run and its sanitized PASS/STOP is reviewed.
+Cloud guard/fixture/classic Docker tests do not establish production/NFS/iPhone
+acceptance. Exact HP migration/rollback restore validation is **PREPARED / NEEDS
+HP VALIDATION** until prepare passes. See the build-9 acceptance matrix for every
+remaining operator gate. No production changes were executed.

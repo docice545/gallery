@@ -167,6 +167,7 @@ class ReleasePreparation(unittest.TestCase):
 
     def test_permanently_removed_row_restore_is_expected_rejection_not_success(self):
         import urllib.error
+        from unittest.mock import Mock
         for code in (400,404):
             request=Mock(side_effect=urllib.error.HTTPError('unused',code,'unused',{},None))
             smoke.assert_removed_asset_not_restorable(request,'fixture')

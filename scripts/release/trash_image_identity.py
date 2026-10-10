@@ -143,7 +143,7 @@ def verify_loaded(tool, backend):
         expected = scan(stream, tool.IMAGE, tool.TAG)
     item = json.loads(tool.docker('image', 'inspect', tool.TAG))[0]
     env = dict(x.split('=', 1) for x in expected['sourceConfig'].get('Env', []) if '=' in x)
-    need(env.get('IMMICH_SOURCE_COMMIT') == tool.SOURCE and env.get('IMMICH_SOURCE_REF') == 'v5.7.1' and
+    need(env.get('IMMICH_SOURCE_COMMIT') == tool.SOURCE and env.get('IMMICH_SOURCE_REF') == getattr(tool, 'SOURCE_REF', 'v5.7.1') and
          env.get('IMMICH_REPOSITORY') == 'docice545/gallery', 'IMAGE_SOURCE_METADATA_MISMATCH')
     need(item.get('Architecture') == 'amd64' and item.get('Os') == 'linux' and
          item.get('RootFS', {}).get('Layers') == expected['layerDiffIds'], 'IMAGE_INSPECT_CONFIG_OR_ROOTFS_MISMATCH')

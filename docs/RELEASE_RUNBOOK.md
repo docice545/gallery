@@ -1,503 +1,255 @@
-# «Фото»: воспроизводимая мобильная сборка и проверка
+# Gallery 5.7.2 (9): release runbook
 
-**Stage 1 сейчас BLOCKED по расширенному deletion contract.** Актуальные
-[operator gates](GALLERY_BUILD8_HP_HANDOFF.md) и
-[15 acceptance criteria](GALLERY_BUILD8_ACCEPTANCE.md) имеют приоритет над
-прежними deployment-командами ниже. Для нового Docker image-store proof нужны
-новый `trash_predeploy.py` и `trash_image_identity.py` вместе; pinned файл
-565ef38 не изменён. Не вызывать старый deploy/enable напрямую в обход adapter.
+Application source: `a33fce0093905c4e1df2399e444f3bc03573dca4`, branch
+`candidate/gallery-trash-full-delete-5.7.2-build9`. Production `work` stays at
+`42790b06edc21438811e56e40c431eee37c24894`. Tooling has its own commit; it must
+never be substituted for the application/artifact SHA.
 
-Текущий release — **5.7.2 (8)**, source **`6a558b554e26e8c0fc5bc5c99259a92e7ef26a56`**.
-Для текущего Stage 1 использовать **только раздел 0**: все artifacts уже собраны,
-новых mobile/backend builds не требуется. Разделы 1–8 ниже — прежний общий
-build/pilot workflow, а не последовательность текущего deployment.
-Production-аудит завершён; интеграция, recovery validation, deployment,
-возобновление retention и HP signing требуют отдельных разрешений.
+This runbook prepares existing CI artifacts. It does not authorize deployment,
+merge, signing, retention, NAS permission changes or destructive tests on family
+media. The October 2 docice managed-photo deletion is historical evidence for
+that one asset, not acceptance for other users, external libraries or phones.
 
-Этот runbook выполняет владелец на HP/macOS. Он не обновляет production server,
-PostgreSQL/Redis/ML/Big-LaMa, внешние Memories/auto-stack workers, Synology,
-VPN/AWG/Xray/DNS и не повторяет закрытую миграцию Anna. Из Codex production
-сборка с постоянным Android ключом не выполнялась: **PREPARED / NEEDS_HP_VALIDATION**.
-Прохождение CI/dev проверок не означает физическую проверку S23/iPhone.
+## 1. Immutable handoff and HP preparation
 
-## 0. Stage 1: один execution package, без повторных сборок
-
-| Компонент | SUCCESS run / artifact                                                                                                                   | Source / версия                                |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Backend   | [37953392247](https://github.com/docice545/gallery/actions/runs/37953392247/artifacts/11626603468), `gallery-trash-server-linux-amd64`   | `6a558b55…`, server 5.7.1                      |
-| Android   | [37944044747](https://github.com/docice545/gallery/actions/runs/37944044747/artifacts/11624073289), `android-media-pilot-validation-apk` | тот же source, 5.7.2 (8), CI debug certificate |
-| iOS       | [37936380827](https://github.com/docice545/gallery/actions/runs/37936380827/artifacts/11618922989), `ios-unsigned-ipa`                   | тот же source, 5.7.2 (8), unsigned             |
-
-Backend tooling commit `d3f999e7d21c7c7f4e9b9bc5ac1e1af62de6cf3d` отличается
-от source; receipt содержит оба. Последующий execution package также **не меняет
-application source**, не требует CI rebuild и не подменяет SHA artifacts.
-
-### Финальный pre-deployment gate — без изменения production
-
-Текущий production checkout остаётся чистым `work` на
-`42790b06edc21438811e56e40c431eee37c24894`. Перед этим gate **не делать merge**.
-PG/NAS recovery PASS уже получены; повторный NAS export не нужен. Для нового
-backup обязательно нужен новый isolated restore receipt.
-
-Использовать [полную операторскую процедуру](../scripts/release/TRASH_PREDEPLOY.md)
-и `scripts/release/trash_predeploy.py` из точного tooling commit в handoff.
-Wrapper сверяет неизменённый pinned tool `565ef38…`, существующий audit/NAS proof,
-container/image/config identities и frozen artifacts. Единственный новый input —
-папка уже скачанных artifacts (`backend/`, `android/`, `ios/`).
-
-```bash
-# Проверенный script скачан отдельно; checkout и старые backups не меняются.
-python3 -B "$PREDEPLOY_SCRIPT" prepare --artifacts "$ARTIFACTS"
-```
-
-Новая приватная `gallery-predeploy-*` папка содержит streaming SQL/gzip dump
-из running `immich` под `postgres`, gzip CRC/SHA-256 и восстановление **этого же**
-backup в disposable PostgreSQL без production mounts/network/ports. Counts/statuses/
-migrations сравниваются с тем же exported snapshot, из которого сделан dump.
-Existing NAS receipt сохраняет свой timestamp; прежний PG receipt не копируется.
-Все семь queue states читаются атомарно; дополнительно проверяются legacy/orphan
-AssetDelete/FileDelete hashes. SCAN сам по себе не доказывает пустоту очередей.
-
-**PASS разрешает только передать результат владельцу.** При непустой/неизвестной
-очереди, изменившейся production topology, неверном artifact/migration inventory,
-неудачном restore или истёкшем evidence — STOP. Backup должен быть младше часа,
-NAS PASS — младше 24 часов. Очереди пусты только в момент проверки.
-
-### Backend deployment и rollback — отдельное разрешение
-
-Команды ниже **не входят в preparation block**. `STATE` — напечатанная новая
-приватная папка; `ADMIN_KEY_FILE` — существующий regular 0600 key file, содержимое
-не печатать. После явного deployment approval:
-
-```bash
-python3 -B "$PREDEPLOY_SCRIPT" recheck --state "$STATE"
-GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY_SCRIPT" deploy \
-  --state "$STATE" --key "$ADMIN_KEY_FILE" --approve-deployment
-```
-
-Pinned tool сохраняет Compose/.env/previous image, приостанавливает backgroundTask,
-атомарно проверяет paused/empty state и пересоздаёт только `immich-server` API-only.
-Health/version/source/migration checks и неизменность PostgreSQL/Redis/ML обязательны.
-Новые schema migrations не разрешены. Retention/deletion workers остаются выключены.
-Никаких clear/retry/drain jobs или автоматических rollback/data restore.
-
-Если owner отдельно разрешит rollback:
-
-```bash
-GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY_SCRIPT" rollback \
-  --state "$STATE" --key "$ADMIN_KEY_FILE" --approve-deployment
-```
-
-Возвращается только предыдущий server image, API-only, queue paused; production
-DB/NAS не откатываются. Compose config/previous image/journal checks обязательны.
-Старые небезопасные retention workers не возобновляются автоматически. После
-deployment/rollback сохранять state/journal и соответствующий Compose override;
-один старый base `docker compose up` может снять worker gate.
-
-**Activation retention workers и HP production signing — самостоятельные approval
-stages.** Они не запускаются этим workflow. Existing external workers/timers,
-NAS permissions, VPN/DNS и unrelated HP services не меняются.
-
-### Mobile handoff и disposable acceptance
-
-Android signer проверяет input SHA/certificate/package/CMP manifest/ARM64 native
-libs, переподписывает прежним alias `foto` через stdin, сверяет неизменность всех
-application ZIP entries и native alignment, затем HP certificate и checksum.
-Не создаёт ключи, не выполняет Flutter/Gradle/codegen, не устанавливает приложение.
-Итог: `/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-8-6a558b554e26/Foto.apk`
-и `manifest.json`, ожидаемый cert
-`ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`.
-Установить поверх build 7 без uninstall/очистки данных. CI APK до переподписи
-не является update. Реальная HP подпись и S23 update пока **NEEDS_HP/DEVICE_VALIDATION**.
-
-iOS `Photos-unsigned.ipa` — прежний SUCCESS artifact, unsigned. Использовать
-только действующую **SideStore + LocalDevVPN** схему и тот же Personal Team/
-bundle mapping для update. Выбрать **Keep App Extensions (Register App ID for
-Each Extension)**; main profile не заменяет отдельные extension App IDs.
-Сохранить Runner/ShareExtension/WidgetExtension и App Group. Если существующая
-установка использует подготовленный seed, применить прежний
-`mobile/scripts/release/prepare_sidestore.py` на Mac **с тем же team/mapping**;
-это отдельная подготовка, не iOS rebuild и не новый signing service. Без этой
-проверки исходный unsigned IPA напрямую не устанавливать. SideStore re-sign,
-7-day refresh и сохранность session/data требуют физического iPhone.
-
-Автоматический `acceptance` загружает **новый уникальный synthetic PNG**, никогда
-не принимает чужой asset ID и отказывается от duplicate upload. Проверяет
-Trash/Restore/idempotence, capture date/localDateTime и original bytes, оставляет
-fixture Active. Он не вызывает permanent delete, retention или NAS unlink.
-На S23/iPhone дополнительно создать отдельные несекретные disposable photo/video/
-Live/Motion fixtures и test album: single/bulk Trash, restart/reconnect, delayed
-sync, Restore→Trash, album membership, chronology/timezone, отсутствие ghosts/
-duplicates, native/local-device confirmation и сохранность session после update.
-Никаких destructive тестов на существующих семейных фото. Permanent/retention
-проверки — только в изолированном storage, не production originals.
-
-### Проверки execution tooling
-
-Guard/failure/identity tests, JDK 17 source-launcher с **mock apksigner**, реальный
-disposable SQL/gzip restore и Compose recreate/rollback выполнены в cloud.
-Rollback orchestration сохраняет ID соседнего fixture container и API-only gate;
-это не проверка HP health/network/конкретной production БД. HP restore выбранного
-backup, DSM recovery, production-key signing и physical acceptance **не выполнены**.
-Для tiny restore fixture cloud disk gate отдельно смоделирован: требование
-8 GiB для реального HP restore не снято и не считается проверенным здесь.
-
-```bash
-GALLERY_RELEASE_TEST_JAVA=/path/to/existing/jdk17/bin/java \
-  python3 -m unittest discover -s scripts/release/tests -p 'test_trash_execution.py'
-# Только isolated local Docker; cached images, без production endpoints:
-GALLERY_DISPOSABLE_RELEASE_TESTS=1 GALLERY_RELEASE_TEST_JAVA=/path/to/existing/jdk17/bin/java \
-  python3 -m unittest discover -s scripts/release/tests -p 'test_trash_execution.py'
-bash -n scripts/release/trash_execute.sh
-```
-
-## Исторические artifacts build 6 (не текущий release)
-
-| Platform                             | Успешный run / source SHA                                                                                                           | Artifact                                               | SHA-256 файла внутри artifact                                      |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
-| Android, release-mode / CI debug key | [37656011448](https://github.com/docice545/gallery/actions/runs/37656011448), attempt 2; `17fc9ede3b934b76617e3c03f70109ff33d6d38b` | `android-media-pilot-validation-apk`, ID `11501431124` | `07c82ca3b90decb4df005f1d273c473a161a5339a03e59334fd056dad39fbf82` |
-| iOS, unsigned / Xcode 26.2           | [37661916279](https://github.com/docice545/gallery/actions/runs/37661916279); `102559e9d887c1defdb1d9037b0b691fb3d75371`            | `ios-unsigned-ipa`, ID `11500939142`                   | `24b453f4a7a4e15094e7bed6e1dd095ce617fac384d110f92b4d31684dff089c` |
-
-`ios-unsigned-archive` — ID `11501298710`. Это SHA файлов APK/IPA,
-не SHA внешних artifact ZIP. Native/archive verification выполнены в CI;
-локальное скачивание в Codex заблокировано storage allowlist. Команды ниже
-используются на обычной сети оператора. APK из CI не устанавливать поверх
-HP-key-signed приложения: для него нужен HP build из раздела 3.
-Финальный documentation HEAD брать из итогового handoff отдельно от source SHA.
-
-## 1. Зафиксировать проверенный исходный commit
-
-Используйте полный SHA из итогового handoff, а не автоматически выбранный
-последний HEAD. Номер версии APK сам по себе не доказывает commit сборки.
-В handoff различаются **итоговый checkout HEAD** и **source SHA конкретного CI
-artifact**. Если после сборки добавлен только отчёт, SHA этого документационного
-commit не подменяет source SHA уже готовых APK/IPA. Scripts проверяют точное
-значение, а не эквивалентность исходного кода между commits.
+Obtain the successful proof run ID and `release-manifest.json` SHA-256 from the
+final handoff. The artifact is `gallery-trash-frozen-handoff-RUN_ID`. Run the
+following **preparation only** block as `doctoriceadm`. Existing GitHub access,
+Python 3.11+, Docker, sufficient local disk/RAM and cached PostgreSQL image are
+prerequisites. No dependencies are installed. No existing evidence is overwritten.
 
 ```bash
 set -euo pipefail
-cd /opt/gallery-fork
-# Подставить полный SHA проверенного финального commit из handoff.
-export GALLERY_EXPECTED_HEAD='<FULL_REVIEWED_COMMIT_SHA>'
-
-# Только чтение: checkout уже bind-mounted с SSD; caches/model не переносить.
-findmnt -T /opt/gallery-fork
-git branch --show-current
-git rev-parse HEAD
-git status --short
-test "$(git branch --show-current)" = work
-test -z "$(git status --porcelain)"
-
-# Только fast-forward. При несовпадении или пользовательской работе остановиться.
-git fetch origin refs/heads/work:refs/remotes/origin/work
-test "$(git rev-parse origin/work)" = "$GALLERY_EXPECTED_HEAD"
-git merge --ff-only origin/work
-test "$(git rev-parse HEAD)" = "$GALLERY_EXPECTED_HEAD"
-test -z "$(git status --porcelain)"
+umask 077
+[[ "$(id -un)" == doctoriceadm ]]
+: "${HANDOFF_RUN:?Set the exact successful proof run ID from the handoff}"
+: "${EXPECTED_MANIFEST_SHA256:?Set the handoff manifest SHA-256}"
+[[ "$HANDOFF_RUN" =~ ^[1-9][0-9]+$ ]]
+[[ "$EXPECTED_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+ARTIFACTS="$(mktemp -d /home/doctoriceadm/gallery-build9-handoff-XXXXXXXX)"
+chmod 700 "$ARTIFACTS"
+gh run download "$HANDOFF_RUN" --repo docice545/gallery \
+  --name "gallery-trash-frozen-handoff-$HANDOFF_RUN" --dir "$ARTIFACTS"
+(
+  cd "$ARTIFACTS"
+  printf '%s  release-manifest.json\n' "$EXPECTED_MANIFEST_SHA256" | sha256sum --check --status
+  sha256sum --check --status SHA256SUMS
+)
+PROFILE="$ARTIFACTS/candidate-profile.json"
+PROFILE_SHA="$(sha256sum "$PROFILE" | cut -d' ' -f1)"
+PREDEPLOY="$ARTIFACTS/tooling/trash_predeploy.py"
+PINNED=/home/doctoriceadm/gallery-trash-release-tooling-565ef38/trash_release.py
+printf '%s  %s\n' 56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c "$PINNED" | sha256sum --check --status
+python3 -B - "$ARTIFACTS" <<'PY_VALIDATE'
+import ast,json,pathlib,sys
+root=pathlib.Path(sys.argv[1]); profile=json.loads((root/'candidate-profile.json').read_text())
+assert profile['sourceCommit']=='a33fce0093905c4e1df2399e444f3bc03573dca4'
+assert (profile['serverVersion'],profile['mobileVersion'],profile['mobileBuild'])==('5.7.2','5.7.2',9)
+for file in (root/'tooling').rglob('*.py'): ast.parse(file.read_text())
+print('PASS exact candidate and tooling syntax')
+PY_VALIDATE
+# Loads only the verified artifact into the local image store; no service starts.
+# Use existing Docker access (or the existing approved sudo -n docker command).
+docker --host=unix:///var/run/docker.sock load -i "$ARTIFACTS/backend/gallery-server-linux-amd64.tar.gz"
+python3 -B "$PREDEPLOY" prepare --artifacts "$ARTIFACTS" --pinned-tool "$PINNED" \
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA"
+printf 'ARTIFACTS=%s\nPROFILE_SHA=%s\n' "$ARTIFACTS" "$PROFILE_SHA"
 ```
 
-Не применять `reset`, `clean`, squash или force-push. Если remote уже ушёл дальше
-проверенного SHA, сначала сверить новый handoff; этот блок намеренно остановится.
-`/opt/gallery-fork` является bind mount `/mnt/hp-data/gallery-fork`. Существующие
-Gradle/Pub caches и Big-LaMa model находятся на SSD, Docker root — на NVMe;
-release tools не перемещают и не дублируют их.
+Preparation requires the existing complete audit and NAS proof. It preserves
+original timestamps and the old PostgreSQL PASS, but creates a **new** SQL/gzip
+backup and validates that exact backup in a new disposable PostgreSQL instance.
+The candidate migration and previous API rollback startup run against that same
+isolated restore, with no production network, mounts or ports. Asset/status/album
+schema integrity and migration inventories must remain consistent. All policies
+start disabled. A unique rollback overlay changes only two migration-recognition
+files in the previous immutable image; parent layers/config and exported bytes
+are checked, saved and hashed. No old deletion workers are started.
 
-## 2. Android: read-only preflight
+Existing evidence paths:
 
-Нужны Python 3.11+, существующий Flutter из pin `mobile/mise.toml` (сейчас
-3.47.2) и его Dart, JDK 17 для Android, Mise, SDK 36 и Build Tools 36.0.0.
-Mise использует свои существующие pinned инструменты для OpenAPI; Android
-Gradle продолжает использовать внешний `JAVA_HOME` 17. Ничего не обновлять
-ради предупреждений Gradle/AGP/Kotlin.
+- `/home/doctoriceadm/gallery-trash-release-audit-20261009T155251367898Z-8d189795a83d.txt`
+- `/home/doctoriceadm/gallery-nas-recovery-sau5r5go`
+- `/home/doctoriceadm/gallery-recovery-hum85h39`
+
+PASS is a preparation receipt, **not deployment approval**. Missing/expired
+recovery (NAS 24 h, fresh DB backup 1 h), mismatched image/config/source/migrations,
+insufficient disk/RAM, nonempty/unknown queues or changed production means STOP.
+Queue emptiness uses atomic state cardinalities plus bounded legacy inventory;
+SCAN alone is insufficient. Empty means empty at that instant only.
+
+Keep the printed new `STATE` directory and all private evidence/logs. Do not
+edit failed states or receipt timestamps. A failure requires its actual cause to
+be resolved; do not rerun into the same state or silently reuse an old restore.
+
+## 2. Separately approved backend deployment
+
+Do not execute until the owner approves **deployment and the additive migration**.
+`STATE` is the new preparation state, `ADMIN_KEY_FILE` is an existing 0600 admin
+key file. No new account/API key is needed. Do not print its contents.
 
 ```bash
-cd /opt/gallery-fork
-export ANDROID_HOME="$HOME/Android/Sdk"
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-export PATH="$JAVA_HOME/bin:$PATH"
-# Удалить только CI overrides из окружения этого shell; значения не печатать.
-unset ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD PR_NUMBER
-
-python3 scripts/release/android_release.py preflight \
-  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
+python3 -B "$PREDEPLOY" recheck --state "$STATE" --pinned-tool "$PINNED" \
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA"
+GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_ADDITIVE_MIGRATION_APPROVED=YES \
+  python3 -B "$PREDEPLOY" deploy --state "$STATE" --pinned-tool "$PINNED" \
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" \
+  --key "$ADMIN_KEY_FILE" --approve-deployment --approve-migration
 ```
 
-Preflight выводит `PASS`/`FAIL`, ничего не устанавливает и не создаёт ключей.
-Он требует branch `work`, точный ожидаемый HEAD, чистый working tree,
-правильный toolchain и непустые **уже существующие**, ignored/untracked
-`mobile/android/key.jks` и `key.properties`. Их содержимое не читается и не
-печатается. Существующий alias **foto** и signing configuration сохраняются.
-Ошибка preflight — остановка, а не повод создать новый ключ/debug fallback.
+The existing pinned deployment saves exact Compose/.env and previous image,
+pauses backgroundTask, checks paused/empty queues, then recreates **only**
+`immich-server` API-only using a verified immutable runtime image ID. Health,
+5.7.2 source/version, exact migration transition and unchanged PostgreSQL/Redis/ML
+container IDs are required. No global Docker prune, volume recreation, NAS/mount
+change or external worker change occurs. Failure with a deployment journal is
+STOP: never blindly repeat deploy; use the approved rollback below.
 
-## 3. Android: одна безопасная команда сборки
+Migration `1793600000000-AddAuthorizedAssetDeletion` is additive. Down migration
+is deliberately refused: durable deletion evidence cannot be discarded. The old
+unmodified image cannot boot after this addition without recognition. The
+prepared API-only rollback bridge solves that compatibility requirement while
+preserving tombstones/triggers. It is not a database rollback.
+
+## 3. Per-owner/library permanent deletion approval
+
+Every managed owner scope and external library starts disabled. Authorizing
+`docice` never authorizes Anna or Lenia; authorizing one library never authorizes
+another. Keep read-only mounts unchanged. Do not authorize a root with an
+uncontrolled external writer, shared originals or unverified NFS identity behavior.
+
+After deployment, inspect current library roots read-only through existing admin
+API. Create **one** private 0600 JSON plan per explicitly approved scope with keys
+`ownerId`, `scope` (`managed` or that owner's real library UUID), `roots` (exact
+existing roots), `verifiedExclusiveRoots: true`. This attests the controlled
+namespace after actual disposable NFS acceptance, not a permission bypass. Use
+real verified NAS evidence; no fabricated hashes/snapshot identifiers.
 
 ```bash
-python3 scripts/release/android_release.py build \
-  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
+# Only after separate approval for THIS owner and library.
+GALLERY_LIBRARY_DELETION_APPROVED=YES python3 -B "$ARTIFACTS/tooling/authorize_library.py" \
+  --state "$STATE" --plan "$LIBRARY_PLAN_FILE" --key "$ADMIN_KEY_FILE" \
+  --pinned-tool "$PINNED" --candidate-profile "$PROFILE" \
+  --candidate-profile-sha256 "$PROFILE_SHA" --approve-library
 ```
 
-Порядок: locked OpenAPI/Flutter dependencies → все Pigeon APIs через existing
-package_config → localization/keys/Drift/build_runner → формат tracked Dart
-sources → полный Flutter analyze и unit suite → Android Kotlin/AIDL/native
-JUnit suite → release APK → фактические package/version/certificate/hash.
-Используется существующий `android_media_codegen.sh`; генерация mobile Drift
-кода не запускает production DB migrations. Native emulator CI остаётся отдельным
-доказательством; HP-команда не выдаёт его за физический Samsung тест.
+This calls the existing admin policy API. Server verifies current owner/root
+membership, canonical paths, existing filesystem permissions and cross-owner
+inode/path overlap. It creates no NAS API/service and changes no mount/permissions.
+Actual unlink failures keep a durable receipt and are visible/retryable; retries
+never authorize a replacement file. An explicitly approved disable can use the
+same existing policy API with `enabled=false`; pending operations cannot override
+revocation. Automatic retention is unconditionally skipped in this release.
+Resuming other workers is a separate approval and does not enable retention or
+library opt-ins. Do not run legacy FileDelete jobs or change queue contents.
 
-После native tests выполняется ещё один `flutter pub get --enforce-lockfile`,
-затем APK строится со штатным `--pub`. Это необходимо для Flutter 3.47:
-`--no-pub` пропускает mode-specific plugin registrant regeneration и оставляет
-`integration_test` после debug/integration сборки, хотя release Gradle уже
-исключает dev-only plugin. Стандартная Flutter release regeneration сама
-исключает этот plugin; integration tests и dependencies не удаляются. SHA-256
-lockfile и нормализованный resolved package graph проверяются до/после refresh
-и после build. Изменение versions/paths/packages запрещает успешный handoff;
-generated timestamp package_config не считается изменением dependency graph.
+## 4. HP-signed Android update (no rebuild)
 
-Build lock исключает одновременные Android release builds. В случае повторного
-запуска уже завершённый artifact заново проверяется и возвращается с `PASS REUSED`;
-это не заявляет повторного выполнения tests. Незавершённую сборку можно повторить;
-отсутствие успешного manifest не превращается в успешный release. Старый стандартный
-APK перед новым build сохраняется в приватной output directory, чтобы пропавший
-новый output не прошёл как старый файл.
+Android CI produces a release-mode APK signed with the runner debug key. It
+**cannot update** the installed HP-signed app. The existing certificate remains
+`ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`, alias `foto`,
+package `de.opennoodle.gallery`. Existing JDK 17/SDK 36 tools and original signing
+files on HP are required. No key is created/exported or used in CI.
 
-Неожиданный tracked diff после codegen/tests/build останавливает release.
-Единственное исключение — исторически tracked
-`mobile/android/build/reports/problems/problems-report.html`: если исходный
-checkout был чист, tool сохраняет созданный Gradle diagnostic приватно и
-восстанавливает **только этот собственный generated report** к исходным bytes.
-Другие source/user файлы не восстанавливаются и не удаляются.
-
-Logs находятся в ignored `mobile/build/release-handoff/`, с private permissions;
-при failure выводится stage/exit code. Пароли не передаются в command line.
-Не публикуйте полный локальный build log без проверки его содержимого.
-
-## 4. Android: read-only postflight и handoff
+After separate merge/signing approval, integrate the exact candidate into `work`
+by fast-forward only if production HEAD is still the expected baseline. Signing
+refuses a dirty checkout, unexpected SHA or key/certificate. Do not merge now.
+A non-fast-forward integration needs a new reviewed source/artifact binding.
 
 ```bash
-python3 scripts/release/android_release.py postflight \
-  --expected-head "$GALLERY_EXPECTED_HEAD" --build-number 8
-git status --short
+# Only after approved integration and HP signing; production checkout is unchanged before then.
+python3 -B "$ARTIFACTS/tooling/android_release.py" sign-existing \
+  --repository /opt/gallery-fork \
+  --expected-head a33fce0093905c4e1df2399e444f3bc03573dca4 --build-number 9 \
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" \
+  --input-apk "$ARTIFACTS/android/app-release.apk" --authorize-production-signing
 ```
 
-Ожидается **5.7.2 build 8**, `applicationId=de.opennoodle.gallery`.
-Фактический APK обязан пройти `apksigner verify` с единственным сертификатом:
+The script verifies APK source/hash/manifest/package/version/signature/native
+libraries, re-signs unchanged payload using the existing HP key, checks alignment
+and production certificate, and prints `Foto.apk` path/SHA-256. Output is below
+`/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-9-a33fce009390/`.
+Install that **Foto.apk** over build 7/8 on S23, without uninstalling or clearing
+app data. Verify session/settings and package/version/certificate after install.
+HP signing and physical update are operator gates, not cloud test results.
 
-```text
-ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18
-```
+## 5. iPhone / existing SideStore route
 
-Стандартный Flutter output остаётся
-`/opt/gallery-fork/mobile/build/app/outputs/flutter-apk/app-release.apk`.
-Versioned handoff содержит `Foto.apk`, `manifest.json` и build logs:
+Unsigned build 9 uses the existing macOS-15/Xcode 26.2/Flutter 3.47.2 build-only
+workflow. Runner `de.opennoodle.gallery` (iOS 15), ShareExtension
+`de.opennoodle.gallery.ShareExtension` (iOS 16) and Widget
+`de.opennoodle.gallery.Widget` (iOS 17) are retained. App Group is
+`group.de.opennoodle.gallery.share`. Technical base names are ASCII; Russian
+launcher localization remains `Фото`. No paid Apple certificates or new service.
 
-```text
-/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-8-<HEAD_FIRST_12>/
-```
+Download `ios/Photos-unsigned.ipa` from the handoff or its exact source run.
+It is **not directly installable**. Keep the current Apple Personal Team and
+existing SideStore bundle/App Group mapping for an update. Choose
+**Keep App Extensions (Register App ID for Each Extension)**. Main-profile-only
+signing is not the established separate extension-ID route.
 
-Postflight сверяет реальный application ID/version/certificate, streaming SHA-256
-файла, полный source SHA/branch и успешные stages в manifest. Не сообщает
-фиктивный SHA до выполнения build. CI artifact
-`android-media-pilot-validation-apk` подписан временным debug certificate и
-**не может обновить установленное HP release-key приложение**. Используйте
-проверенный HP `Foto.apk`, устанавливайте поверх существующего приложения без
-удаления данных. APK, keys, `key.properties` и profiles не коммитить.
-У CI APK source SHA берётся из соответствующего Actions run; у нового HP APK —
-из его `manifest.json`, где он обязан совпасть с `GALLERY_EXPECTED_HEAD`.
-Более поздний commit только с отчётом не меняет provenance старого CI APK.
-
-Физический S23 / Android 16 / One UI 8.5: проверить сохранение session/data,
-Trash после stale sync/restart, Library Albums late preview и hide/reorder/reset,
-sharp face-aware Live/Motion thumbnail и один muted one-shot playback после
-settling; scroll немедленно останавливает. Для Cloud Picker выполнить
-[существующий Shizuku pilot](../specs/testing/2026-10-07-cloud-media-s23-pilot.md):
-on-device Wireless Debugging, Shizuku permission, opt-in и ручной выбор «Фото»
-в системном Picker. Root/rish/компьютер не требуются; физический результат ещё
-должен подтвердить пользователь.
-
-## 5. iOS: unsigned verification, затем отдельный бесплатный install
-
-Production signing, App Store Connect, paid certificates/TestFlight не нужны
-для build-only проверки и в эту процедуру не входят.
-Программа `mobile/scripts/release/ios_unsigned.py` запускает существующий
-`.github/workflows/gallery-build-mobile.yml` с пустым `version`, `build_target=ios`,
-`android_media_pilot=false`, `refresh_ios_pods_lock=false`. Tool проверяет точный
-remote HEAD и не dispatch-ит новый run при другом активном run `work`.
-Нужны Python 3.11+ и обычный GitHub CLI доступ; Apple credentials не нужны.
+If the existing installation uses the prepared seed, prepare with the **same**
+real Personal Team ID on macOS; this preserves the original unsigned IPA and
+changes only the required custom AppGroupId/ShareMedia handoff metadata:
 
 ```bash
-export GALLERY_RELEASE_DIR="$HOME/Downloads/foto-release-$GALLERY_EXPECTED_HEAD"
-python3 mobile/scripts/release/ios_unsigned.py preflight \
-  --expected-commit "$GALLERY_EXPECTED_HEAD"
-python3 mobile/scripts/release/ios_unsigned.py dispatch \
-  --expected-commit "$GALLERY_EXPECTED_HEAD" --wait \
-  --version 5.7.2 --build 8 --output "$GALLERY_RELEASE_DIR/ios"
+# macOS only, using the SAME existing SideStore team/mapping.
+IPA_SHA="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["ios"]["sha256"])' "$PROFILE")"
+python3 "$ARTIFACTS/tooling/ios/release/prepare_sidestore.py" \
+  --ipa "$ARTIFACTS/ios/Photos-unsigned.ipa" --input-sha256 "$IPA_SHA" \
+  --team-id "$EXISTING_PERSONAL_TEAM_ID" --version 5.7.2 --build 9 \
+  --output "$NEW_SEED_OUTPUT_DIRECTORY"
 ```
 
-Если точный unsigned run из handoff уже успешен, **пропустить dispatch** и
-загрузить его artifact следующим блоком. `GALLERY_IOS_SOURCE_HEAD` — полный
-`head_sha` этого run; он может отличаться от итогового checkout HEAD, если после
-сборки был добавлен только проверенный документационный отчёт. Не заменять его
-значением `git rev-parse HEAD` автоматически.
+Use the prepared seed IPA in SideStore only where that mapping was established.
+Do not invent a new mapping or remove extensions to solve a signing failure.
+Retain SideStore/LocalDevVPN, Developer Mode/trust and 7-day refresh requirements.
+Verify session preservation, Share Extension, Widget and App Group on the iPhone.
+
+## 6. Smoke test, device acceptance and rollback
+
+After approved deployment, the existing acceptance action uploads only a newly
+created synthetic PNG, verifies Trash/Restore, timestamps and original bytes,
+and leaves it Active. It does **not** permanently delete user media.
 
 ```bash
-export GALLERY_IOS_SOURCE_HEAD='<FULL_RELEASE_SHA_FROM_FINAL_HANDOFF>'
-export GALLERY_IOS_RUN_ID='<SUCCESSFUL_BUILD_8_RUN_FROM_FINAL_HANDOFF>'
-python3 mobile/scripts/release/ios_unsigned.py fetch --run "$GALLERY_IOS_RUN_ID" \
-  --expected-commit "$GALLERY_IOS_SOURCE_HEAD" \
-  --version 5.7.2 --build 8 --output "$GALLERY_RELEASE_DIR/ios"
+GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY" acceptance \
+  --state "$STATE" --pinned-tool "$PINNED" --key "$ADMIN_KEY_FILE" \
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" --approve-deployment
 ```
 
-Успех должен включать настоящую macOS/Xcode compilation, archive verification
-всех трёх bundles и `ios-unsigned-archive` / `ios-unsigned-ipa`; missing artifact
-является failure. Не использовать старый run/версию за новый release.
-Точный новый run/source SHA/artifact/digest и итоговый checkout HEAD фиксируются
-отдельно в handoff. `release-manifest.json.commit` содержит source SHA IPA,
-не более поздний HEAD документационного отчёта. Download
-проверяет provenance/run SHA, отсутствие paid steps, package metadata всех
-трёх targets, ASCII base names и русскую localization. На выходе:
-`Photos-unsigned.ipa`, `.sha256`, `release-manifest.json`. Недоступность download
-или native artifact — честный failure; сборка не заменяется другой IPA.
-Повторный `dispatch --wait --output` с уже готовым handoff проверяет тот же
-checkout, receipt/version/build/hash и исходный успешный run, затем возвращает
-существующий artifact без нового CI запуска. Чужой, повреждённый или
-несоответствующий output останавливает команду до dispatch.
-
-Обычная unsigned IPA сохраняет Runner + ShareExtension + WidgetExtension.
-Последующий бесплатный SideStore/LocalDevVPN этап выполняется на физическом
-iPhone с Personal Team и собственным Apple ID; это отдельный user-side signing
-gate, не «готовая signed IPA» из CI. Base names ASCII, русское launcher name
-«Фото» остаётся через localization. Не удалять extensions и не переделывать
-App Groups ради предполагаемой ошибки подписи.
-
-Для уже подготовленного SideStore pilot только на Mac, после получения реального
-Personal Team ID из собственной SideStore настройки:
+Follow `GALLERY_BUILD9_ACCEPTANCE.md`: Android/iPhone/web, each user separately,
+local-only/NAS-only/both, photo/video/Live/Motion, single/bulk/permission denial,
+offline/restart/delayed sync, albums/search and original chronology. Permanent
+NFS acceptance needs a separately approved **disposable-only library**, never
+family originals. Validate mount semantics without granting extra permissions.
 
 ```bash
-# INPUT_SHA берётся из проверенного Photos-unsigned.ipa.sha256/manifest.
-export IPA_SHA='<VERIFIED_INPUT_IPA_SHA256>'
-export PERSONAL_TEAM_ID='<YOUR_ACTUAL_PERSONAL_TEAM_ID>'
-
-# Portable read-only проверка входа; Mac codesign пока не запускается.
-python3 mobile/scripts/release/prepare_sidestore.py \
-  --ipa "$GALLERY_RELEASE_DIR/ios/Photos-unsigned.ipa" \
-  --input-sha256 "$IPA_SHA" --team-id "$PERSONAL_TEAM_ID" \
-  --version 5.7.2 --build 8 \
-  --output "$GALLERY_RELEASE_DIR/ios/Photos-5.7.2-8-SideStore-seed-unsigned.ipa" \
-  --check-only
-
-# Отдельный Mac pilot gate: seed/ad-hoc подготовка, не paid distribution signing.
-python3 mobile/scripts/release/prepare_sidestore.py \
-  --ipa "$GALLERY_RELEASE_DIR/ios/Photos-unsigned.ipa" \
-  --input-sha256 "$IPA_SHA" --team-id "$PERSONAL_TEAM_ID" \
-  --version 5.7.2 --build 8 \
-  --output "$GALLERY_RELEASE_DIR/ios/Photos-5.7.2-8-SideStore-seed-unsigned.ipa"
+# Only after explicit rollback approval; same state/journal and private key.
+GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY" rollback \
+  --state "$STATE" --pinned-tool "$PINNED" --key "$ADMIN_KEY_FILE" \
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" --approve-deployment
 ```
 
-Входная unsigned IPA остаётся неизменной; seed сохраняет обе extensions.
-Этот этап не создаёт Apple certificate/profile и не устанавливает приложение.
-Реальную бесплатную подпись выдаёт SideStore/Apple Personal Team на iPhone.
-Импортировать подготовленную seed IPA в SideStore с **Append Team ID включённым**;
-при выборе extensions — **Keep App Extensions (Register App ID for Each Extension)**.
-Не выбирать Use Main Profile/Remove App Extensions. Mac seed codesign и реальный
-free provisioning/installation требуют отдельной проверки: **NEEDS_MAC_VALIDATION /
-NEEDS_PHYSICAL_IPHONE_VALIDATION**, пока они действительно не выполнены.
+Rollback verifies/reloads the exact saved bridge archive if necessary, restores
+only the immediately previous API plus recognition markers, keeps workers off
+and queue paused, preserves DB/tombstones and checks unrelated container IDs.
+It cannot undo a completed NAS unlink. Database + NAS recovery and reconciliation
+need a separate approved recovery procedure; never restore only SQL and claim
+physical media recovered. Keep all old snapshots, backups and new receipts.
 
-Основа: [iOS implementation/physical acceptance](../specs/testing/2026-10-05-ios-implementation-validation.md),
-[free distribution design](../specs/2026-10-05-ios-free-distribution-design.md),
-[HP/free pilot](../specs/testing/2026-10-06-mobile-week-hp-free-pilot.md).
-Проверить PhotoKit denied/limited/full/iCloud-only, paired Live import/share/save
-и честный image-only fallback, background expiration/cancel/drain, ShareExtension,
-Widget/App Group, update/session preservation и два free 7-day refresh cycles.
-CI compilation не заменяет эту физическую проверку.
+## Tooling validation boundary
 
-## 6. Server deployment и rollback
+Python syntax/guard tests, real classic Docker import and tamper fixtures, and
+actual immutable rollback overlay creation are cloud-tested. The proof workflow
+also exercises real containerd import; only its successful result establishes
+that store check. Exact HP fresh-backup migration/rollback startup is performed
+by `prepare`, and remains **PREPARED / NEEDS HP VALIDATION** until its PASS.
+Production signing, SideStore update and physical deletion are
+**PREPARED / NEEDS PHYSICAL VALIDATION**. No VAAPI/Memories setup is required.
 
-**Для текущего Trash safety release требуется backend update** после отдельного
-approval. HP read-only queue/backups/mount report уже PASS; recovery proof и
-deployment/retention approvals остаются обязательными. Использовать раздел 0.
-См. [точный порядок и rollback limits](../specs/testing/2026-10-09-trash-release-handoff.md).
-Новых DB migrations нет; существующие FileDelete не становятся безопасными
-от одной замены image. Только service immich-server, no-deps; не трогать
-PostgreSQL/Redis/ML и persistent volumes. Старая mobile-only формулировка
-NO SERVER DEPLOYMENT REQUIRED относится к прошлому release и больше
-не является инструкцией для этого backend safety патча.
-
-## 7. Memories / VAAPI и независимый rollback
-
-В этой задаче не установлен и не заменён внешний renderer/VAAPI runtime.
-Memories/VAAPI setup, activation и rollback tools — **NOT REQUIRED**.
-Ранее работающий HP VAAPI путь сохраняется; не отключать его ради mobile release.
-Не запускать historical warmup или полный анализ библиотеки.
-
-Исходный `StreamingEncoder`/`assemble_streaming` и доказательства уже завершённого
-job всё ещё нужны для корректного исправления отсутствующих source videos и
-дальнейшей оптимизации. См.
-[точную границу доступных источников](../specs/2026-10-07-memory-video-vaapi-source-boundary.md).
-Это **BLOCKED_EXTERNAL_SOURCE / NEEDS_HP_VAAPI_VALIDATION**, а не выполненное
-ускорение. Новых `/dev/dri` permissions, Docker/network settings и installation
-scripts без исходников здесь нет.
-
-## 8. Физическая приёмка и состояние tooling
-
-До установки сохранить проверенные APK/IPA, receipts и SHA-256. Source HEAD,
-run ID и исходный artifact должны соответствовать итоговому handoff.
-
-На **Samsung S23 / Android 16 / One UI 8.5**:
-
-1. Установить HP-key-signed `Foto.apk` поверх существующего «Фото»; проверить
-   session, настройки и библиотеку без очистки данных.
-2. Отправить фото в Trash, дождаться sync, повторить foreground/background,
-   restart и reconnect: оно остаётся только в Trash; Restore возвращает его.
-3. Открыть Library до завершения sync. Albums должен обновить mosaic сам;
-   проверить empty/loading/error, Retry и одну недоступную обложку. Проверить
-   сохранённые show/hide/reorder/reset всех Registry-карточек.
-4. Проверить sharp still и muted one-shot Live/Motion в ленте, портрет/landscape,
-   лица, быстрый scroll, viewer/navigation и отсутствие каскада. При статичном
-   результате сохранить только `Timeline motion:` stage records и build receipt.
-5. Установить официальный Shizuku; включить Developer options → Wireless debugging,
-   выполнить pairing code на телефоне и Start. В «Фото» выдать Shizuku permission,
-   включить provider в Advanced settings, затем вручную выбрать «Фото» в системном
-   Photo Picker. Проверить server-only photo в приложении, которое действительно
-   вызывает системный Picker, затем большое видео/seek/cancel/network loss.
-6. Проверить exclusion Trash/Locked/hidden motion companions, account switching,
-   сохранность Google Photos/другой allowlist, reboot и Disable/recovery.
-   Привилегированное undo при pending journal требует снова запустить Shizuku;
-   обычное чтение media через него не проходит.
-
-На **iPhone iOS 17+** для полного набора extensions:
-
-1. Использовать проверенный SideStore/LocalDevVPN pilot и собственный Apple ID;
-   paid Apple Developer/TestFlight не требуются. Проверить actual Personal Team
-   profiles, group entitlement и `AppGroupId` всех трёх подписанных targets.
-2. После Developer Mode/trust проверить имя «Фото», auth/session, ShareExtension,
-   WidgetExtension/App Group и update поверх предыдущей установки.
-3. Проверить PhotoKit permissions/local/iCloud, HEIC/HEVC Live Photos,
-   still+motion identity, incoming/outgoing Share, Save и image-only fallback.
-4. Проверить timeline/face crop, Memories, Trash, manual stacks, Magic Eraser,
-   background lock/expiration/cancellation/network loss/upload resume.
-5. Проверить ежедневный free refresh с LocalDevVPN и минимум два 7-day цикла,
-   включая reboot и восстановление после неудачного refresh. Автоматизация iOS
-   не гарантирует продление при любой сети/состоянии устройства.
-
-| Tool                                               | Проверено здесь                                                               | Реальный release gate                                                        |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Android `android_release.py`                       | guards/failure/idempotency tests, read-only preflight                         | **PREPARED BUT NEEDS HP VALIDATION**: постоянный ключ доступен только на HP  |
-| Existing unsigned iOS workflow + `ios_unsigned.py` | metadata/provenance/guards tests; actual macOS build and archive verification | **TESTED** in CI; Cloud download policy and physical install remain separate |
-| `prepare_sidestore.py`                             | deterministic mapping, safe ZIP/staging, check-only и mocked codesign tests   | **PREPARED BUT NEEDS MACOS AND PHYSICAL IPHONE VALIDATION**                  |
-| Server deployment/rollback                         | Disposable SQL restore, guarded Compose recreate/rollback, failure tests      | **PREPARED BUT NEEDS HP VALIDATION**, см. раздел 0                           |
-| Memories/VAAPI setup/rollback                      | External runtime не изменён                                                   | **NOT REQUIRED**                                                             |
-
-Повторяемые тесты tooling:
-
-```bash
-python3 -m unittest discover -s scripts/release/tests -p 'test_android_release.py'
-python3 -m unittest discover -s mobile/scripts/tests -p 'test_ios*.py'
-python3 -m unittest discover -s mobile/scripts/tests -p 'test_package_unsigned_ios.py'
-bash -n mobile/scripts/android_media_codegen.sh mobile/scripts/android_native_motion_test.sh mobile/scripts/ios_build_only.sh
-```
-
-Fixture/mock tests не заменяют HP signing, Mac codesign или физический S23/iPhone.
-Все команды здесь соответствуют committed tooling; установка и production
-deployment автоматически из Codex не выполняются.
+Current reusable tools: `android_release.py`, `gallery-build-mobile.yml`,
+`prepare_sidestore.py`, `server_build.sh`, `trash_predeploy.py`,
+`rollback_bridge.py`, `authorize_library.py`, `gallery-trash-release-proof.yml`.
+Historical build-8 evidence is retained separately; never apply its artifact
+hashes or migration-equality assumptions to this new candidate.
