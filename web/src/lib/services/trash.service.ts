@@ -1,7 +1,9 @@
-import { emptyTrash, restoreTrash } from '@immich/sdk';
+import { deletionScopes, emptyTrash, restoreTrash } from '@immich/sdk';
 import { modalManager, toastManager, type ActionItem } from '@immich/ui';
 import { mdiDeleteForeverOutline, mdiHistory } from '@mdi/js';
 import type { MessageFormatter } from 'svelte-i18n';
+import { featureFlagsManager } from '$lib/managers/feature-flags-manager.svelte';
+import { deletionMessage } from '$lib/utils/deletion-message';
 import { handleError } from '$lib/utils/handle-error';
 import { getFormatter } from '$lib/utils/i18n';
 
@@ -30,6 +32,20 @@ export const handleEmptyTrash = async () => {
   }
 
   try {
+    if (featureFlagsManager.valueOrUndefined?.authorizedDeletion) {
+      const scopes = await deletionScopes();
+      const blocked = scopes.filter((scope) => !scope.authorized);
+      if (blocked.length > 0) {
+        toastManager.primary(
+          $t('deletion_batch_blocked') +
+            ' ' +
+            blocked
+              .map(({ scope, count }) => `${deletionMessage($t, 'LIBRARY_DELETION_NOT_AUTHORIZED', scope)} (${count})`)
+              .join(' '),
+        );
+        return;
+      }
+    }
     const { count } = await emptyTrash();
     toastManager.primary($t('assets_permanently_deleted_count', { values: { count } }));
   } catch (error) {

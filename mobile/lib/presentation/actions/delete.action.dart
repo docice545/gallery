@@ -12,6 +12,7 @@ import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/toast.service.dart';
+import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 
@@ -189,7 +190,7 @@ class DeleteAction extends AssetActionBuilder {
     }
     final incomplete = results
         .where((result) => !result.complete)
-        .map((result) => '${result.id}: ${result.code ?? result.state}')
+        .map((result) => deletionMessage(context, result))
         .take(25)
         .join(', ');
     return '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: incomplete)}. ${_deviceResult(context, ref, local)}';

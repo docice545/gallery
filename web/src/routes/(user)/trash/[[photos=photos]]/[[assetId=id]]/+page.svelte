@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import empty3Url from '$lib/assets/empty-3.svg';
   import UserPageLayout from '$lib/components/layouts/UserPageLayout.svelte';
+  import ManagedDeletionSettings from '$lib/components/shared-components/ManagedDeletionSettings.svelte';
   import EmptyPlaceholder from '$lib/components/shared-components/EmptyPlaceholder.svelte';
   import DeleteAssets from '$lib/components/timeline/actions/DeleteAssetsAction.svelte';
   import RestoreAssets from './RestoreAction.svelte';
@@ -101,6 +102,9 @@
       grouping={timelineGrouping}
       onGroupingChange={handleTimelineGroupingChange}
     >
+      {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
+        <ManagedDeletionSettings />
+      {/if}
       <p class="p-4 font-medium text-gray-500/60 dark:text-gray-300/60">
         {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
           {$t('trash_manual_retention_info')}

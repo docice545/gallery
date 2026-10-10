@@ -5,6 +5,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/trash_bottom_sheet.widget.dart';
+import 'package:immich_mobile/presentation/widgets/managed_deletion_dialog.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope.dart';
 import 'package:immich_mobile/providers/infrastructure/action.provider.dart';
@@ -13,6 +14,7 @@ import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
+import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
@@ -107,7 +109,7 @@ class _TrashKebabMenu extends ConsumerWidget {
       }
       final reasons = results
           .where((result) => !result.complete)
-          .map((result) => result.code ?? result.state)
+          .map((result) => deletionMessage(context, result))
           .toSet()
           .join(', ');
       ImmichToast.show(
@@ -169,6 +171,13 @@ class _TrashKebabMenu extends ConsumerWidget {
         padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 6)),
       ),
       menuChildren: [
+        if (ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion)))
+          BaseActionButton(
+            label: context.t.managed_deletion_title,
+            iconData: Icons.shield_outlined,
+            onPressed: () => showDialog<void>(context: context, builder: (_) => const ManagedDeletionDialog()),
+            menuItem: true,
+          ),
         BaseActionButton(
           label: context.t.empty_trash,
           iconData: Icons.delete_forever_outlined,

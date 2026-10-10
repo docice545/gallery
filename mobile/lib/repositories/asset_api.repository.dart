@@ -41,9 +41,103 @@ class AssetApiRepository extends ApiRepository {
   Future<void> delete(List<String> ids, bool force) =>
       _serializeTrashRequest(() => _api.deleteAssets(AssetBulkDeleteDto(ids: ids, force: Optional.present(force))));
 
+  Future<ManagedDeletionStatus> managedDeletionStatus() async {
+    final value = await _managedDeletionRequest('/assets/managed-deletion-policy', 'GET');
+    return ManagedDeletionStatus(
+      enabled: value['enabled'] as bool,
+      prepared: value['prepared'] as bool,
+      canPrepare: value['canPrepare'] as bool,
+    );
+  }
+
+  Future<void> setManagedDeletionConsent(bool enabled) async {
+    await _managedDeletionRequest('/assets/managed-deletion-consent', 'PUT', {'enabled': enabled, 'confirmed': true});
+  }
+
+  Future<void> prepareManagedDeletion(String recoveryProof) async {
+    await _managedDeletionRequest('/assets/managed-deletion-preparation', 'PUT', {
+      'recoveryProof': recoveryProof,
+      'verifiedExclusiveRoots': true,
+    });
+  }
+
+  Future<Map<String, dynamic>> _managedDeletionRequest(String path, String method, [Object? body]) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      path,
+      method,
+      <QueryParam>[],
+      body,
+      <String, String>{},
+      <String, String>{},
+      body == null ? null : 'application/json',
+    );
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw ApiException(response.statusCode, 'Managed deletion authorization unavailable');
+    }
+    return response.statusCode == 204 ? {} : jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<List<PermanentDeletionResult>> _preflightPermanentDeletion(List<String> ids) async {
+    final results = <PermanentDeletionResult>[];
+    for (var start = 0; start < ids.length; start += 200) {
+      final batch = ids.skip(start).take(200).toSet();
+      final response = await _apiService.apiClient.invokeAPI(
+        '/assets/permanent-deletion/preflight',
+        'POST',
+        <QueryParam>[],
+        {'ids': batch.toList()},
+        <String, String>{},
+        <String, String>{},
+        'application/json',
+      );
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw ApiException(response.statusCode, 'Permanent deletion preflight unavailable');
+      }
+      final values = (jsonDecode(utf8.decode(response.bodyBytes)) as List).cast<Map<String, dynamic>>();
+      if (values.length != batch.length ||
+          values.map((v) => v['id']).toSet().length != batch.length ||
+          values.any((v) => !batch.contains(v['id']) || v['authorized'] is! bool)) {
+        throw StateError('Invalid deletion preflight');
+      }
+      results.addAll(
+        values.map(
+          (v) => PermanentDeletionResult(
+            id: v['id'] as String,
+            state: v['authorized'] == true ? 'authorized' : 'blocked',
+            scope: v['scope'] as String?,
+            code: v['code'] as String?,
+          ),
+        ),
+      );
+    }
+    return results;
+  }
+
   Future<List<PermanentDeletionResult>> permanentlyDelete(List<String> ids) => _serializeTrashRequest(() async {
     final requested = ids.toSet().toList();
     final acknowledged = <PermanentDeletionResult>[];
+    // Check the ENTIRE selection before any mutation, including selections larger than 200.
+    // A failed read cannot mean a permanent intent was created.
+    List<PermanentDeletionResult> preflight;
+    try {
+      preflight = await _preflightPermanentDeletion(requested);
+    } catch (_) {
+      return requested
+          .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT'))
+          .toList();
+    }
+    if (preflight.any((result) => result.state != 'authorized')) {
+      return preflight
+          .map(
+            (result) => PermanentDeletionResult(
+              id: result.id,
+              state: 'blocked',
+              scope: result.scope,
+              code: result.code ?? 'DELETION_BATCH_NOT_AUTHORIZED',
+            ),
+          )
+          .toList();
+    }
     for (var start = 0; start < requested.length; start += 200) {
       final unique = requested.skip(start).take(200).toSet();
       try {
@@ -67,12 +161,27 @@ class AssetApiRepository extends ApiRepository {
           if (!unique.contains(id) || !const {'complete', 'pending', 'failed', 'blocked'}.contains(state)) {
             throw StateError('Invalid deletion acknowledgement');
           }
-          return PermanentDeletionResult(id: id, state: state, code: value['code'] as String?);
+          return PermanentDeletionResult(
+            id: id,
+            state: state,
+            scope: value['scope'] as String?,
+            code: value['code'] as String?,
+          );
         }).toList();
         if (results.length != unique.length || results.map((item) => item.id).toSet().length != unique.length) {
           throw StateError('Incomplete deletion acknowledgement');
         }
         acknowledged.addAll(results);
+        if (results.any(
+          (result) => const {'LIBRARY_DELETION_NOT_AUTHORIZED', 'DELETION_BATCH_NOT_AUTHORIZED'}.contains(result.code),
+        )) {
+          acknowledged.addAll(
+            requested
+                .skip(start + 200)
+                .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT')),
+          );
+          break;
+        }
       } catch (error) {
         final definite = isDefiniteTrashRejection(error);
         acknowledged.addAll(

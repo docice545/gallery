@@ -1,4 +1,10 @@
-import { AssetVisibility, deleteAssets as deleteBulk, permanentDeletion, restoreAssets } from '@immich/sdk';
+import {
+  AssetVisibility,
+  deleteAssets as deleteBulk,
+  deletionPreflight,
+  permanentDeletion,
+  restoreAssets,
+} from '@immich/sdk';
 import { toastManager } from '@immich/ui';
 import { t } from 'svelte-i18n';
 import { get } from 'svelte/store';
@@ -6,6 +12,7 @@ import { featureFlagsManager } from '$lib/managers/feature-flags-manager.svelte'
 import { TimelineManager } from '$lib/managers/timeline-manager/timeline-manager.svelte';
 import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
 import type { StackResponse } from '$lib/utils/asset-utils';
+import { deletionMessage } from './deletion-message';
 import { handleError } from './handle-error';
 
 export type OnDelete = (assetIds: string[]) => void;
@@ -29,6 +36,31 @@ export const deleteAssets = async (
   try {
     const ids = assets.map((a) => a.id);
     if (force && featureFlagsManager.valueOrUndefined?.authorizedDeletion) {
+      const preflight = [];
+      // Admit every scope in the entire selection before any irreversible batch.
+      for (let start = 0; start < ids.length; start += 200) {
+        const batch = ids.slice(start, start + 200);
+        const results = await deletionPreflight({ bulkIdsDto: { ids: batch } });
+        if (
+          results.length !== batch.length ||
+          new Set(results.map((r) => r.id)).size !== batch.length ||
+          results.some((r) => !batch.includes(r.id) || typeof r.authorized !== 'boolean')
+        ) {
+          throw new Error('Invalid deletion preflight');
+        }
+        preflight.push(...results);
+      }
+      if (preflight.some((r) => !r.authorized)) {
+        toastManager.primary(
+          $t('deletion_batch_blocked') +
+            ' ' +
+            preflight
+              .filter((r) => !r.authorized)
+              .map((r) => deletionMessage($t, r.code, r.scope))
+              .join(' '),
+        );
+        return;
+      }
       const completed: string[] = [];
       const unresolved: string[] = [];
       for (let start = 0; start < ids.length; start += 200) {
@@ -46,11 +78,19 @@ export const deleteAssets = async (
         unresolved.push(
           ...results
             .filter((result) => result.state !== 'complete')
-            .map((result) => `${result.id}: ${result.code ?? result.state}`),
+            .map((result) => deletionMessage($t, result.code, result.scope)),
         );
         // Apply each validated batch before requesting another. A later timeout
         // never hides earlier confirmed results or removes unresolved rows.
         onAssetDelete(removed);
+        if (
+          results.some(
+            (r) => r.code === 'LIBRARY_DELETION_NOT_AUTHORIZED' || r.code === 'DELETION_BATCH_NOT_AUTHORIZED',
+          )
+        ) {
+          unresolved.push(...ids.slice(start + 200).map(() => $t('deletion_batch_blocked')));
+          break;
+        }
       }
       toastManager.primary(
         $t('permanent_deletion_result', {
