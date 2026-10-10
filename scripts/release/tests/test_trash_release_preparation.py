@@ -154,6 +154,17 @@ class ReleasePreparation(unittest.TestCase):
                 self.assertNotIn('private/file', str(caught.exception))
                 self.assertNotIn('anything', str(caught.exception))
 
+    def test_http_failure_reports_fixed_route_and_status_without_private_body(self):
+        import urllib.error
+        error = urllib.error.HTTPError('unused', 400, 'unused', {}, io.BytesIO(json.dumps({
+            'message': 'Root is not an existing owner library root', 'token': 'SECRET',
+            'path': '/private/family/file.jpg',
+        }).encode()))
+        result = str(smoke.http_failure('PUT', '/assets/deletion-policy', error))
+        self.assertEqual(result, 'HTTP PUT /assets/deletion-policy: status 400; category OWNER_ROOT_MISMATCH')
+        self.assertNotIn('SECRET', result)
+        self.assertNotIn('/private', result)
+
 
 if __name__ == '__main__':
     unittest.main()

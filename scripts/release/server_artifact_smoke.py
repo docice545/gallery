@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -15,6 +16,22 @@ import urllib.request
 import urllib.error
 
 POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67'
+
+
+def http_failure(method, path, error):
+    """Only fixed route/status/schema diagnostics, never request data or tokens."""
+    route = re.sub(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', ':id', path)
+    codes = {
+        'Root is not an existing owner library root': 'OWNER_ROOT_MISMATCH',
+        'Unknown owner/library scope': 'OWNER_LIBRARY_MISMATCH',
+        'Unknown owner': 'OWNER_MISSING',
+    }
+    try:
+        body = json.loads(error.read(65536))
+        detail = codes.get(body.get('message'), 'API_REJECTION')
+    except (ValueError, AttributeError, TypeError):
+        detail = 'API_REJECTION'
+    return RuntimeError(f'HTTP {method} {route}: status {error.code}; category {detail}')
 
 
 def docker_failure_reason(stderr):
@@ -126,17 +143,23 @@ def main():
         assert request(f'/assets/{asset_id}/original', raw=True) == original
         print('PASS real HTTP upload/Trash/Restore/idempotency/date/original-byte preservation')
         stage = 'explicit library authorization/permanent deletion/durable receipt'
-        request('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
-        blocked = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+        def required(path, method='GET', data=None, **kwargs):
+            try:
+                return request(path, method, data, **kwargs)
+            except urllib.error.HTTPError as error:
+                raise http_failure(method, path, error) from None
+
+        required('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
+        blocked = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
         assert blocked == [{'id': asset_id, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
         assert request(f'/assets/{asset_id}/original', raw=True) == media
-        owner = request('/users/me')['id']
-        request('/assets/deletion-policy', 'PUT', {'ownerId': owner, 'scope': 'managed', 'enabled': True,
+        owner = required('/users/me')['id']
+        required('/assets/deletion-policy', 'PUT', {'ownerId': owner, 'scope': 'managed', 'enabled': True,
             'roots': ['/data/upload/' + owner], 'recoveryProof': hashlib.sha256(media).hexdigest(),
             'verifiedExclusiveRoots': True})
-        result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+        result = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
         assert result == [{'id': asset_id, 'state': 'complete'}]
-        assert request('/assets/' + asset_id + '/deletion-status') == result[0]
+        assert required('/assets/' + asset_id + '/deletion-status') == result[0]
         assert request('/trash/restore/assets', 'POST', {'ids': [asset_id]})['count'] == 0
         try:
             request(f'/assets/{asset_id}/original', raw=True)
