@@ -253,3 +253,6 @@ Current reusable tools: `android_release.py`, `gallery-build-mobile.yml`,
 `rollback_bridge.py`, `authorize_library.py`, `gallery-trash-release-proof.yml`.
 Historical build-8 evidence is retained separately; never apply its artifact
 hashes or migration-equality assumptions to this new candidate.
+The obsolete build-8 `trash_execute.sh` wrapper is excluded from the build-9
+handoff. Use only the profile-bound commands above; this release grants no
+automatic retention activation.

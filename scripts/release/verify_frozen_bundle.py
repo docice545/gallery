@@ -59,9 +59,13 @@ def verify(root, output, candidate=None):
         shutil.copyfile(root / item['path'], target)
     shutil.copyfile(root / 'backend/manifest.json', output / 'backend/manifest.json')
     tooling = output / 'tooling'; tooling.mkdir()
-    for name in ('trash_predeploy.py', 'trash_image_identity.py', 'trash_release.py', 'trash_execute.sh',
+    for name in ('trash_predeploy.py', 'trash_image_identity.py', 'trash_release.py',
                  'android_release.py', 'SignExistingApk.java', 'TRASH_PREDEPLOY.md', 'release_candidate.py', 'rollback_bridge.py', 'candidate_restore.py', 'authorize_library.py'):
         shutil.copy2(Path(__file__).parent / name, tooling / name)
+    # The historical wrapper hardcodes build 8 and exposes retention activation.
+    # Build 9 is operated only through the profile-bound predeployment entrypoint.
+    if candidate is None:
+        shutil.copy2(Path(__file__).parent / 'trash_execute.sh', tooling / 'trash_execute.sh')
     for relative in ('release/prepare_sidestore.py','release/ios_artifact.py',
                      'package_unsigned_ios.py','verify_ios_archive.py'):
         target=tooling/'ios'/relative
