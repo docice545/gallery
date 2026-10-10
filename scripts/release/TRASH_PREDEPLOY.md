@@ -2,7 +2,7 @@
 
 Use the exact candidate/profile and operator commands in
 [RELEASE_RUNBOOK.md](../../docs/RELEASE_RUNBOOK.md). Application source is
-`a33fce0093905c4e1df2399e444f3bc03573dca4`, server 5.7.2/mobile 5.7.2 (9).
+`76bbcf708e12ee811041adcc38fd7909a7d6da15`, server 5.7.2/mobile 5.7.2 (9).
 Production remains `work` at `42790b06edc21438811e56e40c431eee37c24894`.
 
 `trash_predeploy.py` loads the unchanged SHA-256-pinned `trash_release.py` from

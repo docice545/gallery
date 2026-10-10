@@ -15,31 +15,31 @@ External libraries, other accounts, restore and physical device APIs need indepe
 
 ## Server contract
 
-* Ordinary `DELETE /api/assets` (`force=false`) marks Trash; never unlinks. Existing Restore updates
+- Ordinary `DELETE /api/assets` (`force=false`) marks Trash; never unlinks. Existing Restore updates
   only restorable rows and returns actual acknowledgements; capture date, timezone, album links and pair
   identity remain unchanged. Offline external index tombstones are distinct from user Trash.
-* `POST /api/assets/permanent-deletion` accepts 1..200 selected IDs and `confirmed=true`; returns one
+- `POST /api/assets/permanent-deletion` accepts 1..200 selected IDs and `confirmed=true`; returns one
   owner-scoped `complete/failed/pending/blocked` receipt per ID. Unknown/foreign/active assets fail closed.
   Existing force-delete delegates to this contract and rejects partial success; Empty Trash prechecks
   every library, then processes bounded batches. Normal Trash remains available with retention disabled.
-* `PUT /api/assets/deletion-policy` is existing admin + system-config permission. An owner and either
+- `PUT /api/assets/deletion-policy` is existing admin + system-config permission. An owner and either
   `managed` or an existing owner's library UUID are required. Defaults: disabled. Enabling requires
   exact existing roots, verified exclusive roots and SHA-256 recovery proof. No permission expansion.
   Roots must be canonical, writable through current permissions, disjoint from other users (including
   lexical ancestry and inode aliases). Read-only storage remains read-only and returns failure.
-* `GET /api/assets/deletion-status/:id` / bounded bulk POST return owner-scoped receipts after row removal.
+- `GET /api/assets/:id/deletion-status` / bounded bulk POST return owner-scoped receipts after row removal.
   API key permissions remain enforced by existing guards. Private paths/proofs are never returned.
-* `asset_deletion_policy` and `asset_deletion_tombstone` are additive tables. Authorization, original
+- `asset_deletion_policy` and `asset_deletion_tombstone` are additive tables. Authorization, original
   identity, pairing, checksums and aliases survive asset/library FK cascade. Hashing streams files.
   Intent commits before long hashing. Failed unlink retains the row/receipt and reports failure;
   retries verify current authorization and exact inode/size/mtime/hash, never guess a replacement.
-* Only the worker that removes the row emits delete/quota/FileDelete effects. Originals and sidecars
+- Only the worker that removes the row emits delete/quota/FileDelete effects. Originals and sidecars
   are removed under the receipt, derivatives only enter FileDelete. Bare legacy FileDelete cannot
   remove originals. Retention jobs (including old jobs with cutoff) are skipped unconditionally;
   this release does not grant retention approval. Library index cleanup preserves originals.
-* Live still's exclusively linked same-owner/same-library hidden video is journaled and removed first.
+- Live still's exclusively linked same-owner/same-library hidden video is journaled and removed first.
   Failed video removal keeps the still row available in Trash. Shared companions are preserved.
-* Permanent suppression uses owner+canonical path and comparable SHA-1/duplicate aliases. DB insert
+- Permanent suppression uses owner+canonical path and comparable SHA-1/duplicate aliases. DB insert
   triggers serialize against deletion; external scan additionally streams bytes only for owners with
   receipts, so renamed byte-identical media cannot reimport. No fuzzy identity or cross-owner checksum
   blocking. Arbitrarily edited media is a new identity, not provably the same asset.

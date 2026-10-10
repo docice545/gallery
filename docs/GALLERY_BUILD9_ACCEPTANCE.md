@@ -1,6 +1,6 @@
 # Gallery build 9: release acceptance gates
 
-Source: `a33fce0093905c4e1df2399e444f3bc03573dca4`. Backend 5.7.2, Android/iOS
+Source: `76bbcf708e12ee811041adcc38fd7909a7d6da15`. Backend 5.7.2, Android/iOS
 5.7.2 (9). Automated evidence is distinct from physical/production acceptance.
 No HP, NAS originals, production queues or signing keys were touched.
 
@@ -37,6 +37,11 @@ candidate with explicit operator gates, not a claim of completed production acce
   Two new expectations were corrected; focused groups passed 296 and 423 tests.
   Two previously existing revert/scope-guard failures remain; full suite is not
   represented as PASS. Changed server TypeScript/build/ESLint passed.
+  The same two guards were executed against the exact production baseline
+  `42790b06edc21438811e56e40c431eee37c24894`: 33 passed, 2 failed. The candidate
+  also produced 33 passed, the same 2 failures. The old revert list omits three
+  historical migrations; the memory import is falsely counted as a query arm.
+  Neither authorizes reverting the new durable deletion migration.
 - Full PostgreSQL: 3,241 passed, 47 failures, 12 skips. Environment/fixture/timing
   failures and corrected new expectations are recorded separately; full suite is
   not represented as PASS. Final deletion/lifecycle group passed 17; authorization,
@@ -47,6 +52,10 @@ candidate with explicit operator gates, not a claim of completed production acce
   These are not hidden or counted as successful checks.
 - iOS tooling: 108 passed. Runtime compilation/archive verification is established
   only by the exact successful build-9 CI artifact. No physical iPhone PASS.
+- Final resumed PostgreSQL Trash/count/cover/retention regression group: 26 passed.
+  Offline Active index tombstones are excluded from user Trash; a failed authorized
+  deletion remains visible. Read-only audit/CI-harness group: 18 passed, including
+  valid null derivative slots and rejection of malformed/relative paths.
 - Release-tooling guard tests and real Docker/rollback proof results are recorded
   in the final handoff. No production backup restore or deployment is executed
   by cloud tests.
