@@ -62,6 +62,9 @@ markers are reconciled through the current owner-scoped asset GET before stream
 ACK; a delayed index snapshot cannot clear newer Trash. Definite rejection of a
 Trash action on an index row restores index availability without creating a
 durable user-deletion marker. Cache reset and reopen preserve that distinction.
+An uncertain request is also reconciled against current `isOffline`: unchanged
+offline index state stays unavailable, whereas a verified online state can
+return to Timeline. This works even when reconnect sync contains no asset events.
 
 Trash resolves the server operation before local deletion and keeps optimistic revision state through
 uncertain responses. Definite rejection rolls back; ambiguous delivery survives restart/reconnect.

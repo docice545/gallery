@@ -446,8 +446,8 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> reconcilePendingTrash(AssetTrashSnapshot snapshot, {required bool isTrashed}) =>
-      _resolveTrashOperation(snapshot, isTrashed);
+  Future<void> reconcilePendingTrash(AssetTrashSnapshot snapshot, {required bool isTrashed, bool isOffline = false}) =>
+      _resolveTrashOperation(snapshot, isTrashed, restoreIndexState: !isTrashed && isOffline);
 
   /// Receipt acknowledgements use the same captured revision as Trash/Restore.
   /// A timeout never proves that a permanent deletion reached the server.
@@ -501,7 +501,12 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     });
   }
 
-  Future<void> _resolveTrashOperation(AssetTrashSnapshot snapshot, bool? trashed, {bool rollback = false}) async {
+  Future<void> _resolveTrashOperation(
+    AssetTrashSnapshot snapshot,
+    bool? trashed, {
+    bool rollback = false,
+    bool restoreIndexState = false,
+  }) async {
     await _db.transaction(() async {
       if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
         return;
@@ -528,17 +533,19 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         final previous = state.remove('previousDeletedAt');
         final previousTrashDate = state.remove('previousTrashDate');
         final previousIndexState = state.remove('previousIndexTombstone') == true;
-        indexRollback = rollback && previousIndexState;
+        indexRollback = (rollback || restoreIndexState) && previousIndexState;
         state.remove('previousPending');
-        if (rollback && trashed) {
+        if ((rollback && trashed) || indexRollback) {
           state['deletedAt'] = previous;
         }
         if (row != null) {
           await (_db.remoteAssetEntity.update()..where((r) => r.id.equals(snapshot.id))).write(
             RemoteAssetEntityCompanion(
-              isIndexTombstone: Value(rollback && previousIndexState),
+              isIndexTombstone: Value(indexRollback),
               deletedAt: Value(
-                trashed ? DateTime.fromMillisecondsSinceEpoch(state['deletedAt'] as int, isUtc: true) : null,
+                trashed || indexRollback
+                    ? DateTime.fromMillisecondsSinceEpoch(state['deletedAt'] as int, isUtc: true)
+                    : null,
               ),
             ),
           );

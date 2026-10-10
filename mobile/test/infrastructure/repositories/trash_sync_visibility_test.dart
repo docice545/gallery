@@ -177,6 +177,31 @@ void main() {
       await stream(payload(trashDate: deletedAt)..['isTrashed'] = false, v2: v2);
       expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), ['still']);
     });
+
+    test('uncertain Trash rejected by current offline state keeps the index unavailable (v2=$v2)', () async {
+      await stream(payload(trashDate: deletedAt)..['isTrashed'] = false, v2: v2);
+      final snapshots = await RemoteAssetRepository(ctx.db).beginTrashOperation(['still'], restore: false);
+      await sync.completeTrashOperation(snapshots, success: false);
+      final pending = (await sync.getPendingTrashOperations()).single;
+      await sync.reconcilePendingTrash(pending, isTrashed: false, isOffline: true);
+      expect((await RemoteAssetRepository(ctx.db).get('still'))!.isIndexTombstone, isTrue);
+      expect(await sync.getRetainedTrashIds('owner'), isEmpty);
+      expect(await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 100), isEmpty);
+    });
+
+    test('current online state clears stale index availability after uncertain Trash (v2=$v2)', () async {
+      await stream(payload(trashDate: deletedAt)..['isTrashed'] = false, v2: v2);
+      final snapshots = await RemoteAssetRepository(ctx.db).beginTrashOperation(['still'], restore: false);
+      await sync.completeTrashOperation(snapshots, success: false);
+      await sync.reconcilePendingTrash((await sync.getPendingTrashOperations()).single, isTrashed: false);
+      final asset = (await RemoteAssetRepository(ctx.db).get('still'))!;
+      expect(asset.isIndexTombstone, isFalse);
+      expect(asset.deletedAt, isNull);
+      expect(await sync.getRetainedTrashIds('owner'), isEmpty);
+      expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 100)).map((a) => a.id), [
+        'still',
+      ]);
+    });
   }
 
   test('index-only cache flag survives an actual SQLite close and reopen', () async {

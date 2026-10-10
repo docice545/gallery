@@ -408,6 +408,25 @@ void main() {
       return repository;
     }
 
+    for (final offline in [false, true]) {
+      test('empty sync uses current offline state when reconciling an index Trash attempt ($offline)', () async {
+        final repository = await useRealRepository();
+        await context.db.customStatement("UPDATE remote_asset_entity SET is_index_tombstone=1 WHERE id='remote-1'");
+        final remote = RemoteAssetRepository(context.db);
+        final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+        await remote.completeTrashOperation(snapshots, success: false);
+        final current = currentAsset(isTrashed: false)..isOffline = offline;
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => current);
+        expect(await sut.sync(), isTrue);
+        final cached = (await remote.get('remote-1'))!;
+        expect(cached.isIndexTombstone, offline);
+        expect(cached.deletedAt == null, !offline);
+        expect(cached.isTrashed, isFalse);
+        expect(await repository.getRetainedTrashIds('owner'), isEmpty);
+        expect(await repository.getPendingTrashOperations(), isEmpty);
+      });
+    }
+
     for (final serverTrashed in [false, true]) {
       test('empty reconnect sync resolves uncertain Trash to current server state $serverTrashed', () async {
         final repository = await useRealRepository();

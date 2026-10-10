@@ -351,7 +351,11 @@ class SyncStreamService {
       if (current == null || current.id != snapshot.id || current.ownerId != snapshot.ownerId) {
         throw StateError('Unable to verify pending asset Trash state');
       }
-      await _syncStreamRepository.reconcilePendingTrash(snapshot, isTrashed: current.isTrashed);
+      await _syncStreamRepository.reconcilePendingTrash(
+        snapshot,
+        isTrashed: current.isTrashed,
+        isOffline: current.isOffline,
+      );
     }
   }
 
