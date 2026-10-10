@@ -131,7 +131,7 @@ class ReleasePreparation(unittest.TestCase):
 
     def test_backend_smoke_uses_actual_version_dto(self):
         source = (ROOT / 'scripts/release/server_artifact_smoke.py').read_text()
-        self.assertIn("{'major': 5, 'minor': 7, 'patch': 1, 'prerelease': None}", source)
+        self.assertIn("{'major': 5, 'minor': 7, 'patch': 2, 'prerelease': None}", source)
 
     def test_old_backend_source_cannot_hide_application_changes(self):
         source = (ROOT / 'scripts/release/server_build.sh').read_text()

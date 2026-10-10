@@ -1154,7 +1154,7 @@ void main() {
       verify(() => mockSyncStreamRepo.deleteAssetsV1(any())).called(1);
     });
 
-    test("restores trashed local assets once the matching remote assets leave the trash", () async {
+    test("server Restore never silently recreates an intentionally deleted device copy", () async {
       final trashedAssets = [
         LocalAssetStub.image1.copyWith(id: 'trashed-1', checksum: 'checksum-trash', remoteId: 'remote-1'),
       ];
@@ -1173,7 +1173,8 @@ void main() {
 
       await simulateEvents(events);
 
-      verify(() => mockTrashedLocalAssetRepo.applyRestoredAssets(restoredIds)).called(1);
+      verifyNever(() => mockAssetMediaRepo.restoreAssetsFromTrash(any()));
+      verifyNever(() => mockTrashedLocalAssetRepo.applyRestoredAssets(any()));
     });
   });
 

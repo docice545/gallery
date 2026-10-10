@@ -76,6 +76,9 @@ BEGIN;
 -- -----------------------------------------------------------------------------
 DO $$
 BEGIN
+  IF to_regclass('public.asset_deletion_tombstone') IS NOT NULL THEN
+    RAISE EXCEPTION 'Durable deletion tombstones are present. Stock Immich conversion is unsupported; preserve recovery evidence and use a compatible Gallery rollback.';
+  END IF;
   IF current_setting('gallery.revert_token', true) IS DISTINCT FROM 'i_accept_data_loss' THEN
     RAISE EXCEPTION USING
       MESSAGE = 'revert-to-immich.sql refused: read the header, then set gallery.revert_token = ''i_accept_data_loss'' before running.';

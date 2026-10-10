@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
@@ -56,7 +57,12 @@ class BackupRepository extends DatabaseAccessor<Drift> with $BackupRepositoryMix
             INNER JOIN main.local_album_entity la on laa.album_id = la.id
             WHERE laa.asset_id = lae.id
                 AND la.backup_selection = ?3
-        );
+        )
+        AND NOT EXISTS (SELECT 1 FROM settings retained
+          WHERE retained.key LIKE 'sync.trash-reset.%'
+          AND JSON_EXTRACT(retained.value, '\$.ownerId') = ?1
+          AND (JSON_EXTRACT(retained.value, '\$.checksum') = lae.checksum OR EXISTS (SELECT 1 FROM JSON_EACH(retained.value, '\$.localIds') WHERE value = lae.id))
+          AND JSON_EXTRACT(retained.value, '\$.endpoint') = COALESCE((SELECT string_value FROM store_entity WHERE id = 12), ''));
       ''';
 
     final row = await _db
@@ -67,7 +73,14 @@ class BackupRepository extends DatabaseAccessor<Drift> with $BackupRepositoryMix
             Variable.withInt(BackupSelection.selected.index),
             Variable.withInt(BackupSelection.excluded.index),
           ],
-          readsFrom: {_db.localAlbumAssetEntity, _db.localAlbumEntity, _db.localAssetEntity, _db.remoteAssetEntity},
+          readsFrom: {
+            _db.localAlbumAssetEntity,
+            _db.localAlbumEntity,
+            _db.localAssetEntity,
+            _db.remoteAssetEntity,
+            _db.settingsEntity,
+            _db.storeEntity,
+          },
         )
         .getSingle();
 
@@ -110,6 +123,24 @@ class BackupRepository extends DatabaseAccessor<Drift> with $BackupRepositoryMix
       query.where((lae) => lae.checksum.isNotNull());
     }
 
-    return query.map((localAsset) => localAsset.toDto()).get();
+    final rows = await query.map((localAsset) => localAsset.toDto()).get();
+    final endpointRow = await (_db.storeEntity.select()..where((row) => row.id.equals(12))).getSingleOrNull();
+    final endpoint = endpointRow?.stringValue ?? '';
+    final markers = await (_db.settingsEntity.select()..where((row) => row.key.like('sync.trash-reset.%'))).get();
+    final suppressed = <String>{};
+    final suppressedLocalIds = <String>{};
+    for (final marker in markers) {
+      if (marker.value == null) {
+        continue;
+      }
+      final state = jsonDecode(marker.value!) as Map<String, dynamic>;
+      if (state['ownerId'] == userId && state['endpoint'] == endpoint) {
+        suppressed.add(state['checksum'] as String);
+        suppressedLocalIds.addAll((state['localIds'] as List? ?? []).cast<String>());
+      }
+    }
+    return rows
+        .where((asset) => !suppressed.contains(asset.checksum) && !suppressedLocalIds.contains(asset.id))
+        .toList();
   }
 }

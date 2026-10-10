@@ -1,7 +1,22 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
+import { DeletionPolicyDto, PermanentDeletionDto, PermanentDeletionResultDto } from 'src/dtos/asset-deletion.dto.js';
+import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
 import {
   AssetBulkDeleteDto,
@@ -87,6 +102,35 @@ export class AssetController {
   })
   deleteAssets(@Auth() auth: AuthDto, @Body() dto: AssetBulkDeleteDto): Promise<void> {
     return this.service.deleteAll(auth, dto);
+  }
+
+  @Put('deletion-policy')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  setDeletionPolicy(@Auth() auth: AuthDto, @Body() dto: DeletionPolicyDto): Promise<void> {
+    return this.service.setDeletionPolicy(auth, dto);
+  }
+
+  @Post('permanent-deletion')
+  @Authenticated({ permission: Permission.AssetDelete })
+  permanentDeletion(@Auth() auth: AuthDto, @Body() dto: PermanentDeletionDto): Promise<PermanentDeletionResultDto[]> {
+    return this.service.permanentlyDelete(auth, dto.ids);
+  }
+
+  @Post('deletion-status')
+  @Authenticated({ permission: Permission.AssetRead })
+  @HttpCode(HttpStatus.OK)
+  deletionStatuses(@Auth() auth: AuthDto, @Body() dto: BulkIdsDto): Promise<PermanentDeletionResultDto[]> {
+    if (dto.ids.length > 200) {
+      throw new BadRequestException('At most 200 deletion statuses per request');
+    }
+    return Promise.all(dto.ids.map((id) => this.service.deletionStatus(auth, id)));
+  }
+
+  @Get(':id/deletion-status')
+  @Authenticated({ permission: Permission.AssetRead })
+  deletionStatus(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<PermanentDeletionResultDto> {
+    return this.service.deletionStatus(auth, id);
   }
 
   @Get(':id')

@@ -1,6 +1,7 @@
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
@@ -220,9 +221,41 @@ class AssetService {
     // Permanent deletion cannot be rolled back from the local cache. Keep the
     // server-first order so an offline/failed request never drops the only
     // locally cached metadata before the backend confirms the operation.
-    await _apiRepository.delete(remoteIds, true);
-    await _remoteRepository.deleteAssets(remoteIds);
+    final results = await deleteWithResults(remoteIds);
+    if (results.any((result) => !result.complete)) {
+      throw StateError('Some permanent deletions require attention');
+    }
   }
+
+  Future<List<PermanentDeletionResult>> deleteWithResults(List<String> remoteIds) async {
+    if (remoteIds.isEmpty) {
+      return const [];
+    }
+    final snapshots = await _remoteRepository.beginPermanentDeletion(remoteIds);
+    try {
+      final results = await _apiRepository.permanentlyDelete(remoteIds);
+      for (final result in results) {
+        final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
+        if (result.state == 'uncertain') {
+          await _remoteRepository.completeTrashOperation(checked, success: false);
+        } else {
+          await _remoteRepository.completePermanentDeletion(
+            checked,
+            result.state == 'blocked' ? const [] : [result.id],
+            result.complete ? [result.id] : const [],
+          );
+        }
+      }
+      return results;
+    } catch (error, stack) {
+      await _remoteRepository.completeTrashOperation(snapshots, success: false);
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  Future<List<String>> getTrashIds(String ownerId) => _remoteRepository.getTrashIds(ownerId);
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) => _remoteRepository.getDeletionLocalIds(ids);
 
   Future<void> applyEdits(String remoteId, List<AssetEdit> edits) async {
     if (edits.isEmpty) {

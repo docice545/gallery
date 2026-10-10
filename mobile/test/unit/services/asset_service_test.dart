@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/asset.service.dart';
@@ -233,16 +234,24 @@ void main() {
 
     test('waits for the server before irreversible local removal', () async {
       final calls = <String>[];
-      when(() => apiRepository.delete(ids, true)).thenAnswer((_) async => calls.add('server'));
-      when(() => remoteRepository.deleteAssets(ids)).thenAnswer((_) async => calls.add('local'));
+      when(() => remoteRepository.beginPermanentDeletion(ids)).thenAnswer((_) async => []);
+      when(() => apiRepository.permanentlyDelete(ids)).thenAnswer((_) async {
+        calls.add('server');
+        return ids.map((id) => PermanentDeletionResult(id: id, state: 'complete')).toList();
+      });
+      when(
+        () => remoteRepository.completePermanentDeletion([], any(), any()),
+      ).thenAnswer((_) async => calls.add('local'));
 
       await sut.delete(ids);
 
-      expect(calls, ['server', 'local']);
+      expect(calls, ['server', 'local', 'local']);
     });
 
     test('keeps the local row when permanent deletion fails remotely', () async {
-      when(() => apiRepository.delete(ids, true)).thenThrow(Exception('offline'));
+      when(() => remoteRepository.beginPermanentDeletion(ids)).thenAnswer((_) async => []);
+      when(() => apiRepository.permanentlyDelete(ids)).thenThrow(Exception('offline'));
+      when(() => remoteRepository.completeTrashOperation([], success: false)).thenAnswer((_) async {});
 
       await expectLater(sut.delete(ids), throwsException);
 

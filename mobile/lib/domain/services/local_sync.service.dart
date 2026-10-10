@@ -519,13 +519,7 @@ class LocalSyncService {
     _log.fine("syncTrashedAssets, trashedAssets: ${trashedAssets.map((e) => e.asset.id)}");
     await _trashedLocalAssetRepository.processTrashSnapshot(trashedAssets);
 
-    final assetsToRestore = await _trashedLocalAssetRepository.getToRestore();
-    if (assetsToRestore.isNotEmpty) {
-      final restoredIds = await _assetMediaRepository.restoreAssetsFromTrash(assetsToRestore);
-      await _trashedLocalAssetRepository.applyRestoredAssets(restoredIds);
-    } else {
-      _log.info("syncTrashedAssets, No remote assets found for restoration");
-    }
+    // Local trash remains an OS/user decision. A remote Restore must not recreate the device copy.
 
     final localAssetsToTrash = await _trashedLocalAssetRepository.getToTrash();
     if (localAssetsToTrash.isNotEmpty) {

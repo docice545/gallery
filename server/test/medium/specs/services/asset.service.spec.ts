@@ -1,4 +1,7 @@
 import { Kysely } from 'kysely';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
@@ -22,6 +25,7 @@ import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetService } from 'src/services/asset.service.js';
+import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
@@ -278,6 +282,37 @@ describe(AssetService.name, () => {
   });
 
   describe('delete', () => {
+    const fixtureRoots: string[] = [];
+    afterEach(async () => {
+      await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+    });
+    const authorize = async (ctx: ReturnType<typeof setup>['ctx'], ownerId: string, id: string) => {
+      const root = await mkdtemp(join(tmpdir(), 'gallery-stack-delete-'));
+      fixtureRoots.push(root);
+      const original = join(root, 'original.jpg');
+      await writeFile(original, 'synthetic stack deletion fixture');
+      const assets = ctx.get(AssetRepository);
+      await assets.updateAll([id], { originalPath: original, status: AssetStatus.Trashed, deletedAt: new Date() });
+      for (const file of await ctx.database
+        .selectFrom('asset_file')
+        .select('id')
+        .where('assetId', '=', id)
+        .where('type', '=', AssetFileType.Sidecar)
+        .execute()) {
+        const sidecar = join(root, 'sidecar.xmp');
+        await writeFile(sidecar, 'synthetic sidecar');
+        await ctx.database.updateTable('asset_file').set({ path: sidecar }).where('id', '=', file.id).execute();
+      }
+      await assets.setDeletionPolicy(ownerId, 'managed', {
+        enabled: true,
+        roots: [root],
+        recoveryProof: 'a'.repeat(64),
+        authorizedBy: ownerId,
+      });
+      ctx.getMock(StorageRepository).snapshotOriginal.mockImplementation(snapshotOriginal);
+      ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
+      return original;
+    };
     it('should delete asset', async () => {
       const { sut, ctx } = setup();
       ctx.getMock(EventRepository).emit.mockResolvedValue();
@@ -293,12 +328,13 @@ describe(AssetService.name, () => {
         ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Sidecar, path: sidecarPath }),
       ]);
 
+      await authorize(ctx, user.id, asset.id);
       await sut.deleteAll(factory.auth({ user }), { ids: [asset.id], force: true });
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
 
       expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: [thumbnailPath, previewPath, sidecarPath, asset.originalPath] },
+        data: { files: [thumbnailPath, previewPath] },
       });
     });
 
@@ -315,6 +351,7 @@ describe(AssetService.name, () => {
 
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
+      await authorize(ctx, user.id, asset1.id);
       await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
       await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
 
@@ -334,6 +371,7 @@ describe(AssetService.name, () => {
 
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
+      await authorize(ctx, user.id, asset1.id);
       await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
       await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
 
@@ -358,33 +396,24 @@ describe(AssetService.name, () => {
 
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
-      await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
+      await authorize(ctx, user.id, asset1.id);
+      await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
 
       // stack is deleted as well
       await expect(ctx.get(StackRepository).getById(stack.id)).resolves.toBe(undefined);
     });
 
-    it('should not delete offline assets', async () => {
+    it('does not physically delete an offline original without Trash and library authorization', async () => {
       const { sut, ctx } = setup();
-      ctx.getMock(EventRepository).emit.mockResolvedValue();
-      ctx.getMock(JobRepository).queue.mockResolvedValue();
       const { user } = await ctx.newUser();
       const { asset } = await ctx.newAsset({ ownerId: user.id, isOffline: true });
-      const thumbnailPath = '/path/to/thumbnail.jpg';
-      const previewPath = '/path/to/preview.jpg';
-      await Promise.all([
-        ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Thumbnail, path: thumbnailPath }),
-        ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Preview, path: previewPath }),
-        ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Sidecar, path: `/path/to/sidecar.xmp` }),
-      ]);
-
-      await sut.deleteAll(factory.auth({ user }), { ids: [asset.id], force: true });
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
-
-      expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({
-        name: JobName.FileDelete,
-        data: { files: [thumbnailPath, previewPath] },
-      });
+      await expect(sut.deleteAll(factory.auth({ user }), { ids: [asset.id], force: true })).rejects.toThrow(
+        'Permanent deletion incomplete',
+      );
+      expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe('skipped');
+      expect(ctx.getMock(StorageRepository).unlinkOriginal).not.toHaveBeenCalled();
+      expect(ctx.getMock(JobRepository).queue).not.toHaveBeenCalled();
+      expect(await ctx.get(AssetRepository).getById(asset.id)).toBeDefined();
     });
   });
 

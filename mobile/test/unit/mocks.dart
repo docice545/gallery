@@ -6,6 +6,7 @@ import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/tag.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
@@ -212,6 +213,12 @@ class ServiceMocks {
 
   void _stubCleanupService() {
     when(cleanup.deleteLocalAssets).thenAnswer((_) async => 0);
+    when(() => cleanup.service.deleteLocalAssetsDetailed(any(), trash: any(named: 'trash'))).thenAnswer(
+      (call) async => LocalDeletionResult(
+        deletedIds: (call.positionalArguments.first as List<String>).toList(),
+        remainingIds: const [],
+      ),
+    );
   }
 
   void _stubTagService() {

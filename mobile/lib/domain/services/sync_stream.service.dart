@@ -14,6 +14,7 @@ import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.da
 import 'package:immich_mobile/infrastructure/repositories/sync_migration.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.dart';
+import 'package:immich_mobile/repositories/asset_api.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/repositories/permission.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
@@ -54,7 +55,32 @@ class SyncStreamService {
     this._cancellation,
   });
 
+  bool? _authorizedDeletion;
+
   bool get isCancelled => _cancellation?.isCompleted ?? false;
+
+  Future<void> _retainPermanentDeletions(List<String> ids) async {
+    if (_authorizedDeletion == false) {
+      return;
+    }
+    for (var start = 0; start < ids.length; start += 200) {
+      if (isCancelled) {
+        return;
+      }
+      final end = start + 200 < ids.length ? start + 200 : ids.length;
+      try {
+        final completed = await AssetApiRepository(_api).completedDeletions(ids.sublist(start, end));
+        if (isCancelled) {
+          return;
+        }
+        await _syncStreamRepository.retainPermanentDeletion(completed.toList());
+      } catch (_) {
+        // Do not acknowledge a deletion sync on unknown network outcome: retry the same sync checkpoint.
+        // An older backend does not implement this candidate's durable deletion contract.
+        rethrow;
+      }
+    }
+  }
 
   Future<bool> sync() async {
     if (isCancelled) {
@@ -82,6 +108,7 @@ class SyncStreamService {
     try {
       final features = await _api.serverInfoApi.getServerFeatures();
       supportedSyncTypes = features?.syncRequestTypes.orElse(null)?.toSet();
+      _authorizedDeletion = features?.authorizedDeletion.orElse(false);
     } catch (error) {
       _logger.warning("Failed to fetch server features for sync capability detection: $error");
     }
@@ -275,6 +302,18 @@ class SyncStreamService {
       if (isCancelled) {
         return;
       }
+      if (jsonDecode(snapshot.retainedValue!)['operation'] == 'permanent') {
+        final receipt = await AssetApiRepository(_api).deletionStatus(snapshot.id, abortTrigger: _cancellation?.future);
+        if (isCancelled) {
+          return;
+        }
+        await _syncStreamRepository.resolvePermanentDeletion(
+          snapshot,
+          accepted: receipt.state != 'blocked',
+          complete: receipt.complete,
+        );
+        continue;
+      }
       final current = await (_cancellation == null
           ? _api.assetsApi.getAssetInfo(snapshot.id)
           : _api.assetsApi.getAssetInfo(snapshot.id, abortTrigger: _cancellation.future));
@@ -316,7 +355,11 @@ class SyncStreamService {
         }
         return;
       case SyncEntityType.assetDeleteV1:
-        final remoteSyncAssets = data.cast<SyncAssetDeleteV1>();
+        final remoteSyncAssets = data.cast<SyncAssetDeleteV1>().toList();
+        await _retainPermanentDeletions(remoteSyncAssets.map((item) => item.assetId).toList());
+        if (isCancelled) {
+          return;
+        }
         if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
           await _syncAssetDeletion(remoteSyncAssets.map((e) => e.assetId).toList());
         }
@@ -721,16 +764,6 @@ class SyncStreamService {
     }
   }
 
-  Future<void> _applyRemoteRestoreToLocal() async {
-    final assetsToRestore = await _trashedLocalAssetRepository.getToRestore();
-    if (assetsToRestore.isNotEmpty) {
-      final restoredIds = await _assetMediaRepository.restoreAssetsFromTrash(assetsToRestore);
-      await _trashedLocalAssetRepository.applyRestoredAssets(restoredIds);
-    } else {
-      _logger.info("No remote assets found for restoration");
-    }
-  }
-
   Future<void> _syncAssetTrashStatus(List<String> remoteIds) async {
     if (!(await _permissionRepository.hasManageMediaPermission())) {
       _logger.warning("Syncing asset trash status cannot proceed because MANAGE_MEDIA permission is missing");
@@ -738,7 +771,7 @@ class SyncStreamService {
     }
 
     await _handleRemoteDeleted(remoteIds);
-    await _applyRemoteRestoreToLocal();
+    // Server Restore changes server state only. Device restore requires an explicit OS/user action.
   }
 
   Future<void> _syncAssetDeletion(List<String> remoteIds) async {

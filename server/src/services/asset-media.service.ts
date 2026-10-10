@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  GoneException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { createReadStream } from 'node:fs';
 import sanitize from 'sanitize-filename';
 import type { UploadFile, UploadRequest } from 'src/types.js';
@@ -134,7 +140,10 @@ export class AssetMediaService extends BaseService {
     const uploadFolder = this.getUploadFolder(asUploadRequest(request, file));
     const uploadPath = `${uploadFolder}/${uploadFilename}`;
 
-    await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: [uploadPath] } });
+    await this.jobRepository.queue({
+      name: JobName.FileDelete,
+      data: { files: [uploadPath], temporaryOwnerId: request.user?.user.id },
+    });
   }
 
   async uploadAsset(
@@ -327,7 +336,7 @@ export class AssetMediaService extends BaseService {
     if (!shouldSkipUploadFileCleanup(error)) {
       await this.jobRepository.queue({
         name: JobName.FileDelete,
-        data: { files: [file.originalPath, sidecarFile?.originalPath] },
+        data: { files: [file.originalPath, sidecarFile?.originalPath], temporaryOwnerId: auth.user.id },
       });
     }
 
@@ -337,6 +346,10 @@ export class AssetMediaService extends BaseService {
       if (!duplicateId) {
         this.logger.error(`Error locating duplicate for checksum constraint`);
         throw new InternalServerErrorException();
+      }
+
+      if (await this.assetRepository.getDeletionReceipt(auth.user.id, duplicateId)) {
+        throw new GoneException('ASSET_PERMANENTLY_DELETED: automatic reupload is suppressed');
       }
 
       if (auth.sharedLink) {
@@ -414,7 +427,10 @@ export class AssetMediaService extends BaseService {
         backendFiles.push(relativeKey);
         await this.assetRepository.update({ id: asset.id, originalPath: relativeKey });
         // Clean up the temp local file
-        await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: [file.originalPath] } });
+        await this.jobRepository.queue({
+          name: JobName.FileDelete,
+          data: { files: [file.originalPath], temporaryOwnerId: ownerId },
+        });
 
         if (sidecarFile) {
           const sidecarKey = StorageCore.getRelativeNestedPath(StorageFolder.Upload, ownerId, `${asset.id}.xmp`);
@@ -427,7 +443,7 @@ export class AssetMediaService extends BaseService {
           });
           await this.jobRepository.queue({
             name: JobName.FileDelete,
-            data: { files: [sidecarFile.originalPath] },
+            data: { files: [sidecarFile.originalPath], temporaryOwnerId: ownerId },
           });
         }
       }

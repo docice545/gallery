@@ -1,5 +1,6 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -33,25 +34,30 @@ class CleanupService {
     );
   }
 
-  Future<int> deleteLocalAssets(List<String> localIds) async {
-    if (localIds.isEmpty) {
-      return 0;
-    }
+  Future<int> deleteLocalAssets(List<String> localIds) async =>
+      (await deleteLocalAssetsDetailed(localIds)).deletedIds.length;
 
-    int deletedCount = 0;
-
-    for (int index = 0; index < localIds.length; index += _deleteBatchSize) {
-      final end = index + _deleteBatchSize < localIds.length ? index + _deleteBatchSize : localIds.length;
-      final batch = localIds.sublist(index, end);
-
-      final deletedIds = await _assetMediaRepository.deleteAll(batch);
-      if (deletedIds.isNotEmpty) {
-        await _localAssetRepository.deleteAssets(deletedIds);
-        deletedCount += deletedIds.length;
+  Future<LocalDeletionResult> deleteLocalAssetsDetailed(List<String> localIds, {bool trash = true}) async {
+    final unique = localIds.toSet().toList();
+    final deleted = <String>{};
+    for (int index = 0; index < unique.length; index += _deleteBatchSize) {
+      final end = index + _deleteBatchSize < unique.length ? index + _deleteBatchSize : unique.length;
+      final batch = unique.sublist(index, end);
+      try {
+        final acknowledged = (await _assetMediaRepository.deleteAll(batch, trash: trash)).where(batch.contains).toSet();
+        if (acknowledged.isNotEmpty) {
+          // Remove only OS-acknowledged IDs, not an assumed count of the selection.
+          deleted.addAll(acknowledged);
+          await _localAssetRepository.deleteAssets(acknowledged.toList());
+        }
+      } catch (_) {
+        // OS denial/network/iCloud failure affects this batch. Never claim all were removed.
       }
     }
-
-    return deletedCount;
+    return LocalDeletionResult(
+      deletedIds: deleted.toList(),
+      remainingIds: unique.where((id) => !deleted.contains(id)).toList(),
+    );
   }
 
   /// Returns album IDs that should be kept by default (e.g., messaging app albums)

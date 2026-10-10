@@ -5072,6 +5072,89 @@
         "x-immich-state": "Stable"
       }
     },
+    "/assets/deletion-policy": {
+      "put": {
+        "operationId": "setDeletionPolicy",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletionPolicyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-admin-only": true,
+        "x-immich-permission": "systemConfig.update"
+      }
+    },
+    "/assets/deletion-status": {
+      "post": {
+        "operationId": "deletionStatuses",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkIdsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PermanentDeletionResultDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-permission": "asset.read"
+      }
+    },
     "/assets/jobs": {
       "post": {
         "description": "Run a specific job on a set of assets.",
@@ -5229,6 +5312,52 @@
         ],
         "x-immich-permission": "asset.update",
         "x-immich-state": "Beta"
+      }
+    },
+    "/assets/permanent-deletion": {
+      "post": {
+        "operationId": "permanentDeletion",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermanentDeletionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PermanentDeletionResultDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-permission": "asset.delete"
       }
     },
     "/assets/statistics": {
@@ -5467,6 +5596,50 @@
         ],
         "x-immich-permission": "asset.update",
         "x-immich-state": "Deprecated"
+      }
+    },
+    "/assets/{id}/deletion-status": {
+      "get": {
+        "operationId": "deletionStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermanentDeletionResultDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-permission": "asset.read"
       }
     },
     "/assets/{id}/edits": {
@@ -30696,6 +30869,49 @@
         },
         "type": "object"
       },
+      "DeletionPolicyDto": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "ownerId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "recoveryProof": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "roots": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "verifiedExclusiveRoots": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "ownerId",
+          "recoveryProof",
+          "roots",
+          "scope",
+          "verifiedExclusiveRoots"
+        ],
+        "type": "object"
+      },
       "DetachScopedPersonDto": {
         "properties": {
           "profile": {
@@ -35769,6 +35985,57 @@
         ],
         "type": "object"
       },
+      "PermanentDeletionDto": {
+        "properties": {
+          "confirmed": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "confirmed",
+          "ids"
+        ],
+        "type": "object"
+      },
+      "PermanentDeletionResultDto": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "complete",
+              "pending",
+              "failed",
+              "blocked"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "type": "object"
+      },
       "Permission": {
         "description": "List of permissions",
         "enum": [
@@ -38629,6 +38896,10 @@
       },
       "ServerFeaturesDto": {
         "properties": {
+          "authorizedDeletion": {
+            "description": "Durable, explicit per-library permanent deletion; automatic retention is disabled",
+            "type": "boolean"
+          },
           "configFile": {
             "description": "Whether config file is available",
             "type": "boolean"

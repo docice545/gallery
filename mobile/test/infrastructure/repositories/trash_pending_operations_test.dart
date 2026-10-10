@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNotNull, isNull;
@@ -6,6 +7,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/remote/exif.drift.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
@@ -17,8 +19,8 @@ import 'package:immich_mobile/repositories/shared_space_api.repository.dart';
 import 'package:immich_mobile/services/action.service.dart';
 import 'package:immich_mobile/services/api.service.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:openapi/api.dart' show ApiException;
 import 'package:openapi/api.dart' as dto;
+import 'package:openapi/api.dart' show ApiException;
 
 import '../../medium/repository_context.dart';
 import '../../repository.mocks.dart';
@@ -419,5 +421,88 @@ void main() {
     await repository.completeTrashOperation(retrash, success: true);
     expect(await pickerIds(), isEmpty);
     expect(await cache.remoteAssetEntity.select().get(), hasLength(1)); // No media removal/duplicate import.
+  });
+  test('permanent timeout persists its distinct operation across cold-start recovery', () async {
+    await remote.trash(['asset']);
+    when(() => api.permanentlyDelete(['asset'])).thenThrow(TimeoutException('network'));
+    await expectLater(assets.deleteWithResults(['asset']), throwsA(isA<TimeoutException>()));
+    final reloaded = SyncStreamRepository(ctx.db);
+    await reloaded.recoverPendingTrashOperations();
+    final pending = (await reloaded.getPendingTrashOperations()).single;
+    expect(jsonDecode(pending.retainedValue!)['operation'], 'permanent');
+    expect((await remote.get('asset'))!.isTrashed, isTrue);
+    await reloaded.resolvePermanentDeletion(pending, accepted: false);
+    expect((await remote.get('asset'))!.isTrashed, isTrue);
+    expect(jsonDecode((await marker('asset'))!)['permanent'], isNot(true));
+  });
+
+  test('confirmed permanent receipt survives row deletion and a stale Restore acknowledgement', () async {
+    await remote.trash(['asset']);
+    final restore = await remote.beginTrashOperation(['asset'], restore: true);
+    final deletion = await remote.beginPermanentDeletion(['asset']);
+    await sync.resolvePermanentDeletion(deletion.single, accepted: true, complete: true);
+    await remote.completeTrashOperation(restore, success: true);
+    expect(await remote.get('asset'), isNull);
+    expect(jsonDecode((await marker('asset'))!)['permanent'], isTrue);
+    await remote.deleteAssets(['asset']);
+    expect(jsonDecode((await marker('asset'))!)['permanent'], isTrue);
+  });
+
+  test(
+    'permanent bulk results remove only complete rows; failed remains retryable and blocked stays ordinary Trash',
+    () async {
+      await ctx.newRemoteAsset(id: 'failed', ownerId: 'owner');
+      await ctx.newRemoteAsset(id: 'blocked', ownerId: 'owner');
+      await remote.trash(['asset', 'failed', 'blocked']);
+      when(() => api.permanentlyDelete(any())).thenAnswer(
+        (_) async => [
+          const PermanentDeletionResult(id: 'asset', state: 'complete'),
+          const PermanentDeletionResult(id: 'failed', state: 'failed', code: 'ORIGINAL_DELETE_FAILED'),
+          const PermanentDeletionResult(id: 'blocked', state: 'blocked', code: 'LIBRARY_DELETION_NOT_AUTHORIZED'),
+        ],
+      );
+      final results = await assets.deleteWithResults(['asset', 'failed', 'blocked']);
+      expect(results.where((result) => result.complete).map((result) => result.id), ['asset']);
+      expect(await remote.get('asset'), isNull);
+      expect((await remote.get('failed'))!.isTrashed, isTrue);
+      expect((await remote.get('blocked'))!.isTrashed, isTrue);
+      expect(jsonDecode((await marker('failed'))!)['permanent'], isTrue);
+      expect(jsonDecode((await marker('blocked'))!)['permanent'], isNot(true));
+    },
+  );
+  test('retains the OS identity after server deletion and blocks stale active sync without a ghost row', () async {
+    final before = (await remote.get('asset'))!;
+    final local = await ctx.newLocalAsset(checksum: before.checksum);
+    await remote.trash(['asset']);
+    final snapshots = await remote.beginPermanentDeletion(['asset']);
+    await sync.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
+    expect(await remote.getDeletionLocalIds(['asset']), [local.id]);
+    final stale = dto.SyncAssetV2.fromJson({
+      'id': 'asset',
+      'ownerId': 'owner',
+      'checksum': before.checksum,
+      'originalFileName': 'photo.jpg',
+      'type': 'IMAGE',
+      'isFavorite': false,
+      'fileCreatedAt': deletionDate.toIso8601String(),
+      'fileModifiedAt': deletionDate.toIso8601String(),
+      'createdAt': deletionDate.toIso8601String(),
+      'localDateTime': deletionDate.toIso8601String(),
+      'visibility': 'timeline',
+      'isEdited': false,
+      'duration': 0,
+      'deletedAt': null,
+      'height': null,
+      'width': null,
+      'libraryId': null,
+      'livePhotoVideoId': null,
+      'stackId': null,
+      'thumbhash': null,
+    })!;
+    await SyncStreamRepository(ctx.db).updateAssetsV2([stale]);
+    expect(await remote.get('asset'), isNull);
+    expect(await remote.getDeletionLocalIds(['asset']), [local.id]);
+    await remote.restoreTrash(['asset']);
+    expect(jsonDecode((await marker('asset'))!)['permanentComplete'], isTrue);
   });
 }

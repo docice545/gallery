@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
@@ -27,6 +28,12 @@ void main() {
     context = await PresentationContext.create();
     assetService = context.service.asset.service;
     cleanupService = context.service.cleanup.service;
+    when(() => assetService.getDeletionLocalIds(any())).thenAnswer((_) async => []);
+    when(() => assetService.deleteWithResults(any())).thenAnswer(
+      (call) async => (call.positionalArguments.first as List<String>)
+          .map((id) => PermanentDeletionResult(id: id, state: 'complete'))
+          .toList(),
+    );
   });
 
   tearDown(() async {
@@ -82,8 +89,8 @@ void main() {
         await tester.pumpAndSettle();
 
         verify(() => assetService.trash([asset.id])).called(1);
-        verifyNever(() => assetService.delete(any()));
-        verifyNever(() => cleanupService.deleteLocalAssets(any()));
+        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
       testWidgets('ignores assets owned by someone else', (tester) async {
@@ -96,13 +103,13 @@ void main() {
         verify(() => assetService.trash([mine.id])).called(1);
       });
 
-      testWidgets('trashes a merged asset without deleting its device copy', (tester) async {
+      testWidgets('trashes a merged asset and requests authorized removal of its device copy', (tester) async {
         final asset = owned(localId: 'local');
 
         await pumpDelete(tester, {asset});
         await tester.pumpAndSettle();
 
-        verifyNever(() => cleanupService.deleteLocalAssets(any()));
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'])).called(1);
         verify(() => assetService.trash([asset.id])).called(1);
       });
 
@@ -114,7 +121,7 @@ void main() {
         await tester.pumpAndSettle();
 
         verify(() => assetService.trash([backedUp.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssets(['local-only'])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['backed-up-local', 'local-only'])).called(1);
       });
 
       testWidgets('offers an undo that restores the trashed assets', (tester) async {
@@ -130,18 +137,16 @@ void main() {
     });
 
     group('permanent', () {
-      testWidgets('permanently deletes when the trash feature is disabled', (tester) async {
+      testWidgets('trashes active assets even when the old trash feature flag is disabled', (tester) async {
         final asset = owned();
-
         await pumpDelete(tester, {asset}, trashEnabled: false);
-        await respondToDialog(tester, confirm: true);
-
-        verify(() => assetService.delete([asset.id])).called(1);
-        verifyNever(() => assetService.trash(any()));
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash([asset.id])).called(1);
+        verifyNever(() => assetService.deleteWithResults(any()));
       });
 
       testWidgets('offers no undo for a permanent delete', (tester) async {
-        await pumpDelete(tester, {owned()}, trashEnabled: false);
+        await pumpDelete(tester, {owned(deletedAt: DateTime(2024))}, trashEnabled: false);
         await respondToDialog(tester, confirm: true);
         await tester.pumpAndSettle();
 
@@ -150,13 +155,13 @@ void main() {
       });
 
       testWidgets('permanently deletes a merged asset and removes its device copy', (tester) async {
-        final asset = owned(localId: 'local');
+        final asset = owned(deletedAt: DateTime(2024), localId: 'local');
 
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.delete([asset.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssets(['local'])).called(1);
+        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'], trash: false)).called(1);
       });
 
       testWidgets('permanently deletes already trashed assets even with trash enabled', (tester) async {
@@ -165,28 +170,28 @@ void main() {
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.delete([asset.id])).called(1);
+        verify(() => assetService.deleteWithResults([asset.id])).called(1);
         verifyNever(() => assetService.trash(any()));
       });
 
       testWidgets('permanently deletes locked folder assets even with trash enabled', (tester) async {
-        final asset = owned(visibility: .locked, localId: 'local');
+        final asset = owned(deletedAt: DateTime(2024), localId: 'local');
 
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.delete([asset.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssets(['local'])).called(1);
+        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'], trash: false)).called(1);
       });
 
       testWidgets('does nothing when the confirmation is cancelled', (tester) async {
-        final asset = owned(visibility: .locked, localId: 'local');
+        final asset = owned(deletedAt: DateTime(2024), localId: 'local');
 
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: false);
 
-        verifyNever(() => assetService.delete(any()));
-        verifyNever(() => cleanupService.deleteLocalAssets(any()));
+        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
     });
 
@@ -197,9 +202,9 @@ void main() {
         await pumpDelete(tester, {asset});
         await tester.pumpAndSettle();
 
-        verify(() => cleanupService.deleteLocalAssets([asset.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed([asset.id])).called(1);
         verifyNever(() => assetService.trash(any()));
-        verifyNever(() => assetService.delete(any()));
+        verifyNever(() => assetService.deleteWithResults(any()));
       });
 
       testWidgets('is labelled trash', (tester) async {
@@ -216,7 +221,7 @@ void main() {
 
     group('prompt handling', () {
       testWidgets('permanent delete shows a single app dialog', (tester) async {
-        final asset = owned(localId: 'local');
+        final asset = owned(deletedAt: DateTime(2024), localId: 'local');
 
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await tester.pump(const Duration(milliseconds: 300));
@@ -226,8 +231,8 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text(StaticTranslations.instance.move_to_device_trash), findsNothing);
-        verify(() => assetService.delete([asset.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssets(['local'])).called(1);
+        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'], trash: false)).called(1);
       });
 
       testWidgets('local only delete on Android with MANAGE_MEDIA shows the prompt', (tester) async {
@@ -242,7 +247,7 @@ void main() {
         await tester.tap(find.byType(TextButton).at(1)); // confirm
         await tester.pumpAndSettle();
 
-        verify(() => cleanupService.deleteLocalAssets([asset.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed([asset.id])).called(1);
         // Has to be cleared inside the body; the framework asserts on it before tearDown runs.
         debugDefaultTargetPlatformOverride = null;
       });
@@ -255,7 +260,7 @@ void main() {
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: false);
 
-        verifyNever(() => cleanupService.deleteLocalAssets(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
         debugDefaultTargetPlatformOverride = null;
       });
     });
@@ -283,7 +288,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      verify(() => cleanupService.deleteLocalAssets([backedUp.id])).called(1);
+      verify(() => cleanupService.deleteLocalAssetsDetailed([backedUp.id])).called(1);
     });
 
     testWidgets('is hidden when no backed up assets are selected', (tester) async {

@@ -69,5 +69,45 @@ void main() {
       expect(capturedBatches[2].last, 'asset-${batchSize * 2 + 500}');
       verify(() => localAssetRepository.deleteAssets(any())).called(3);
     });
+    test('OS denial leaves every device copy and local row intact', () async {
+      when(() => assetMediaRepository.deleteAll(any())).thenAnswer((_) async => []);
+      final result = await sut.deleteLocalAssetsDetailed(['photo', 'video']);
+      expect(result.deletedIds, isEmpty);
+      expect(result.remainingIds, ['photo', 'video']);
+      verifyNever(() => localAssetRepository.deleteAssets(any()));
+    });
+
+    test('reports partial OS acknowledgement and ignores unrelated/duplicate IDs', () async {
+      when(() => assetMediaRepository.deleteAll(any())).thenAnswer((_) async => ['photo', 'photo', 'unrelated']);
+      when(() => localAssetRepository.deleteAssets(any())).thenAnswer((_) async {});
+      final result = await sut.deleteLocalAssetsDetailed(['photo', 'video', 'photo']);
+      expect(result.deletedIds, ['photo']);
+      expect(result.remainingIds, ['video']);
+      verify(() => localAssetRepository.deleteAssets(['photo'])).called(1);
+    });
+
+    test('one failed OS batch does not hide results from the following batch', () async {
+      final size = CurrentPlatform.isAndroid ? 2000 : 10000;
+      final ids = List.generate(size + 1, (index) => 'id-$index');
+      var batch = 0;
+      when(() => assetMediaRepository.deleteAll(any())).thenAnswer((call) async {
+        if (batch++ == 0) {
+          throw StateError('OS denied this batch');
+        }
+        return call.positionalArguments.first as List<String>;
+      });
+      when(() => localAssetRepository.deleteAssets(any())).thenAnswer((_) async {});
+      final result = await sut.deleteLocalAssetsDetailed(ids);
+      expect(result.deletedIds, [ids.last]);
+      expect(result.remainingIds, ids.take(size));
+    });
+    test('permanent device cleanup uses the authorized OS delete API rather than moving to device Trash', () async {
+      when(() => assetMediaRepository.deleteAll(['photo'], trash: false)).thenAnswer((_) async => ['photo']);
+      when(() => localAssetRepository.deleteAssets(any())).thenAnswer((_) async {});
+      final result = await sut.deleteLocalAssetsDetailed(['photo'], trash: false);
+      expect(result.deletedIds, ['photo']);
+      verify(() => assetMediaRepository.deleteAll(['photo'], trash: false)).called(1);
+      verifyNever(() => assetMediaRepository.deleteAll(['photo'], trash: true));
+    });
   });
 }

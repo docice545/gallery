@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fresh disposable CI database/storage only. Never accepts an HP/remote API URL."""
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 
 POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67'
 
@@ -94,8 +96,8 @@ def main():
                 if time.monotonic() > deadline:
                     raise RuntimeError('API did not become healthy') from None
                 time.sleep(2)
-        assert request('/server/version') == {'major': 5, 'minor': 7, 'patch': 1, 'prerelease': None}
-        print('PASS compiled image/fresh PostgreSQL migrations/API version 5.7.1')
+        assert request('/server/version') == {'major': 5, 'minor': 7, 'patch': 2, 'prerelease': None}
+        print('PASS compiled image/fresh PostgreSQL migrations/API version 5.7.2')
         stage = 'synthetic upload/Trash/Restore'
         credentials = {'email': 'trash-ci@example.invalid', 'password': secrets.token_urlsafe(24)}
         request('/auth/admin-sign-up', 'POST', {**credentials, 'name': 'Disposable CI'})
@@ -123,6 +125,30 @@ def main():
         assert request('/trash/restore/assets', 'POST', {'ids': [asset_id]})['count'] == 0
         assert request(f'/assets/{asset_id}/original', raw=True) == original
         print('PASS real HTTP upload/Trash/Restore/idempotency/date/original-byte preservation')
+        stage = 'explicit library authorization/permanent deletion/durable receipt'
+        request('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
+        blocked = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+        assert blocked == [{'id': asset_id, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
+        assert request(f'/assets/{asset_id}/original', raw=True) == media
+        owner = request('/users/me')['id']
+        request('/assets/deletion-policy', 'PUT', {'ownerId': owner, 'scope': 'managed', 'enabled': True,
+            'roots': ['/data/upload/' + owner], 'recoveryProof': hashlib.sha256(media).hexdigest(),
+            'verifiedExclusiveRoots': True})
+        result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+        assert result == [{'id': asset_id, 'state': 'complete'}]
+        assert request('/assets/' + asset_id + '/deletion-status') == result[0]
+        assert request('/trash/restore/assets', 'POST', {'ids': [asset_id]})['count'] == 0
+        try:
+            request(f'/assets/{asset_id}/original', raw=True)
+            raise AssertionError('Deleted fixture still accessible')
+        except urllib.error.HTTPError as error:
+            assert error.code in (400, 404)
+        try:
+            request('/assets', 'POST', b''.join(parts), 'multipart/form-data; boundary=' + boundary)
+            raise AssertionError('Permanent identity was reimported')
+        except urllib.error.HTTPError as error:
+            assert error.code == 410
+        print('PASS real HTTP default-deny/explicit library opt-in/permanent receipt/reimport suppression')
         stage = 'read-only diagnostic runtime'
         spec = importlib.util.spec_from_file_location('audit', Path(__file__).parents[1] / 'diagnostics/hp_trash_release_audit.py')
         audit = importlib.util.module_from_spec(spec)
@@ -132,9 +158,9 @@ def main():
             # The audit emits only fixed stage names and allowlisted error codes.
             raise RuntimeError('Read-only diagnostic incomplete: ' + ', '.join(result['errors']))
         assert result['postgres']['readOnly'] == 'on'
-        assert result['runningVersion'] == '5.7.1'
+        assert result['runningVersion'] == '5.7.2'
         print('PASS diagnostic SELECT/read-only Redis path on the compiled image')
-        manifest['isolatedSmoke'] = 'PASS: fresh PG migrations + HTTP Trash/Restore + read-only audit'
+        manifest['isolatedSmoke'] = 'PASS: fresh PG migrations + HTTP Trash/Restore/permanent deletion + read-only audit'
         (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         # Public receipt allows verification without downloading the large image.
         print('PASS backend receipt:', json.dumps({key: manifest[key] for key in (

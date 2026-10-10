@@ -229,6 +229,8 @@ export interface IEntityJob extends IBaseJob {
 }
 
 export interface IAssetDeleteJob extends IEntityJob {
+  /** Explicit durable deletion intent; absence never authorizes original removal. */
+  deletionId?: string;
   deleteOnDisk: boolean;
   /** Retention sweep cutoff; revalidate atomically before irreversible deletion. */
   trashedBefore?: string;
@@ -254,6 +256,8 @@ export interface ILibraryBulkIdsJob {
 }
 
 export interface IDeleteFilesJob extends IBaseJob {
+  /** Only new upload cleanup jobs may target unreferenced temporary upload files. */
+  temporaryOwnerId?: string;
   files: Array<string | null | undefined>;
 }
 

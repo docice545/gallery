@@ -102,9 +102,13 @@
       onGroupingChange={handleTimelineGroupingChange}
     >
       <p class="p-4 font-medium text-gray-500/60 dark:text-gray-300/60">
-        {$t('trashed_items_will_be_permanently_deleted_after', {
-          values: { days: serverConfigManager.value.trashDays },
-        })}
+        {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
+          {$t('trash_manual_retention_info')}
+        {:else}
+          {$t('trashed_items_will_be_permanently_deleted_after', {
+            values: { days: serverConfigManager.value.trashDays },
+          })}
+        {/if}
       </p>
       {#snippet empty()}
         <EmptyPlaceholder text={$t('trash_no_results_message')} src={empty3Url} class="mx-auto mt-10" />

@@ -4,8 +4,18 @@ import { AssetRepository } from 'src/repositories/asset.repository.js';
 
 export const newAssetRepositoryMock = (): Mocked<RepositoryInterface<AssetRepository>> => {
   return {
+    getOwnerTrash: vitest.fn(),
+    getDeletionPolicy: vitest.fn(),
+    setDeletionPolicy: vitest.fn(),
+    getDeletionRootsForOtherOwners: vitest.fn(),
+    getDeletionReceipt: vitest.fn(),
+    preparePermanentDeletion: vitest.fn(),
+    removeAuthorizedOriginals: vitest.fn(),
+    getPermanentDeletionTargets: vitest.fn(),
+    isOriginalReferenced: vitest.fn(),
     create: vitest.fn(),
     createAll: vitest.fn(),
+    hasPermanentDeletions: vitest.fn().mockResolvedValue(false),
     upsertExif: vitest.fn(),
     updateAllExif: vitest.fn(),
     updateDateTimeOriginal: vitest.fn().mockResolvedValue([]),

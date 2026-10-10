@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import type { JobOf, SystemFlags } from 'src/types.js';
 import { DiskStorageBackend } from 'src/backends/disk-storage.backend.js';
 import { S3StorageBackend } from 'src/backends/s3-storage.backend.js';
@@ -18,6 +18,7 @@ import {
 } from 'src/enum.js';
 import { StorageBackend } from 'src/interfaces/storage-backend.interface.js';
 import { BaseService } from 'src/services/base.service.js';
+import { below } from 'src/utils/authorized-deletion.js';
 import { ImmichStartupError } from 'src/utils/misc.js';
 
 const docsMessage = `Please see https://docs.immich.app/administration/system-integrity#folder-checks for more information.`;
@@ -182,27 +183,55 @@ export class StorageService extends BaseService {
   async handleDeleteFiles(job: JobOf<JobName.FileDelete>): Promise<JobStatus> {
     const { files } = job;
 
-    // TODO: one job per file
+    let failed = false;
     for (const file of files) {
       if (!file) {
         continue;
       }
-
       try {
+        const candidate = isAbsolute(file) ? resolve(file) : resolve(StorageCore.getMediaLocation(), file);
+        const roots = [StorageFolder.Thumbnails, StorageFolder.EncodedVideo, StorageFolder.Profile].map((folder) =>
+          StorageCore.getBaseFolder(folder),
+        );
+        const disposable = roots.some((root) => below(root, candidate));
+        const temporary =
+          job.temporaryOwnerId &&
+          /^[a-f0-9-]{36}$/.test(job.temporaryOwnerId) &&
+          below(StorageCore.getFolderLocation(StorageFolder.Upload, job.temporaryOwnerId), candidate);
+        // Bare legacy jobs may delete derivatives, never upload/library/external originals.
+        if (
+          (!disposable && !temporary) ||
+          (await this.assetRepository.isOriginalReferenced(file)) ||
+          (candidate !== file && (await this.assetRepository.isOriginalReferenced(candidate)))
+        ) {
+          failed = true;
+          this.logger.warn('FileDelete blocked: path is not an unreferenced disposable file');
+          continue;
+        }
         if (isAbsolute(file)) {
-          // Disk file — existing behavior
+          await this.storageRepository.verifyDisposablePath(candidate, [
+            ...roots,
+            ...(temporary ? [StorageCore.getFolderLocation(StorageFolder.Upload, job.temporaryOwnerId!)] : []),
+          ]);
           await this.storageRepository.unlink(file);
         } else {
-          // S3 object — delete via backend
           const backend = StorageService.resolveBackendForKey(file);
+          if (backend instanceof DiskStorageBackend) {
+            await this.storageRepository.verifyDisposablePath(candidate, [
+              ...roots,
+              ...(temporary ? [StorageCore.getFolderLocation(StorageFolder.Upload, job.temporaryOwnerId!)] : []),
+            ]);
+          }
           await backend.delete(file);
         }
-      } catch (error: any) {
-        this.logger.warn('Unable to remove file', error);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          failed = true;
+          this.logger.warn('FileDelete failed; file remains recoverable');
+        }
       }
     }
-
-    return JobStatus.Success;
+    return failed ? JobStatus.Failed : JobStatus.Success;
   }
 
   private async verifyReadAccess(folder: StorageFolder) {

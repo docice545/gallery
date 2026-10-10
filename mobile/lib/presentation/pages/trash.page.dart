@@ -8,9 +8,12 @@ import 'package:immich_mobile/presentation/widgets/bottom_sheet/trash_bottom_she
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope.dart';
 import 'package:immich_mobile/providers/infrastructure/action.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
+import 'package:immich_mobile/services/cleanup.service.dart';
+import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
@@ -51,7 +54,13 @@ class TrashPage extends StatelessWidget {
 
             return SliverPadding(
               padding: const EdgeInsets.all(16.0),
-              sliver: SliverToBoxAdapter(child: Text(context.t.trash_page_info(days: trashDays))),
+              sliver: SliverToBoxAdapter(
+                child: Text(
+                  ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion))
+                      ? context.t.trash_manual_retention_info
+                      : context.t.trash_page_info(days: trashDays),
+                ),
+              ),
             );
           },
         ),
@@ -64,6 +73,55 @@ class TrashPage extends StatelessWidget {
 
 class _TrashKebabMenu extends ConsumerWidget {
   const _TrashKebabMenu();
+
+  Future<void> _emptyTrash(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: context.t.empty_trash,
+        content: context.t.empty_trash_confirmation,
+        ok: context.t.delete_permanently,
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final user = ref.read(currentUserProvider);
+    if (user == null) {
+      return;
+    }
+    try {
+      final service = ref.read(assetServiceProvider);
+      // Capture only this owner's synchronized Trash. Do not clear all cached
+      // rows based on a count-only response or delete newly arriving assets.
+      final ids = await service.getTrashIds(user.id);
+      final results = await service.deleteWithResults(ids);
+      final completed = results.where((result) => result.complete).map((result) => result.id).toList();
+      final localIds = await service.getDeletionLocalIds(completed);
+      if (!context.mounted) {
+        return;
+      }
+      final local = await ref.read(cleanupServiceProvider).deleteLocalAssetsDetailed(localIds, trash: false);
+      if (!context.mounted) {
+        return;
+      }
+      final reasons = results
+          .where((result) => !result.complete)
+          .map((result) => result.code ?? result.state)
+          .toSet()
+          .join(', ');
+      ImmichToast.show(
+        context: context,
+        msg:
+            '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: reasons)}. ${context.t.device_deletion_result(removed: local.deletedIds.length, remaining: local.remainingIds.length, names: local.remainingIds.take(25).join(', '))}',
+        toastType: results.any((result) => !result.complete) || local.remainingIds.isNotEmpty
+            ? ToastType.error
+            : ToastType.success,
+      );
+    } catch (error, stack) {
+      handleError(error, stack: stack, description: 'Failed to empty captured Trash selection');
+    }
+  }
 
   Future<void> _confirmAndRun(
     BuildContext context,
@@ -114,14 +172,7 @@ class _TrashKebabMenu extends ConsumerWidget {
         BaseActionButton(
           label: context.t.empty_trash,
           iconData: Icons.delete_forever_outlined,
-          onPressed: () => _confirmAndRun(
-            context,
-            ref,
-            title: context.t.empty_trash,
-            content: context.t.empty_trash_confirmation,
-            action: ref.read(actionProvider.notifier).emptyTrash,
-            successMsg: (count) => context.t.assets_permanently_deleted_count(count: count),
-          ),
+          onPressed: () => _emptyTrash(context, ref),
           menuItem: true,
         ),
         BaseActionButton(

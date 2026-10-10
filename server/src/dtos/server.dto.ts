@@ -141,6 +141,10 @@ const ServerFeaturesSchema = z
     facialRecognition: z.boolean().describe('Whether facial recognition is enabled'),
     map: z.boolean().describe('Whether map feature is enabled'),
     trash: z.boolean().describe('Whether trash feature is enabled'),
+    authorizedDeletion: z
+      .boolean()
+      .optional()
+      .describe('Durable, explicit per-library permanent deletion; automatic retention is disabled'),
     reverseGeocoding: z.boolean().describe('Whether reverse geocoding is enabled'),
     importFaces: z.boolean().describe('Whether face import is enabled'),
     oauth: z.boolean().describe('Whether OAuth is enabled'),

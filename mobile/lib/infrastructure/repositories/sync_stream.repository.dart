@@ -319,14 +319,16 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
     // A current active GET cannot resolve a request that has not completed yet.
     // Pending mutations are reconciled separately, including on an empty sync.
-    candidates.removeWhere((_, snapshot) => _pendingState(snapshot)?['operation'] != null);
+    candidates.removeWhere(
+      (_, snapshot) => _pendingState(snapshot)?['operation'] != null || _pendingState(snapshot)?['permanent'] == true,
+    );
     return candidates.values.toList();
   }
 
   /// The read may race a newer local Trash action. Only clear the state that
   /// was actually checked, never a replacement tombstone/asset identity.
   Future<void> confirmRestore(AssetTrashSnapshot checked) async {
-    if (_pendingState(checked)?['operation'] != null) {
+    if (_pendingState(checked)?['operation'] != null || _pendingState(checked)?['permanent'] == true) {
       return;
     }
     await _db.transaction(() async {
@@ -444,6 +446,58 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   Future<void> reconcilePendingTrash(AssetTrashSnapshot snapshot, {required bool isTrashed}) =>
       _resolveTrashOperation(snapshot, isTrashed);
 
+  /// Receipt acknowledgements use the same captured revision as Trash/Restore.
+  /// A timeout never proves that a permanent deletion reached the server.
+  Future<void> resolvePermanentDeletion(
+    AssetTrashSnapshot snapshot, {
+    required bool accepted,
+    bool complete = false,
+  }) async {
+    await _db.transaction(() async {
+      if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
+        return;
+      }
+      final query = _db.settingsEntity.select()
+        ..where((row) => row.key.equals(snapshot.retainedKey!) & row.value.equals(snapshot.retainedValue!));
+      if (await query.getSingleOrNull() == null) {
+        return;
+      }
+      final state = _pendingState(snapshot)!;
+      if (accepted) {
+        state['permanent'] = true;
+        if (complete) {
+          state['permanentComplete'] = true;
+        }
+        if (complete) {
+          state.remove('operation');
+          state.remove('phase');
+        } else {
+          state['operation'] = 'permanent';
+          state['phase'] = 'uncertain';
+        }
+        await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
+          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        );
+        if (complete) {
+          await _db.remoteAssetEntity.deleteWhere((row) => row.id.equals(snapshot.id));
+        }
+      } else {
+        // Only a pending operation may resolve a no-intent receipt; completed
+        // permanent tombstones are immutable even after a stale response.
+        if (state['operation'] != 'permanent' || state['permanent'] == true) {
+          return;
+        }
+        await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
+          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        );
+        final rolledBack = _decodeRetained(snapshot.retainedKey!, jsonEncode(state));
+        // A current owner-scoped receipt says no intent exists. Restore only
+        // the captured pre-request Trash state; no local OS files are recreated.
+        await _resolveTrashOperation(rolledBack, true, rollback: true);
+      }
+    });
+  }
+
   Future<void> _resolveTrashOperation(AssetTrashSnapshot snapshot, bool? trashed, {bool rollback = false}) async {
     await _db.transaction(() async {
       if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
@@ -522,7 +576,8 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix$ownerId/%'))).get();
     return [
       for (final row in rows)
-        if (row.value != null) _decodeRetained(row.key, row.value!).id,
+        if (row.value != null && (jsonDecode(row.value!) as Map<String, dynamic>)['permanent'] != true)
+          _decodeRetained(row.key, row.value!).id,
     ];
   }
 
@@ -570,18 +625,52 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   /// Only called after a successful explicit Restore/Delete API operation.
   /// Works during reset before the corresponding asset row is re-delivered.
+  Future<void> retainPermanentDeletion(List<String> ids) async {
+    final snapshots = await updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true);
+    for (final snapshot in snapshots) {
+      final state = jsonDecode(snapshot.retainedValue!) as Map<String, dynamic>;
+      state['permanent'] = true;
+      state['permanentComplete'] = true;
+      state.remove('operation');
+      state.remove('phase');
+      await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
+        SettingsEntityCompanion(value: Value(jsonEncode(state))),
+      );
+    }
+  }
+
   Future<void> clearRetainedTrash({Iterable<String>? ids, String? ownerId}) async {
     final prefix = await _trashResetPrefix();
     final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
     final allowedIds = ids?.toSet();
     await _db.batch((batch) {
       for (final row in rows) {
+        final raw = jsonDecode(row.value!) as Map<String, dynamic>;
+        if (raw['permanent'] == true || raw['operation'] != null) {
+          continue;
+        }
         final state = _decodeRetained(row.key, row.value!);
         if ((ownerId == null || state.ownerId == ownerId) && (allowedIds == null || allowedIds.contains(state.id))) {
           batch.deleteWhere(_db.settingsEntity, (entity) => entity.key.equals(row.key));
         }
       }
     });
+  }
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) async {
+    final prefix = await _trashResetPrefix();
+    final owners = await _db.authUserEntity.select().map((row) => row.id).get();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    return {
+      for (final row in rows)
+        if (row.value != null)
+          if (jsonDecode(row.value!) case {
+            'id': final String id,
+            'ownerId': final String ownerId,
+            'localIds': final List localIds,
+          })
+            if (ids.contains(id) && owners.contains(ownerId)) ...localIds.cast<String>(),
+    }.toList();
   }
 
   Future<List<AssetTrashSnapshot>> updateRetainedTrash(
@@ -624,11 +713,27 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         deletionDates[row.id] = row.deletedAt!;
       }
     }
+    final localIdsByChecksum = <String, List<String>>{};
+    final checksums = identities.values.map((identity) => identity.checksum).toSet();
+    if (checksums.isNotEmpty) {
+      final localRows = await (_db.localAssetEntity.select()..where((row) => row.checksum.isIn(checksums))).get();
+      for (final row in localRows) {
+        (localIdsByChecksum[row.checksum!] ??= []).add(row.id);
+      }
+    }
+    final previousValues = {for (final row in rows) row.key: jsonDecode(row.value!) as Map<String, dynamic>};
     final snapshots = <AssetTrashSnapshot>[];
     await _db.batch((batch) {
       for (final entry in identities.entries) {
         final key = '$prefix${entry.value.ownerId}/${entry.key}';
+        final previous = previousValues[key];
+        if (previous?['permanent'] == true && operation == 'restore') {
+          throw StateError('Permanent deletion cannot be restored');
+        }
         final value = jsonEncode({
+          if (previous?['permanent'] == true) 'permanent': true,
+          if (previous?['permanentComplete'] == true) 'permanentComplete': true,
+          'localIds': previous?['localIds'] ?? localIdsByChecksum[entry.value.checksum] ?? <String>[],
           'endpoint': endpoint,
           'id': entry.key,
           'ownerId': entry.value.ownerId,
@@ -667,6 +772,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
         await _db.batch((batch) {
           for (final asset in assets) {
+            if (_pendingState(retained[asset.id])?['permanentComplete'] == true) {
+              continue;
+            }
             final companion = RemoteAssetEntityCompanion(
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
@@ -723,6 +831,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         final retained = await _retainedTrash({for (final asset in assets) asset.id: asset.ownerId});
         await _db.batch((batch) {
           for (final asset in assets) {
+            if (_pendingState(retained[asset.id])?['permanentComplete'] == true) {
+              continue;
+            }
             final companion = RemoteAssetEntityCompanion(
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),

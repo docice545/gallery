@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
-import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/toast.service.dart';
@@ -25,7 +25,8 @@ final _stateProvider = Provider.family.autoDispose<_State?, ActionSource>((ref, 
   final localOnlyIds = <String>[];
   final ownedRemote = <RemoteAsset>[];
   for (final asset in assets) {
-    if (asset.localId case final localId?) {
+    if ((asset.isLocalOnly || asset is RemoteAsset && asset.ownerId == authUserId) && asset.localId != null) {
+      final localId = asset.localId!;
       localIds.add(localId);
       if (asset.isLocalOnly) {
         localOnlyIds.add(localId);
@@ -40,10 +41,9 @@ final _stateProvider = Provider.family.autoDispose<_State?, ActionSource>((ref, 
     return null;
   }
 
-  final trashEnabled = ref.watch(serverInfoProvider.select((state) => state.serverFeatures.trash));
-  // Assets already in the trash or in the locked folder are deleted outright, irrespective of the server setting.
-  final trash =
-      ownedRemote.isEmpty || (trashEnabled && !ownedRemote.every((asset) => asset.isTrashed || asset.isLocked));
+  // Timeline deletion always means recoverable server Trash, including Locked assets.
+  // Permanent deletion is available only for assets already in Trash and requires confirmation.
+  final trash = ownedRemote.isEmpty || !ownedRemote.every((asset) => asset.isTrashed);
 
   return (
     localIds: localIds,
@@ -76,7 +76,7 @@ class DeleteAction extends AssetActionBuilder {
       return;
     }
 
-    final (:localIds, :localOnlyIds, :remoteIds, :trash) = state;
+    final (:localIds, localOnlyIds: _, :remoteIds, :trash) = state;
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
     final clearSelection = ref.read(clearSelectionProvider(source));
@@ -88,7 +88,7 @@ class DeleteAction extends AssetActionBuilder {
       if (remoteIds.isEmpty) {
         message = await _removeLocalAssets(context, ref, localIds);
       } else if (trash) {
-        message = await _moveToTrash(context, ref, remoteIds, localOnlyIds);
+        message = await _moveToTrash(context, ref, remoteIds, localIds);
         undo = .new(onUndo: () => assetService.restoreTrash(remoteIds));
       } else {
         message = await _deletePermanently(context, ref, remoteIds, localIds);
@@ -106,35 +106,41 @@ class DeleteAction extends AssetActionBuilder {
   }
 
   Future<String?> _removeLocalAssets(BuildContext context, WidgetRef ref, List<String> localIds) async {
-    final count = await _cleanupLocalAssets(context, ref, localIds);
-    if (count <= 0 || !context.mounted) {
+    final result = await _cleanupLocalAssetsDetailed(context, ref, localIds);
+    if (!context.mounted) {
       return null;
     }
+    return _deviceResult(context, ref, result);
+  }
 
-    return context.t.cleanup_deleted_assets(count: count);
+  String _deviceResult(BuildContext context, WidgetRef ref, LocalDeletionResult result) {
+    final assets = ref.read(assetsActionProvider(source));
+    final names = result.remainingIds
+        .map((id) => assets.where((asset) => asset.localId == id).firstOrNull?.name ?? id)
+        .take(25)
+        .join(', ');
+    return context.t.device_deletion_result(
+      removed: result.deletedIds.length,
+      remaining: result.remainingIds.length,
+      names: names,
+    );
   }
 
   Future<String?> _moveToTrash(
     BuildContext context,
     WidgetRef ref,
     List<String> remoteIds,
-    List<String> localOnlyIds,
+    List<String> localIds,
   ) async {
-    final assetService = ref.read(assetServiceProvider);
-    // Moving a backed-up asset to server Trash must not delete its device
-    // original. Besides preserving a recoverable NAS/device copy, this avoids
-    // Android's MediaStore bulk-trash permission flow for an otherwise server
-    // operation (which is unreliable on some One UI releases). Device cleanup
-    // remains an explicit Free up space action in Settings.
-    final message = context.t.trash_action_prompt(count: remoteIds.length);
-    await assetService.trash(remoteIds);
-    // A device-only selection has no server Trash entry. Keep that path
-    // recoverable through the platform's local trash, while preserving local
-    // originals for every backed-up asset moved to server Trash.
-    if (localOnlyIds.isNotEmpty && context.mounted) {
-      await _cleanupLocalAssets(context, ref, localOnlyIds);
+    await ref.read(assetServiceProvider).trash(remoteIds);
+    if (!context.mounted) {
+      return null;
     }
-    return message;
+    final result = await _cleanupLocalAssetsDetailed(context, ref, localIds);
+    if (!context.mounted) {
+      return null;
+    }
+    return '${context.t.trash_action_prompt(count: remoteIds.length)}. ${_deviceResult(context, ref, result)}';
   }
 
   Future<String?> _deletePermanently(
@@ -156,14 +162,37 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
 
-    final message = context.t.delete_permanently_action_prompt(count: remoteIds.length);
-    // Server first, so a failed request will not remove the local copy
-    await assetService.delete(remoteIds);
-    if (localIds.isNotEmpty && context.mounted) {
-      await _cleanupLocalAssets(context, ref, localIds, requestCustomPrompt: false);
+    final results = await assetService.deleteWithResults(remoteIds);
+    if (!context.mounted) {
+      return null;
     }
-
-    return message;
+    final completed = results.where((result) => result.complete).map((result) => result.id).toSet();
+    final assets = ref.read(assetsActionProvider(source));
+    final permittedLocalIds = assets
+        .where((asset) => completed.contains(asset.remoteId))
+        .map((asset) => asset.localId)
+        .nonNulls
+        .toList();
+    final retainedLocalIds = await assetService.getDeletionLocalIds(completed.toList());
+    if (!context.mounted) {
+      return null;
+    }
+    final local = await _cleanupLocalAssetsDetailed(
+      context,
+      ref,
+      {...permittedLocalIds, ...retainedLocalIds}.toList(),
+      requestCustomPrompt: false,
+      trash: false,
+    );
+    if (!context.mounted) {
+      return null;
+    }
+    final incomplete = results
+        .where((result) => !result.complete)
+        .map((result) => '${result.id}: ${result.code ?? result.state}')
+        .take(25)
+        .join(', ');
+    return '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: incomplete)}. ${_deviceResult(context, ref, local)}';
   }
 }
 
@@ -217,14 +246,15 @@ class CleanupLocalAction extends AssetActionBuilder {
 ///
 /// iOS and Android without MANAGE_MEDIA prompt the user
 /// with MANAGE_MEDIA, we do it ourselves unless [requestCustomPrompt] is false.
-Future<int> _cleanupLocalAssets(
+Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
   BuildContext context,
   WidgetRef ref,
   List<String> assetIds, {
   bool requestCustomPrompt = true,
+  bool trash = true,
 }) async {
   if (assetIds.isEmpty) {
-    return 0;
+    return const LocalDeletionResult(deletedIds: [], remainingIds: []);
   }
 
   final cleanupService = ref.read(cleanupServiceProvider);
@@ -243,9 +273,12 @@ Future<int> _cleanupLocalAssets(
       ),
     );
     if (confirmed != true) {
-      return 0;
+      return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
     }
   }
 
-  return cleanupService.deleteLocalAssets(assetIds);
+  return cleanupService.deleteLocalAssetsDetailed(assetIds, trash: trash);
 }
+
+Future<int> _cleanupLocalAssets(BuildContext context, WidgetRef ref, List<String> ids) async =>
+    (await _cleanupLocalAssetsDetailed(context, ref, ids)).deletedIds.length;

@@ -127,6 +127,9 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
   Future<List<AssetTrashSnapshot>> beginTrashOperation(List<String> ids, {required bool restore}) =>
       _changeTrash(ids, restore: restore, pending: true);
 
+  Future<List<AssetTrashSnapshot>> beginPermanentDeletion(List<String> ids) => _db.syncStreamRepository
+      .updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true, operation: 'permanent');
+
   Future<List<AssetTrashSnapshot>> _changeTrash(List<String> ids, {required bool restore, bool pending = false}) {
     return _db.transaction(() async {
       final deletedAt = DateTime.now();
@@ -155,6 +158,13 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
     bool definiteFailure = false,
   }) => _db.syncStreamRepository.completeTrashOperation(snapshots, success: success, definiteFailure: definiteFailure);
 
+  Future<List<String>> getTrashIds(String ownerId) async {
+    final query = _db.remoteAssetEntity.selectOnly()
+      ..addColumns([_db.remoteAssetEntity.id])
+      ..where(_db.remoteAssetEntity.deletedAt.isNotNull() & _db.remoteAssetEntity.ownerId.equals(ownerId));
+    return query.map((row) => row.read(_db.remoteAssetEntity.id)!).get();
+  }
+
   Future<void> emptyTrash(String ownerId) async {
     await _db.transaction(() async {
       await _db.syncStreamRepository.clearRetainedTrash(ownerId: ownerId);
@@ -178,6 +188,25 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
       return _changeTrash({...retainedIds, ...rowIds}.toList(), restore: true, pending: pending);
     });
   }
+
+  Future<void> completePermanentDeletion(
+    List<AssetTrashSnapshot> snapshots,
+    List<String> suppressedIds,
+    List<String> completedIds,
+  ) => _db.transaction(() async {
+    for (final snapshot in snapshots) {
+      await _db.syncStreamRepository.resolvePermanentDeletion(
+        snapshot,
+        accepted: suppressedIds.contains(snapshot.id),
+        complete: completedIds.contains(snapshot.id),
+      );
+    }
+    await deleteAssets(completedIds);
+  });
+
+  Future<void> retainPermanentDeletion(List<String> ids) => _db.syncStreamRepository.retainPermanentDeletion(ids);
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) => _db.syncStreamRepository.getDeletionLocalIds(ids);
 
   Future<void> deleteAssets(List<String> ids) {
     return _db.transaction(() async {

@@ -1536,6 +1536,19 @@ export type AssetCopyDto = {
     /** Target asset ID */
     targetId: string;
 };
+export type DeletionPolicyDto = {
+    enabled: boolean;
+    ownerId: string;
+    recoveryProof: string;
+    roots: string[];
+    scope: string;
+    verifiedExclusiveRoots: true;
+};
+export type PermanentDeletionResultDto = {
+    code?: string;
+    id: string;
+    state: State;
+};
 export type AssetJobsDto = {
     /** Asset IDs */
     assetIds: string[];
@@ -1576,6 +1589,10 @@ export type AssetMetadataBulkResponseDto = {
     value: {
         [key: string]: any;
     };
+};
+export type PermanentDeletionDto = {
+    confirmed: true;
+    ids: string[];
 };
 export type ExifResponseDto = {
     /** City name */
@@ -2348,7 +2365,7 @@ export type MemoryCreateDto = {
 export type MemoryCandidateResponseDto = {
     id: string;
     memory?: MemoryResponseDto;
-    state: State;
+    state: State2;
 };
 export type MemoryCandidateCreateDto = {
     assetIds: string[];
@@ -2398,7 +2415,7 @@ export type MemoryRejectionDto = {
     id: string;
     /** Linked memory ID; null after hard deletion */
     memoryId: string | null;
-    state: State2;
+    state: State3;
 };
 export type MemoryRejectionsResponseDto = {
     items: MemoryRejectionDto[];
@@ -3535,6 +3552,8 @@ export type ServerConfigDto = {
     userDeleteDelay: number;
 };
 export type ServerFeaturesDto = {
+    /** Durable, explicit per-library permanent deletion; automatic retention is disabled */
+    authorizedDeletion?: boolean;
     /** Whether config file is available */
     configFile: boolean;
     /** Whether duplicate detection is enabled */
@@ -6322,6 +6341,27 @@ export function copyAsset({ assetCopyDto }: {
         body: assetCopyDto
     })));
 }
+export function setDeletionPolicy({ deletionPolicyDto }: {
+    deletionPolicyDto: DeletionPolicyDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText("/assets/deletion-policy", oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: deletionPolicyDto
+    })));
+}
+export function deletionStatuses({ bulkIdsDto }: {
+    bulkIdsDto: BulkIdsDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: PermanentDeletionResultDto[];
+    }>("/assets/deletion-status", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: bulkIdsDto
+    })));
+}
 /**
  * Run an asset job
  */
@@ -6359,6 +6399,18 @@ export function updateBulkAssetMetadata({ assetMetadataBulkUpsertDto }: {
         ...opts,
         method: "PUT",
         body: assetMetadataBulkUpsertDto
+    })));
+}
+export function permanentDeletion({ permanentDeletionDto }: {
+    permanentDeletionDto: PermanentDeletionDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: PermanentDeletionResultDto[];
+    }>("/assets/permanent-deletion", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: permanentDeletionDto
     })));
 }
 /**
@@ -6415,6 +6467,16 @@ export function updateAsset({ id, updateAssetDto }: {
         method: "PUT",
         body: updateAssetDto
     })));
+}
+export function deletionStatus({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: PermanentDeletionResultDto;
+    }>(`/assets/${encodeURIComponent(id)}/deletion-status`, {
+        ...opts
+    }));
 }
 /**
  * Remove edits from an existing asset
@@ -11448,6 +11510,12 @@ export enum AssetRejectReason {
     Duplicate = "duplicate",
     UnsupportedFormat = "unsupported-format"
 }
+export enum State {
+    Complete = "complete",
+    Pending = "pending",
+    Failed = "failed",
+    Blocked = "blocked"
+}
 export enum AssetJobName {
     RefreshFaces = "refresh-faces",
     RefreshMetadata = "refresh-metadata",
@@ -11562,7 +11630,7 @@ export enum MemoryType {
     OnThisDay = "on_this_day",
     Rule = "rule"
 }
-export enum State {
+export enum State2 {
     Pending = "pending",
     Saved = "saved",
     Dismissed = "dismissed"
@@ -11572,7 +11640,7 @@ export enum Action2 {
     Dismiss = "dismiss",
     Later = "later"
 }
-export enum State2 {
+export enum State3 {
     Dismissed = "dismissed"
 }
 export enum PartnerDirection {

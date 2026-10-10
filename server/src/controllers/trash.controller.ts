@@ -6,12 +6,16 @@ import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { TrashResponseDto } from 'src/dtos/trash.dto.js';
 import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated } from 'src/middleware/auth.guard.js';
+import { AssetService } from 'src/services/asset.service.js';
 import { TrashService } from 'src/services/trash.service.js';
 
 @ApiTags(ApiTag.Trash)
 @Controller('trash')
 export class TrashController {
-  constructor(private service: TrashService) {}
+  constructor(
+    private service: TrashService,
+    private assets: AssetService,
+  ) {}
 
   @Post('empty')
   @Authenticated({ permission: Permission.AssetDelete })
@@ -22,7 +26,7 @@ export class TrashController {
     history: new HistoryBuilder().added('v1').beta('v1').stable('v2'),
   })
   emptyTrash(@Auth() auth: AuthDto): Promise<TrashResponseDto> {
-    return this.service.empty(auth);
+    return this.assets.emptyAuthorizedTrash(auth);
   }
 
   @Post('restore')

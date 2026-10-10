@@ -57,7 +57,10 @@ describe('revert-to-immich.sql', () => {
   });
 
   it('lists every migrations-gallery migration in the step-8 kysely_migrations DELETE block', () => {
-    const missing = migrationNames.filter((name) => !deleteBlock.includes(`'${name}'`));
+    const irreversible = '1793600000000-AddAuthorizedAssetDeletion';
+    expect(sql).toContain("to_regclass('public.asset_deletion_tombstone') IS NOT NULL");
+    expect(deleteBlock).not.toContain(irreversible);
+    const missing = migrationNames.filter((name) => name !== irreversible && !deleteBlock.includes(`'${name}'`));
     expect(missing).toEqual([]);
   });
 });

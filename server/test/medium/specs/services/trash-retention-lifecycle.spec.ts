@@ -1,7 +1,8 @@
 import { Kysely, type Transaction, sql } from 'kysely';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import { StorageCore } from 'src/cores/storage.core.js';
 import { setTimeout } from 'node:timers/promises';
 import { AssetFileType, AssetStatus, AssetType, AssetVisibility, JobName, JobStatus } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
@@ -26,6 +27,7 @@ import { TrashService } from 'src/services/trash.service.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
+import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 
 let database: Kysely<DB>;
 beforeAll(async () => {
@@ -204,7 +206,7 @@ describe('PostgreSQL deletion claims compete with Restore and a newer Trash', ()
     expect(await assets.claimExpiredDeletion(asset.id, cutoff)).toBe(true);
   });
 
-  it('two deletion workers with the same snapshot emit and queue file removal exactly once', async () => {
+  it('two legacy deletion workers cannot remove an original without its durable authorization', async () => {
     const { sut, ctx } = setup();
     const { user } = await ctx.newUser();
     const { asset } = await ctx.newAsset({ ownerId: user.id, status: AssetStatus.Deleted, deletedAt: cutoff });
@@ -225,11 +227,9 @@ describe('PostgreSQL deletion claims compete with Restore and a newer Trash', ()
         sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true }),
         sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true }),
       ]);
-      expect(results.sort()).toEqual([JobStatus.Skipped, JobStatus.Success].sort());
-      expect(ctx.getMock(EventRepository).emit.mock.calls.filter(([name]) => name === 'AssetDelete')).toHaveLength(1);
-      expect(ctx.getMock(JobRepository).queue.mock.calls).toEqual([
-        [{ name: JobName.FileDelete, data: { files: [asset.originalPath] } }],
-      ]);
+      expect(results).toEqual([JobStatus.Skipped, JobStatus.Skipped]);
+      expect(ctx.getMock(EventRepository).emit).not.toHaveBeenCalled();
+      expect(ctx.getMock(JobRepository).queue).not.toHaveBeenCalled();
     } finally {
       bothFetched.resolve();
       snapshot.mockRestore();
@@ -307,7 +307,10 @@ describe('isolated original files, real repositories and real file deletion work
       const { user } = await ctx.newUser();
       const { library } = await ctx.newLibrary({ ownerId: user.id });
       const original = join(root, 'original.jpg');
-      const thumbnail = join(root, 'thumbnail.jpg');
+      const thumbnail = join(root, 'thumbs', 'thumbnail.jpg');
+      await mkdir(join(root, 'thumbs'));
+      const previousMedia = '/data';
+      StorageCore.setMediaLocation(root);
       await writeFile(original, 'synthetic external original');
       await writeFile(thumbnail, 'synthetic generated thumbnail');
       const { asset } = await ctx.newAsset({
@@ -329,15 +332,17 @@ describe('isolated original files, real repositories and real file deletion work
       const [job] = ctx.getMock(JobRepository).queue.mock.calls.at(-1)!;
       expect(job).toEqual({ name: JobName.FileDelete, data: { files: [thumbnail] } });
       if (job.name === JobName.FileDelete) {
-        await newMediumService(StorageService, {
+        const worker = newMediumService(StorageService, {
           database,
-          real: [StorageRepository],
+          real: [StorageRepository, AssetRepository],
           mock: [LoggingRepository],
-        }).sut.handleDeleteFiles(job.data);
+        });
+        expect(await worker.sut.handleDeleteFiles(job.data)).toBe(JobStatus.Success);
       }
       expect(await new AssetRepository(database).getById(asset.id)).toBeUndefined();
       expect(await readFile(original, 'utf8')).toBe('synthetic external original');
       await expect(readFile(thumbnail)).rejects.toMatchObject({ code: 'ENOENT' });
+      StorageCore.setMediaLocation(previousMedia);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -402,32 +407,22 @@ describe('isolated original files, real repositories and real file deletion work
         expect(await readFile(original)).toEqual(bytes);
         expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe(JobStatus.Skipped);
 
-        await sut.deleteAll(auth, { ids: [asset.id], force: true });
-        expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe(JobStatus.Success);
-        // Only jobs explicitly produced by this fixture may reach the real unlink.
-        const jobs = ctx.getMock(JobRepository).queue.mock.calls.map(([job]) => job);
-        for (const job of jobs) {
-          if (job.name !== JobName.AssetDelete) {
-            continue;
-          }
-          expect(await sut.handleAssetDeletion(job.data)).toBe(JobStatus.Success);
-        }
-        const filesWorker = newMediumService(StorageService, {
-          database,
-          real: [StorageRepository],
-          mock: [LoggingRepository],
-        }).sut;
-        for (const [job] of ctx.getMock(JobRepository).queue.mock.calls) {
-          if (job.name !== JobName.FileDelete) {
-            continue;
-          }
-          expect(job.data.files.every((path) => typeof path === 'string' && path.startsWith(root + sep))).toBe(true);
-          await filesWorker.handleDeleteFiles(job.data);
-        }
-        if (kind.includes('offline')) {
-          expect(await readFile(original)).toEqual(bytes);
-        } else {
-          await expect(readFile(original)).rejects.toMatchObject({ code: 'ENOENT' });
+        // Trash first, explicit owner/library policy, then the existing Immich worker.
+        await sut.deleteAll(auth, { ids: [asset.id], force: false });
+        await new AssetRepository(database).setDeletionPolicy(user.id, asset.libraryId ?? 'managed', {
+          enabled: true,
+          roots: [root],
+          recoveryProof: 'a'.repeat(64),
+          authorizedBy: user.id,
+        });
+        ctx.getMock(StorageRepository).snapshotOriginal.mockImplementation(snapshotOriginal);
+        ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
+        expect(await sut.permanentlyDelete(auth, [asset.id])).toEqual([{ id: asset.id, state: 'complete' }]);
+        expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe(JobStatus.Skipped);
+        await expect(readFile(original)).rejects.toMatchObject({ code: 'ENOENT' });
+        if (motionId) {
+          await expect(readFile(join(root, 'paired.mov'))).rejects.toMatchObject({ code: 'ENOENT' });
+          expect(await new AssetRepository(database).getById(motionId)).toBeUndefined();
         }
         expect(await readFile(untouched, 'utf8')).toBe('must survive every mode');
       } finally {

@@ -504,40 +504,39 @@ describe(StorageService.name, () => {
     it('should handle an error removing a file', async () => {
       mocks.storage.unlink.mockRejectedValue(new Error('something-went-wrong'));
 
-      await sut.handleDeleteFiles({ files: ['/path/to/something'] });
-
-      expect(mocks.storage.unlink).toHaveBeenCalledWith('/path/to/something');
+      await expect(sut.handleDeleteFiles({ files: ['/data/thumbs/something'] })).resolves.toBe(JobStatus.Failed);
+      expect(mocks.storage.unlink).toHaveBeenCalledWith('/data/thumbs/something');
     });
 
     it('should remove the file', async () => {
-      await sut.handleDeleteFiles({ files: ['/path/to/something'] });
+      await sut.handleDeleteFiles({ files: ['/data/thumbs/something'] });
 
-      expect(mocks.storage.unlink).toHaveBeenCalledWith('/path/to/something');
+      expect(mocks.storage.unlink).toHaveBeenCalledWith('/data/thumbs/something');
     });
 
     it('should return JobStatus.Success', async () => {
-      const result = await sut.handleDeleteFiles({ files: ['/path/to/something'] });
+      const result = await sut.handleDeleteFiles({ files: ['/data/thumbs/something'] });
       expect(result).toBe(JobStatus.Success);
     });
 
     it('should handle multiple files including null values', async () => {
       await sut.handleDeleteFiles({
-        files: ['/path/to/file1', null, undefined, '/path/to/file2'],
+        files: ['/data/thumbs/file1', null, undefined, '/data/thumbs/file2'],
       });
 
       expect(mocks.storage.unlink).toHaveBeenCalledTimes(2);
-      expect(mocks.storage.unlink).toHaveBeenCalledWith('/path/to/file1');
-      expect(mocks.storage.unlink).toHaveBeenCalledWith('/path/to/file2');
+      expect(mocks.storage.unlink).toHaveBeenCalledWith('/data/thumbs/file1');
+      expect(mocks.storage.unlink).toHaveBeenCalledWith('/data/thumbs/file2');
     });
 
     it('should continue deleting files even if one fails', async () => {
       mocks.storage.unlink.mockRejectedValueOnce(new Error('first-file-error')).mockResolvedValueOnce();
 
-      await sut.handleDeleteFiles({ files: ['/path/to/file1', '/path/to/file2'] });
+      await sut.handleDeleteFiles({ files: ['/data/thumbs/file1', '/data/thumbs/file2'] });
 
       expect(mocks.storage.unlink).toHaveBeenCalledTimes(2);
-      expect(mocks.storage.unlink).toHaveBeenCalledWith('/path/to/file1');
-      expect(mocks.storage.unlink).toHaveBeenCalledWith('/path/to/file2');
+      expect(mocks.storage.unlink).toHaveBeenCalledWith('/data/thumbs/file1');
+      expect(mocks.storage.unlink).toHaveBeenCalledWith('/data/thumbs/file2');
     });
   });
 });

@@ -1,7 +1,8 @@
-import { AssetVisibility, deleteAssets as deleteBulk, restoreAssets } from '@immich/sdk';
+import { AssetVisibility, deleteAssets as deleteBulk, permanentDeletion, restoreAssets } from '@immich/sdk';
 import { toastManager } from '@immich/ui';
 import { t } from 'svelte-i18n';
 import { get } from 'svelte/store';
+import { featureFlagsManager } from '$lib/managers/feature-flags-manager.svelte';
 import { TimelineManager } from '$lib/managers/timeline-manager/timeline-manager.svelte';
 import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
 import type { StackResponse } from '$lib/utils/asset-utils';
@@ -27,6 +28,41 @@ export const deleteAssets = async (
   const $t = get(t);
   try {
     const ids = assets.map((a) => a.id);
+    if (force && featureFlagsManager.valueOrUndefined?.authorizedDeletion) {
+      const completed: string[] = [];
+      const unresolved: string[] = [];
+      for (let start = 0; start < ids.length; start += 200) {
+        const batch = ids.slice(start, start + 200);
+        const results = await permanentDeletion({ permanentDeletionDto: { ids: batch, confirmed: true } });
+        if (
+          results.length !== batch.length ||
+          results.some((item, index) => results.findIndex((other) => other.id === item.id) !== index) ||
+          results.some((item) => !batch.includes(item.id))
+        ) {
+          throw new Error('Invalid permanent deletion acknowledgement');
+        }
+        const removed = results.filter((result) => result.state === 'complete').map((result) => result.id);
+        completed.push(...removed);
+        unresolved.push(
+          ...results
+            .filter((result) => result.state !== 'complete')
+            .map((result) => `${result.id}: ${result.code ?? result.state}`),
+        );
+        // Apply each validated batch before requesting another. A later timeout
+        // never hides earlier confirmed results or removes unresolved rows.
+        onAssetDelete(removed);
+      }
+      toastManager.primary(
+        $t('permanent_deletion_result', {
+          values: {
+            removed: completed.length,
+            remaining: unresolved.length,
+            reasons: unresolved.slice(0, 25).join(', '),
+          },
+        }),
+      );
+      return;
+    }
     await deleteBulk({ assetBulkDeleteDto: { ids, force } });
     onAssetDelete(ids);
 

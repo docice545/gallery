@@ -153,7 +153,7 @@ describe('Database Migration Scenarios', () => {
   });
 
   // Scenario D: Rollback
-  it('should rollback the last migration regardless of interleaving', async () => {
+  it('refuses destructive rollback of durable deletion evidence', async () => {
     const db = await createRawDatabase('migration_test_rollback');
     try {
       const repo = createRepo(db);
@@ -161,13 +161,13 @@ describe('Database Migration Scenarios', () => {
       const before = await repo.getMigrations();
       const lastMigration = before.at(-1)!.name;
 
-      const reverted = await repo.revertLastMigration();
-
-      expect(reverted).toBe(lastMigration);
-
-      const after = await repo.getMigrations();
-      expect(after.length).toBe(before.length - 1);
-      expect(after.map((m) => m.name)).not.toContain(lastMigration);
+      expect(lastMigration).toBe('1793600000000-AddAuthorizedAssetDeletion');
+      await expect(repo.revertLastMigration()).rejects.toThrow('Deletion tombstones must survive rollback');
+      expect(await repo.getMigrations()).toEqual(before);
+      const { rows } = await sql<{
+        journal: string;
+      }>`SELECT to_regclass('asset_deletion_tombstone') AS journal`.execute(db);
+      expect(rows[0].journal).toBe('asset_deletion_tombstone');
     } finally {
       await db.destroy();
     }
@@ -203,13 +203,12 @@ describe('Database Migration Scenarios', () => {
     try {
       const repo = createRepo(db);
       await repo.runMigrations();
-      await repo.revertLastMigration();
       const afterRevert = await repo.getMigrations();
 
       await repo.runMigrations();
       const afterRerun = await repo.getMigrations();
 
-      expect(afterRerun.length).toBe(afterRevert.length + 1);
+      expect(afterRerun).toEqual(afterRevert);
     } finally {
       await db.destroy();
     }

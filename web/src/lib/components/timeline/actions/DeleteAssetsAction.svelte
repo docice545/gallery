@@ -18,14 +18,14 @@
 
   let { onAssetDelete, onUndoDelete = undefined, menuItem = false, force: forceRequested }: Props = $props();
 
-  const force = $derived(forceRequested || !featureFlagsManager.value.trash);
+  const force = $derived(forceRequested ?? false);
   let label = $derived(force ? $t('permanently_delete') : $t('delete'));
   let loading = $state(false);
 
   const onAction = async () => {
     const assets = assetMultiSelectManager.ownedAssets;
 
-    if (force && $showDeleteModal) {
+    if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal)) {
       const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: assets.length });
       if (!confirmed) {
         return;

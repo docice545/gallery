@@ -984,3 +984,37 @@ export const library_user_delete_after_audit = registerFunction({
       RETURN NULL;
     END`,
 });
+
+export const gallery_block_deleted_asset = registerFunction({
+  name: 'gallery_block_deleted_asset',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      PERFORM pg_advisory_xact_lock(hashtextextended(NEW."ownerId"::text, 731));
+      PERFORM pg_advisory_xact_lock(hashtextextended(NEW."originalPath", 732));
+      IF EXISTS (SELECT 1 FROM asset_deletion_tombstone t WHERE t."ownerId" = NEW."ownerId" AND
+        ((t."originalPath" = NEW."originalPath") OR
+         (NEW."checksumAlgorithm" = 'sha1' AND (t."contentChecksum" = NEW.checksum OR (t."checksumAlgorithm" = 'sha1' AND t.checksum = NEW.checksum) OR t.aliases ? encode(NEW.checksum, 'hex'))))) THEN
+        RAISE EXCEPTION 'Asset identity is permanently suppressed' USING ERRCODE = '23505',
+          CONSTRAINT = 'asset_deletion_tombstone_identity';
+      END IF;
+      RETURN NEW;
+    END `,
+});
+
+export const gallery_lock_asset_file_path = registerFunction({
+  name: 'gallery_lock_asset_file_path',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    DECLARE asset_owner uuid;
+    BEGIN
+      SELECT "ownerId" INTO asset_owner FROM asset WHERE id = NEW."assetId";
+      IF asset_owner IS NOT NULL THEN
+        PERFORM pg_advisory_xact_lock(hashtextextended(asset_owner::text, 731));
+      END IF;
+      PERFORM pg_advisory_xact_lock(hashtextextended(NEW.path, 732));
+      RETURN NEW;
+    END `,
+});

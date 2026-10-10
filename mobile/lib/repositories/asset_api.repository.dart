@@ -1,12 +1,15 @@
+import 'dart:convert';
+
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart' hide AssetEditAction;
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/repositories/api.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
 import 'package:immich_mobile/utils/option.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 import 'package:openapi/api.dart' as api show AssetVisibility;
 import 'package:openapi/api.dart' hide AssetVisibility;
 
@@ -37,6 +40,109 @@ class AssetApiRepository extends ApiRepository {
 
   Future<void> delete(List<String> ids, bool force) =>
       _serializeTrashRequest(() => _api.deleteAssets(AssetBulkDeleteDto(ids: ids, force: Optional.present(force))));
+
+  Future<List<PermanentDeletionResult>> permanentlyDelete(List<String> ids) => _serializeTrashRequest(() async {
+    final requested = ids.toSet().toList();
+    final acknowledged = <PermanentDeletionResult>[];
+    for (var start = 0; start < requested.length; start += 200) {
+      final unique = requested.skip(start).take(200).toSet();
+      try {
+        final response = await _apiService.apiClient.invokeAPI(
+          '/assets/permanent-deletion',
+          'POST',
+          <QueryParam>[],
+          {'ids': unique.toList(), 'confirmed': true},
+          <String, String>{},
+          <String, String>{},
+          'application/json',
+        );
+        if (response.statusCode != 201 && response.statusCode != 200) {
+          throw ApiException(response.statusCode, 'Permanent deletion was not acknowledged');
+        }
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes)) as List;
+        final results = decoded.map((item) {
+          final value = item as Map<String, dynamic>;
+          final id = value['id'] as String;
+          final state = value['state'] as String;
+          if (!unique.contains(id) || !const {'complete', 'pending', 'failed', 'blocked'}.contains(state)) {
+            throw StateError('Invalid deletion acknowledgement');
+          }
+          return PermanentDeletionResult(id: id, state: state, code: value['code'] as String?);
+        }).toList();
+        if (results.length != unique.length || results.map((item) => item.id).toSet().length != unique.length) {
+          throw StateError('Incomplete deletion acknowledgement');
+        }
+        acknowledged.addAll(results);
+      } catch (error) {
+        final definite = isDefiniteTrashRejection(error);
+        acknowledged.addAll(
+          unique.map(
+            (id) => PermanentDeletionResult(
+              id: id,
+              state: definite ? 'blocked' : 'uncertain',
+              code: definite ? 'REQUEST_REJECTED' : 'REQUEST_OUTCOME_UNKNOWN',
+            ),
+          ),
+        );
+        acknowledged.addAll(
+          requested
+              .skip(start + 200)
+              .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT')),
+        );
+        break;
+      }
+    }
+    return acknowledged;
+  });
+
+  Future<Set<String>> completedDeletions(List<String> ids) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/assets/deletion-status',
+      'POST',
+      <QueryParam>[],
+      {'ids': ids},
+      <String, String>{},
+      <String, String>{},
+      'application/json',
+    );
+    if (response.statusCode != 200) {
+      throw ApiException(response.statusCode, 'Deletion statuses unavailable');
+    }
+    final results = (jsonDecode(utf8.decode(response.bodyBytes)) as List).cast<Map<String, dynamic>>();
+    if (results.length != ids.toSet().length ||
+        results.map((item) => item['id']).toSet().length != ids.toSet().length ||
+        results.any(
+          (item) =>
+              !ids.contains(item['id']) || !const {'complete', 'pending', 'failed', 'blocked'}.contains(item['state']),
+        )) {
+      throw StateError('Invalid deletion statuses');
+    }
+    return {
+      for (final item in results)
+        if (item['state'] == 'complete') item['id'] as String,
+    };
+  }
+
+  Future<PermanentDeletionResult> deletionStatus(String id, {Future<void>? abortTrigger}) async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/assets/$id/deletion-status',
+      'GET',
+      <QueryParam>[],
+      null,
+      <String, String>{},
+      <String, String>{},
+      null,
+      abortTrigger: abortTrigger,
+    );
+    if (response.statusCode != 200) {
+      throw ApiException(response.statusCode, 'Deletion status unavailable');
+    }
+    final value = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    if (value['id'] != id || !const {'complete', 'pending', 'failed', 'blocked'}.contains(value['state'])) {
+      throw StateError('Invalid deletion status');
+    }
+    return PermanentDeletionResult(id: id, state: value['state'] as String, code: value['code'] as String?);
+  }
 
   Future<void> restoreTrash(List<String> ids) => _serializeTrashRequest(() async {
     final response = await _trashApi.restoreAssets(BulkIdsDto(ids: ids));

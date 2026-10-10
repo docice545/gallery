@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { TrashController } from 'src/controllers/trash.controller.js';
+import { AssetService } from 'src/services/asset.service.js';
 import { TrashService } from 'src/services/trash.service.js';
 import { factory } from 'test/small.factory.js';
 import { ControllerContext, controllerSetup, mockBaseService } from 'test/utils.js';
@@ -7,14 +8,19 @@ import { ControllerContext, controllerSetup, mockBaseService } from 'test/utils.
 describe(TrashController.name, () => {
   let ctx: ControllerContext;
   const service = mockBaseService(TrashService);
+  const assets = mockBaseService(AssetService);
 
   beforeAll(async () => {
-    ctx = await controllerSetup(TrashController, [{ provide: TrashService, useValue: service }]);
+    ctx = await controllerSetup(TrashController, [
+      { provide: TrashService, useValue: service },
+      { provide: AssetService, useValue: assets },
+    ]);
     return () => ctx.close();
   });
 
   beforeEach(() => {
     service.resetAllMocks();
+    assets.resetAllMocks();
     ctx.reset();
   });
 

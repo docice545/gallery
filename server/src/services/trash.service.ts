@@ -1,11 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { OnEvent, OnJob } from 'src/decorators.js';
 import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { TrashResponseDto } from 'src/dtos/trash.dto.js';
 import { JobName, JobStatus, Permission, QueueName } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
-import { batched } from 'src/utils/misc.js';
 
 @Injectable()
 export class TrashService extends BaseService {
@@ -36,12 +35,10 @@ export class TrashService extends BaseService {
     return { count };
   }
 
-  async empty(auth: AuthDto): Promise<TrashResponseDto> {
-    const count = await this.trashRepository.empty(auth.user.id);
-    if (count > 0) {
-      await this.jobRepository.queue({ name: JobName.AssetEmptyTrash, data: {} });
-    }
-    return { count };
+  empty(_auth: AuthDto): Promise<TrashResponseDto> {
+    return Promise.reject(
+      new ConflictException('Select trashed assets for explicit library-authorized permanent deletion.'),
+    );
   }
 
   @OnEvent({ name: 'AssetDeleteAll' })
@@ -50,17 +47,9 @@ export class TrashService extends BaseService {
   }
 
   @OnJob({ name: JobName.AssetEmptyTrash, queue: QueueName.BackgroundTask })
-  async handleEmptyTrash() {
-    let count = 0;
-    for await (const assets of batched(this.trashRepository.getDeletedIds())) {
-      await this.jobRepository.queueAll(
-        assets.map(({ id }) => ({ name: JobName.AssetDelete, data: { id, deleteOnDisk: true } })),
-      );
-      count += assets.length;
-    }
-
-    this.logger.log(`Queued ${count} asset(s) for deletion from the trash`);
-
-    return JobStatus.Success;
+  handleEmptyTrash() {
+    // Explicit permanent deletion uses the existing worker with a durable authorization receipt.
+    // Retention and legacy empty-trash jobs never activate original-file deletion.
+    return Promise.resolve(JobStatus.Skipped);
   }
 }

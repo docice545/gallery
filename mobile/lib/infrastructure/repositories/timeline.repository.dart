@@ -1576,18 +1576,20 @@ AND STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= ?3
 AND NOT EXISTS (
   SELECT 1 FROM remote_asset_entity rae WHERE rae.checksum = lae.checksum AND rae.owner_id IN ($userIdsSql)
 )
-AND (lae.checksum IS NULL OR lae.checksum NOT IN (
-  SELECT JSON_EXTRACT(retained_trash.value, '\$.checksum')
+AND NOT EXISTS (
+  SELECT 1
   FROM settings retained_trash
   WHERE retained_trash.key >= 'sync.trash-reset.'
     AND retained_trash.key < 'sync.trash-reset/'
+    AND (JSON_EXTRACT(retained_trash.value, '\$.checksum') = lae.checksum
+      OR EXISTS (SELECT 1 FROM JSON_EACH(retained_trash.value, '\$.localIds') WHERE value = lae.id))
     AND CASE WHEN retained_trash.key LIKE 'sync.trash-reset.%' THEN
       JSON_EXTRACT(retained_trash.value, '\$.ownerId') IN ($userIdsSql)
       -- StoreKey.serverEndpoint.id = 12; scope prevents cross-server carryover.
       AND JSON_EXTRACT(retained_trash.value, '\$.endpoint') =
         COALESCE((SELECT string_value FROM store_entity WHERE id = 12), '')
     ELSE 0 END
-))
+)
 
 AND EXISTS (
   SELECT 1 FROM local_album_asset_entity laa
