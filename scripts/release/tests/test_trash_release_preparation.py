@@ -102,6 +102,30 @@ class ReleasePreparation(unittest.TestCase):
                 android.main()
             check.assert_not_called()
 
+    def test_file_job_inventory_accepts_absent_derivatives_and_rejects_bad_paths(self):
+        start = audit.NODE_AUDIT.index("    if(name==='FileDelete') {")
+        end = audit.NODE_AUDIT.index('\n  const assets=new Map()', start)
+        # Exercise the actual read-only inventory fragment, not a duplicate parser.
+        fragment = audit.NODE_AUDIT[start:end].removesuffix('\n  }')
+        for files, errors, paths in (
+            ([None, '/data/thumbs/fixture.jpg', None], [], ['/data/thumbs/fixture.jpg']),
+            ([None, None], [], []),
+            (['relative/private.jpg'], ['FILE_PATH_SHAPE'], []),
+            ([42], ['FILE_PATH_SHAPE'], []),
+            ({'path': '/data/fixture'}, ['FILE_JOB_SHAPE'], []),
+        ):
+            with self.subTest(files=files):
+                program = (
+                    'const result={errors:[],queue:{truncated:false}};'
+                    'const paths=new Set(), maxPaths=10000;'
+                    f'for(const payload of [{{files:{json.dumps(files)}}}]){{'
+                    "const name='FileDelete';" + fragment +
+                    '} console.log(JSON.stringify({errors:result.errors,paths:[...paths]}));'
+                )
+                response = subprocess.run(['node', '--input-type=module'], input=program,
+                                          text=True, capture_output=True, check=True)
+                self.assertEqual(json.loads(response.stdout), {'errors': errors, 'paths': paths})
+
     def test_android_default_is_build_eight(self):
         with patch('sys.argv', ['android_release.py', 'postflight', '--expected-head', 'a'*40]), patch.object(android, 'postflight', return_value={}) as check, redirect_stdout(io.StringIO()):
             self.assertEqual(android.main(), 0)

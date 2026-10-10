@@ -142,6 +142,9 @@ try {
     if(name==='FileDelete') {
       if(!Array.isArray(payload.files)) {result.errors.push('FILE_JOB_SHAPE');continue;}
       for(const path of payload.files) {
+        // IDeleteFilesJob permits absent optional derivatives. JSON serializes
+        // undefined array slots as null; the worker skips these without I/O.
+        if(path===null) continue;
         if(typeof path!=='string'||!path.startsWith('/')) {result.errors.push('FILE_PATH_SHAPE');continue;}
         if(paths.size<maxPaths) paths.add(path); else result.queue.truncated=true;
       }
@@ -189,7 +192,7 @@ try {
         (a.status==='deleted'?'legacy-deleted':'legacy-active-or-trashed'):'cutoff-present-not-proof';
       if(originalPossible&&onExternal(a.path)) risk+=':external-original-unlink-capable';
     } else {
-      const files=Array.isArray(job.payload.files)?job.payload.files:[];
+      const files=Array.isArray(job.payload.files)?job.payload.files.filter(file=>file!==null):[];
       const current=files.some(path=>references.has(path));
       const nas=files.some(onExternal);
       risk=!fileReferencesKnown?'FILE_REFERENCES_UNKNOWN_STOP':

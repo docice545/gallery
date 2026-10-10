@@ -402,14 +402,19 @@ export function withTimeBucketAssetFilters<O>(
       .$if(!!options.isTrashed, (qb) =>
         qb.where((eb) =>
           eb.or([
-            eb('asset.status', '!=', AssetStatus.Deleted),
-            eb.exists(
-              eb
-                .selectFrom('asset_deletion_tombstone')
-                .select('assetId')
-                .whereRef('assetId', '=', 'asset.id')
-                .where('state', '!=', 'complete'),
-            ),
+            // Active external index tombstones also have deletedAt; they are
+            // not user Trash. A failed authorized deletion remains retryable.
+            eb('asset.status', '=', AssetStatus.Trashed),
+            eb.and([
+              eb('asset.status', '=', AssetStatus.Deleted),
+              eb.exists(
+                eb
+                  .selectFrom('asset_deletion_tombstone')
+                  .select('assetId')
+                  .whereRef('assetId', '=', 'asset.id')
+                  .where('state', '!=', 'complete'),
+              ),
+            ]),
           ]),
         ),
       )

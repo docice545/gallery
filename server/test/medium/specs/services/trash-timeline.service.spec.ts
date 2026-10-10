@@ -59,6 +59,84 @@ const fixture = async () => {
 describe('Trash timeline uses authoritative deletion timestamps', () => {
   const options = { isTrashed: true, orderBy: AssetOrderBy.DeletedAt, order: AssetOrder.Desc };
 
+  it('excludes active offline external index tombstones from user Trash', async () => {
+    const { sut, auth, latest, morning, older } = await fixture();
+    const { ctx } = setup();
+    const { library } = await ctx.newLibrary({ ownerId: auth.user.id });
+    const { asset: offline } = await ctx.newAsset({
+      ownerId: auth.user.id,
+      libraryId: library.id,
+      isExternal: true,
+      isOffline: true,
+      status: AssetStatus.Active,
+      deletedAt: new Date('2026-10-05T15:00:00Z'),
+      fileCreatedAt: new Date('2024-01-02T10:00:00Z'),
+      localDateTime: new Date('2024-01-02T10:00:00Z'),
+      width: 300,
+      height: 400,
+    });
+    await ctx.newExif({ assetId: offline.id, timeZone: 'UTC' });
+    const response = JSON.parse(
+      await sut.getTimeBucket(auth, { ...options, timeBucket: '2026-10-01' }),
+    ) as TimeBucketAssetResponseDto;
+    expect(response.id).not.toContain(offline.id);
+    expect(response.id).toEqual([latest.id, morning.id, older.id]);
+    const buckets = await sut.getTimeBuckets(auth, { ...options, bucketSize: TimeBucketSize.Month });
+    expect(buckets).toEqual([{ count: 3, timeBucket: '2026-10-01' }]);
+    const covers = await sut.getTimeBucketCovers(auth, {
+      ...options,
+      bucketSize: TimeBucketSize.Day,
+      timeBuckets: ['2026-10-05'],
+    });
+    expect(covers[0].representativeAssetId).toBe(latest.id);
+    const row = await database
+      .selectFrom('asset')
+      .select(['status', 'deletedAt'])
+      .where('id', '=', offline.id)
+      .executeTakeFirstOrThrow();
+    expect(row.status).toBe(AssetStatus.Active);
+    expect(row.deletedAt).not.toBeNull();
+  });
+
+  it('keeps failed authorized deletion visible, excluding legacy Deleted rows without a receipt', async () => {
+    const { sut, auth, latest, morning, older } = await fixture();
+    await database
+      .updateTable('asset')
+      .set({ status: AssetStatus.Deleted })
+      .where('id', 'in', [latest.id, morning.id])
+      .execute();
+    await database
+      .insertInto('asset_deletion_tombstone')
+      .values({
+        assetId: latest.id,
+        ownerId: auth.user.id,
+        libraryId: null,
+        operationId: latest.id,
+        scope: 'managed',
+        originalPath: latest.originalPath,
+        checksum: latest.checksum,
+        checksumAlgorithm: latest.checksumAlgorithm,
+        contentChecksum: latest.checksum,
+        aliases: [],
+        authorization: {
+          actor: auth.user.id,
+          recoveryProof: 'a'.repeat(64),
+          policyUpdatedAt: new Date().toISOString(),
+        },
+        files: [],
+        state: 'failed',
+        errorCode: 'ORIGINAL_DELETE_FAILED',
+      })
+      .execute();
+    const response = JSON.parse(
+      await sut.getTimeBucket(auth, { ...options, timeBucket: '2026-10-01' }),
+    ) as TimeBucketAssetResponseDto;
+    expect(response.id).toEqual([latest.id, older.id]);
+    expect(await sut.getTimeBuckets(auth, { ...options, bucketSize: TimeBucketSize.Month })).toEqual([
+      { count: 2, timeBucket: '2026-10-01' },
+    ]);
+  });
+
   it('groups only the owner trash by deletion day/month/year, newest first', async () => {
     const { sut, auth } = await fixture();
     await expect(sut.getTimeBuckets(auth, { ...options, bucketSize: TimeBucketSize.Day })).resolves.toEqual([
