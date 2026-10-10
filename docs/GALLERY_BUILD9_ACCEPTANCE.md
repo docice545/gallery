@@ -1,6 +1,6 @@
 # Gallery build 9: release acceptance gates
 
-Source: `76bbcf708e12ee811041adcc38fd7909a7d6da15`. Backend 5.7.2, Android/iOS
+Source: `968492c09641c49f34edbcea7367fc197ef3c531`. Backend 5.7.2, Android/iOS
 5.7.2 (9). Automated evidence is distinct from physical/production acceptance.
 No HP, NAS originals, production queues or signing keys were touched.
 
@@ -56,6 +56,12 @@ candidate with explicit operator gates, not a claim of completed production acce
   Offline Active index tombstones are excluded from user Trash; a failed authorized
   deletion remains visible. Read-only audit/CI-harness group: 18 passed, including
   valid null derivative slots and rejection of malformed/relative paths.
+- Final index-state fix: 894 focused Flutter/cache-migration checks passed,
+  including all schema paths to 39; full analyze and formatting passed. Backend
+  sync/Trash PostgreSQL group passed 31; DTO/sync/asset units passed 281; scoped
+  TypeScript and ESLint passed. Replay verifies legacy markers against a current
+  GET; pending/newer Trash remains protected. Real SQLite restart preserves index
+  classification; rejected Trash restores that classification without a marker.
 - Release-tooling guard tests and real Docker/rollback proof results are recorded
   in the final handoff. No production backup restore or deployment is executed
   by cloud tests.
