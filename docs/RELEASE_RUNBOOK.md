@@ -1,6 +1,6 @@
 # Gallery 5.7.2 (9): release runbook
 
-Application source: `968492c09641c49f34edbcea7367fc197ef3c531`, branch
+Application source: `e6ab95e695f085c3016072ebff44d4ba02695cb5`, branch
 `candidate/gallery-trash-full-delete-5.7.2-build9`. Production `work` stays at
 `42790b06edc21438811e56e40c431eee37c24894`. Tooling has its own commit; it must
 never be substituted for the application/artifact SHA.
@@ -43,7 +43,7 @@ printf '%s  %s\n' 56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a
 python3 -B - "$ARTIFACTS" <<'PY_VALIDATE'
 import ast,json,pathlib,sys
 root=pathlib.Path(sys.argv[1]); profile=json.loads((root/'candidate-profile.json').read_text())
-assert profile['sourceCommit']=='968492c09641c49f34edbcea7367fc197ef3c531'
+assert profile['sourceCommit']=='e6ab95e695f085c3016072ebff44d4ba02695cb5'
 assert (profile['serverVersion'],profile['mobileVersion'],profile['mobileBuild'])==('5.7.2','5.7.2',9)
 for file in (root/'tooling').rglob('*.py'): ast.parse(file.read_text())
 print('PASS exact candidate and tooling syntax')
@@ -175,7 +175,7 @@ A non-fast-forward integration needs a new reviewed source/artifact binding.
 # Only after approved integration and HP signing; production checkout is unchanged before then.
 python3 -B "$ARTIFACTS/tooling/android_release.py" sign-existing \
   --repository /opt/gallery-fork \
-  --expected-head 968492c09641c49f34edbcea7367fc197ef3c531 --build-number 9 \
+  --expected-head e6ab95e695f085c3016072ebff44d4ba02695cb5 --build-number 9 \
   --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" \
   --input-apk "$ARTIFACTS/android/app-release.apk" --authorize-production-signing
 ```
@@ -183,7 +183,7 @@ python3 -B "$ARTIFACTS/tooling/android_release.py" sign-existing \
 The script verifies APK source/hash/manifest/package/version/signature/native
 libraries, re-signs unchanged payload using the existing HP key, checks alignment
 and production certificate, and prints `Foto.apk` path/SHA-256. Output is below
-`/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-9-968492c09641/`.
+`/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-9-e6ab95e695f0/`.
 Install that **Foto.apk** over build 7/8 on S23, without uninstalling or clearing
 app data. Verify session/settings and package/version/certificate after install.
 HP signing and physical update are operator gates, not cloud test results.
