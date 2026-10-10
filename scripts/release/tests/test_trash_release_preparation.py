@@ -178,6 +178,39 @@ class ReleasePreparation(unittest.TestCase):
                 self.assertNotIn('private/file', str(caught.exception))
                 self.assertNotIn('anything', str(caught.exception))
 
+    def test_fixture_rate_limit_retries_exact_pinned_image_then_succeeds(self):
+        error = RuntimeError('Docker pull failed: REGISTRY_RATE_LIMIT')
+        with patch.object(smoke, 'docker', side_effect=[error, error, '']) as docker, \
+             patch.object(smoke.time, 'sleep') as wait, redirect_stdout(io.StringIO()):
+            smoke.pull_fixture(smoke.POSTGRES)
+            self.assertEqual(docker.call_count, 3)
+            for call in docker.call_args_list:
+                self.assertEqual(call.args, ('pull', '--quiet', smoke.POSTGRES))
+            self.assertEqual([call.args[0] for call in wait.call_args_list], [10, 30])
+
+    def test_persistent_fixture_rate_limit_stops_after_three_attempts(self):
+        with patch.object(smoke, 'docker', side_effect=RuntimeError('REGISTRY_RATE_LIMIT')) as docker, \
+             patch.object(smoke.time, 'sleep') as wait, redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, 'REGISTRY_RATE_LIMIT'):
+                smoke.pull_fixture(smoke.POSTGRES)
+            self.assertEqual(docker.call_count, 3)
+            self.assertEqual(wait.call_count, 2)
+
+    def test_fixture_authentication_or_identity_failure_is_not_retried(self):
+        for category in ('REGISTRY_ACCESS_DENIED', 'IMAGE_UNAVAILABLE', 'UNCLASSIFIED_CLI_FAILURE'):
+            with patch.object(smoke, 'docker', side_effect=RuntimeError(category)) as docker, \
+                 patch.object(smoke.time, 'sleep') as wait:
+                with self.assertRaisesRegex(RuntimeError, category):
+                    smoke.pull_fixture(smoke.POSTGRES)
+                docker.assert_called_once()
+                wait.assert_not_called()
+
+    def test_fixture_pull_cannot_broaden_image_selection(self):
+        with patch.object(smoke, 'docker') as docker:
+            with self.assertRaises(ValueError):
+                smoke.pull_fixture('untrusted/postgres:latest')
+            docker.assert_not_called()
+
     def test_http_failure_reports_fixed_route_and_status_without_private_body(self):
         import urllib.error
         error = urllib.error.HTTPError('unused', 400, 'unused', {}, io.BytesIO(json.dumps({

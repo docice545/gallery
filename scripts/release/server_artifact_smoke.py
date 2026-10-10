@@ -17,6 +17,7 @@ import urllib.request
 import urllib.error
 
 POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67'
+REDIS = 'redis:7.4.6'
 
 
 def http_failure(method, path, error):
@@ -72,6 +73,21 @@ def docker(*args, input=None):
     return result.stdout.strip()
 
 
+def pull_fixture(image):
+    """Retry only a transient registry quota error, never an identity/auth failure."""
+    if image not in (POSTGRES, REDIS):
+        raise ValueError('Only existing disposable fixture images may be pulled')
+    for attempt in range(3):
+        try:
+            docker('pull', '--quiet', image)
+            return
+        except RuntimeError as error:
+            if 'REGISTRY_RATE_LIMIT' not in str(error) or attempt == 2:
+                raise
+            print(f'WARNING fixture registry rate limit; bounded retry {attempt + 1}/2', flush=True)
+            time.sleep((10, 30)[attempt])
+
+
 def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1':
         print('FAIL only runs on an explicitly isolated GitHub runner; no containers touched')
@@ -86,12 +102,18 @@ def main():
     stage = 'create isolated fixtures'
     try:
         print('CI free runner disk bytes:', shutil.disk_usage(directory).free, flush=True)
+        # The preceding workflow login remains read-only. Resolve exact fixtures
+        # before allocating containers; a quota failure cannot skip the smoke.
+        stage = 'pull isolated postgres fixture'
+        pull_fixture(POSTGRES)
+        stage = 'pull isolated redis fixture'
+        pull_fixture(REDIS)
         prefix = 'gallery-trash-ci-' + secrets.token_hex(6)
         network = docker('network', 'create', prefix)
         db, redis, server = (prefix + '-' + name for name in ('pg', 'redis', 'server'))
         for name, image, extra in [
             (db, POSTGRES, ['-e', 'POSTGRES_PASSWORD=disposable-ci-password', '-e', 'POSTGRES_DB=immich']),
-            (redis, 'redis:7.4.6', []),
+            (redis, REDIS, []),
             (server, manifest['imageTag'], ['-e', f'DB_HOSTNAME={db}', '-e', 'DB_PASSWORD=disposable-ci-password',
                 '-e', f'REDIS_HOSTNAME={redis}', '-e', 'IMMICH_WORKERS_EXCLUDE=microservices',
                 '-p', '127.0.0.1::2283']),
@@ -99,7 +121,7 @@ def main():
             stage = 'create isolated fixture ' + ('postgres' if name == db else 'redis' if name == redis else 'server')
             postgres_command = ['postgres', '-c', 'shared_preload_libraries=vchord.so',
                 '-c', 'config_file=/var/lib/postgresql/data/postgresql.conf'] if name == db else []
-            docker('run', '-d', '--name', name, '--network', network, *extra, image, *postgres_command)
+            docker('run', '--pull=never', '-d', '--name', name, '--network', network, *extra, image, *postgres_command)
             # Only a successfully created fixture is ours to remove/read logs.
             names.append(name)
         mapping = json.loads(docker('inspect', server))[0]['NetworkSettings']['Ports']['2283/tcp'][0]
@@ -198,9 +220,11 @@ def main():
         manifest['isolatedSmoke'] = 'PASS: fresh PG migrations + HTTP Trash/Restore/permanent deletion + read-only audit'
         (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         # Public receipt allows verification without downloading the large image.
-        print('PASS backend receipt:', json.dumps({key: manifest[key] for key in (
+        receipt = json.dumps({key: manifest[key] for key in (
             'sourceCommit', 'toolingCommit', 'serverVersion', 'mobileVersion', 'mobileBuild',
-            'imageTag', 'imageId', 'archiveSHA256', 'isolatedSmoke')}, sort_keys=True))
+            'imageTag', 'imageId', 'archiveSHA256', 'isolatedSmoke')}, sort_keys=True)
+        print('PASS backend receipt:', receipt)
+        print('::notice title=Backend artifact receipt::' + receipt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
         return 0
     except Exception as error:
         print('FAIL isolated smoke stage:', stage, '; category:', type(error).__name__)
