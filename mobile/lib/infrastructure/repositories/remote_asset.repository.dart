@@ -143,7 +143,10 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
         for (final id in ids) {
           batch.update(
             _db.remoteAssetEntity,
-            RemoteAssetEntityCompanion(deletedAt: Value(restore ? null : deletedAt)),
+            RemoteAssetEntityCompanion(
+              deletedAt: Value(restore ? null : deletedAt),
+              isIndexTombstone: const Value(false),
+            ),
             where: (e) => e.id.equals(id),
           );
         }
@@ -161,14 +164,20 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
   Future<List<String>> getTrashIds(String ownerId) async {
     final query = _db.remoteAssetEntity.selectOnly()
       ..addColumns([_db.remoteAssetEntity.id])
-      ..where(_db.remoteAssetEntity.deletedAt.isNotNull() & _db.remoteAssetEntity.ownerId.equals(ownerId));
+      ..where(
+        _db.remoteAssetEntity.deletedAt.isNotNull() &
+            _db.remoteAssetEntity.isIndexTombstone.equals(false) &
+            _db.remoteAssetEntity.ownerId.equals(ownerId),
+      );
     return query.map((row) => row.read(_db.remoteAssetEntity.id)!).get();
   }
 
   Future<void> emptyTrash(String ownerId) async {
     await _db.transaction(() async {
       await _db.syncStreamRepository.clearRetainedTrash(ownerId: ownerId);
-      await _db.remoteAssetEntity.deleteWhere((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId));
+      await _db.remoteAssetEntity.deleteWhere(
+        (t) => t.deletedAt.isNotNull() & t.isIndexTombstone.equals(false) & t.ownerId.equals(ownerId),
+      );
     });
   }
 
@@ -183,7 +192,11 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
       final retainedIds = await _db.syncStreamRepository.getRetainedTrashIds(ownerId);
       final query = _db.remoteAssetEntity.selectOnly()
         ..addColumns([_db.remoteAssetEntity.id])
-        ..where(_db.remoteAssetEntity.deletedAt.isNotNull() & _db.remoteAssetEntity.ownerId.equals(ownerId));
+        ..where(
+          _db.remoteAssetEntity.deletedAt.isNotNull() &
+              _db.remoteAssetEntity.isIndexTombstone.equals(false) &
+              _db.remoteAssetEntity.ownerId.equals(ownerId),
+        );
       final rowIds = await query.map((row) => row.read(_db.remoteAssetEntity.id)!).get();
       return _changeTrash({...retainedIds, ...rowIds}.toList(), restore: true, pending: pending);
     });

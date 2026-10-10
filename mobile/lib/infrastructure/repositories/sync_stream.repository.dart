@@ -83,7 +83,10 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         try {
           await transaction(() async {
             if (retainTrash) {
-              final rows = await (_db.remoteAssetEntity.select()..where((row) => row.deletedAt.isNotNull())).get();
+              final rows =
+                  await (_db.remoteAssetEntity.select()
+                        ..where((row) => row.deletedAt.isNotNull() & row.isIndexTombstone.equals(false)))
+                      .get();
               final endpoint = await _trashEndpoint();
               final prefix = await _trashResetPrefix();
               final retained = await _retainedTrash({for (final row in rows) row.id: row.ownerId});
@@ -302,7 +305,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     final scope = await _trashResetPrefix();
     final retained = await _retainedTrash(ownersById);
     final query = _db.remoteAssetEntity.select()
-      ..where((row) => row.id.isIn(ownersById.keys) & row.deletedAt.isNotNull());
+      ..where((row) => row.id.isIn(ownersById.keys) & row.deletedAt.isNotNull() & row.isIndexTombstone.equals(false));
     final candidates = Map.of(retained);
     for (final row in await query.get()) {
       if (ownersById[row.id] == row.ownerId) {
@@ -361,7 +364,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       }
       if (row != null) {
         await (_db.remoteAssetEntity.update()..where((row) => row.id.equals(checked.id))).write(
-          const RemoteAssetEntityCompanion(deletedAt: Value(null)),
+          const RemoteAssetEntityCompanion(deletedAt: Value(null), isIndexTombstone: Value(false)),
         );
       }
     });
@@ -516,6 +519,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       }
       final state = _pendingState(snapshot)!;
       final unresolvedPrevious = rollback && state['previousPending'] == true;
+      var indexRollback = false;
       if (trashed == null) {
         state['phase'] = 'uncertain';
       } else {
@@ -523,6 +527,8 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         state.remove('phase');
         final previous = state.remove('previousDeletedAt');
         final previousTrashDate = state.remove('previousTrashDate');
+        final previousIndexState = state.remove('previousIndexTombstone') == true;
+        indexRollback = rollback && previousIndexState;
         state.remove('previousPending');
         if (rollback && trashed) {
           state['deletedAt'] = previous;
@@ -530,6 +536,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         if (row != null) {
           await (_db.remoteAssetEntity.update()..where((r) => r.id.equals(snapshot.id))).write(
             RemoteAssetEntityCompanion(
+              isIndexTombstone: Value(rollback && previousIndexState),
               deletedAt: Value(
                 trashed ? DateTime.fromMillisecondsSinceEpoch(state['deletedAt'] as int, isUtc: true) : null,
               ),
@@ -544,7 +551,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
           state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
         }
       }
-      if (trashed == false && !unresolvedPrevious) {
+      if ((trashed == false || indexRollback) && !unresolvedPrevious) {
         await _db.settingsEntity.deleteWhere((r) => r.key.equals(snapshot.retainedKey!));
       } else {
         await (_db.settingsEntity.update()..where((r) => r.key.equals(snapshot.retainedKey!))).write(
@@ -686,6 +693,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     final identities = <String, ({String ownerId, String checksum})>{};
     final deletionDates = <String, DateTime>{};
     final previousDates = <String, DateTime?>{};
+    final previousIndexStates = <String, bool>{};
     final pendingIds = <String>{};
     for (final row in rows) {
       final state = _decodeRetained(row.key, row.value!);
@@ -706,6 +714,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
     for (final row in existing) {
       previousDates[row.id] = row.deletedAt;
+      previousIndexStates[row.id] = row.isIndexTombstone;
       if (!preserveExistingDates || row.deletedAt != null) {
         identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
       }
@@ -747,6 +756,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
             'operation': operation,
             'phase': 'inFlight',
             'previousDeletedAt': previousDates[entry.key]?.millisecondsSinceEpoch,
+            'previousIndexTombstone': previousIndexStates[entry.key] ?? false,
             if (pendingIds.contains(entry.key)) ...{
               'previousPending': true,
               'previousTrashDate': deletionDates[entry.key]?.millisecondsSinceEpoch,
@@ -776,6 +786,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               continue;
             }
             final companion = RemoteAssetEntityCompanion(
+              isIndexTombstone: Value(
+                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+              ),
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
               createdAt: Value.absentIfNull(asset.fileCreatedAt),
@@ -835,6 +848,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               continue;
             }
             final companion = RemoteAssetEntityCompanion(
+              isIndexTombstone: Value(
+                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+              ),
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
               createdAt: Value.absentIfNull(asset.fileCreatedAt),

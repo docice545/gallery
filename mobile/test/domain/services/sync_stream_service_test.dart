@@ -321,6 +321,23 @@ void main() {
       ]);
     });
 
+    for (final currentTrash in [false, true]) {
+      test('index-state replay verifies legacy Trash against current GET (trashed=$currentTrash)', () async {
+        final data = staleActive.data as SyncAssetV1;
+        data.deletedAt = DateTime.utc(2026, 10, 7);
+        data.isTrashed = const Optional.present(false);
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: currentTrash));
+        await simulateEvents([staleActive]);
+        verify(() => assetsApi.getAssetInfo('remote-1')).called(1);
+        if (currentTrash) {
+          verifyNever(() => mockSyncStreamRepo.confirmRestore(candidate));
+        } else {
+          verify(() => mockSyncStreamRepo.confirmRestore(candidate)).called(1);
+        }
+        verify(() => mockSyncApiRepo.ack(['older-active'])).called(1);
+      });
+    }
+
     test('network failure keeps state and leaves restore unacknowledged for retry', () async {
       when(() => assetsApi.getAssetInfo('remote-1')).thenThrow(Exception('offline'));
       await expectLater(simulateEvents([staleActive]), throwsA(isA<Exception>()));
@@ -1179,6 +1196,19 @@ void main() {
   });
 
   group('SyncStreamService - Sync Migration', () {
+    test('authorized deletion replays only asset checkpoints once, without clearing cache', () async {
+      final existing = SyncMigrationTask.values.where((task) => task != SyncMigrationTask.v20261010_TrashIndexState);
+      await Store.put(StoreKey.syncMigrationStatus, '[${existing.map((task) => '"${task.name}"').join(',')}]');
+      final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+      when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+      await sut.sync();
+      await sut.sync();
+      final calls = verify(() => mockSyncApiRepo.deleteSyncAck(captureAny())).captured;
+      expect(calls, hasLength(1));
+      expect(calls.single, containsAll([SyncEntityType.assetV2, SyncEntityType.libraryAssetCreateV1]));
+      expect(calls.single, isNot(contains(SyncEntityType.memoryV1)));
+      verifyNever(() => mockSyncStreamRepo.reset());
+    });
     test('ensure that <2.5.0 migrations run', () async {
       await Store.put(StoreKey.syncMigrationStatus, "[]");
       when(

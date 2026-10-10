@@ -52,6 +52,17 @@ uncontrolled writer; verify actual NFS inode behavior on disposable media before
 
 ## Mobile/web behavior
 
+Offline external index rows (`Active` plus `deletedAt`) are not user Trash. Sync
+V1/V2 adds optional `isTrashed: false` only for those rows; ordinary payloads and
+older clients remain compatible. Mobile cache schema 39 adds a default-false
+index-state flag, preserving timestamps and all existing cached rows. A one-time
+asset-checkpoint replay runs only against the server's authorized-deletion
+feature, without clearing the cache or pending mutations. Legacy false-Trash
+markers are reconciled through the current owner-scoped asset GET before stream
+ACK; a delayed index snapshot cannot clear newer Trash. Definite rejection of a
+Trash action on an index row restores index availability without creating a
+durable user-deletion marker. Cache reset and reopen preserve that distinction.
+
 Trash resolves the server operation before local deletion and keeps optimistic revision state through
 uncertain responses. Definite rejection rolls back; ambiguous delivery survives restart/reconnect.
 OS APIs supply the actual deleted IDs. Denial/partial result is visible, not reported as all-success.

@@ -42,6 +42,9 @@ class RemoteAssetEntity extends Table with DriftDefaultsMixin, AssetEntityMixin 
 
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
+  // Unavailable external index entries are distinct from a user's Trash.
+  BoolColumn get isIndexTombstone => boolean().withDefault(const Constant(false))();
+
   DateTimeColumn get uploadedAt => dateTime().nullable()();
 
   TextColumn get livePhotoVideoId => text().nullable()();
@@ -79,5 +82,6 @@ extension RemoteAssetEntityDataDomainEx on RemoteAssetEntityData {
     stackId: stackId,
     isEdited: isEdited,
     deletedAt: deletedAt,
+    isIndexTombstone: isIndexTombstone,
   );
 }

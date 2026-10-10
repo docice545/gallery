@@ -182,7 +182,7 @@ class Drift extends $Drift {
   }
 
   @override
-  int get schemaVersion => 38;
+  int get schemaVersion => 39;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -438,6 +438,9 @@ class Drift extends $Drift {
                 await m.alterTable(
                   TableMigration(v38.sharedSpaceAlbumLinkEntity, newColumns: [v38.sharedSpaceAlbumLinkEntity.folderId]),
                 );
+              },
+              from38To39: (m, v39) async {
+                await m.addColumn(v39.remoteAssetEntity, v39.remoteAssetEntity.isIndexTombstone);
               },
             ),
           ),

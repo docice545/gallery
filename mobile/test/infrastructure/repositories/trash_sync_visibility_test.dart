@@ -136,6 +136,66 @@ void main() {
     }
   }
 
+  for (final v2 in [false, true]) {
+    test('offline index timestamp is not user Trash (v2=$v2)', () async {
+      final json = payload(trashDate: deletedAt)..['isTrashed'] = false;
+      await stream(json, v2: v2);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), isEmpty);
+      expect(await timeline.trash('owner', GroupAssetsBy.day).assetSource(0, 100), isEmpty);
+      expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isFalse);
+      expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
+      // A cache reset must not turn index-only availability into a user deletion
+      // marker that suppresses local backup or outlives the index row.
+      await sync.reset();
+      expect(await sync.getRetainedTrashIds('owner'), isEmpty);
+      await ctx.newUser(id: 'owner');
+      await ctx.newAuthUser(id: 'owner');
+      await stream(json, v2: v2);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), isEmpty);
+    });
+
+    test('definite rejected Trash restores index availability without retaining user Trash (v2=$v2)', () async {
+      final json = payload(trashDate: deletedAt)..['isTrashed'] = false;
+      await stream(json, v2: v2);
+      final snapshots = await RemoteAssetRepository(ctx.db).beginTrashOperation(['still'], restore: false);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), ['still']);
+      await sync.completeTrashOperation(snapshots, success: false, definiteFailure: true);
+      expect(await sync.getRetainedTrashIds('owner'), isEmpty);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), isEmpty);
+      expect((await RemoteAssetRepository(ctx.db).get('still'))!.isIndexTombstone, isTrue);
+      await stream(json, v2: v2);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), isEmpty);
+    });
+
+    test('a delayed index snapshot cannot clear pending user Trash (v2=$v2)', () async {
+      await stream(payload(), v2: v2);
+      final snapshots = await RemoteAssetRepository(ctx.db).beginTrashOperation(['still'], restore: false);
+      await stream(payload(trashDate: deletedAt)..['isTrashed'] = false, v2: v2);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), ['still']);
+      expect((await RemoteAssetRepository(ctx.db).get('still'))!.isTrashed, isTrue);
+      await sync.completeTrashOperation(snapshots, success: true);
+      await stream(payload(trashDate: deletedAt)..['isTrashed'] = false, v2: v2);
+      expect(await RemoteAssetRepository(ctx.db).getTrashIds('owner'), ['still']);
+    });
+  }
+
+  test('index-only cache flag survives an actual SQLite close and reopen', () async {
+    final directory = await Directory.systemTemp.createTemp('gallery-index-test-');
+    final file = File('${directory.path}/cache.sqlite');
+    var cache = Drift(DatabaseConnection(NativeDatabase(file), closeStreamsSynchronously: true));
+    addTearDown(() async {
+      await cache.close();
+      await directory.delete(recursive: true);
+    });
+    await cache.into(cache.userEntity).insert(await ctx.db.select(ctx.db.userEntity).getSingle());
+    final dto = api.SyncAssetV2.fromJson(payload(trashDate: deletedAt)..['isTrashed'] = false)!;
+    await SyncStreamRepository(cache).updateAssetsV2([dto]);
+    await cache.close();
+    cache = Drift(DatabaseConnection(NativeDatabase(file), closeStreamsSynchronously: true));
+    expect(await RemoteAssetRepository(cache).getTrashIds('owner'), isEmpty);
+    expect((await RemoteAssetRepository(cache).get('still'))!.isTrashed, isFalse);
+  });
+
   List<TimelineQuery> photosQueries() => [
     timeline.main(['owner'], 'owner', GroupAssetsBy.day),
     timeline.main(['owner'], 'owner', GroupAssetsBy.day, temporalScope: const TimelineTemporalScope.year(2026)),

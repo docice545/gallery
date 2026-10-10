@@ -878,7 +878,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     GroupAssetsBy groupBy, {
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) => _remoteQueryBuilder(
-    filter: (row) => row.deletedAt.isNotNull() & row.ownerId.equals(userId),
+    filter: (row) => row.deletedAt.isNotNull() & row.isIndexTombstone.equals(false) & row.ownerId.equals(userId),
     groupBy: groupBy,
     temporalScope: temporalScope,
     origin: TimelineOrigin.trash,

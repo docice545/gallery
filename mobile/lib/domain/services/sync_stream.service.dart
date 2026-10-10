@@ -28,6 +28,7 @@ enum SyncMigrationTask {
   v20260128_ResetAssetV1, // Asset v2.5.0 has width and height information that were edited assets.
   v20260597_ResetAssetV1AssetV2, // Assets didn't include the uploadedAt column.
   v20260701_ResetAlbumsV1, // Album user migration dropped the owner. Sync fresh albums from the server to re-populate them.
+  v20261010_TrashIndexState, // Replay asset metadata once, keeping cache and durable pending mutations.
 }
 
 class SyncStreamService {
@@ -172,6 +173,31 @@ class SyncStreamService {
   }
 
   Future<void> _runPreSyncTasks(List<String> migrations, SemVer semVer) async {
+    if (_authorizedDeletion == true && !migrations.contains(SyncMigrationTask.v20261010_TrashIndexState.name)) {
+      await _syncApiRepository.deleteSyncAck([
+        SyncEntityType.assetV1,
+        SyncEntityType.assetV2,
+        SyncEntityType.partnerAssetV1,
+        SyncEntityType.partnerAssetV2,
+        SyncEntityType.partnerAssetBackfillV1,
+        SyncEntityType.partnerAssetBackfillV2,
+        SyncEntityType.albumAssetCreateV1,
+        SyncEntityType.albumAssetCreateV2,
+        SyncEntityType.albumAssetUpdateV1,
+        SyncEntityType.albumAssetUpdateV2,
+        SyncEntityType.albumAssetBackfillV1,
+        SyncEntityType.albumAssetBackfillV2,
+        SyncEntityType.sharedSpaceAssetCreateV1,
+        SyncEntityType.sharedSpaceAssetUpdateV1,
+        SyncEntityType.sharedSpaceAssetBackfillV1,
+        SyncEntityType.libraryAssetCreateV1,
+        SyncEntityType.libraryAssetBackfillV1,
+        SyncEntityType.sharedSpaceAlbumAssetCreateV1,
+        SyncEntityType.sharedSpaceAlbumAssetUpdateV1,
+        SyncEntityType.sharedSpaceAlbumAssetBackfillV1,
+      ]);
+      migrations.add(SyncMigrationTask.v20261010_TrashIndexState.name);
+    }
     if (!migrations.contains(SyncMigrationTask.v20260701_ResetAlbumsV1.name)) {
       _logger.info("Running pre-sync task: v20260701_ResetAlbumsV1");
       await _syncApiRepository.deleteSyncAck([SyncEntityType.albumV1]);
@@ -266,6 +292,8 @@ class SyncStreamService {
       switch (event.data) {
         case SyncAssetV1(:final id, :final ownerId, deletedAt: null):
         case SyncAssetV2(:final id, :final ownerId, deletedAt: null):
+        case SyncAssetV1(:final id, :final ownerId, :final isTrashed) when isTrashed.orElse(null) == false:
+        case SyncAssetV2(:final id, :final ownerId, :final isTrashed) when isTrashed.orElse(null) == false:
           ownersById[id] = ownerId;
       }
     }

@@ -4747,6 +4747,8 @@ export type SyncAssetV1 = {
     isEdited: boolean;
     /** Is favorite */
     isFavorite: boolean;
+    /** Explicitly false for an offline index tombstone, not user Trash */
+    isTrashed?: boolean;
     /** Library ID */
     libraryId: string | null;
     /** Live photo video ID */
@@ -4787,6 +4789,8 @@ export type SyncAssetV2 = {
     isEdited: boolean;
     /** Is favorite */
     isFavorite: boolean;
+    /** Explicitly false for an offline index tombstone, not user Trash */
+    isTrashed?: boolean;
     /** Library ID */
     libraryId: string | null;
     /** Live photo video ID */

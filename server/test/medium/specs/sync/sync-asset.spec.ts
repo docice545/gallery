@@ -1,5 +1,5 @@
 import { Kysely } from 'kysely';
-import { SyncEntityType, SyncRequestType } from 'src/enum.js';
+import { AssetStatus, SyncEntityType, SyncRequestType } from 'src/enum.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { DB } from 'src/schema/index.js';
 import { SyncTestContext } from 'test/medium.factory.js';
@@ -19,6 +19,30 @@ beforeAll(async () => {
 });
 
 describe(SyncEntityType.AssetV2, () => {
+  for (const type of [SyncRequestType.AssetsV2, SyncRequestType.LibraryAssetsV1]) {
+    it(`distinguishes an offline index tombstone from user Trash in ${type}`, async () => {
+      const { auth, ctx } = await setup();
+      const { library } = await ctx.newLibrary({ ownerId: auth.user.id });
+      const { asset } = await ctx.newAsset({
+        ownerId: auth.user.id,
+        libraryId: library.id,
+        status: AssetStatus.Active,
+        isOffline: true,
+        isExternal: true,
+        deletedAt: new Date('2026-10-05T00:00:00Z'),
+      });
+      const response = await ctx.syncStream(auth, [type]);
+      const event = response.find((event) => 'id' in event.data && event.data.id === asset.id);
+      expect(event).toBeDefined();
+      expect(event!.data).toMatchObject({
+        id: asset.id,
+        isTrashed: false,
+        deletedAt: new Date(asset.deletedAt!).toISOString(),
+      });
+      expect(event!.data).not.toHaveProperty('status');
+    });
+  }
+
   it('should detect and sync the first asset', async () => {
     const originalFileName = 'firstAsset';
     const checksum = '1115vHcVkZzNp3Q9G+FEA0nu6zUbGb4Tj4UOXkN0wRA=';

@@ -14,7 +14,7 @@ import {
   SyncStreamDto,
   syncAlbumV2ToV1,
 } from 'src/dtos/sync.dto.js';
-import { JobName, MemoryType, QueueName, SyncEntityType, SyncRequestType } from 'src/enum.js';
+import { AssetStatus, JobName, MemoryType, QueueName, SyncEntityType, SyncRequestType } from 'src/enum.js';
 import { SyncQueryOptions } from 'src/repositories/sync.repository.js';
 import { SessionSyncCheckpointTable } from 'src/schema/tables/sync-checkpoint.table.js';
 import { BaseService } from 'src/services/base.service.js';
@@ -25,6 +25,7 @@ import { SerializeOptions, fromAck, serialize, toAck } from 'src/utils/sync.js';
 
 type CheckpointMap = Partial<Record<SyncEntityType, SyncAck>>;
 type AssetLike = Omit<SyncAssetV2, 'checksum' | 'thumbhash'> & {
+  status?: AssetStatus;
   checksum: Buffer<ArrayBufferLike>;
   thumbhash: Buffer<ArrayBufferLike> | null;
 };
@@ -33,8 +34,10 @@ const COMPLETE_ID = 'complete';
 const MAX_DAYS = 30;
 const MAX_DURATION = Duration.fromObject({ days: MAX_DAYS });
 
-const mapSyncAssetV2 = ({ checksum, thumbhash, ...data }: AssetLike): SyncAssetV2 => ({
+const mapSyncAssetV2 = ({ checksum, thumbhash, status, ...data }: AssetLike): SyncAssetV2 => ({
   ...data,
+  // Keep normal payloads unchanged. Older clients ignore this optional field.
+  ...(status === AssetStatus.Active && data.deletedAt !== null && { isTrashed: false }),
   checksum: hexOrBufferToBase64(checksum),
   thumbhash: thumbhash ? hexOrBufferToBase64(thumbhash) : null,
 });

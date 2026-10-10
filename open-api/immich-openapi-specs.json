@@ -43675,6 +43675,10 @@
             "description": "Is favorite",
             "type": "boolean"
           },
+          "isTrashed": {
+            "description": "Explicitly false for an offline index tombstone, not user Trash",
+            "type": "boolean"
+          },
           "libraryId": {
             "description": "Library ID",
             "nullable": true,
@@ -43815,6 +43819,10 @@
           },
           "isFavorite": {
             "description": "Is favorite",
+            "type": "boolean"
+          },
+          "isTrashed": {
+            "description": "Explicitly false for an offline index tombstone, not user Trash",
             "type": "boolean"
           },
           "libraryId": {
