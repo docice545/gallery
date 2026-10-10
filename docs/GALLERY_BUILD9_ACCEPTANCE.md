@@ -68,6 +68,9 @@ candidate with explicit operator gates, not a claim of completed production acce
 - Additional empty-sync/offline-state regression: 171 focused Flutter tests passed;
   full analyze passed. A current offline response preserves index availability
   after uncertain Trash, while a current online response restores Timeline.
+- Final relevant PostgreSQL release suite: all 112 tests across seven files passed
+  (asset service, authorization, retention, original-file lifecycle, timeline,
+  shared-space/album sync and search). All used isolated disposable data.
 - Release-tooling guard tests and real Docker/rollback proof results are recorded
   in the final handoff. No production backup restore or deployment is executed
   by cloud tests.
