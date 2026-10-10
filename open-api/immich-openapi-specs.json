@@ -5208,6 +5208,112 @@
         "x-immich-state": "Stable"
       }
     },
+    "/assets/managed-deletion-consent": {
+      "put": {
+        "operationId": "setManagedDeletionConsent",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedDeletionConsentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-permission": "asset.delete"
+      }
+    },
+    "/assets/managed-deletion-policy": {
+      "get": {
+        "operationId": "managedDeletionStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedDeletionStatusDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-permission": "asset.delete"
+      }
+    },
+    "/assets/managed-deletion-preparation": {
+      "put": {
+        "operationId": "prepareManagedDeletion",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareManagedDeletionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-admin-only": true,
+        "x-immich-permission": "systemConfig.update"
+      }
+    },
     "/assets/metadata": {
       "delete": {
         "description": "Delete metadata key-value pairs for multiple assets.",
@@ -5335,6 +5441,52 @@
                 "schema": {
                   "items": {
                     "$ref": "#/components/schemas/PermanentDeletionResultDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Assets"
+        ],
+        "x-immich-permission": "asset.delete"
+      }
+    },
+    "/assets/permanent-deletion/preflight": {
+      "post": {
+        "operationId": "deletionPreflight",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkIdsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletionPreflightResultDto"
                   },
                   "type": "array"
                 }
@@ -24717,6 +24869,42 @@
         "x-immich-state": "Stable"
       }
     },
+    "/trash/empty/preflight": {
+      "get": {
+        "operationId": "deletionScopes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrashDeletionScopeDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "tags": [
+          "Trash"
+        ],
+        "x-immich-permission": "asset.delete"
+      }
+    },
     "/trash/restore": {
       "post": {
         "description": "Restore all items in the trash.",
@@ -30912,6 +31100,29 @@
         ],
         "type": "object"
       },
+      "DeletionPreflightResultDto": {
+        "properties": {
+          "authorized": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorized",
+          "id"
+        ],
+        "type": "object"
+      },
       "DetachScopedPersonDto": {
         "properties": {
           "profile": {
@@ -33667,6 +33878,43 @@
         ],
         "type": "object"
       },
+      "ManagedDeletionConsentDto": {
+        "properties": {
+          "confirmed": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmed",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "ManagedDeletionStatusDto": {
+        "properties": {
+          "canPrepare": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "prepared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canPrepare",
+          "enabled",
+          "prepared"
+        ],
+        "type": "object"
+      },
       "ManualJobName": {
         "description": "Manual job name",
         "enum": [
@@ -36020,6 +36268,9 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "type": "string"
           },
+          "scope": {
+            "type": "string"
+          },
           "state": {
             "enum": [
               "complete",
@@ -36873,6 +37124,25 @@
         "required": [
           "config",
           "method"
+        ],
+        "type": "object"
+      },
+      "PrepareManagedDeletionDto": {
+        "properties": {
+          "recoveryProof": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "verifiedExclusiveRoots": {
+            "enum": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recoveryProof",
+          "verifiedExclusiveRoots"
         ],
         "type": "object"
       },
@@ -45673,6 +45943,27 @@
           "disabled"
         ],
         "type": "string"
+      },
+      "TrashDeletionScopeDto": {
+        "properties": {
+          "authorized": {
+            "type": "boolean"
+          },
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorized",
+          "count",
+          "scope"
+        ],
+        "type": "object"
       },
       "TrashResponseDto": {
         "properties": {

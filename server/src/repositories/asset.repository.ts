@@ -1690,8 +1690,40 @@ export class AssetRepository {
       .selectFrom('asset')
       .select(['id', 'libraryId'])
       .where('ownerId', '=', ownerId)
-      .where('status', 'in', [AssetStatus.Trashed, AssetStatus.Deleted])
+      .where('deletedAt', 'is not', null)
+      .where((eb) =>
+        eb.or([
+          eb('status', '=', AssetStatus.Trashed),
+          eb.and([
+            eb('status', '=', AssetStatus.Deleted),
+            eb.exists(
+              eb
+                .selectFrom('asset_deletion_tombstone')
+                .select('assetId')
+                .whereRef('assetId', '=', 'asset.id')
+                .where('state', '!=', 'complete'),
+            ),
+          ]),
+        ]),
+      )
       .execute();
+  }
+
+  async getDeletionScope(ownerId: string, id: string): Promise<string | undefined> {
+    const asset = await this.db
+      .selectFrom('asset')
+      .select(['libraryId', 'status'])
+      .where('ownerId', '=', ownerId)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (asset?.status === AssetStatus.Trashed) return asset.libraryId ?? 'managed';
+    const receipt = await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('scope')
+      .where('ownerId', '=', ownerId)
+      .where('assetId', '=', id)
+      .executeTakeFirst();
+    return receipt?.scope;
   }
 
   async getDeletionPolicy(ownerId: string, scope: string) {
@@ -1713,6 +1745,35 @@ export class AssetRepository {
       .values({ ownerId, scope, ...values })
       .onConflict((oc) => oc.columns(['ownerId', 'scope']).doUpdateSet({ ...values, updatedAt: new Date() }))
       .execute();
+  }
+
+  async updateManagedDeletionConsent(
+    ownerId: string,
+    enabled: boolean,
+    validate: (roots: string[], recoveryProof: string) => Promise<void>,
+  ): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', 'managed')
+        .forUpdate()
+        .executeTakeFirst();
+      if (!policy || policy.roots.length === 0 || !/^[a-f0-9]{64}$/.test(policy.recoveryProof)) {
+        throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
+      }
+      // Lock the current policy through validation and consent. A concurrent
+      // administrator revocation/preparation cannot be overwritten by a stale read.
+      if (enabled) await validate(policy.roots, policy.recoveryProof);
+      await tx
+        .updateTable('asset_deletion_policy')
+        .set({ enabled, updatedAt: new Date() })
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', 'managed')
+        .execute();
+      // Keep the administrator's roots, proof and verification identity intact.
+    });
   }
 
   async getDeletionRootsForOtherOwners(ownerId: string) {

@@ -1547,12 +1547,26 @@ export type DeletionPolicyDto = {
 export type PermanentDeletionResultDto = {
     code?: string;
     id: string;
+    scope?: string;
     state: State;
 };
 export type AssetJobsDto = {
     /** Asset IDs */
     assetIds: string[];
     name: AssetJobName;
+};
+export type ManagedDeletionConsentDto = {
+    confirmed: true;
+    enabled: boolean;
+};
+export type ManagedDeletionStatusDto = {
+    canPrepare: boolean;
+    enabled: boolean;
+    prepared: boolean;
+};
+export type PrepareManagedDeletionDto = {
+    recoveryProof: string;
+    verifiedExclusiveRoots: true;
 };
 export type AssetMetadataBulkDeleteItemDto = {
     /** Asset ID */
@@ -1593,6 +1607,12 @@ export type AssetMetadataBulkResponseDto = {
 export type PermanentDeletionDto = {
     confirmed: true;
     ids: string[];
+};
+export type DeletionPreflightResultDto = {
+    authorized: boolean;
+    code?: string;
+    id: string;
+    scope?: string;
 };
 export type ExifResponseDto = {
     /** City name */
@@ -4301,6 +4321,11 @@ export type TrashResponseDto = {
     /** Number of items in trash */
     count: number;
 };
+export type TrashDeletionScopeDto = {
+    authorized: boolean;
+    count: number;
+    scope: string;
+};
 export type UserGroupMemberResponseDto = {
     /** Avatar color */
     avatarColor?: string;
@@ -6378,6 +6403,32 @@ export function runAssetJobs({ assetJobsDto }: {
         body: assetJobsDto
     })));
 }
+export function setManagedDeletionConsent({ managedDeletionConsentDto }: {
+    managedDeletionConsentDto: ManagedDeletionConsentDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText("/assets/managed-deletion-consent", oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: managedDeletionConsentDto
+    })));
+}
+export function managedDeletionStatus(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: ManagedDeletionStatusDto;
+    }>("/assets/managed-deletion-policy", {
+        ...opts
+    }));
+}
+export function prepareManagedDeletion({ prepareManagedDeletionDto }: {
+    prepareManagedDeletionDto: PrepareManagedDeletionDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText("/assets/managed-deletion-preparation", oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: prepareManagedDeletionDto
+    })));
+}
 /**
  * Delete asset metadata
  */
@@ -6415,6 +6466,18 @@ export function permanentDeletion({ permanentDeletionDto }: {
         ...opts,
         method: "POST",
         body: permanentDeletionDto
+    })));
+}
+export function deletionPreflight({ bulkIdsDto }: {
+    bulkIdsDto: BulkIdsDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: DeletionPreflightResultDto[];
+    }>("/assets/permanent-deletion/preflight", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: bulkIdsDto
     })));
 }
 /**
@@ -10651,6 +10714,14 @@ export function emptyTrash(opts?: Oazapfts.RequestOpts) {
     }>("/trash/empty", {
         ...opts,
         method: "POST"
+    }));
+}
+export function deletionScopes(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: TrashDeletionScopeDto[];
+    }>("/trash/empty/preflight", {
+        ...opts
     }));
 }
 /**

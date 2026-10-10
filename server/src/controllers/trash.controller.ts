@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
+import { TrashDeletionScopeDto } from 'src/dtos/asset-deletion.dto.js';
 import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { TrashResponseDto } from 'src/dtos/trash.dto.js';
 import { ApiTag, Permission } from 'src/enum.js';
@@ -16,6 +17,12 @@ export class TrashController {
     private service: TrashService,
     private assets: AssetService,
   ) {}
+
+  @Get('empty/preflight')
+  @Authenticated({ permission: Permission.AssetDelete })
+  deletionScopes(@Auth() auth: AuthDto): Promise<TrashDeletionScopeDto[]> {
+    return this.assets.trashDeletionScopes(auth);
+  }
 
   @Post('empty')
   @Authenticated({ permission: Permission.AssetDelete })

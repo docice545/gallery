@@ -1,9 +1,9 @@
 import { Kysely, type Transaction, sql } from 'kysely';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
-import { StorageCore } from 'src/cores/storage.core.js';
+import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
+import { StorageCore } from 'src/cores/storage.core.js';
 import { AssetFileType, AssetStatus, AssetType, AssetVisibility, JobName, JobStatus } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AlbumRepository } from 'src/repositories/album.repository.js';
@@ -24,10 +24,10 @@ import { AssetService } from 'src/services/asset.service.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { TimelineService } from 'src/services/timeline.service.js';
 import { TrashService } from 'src/services/trash.service.js';
+import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
-import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 
 let database: Kysely<DB>;
 beforeAll(async () => {
@@ -417,7 +417,9 @@ describe('isolated original files, real repositories and real file deletion work
         });
         ctx.getMock(StorageRepository).snapshotOriginal.mockImplementation(snapshotOriginal);
         ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
-        expect(await sut.permanentlyDelete(auth, [asset.id])).toEqual([{ id: asset.id, state: 'complete' }]);
+        expect(await sut.permanentlyDelete(auth, [asset.id])).toEqual([
+          { id: asset.id, state: 'complete', scope: asset.libraryId ?? 'managed' },
+        ]);
         expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe(JobStatus.Skipped);
         await expect(readFile(original)).rejects.toMatchObject({ code: 'ENOENT' });
         if (motionId) {

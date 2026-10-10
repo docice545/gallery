@@ -15,7 +15,15 @@ import {
 import { ApiExcludeEndpoint, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
-import { DeletionPolicyDto, PermanentDeletionDto, PermanentDeletionResultDto } from 'src/dtos/asset-deletion.dto.js';
+import {
+  DeletionPolicyDto,
+  DeletionPreflightResultDto,
+  ManagedDeletionConsentDto,
+  ManagedDeletionStatusDto,
+  PermanentDeletionDto,
+  PermanentDeletionResultDto,
+  PrepareManagedDeletionDto,
+} from 'src/dtos/asset-deletion.dto.js';
 import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
 import {
@@ -109,6 +117,35 @@ export class AssetController {
   @HttpCode(HttpStatus.NO_CONTENT)
   setDeletionPolicy(@Auth() auth: AuthDto, @Body() dto: DeletionPolicyDto): Promise<void> {
     return this.service.setDeletionPolicy(auth, dto);
+  }
+
+  @Get('managed-deletion-policy')
+  @Authenticated({ permission: Permission.AssetDelete })
+  managedDeletionStatus(@Auth() auth: AuthDto): Promise<ManagedDeletionStatusDto> {
+    return this.service.managedDeletionStatus(auth);
+  }
+
+  @Put('managed-deletion-preparation')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareManagedDeletion(@Auth() auth: AuthDto, @Body() dto: PrepareManagedDeletionDto): Promise<void> {
+    return this.service.prepareManagedDeletion(auth, dto);
+  }
+
+  @Put('managed-deletion-consent')
+  @Authenticated({ permission: Permission.AssetDelete })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  setManagedDeletionConsent(@Auth() auth: AuthDto, @Body() dto: ManagedDeletionConsentDto): Promise<void> {
+    return this.service.setManagedDeletionConsent(auth, dto.enabled);
+  }
+
+  @Post('permanent-deletion/preflight')
+  @Authenticated({ permission: Permission.AssetDelete })
+  deletionPreflight(@Auth() auth: AuthDto, @Body() dto: BulkIdsDto): Promise<DeletionPreflightResultDto[]> {
+    if (dto.ids.length > 200) {
+      throw new BadRequestException('At most 200 deletion preflight items');
+    }
+    return this.service.deletionPreflight(auth, dto.ids);
   }
 
   @Post('permanent-deletion')

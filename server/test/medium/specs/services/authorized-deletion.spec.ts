@@ -211,8 +211,12 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
       expect(await sut.handleAssetDeletion({ id: f.asset.id, deleteOnDisk: true, deletionId: f.asset.id })).toBe(
         JobStatus.Success,
       );
-      expect(await sut.permanentlyDelete(auth, [f.asset.id])).toEqual([{ id: f.asset.id, state: 'complete' }]);
-      expect(await sut.permanentlyDelete(auth, [f.asset.id])).toEqual([{ id: f.asset.id, state: 'complete' }]);
+      expect(await sut.permanentlyDelete(auth, [f.asset.id])).toEqual([
+        { id: f.asset.id, state: 'complete', scope: f.scope },
+      ]);
+      expect(await sut.permanentlyDelete(auth, [f.asset.id])).toEqual([
+        { id: f.asset.id, state: 'complete', scope: f.scope },
+      ]);
       expect(mocks.event.emit).toHaveBeenCalledTimes(1);
       expect(mocks.event.emit).toHaveBeenCalledWith(
         'AssetDelete',
@@ -238,10 +242,14 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     const { asset: foreign } = await f.ctx.newAsset({ ownerId: other.id });
     const { sut } = service(f);
     const result = await sut.permanentlyDelete(authFor(f), [f.asset.id, blocked.id, active.id, foreign.id]);
-    expect(result.map((item) => item.state)).toEqual(['complete', 'blocked', 'blocked', 'blocked']);
+    expect(result.map((item) => item.state)).toEqual(['blocked', 'blocked', 'blocked', 'blocked']);
     expect(
-      await db.selectFrom('asset').select('id').where('id', 'in', [blocked.id, active.id, foreign.id]).execute(),
-    ).toHaveLength(3);
+      await db
+        .selectFrom('asset')
+        .select('id')
+        .where('id', 'in', [f.asset.id, blocked.id, active.id, foreign.id])
+        .execute(),
+    ).toHaveLength(4);
   });
 
   it('deletes the exclusive Live/Motion video first and retains the still for retry on failure', async () => {
@@ -330,5 +338,173 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     expect(await db.selectFrom('asset').select('status').where('id', '=', f.asset.id).executeTakeFirst()).toEqual({
       status: AssetStatus.Trashed,
     });
+  });
+});
+
+describe('managed owner consent and offline index compatibility', () => {
+  it('keeps active offline index tombstones out of Trash without changing their timestamp or originals', async () => {
+    const f = await fixture(true);
+    const offlineDate = new Date('2026-10-02T12:00:00Z');
+    const { asset: offline } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: f.scope,
+      status: AssetStatus.Active,
+      isOffline: true,
+      deletedAt: offlineDate,
+    });
+    const { asset: active } = await f.ctx.newAsset({ ownerId: f.user.id, status: AssetStatus.Active });
+    const trash = await f.repo.getOwnerTrash(f.user.id);
+    expect(trash.map(({ id }) => id)).toEqual([f.asset.id]);
+    expect(await f.repo.getDeletionScope(f.user.id, offline.id)).toBeUndefined();
+    expect(
+      await db
+        .selectFrom('asset')
+        .select(['status', 'deletedAt', 'isOffline'])
+        .where('id', '=', offline.id)
+        .executeTakeFirst(),
+    ).toEqual({ status: AssetStatus.Active, deletedAt: offlineDate, isOffline: true });
+    expect(trash.some(({ id }) => id === active.id)).toBe(false);
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
+  it('keeps active managed deletedAt records out of Trash rather than inventing historical user intent', async () => {
+    const f = await fixture();
+    const { asset } = await f.ctx.newAsset({ ownerId: f.user.id, status: AssetStatus.Active, deletedAt: new Date() });
+    const trash = await f.repo.getOwnerTrash(f.user.id);
+    expect(trash.map(({ id }) => id)).toEqual([f.asset.id]);
+    expect(await f.repo.getDeletionScope(f.user.id, asset.id)).toBeUndefined();
+  });
+  it('requires existing verified preparation; never fabricates a policy', async () => {
+    const f = await fixture();
+    await expect(f.repo.updateManagedDeletionConsent(f.user.id, true, async () => {})).rejects.toMatchObject({
+      code: 'MANAGED_DELETION_PREPARATION_REQUIRED',
+    });
+    expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toBeUndefined();
+  });
+  it('consent is idempotent, preserves the administrator proof and cannot enable external scopes', async () => {
+    const f = await fixture();
+    const actor = randomUUID();
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
+      enabled: false,
+      roots: [root],
+      recoveryProof: 'b'.repeat(64),
+      authorizedBy: actor,
+    });
+    const validate = vi.fn(async () => {});
+    await f.repo.updateManagedDeletionConsent(f.user.id, true, validate);
+    await f.repo.updateManagedDeletionConsent(f.user.id, true, validate);
+    expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toMatchObject({
+      enabled: true,
+      roots: [root],
+      recoveryProof: 'b'.repeat(64),
+      authorizedBy: actor,
+    });
+    expect(validate).toHaveBeenCalledWith([root], 'b'.repeat(64));
+    expect(await f.repo.getDeletionPolicy(f.user.id, randomUUID())).toBeUndefined();
+    await f.repo.updateManagedDeletionConsent(f.user.id, false, () =>
+      Promise.reject(new Error('must not validate revocation')),
+    );
+    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
+    expect(policy?.enabled).toBe(false);
+  });
+  it('failed current-root validation rolls back consent atomically', async () => {
+    const f = await fixture();
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
+      enabled: false,
+      roots: [root],
+      recoveryProof: 'b'.repeat(64),
+      authorizedBy: f.user.id,
+    });
+    await expect(
+      f.repo.updateManagedDeletionConsent(f.user.id, true, () => Promise.reject(new Error('ROOT_REPLACED'))),
+    ).rejects.toThrow('ROOT_REPLACED');
+    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
+    expect(policy?.enabled).toBe(false);
+  });
+  it('concurrent administrator revocation cannot be overwritten by stale consent', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const { promise: ready, resolve: entered } = Promise.withResolvers<void>();
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    const consent = f.repo.updateManagedDeletionConsent(f.user.id, true, async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    const revoke = f.repo.setDeletionPolicy(f.user.id, 'managed', {
+      enabled: false,
+      roots: [root],
+      recoveryProof: 'c'.repeat(64),
+      authorizedBy: f.user.id,
+    });
+    release();
+    await Promise.all([consent, revoke]);
+    expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toMatchObject({
+      enabled: false,
+      recoveryProof: 'c'.repeat(64),
+    });
+  });
+  it('selective and Empty Trash both fail closed across scopes, without receipts or partial unlink', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const { library } = await f.ctx.newLibrary({ ownerId: f.user.id });
+    const externalPath = join(root, 'external.mp4');
+    await writeFile(externalPath, 'synthetic external video');
+    const { asset: external } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: library.id,
+      isExternal: true,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+      originalPath: externalPath,
+    });
+    const { sut } = service(f);
+    const results = await sut.permanentlyDelete(authFor(f), [f.asset.id, external.id]);
+    expect(results).toEqual([
+      { id: f.asset.id, state: 'blocked', scope: 'managed', code: 'DELETION_BATCH_NOT_AUTHORIZED' },
+      { id: external.id, state: 'blocked', scope: library.id, code: 'LIBRARY_DELETION_NOT_AUTHORIZED' },
+    ]);
+    await expect(sut.emptyAuthorizedTrash(authFor(f))).rejects.toThrow('LIBRARY_DELETION_NOT_AUTHORIZED');
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(await f.repo.getDeletionReceipt(f.user.id, external.id)).toBeUndefined();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await readFile(externalPath, 'utf8')).toBe('synthetic external video');
+  });
+  it('authorized managed Empty Trash completes only this owner and is idempotent', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const { user: other } = await f.ctx.newUser();
+    const otherPath = join(root, 'other-owner.heic');
+    await writeFile(otherPath, 'synthetic other owner original');
+    const { asset: otherAsset } = await f.ctx.newAsset({
+      ownerId: other.id,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+      originalPath: otherPath,
+    });
+    const { sut } = service(f);
+    expect(await sut.emptyAuthorizedTrash(authFor(f))).toEqual({ count: 1 });
+    expect(await sut.emptyAuthorizedTrash(authFor(f))).toEqual({ count: 0 });
+    expect(await f.repo.getById(otherAsset.id)).toBeDefined();
+    expect(await readFile(otherPath, 'utf8')).toBe('synthetic other owner original');
+    await expect(readFile(f.asset.originalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('explicit managed consent enables selective deletion through the existing guarded lifecycle', async () => {
+    const f = await fixture();
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
+      enabled: false,
+      roots: [root],
+      recoveryProof: 'b'.repeat(64),
+      authorizedBy: f.user.id,
+    });
+    const { sut } = service(f);
+    const blocked = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
+    expect(blocked[0].state).toBe('blocked');
+    await f.repo.updateManagedDeletionConsent(f.user.id, true, async () => {});
+    const completed = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
+    expect(completed[0].state).toBe('complete');
+    await expect(readFile(f.asset.originalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    const receipt = await f.repo.getDeletionReceipt(f.user.id, f.asset.id);
+    expect(receipt?.state).toBe('complete');
   });
 });
