@@ -50,10 +50,17 @@ print('PASS exact candidate and tooling syntax')
 PY_VALIDATE
 # Loads only the verified artifact into the local image store; no service starts.
 # Use existing Docker access (or the existing approved sudo -n docker command).
-docker --host=unix:///var/run/docker.sock load -i "$ARTIFACTS/backend/gallery-server-linux-amd64.tar.gz"
+DOCKER_CMD=(docker --host=unix:///var/run/docker.sock)
+if ! "${DOCKER_CMD[@]}" info >/dev/null 2>&1; then
+  DOCKER_CMD=(sudo -n docker --host=unix:///var/run/docker.sock)
+  "${DOCKER_CMD[@]}" info >/dev/null
+fi
+"${DOCKER_CMD[@]}" load -i "$ARTIFACTS/backend/gallery-server-linux-amd64.tar.gz"
 python3 -B "$PREDEPLOY" prepare --artifacts "$ARTIFACTS" --pinned-tool "$PINNED" \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA"
-printf 'ARTIFACTS=%s\nPROFILE_SHA=%s\n' "$ARTIFACTS" "$PROFILE_SHA"
+  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" | tee "$ARTIFACTS/preparation.txt"
+STATE="$(sed -n 's/^Private state: //p' "$ARTIFACTS/preparation.txt")"
+[[ "$STATE" == /home/doctoriceadm/gallery-predeploy-* && -d "$STATE" ]]
+printf 'ARTIFACTS=%s\nPROFILE_SHA=%s\nSTATE=%s\n' "$ARTIFACTS" "$PROFILE_SHA" "$STATE"
 ```
 
 Preparation requires the existing complete audit and NAS proof. It preserves

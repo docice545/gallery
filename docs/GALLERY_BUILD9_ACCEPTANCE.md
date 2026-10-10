@@ -62,6 +62,9 @@ candidate with explicit operator gates, not a claim of completed production acce
   TypeScript and ESLint passed. Replay verifies legacy markers against a current
   GET; pending/newer Trash remains protected. Real SQLite restart preserves index
   classification; rejected Trash restores that classification without a marker.
+- Final-source full backend units: 6,609 passed, one expected failure and 12
+  skips; the same two baseline revert/scope guards still failed. No new failure
+  appeared after the asset response/sync correction; this is not a full-suite PASS.
 - Release-tooling guard tests and real Docker/rollback proof results are recorded
   in the final handoff. No production backup restore or deployment is executed
   by cloud tests.
