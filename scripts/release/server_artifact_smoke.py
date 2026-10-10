@@ -34,6 +34,17 @@ def http_failure(method, path, error):
     return RuntimeError(f'HTTP {method} {route}: status {error.code}; category {detail}')
 
 
+def assert_removed_asset_not_restorable(request, asset_id):
+    # The established Restore API checks ownership of existing asset rows first.
+    # A permanently removed row is rejected; it is not a successful count=0 restore.
+    try:
+        request('/trash/restore/assets', 'POST', {'ids': [asset_id]})
+    except urllib.error.HTTPError as error:
+        assert error.code in (400, 404)
+        return
+    raise AssertionError('Restore unexpectedly accepted a permanently removed asset')
+
+
 def docker_failure_reason(stderr):
     """Classify CLI failures without emitting arbitrary credential/path text."""
     value = stderr.lower()
@@ -152,7 +163,7 @@ def main():
         required('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
         blocked = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
         assert blocked == [{'id': asset_id, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
-        assert request(f'/assets/{asset_id}/original', raw=True) == media
+        assert required(f'/assets/{asset_id}/original', raw=True) == media
         owner = required('/users/me')['id']
         required('/assets/deletion-policy', 'PUT', {'ownerId': owner, 'scope': 'managed', 'enabled': True,
             'roots': ['/data/upload/' + owner], 'recoveryProof': hashlib.sha256(media).hexdigest(),
@@ -160,7 +171,7 @@ def main():
         result = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
         assert result == [{'id': asset_id, 'state': 'complete'}]
         assert required('/assets/' + asset_id + '/deletion-status') == result[0]
-        assert request('/trash/restore/assets', 'POST', {'ids': [asset_id]})['count'] == 0
+        assert_removed_asset_not_restorable(request, asset_id)
         try:
             request(f'/assets/{asset_id}/original', raw=True)
             raise AssertionError('Deleted fixture still accessible')

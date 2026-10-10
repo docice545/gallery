@@ -165,6 +165,17 @@ class ReleasePreparation(unittest.TestCase):
         self.assertNotIn('SECRET', result)
         self.assertNotIn('/private', result)
 
+    def test_permanently_removed_row_restore_is_expected_rejection_not_success(self):
+        import urllib.error
+        for code in (400,404):
+            request=Mock(side_effect=urllib.error.HTTPError('unused',code,'unused',{},None))
+            smoke.assert_removed_asset_not_restorable(request,'fixture')
+            request.assert_called_once_with('/trash/restore/assets','POST',{'ids':['fixture']})
+        for result in ({'count':0},{'count':1}):
+            with self.assertRaises(AssertionError): smoke.assert_removed_asset_not_restorable(Mock(return_value=result),'fixture')
+        with self.assertRaises(AssertionError):
+            smoke.assert_removed_asset_not_restorable(Mock(side_effect=urllib.error.HTTPError('unused',500,'unused',{},None)),'fixture')
+
 
 if __name__ == '__main__':
     unittest.main()
