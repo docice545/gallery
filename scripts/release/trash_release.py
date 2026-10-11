@@ -2,7 +2,8 @@
 """Approved HP execution only; defaults to no production mutation.
 
 One existing Compose server service, pinned artifact, disposable backup restore,
-private recovery evidence/journal, API-only rollback. Never cleans/retries jobs.
+private recovery evidence/journal. Historical production actions are disabled.
+Use image_release.py for reviewed image-only updates. Never cleans/retries jobs.
 """
 import argparse
 import base64
@@ -14,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import secrets
 import shutil
 import struct
@@ -296,9 +298,9 @@ def compose_base(item):
 
 
 def override(state, image, normal=None, name='active-server.override.json'):
-    env=normal or {'IMMICH_WORKERS_INCLUDE':'api','IMMICH_WORKERS_EXCLUDE':'microservices'}
+    check(not normal, 'worker overrides disabled; image-only override required')
     file=state/name
-    content={'services':{SERVICE:{'image':image,'environment':env}}}
+    content={'services':{SERVICE:{'image':image}}}
     if file.exists():
         check(private_json(file)==content,'existing override differs; nothing overwritten')
     else:
@@ -307,17 +309,20 @@ def override(state, image, normal=None, name='active-server.override.json'):
 
 
 def recreate(base, file):
+    # Historical callers cannot relax worker/environment or top-level checks.
     old=json.loads(run([*base,'config','--format','json']))
     new=json.loads(run([*base,'-f',str(file),'config','--format','json']))
-    check(set(old['services'])==set(new['services']),'Compose service set changed')
-    for name, service in old['services'].items():
-        if name!=SERVICE: check(service==new['services'][name],'unrelated Compose service changed')
-    a,b=dict(old['services'][SERVICE]),dict(new['services'][SERVICE])
-    a.pop('image',None);b.pop('image',None)
-    a=dict(a);b=dict(b);a['environment']=dict(a.get('environment',{}));b['environment']=dict(b.get('environment',{}))
-    for value in (a,b):
-        for key in ('IMMICH_WORKERS_INCLUDE','IMMICH_WORKERS_EXCLUDE'): value['environment'].pop(key,None)
-    check(a==b,'server fields other than image/worker gate changed')
+    expected=json.loads(json.dumps(old))
+    check(SERVICE in expected.get('services',{}) and SERVICE in new.get('services',{}),
+          'expected server service missing')
+    expected['services'][SERVICE]['image']=new['services'][SERVICE].get('image')
+    check(expected==new, 'Compose fields beyond selected server image changed; unrelated changes rejected')
+    env=new['services'][SERVICE].get('environment',{})
+    include=set(filter(None,re.sub(r'\s','',str(env.get('IMMICH_WORKERS_INCLUDE') or '')).split(','))) or {'api','microservices'}
+    exclude=set(filter(None,re.sub(r'\s','',str(env.get('IMMICH_WORKERS_EXCLUDE') or '')).split(',')))
+    active=include-exclude
+    check({'api','microservices'}<=active and active<={'api','microservices','maintenance'},
+          'API and microservices must remain enabled')
     run([*base,'-f',str(file),'up','-d','--no-deps','--no-build','--pull','never',SERVICE],timeout=180)
 
 
@@ -339,111 +344,20 @@ def health(base, source=None, timeout=90):
             time.sleep(2)
 
 
+def legacy_disabled(*args, **kwargs):
+    raise Stop('LEGACY_WORKER_GATING_DISABLED_USE_IMAGE_RELEASE')
+
+
 def deploy(args):
-    state=args.state
-    check(not (state/'deployment.json').exists(),'deployment journal already exists; do not repeat/recreate')
-    backup=private_json(state/'backup-verified.json');nas=private_json(state/'nas-verified.json')
-    check(backup['restore']=='PASS_ISOLATED_SQL_TRANSACTION' and nas['mounts'],'recovery gates missing')
-    check(inspect(POSTGRES)['Image']==backup['postgresImage'],'PostgreSQL image changed since recovery check')
-    check(digest(Path(backup['backupPath']))==backup['backupSHA256'],'verified backup absent/changed')
-    check((datetime.now(timezone.utc)-datetime.fromisoformat(backup['checkedAt'])).total_seconds()<86400,
-          'backup recovery verification older than 24 hours')
-    check((datetime.now(timezone.utc)-datetime.fromisoformat(backup['backupModifiedAt'])).total_seconds()<3600,
-          'fresh pre-deployment backup required (under 1 hour), not only the 17-hour audit backup')
-    check((datetime.now(timezone.utc)-datetime.fromisoformat(nas['verifiedAt'])).total_seconds()<86400,
-          'NAS recovery verification older than 24 hours')
-    load_artifact(args.artifact)
-    report=json.loads(args.audit.read_text());old=inspect(SERVER)
-    expected=next(row for row in report['containers'] if row.get('role')==SERVER)
-    check(old['Image']==expected['imageId'] and old['Id'][:12]==expected['containerId'],'production server moved since approved audit')
-    check(not report['backendReadOnlyAudit']['errors'],'audit incomplete')
-    check(all(status=='PASS' for status in report['backendReadOnlyAudit']['sections'].values()) and
-          report['backendReadOnlyAudit']['deletionJobs']['inventoryComplete'],'incomplete approved audit')
-    check(all(row['classification']=='OFFLINE_EXTERNAL_INDEX_TOMBSTONE_EXPECTED'
-              for row in report['backendReadOnlyAudit']['activeWithDeletedAt']['groups']),
-          'active/deletedAt state differs from approved offline-only classification')
-    check(set(nas['mounts'])=={row['containerMountpoint'] for row in expected['externalMounts']},'NAS evidence scope changed')
-    check(not any(row.get('role') not in (SERVER,*OTHER) for row in report['containers']), 'additional workers need explicit review')
-    base,files=compose_base(old)
-    current=queue_empty()
-    migrations=migrations_match(IMAGE)
-    other={name:inspect(name)['Id'] for name in OTHER}
-    oldenv=dict(v.split('=',1) for v in old['Config'].get('Env',[]) if '=' in v)
-    normal={key:oldenv.get(key,default) for key,default in [('IMMICH_WORKERS_INCLUDE','api,microservices'),('IMMICH_WORKERS_EXCLUDE','')]}
-    for index,file in enumerate(files):
-        target=state/('compose-backup-'+str(index));shutil.copyfile(file,target);target.chmod(0o600)
-    envfile=files[0].parent/'.env'
-    if envfile.is_file(): shutil.copyfile(envfile,state/'dotenv-private-backup');(state/'dotenv-private-backup').chmod(0o600)
-    # Retain old image under its immutable ID; never overwrite the live custom tag.
-    previous='gallery-server:rollback-'+old['Image'].split(':')[1][:16]
-    check(shutil.disk_usage(state).free>int(json.loads(docker('image','inspect',old['Image']))[0]['Size'])*1.2,
-          'insufficient free space for previous image backup; no cleanup performed')
-    prior=subprocess.run([*DOCKER,'image','inspect',previous],text=True,capture_output=True)
-    if prior.returncode==0:
-        check(json.loads(prior.stdout)[0]['Id']==old['Image'],'rollback tag changed externally')
-    docker('tag',old['Image'],previous)
-    docker('save','-o',str(state/'previous-server-image.tar'),previous,timeout=900)
-    (state/'previous-server-image.tar').chmod(0o600)
-    journal={'source':SOURCE,'previousImage':old['Image'],'previousTag':previous,
-             'previousArchiveSHA256':digest(state/'previous-server-image.tar'),
-             'base':base,'configHashes':{str(p):digest(p) for p in [*files,*([envfile] if envfile.is_file() else [])]},'otherContainers':other,
-             'normalWorkers':normal,'previousPaused':current['paused'],'migrations':migrations,'phase':'PAUSED_API_ONLY'}
-    save(state/'deployment.json',journal)
-    api(args.api,args.key,'/jobs/backgroundTask','PUT',{'command':'pause'})
-    queue_empty(require_paused=True) # No waiting/retrying/deleting jobs: any change is STOP.
-    file=override(state,TAG)
-    recreate(base,file)
-    check(api_only(inspect(SERVER)),'new server deletion workers not gated')
-    health(args.api,SOURCE)
-    check(all(inspect(name)['Id']==value for name,value in other.items()),'unrelated container changed')
-    queue_empty(require_paused=True)
-    check(migrations_match(IMAGE)==migrations,'schema changed after startup')
-    save(state/'backend-healthy.json',{'source':SOURCE,'workers':'API_ONLY','queue':'PAUSED_EMPTY'})
-    print('PASS backend only updated; workers remain gated; no queues cleared')
+    legacy_disabled()
 
 
 def enable(args):
-    check(args.retention_approved,'separate approval to resume existing retention/deletion workers required')
-    state=args.state;journal=private_json(state/'deployment.json')
-    if (state/'workers-enabled.json').exists():
-        check(inspect(SERVER)['Image']==IMAGE and not api_only(inspect(SERVER)),'previous enable receipt differs from live state')
-        health(args.api,SOURCE)
-        print('PASS REUSED workers-enabled receipt; no queue/recreation repeated')
-        return
-    check((state/'backend-healthy.json').is_file(),'backend health gate missing')
-    check(api_only(inspect(SERVER)) and inspect(SERVER)['Image']==IMAGE,'current server is not the gated candidate')
-    queue_empty(require_paused=True)
-    check(all(digest(Path(p))==value for p,value in journal['configHashes'].items()),'Compose changed externally')
-    file=override(state,TAG,journal['normalWorkers'],'normal-workers.override.json')
-    recreate(journal['base'],file)
-    health(args.api,SOURCE)
-    check(all(inspect(name)['Id']==value for name,value in journal['otherContainers'].items()),'unrelated container changed')
-    queue_empty(require_paused=True)
-    if not journal['previousPaused']:
-        api(args.api,args.key,'/jobs/backgroundTask','PUT',{'command':'resume'})
-    save(state/'workers-enabled.json',{'source':SOURCE,'previousPauseRespected':True})
-    print('PASS candidate workers enabled; prior pause policy respected')
+    legacy_disabled()
 
 
 def rollback(args):
-    state=args.state;journal=private_json(state/'deployment.json')
-    check(inspect(SERVER)['Image'] in (IMAGE,journal['previousImage']),'server image changed externally; rollback stopped')
-    check(all(digest(Path(p))==value for p,value in journal['configHashes'].items()),'Compose changed externally; manual review required')
-    if not api_only(inspect(SERVER)):
-        api(args.api,args.key,'/jobs/backgroundTask','PUT',{'command':'pause'})
-        queue_empty(require_paused=True)
-    file=override(state,journal['previousTag'],name='rollback-api-only.override.json')
-    available=subprocess.run([*DOCKER,'image','inspect',journal['previousTag']],text=True,capture_output=True)
-    if available.returncode!=0:
-        check(digest(state/'previous-server-image.tar')==journal['previousArchiveSHA256'],'previous image archive checksum differs')
-        docker('load','-i',str(state/'previous-server-image.tar'),timeout=900)
-    check(json.loads(docker('image','inspect',journal['previousTag']))[0]['Id']==journal['previousImage'],'previous image missing/mismatched')
-    recreate(journal['base'],file)
-    check(inspect(SERVER)['Image']==journal['previousImage'] and api_only(inspect(SERVER)),'rollback image/worker gate failed')
-    health(args.api)
-    check(all(inspect(name)['Id']==value for name,value in journal['otherContainers'].items()),'unrelated container changed')
-    queue_empty(require_paused=True)
-    print('PASS previous server restored API-only; deletion workers stay disabled; no DB/NAS rollback executed')
+    legacy_disabled()
 
 
 def acceptance(args):
@@ -495,6 +409,8 @@ def main():
     parser.add_argument('--retention-approved',action='store_true')
     args=parser.parse_args()
     try:
+        if args.action in ('deploy','rollback','enable-workers'):
+            legacy_disabled()
         check(pwd.getpwuid(os.getuid()).pw_name=='doctoriceadm','run as doctoriceadm')
         if args.action!='verify-artifact': check(args.execute_approved,'explicit operator approval required; nothing executed')
         check(args.state.is_dir() and not args.state.is_symlink() and args.state.stat().st_mode & 0o077==0,'private existing 0700 state directory required')

@@ -2,7 +2,12 @@
 # Operator wrapper only. Nothing changes unless a specific action is selected.
 set -euo pipefail
 [[ $# == 7 ]] || { echo 'Usage: trash_execute.sh ACTION STATE ARTIFACTS AUDIT SQL_GZIP_BACKUP NAS_PROOF ADMIN_KEY_FILE' >&2; exit 2; }
-action="$1"; state="$2"; artifacts="$3"; audit="$4"; backup="$5"; nas="$6"; key="$7"
+action="$1"
+case "$action" in
+  deploy|rollback|enable-workers)
+    echo 'STOP LEGACY_WORKER_GATING_DISABLED_USE_IMAGE_RELEASE' >&2; exit 1 ;;
+esac
+state="$2"; artifacts="$3"; audit="$4"; backup="$5"; nas="$6"; key="$7"
 [[ "$(id -un)" == doctoriceadm ]] || { echo 'FAIL run as doctoriceadm'; exit 1; }
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [[ -d "$state" && "$(stat -c %a -- "$state")" == 700 ]] || { echo 'FAIL existing private 0700 state required'; exit 1; }
@@ -28,13 +33,9 @@ PY
     python3 "$root/trash_release.py" nas-check "${common[@]}" --nas-proof "$nas" --execute-approved
     python3 "$root/trash_release.py" restore-check "${common[@]}" --backup "$backup" --execute-approved
     ;;
-  deploy|acceptance|rollback)
+  acceptance)
     [[ "${GALLERY_DEPLOYMENT_APPROVED:-}" == YES ]] || { echo 'STOP production execution requires explicit approval'; exit 1; }
     python3 "$root/trash_release.py" "$action" "${common[@]}" --artifact "$artifacts/backend" --execute-approved
-    ;;
-  enable-workers)
-    [[ "${GALLERY_DEPLOYMENT_APPROVED:-}" == YES && "${GALLERY_RETENTION_RESUME_APPROVED:-}" == YES ]] || { echo 'STOP separate retention resume approval required'; exit 1; }
-    python3 "$root/trash_release.py" enable-workers "${common[@]}" --execute-approved --retention-approved
     ;;
   sign-android)
     [[ "${GALLERY_SIGNING_APPROVED:-}" == YES ]] || { echo 'STOP HP production signing requires explicit approval'; exit 1; }

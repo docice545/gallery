@@ -1,11 +1,26 @@
-# Gallery build 9 pre-deployment gate
+# Historical Gallery build 9 preparation gate
 
-Use the exact candidate/profile and operator commands in
-[RELEASE_RUNBOOK.md](../../docs/RELEASE_RUNBOOK.md). Application source is
+Current builds and image-only updates use
+[RELEASE_RUNBOOK.md](../../docs/RELEASE_RUNBOOK.md) and
+[`image_release.py`](image_release.py). This document describes archived build-8/9
+preparation and evidence checks. Its pinned artifacts do not certify the current
+candidate, its new migration, or a hardened rollback image.
+
+The archived build-9 application source is
 `76bbcf708e12ee811041adcc38fd7909a7d6da15`, server 5.7.2/mobile 5.7.2 (9).
-Production remains `work` at `42790b06edc21438811e56e40c431eee37c24894`.
+Its recorded production baseline was `work` at
+`42790b06edc21438811e56e40c431eee37c24894`; this is historical evidence, not a
+current production-state assertion.
 
-`trash_predeploy.py` loads the unchanged SHA-256-pinned `trash_release.py` from
+Production `deploy`, `rollback` and `enable-workers` actions are disabled in
+both repository entry points, including imported mutation functions. Use the
+reviewed `image_release.py` plan/apply/rollback procedure in the runbook. It
+preserves API and microservices and permits only the server image to change.
+Frozen historical copies must never be used to bypass these guards. Unmodified
+build 9 is not a rollback target for the current bound-root deletion schema.
+
+For preparation/evidence reuse, `trash_predeploy.py` explicitly accepts either the
+reviewed repository helper hash or the unchanged historical SHA-256-pinned helper from
 `565ef38c0c39f3ee896f5afd055d4d57a676d503`. Historical build-8 defaults remain
 for compatibility; build 9 **requires** `--candidate-profile` and its independently
 verified `--candidate-profile-sha256`. Never apply old artifact hashes/migration
@@ -26,10 +41,11 @@ is restored in a new disposable PG with no production mounts/network/ports,
 one CPU and 2 GiB memory. Counts/statuses/library references and baseline migrations
 must match the dump snapshot; an old restore receipt never certifies a new backup.
 
-For build 9 the exact additive migration runs against that isolated restore,
+In the archived build-9 preparation, the exact additive migration ran against that isolated restore,
 followed by startup migration recognition using an API-only rollback overlay on
 the exact previous image. Counts/migrations remain unchanged except for the one
-addition; new policies/tombstones must be empty. This is done before any deployment.
+addition; new policies/tombstones must be empty. That overlay is evidence for the
+historical fixture only and must not be activated in production.
 
 The overlay adds only two ESM migration recognition files. Exact parent ordered
 layers/config, marker bytes, exported archive SHA and immutable image ID are
@@ -47,30 +63,35 @@ receipt timestamp is retained. Existing audit/backups/states are never overwritt
 Expired evidence is STOP pending separate operator revalidation. PASS is only a
 preparation receipt; it does not reserve empty queues or authorize deployment.
 
-## Separate approvals
+## Deployment boundary
 
-- Deployment requires `--approve-deployment` and `GALLERY_DEPLOYMENT_APPROVED=YES`.
-- Build-9 migration additionally requires `--approve-migration` and
-  `GALLERY_ADDITIVE_MIGRATION_APPROVED=YES`.
-- Library opt-in requires its own private owner/scope/root plan and
-  `authorize_library.py --approve-library` plus
-  `GALLERY_LIBRARY_DELETION_APPROVED=YES`. Uses the existing admin API, no NAS service.
-- Worker activation and HP Android signing require their separate approvals.
-  Automatic retention is unconditionally skipped in this candidate, even if other
-  workers are separately resumed. No family-library policy is enabled by deployment.
+Preparation and recheck retain their recovery and artifact identity checks.
+Their successful receipts are not deployment approval. Historical candidate
+preparation builds an isolated migration-recognition overlay; that workflow is
+not part of a schema-compatible image-only repair and must not be run merely to
+update the image. Historical overlay files and receipts remain evidence.
 
-Deploy backs up only changed Compose/.env/image, pauses/rechecks backgroundTask and
-recreates only `immich-server` API-only. Health/version/source/exact additive
-migration checks and unchanged PostgreSQL/Redis/ML IDs are mandatory. Any deployment
-journal after failure means STOP and use approved rollback, never repeat blindly.
+The new image-only helper never builds/imports images or changes queues/policies.
+Its plan and default apply/rollback modes inspect existing configuration, query
+the existing local PostgreSQL migration inventory read-only, and inspect packaged
+guard files in isolated read-only image probes with no application workers. It
+writes private local plan evidence. Actual apply/rollback require the separate
+`--execute-approved` flag plus `GALLERY_DEPLOYMENT_APPROVED=YES`.
+Any pending additive migration also requires `--approve-migration` and
+`GALLERY_ADDITIVE_MIGRATION_APPROVED=YES`. Candidate and separately reviewed
+hardened rollback images must have identical compiled migrations and deletion
+guard files; capability markers alone do not establish compatibility.
+API and microservices must remain enabled; actual disposable thumbnail **and**
+preview processing remains an operator acceptance gate.
 
-Rollback uses the exact previous API plus recognition markers, preserves DB
-journals/triggers, keeps deletion workers off/queue paused, and checks unrelated
-services. No down migration, SQL restore, NAS restore or permission change is
-automatic. It cannot undo physical unlink. A later DB+NAS recovery is separately
-approved and must reconcile data, not claim SQL alone recovers files.
+Library opt-ins and HP Android signing keep their separate approvals. No
+family-library policy, retention permission, database/NAS restore or mount
+permission change is authorized by an image update. Rollback preserves durable
+journals and cannot undo physical unlink; recovery must reconcile individual
+removed media rather than claiming SQL alone restores files.
 
 Cloud guard/fixture/classic Docker tests do not establish production/NFS/iPhone
-acceptance. Exact HP migration/rollback restore validation is **PREPARED / NEEDS
-HP VALIDATION** until prepare passes. See the build-9 acceptance matrix for every
-remaining operator gate. No production changes were executed.
+acceptance. Fresh candidate migration/rollback restore validation and production
+recovery proof remain **NEEDS OPERATOR VALIDATION** until the current runbook's
+isolated restore and evidence gates pass. Archived preparation PASS cannot satisfy
+those gates. No production changes were executed.

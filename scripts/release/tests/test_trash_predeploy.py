@@ -139,8 +139,39 @@ class PostgresIdentity(unittest.TestCase):
 
 
 class Guards(unittest.TestCase):
-    def test_pinned_helper_is_unchanged(self):
+    def test_reviewed_guarded_helper_and_historical_pin_are_distinct(self):
         self.assertEqual(p.sha(ROOT / 'scripts/release/trash_release.py'), p.PIN_FILE_SHA)
+        self.assertNotEqual(p.PIN_FILE_SHA, p.FROZEN_PIN_FILE_SHA)
+        self.assertEqual(p.FROZEN_PIN_FILE_SHA, '56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c')
+
+    def test_legacy_actions_refuse_every_approval_before_identity_or_state_access(self):
+        for action in ('deploy', 'rollback', 'enable-workers'):
+            with self.subTest(action=action), patch.dict(os.environ, {
+                 'GALLERY_DEPLOYMENT_APPROVED': 'YES', 'GALLERY_RETENTION_RESUME_APPROVED': 'YES',
+                 'GALLERY_ADDITIVE_MIGRATION_APPROVED': 'YES'}), \
+                 patch.object(p.pwd, 'getpwuid') as identity, patch.object(p, 'load_tool') as load, \
+                 patch.object(p.os, 'open') as opened, patch.object(p, 'save') as save, \
+                 redirect_stderr(io.StringIO()):
+                self.assertEqual(p.main([action, '--state', '/absent', '--key', '/absent',
+                    '--approve-deployment', '--approve-retention', '--approve-migration']), 1)
+                identity.assert_not_called(); load.assert_not_called()
+                opened.assert_not_called(); save.assert_not_called()
+
+    def test_verified_frozen_helper_mutations_are_disabled_after_import(self):
+        external = SimpleNamespace(NODE_BASE='', queue_empty=Mock(), deploy=Mock(), rollback=Mock(), enable=Mock())
+        loader = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / 'frozen.py'; file.write_text('# synthetic external pinned fixture')
+            with patch.object(p, 'sha', return_value=p.FROZEN_PIN_FILE_SHA), \
+                 patch.object(p.importlib.util, 'spec_from_file_location', return_value=SimpleNamespace(loader=loader)), \
+                 patch.object(p.importlib.util, 'module_from_spec', return_value=external), \
+                 patch.object(p.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+                 patch.object(p, 'install_image_adapter'):
+                tool = p.load_tool(file)
+            for action in (tool.deploy, tool.rollback, tool.enable):
+                with self.assertRaisesRegex(p.Stop, 'LEGACY_WORKER_GATING_DISABLED'):
+                    action(SimpleNamespace())
+            loader.exec_module.assert_called_once_with(external)
 
     def test_verified_hp_pinned_tool_path(self):
         self.assertEqual(str(p.DEFAULT_TOOL),

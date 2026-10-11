@@ -2,7 +2,7 @@
 """Fresh, isolated recovery gate over the unmodified 565ef38 release tooling.
 
 prepare/recheck never deploy, pause/resume jobs, sign or modify production data.
-deploy/rollback delegate to the pinned implementation only after two approvals.
+Historical deploy/rollback/enable-workers are disabled; use image_release.py.
 """
 import argparse
 from contextlib import contextmanager, redirect_stdout
@@ -25,7 +25,9 @@ import tempfile
 import time
 
 PIN = '565ef38c0c39f3ee896f5afd055d4d57a676d503'
-PIN_FILE_SHA = '56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c'
+FROZEN_PIN_FILE_SHA = '56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c'
+# The reviewed repository helper has disabled production entry points.
+PIN_FILE_SHA = '2b84da117d8071aed76496c54ead1ff2079cd2f034f0851ac586a86d023a932e'
 BASE = '42790b06edc21438811e56e40c431eee37c24894'
 HOME = Path('/home/doctoriceadm')
 DEFAULT_TOOL = HOME / 'gallery-trash-release-tooling-565ef38/trash_release.py'
@@ -126,7 +128,7 @@ def age_ok(value, seconds, code):
 
 
 def load_tool(path, candidate=None):
-    need(path.is_file() and not path.is_symlink() and sha(path) == PIN_FILE_SHA, 'PINNED_TOOLING_MISMATCH')
+    need(path.is_file() and not path.is_symlink() and sha(path) in (FROZEN_PIN_FILE_SHA, PIN_FILE_SHA), 'PINNED_TOOLING_MISMATCH')
     spec = importlib.util.spec_from_file_location('pinned_trash_release', path)
     tool = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tool)
@@ -158,6 +160,10 @@ def load_tool(path, candidate=None):
         import release_candidate
         release_candidate.configure(tool, candidate)
     install_image_adapter(tool)
+    # Even a verified frozen external helper cannot authorize its old worker gates.
+    def disabled(*args, **kwargs):
+        raise Stop('LEGACY_WORKER_GATING_DISABLED_USE_IMAGE_RELEASE')
+    tool.deploy = tool.rollback = tool.enable = disabled
     return tool
 
 
@@ -648,6 +654,8 @@ def main(argv=None):
             setattr(args, field, value.absolute())
     state, report = None, {'result': 'STOP', 'deploymentAuthorized': False, 'source': None}
     try:
+        need(args.action not in ('deploy', 'rollback', 'enable-workers'),
+             'LEGACY_WORKER_GATING_DISABLED_USE_IMAGE_RELEASE')
         need(pwd.getpwuid(os.getuid()).pw_name == 'doctoriceadm', 'RUN_AS_DOCTORICEADM')
         need(sys.version_info >= (3, 11), 'PYTHON_3_11_REQUIRED')
         os.umask(0o077)
@@ -692,30 +700,9 @@ def main(argv=None):
             elif args.action == 'recheck':
                 recheck(tool, state)
             else:
-                if args.action == 'deploy':
-                    context = recheck(tool, state)
-                    args.artifact = Path(context['artifactRoot']) / 'backend'
-                    args.audit = Path(context['audit'])
-                    if candidate is not None:
-                        need(args.approve_migration and os.environ.get('GALLERY_ADDITIVE_MIGRATION_APPROVED') == 'YES',
-                             'SEPARATE_ADDITIVE_MIGRATION_APPROVAL_REQUIRED')
-                        import rollback_bridge
-                        rollback_bridge.prepare(tool, args.state, args.artifact)
-                    tool.deploy(args)
-                else:
-                    journal_image(tool, state)
-                    if args.action == 'rollback':
-                        tool.queue_empty(require_paused=tool.api_only(tool.inspect(tool.SERVER)))
-                        if candidate is not None:
-                            import rollback_bridge
-                            rollback_bridge.rollback(tool, args)
-                        else:
-                            tool.rollback(args)
-                    elif args.action == 'acceptance':
-                        tool.acceptance(args)
-                    else:
-                        args.retention_approved = True
-                        tool.enable(args)
+                need(args.action == 'acceptance', 'LEGACY_WORKER_GATING_DISABLED_USE_IMAGE_RELEASE')
+                journal_image(tool, state)
+                tool.acceptance(args)
         print('PASS ' + args.action + '; deployment/signing/retention require their separate approvals')
         return 0
     except Exception as error:

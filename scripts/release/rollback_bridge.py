@@ -112,22 +112,6 @@ def ensure(tool, state, row):
 
 
 def rollback(tool, args):
-    from trash_predeploy import private_json
-    journal = private_json(args.state / 'deployment.json')
-    bridge = private_json(args.state / 'rollback-bridge.json')
-    need(bridge['parentImage'] == journal['previousImage'], 'ROLLBACK_BRIDGE_CHANGED')
-    ensure(tool, args.state, bridge)
-    need(tool.inspect(tool.SERVER)['Image'] in (tool.IMAGE, bridge['imageId']), 'ROLLBACK_LIVE_IMAGE_CHANGED')
-    need(all(tool.digest(Path(p)) == value for p, value in journal['configHashes'].items()), 'ROLLBACK_COMPOSE_CHANGED')
-    # Explicit approved rollback may gate the one deletion queue; never clear/retry jobs.
-    tool.api(args.api, args.key, '/jobs/backgroundTask', 'PUT', {'command': 'pause'})
-    tool.queue_empty(require_paused=True)
-    file = tool.override(args.state, bridge['imageId'], name='rollback-bridge-api-only.override.json')
-    tool.recreate(journal['base'], file)
-    need(tool.inspect(tool.SERVER)['Image'] == bridge['imageId'] and tool.api_only(tool.inspect(tool.SERVER)),
-         'ROLLBACK_BRIDGE_WORKER_GATE')
-    tool.health(args.api)
-    need(all(tool.inspect(name)['Id'] == value for name, value in journal['otherContainers'].items()),
-         'ROLLBACK_UNRELATED_CONTAINER_CHANGED')
-    tool.queue_empty(require_paused=True)
-    print('PASS previous API plus recognition marker; deletion workers remain disabled; no DB/NAS rollback')
+    # Recognition-image verification remains reusable; its historical deployment
+    # worker gate is retired even for callers importing this function directly.
+    need(False, 'LEGACY_WORKER_GATING_DISABLED_USE_IMAGE_RELEASE')

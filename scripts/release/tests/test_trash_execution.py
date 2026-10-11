@@ -86,18 +86,23 @@ class ExecutionGuards(unittest.TestCase):
             with self.assertRaisesRegex(release.Stop,'unrelated'): release.recreate(['docker','compose'],Path('override'))
             self.assertEqual(run.call_count,2)
 
-    def test_rollback_external_config_change_blocks_before_queue_mutation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);config=root/'compose';config.write_text('changed')
-            release.save(root/'deployment.json',{'previousImage':'previous','configHashes':{str(config):'expected'}})
-            with patch.object(release,'inspect',return_value={'Image':release.IMAGE}),patch.object(release,'api') as api:
-                with self.assertRaisesRegex(release.Stop,'changed externally'): release.rollback(SimpleNamespace(state=root,key=None,api='unused'))
-                api.assert_not_called()
+    def test_legacy_direct_actions_refuse_even_with_all_approvals(self):
+        args=SimpleNamespace(retention_approved=True,execute_approved=True,state=Path('/absent'))
+        for action in (release.deploy,release.rollback,release.enable):
+            with self.subTest(action=action.__name__), patch.object(release,'inspect') as inspect, \
+                 patch.object(release,'api') as api, patch.object(release,'save') as save:
+                with self.assertRaisesRegex(release.Stop,'LEGACY_WORKER_GATING_DISABLED'):
+                    action(args)
+                inspect.assert_not_called();api.assert_not_called();save.assert_not_called()
 
-    def test_enable_requires_separate_retention_approval(self):
-        with patch.object(release,'private_json') as read:
-            with self.assertRaisesRegex(release.Stop,'separate approval'): release.enable(SimpleNamespace(retention_approved=False))
-            read.assert_not_called()
+    def test_legacy_cli_actions_refuse_before_identity_docker_or_state_even_with_approval(self):
+        for action in ('deploy','rollback','enable-workers'):
+            with self.subTest(action=action), patch('sys.argv',['release',action,'--state','/absent',
+                 '--execute-approved','--retention-approved']), patch.object(release.pwd,'getpwuid') as identity, \
+                 patch.object(release.subprocess,'run') as process, patch.object(release.os,'open') as opened, \
+                 redirect_stderr(io.StringIO()):
+                self.assertEqual(release.main(),1)
+                identity.assert_not_called();process.assert_not_called();opened.assert_not_called()
 
     def test_nas_scope_and_samples(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -216,34 +221,29 @@ class DisposableReleaseTests(unittest.TestCase):
             self.assertEqual(receipt['assetCount'],1)
         self.assertEqual(self.docker('ps','-aq','--filter','name=gallery-restore-check-').strip(),'')
 
-    def test_real_compose_server_recreate_and_api_only_rollback_preserve_other_service(self):
+    def test_real_compose_image_only_recreate_preserves_workers_and_other_service(self):
         project='gallery-rollback-fixture-'+secrets.token_hex(6)
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);basefile=root/'compose.json'
             basefile.write_text(json.dumps({'services':{
-                'immich-server':{'image':'postgres:16-alpine','entrypoint':['sh','-c','exec sleep 600']},
+                'immich-server':{'image':'postgres:16-alpine','entrypoint':['sh','-c','exec sleep 600'],
+                    'environment':{'IMMICH_WORKERS_INCLUDE':'api,microservices'}},
                 'unrelated':{'image':'redis:7-alpine','entrypoint':['sh','-c','exec sleep 600']}}}))
             base=['docker','--host=unix:///var/run/docker.sock','compose','-p',project,'-f',str(basefile)]
             def command(args,**kwargs):
                 return subprocess.run(args,text=True,capture_output=True,check=True,timeout=120,env=self.env).stdout
             def fixture_inspect(name):
-                return json.loads(command([*base,'ps','-q',name]) and self.docker('inspect',command([*base,'ps','-q',name]).strip()))[0]
+                return json.loads(self.docker('inspect',command([*base,'ps','-q',name]).strip()))[0]
             with patch.object(release,'run',side_effect=command),patch.object(release,'docker',side_effect=self.docker):
                 try:
                     command([*base,'up','-d','--pull','never'])
-                    previous=fixture_inspect('immich-server');other=fixture_inspect('unrelated')['Id']
+                    other=fixture_inspect('unrelated')['Id']
                     release.recreate(base,release.override(root,'redis:7-alpine'))
-                    self.assertTrue(release.api_only(fixture_inspect('immich-server')))
-                    release.save(root/'deployment.json',{'previousTag':'postgres:16-alpine','previousImage':previous['Image'],
-                        'configHashes':{str(basefile):release.digest(basefile)},'base':base,'otherContainers':{'unrelated':other}})
-                    with patch.object(release,'inspect',side_effect=fixture_inspect), \
-                         patch.object(release,'IMAGE',fixture_inspect('immich-server')['Image']), \
-                         patch.object(release,'SERVER','immich-server'),patch.object(release,'health'), \
-                         patch.object(release,'queue_empty',return_value={'paused':True}),redirect_stdout(io.StringIO()):
-                        release.rollback(SimpleNamespace(state=root,api='fixture',key=None))
-                        release.rollback(SimpleNamespace(state=root,api='fixture',key=None))
-                    self.assertEqual(fixture_inspect('immich-server')['Image'],previous['Image'])
-                    self.assertTrue(release.api_only(fixture_inspect('immich-server')))
+                    self.assertFalse(release.api_only(fixture_inspect('immich-server')))
+                    env=dict(v.split('=',1) for v in fixture_inspect('immich-server')['Config']['Env'] if '=' in v)
+                    self.assertEqual(env['IMMICH_WORKERS_INCLUDE'],'api,microservices')
+                    release.recreate(base,release.override(root,'postgres:16-alpine',name='rollback-image-only.json'))
+                    self.assertFalse(release.api_only(fixture_inspect('immich-server')))
                     self.assertEqual(fixture_inspect('unrelated')['Id'],other)
                 finally:
                     command([*base,'down','--volumes']) # Only unique disposable project.

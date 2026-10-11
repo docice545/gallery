@@ -1,273 +1,247 @@
-# Gallery 5.7.2 (9): release runbook
+# Gallery 5.7.3 (10): reviewed build and operator runbook
 
-Application source: `968492c09641c49f34edbcea7367fc197ef3c531`, branch
-`candidate/gallery-trash-full-delete-5.7.2-build9`. Production `work` stays at
-`42790b06edc21438811e56e40c431eee37c24894`. Tooling has its own commit; it must
-never be substituted for the application/artifact SHA.
+Production remains 5.7.2 (9), application source
+`e6ab95e695f085c3016072ebff44d4ba02695cb5`. This is the next source candidate;
+record its exact final commit from the validation handoff. No artifact has been
+built, no key accessed and no production operation performed by this repair.
+Build-8/9 artifacts and frozen profiles do not contain these fixes.
 
-This runbook prepares existing CI artifacts. It does not authorize deployment,
-merge, signing, retention, NAS permission changes or destructive tests on family
-media. The October 2 docice managed-photo deletion is historical evidence for
-that one asset, not acceptance for other users, external libraries or phones.
+Separate approvals are required for builds, integration, production deployment,
+Android signing, per-owner deletion consent, external-library deletion and
+retention. The commands below are a handoff, not permission to execute them.
 
-## 1. Immutable handoff and HP preparation
+## 1. Build backend and clients from one reviewed source
 
-Obtain the successful proof run ID and `release-manifest.json` SHA-256 from the
-final handoff. The artifact is `gallery-trash-frozen-handoff-RUN_ID`. Run the
-following **preparation only** block as `doctoriceadm`. Existing GitHub access,
-Python 3.11+, Docker, sufficient local disk/RAM and cached PostgreSQL image are
-prerequisites. No dependencies are installed. No existing evidence is overwritten.
+Use a clean build checkout after build approval. Do not change the production
+checkout to prepare a build. Preserve the exact repository toolchain and locks.
+
+```bash
+set -euo pipefail
+: "${RELEASE_SOURCE_SHA:?Full reviewed candidate commit required}"
+[[ "$RELEASE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$(git rev-parse HEAD)" == "$RELEASE_SOURCE_SHA" ]]
+[[ -z "$(git status --porcelain)" ]]
+: "${BACKEND_OUTPUT:?New backend artifact directory required}"
+# Read-only build metadata check; no Docker build or artifact produced.
+bash scripts/release/server_build.sh "$RELEASE_SOURCE_SHA" "$BACKEND_OUTPUT" --check
+# After build approval only, with an unused operator-selected output directory.
+bash scripts/release/server_build.sh "$RELEASE_SOURCE_SHA" "$BACKEND_OUTPUT"
+```
+
+The build uses the committed pubspec version/build, branded committed tree,
+existing Dockerfile and immutable source revision; the manifest records image ID,
+archive SHA-256 and migration provenance. No production Compose file is loaded.
+Its default migration baseline is the deployed build-9 application
+`e6ab95e695f085c3016072ebff44d4ba02695cb5`; any different reviewed baseline must
+be supplied explicitly with `MIGRATION_BASE_SHA` and reconciled with the live DB.
+Do not silently override version, source or migrate a production database to test
+an image. Verify the archive checksum, config/layers/descriptors, packaged source,
+architecture, version, hardened deletion capability and compiled migrations.
+
+For iOS use the existing GitHub workflow with an **empty** version input:
+
+```bash
+# After build approval, on the exact reviewed branch; never the paid release lane.
+: "${RELEASE_BRANCH:?Branch whose HEAD equals RELEASE_SOURCE_SHA}"
+gh workflow run gallery-build-mobile.yml --repo docice545/gallery \
+  --ref "$RELEASE_BRANCH" -f environment=development -f version= -f build_target=ios
+```
+
+Verify the run's headSha equals the recorded source. Download its existing
+`ios-unsigned-archive` and `ios-unsigned-ipa` artifacts. Record actual run/artifact
+IDs and IPA SHA-256; none are claimed to exist for this candidate yet. Runner,
+ShareExtension and Widget remain present, base registration names ASCII and
+Russian launcher name `Фото`. The unsigned IPA must report 5.7.3 (10).
+
+Android CI validation uses the same workflow with `build_target=android`, empty
+version and `android_media_pilot=true`, after the iOS run finishes to avoid shared
+concurrency cancellation. CI/debug certificates cannot update the HP-signed app.
+
+## 2. Backup, migration and rollback prerequisites
+
+Keep the existing recovery/audit evidence; a previous receipt cannot certify a
+fresh backup. Before deployment, create a new private SQL/gzip backup through the
+existing read-only production dump procedure, hash it, and restore those exact
+bytes in a disposable PostgreSQL instance with no production volumes/network.
+Verify counts, owner/library relationships, migrations, Trash/offline states and
+receipt consistency before and after candidate startup. No destructive schema
+reset or mass status correction is needed.
+
+New migration `1793700000000-BindDeletionRecovery` adds policy identities/expiry
+and disables unbound legacy grants. It leaves assets and originals unchanged.
+Rehearse startup and rerun against the isolated restore. The 291 offline index
+records must stay Active/offline; the 12 genuine managed Trash assets stay
+restorable. Non-complete old receipts without the new identity proof remain
+blocked for individual review, not automatically rebound.
+
+Unmodified build 9 is **not** a compatible rollback image: it does not recognize
+the new migration and ignores signed-evidence/root binding. Before deployment
+prepare a separately reviewed hardened rollback image with compatible compiled
+migration inventory, and rehearse it against the same disposable restored DB.
+Recognition-only patches or version-label assertions are insufficient. The image
+helper inspects actual compiled capability/migrations and rejects incompatible
+candidate/rollback images; lack of such an image means STOP. Do not drop the new
+columns or restore an old live SQL database just to boot old code.
+
+Recheck AssetDelete/FileDelete across every live queue state using the bounded
+inventory and atomic cardinalities in the existing read-only audit. SCAN alone
+is not proof of emptiness. Nonempty, unknown or incomplete inventory means STOP;
+no queue clearing, retry, pause, activation or automatic retention change is
+part of this workflow. Revalidate immediately before execution; empty is only
+an observation at that instant. Workers must already be running normally.
+
+## 3. Image-only deployment after explicit approval
+
+Use `scripts/release/image_release.py` from this reviewed source, not a frozen
+historical helper. It derives actual Compose topology from `immich_server` and
+compares the entire effective configuration, including image-baked worker
+settings. It preserves environment, mounts, networks, volumes and every other
+service. API **and microservices** must be enabled; an API-only topology stops.
+It never removes orphans, globally prunes Docker, resets data or modifies queues.
+Keep the inpainting container even if not listed in the current Compose files.
 
 ```bash
 set -euo pipefail
 umask 077
-[[ "$(id -un)" == doctoriceadm ]]
-: "${HANDOFF_RUN:?Set the exact successful proof run ID from the handoff}"
-: "${EXPECTED_MANIFEST_SHA256:?Set the handoff manifest SHA-256}"
-[[ "$HANDOFF_RUN" =~ ^[1-9][0-9]+$ ]]
-[[ "$EXPECTED_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
-ARTIFACTS="$(mktemp -d /home/doctoriceadm/gallery-build9-handoff-XXXXXXXX)"
-chmod 700 "$ARTIFACTS"
-gh run download "$HANDOFF_RUN" --repo docice545/gallery \
-  --name "gallery-trash-frozen-handoff-$HANDOFF_RUN" --dir "$ARTIFACTS"
-(
-  cd "$ARTIFACTS"
-  printf '%s  release-manifest.json\n' "$EXPECTED_MANIFEST_SHA256" | sha256sum --check --status
-  sha256sum --check --status SHA256SUMS
-)
-PROFILE="$ARTIFACTS/candidate-profile.json"
-PROFILE_SHA="$(sha256sum "$PROFILE" | cut -d' ' -f1)"
-PREDEPLOY="$ARTIFACTS/tooling/trash_predeploy.py"
-PINNED=/home/doctoriceadm/gallery-trash-release-tooling-565ef38/trash_release.py
-printf '%s  %s\n' 56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c "$PINNED" | sha256sum --check --status
-python3 -B - "$ARTIFACTS" <<'PY_VALIDATE'
-import ast,json,pathlib,sys
-root=pathlib.Path(sys.argv[1]); profile=json.loads((root/'candidate-profile.json').read_text())
-assert profile['sourceCommit']=='968492c09641c49f34edbcea7367fc197ef3c531'
-assert (profile['serverVersion'],profile['mobileVersion'],profile['mobileBuild'])==('5.7.2','5.7.2',9)
-for file in (root/'tooling').rglob('*.py'): ast.parse(file.read_text())
-print('PASS exact candidate and tooling syntax')
-PY_VALIDATE
-# Loads only the verified artifact into the local image store; no service starts.
-# Use existing Docker access (or the existing approved sudo -n docker command).
-DOCKER_CMD=(docker --host=unix:///var/run/docker.sock)
-if ! "${DOCKER_CMD[@]}" info >/dev/null 2>&1; then
-  DOCKER_CMD=(sudo -n docker --host=unix:///var/run/docker.sock)
-  "${DOCKER_CMD[@]}" info >/dev/null
-fi
-"${DOCKER_CMD[@]}" load -i "$ARTIFACTS/backend/gallery-server-linux-amd64.tar.gz"
-python3 -B "$PREDEPLOY" prepare --artifacts "$ARTIFACTS" --pinned-tool "$PINNED" \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" | tee "$ARTIFACTS/preparation.txt"
-STATE="$(sed -n 's/^Private state: //p' "$ARTIFACTS/preparation.txt")"
-[[ "$STATE" == /home/doctoriceadm/gallery-predeploy-* && -d "$STATE" ]]
-printf 'ARTIFACTS=%s\nPROFILE_SHA=%s\nSTATE=%s\n' "$ARTIFACTS" "$PROFILE_SHA" "$STATE"
-```
-
-Preparation requires the existing complete audit and NAS proof. It preserves
-original timestamps and the old PostgreSQL PASS, but creates a **new** SQL/gzip
-backup and validates that exact backup in a new disposable PostgreSQL instance.
-The candidate migration and previous API rollback startup run against that same
-isolated restore, with no production network, mounts or ports. Asset/status/album
-schema integrity and migration inventories must remain consistent. All policies
-start disabled. A unique rollback overlay changes only two migration-recognition
-files in the previous immutable image; parent layers/config and exported bytes
-are checked, saved and hashed. No old deletion workers are started.
-
-Existing evidence paths:
-
-- `/home/doctoriceadm/gallery-trash-release-audit-20261009T155251367898Z-8d189795a83d.txt`
-- `/home/doctoriceadm/gallery-nas-recovery-sau5r5go`
-- `/home/doctoriceadm/gallery-recovery-hum85h39`
-
-PASS is a preparation receipt, **not deployment approval**. Missing/expired
-recovery (NAS 24 h, fresh DB backup 1 h), mismatched image/config/source/migrations,
-insufficient disk/RAM, nonempty/unknown queues or changed production means STOP.
-Queue emptiness uses atomic state cardinalities plus bounded legacy inventory;
-SCAN alone is insufficient. Empty means empty at that instant only.
-
-Keep the printed new `STATE` directory and all private evidence/logs. Do not
-edit failed states or receipt timestamps. A failure requires its actual cause to
-be resolved; do not rerun into the same state or silently reuse an old restore.
-
-## 2. Separately approved backend deployment
-
-Do not execute until the owner approves **deployment and the additive migration**.
-`STATE` is the new preparation state, `ADMIN_KEY_FILE` is an existing 0600 admin
-key file. No new account/API key is needed. Do not print its contents.
-
-```bash
-python3 -B "$PREDEPLOY" recheck --state "$STATE" --pinned-tool "$PINNED" \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA"
+: "${IMAGE_TOOL:?Absolute reviewed scripts/release/image_release.py path}"
+: "${APPROVED_IMAGE_ID:?Verified loaded candidate config image sha256 ID}"
+: "${EXPECTED_CURRENT_IMAGE_ID:?Recorded running config image sha256 ID}"
+: "${RELEASE_SOURCE_SHA:?Full reviewed source commit}"
+: "${APPROVED_ROLLBACK_IMAGE_ID:?Separately reviewed hardened rollback image ID}"
+: "${APPROVED_ROLLBACK_SOURCE_SHA:?Full hardened rollback source commit}"
+: "${APPROVED_ROLLBACK_VERSION:?Verified hardened rollback server version}"
+IMAGE_STATE="$(mktemp -d /home/doctoriceadm/gallery-image-release-XXXXXXXX)"
+chmod 700 "$IMAGE_STATE"
+# Supply the separately validated hardened rollback target when previous image
+# is unmodified build 9; use the helper's --help for its exact rollback arguments.
+python3 -B "$IMAGE_TOOL" plan --sudo-docker --state "$IMAGE_STATE" \
+  --image "$APPROVED_IMAGE_ID" --expected-current-image "$EXPECTED_CURRENT_IMAGE_ID" \
+  --source-commit "$RELEASE_SOURCE_SHA" --server-version 5.7.3 \
+  --rollback-image "$APPROVED_ROLLBACK_IMAGE_ID" \
+  --rollback-source-commit "$APPROVED_ROLLBACK_SOURCE_SHA" \
+  --rollback-server-version "$APPROVED_ROLLBACK_VERSION"
+# Read-only preflight. No service recreation.
+python3 -B "$IMAGE_TOOL" apply --sudo-docker --state "$IMAGE_STATE"
+# Only AFTER separate approval for this exact source/image/state/migration.
 GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_ADDITIVE_MIGRATION_APPROVED=YES \
-  python3 -B "$PREDEPLOY" deploy --state "$STATE" --pinned-tool "$PINNED" \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" \
-  --key "$ADMIN_KEY_FILE" --approve-deployment --approve-migration
+  python3 -B "$IMAGE_TOOL" apply --sudo-docker \
+  --state "$IMAGE_STATE" --execute-approved --approve-migration
 ```
 
-The existing pinned deployment saves exact Compose/.env and previous image,
-pauses backgroundTask, checks paused/empty queues, then recreates **only**
-`immich-server` API-only using a verified immutable runtime image ID. Health,
-5.7.2 source/version, exact migration transition and unchanged PostgreSQL/Redis/ML
-container IDs are required. No global Docker prune, volume recreation, NAS/mount
-change or external worker change occurs. Failure with a deployment journal is
-STOP: never blindly repeat deploy; use the approved rollback below.
+The helper records a private attempt before recreating only `immich-server` with
+`up -d --no-deps --no-build --pull never`. No `--remove-orphans`, no volume deletion.
+It checks health/source/version/image and all unrelated local container identities.
+A failed attempt is journaled, not silently retried. Retain the original private
+state and all evidence. Pending additive migrations require the separate approval
+flag and environment gate shown above; neither permission authorizes deletion.
+The rollback target must have the same compiled migration inventory and identical
+bytes for the six guarded deletion/storage/library modules as the candidate.
+An unmodified build-9 image is rejected even if its labels claim compatibility.
 
-Migration `1793600000000-AddAuthorizedAssetDeletion` is additive. Down migration
-is deliberately refused: durable deletion evidence cannot be discarded. The old
-unmodified image cannot boot after this addition without recognition. The
-prepared API-only rollback bridge solves that compatibility requirement while
-preserving tombstones/triggers. It is not a database rollback.
+## 4. Install evidence and prepare managed consent separately
 
-Mobile cache schema 39 is an additive on-device migration. Existing accounts,
-settings and cached rows are preserved. Asset metadata is replayed once through
-existing sync checkpoints only after the server advertises this candidate's
-feature; this does not reindex the NAS or rerun ML. Offline external index
-entries stay unavailable, but no longer become user Trash. Do not downgrade the
-mobile cache to an older application after migration; backend rollback keeps
-build 9 installed and preserves the deletion journal.
+Follow [MANAGED-DELETION-AUTHORIZATION.md](MANAGED-DELETION-AUTHORIZATION.md) and
+[the signed evidence procedure](../specs/testing/2026-10-10-trash-recovery-evidence.md).
+Install only the operator public key and evidence directory as read-only binds
+into the selected server. Keep the private key outside the container. This is
+an explicitly reviewed preparation change, not an image-only override hidden in
+step 3. Preserve all other Compose fields and services; do not alter NAS mounts.
+Capture identities in the final running container, generate real signed proof,
+then administrator preparation and fresh owner consent. No account/API-key change.
 
-## 3. Per-owner/library permanent deletion approval
+Every owner and external-library scope is separate. External deletion stays
+blocked without separately reviewed recovery, scope approval, controlled writer
+namespace, verified NFS semantics and consent. Existing writable mounts are not
+permission to grant deletion. Read-only mounts remain unchanged. Automatic
+retention remains skipped by the existing guard.
 
-Every managed owner scope and external library starts disabled. Authorizing
-`docice` never authorizes Anna or Lenia; authorizing one library never authorizes
-another. Keep read-only mounts unchanged. Do not authorize a root with an
-uncontrolled external writer, shared originals or unverified NFS identity behavior.
+## 5. HP-signed Android update after approval
 
-After deployment, inspect current library roots read-only through existing admin
-API. Create **one** private 0600 JSON plan per explicitly approved scope with keys
-`ownerId`, `scope` (`managed` or that owner's real library UUID), `roots` (exact
-existing roots), `verifiedExclusiveRoots: true`. This attests the controlled
-namespace after actual disposable NFS acceptance, not a permission bypass. Use
-real verified NAS evidence; no fabricated hashes/snapshot identifiers.
+Preserve package `de.opennoodle.gallery`, alias `foto` and existing certificate:
+`ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`.
+Current installed versionCode 9 is replaced by 10, not by a debug-signed CI APK.
+Do not generate/export keys, uninstall the app or clear its data.
+
+After approved normal integration into `work`, use the existing HP JDK17/SDK36,
+Flutter3.47.2 and existing signing files. Never run this signing gate in cloud CI:
 
 ```bash
-# Only after separate approval for THIS owner and library.
-GALLERY_LIBRARY_DELETION_APPROVED=YES python3 -B "$ARTIFACTS/tooling/authorize_library.py" \
-  --state "$STATE" --plan "$LIBRARY_PLAN_FILE" --key "$ADMIN_KEY_FILE" \
-  --pinned-tool "$PINNED" --candidate-profile "$PROFILE" \
-  --candidate-profile-sha256 "$PROFILE_SHA" --approve-library
+python3 -B scripts/release/android_release.py preflight \
+  --repository /opt/gallery-fork --expected-head "$RELEASE_SOURCE_SHA" --build-number 10
+# ONLY after HP signing approval. Regenerates required clients/plugins/tests.
+python3 -B scripts/release/android_release.py build \
+  --repository /opt/gallery-fork --expected-head "$RELEASE_SOURCE_SHA" --build-number 10
+python3 -B scripts/release/android_release.py postflight \
+  --repository /opt/gallery-fork --expected-head "$RELEASE_SOURCE_SHA" --build-number 10
 ```
 
-This calls the existing admin policy API. Server verifies current owner/root
-membership, canonical paths, existing filesystem permissions and cross-owner
-inode/path overlap. It creates no NAS API/service and changes no mount/permissions.
-Actual unlink failures keep a durable receipt and are visible/retryable; retries
-never authorize a replacement file. An explicitly approved disable can use the
-same existing policy API with `enabled=false`; pending operations cannot override
-revocation. Automatic retention is unconditionally skipped in this release.
-Resuming other workers is a separate approval and does not enable retention or
-library opt-ins. Do not run legacy FileDelete jobs or change queue contents.
+The script checks branch/SHA/clean source, locks/toolchain, package/version,
+native libraries, manifest permissions, production certificate and SHA-256;
+prints the final `Foto.apk` path under `mobile/build/release-handoff/`.
+Frozen `sign-existing` profiles from build8/9 cannot be used for this candidate.
+Install the verified signed APK over the existing installation; verify account,
+settings, upload queue and certificate without uninstalling. No HP signing ran here.
 
-## 4. HP-signed Android update (no rebuild)
+## 6. iPhone: preserve existing SideStore installation route
 
-Android CI produces a release-mode APK signed with the runner debug key. It
-**cannot update** the installed HP-signed app. The existing certificate remains
-`ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`, alias `foto`,
-package `de.opennoodle.gallery`. Existing JDK 17/SDK 36 tools and original signing
-files on HP are required. No key is created/exported or used in CI.
+Runner `de.opennoodle.gallery` minimum iOS15, ShareExtension
+`de.opennoodle.gallery.ShareExtension` iOS16, Widget
+`de.opennoodle.gallery.Widget` iOS17; App Group
+`group.de.opennoodle.gallery.share`. No new Apple credential or signing service.
+Unsigned IPA is not directly installable. Use the existing Personal Team,
+SideStore and LocalDevVPN mapping. Choose **Keep App Extensions (Register App ID
+for Each Extension)**, preserving all existing IDs and data.
 
-After separate merge/signing approval, integrate the exact candidate into `work`
-by fast-forward only if production HEAD is still the expected baseline. Signing
-refuses a dirty checkout, unexpected SHA or key/certificate. Do not merge now.
-A non-fast-forward integration needs a new reviewed source/artifact binding.
+Only when the installed app already uses a prepared seed, use its **same** team:
 
 ```bash
-# Only after approved integration and HP signing; production checkout is unchanged before then.
-python3 -B "$ARTIFACTS/tooling/android_release.py" sign-existing \
-  --repository /opt/gallery-fork \
-  --expected-head 968492c09641c49f34edbcea7367fc197ef3c531 --build-number 9 \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" \
-  --input-apk "$ARTIFACTS/android/app-release.apk" --authorize-production-signing
+: "${IPA_PATH:?Actual downloaded unsigned IPA}"
+: "${IPA_SHA256:?Verified unsigned IPA checksum}"
+: "${EXISTING_PERSONAL_TEAM_ID:?Same established SideStore Personal Team}"
+: "${NEW_SEED_OUTPUT_DIRECTORY:?Unused seed output directory}"
+python3 mobile/scripts/release/prepare_sidestore.py --ipa "$IPA_PATH" \
+  --input-sha256 "$IPA_SHA256" --team-id "$EXISTING_PERSONAL_TEAM_ID" \
+  --version 5.7.3 --build 10 --output "$NEW_SEED_OUTPUT_DIRECTORY"
 ```
 
-The script verifies APK source/hash/manifest/package/version/signature/native
-libraries, re-signs unchanged payload using the existing HP key, checks alignment
-and production certificate, and prints `Foto.apk` path/SHA-256. Output is below
-`/opt/gallery-fork/mobile/build/release-handoff/android-5.7.2-9-968492c09641/`.
-Install that **Foto.apk** over build 7/8 on S23, without uninstalling or clearing
-app data. Verify session/settings and package/version/certificate after install.
-HP signing and physical update are operator gates, not cloud test results.
+Retain Developer Mode/trust, extensions, App Group, ShareMedia scheme and seven-day
+refresh requirements. Verify session/settings preservation, Share, Widget,
+Live/Motion Photos and background synchronization on a physical iPhone. No
+physical or native build PASS is claimed by this source-only repair.
 
-## 5. iPhone / existing SideStore route
+## 7. Acceptance and rollback
 
-Unsigned build 9 uses the existing macOS-15/Xcode 26.2/Flutter 3.47.2 build-only
-workflow. Runner `de.opennoodle.gallery` (iOS 15), ShareExtension
-`de.opennoodle.gallery.ShareExtension` (iOS 16) and Widget
-`de.opennoodle.gallery.Widget` (iOS 17) are retained. App Group is
-`group.de.opennoodle.gallery.share`. Technical base names are ASCII; Russian
-launcher localization remains `Фото`. No paid Apple certificates or new service.
+After approved deployment confirm API and microservices are connected. A fresh
+disposable upload must complete **thumbnail and preview jobs**; authenticated
+image APIs return valid bytes and Android/web viewing works. Worker startup alone
+is insufficient. Test single/bulk Trash/Restore chronologically, mixed scopes,
+consent/revocation, interrupted retry, device permission denial, Live/Motion,
+albums/search/faces, upload/sync and each user separately. Never Empty Trash of a
+family account as a smoke test.
 
-Download `ios/Photos-unsigned.ipa` from the handoff or its exact source run.
-It is **not directly installable**. Keep the current Apple Personal Team and
-existing SideStore bundle/App Group mapping for an update. Choose
-**Keep App Extensions (Register App ID for Each Extension)**. Main-profile-only
-signing is not the established separate extension-ID route.
-
-If the existing installation uses the prepared seed, prepare with the **same**
-real Personal Team ID on macOS; this preserves the original unsigned IPA and
-changes only the required custom AppGroupId/ShareMedia handoff metadata:
+Rollback uses the same private image journal and **verified hardened** target:
 
 ```bash
-# macOS only, using the SAME existing SideStore team/mapping.
-IPA_SHA="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["ios"]["sha256"])' "$PROFILE")"
-python3 "$ARTIFACTS/tooling/ios/release/prepare_sidestore.py" \
-  --ipa "$ARTIFACTS/ios/Photos-unsigned.ipa" --input-sha256 "$IPA_SHA" \
-  --team-id "$EXISTING_PERSONAL_TEAM_ID" --version 5.7.2 --build 9 \
-  --output "$NEW_SEED_OUTPUT_DIRECTORY"
+# Read-only rollback preflight.
+python3 -B "$IMAGE_TOOL" rollback --sudo-docker --state "$IMAGE_STATE"
+# Only after rollback approval; changes only the selected service image.
+GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$IMAGE_TOOL" rollback --sudo-docker \
+  --state "$IMAGE_STATE" --execute-approved
 ```
 
-Use the prepared seed IPA in SideStore only where that mapping was established.
-Do not invent a new mapping or remove extensions to solve a signing failure.
-Retain SideStore/LocalDevVPN, Developer Mode/trust and 7-day refresh requirements.
-Verify session preservation, Share Extension, Widget and App Group on the iPhone.
+If deployment failed before the additive migration completed, rollback must also
+receive explicit migration approval (`--approve-migration` with
+`GALLERY_ADDITIVE_MIGRATION_APPROVED=YES`); otherwise it stops. Rehearse both paths
+against an isolated restored database before approving production execution.
 
-## 6. Smoke test, device acceptance and rollback
+Keep API/microservices and every unrelated container unchanged. Never start an
+old guard against enabled new policies, drop migration evidence, replay FileDelete,
+replace the live DB from an older backup or recursively purge quarantine.
+Rollback does not recover removed originals; restore individually from tested
+snapshots/backups after separate approval, preserving newer data and receipts.
 
-After approved deployment, the existing acceptance action uploads only a newly
-created synthetic PNG, verifies Trash/Restore, timestamps and original bytes,
-and leaves it Active. It does **not** permanently delete user media.
-
-```bash
-GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY" acceptance \
-  --state "$STATE" --pinned-tool "$PINNED" --key "$ADMIN_KEY_FILE" \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" --approve-deployment
-```
-
-Follow `GALLERY_BUILD9_ACCEPTANCE.md`: Android/iPhone/web, each user separately,
-local-only/NAS-only/both, photo/video/Live/Motion, single/bulk/permission denial,
-offline/restart/delayed sync, albums/search and original chronology. Permanent
-NFS acceptance needs a separately approved **disposable-only library**, never
-family originals. Validate mount semantics without granting extra permissions.
-
-```bash
-# Only after explicit rollback approval; same state/journal and private key.
-GALLERY_DEPLOYMENT_APPROVED=YES python3 -B "$PREDEPLOY" rollback \
-  --state "$STATE" --pinned-tool "$PINNED" --key "$ADMIN_KEY_FILE" \
-  --candidate-profile "$PROFILE" --candidate-profile-sha256 "$PROFILE_SHA" --approve-deployment
-```
-
-Rollback verifies/reloads the exact saved bridge archive if necessary, restores
-only the immediately previous API plus recognition markers, keeps workers off
-and queue paused, preserves DB/tombstones and checks unrelated container IDs.
-It cannot undo a completed NAS unlink. Database + NAS recovery and reconciliation
-need a separate approved recovery procedure; never restore only SQL and claim
-physical media recovered. Keep all old snapshots, backups and new receipts.
-
-## Tooling validation boundary
-
-Python syntax/guard tests, real classic Docker import and tamper fixtures, and
-actual immutable rollback overlay creation are cloud-tested. The proof workflow
-also exercises real containerd import; only its successful result establishes
-that store check. Exact HP fresh-backup migration/rollback startup is performed
-by `prepare`, and remains **PREPARED / NEEDS HP VALIDATION** until its PASS.
-Production signing, SideStore update and physical deletion are
-**PREPARED / NEEDS PHYSICAL VALIDATION**. No VAAPI/Memories setup is required.
-
-Current reusable tools: `android_release.py`, `gallery-build-mobile.yml`,
-`prepare_sidestore.py`, `server_build.sh`, `trash_predeploy.py`,
-`rollback_bridge.py`, `authorize_library.py`, `gallery-trash-release-proof.yml`.
-Historical build-8 evidence is retained separately; never apply its artifact
-hashes or migration-equality assumptions to this new candidate.
-The obsolete build-8 `trash_execute.sh` wrapper is excluded from the build-9
-handoff. Use only the profile-bound commands above; this release grants no
-automatic retention activation.
+Historical `trash_release.py`, `trash_predeploy.py`, `trash_execute.sh` and
+`rollback_bridge.py` mutation paths are disabled. Their frozen evidence helpers
+may still be used read-only for archive/backup validation; they are not deployment
+instructions. `image_release.py` native-image probes and HP deployment, real NFS,
+production signing and physical-device acceptance remain operator gates.
