@@ -131,6 +131,79 @@ void main() {
   });
 
   group('single live photo playback lease', () {
+    test('cold initialization interrupted by navigation retries without a viewer warmup', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('cold')]);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'cold');
+        // No native frame has arrived yet. A startup route covers the feed.
+        controller.setEnabled(false);
+        clock.elapse(const Duration(seconds: 1));
+        controller.setEnabled(true);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'cold', reason: 'a lease is not a played video');
+        controller.dispose();
+      });
+    });
+
+    test('scroll during cold initialization can retry the same unplayed visible photo', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('cold')]);
+        clock.elapse(livePhotoSettlingDelay);
+        _scrollTo(controller, 12);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'cold');
+        controller.dispose();
+      });
+    });
+
+    test('one cold failure retries only the same source and a second failure cannot cascade', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('cold'), _candidate('neighbour', distance: 10)]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.failed('stale');
+        expect(controller.activeToken, 'cold');
+        controller.failed('cold');
+        expect(controller.activeToken, isNull);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'cold');
+        controller.failed('cold');
+        controller.updateCandidates([_candidate('neighbour')]);
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull);
+        expect(clock.nonPeriodicTimerCount, 0);
+        controller.dispose();
+      });
+    });
+
+    test('suspending the retry before progress preserves the remaining attempt', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('cold')]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.failed('cold');
+        clock.elapse(livePhotoSettlingDelay);
+        controller.setEnabled(false);
+        controller.started('cold'); // Late event from a revoked lease.
+        controller.setEnabled(true);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'cold');
+        controller.started('cold');
+        controller.started('cold');
+        controller.failed('cold');
+        controller.updateCandidates([_candidate('neighbour')]);
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull);
+        controller.dispose();
+        controller.failed('cold');
+        controller.started('cold');
+        expect(clock.nonPeriodicTimerCount, 0);
+      });
+    });
+
     test('grants one lease after 350 ms, without extending delay for stable measurements', () {
       fakeAsync((clock) {
         final controller = _controller();
@@ -192,6 +265,7 @@ void main() {
         final controller = _controller();
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(livePhotoSettlingDelay);
+        controller.started('first');
         controller.updateCandidates([_candidate('first', visibility: 0.79), _candidate('second')]);
         expect(controller.activeToken, isNull);
         clock.elapse(const Duration(seconds: 2));
@@ -214,6 +288,7 @@ void main() {
         controller.setEnabled(true);
         clock.elapse(livePhotoSettlingDelay);
         expect(controller.activeToken, 'first');
+        controller.started('first');
         controller.setEnabled(false);
         expect(controller.activeToken, isNull);
         controller.setEnabled(true);
@@ -269,6 +344,7 @@ void main() {
         final controller = _controller();
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(livePhotoSettlingDelay);
+        controller.started('first');
         for (final offset in [0.0, 12.0, 5.0, 30.0, 0.0]) {
           _scrollTo(controller, offset, candidates: [_candidate('second')]);
           expect(controller.activeToken, isNull);
@@ -371,6 +447,7 @@ void main() {
         final controller = _controller();
         controller.updateCandidates([_candidate('first')]);
         clock.elapse(livePhotoSettlingDelay);
+        controller.started('first');
         controller.unregister('first');
         expect(controller.activeToken, isNull);
         controller.updateCandidates([]);

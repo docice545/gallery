@@ -15,7 +15,8 @@ import 'package:immich_mobile/providers/photos_filter/filter_sheet.provider.dart
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:logging/logging.dart';
 
-typedef LivePhotoPreviewBuilder = Widget Function(BaseAsset asset, VoidCallback onCompleted);
+typedef LivePhotoPreviewBuilder =
+    Widget Function(BaseAsset asset, VoidCallback onCompleted, VoidCallback onStarted, VoidCallback onFailed);
 
 /// Opt-in scope used only by the main Photos timeline. Cached/offscreen grid
 /// rows register geometry, not players. Visibility is sampled after layout and
@@ -53,6 +54,8 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     _settingEnabled = ref.read(appConfigProvider).timeline.autoplayLivePhotos;
     final selection = ref.read(multiSelectProvider);
@@ -108,6 +111,13 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
     _updateEnabled();
+    if (!_foreground) {
+      // A suspended gesture need not send pointer-up or ScrollEnd. Do not keep
+      // the newly resumed feed permanently in its scrolling suppression state.
+      _pointers.clear();
+      _scrolling = false;
+      controller.setScrolling(false);
+    }
   }
 
   void register(Object token, BaseAsset asset, BuildContext tileContext) {
@@ -152,6 +162,10 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
         _measureTiles();
       }
     });
+    // Router/lifecycle/settings listeners may run while the feed is idle.
+    // addPostFrameCallback alone does not request a frame; without this the
+    // first eligible measurement can wait indefinitely for a tap/viewer visit.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _measureTiles() {
@@ -386,6 +400,8 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
       return const SizedBox.expand();
     }
     void onCompleted() => scope.controller.complete(_token);
+    void onStarted() => scope.controller.started(_token);
+    void onFailed() => scope.controller.failed(_token);
     if (widget.requireMatchingFraming && widget.framingImageSize == null) {
       // Edited/unknown still geometry cannot be registered to the motion frame.
       // Consume only this viewport's reservation; never try the next live photo.
@@ -399,7 +415,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
     }
     return IgnorePointer(
       child:
-          scope.widget.previewBuilder?.call(widget.asset, onCompleted) ??
+          scope.widget.previewBuilder?.call(widget.asset, onCompleted, onStarted, onFailed) ??
           ClipRect(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -444,6 +460,8 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                             ).requiredSize,
                       previewIsActive: () => scope.controller.activeToken == _token,
                       onPreviewCompleted: onCompleted,
+                      onPreviewStarted: onStarted,
+                      onPreviewFailed: onFailed,
                     ),
                   ),
                 );

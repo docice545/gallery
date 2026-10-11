@@ -82,7 +82,8 @@ void main() {
     await tester.pumpConsumerWidget(
       scope
           ? TimelineLivePhotoScope(
-              previewBuilder: (asset, onCompleted) {
+              previewBuilder: (asset, onCompleted, onStarted, onFailed) {
+                onStarted();
                 previews++;
                 return const ColoredBox(key: previewKey, color: Colors.green);
               },

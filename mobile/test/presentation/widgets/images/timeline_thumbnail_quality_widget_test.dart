@@ -704,6 +704,7 @@ void main() {
     final provider = still(tester).imageProvider! as RemoteImageProvider;
     final state = tester.state(find.byType(Thumbnail));
     await startPreview(tester);
+    tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer)).onPreviewStarted!();
     final context = tester.element(find.byType(ThumbnailTile));
     final metrics = FixedScrollMetrics(
       minScrollExtent: 0,
@@ -723,6 +724,36 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
     expect(find.byType(NativeVideoViewer), findsNothing);
+    expect(remoteRequests, hasLength(1));
+    expectNoOriginalRequests();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  _qualityTestWidgets('scroll cancelling cold motion initialization retries without downgrading the still', (
+    tester,
+  ) async {
+    await mountTile(tester, _remote(motion: true), motionScope: true);
+    final provider = still(tester).imageProvider! as RemoteImageProvider;
+    final state = tester.state(find.byType(Thumbnail));
+    await startPreview(tester);
+    final context = tester.element(find.byType(ThumbnailTile));
+    final metrics = FixedScrollMetrics(
+      minScrollExtent: 0,
+      maxScrollExtent: 1000,
+      pixels: 0,
+      viewportDimension: 600,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: 3,
+    );
+    ScrollStartNotification(metrics: metrics, context: context).dispatch(context);
+    await tester.pump();
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    ScrollEndNotification(metrics: metrics, context: context).dispatch(context);
+    await tester.pump();
+    await startPreview(tester);
+    expect(still(tester).imageProvider, provider);
+    expect(tester.state(find.byType(Thumbnail)), same(state));
     expect(remoteRequests, hasLength(1));
     expectNoOriginalRequests();
     expect(tester.takeException(), isNull);

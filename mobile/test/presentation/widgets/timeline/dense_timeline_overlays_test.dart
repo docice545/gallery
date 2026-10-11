@@ -180,12 +180,15 @@ void main() {
           child: playback == null
               ? list
               : TimelineLivePhotoScope(
-                  previewBuilder: (asset, onCompleted) => _Preview(
-                    key: ValueKey('preview-${asset.id}'),
-                    asset: asset,
-                    log: playback,
-                    onCompleted: onCompleted,
-                  ),
+                  previewBuilder: (asset, onCompleted, onStarted, onFailed) {
+                    onStarted();
+                    return _Preview(
+                      key: ValueKey('preview-${asset.id}'),
+                      asset: asset,
+                      log: playback,
+                      onCompleted: onCompleted,
+                    );
+                  },
                   child: list,
                 ),
         ),

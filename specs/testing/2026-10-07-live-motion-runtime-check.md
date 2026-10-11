@@ -12,8 +12,10 @@ timeline asset/thumbnail widgets. Image assets with the existing `livePhotoVideo
 or local Live Photo playback style qualify; ordinary photos/videos do not. At
 least 80% visibility, 350 ms settling, center preference and meaningful viewport
 movement are unchanged. Scroll/touch, selection, filter, navigation, background
-and disposal revoke the single playback lease. One completion/failure consumes
-the viewport; no loop or next-photo cascade is introduced.
+and disposal revoke the single playback lease. Native playback progress consumes
+the one-shot viewport; a pre-frame cancellation does not. One cold initialization
+failure permits one settled retry of the same source; completion or a second
+failure consumes the viewport. No loop or next-photo cascade is introduced.
 
 The still keeps the existing tile × DPR / source-aspect calculation, bounded
 1440 px long side and thumbnail → preview selection. No timeline original request
@@ -69,6 +71,14 @@ second visible Live Photo starts. Native decoding requires an Android device or
 the CI emulator; this is distinct from the Linux PlatformView-creation test.
 
 ## Physical S23 acceptance
+
+After installing the validation build, cold-start without clearing app data,
+keep a known paired tile ≥80% visible and wait without opening the viewer or
+pressing Play. Repeat startup/resume with an otherwise idle feed. Check
+`selected` → `platform-view-created` → source/load/ready/play →
+`position-advanced` → `finished:ended`. Cancel before progress with
+navigation/backgrounding, then return; the unplayed preview must be eligible
+again. Retryable cold failures permit at most two attempts.
 
 1. Install the new **HP-key-signed** validation build without deleting the current
    app. Enable the existing timeline autoplay setting; do not reset app data.

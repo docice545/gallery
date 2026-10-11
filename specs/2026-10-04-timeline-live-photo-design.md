@@ -20,16 +20,28 @@ playback is paused on revocation, and the platform view/controller is removed.
 Rebuilds during Flutter's locked tree phase are deferred; asynchronous source and
 ready callbacks verify that the lease still exists. Only changed tiles rebuild.
 
-Playback runs once per settled viewport. Completion/errors return to the photo
-without automatically walking through the other visible photos. An 8-second
-watchdog includes source loading and prevents a stalled preview from retaining
-resources indefinitely. Another preview requires a different best asset and a
+Playback runs once per settled viewport. A lease reserves initialization; only
+positive native playback position while ready and playing consumes the playback
+budget. Cancellation before that leaves the unplayed viewport eligible after
+settling. Completion or a terminal failure returns to the photo without walking
+through the other visible photos. A cold source/load/play/metadata failure can
+retry the same asset once after settling; a second failure consumes the viewport.
+Each attempt retains the 8-second watchdog, so stalled initialization is bounded
+to two attempts, with no simultaneous players or retry loop. Another successfully
+played preview requires a different best asset and a
 net scroll displacement of at least 25% of the last playback viewport height
 (minimum 96 logical pixels). The displacement is measured from the last playback,
 so small drags can eventually reach a genuinely new region, but back-and-forth
 jitter cannot rearm the original region. Gestures, layout/candidate churn,
 selection, settings, filter sheets and navigation/lifecycle transitions preserve
 the consumed viewport. A remounted tile of the same asset cannot bypass this gate.
+
+The scope reads the binding's initial lifecycle state and requests a visual
+update when scheduling its post-layout visibility measurement. A post-frame
+callback alone does not schedule a frame: on an idle cold feed, navigation or
+resume otherwise waits for another interaction to measure eligible tiles.
+Backgrounding clears suspended pointer/scroll state, since pointer-up/ScrollEnd
+may never arrive. It does not reset a successfully played viewport.
 
 `NativeVideoViewer` supplies an explicit timeline preview mode, with the same
 native player and source resolution as the existing viewer. Its notifier is
@@ -56,6 +68,19 @@ No server/API/database migration or application/package/bundle ID change is need
 
 ## Device acceptance
 
+- Force-stop and reopen the app without clearing data. With autoplay enabled,
+  leave a known paired Live/Motion tile at least 80% visible; do not open the
+  viewer or press Play. Expect one muted pass after settling. Repeat after a
+  cold restart and after opening the feed while navigation/startup is settling.
+- Interrupt initialization with a viewer visit, scroll or backgrounding before
+  playback starts; return/settle and verify automatic playback. After actual
+  playback starts, these actions must still preserve the consumed viewport.
+- Start a gesture and background the app before releasing it; resume without
+  another gesture. Verify the unplayed eligible tile is not stuck suppressed.
+- Test slow/offline/loading failure: one bounded retry of the selected asset,
+  then a sharp still, with no other tile cascade, background decoding or retry
+  loop. Native Android/iOS decoding and the reported physical-device defect must
+  be confirmed on devices; simulated controller/channel tests are separate.
 - Samsung: upload JPEG and HEIC Motion Photos, confirm server pairing, and verify
   silent inline playback, correct orientation/crop, photo restoration on completion,
   and normal tap opening. Try fast flings, scrubber jumps, pinch, long-press selection,

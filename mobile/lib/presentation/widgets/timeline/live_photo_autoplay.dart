@@ -77,6 +77,10 @@ class LivePhotoAutoplayController extends ChangeNotifier {
   BaseAsset? _lastPlayedAsset;
   List<LivePhotoCandidate> _candidates = const [];
   Object? _activeToken;
+  LivePhotoCandidate? _activeCandidate;
+  bool _activeStarted = false;
+  BaseAsset? _retryAsset;
+  bool _retryUsed = false;
   Object? _pendingToken;
   Timer? _timer;
 
@@ -139,12 +143,49 @@ class LivePhotoAutoplayController extends ChangeNotifier {
     updateCandidates(_candidates.where((candidate) => candidate.token != token).toList());
   }
 
-  /// Completion/errors consume this viewport just like a completed clip. Never
-  /// walk through its other photos or retry the same source after an interaction.
+  /// A reservation is not playback: only native position progress consumes the
+  /// one-shot budget. Cancellation before that can retry after settling.
+  void started(Object token) {
+    if (!_disposed && _activeToken == token && !_activeStarted) {
+      _activeStarted = true;
+      _consumeActive();
+    }
+  }
+
+  /// Completion or a permanent rejection consumes the viewport even when no
+  /// frame could be shown. Never cascade through its other photos.
   void complete(Object token) {
     if (!_disposed && _activeToken == token) {
+      if (!_activeStarted) {
+        _consumeActive();
+      }
       _stop();
     }
+  }
+
+  /// Allow one settled retry of the same source for a cold load/play failure.
+  /// A second failure or a failure after frames started consumes the viewport.
+  void failed(Object token) {
+    if (_disposed || _activeToken != token) {
+      return;
+    }
+    if (_activeStarted || _retryUsed) {
+      complete(token);
+      return;
+    }
+    final asset = _activeCandidate!.asset;
+    _consumeActive();
+    _retryAsset = asset;
+    _stop();
+    _schedule();
+  }
+
+  void _consumeActive() {
+    _lastPlayedViewportExtent = _viewportExtent;
+    _scrollDisplacementSincePlayback = 0;
+    _lastPlayedAsset = _activeCandidate!.asset;
+    _retryAsset = null;
+    _retryUsed = false;
   }
 
   void _schedule() {
@@ -172,15 +213,19 @@ class LivePhotoAutoplayController extends ChangeNotifier {
         _schedule();
         return;
       }
-      _lastPlayedViewportExtent = _viewportExtent;
-      _scrollDisplacementSincePlayback = 0;
-      _lastPlayedAsset = current.asset;
+      _retryUsed = _retryAsset != null && current.asset.refersToSameAsset(_retryAsset!);
+      _retryAsset = null;
+      _activeCandidate = current;
+      _activeStarted = false;
       _activeToken = candidate.token;
       notifyListeners();
     });
   }
 
   bool _canPlayInViewport(LivePhotoCandidate candidate) {
+    if (_retryAsset != null && candidate.asset.refersToSameAsset(_retryAsset!)) {
+      return true;
+    }
     final previousAsset = _lastPlayedAsset;
     if (previousAsset == null) {
       return true;
@@ -197,7 +242,15 @@ class LivePhotoAutoplayController extends ChangeNotifier {
     _timer?.cancel();
     _pendingToken = null;
     if (_activeToken != null) {
+      if (!_activeStarted && _retryUsed) {
+        // Cancellation is not the retry's failure. Resume the remaining attempt
+        // after a route/gesture suspension, without resetting its failure budget.
+        _retryAsset = _activeCandidate!.asset;
+        _retryUsed = false;
+      }
       _activeToken = null;
+      _activeCandidate = null;
+      _activeStarted = false;
       notifyListeners();
     }
   }
@@ -208,7 +261,9 @@ class LivePhotoAutoplayController extends ChangeNotifier {
     _timer?.cancel();
     _candidates = const [];
     _activeToken = null;
+    _activeCandidate = null;
     _lastPlayedAsset = null;
+    _retryAsset = null;
     super.dispose();
   }
 }

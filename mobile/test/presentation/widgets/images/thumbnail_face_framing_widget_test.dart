@@ -193,7 +193,10 @@ void main() {
       log == null
           ? scoped
           : TimelineLivePhotoScope(
-              previewBuilder: (_, onCompleted) => _Preview(log: log, onCompleted: onCompleted),
+              previewBuilder: (_, onCompleted, onStarted, onFailed) {
+                onStarted();
+                return _Preview(log: log, onCompleted: onCompleted);
+              },
               child: scoped,
             ),
       overrides: [

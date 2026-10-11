@@ -49,6 +49,12 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
   final Alignment timelinePreviewAlignment;
   final VoidCallback? onPreviewCompleted;
 
+  /// Native playback position advanced while ready and playing, once per attempt.
+  final VoidCallback? onPreviewStarted;
+
+  /// Initialization failed before progress; the scope owns the bounded retry.
+  final VoidCallback? onPreviewFailed;
+
   /// Checks the scope's current token synchronously while widget removal is pending.
   final bool Function()? previewIsActive;
 
@@ -67,6 +73,8 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
     this.timelinePreviewRequiredSize,
     this.timelinePreviewAlignment = Alignment.center,
     this.onPreviewCompleted,
+    this.onPreviewStarted,
+    this.onPreviewFailed,
     this.previewIsActive,
   });
 
@@ -128,6 +136,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     super.initState();
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     _playbackForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _previewForeground = _playbackForeground;
     WidgetsBinding.instance.addObserver(this);
     if (widget.timelinePreview) {
       _previewTrace('selected');
@@ -489,7 +498,18 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     unawaited(_attachedNotifier?.pause());
     // Finishing before readiness also changes whether the native surface paints.
     setState(() => _isVideoReady = false);
-    widget.onPreviewCompleted?.call();
+    if (!_previewAdvanced &&
+        widget.onPreviewFailed != null &&
+        (reason == 'source-unavailable' ||
+            reason == 'load-failed' ||
+            reason == 'play-failed' ||
+            reason == 'native-error' ||
+            reason == 'invalid-native-geometry' ||
+            reason == 'timeout')) {
+      widget.onPreviewFailed!();
+    } else {
+      widget.onPreviewCompleted?.call();
+    }
   }
 
   void _onPlaybackError() {
@@ -502,9 +522,15 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (!mounted || (widget.timelinePreview && !_canPreview)) {
       return;
     }
-    if (widget.timelinePreview && !_previewAdvanced && (_controller?.playbackInfo?.position ?? 0) > 0) {
+    final playback = _controller?.playbackInfo;
+    if (widget.timelinePreview &&
+        !_previewAdvanced &&
+        _isVideoReady &&
+        playback?.status == PlaybackStatus.playing &&
+        (playback?.position ?? 0) > 0) {
       _previewAdvanced = true;
       _previewTrace('position-advanced');
+      widget.onPreviewStarted?.call();
     }
     _notifier.onNativePositionChanged();
   }

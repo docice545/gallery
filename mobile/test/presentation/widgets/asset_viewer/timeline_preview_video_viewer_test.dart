@@ -18,6 +18,8 @@ import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
@@ -33,14 +35,18 @@ import '../../../unit/factories/remote_asset_factory.dart';
 
 class _MockVideoController extends Mock implements NativeVideoPlayerController {}
 
+class _ReadinessSignal extends ChangeNotifier {
+  bool get isObserved => hasListeners;
+}
+
 class _PlaybackInfo extends Fake implements PlaybackInfo {
-  _PlaybackInfo(this.status);
+  _PlaybackInfo(this.status, {this.position = 0});
 
   @override
   final PlaybackStatus status;
 
   @override
-  int get position => 0;
+  final int position;
 }
 
 void main() {
@@ -51,13 +57,14 @@ void main() {
   late String filePath;
   late RemoteAsset asset;
   late _MockVideoController controller;
-  late ChangeNotifier ready;
+  late _ReadinessSignal ready;
   late ChangeNotifier ended;
   late ValueNotifier<int> position;
   late ValueNotifier<PlaybackStatus> status;
   late ValueNotifier<String?> error;
   late List<String> calls;
   late int completions;
+  late int playbackStarts;
   late Completer<void> sourceStarted;
   late Completer<void> sourceCompleted;
   late Drift db;
@@ -113,13 +120,14 @@ void main() {
     temporaryDirectory = await Directory.systemTemp.createTemp('gallery-timeline-preview-');
     filePath = '${temporaryDirectory.path}/motion.mp4';
     await File(filePath).writeAsBytes([0]);
-    ready = ChangeNotifier();
+    ready = _ReadinessSignal();
     ended = ChangeNotifier();
     position = ValueNotifier(0);
     status = ValueNotifier(PlaybackStatus.stopped);
     error = ValueNotifier(null);
     calls = [];
     completions = 0;
+    playbackStarts = 0;
     sourceStarted = Completer<void>();
     sourceCompleted = Completer<void>();
     controller = _MockVideoController();
@@ -130,7 +138,7 @@ void main() {
     when(() => controller.onError).thenReturn(error);
     when(() => controller.videoSource).thenReturn(null);
     when(() => controller.videoInfo).thenReturn(VideoInfo.fromJson({'height': 1080, 'width': 1920, 'duration': 2000}));
-    when(() => controller.playbackInfo).thenAnswer((_) => _PlaybackInfo(status.value));
+    when(() => controller.playbackInfo).thenAnswer((_) => _PlaybackInfo(status.value, position: position.value));
     when(() => controller.setVolume(any())).thenAnswer((invocation) async {
       calls.add('volume:${invocation.positionalArguments.single}');
       if (!sourceStarted.isCompleted) {
@@ -194,6 +202,7 @@ void main() {
     bool playbackPaused = false,
     bool isCurrent = true,
     VoidCallback? onPreviewCompleted,
+    VoidCallback? onPreviewFailed,
     bool injectController = true,
     bool waitForSource = true,
   }) async {
@@ -222,6 +231,8 @@ void main() {
                 }
                 onPreviewCompleted?.call();
               },
+              onPreviewStarted: () => playbackStarts++,
+              onPreviewFailed: onPreviewFailed,
               previewIsActive: previewIsActive,
               loopOverride: loopOverride,
             ),
@@ -257,6 +268,232 @@ void main() {
       (call) async => call.method == 'create' ? pendingCreate.future : null,
     );
   }
+
+  Future<void> mountFeed(
+    WidgetTester tester, {
+    GlobalKey<NavigatorState>? navigatorKey,
+    ScrollController? scrollController,
+  }) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 240,
+                height: 240,
+                child: TimelineLivePhotoScope(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: EdgeInsets.zero,
+                    children: [
+                      for (final item in [asset, asset.copyWith(id: 'second', livePhotoVideoId: 'second-pair')])
+                        SizedBox(
+                          height: 120,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              const ColoredBox(color: Colors.blue),
+                              TimelineLivePhotoTile(asset: item, framingImageSize: const Size(4000, 3000)),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 480),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(livePhotoSettlingDelay);
+    await tester.pump();
+    expect(find.byType(NativeVideoViewer), findsOneWidget);
+  }
+
+  Future<void> attachFeedPlayer(WidgetTester tester) async {
+    tester.widget<NativeVideoPlayerView>(find.byType(NativeVideoPlayerView)).onViewReady!(controller);
+    await tester.runAsync(() => pumpEventQueue());
+    await tester.pump();
+  }
+
+  testWidgets('cold feed loads and plays its server pair without opening or priming the viewer', (tester) async {
+    await mountFeed(tester);
+    await attachFeedPlayer(tester);
+    expect(calls.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+    final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
+    expect(source.path, 'https://example.test/api/assets/paired-video/video/playback');
+    expect(container.read(isPlayingMotionVideoProvider), isFalse);
+    expect(container.read(videoPlayerProvider(asset.id)).status, VideoPlaybackStatus.paused);
+    position.value = 100;
+    ended.notifyListeners();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    expect(ready.isObserved, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('cold feed cancelled by viewer navigation reloads automatically; stale source cannot play', (
+    tester,
+  ) async {
+    final source = Completer<BaseAsset?>();
+    when(() => assetService.getAsset(any())).thenAnswer((_) => source.future);
+    final navigator = GlobalKey<NavigatorState>();
+    await mountFeed(tester, navigatorKey: navigator);
+    await attachFeedPlayer(tester);
+    expect(calls, isEmpty);
+    unawaited(navigator.currentState!.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())));
+    await tester.pumpAndSettle();
+    expect(ready.isObserved, isFalse);
+    source.complete(asset);
+    await tester.runAsync(() => pumpEventQueue());
+    expect(calls, isNot(contains('load')));
+    when(() => assetService.getAsset(any())).thenAnswer((_) async => asset);
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    await attachFeedPlayer(tester);
+    expect(calls.where((call) => call == 'load'), hasLength(1));
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    position.value = 100;
+    ended.notifyListeners();
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('settled scrolling initializes the next paired source after releasing the first player', (tester) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    when(() => assetService.getAsset(any())).thenAnswer((call) async => call.positionalArguments.first as BaseAsset);
+    await mountFeed(tester, scrollController: scroll);
+    await attachFeedPlayer(tester);
+    position.value = 100;
+    ended.notifyListeners();
+    await tester.pump();
+    expect(ready.isObserved, isFalse);
+    position.value = 0;
+    status.value = PlaybackStatus.stopped;
+    scroll.jumpTo(120);
+    await tester.pump();
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    await tester.pump(livePhotoSettlingDelay);
+    await tester.pump();
+    expect(tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer)).asset.id, 'second');
+    await attachFeedPlayer(tester);
+    final sources = verify(() => controller.loadVideoSource(captureAny())).captured.cast<VideoSource>();
+    expect(sources.map((source) => source.path), [
+      'https://example.test/api/assets/paired-video/video/playback',
+      'https://example.test/api/assets/second-pair/video/playback',
+    ]);
+    expect(calls.where((call) => call == 'play'), hasLength(2));
+    expect(calls.where((call) => call == 'loop:false'), hasLength(2));
+    expect(calls.where((call) => call == 'volume:0.0'), hasLength(2));
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('cold native load cancelled by background retries automatically on resume', (tester) async {
+    final source = Completer<BaseAsset?>();
+    when(() => assetService.getAsset(any())).thenAnswer((_) => source.future);
+    await mountFeed(tester);
+    await attachFeedPlayer(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(ready.isObserved, isFalse);
+    source.complete(asset);
+    await tester.runAsync(() => pumpEventQueue());
+    expect(calls, isNot(contains('load')));
+    when(() => assetService.getAsset(any())).thenAnswer((_) async => asset);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(livePhotoSettlingDelay);
+    await tester.pump();
+    await attachFeedPlayer(tester);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('cold native load failure disposes the attempt and retries once without manual playback', (tester) async {
+    var loads = 0;
+    when(() => controller.loadVideoSource(any())).thenAnswer((_) async {
+      calls.add('load');
+      if (++loads == 1) {
+        throw StateError('cold-load-failed');
+      }
+      ready.notifyListeners();
+    });
+    await mountFeed(tester);
+    await attachFeedPlayer(tester);
+    expect(calls, isNot(contains('play')));
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    expect(ready.isObserved, isFalse);
+    await tester.pump(livePhotoSettlingDelay);
+    await tester.pump();
+    await attachFeedPlayer(tester);
+    expect(loads, 2);
+    expect(calls.where((call) => call == 'play'), hasLength(1));
+    position.value = 100;
+    ended.notifyListeners();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(loads, 2);
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('stalled cold feed releases both timed-out attempts without looping or cascading', (tester) async {
+    when(() => controller.loadVideoSource(any())).thenAnswer((_) async => calls.add('load'));
+    await mountFeed(tester);
+    await attachFeedPlayer(tester);
+    await tester.pump(const Duration(seconds: 8));
+    await tester.pump();
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    expect(ready.isObserved, isFalse);
+    await tester.pump(livePhotoSettlingDelay);
+    await tester.pump();
+    await attachFeedPlayer(tester);
+    await tester.pump(const Duration(seconds: 8));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 20));
+    expect(find.byType(NativeVideoViewer), findsNothing);
+    expect(calls.where((call) => call == 'load'), hasLength(2));
+    expect(calls, isNot(contains('play')));
+    expect(ready.isObserved, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('first native frame acknowledgement is once-only and rejects pre-ready or paused positions', (
+    tester,
+  ) async {
+    when(() => controller.loadVideoSource(any())).thenAnswer((_) async => calls.add('load'));
+    await mountPreview(tester);
+    position.value = 50;
+    expect(playbackStarts, 0);
+    ready.notifyListeners();
+    await tester.pump();
+    status.value = PlaybackStatus.paused;
+    position.value = 100;
+    expect(playbackStarts, 0);
+    status.value = PlaybackStatus.playing;
+    position.value = 200;
+    position.value = 300;
+    expect(playbackStarts, 1);
+    await tester.pumpWidget(const SizedBox());
+    position.value = 400;
+    expect(playbackStarts, 1);
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   Future<void> finishMemoryViewer(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox());

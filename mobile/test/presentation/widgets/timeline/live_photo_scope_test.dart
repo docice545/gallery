@@ -11,6 +11,7 @@ import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.wid
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/filter_sheet.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
+import 'package:logging/logging.dart';
 
 final _configProvider = StateProvider<AppConfig>((_) => const AppConfig());
 
@@ -36,15 +37,28 @@ class _PlaybackLog {
   final stops = <String>[];
   final alive = <String>{};
   final completions = <String, VoidCallback>{};
+  final playbackStarted = <String, VoidCallback>{};
+  final failures = <String, VoidCallback>{};
   int maxConcurrent = 0;
 }
 
 class _FakePreview extends StatefulWidget {
-  const _FakePreview({super.key, required this.asset, required this.log, required this.onCompleted});
+  const _FakePreview({
+    super.key,
+    required this.asset,
+    required this.log,
+    required this.onCompleted,
+    required this.onStarted,
+    required this.onFailed,
+    required this.startImmediately,
+  });
 
   final BaseAsset asset;
   final _PlaybackLog log;
   final VoidCallback onCompleted;
+  final VoidCallback onStarted;
+  final VoidCallback onFailed;
+  final bool startImmediately;
 
   @override
   State<_FakePreview> createState() => _FakePreviewState();
@@ -57,6 +71,11 @@ class _FakePreviewState extends State<_FakePreview> {
     widget.log.starts.add(widget.asset.id);
     widget.log.alive.add(widget.asset.id);
     widget.log.completions[widget.asset.id] = widget.onCompleted;
+    widget.log.playbackStarted[widget.asset.id] = widget.onStarted;
+    widget.log.failures[widget.asset.id] = widget.onFailed;
+    if (widget.startImmediately) {
+      widget.onStarted();
+    }
     if (widget.log.alive.length > widget.log.maxConcurrent) {
       widget.log.maxConcurrent = widget.log.alive.length;
     }
@@ -67,6 +86,8 @@ class _FakePreviewState extends State<_FakePreview> {
     widget.log.stops.add(widget.asset.id);
     widget.log.alive.remove(widget.asset.id);
     widget.log.completions.remove(widget.asset.id);
+    widget.log.playbackStarted.remove(widget.asset.id);
+    widget.log.failures.remove(widget.asset.id);
     super.dispose();
   }
 
@@ -85,6 +106,7 @@ Future<ProviderContainer> _pumpScope(
   VoidCallback? onTap,
   VoidCallback? onLongPress,
   GlobalKey<NavigatorState>? navigatorKey,
+  bool startImmediately = true,
 }) async {
   final tiles = assets ?? [_asset('first'), _asset('second'), _asset('third'), _asset('fourth')];
 
@@ -147,11 +169,14 @@ Future<ProviderContainer> _pumpScope(
               width: 240,
               height: 240,
               child: TimelineLivePhotoScope(
-                previewBuilder: (asset, onCompleted) => _FakePreview(
+                previewBuilder: (asset, onCompleted, onStarted, onFailed) => _FakePreview(
                   key: ValueKey('preview-${asset.id}'),
                   asset: asset,
                   log: log,
                   onCompleted: onCompleted,
+                  onStarted: onStarted,
+                  onFailed: onFailed,
+                  startImmediately: startImmediately,
                 ),
                 child: child,
               ),
@@ -171,6 +196,117 @@ Future<void> _settlePlayback(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('cold feed mounts while backgrounded and starts only on the first resume', (tester) async {
+    final log = _PlaybackLog();
+    final stages = <String>[];
+    final previousLevel = Logger.root.level;
+    Logger.root.level = Level.INFO;
+    addTearDown(() => Logger.root.level = previousLevel);
+    final logs = Logger('TimelineLivePhoto').onRecord.listen((record) => stages.add(record.message));
+    addTearDown(logs.cancel);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    try {
+      await _pumpScope(tester, log);
+      await _settlePlayback(tester);
+      expect(log.starts, isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await _settlePlayback(tester);
+      expect(log.starts, ['first'], reason: stages.join(' | '));
+    } finally {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('returning from viewer retries a cold preview cancelled before its first frame', (tester) async {
+    final log = _PlaybackLog();
+    final navigator = GlobalKey<NavigatorState>();
+    await _pumpScope(tester, log, navigatorKey: navigator, startImmediately: false);
+    await _settlePlayback(tester);
+    expect(log.alive, {'first'});
+    final staleStarted = log.playbackStarted['first']!;
+    unawaited(navigator.currentState!.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())));
+    await tester.pumpAndSettle();
+    expect(log.alive, isEmpty);
+    staleStarted();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    await _settlePlayback(tester);
+    expect(log.starts, ['first', 'first']);
+    expect(log.maxConcurrent, 1);
+    log.playbackStarted['first']!();
+    log.completions['first']!();
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.starts, ['first', 'first'], reason: 'successful one-shot never cascades');
+  });
+
+  testWidgets('background during initialization releases and retries only the unplayed preview on resume', (
+    tester,
+  ) async {
+    final log = _PlaybackLog();
+    await _pumpScope(tester, log, startImmediately: false);
+    await _settlePlayback(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.starts, ['first', 'first']);
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('cold load failure retries the same asset once, then retains the still without a cascade', (
+    tester,
+  ) async {
+    final log = _PlaybackLog();
+    await _pumpScope(tester, log, startImmediately: false);
+    await _settlePlayback(tester);
+    log.failures['first']!();
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    await _settlePlayback(tester);
+    expect(log.starts, ['first', 'first']);
+    log.failures['first']!();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['first', 'first']);
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('a gesture interrupted by background does not leave the resumed cold feed suppressed', (tester) async {
+    final log = _PlaybackLog();
+    await _pumpScope(tester, log, startImmediately: false);
+    await _settlePlayback(tester);
+    final gesture = await tester.startGesture(tester.getCenter(find.text('photo-first')));
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.starts, ['first', 'first']);
+    expect(log.maxConcurrent, 1);
+    await gesture.cancel();
+  });
+
+  testWidgets('a fresh feed after restart does not require a viewer or a remembered native controller', (tester) async {
+    final first = _PlaybackLog();
+    await _pumpScope(tester, first);
+    await _settlePlayback(tester);
+    first.completions['first']!();
+    await tester.pumpWidget(const SizedBox());
+    final restarted = _PlaybackLog();
+    await _pumpScope(tester, restarted);
+    await _settlePlayback(tester);
+    expect(restarted.starts, ['first']);
+    expect(first.alive, isEmpty);
+  });
+
   testWidgets('builds no previews ahead of time, then mounts only one visible live photo', (tester) async {
     final log = _PlaybackLog();
     await _pumpScope(tester, log);
