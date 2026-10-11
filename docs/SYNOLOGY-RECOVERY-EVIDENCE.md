@@ -57,7 +57,8 @@
   по SHA-256 и размеру. Отсутствующий тип означает STOP. Нельзя объявить его
   существующим или заменить snapshot обычной копией live-файла.
 - Настоящий `backup-verified.json` существующей isolated-restore процедуры и
-  **тот самый** SQL/gzip backup; `checkedAt` не старше 24 часов. NAS-диагностика
+  **тот самый** SQL/gzip backup либо его байт-идентичная приватная копия `0600`;
+  `checkedAt` не старше 24 часов. NAS-диагностика
   не повторяет PostgreSQL restore и не обновляет его receipt. Если receipt устарел,
   нужен отдельно разрешённый новый isolated restore, не редактирование JSON.
 - Отдельный recovery Ed25519 private PKCS#8 PEM `0600` под операторским UID в
@@ -218,9 +219,18 @@ photo/video. Нельзя создавать canaries на production без о�
 Задать реальные абсолютные пути нового NAS state, свежего tested PostgreSQL
 backup/receipt и существующего private recovery key; их содержимое не печатать.
 
+Если исходный backup имеет права `0644`, создайте отдельную копию `0600` в
+приватном каталоге `0700`. Исходный файл и `backup-verified.json` не изменять,
+включая `backupPath` и `checkedAt`. Генератор проверяет SHA-256 копии и исходного
+файла из квитанции, не следует symlink и отклоняет изменения квитанции во время
+проверки. Исходный backup должен оставаться доступен для чтения. Подписанный
+`receiptSHA256` сохраняет привязку к исходной квитанции с её `backupPath`, а
+`backupSHA256` — к фактически проверенным байтам копии; дополнительные пути в
+строгий серверный формат evidence не добавляются.
+
 ```bash
 NAS_STATE='<new PASS gallery-nas-recovery directory>'
-BACKUP='<exact tested SQL/gzip backup absolute path>'
+BACKUP='<tested SQL/gzip backup 0600 or identical private copy absolute path>'
 PG_RECEIPT='<fresh restore state>/backup-verified.json'
 RECOVERY_KEY='<operator private directory>/recovery-signing.pem'
 for index in 0 1 2; do

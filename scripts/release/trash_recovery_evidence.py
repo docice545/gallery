@@ -201,13 +201,22 @@ def postgres_evidence(backup, receipt_path, now):
     receipt, receipt_hash = private_json(receipt_path)
     checked = fresh(receipt.get('checkedAt'), now)
     need(receipt.get('restore') == 'PASS_ISOLATED_SQL_TRANSACTION' and
-         receipt.get('productionChanged') is False and receipt.get('backupPath') == str(backup) and
+         receipt.get('productionChanged') is False and
          isinstance(receipt.get('postgresImage'), str) and
          re.fullmatch(r'sha256:[0-9a-f]{64}', receipt['postgresImage']) and
          all(type(receipt.get(key)) is int and 0 < receipt[key] <= MAX_SAFE_INTEGER
              for key in ('assetCount', 'migrationCount')), 'RESTORE_RECEIPT_INVALID')
+    source = absolute_path(receipt.get('backupPath'))
     backup_hash, _ = digest_file(backup, private=True)
     need(receipt.get('backupSHA256') == backup_hash, 'BACKUP_BYTES_DO_NOT_MATCH_RECEIPT')
+    if source != backup:
+        # A root-owned 0644 restore source may need a separate 0600 signing copy.
+        # Verify both byte identities without rewriting the restore receipt or
+        # following source symlinks; the submitted copy stays strictly private.
+        source_hash, _ = digest_file(source)
+        need(source_hash == backup_hash, 'SOURCE_BACKUP_BYTES_DO_NOT_MATCH_RECEIPT')
+    _, current_receipt_hash = private_json(receipt_path)
+    need(current_receipt_hash == receipt_hash, 'RESTORE_RECEIPT_CHANGED_DURING_VERIFICATION')
     return {
         'backupSHA256': backup_hash, 'receiptSHA256': receipt_hash,
         'checkedAt': receipt['checkedAt'], 'restore': receipt['restore'],

@@ -283,6 +283,93 @@ process.stdout.write(JSON.stringify({
         self.backup.write_bytes(b'changed bytes')
         self.assert_rejected_before_key('BACKUP_BYTES_DO_NOT_MATCH_RECEIPT')
 
+    def private_backup_copy(self):
+        copied = self.base / 'private-copy.sql.gz'
+        copied.write_bytes(self.backup.read_bytes()); copied.chmod(0o600)
+        self.backup.chmod(0o644)
+        return copied
+
+    def test_identical_private_backup_copy_keeps_original_receipt_and_signed_contract(self):
+        copied = self.private_backup_copy()
+        receipt_bytes = self.receipt_path.read_bytes()
+        original_bytes = self.backup.read_bytes()
+        original_stat = self.backup.stat()
+        result = self.generate(backup=copied)
+        envelope = json.loads((self.output / (result['evidenceSHA256'] + '.json')).read_bytes())
+        self.assertTrue(verify(envelope, self.public_key))
+        postgres = json.loads(base64.b64decode(envelope['payload']))['postgres']
+        self.assertEqual(set(postgres), {'backupSHA256', 'receiptSHA256', 'checkedAt', 'restore',
+                                        'productionChanged', 'assetCount', 'migrationCount', 'postgresImage'})
+        self.assertEqual(postgres['backupSHA256'], hashlib.sha256(copied.read_bytes()).hexdigest())
+        self.assertEqual(postgres['receiptSHA256'], hashlib.sha256(receipt_bytes).hexdigest())
+        self.assertEqual(postgres['checkedAt'], self.receipt['checkedAt'])
+        self.assertEqual(postgres['postgresImage'], self.receipt['postgresImage'])
+        self.assertEqual(self.receipt_path.read_bytes(), receipt_bytes)
+        self.assertEqual(json.loads(receipt_bytes)['backupPath'], str(self.backup))
+        self.assertEqual(self.backup.read_bytes(), original_bytes)
+        self.assertEqual((self.backup.stat().st_mode, self.backup.stat().st_mtime_ns),
+                         (original_stat.st_mode, original_stat.st_mtime_ns))
+        self.assertEqual(copied.stat().st_mode & 0o777, 0o600)
+
+    def test_private_backup_copy_with_wrong_bytes_is_rejected_before_key(self):
+        copied = self.private_backup_copy(); copied.write_bytes(b'not the restored backup')
+        self.assert_rejected_before_key('BACKUP_BYTES_DO_NOT_MATCH_RECEIPT', backup=copied)
+
+    def test_private_backup_copy_does_not_refresh_a_stale_or_future_restore_receipt(self):
+        copied = self.private_backup_copy()
+        for offset in (timedelta(hours=-25), timedelta(seconds=1)):
+            with self.subTest(offset=offset):
+                self.receipt['checkedAt'] = evidence.iso(NOW + offset); self.sync()
+                self.assert_rejected_before_key('EVIDENCE_STALE_OR_FUTURE', backup=copied)
+
+    def test_private_backup_copy_rejects_replaced_source_bytes_and_wrong_receipt_source(self):
+        copied = self.private_backup_copy()
+        original = self.backup.read_bytes(); self.backup.write_bytes(b'replaced original')
+        self.assert_rejected_before_key('SOURCE_BACKUP_BYTES_DO_NOT_MATCH_RECEIPT', backup=copied)
+        self.backup.write_bytes(original)
+        other = self.base / 'not-the-restored-source.sql.gz'; other.write_bytes(b'other backup')
+        self.receipt['backupPath'] = str(other); self.sync()
+        self.assert_rejected_before_key('SOURCE_BACKUP_BYTES_DO_NOT_MATCH_RECEIPT', backup=copied)
+
+    def test_private_copy_still_requires_0600_and_no_symlinks_or_traversal(self):
+        copied = self.private_backup_copy(); copied.chmod(0o644)
+        self.assert_rejected_before_key('PRIVATE_0600_INPUT_REQUIRED', backup=copied)
+        copied.chmod(0o600)
+        link = self.base / 'copy-link'; link.symlink_to(copied)
+        self.assert_rejected_before_key(backup=link)
+        directory = self.base / 'copy-parent'; directory.mkdir()
+        parent_link = self.base / 'copy-parent-link'; parent_link.symlink_to(self.base, target_is_directory=True)
+        self.assert_rejected_before_key(backup=parent_link / copied.name)
+        self.assert_rejected_before_key('ABSOLUTE_PATH_REQUIRED', backup=directory / '..' / copied.name)
+
+    def test_private_copy_rejects_symlink_or_invalid_source_paths(self):
+        copied = self.private_backup_copy()
+        original = self.base / 'saved-original'; self.backup.rename(original)
+        self.backup.symlink_to(original)
+        self.assert_rejected_before_key(backup=copied)
+        self.backup.unlink(); original.rename(self.backup)
+        for path in (None, '', 'relative.sql.gz', str(self.base / '..' / self.base.name / self.backup.name)):
+            with self.subTest(source=path):
+                self.receipt['backupPath'] = path; self.sync()
+                self.assert_rejected_before_key('ABSOLUTE_PATH_REQUIRED', backup=copied)
+        directory = self.base / 'source-parent'; directory.mkdir()
+        source = directory / self.backup.name; self.backup.rename(source)
+        self.receipt['backupPath'] = str(source); self.sync()
+        directory.rename(self.base / 'relocated-source'); directory.symlink_to(self.base / 'relocated-source')
+        self.assert_rejected_before_key(backup=copied)
+
+    def test_restore_receipt_changed_during_copy_hashing_is_never_signed(self):
+        copied = self.private_backup_copy()
+        digest = evidence.digest_file
+        def hash_then_change_receipt(path, **kwargs):
+            result = digest(path, **kwargs)
+            if path == copied:
+                self.receipt['backupPath'] = str(copied)
+                save(self.receipt_path, self.receipt)
+            return result
+        with patch.object(evidence, 'digest_file', side_effect=hash_then_change_receipt):
+            self.assert_rejected_before_key('RESTORE_RECEIPT_CHANGED_DURING_VERIFICATION', backup=copied)
+
     def test_existing_receipt_named_contract_is_required(self):
         alias = self.base / 'operator-claim.json'; save(alias, self.receipt)
         self.assert_rejected_before_key('EXISTING_RESTORE_RECEIPT_REQUIRED', postgres_receipt=alias)
