@@ -380,14 +380,17 @@ def main():
 
         required('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
         blocked = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-        assert blocked == [{'id': asset_id, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
+        assert blocked == [{'id': asset_id, 'scope': 'managed', 'state': 'blocked',
+                            'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
         assert required(f'/assets/{asset_id}/original', raw=True) == media
         owner = required('/users/me')['id']
         postgres_image = json.loads(docker('inspect', db))[0]['Image']
         authorize_lab_fixture(required, server, owner, postgres_image, trust, keys)
         result = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-        assert result == [{'id': asset_id, 'state': 'complete'}]
-        assert required('/assets/' + asset_id + '/deletion-status') == result[0]
+        assert result == [{'id': asset_id, 'scope': 'managed', 'state': 'complete'}]
+        # The batch endpoint reports each storage scope; the single receipt
+        # endpoint intentionally returns only the operation id/state.
+        assert required('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'state': 'complete'}
         assert_removed_asset_not_restorable(request, asset_id)
         try:
             request(f'/assets/{asset_id}/original', raw=True)

@@ -328,8 +328,8 @@ class SmokeLifecycle(SmokeFixture):
             elif path == '/assets/permanent-deletion':
                 if state['enabled']:
                     state['deleted'] = True
-                    result = [{'id': ASSET, 'state': 'complete'}]
-                else: result = [{'id': ASSET, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
+                    result = [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}]
+                else: result = [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
             elif path == '/users/me': result = {'id': OWNER}
             elif path == '/assets/managed-deletion-preparation':
                 self.assertEqual(body, {'recoveryProof': DIGEST, 'verifiedExclusiveRoots': True})
