@@ -102,7 +102,7 @@ export class LibraryService extends BaseService {
 
     const matcher = picomatch(`**/*{${mimeTypes.getSupportedFileExtensions().join(',')}}`, {
       nocase: true,
-      ignore: library.exclusionPatterns,
+      ignore: [...library.exclusionPatterns, '**/.gallery-deletion-quarantine/**'],
     });
 
     let _resolve: () => void;

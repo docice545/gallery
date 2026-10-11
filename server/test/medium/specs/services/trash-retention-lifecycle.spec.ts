@@ -24,8 +24,14 @@ import { AssetService } from 'src/services/asset.service.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { TimelineService } from 'src/services/timeline.service.js';
 import { TrashService } from 'src/services/trash.service.js';
-import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
+import {
+  collectRootIdentities,
+  snapshotOriginal,
+  unlinkOriginal,
+  validateDeletionRoots,
+} from 'src/utils/authorized-deletion.js';
 import { newMediumService } from 'test/medium.factory.js';
+import { createTestRecoveryEvidenceStore } from 'test/recovery-evidence.js';
 import { factory } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
 
@@ -351,6 +357,7 @@ describe('isolated original files, real repositories and real file deletion work
   for (const kind of ['photo', 'video', 'Apple Live', 'Samsung Motion', 'external photo', 'offline external video']) {
     it(`${kind}: Trash/Restore and legacy retries preserve originals; permanent deletion has explicit scope`, async () => {
       const root = await mkdtemp(join(tmpdir(), 'gallery-trash-fixture-'));
+      const evidence = await createTestRecoveryEvidenceStore();
       try {
         const { sut, ctx } = setup();
         const { user } = await ctx.newUser();
@@ -409,14 +416,19 @@ describe('isolated original files, real repositories and real file deletion work
 
         // Trash first, explicit owner/library policy, then the existing Immich worker.
         await sut.deleteAll(auth, { ids: [asset.id], force: false });
+        const rootIdentities = await collectRootIdentities([root]);
+        const proof = await evidence.install(user.id, asset.libraryId ?? 'managed', rootIdentities);
         await new AssetRepository(database).setDeletionPolicy(user.id, asset.libraryId ?? 'managed', {
           enabled: true,
           roots: [root],
-          recoveryProof: 'a'.repeat(64),
+          rootIdentities,
+          recoveryExpiresAt: new Date(proof.expiresAt),
+          recoveryProof: proof.digest,
           authorizedBy: user.id,
         });
         ctx.getMock(StorageRepository).snapshotOriginal.mockImplementation(snapshotOriginal);
         ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
+        ctx.getMock(StorageRepository).validateDeletionRoots.mockImplementation(validateDeletionRoots);
         expect(await sut.permanentlyDelete(auth, [asset.id])).toEqual([
           { id: asset.id, state: 'complete', scope: asset.libraryId ?? 'managed' },
         ]);
@@ -428,6 +440,7 @@ describe('isolated original files, real repositories and real file deletion work
         }
         expect(await readFile(untouched, 'utf8')).toBe('must survive every mode');
       } finally {
+        await evidence.cleanup();
         await rm(root, { recursive: true, force: true });
       }
     });

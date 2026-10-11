@@ -2,17 +2,33 @@ import { ForbiddenException } from '@nestjs/common';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { ManagedDeletionConsentDto, PrepareManagedDeletionDto } from 'src/dtos/asset-deletion.dto.js';
 import { AssetService } from 'src/services/asset.service.js';
+import * as deletionRoots from 'src/utils/authorized-deletion.js';
+import * as recovery from 'src/utils/deletion-recovery.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
 import { userStub } from 'test/fixtures/user.stub.js';
 import { newTestService } from 'test/utils.js';
 
 const proof = 'a'.repeat(64);
 const roots = ['/test/upload/owner'];
+const rootIdentities = roots.map((path) => ({
+  path,
+  device: '1',
+  inode: '2',
+  mountId: '3',
+  mountNamespace: 'mnt:[1]',
+  mountType: 'ext4',
+  mountSource: '/dev/test',
+  mountRoot: '/',
+  mountTarget: '/test',
+}));
+const expiresAt = new Date(Date.now() + 3_600_000);
 const preparedPolicy = {
   ownerId: authStub.user1.user.id,
   scope: 'managed',
   enabled: false,
   roots,
+  rootIdentities,
+  recoveryExpiresAt: expiresAt,
   recoveryProof: proof,
   authorizedBy: authStub.admin.user.id,
   updatedAt: new Date(),
@@ -22,6 +38,12 @@ describe('managed deletion authorization', () => {
   const { sut, mocks } = newTestService(AssetService);
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(recovery, 'verifyRecoveryEvidence').mockResolvedValue({
+      digest: proof,
+      expiresAt: expiresAt.toISOString(),
+    });
+    vi.spyOn(deletionRoots, 'collectRootIdentities').mockResolvedValue(rootIdentities);
+    mocks.storage.validateDeletionRoots.mockResolvedValue(rootIdentities);
     mocks.asset.getDeletionRootsForOtherOwners.mockResolvedValue({ external: [], users: [] });
     mocks.user.get.mockResolvedValue(userStub.user1);
     vi.spyOn(StorageCore, 'getFolderLocation').mockReturnValue(roots[0]);
@@ -62,6 +84,21 @@ describe('managed deletion authorization', () => {
     expect(mocks.storage.validateDeletionRoots).not.toHaveBeenCalled();
     expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalled();
   });
+  it('does not let administrator preparation substitute for managed owner consent', async () => {
+    await expect(
+      sut.setDeletionPolicy(authStub.admin, {
+        ownerId: authStub.user1.user.id,
+        scope: 'managed',
+        enabled: true,
+        roots,
+        recoveryProof: proof,
+        verifiedExclusiveRoots: true,
+      }),
+    ).rejects.toThrow('Managed deletion requires separate owner consent');
+    expect(mocks.asset.getDeletionPolicy).not.toHaveBeenCalled();
+    expect(mocks.storage.validateDeletionRoots).not.toHaveBeenCalled();
+    expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalled();
+  });
   it('prepares only the administrator own managed roots, and never grants consent', async () => {
     mocks.user.get.mockResolvedValue({ ...userStub.admin, id: authStub.admin.user.id });
     mocks.storage.checkFileExists.mockResolvedValue(true);
@@ -69,6 +106,8 @@ describe('managed deletion authorization', () => {
     expect(mocks.asset.setDeletionPolicy).toHaveBeenCalledWith(authStub.admin.user.id, 'managed', {
       enabled: false,
       roots: [...roots, '/test/library/owner'],
+      rootIdentities,
+      recoveryExpiresAt: expiresAt,
       recoveryProof: proof,
       authorizedBy: authStub.admin.user.id,
     });
@@ -86,12 +125,12 @@ describe('managed deletion authorization', () => {
     mocks.storage.validateDeletionRoots.mockRejectedValueOnce(new Error('ROOT_SHARED'));
     await expect(
       sut.prepareManagedDeletion(authStub.admin, { recoveryProof: proof, verifiedExclusiveRoots: true }),
-    ).rejects.toThrow('ROOT_SHARED');
+    ).rejects.toThrow('ORIGINAL_DELETE_FAILED');
     expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalled();
   });
   it('enables only the current owner managed policy, revalidating prepared roots', async () => {
     mocks.asset.updateManagedDeletionConsent.mockImplementation(async (_owner, enabled, validate) => {
-      if (enabled) await validate(roots, proof);
+      if (enabled) await validate(roots, proof, rootIdentities);
     });
     await sut.setManagedDeletionConsent(authStub.user1, true);
     expect(mocks.asset.updateManagedDeletionConsent).toHaveBeenCalledWith(
@@ -104,7 +143,7 @@ describe('managed deletion authorization', () => {
   });
   it('revalidates current ownership and never accepts substituted roots', async () => {
     mocks.asset.updateManagedDeletionConsent.mockImplementation(async (_owner, _enabled, validate) =>
-      validate(['/wrong'], proof),
+      validate(['/wrong'], proof, rootIdentities),
     );
     await expect(sut.setManagedDeletionConsent(authStub.user1, true)).rejects.toThrow(
       'Root is not an existing owner library root',
@@ -138,6 +177,20 @@ describe('managed deletion authorization', () => {
     expect(result.authorized).toBe(false);
     expect(result.scope).toBeUndefined();
     expect(mocks.asset.getDeletionScope).not.toHaveBeenCalled();
+  });
+  it('blocks a previously prepared scope if another owner root now aliases its storage', async () => {
+    mocks.access.asset.checkOwnerAccess.mockImplementation((_owner, ids) => Promise.resolve(new Set(ids)));
+    mocks.asset.getDeletionReceipt.mockResolvedValue(undefined);
+    mocks.asset.getDeletionScope.mockResolvedValue('managed');
+    mocks.asset.getDeletionPolicy.mockResolvedValue({ ...preparedPolicy, enabled: true });
+    mocks.storage.validateDeletionRoots.mockRejectedValueOnce(
+      new deletionRoots.DeletionError('OVERLAPPING_OWNER_ROOTS'),
+    );
+    expect(await sut.permanentlyDelete(authStub.user1, ['asset'])).toEqual([
+      { id: 'asset', scope: 'managed', state: 'blocked', code: 'OVERLAPPING_OWNER_ROOTS' },
+    ]);
+    expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+    expect(mocks.storage.snapshotOriginal).not.toHaveBeenCalled();
   });
   it('Empty Trash reports per-scope counts and refuses missing external consent before deletion', async () => {
     mocks.asset.getOwnerTrash.mockResolvedValue([

@@ -6,6 +6,7 @@ import type { AssetFace, AssetFile } from 'src/database.js';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import type { LinkedSpacePerson } from 'src/repositories/shared-space.repository.js';
+import type { DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { OnEvent, OnJob } from 'src/decorators.js';
@@ -63,9 +64,10 @@ import {
   onBeforeLink,
   onBeforeUnlink,
 } from 'src/utils/asset.util.js';
-import { DeletionError, deletionCode } from 'src/utils/authorized-deletion.js';
+import { DeletionError, collectRootIdentities, deletionCode, sameRootIdentity } from 'src/utils/authorized-deletion.js';
 import { isDeadlockError, retryOnDeadlock, updateLockedColumns } from 'src/utils/database.js';
 import { asDateTimeString, extractTimeZone } from 'src/utils/date.js';
+import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
 import { findOrFail } from 'src/utils/misc.js';
 import { applyResolvedIdentityMetadata } from 'src/utils/person-identity.js';
 import { transformOcrBoundingBox } from 'src/utils/transform.js';
@@ -615,7 +617,12 @@ export class AssetService extends BaseService {
 
     if (
       deleteOnDisk &&
-      !(await this.assetRepository.removeAuthorizedOriginals(id, (file) => this.storageRepository.unlinkOriginal(file)))
+      !(await this.assetRepository.removeAuthorizedOriginals(id, (file, recheck) =>
+        this.storageRepository.unlinkOriginal(file, async () => {
+          await recheck();
+          await this.validateOwnerRootBoundaries(asset.ownerId, [file.root], [file.rootIdentity]);
+        }),
+      ))
     ) {
       return JobStatus.Skipped;
     }
@@ -746,7 +753,14 @@ export class AssetService extends BaseService {
     return Promise.all(
       [...counts].map(async ([scope, count]) => {
         const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
-        return { scope, count, authorized: !!policy?.enabled };
+        let authorized = false;
+        try {
+          await this.checkCurrentPolicy(auth.user.id, scope, policy);
+          authorized = true;
+        } catch {
+          /* blocked, no mutation */
+        }
+        return { scope, count, authorized };
       }),
     );
   }
@@ -756,8 +770,10 @@ export class AssetService extends BaseService {
     // Check every library before the first irreversible action. Empty Trash is not a retention grant.
     for (const scope of new Set(assets.map((asset) => asset.libraryId ?? 'managed'))) {
       const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
-      if (!policy?.enabled) {
-        throw new ConflictException('LIBRARY_DELETION_NOT_AUTHORIZED');
+      try {
+        await this.checkCurrentPolicy(auth.user.id, scope, policy);
+      } catch (error) {
+        throw new ConflictException(deletionCode(error));
       }
     }
     let count = 0;
@@ -777,66 +793,56 @@ export class AssetService extends BaseService {
   }
 
   async setDeletionPolicy(auth: AuthDto, dto: DeletionPolicyDto): Promise<void> {
-    await this.validateDeletionPolicy(dto);
+    if (dto.scope === 'managed' && dto.enabled) {
+      throw new BadRequestException('Managed deletion requires separate owner consent');
+    }
+    const existing = await this.assetRepository.getDeletionPolicy(dto.ownerId, dto.scope);
+    // Revocation never requires available storage/evidence; it cannot replace trusted preparation.
+    if (!dto.enabled && existing && dto.recoveryProof === existing.recoveryProof) {
+      await this.assetRepository.setDeletionPolicy(dto.ownerId, dto.scope, {
+        enabled: false,
+        roots: existing.roots,
+        recoveryProof: existing.recoveryProof,
+        authorizedBy: auth.user.id,
+        rootIdentities: existing.rootIdentities,
+        recoveryExpiresAt: existing.recoveryExpiresAt ? new Date(existing.recoveryExpiresAt) : undefined,
+      });
+      return;
+    }
+    const identities = await this.validateDeletionPolicy(dto);
+    const evidence = await this.verifyEvidence(dto.recoveryProof, dto.ownerId, dto.scope, identities);
     await this.assetRepository.setDeletionPolicy(dto.ownerId, dto.scope, {
       enabled: dto.enabled,
       roots: dto.roots,
+      rootIdentities: identities,
+      recoveryExpiresAt: new Date(evidence.expiresAt),
       recoveryProof: dto.recoveryProof,
       authorizedBy: auth.user.id,
     });
   }
 
-  private async validateDeletionPolicy(dto: DeletionPolicyDto): Promise<void> {
+  private async verifyEvidence(proof: string, owner: string, scope: string, identities: DeletionRootIdentity[]) {
+    try {
+      return await verifyRecoveryEvidence(proof, owner, scope, identities);
+    } catch (error) {
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
+  private async validateDeletionPolicy(dto: DeletionPolicyDto): Promise<DeletionRootIdentity[]> {
     const library = dto.scope === 'managed' ? undefined : await this.libraryRepository.get(dto.scope);
     if (dto.scope !== 'managed' && (!library || library.ownerId !== dto.ownerId || library.deletedAt)) {
       throw new BadRequestException('Unknown owner/library scope');
     }
-    if (dto.enabled) {
-      const user = await this.userRepository.get(dto.ownerId, {});
-      if (!user) {
-        throw new BadRequestException('Unknown owner');
-      }
-      const allowed = library?.importPaths ?? [
-        StorageCore.getFolderLocation(StorageFolder.Upload, dto.ownerId),
-        StorageCore.getLibraryFolder(user),
-      ];
-      if (dto.roots.some((root) => !allowed.includes(root))) {
-        throw new BadRequestException('Root is not an existing owner library root');
-      }
-      const others = await this.assetRepository.getDeletionRootsForOtherOwners(dto.ownerId);
-      const otherRoots = [
-        ...others.external,
-        ...others.users.flatMap((other) => [
-          StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
-          StorageCore.getLibraryFolder(other),
-        ]),
-      ];
-      await this.storageRepository.validateDeletionRoots(dto.roots, otherRoots);
-    }
-  }
-
-  async managedDeletionStatus(auth: AuthDto): Promise<ManagedDeletionStatusDto> {
-    const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, 'managed');
-    return {
-      enabled: !!policy?.enabled,
-      prepared: !!policy?.roots.length && /^[a-f0-9]{64}$/.test(policy.recoveryProof),
-      canPrepare: auth.user.isAdmin,
-    };
-  }
-
-  async prepareManagedDeletion(auth: AuthDto, dto: PrepareManagedDeletionDto): Promise<void> {
-    // Existing administrator authorization only, for their own managed scope.
-    // Preparation is NOT user consent and never enables deletion.
-    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
-    const user = await this.userRepository.get(auth.user.id, {});
+    const user = await this.userRepository.get(dto.ownerId, {});
     if (!user) throw new BadRequestException('Unknown owner');
-    const allowed = [StorageCore.getFolderLocation(StorageFolder.Upload, user.id), StorageCore.getLibraryFolder(user)];
-    const roots: string[] = [];
-    for (const root of new Set(allowed)) {
-      if (await this.storageRepository.checkFileExists(root)) roots.push(root);
-    }
-    if (roots.length === 0) throw new BadRequestException('No existing managed storage roots');
-    const others = await this.assetRepository.getDeletionRootsForOtherOwners(user.id);
+    const allowed = library?.importPaths ?? [
+      StorageCore.getFolderLocation(StorageFolder.Upload, dto.ownerId),
+      StorageCore.getLibraryFolder(user),
+    ];
+    if (dto.roots.some((root) => !allowed.includes(root)))
+      throw new BadRequestException('Root is not an existing owner library root');
+    const others = await this.assetRepository.getDeletionRootsForOtherOwners(dto.ownerId);
     const otherRoots = [
       ...others.external,
       ...others.users.flatMap((other) => [
@@ -844,26 +850,123 @@ export class AssetService extends BaseService {
         StorageCore.getLibraryFolder(other),
       ]),
     ];
-    await this.storageRepository.validateDeletionRoots(roots, otherRoots);
+    try {
+      return await this.storageRepository.validateDeletionRoots(dto.roots, otherRoots);
+    } catch (error) {
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
+  async managedDeletionStatus(auth: AuthDto): Promise<ManagedDeletionStatusDto> {
+    const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, 'managed');
+    let prepared = false;
+    if (
+      policy?.rootIdentities.length &&
+      policy.recoveryExpiresAt &&
+      new Date(policy.recoveryExpiresAt).getTime() > Date.now()
+    ) {
+      try {
+        const roots = await collectRootIdentities(policy.roots);
+        if (
+          roots.length === policy.rootIdentities.length &&
+          roots.every((r) => policy.rootIdentities.some((p) => sameRootIdentity(r, p)))
+        ) {
+          await verifyRecoveryEvidence(policy.recoveryProof, auth.user.id, 'managed', roots);
+          prepared = true;
+        }
+      } catch {
+        /* unavailable/expired/redirected roots never become verified */
+      }
+    }
+    return { enabled: !!policy?.enabled, prepared, canPrepare: auth.user.isAdmin };
+  }
+
+  async prepareManagedDeletion(auth: AuthDto, dto: PrepareManagedDeletionDto): Promise<void> {
+    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
+    const user = await this.userRepository.get(auth.user.id, {});
+    if (!user) throw new BadRequestException('Unknown owner');
+    const allowed = [StorageCore.getFolderLocation(StorageFolder.Upload, user.id), StorageCore.getLibraryFolder(user)];
+    const roots: string[] = [];
+    for (const root of new Set(allowed)) if (await this.storageRepository.checkFileExists(root)) roots.push(root);
+    if (roots.length === 0) throw new BadRequestException('No existing managed storage roots');
+    const identities = await this.validateDeletionPolicy({
+      ownerId: user.id,
+      scope: 'managed',
+      roots,
+      enabled: false,
+      ...dto,
+    });
+    const evidence = await this.verifyEvidence(dto.recoveryProof, user.id, 'managed', identities);
     await this.assetRepository.setDeletionPolicy(user.id, 'managed', {
       enabled: false,
       roots,
+      rootIdentities: identities,
+      recoveryExpiresAt: new Date(evidence.expiresAt),
       recoveryProof: dto.recoveryProof,
       authorizedBy: auth.user.id,
     });
   }
 
   async setManagedDeletionConsent(auth: AuthDto, enabled: boolean): Promise<void> {
-    await this.assetRepository.updateManagedDeletionConsent(auth.user.id, enabled, async (roots, recoveryProof) => {
-      await this.validateDeletionPolicy({
-        ownerId: auth.user.id,
-        scope: 'managed',
-        enabled: true,
-        roots,
-        recoveryProof,
-        verifiedExclusiveRoots: true,
-      });
-    });
+    try {
+      await this.assetRepository.updateManagedDeletionConsent(
+        auth.user.id,
+        enabled,
+        async (roots, recoveryProof, bound) => {
+          const current = await this.validateDeletionPolicy({
+            ownerId: auth.user.id,
+            scope: 'managed',
+            enabled: true,
+            roots,
+            recoveryProof,
+            verifiedExclusiveRoots: true,
+          });
+          if (current.length !== bound.length || current.some((r) => bound.every((p) => !sameRootIdentity(r, p))))
+            throw new DeletionError('DELETION_ROOT_CHANGED');
+          await verifyRecoveryEvidence(recoveryProof, auth.user.id, 'managed', current);
+        },
+      );
+    } catch (error) {
+      if (error instanceof ConflictException || error instanceof BadRequestException) throw error;
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
+  private async checkCurrentPolicy(
+    owner: string,
+    scope: string,
+    policy: Awaited<ReturnType<typeof this.assetRepository.getDeletionPolicy>>,
+  ) {
+    if (!policy?.enabled) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (policy.rootIdentities.length === 0 || !policy.recoveryExpiresAt)
+      throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
+    if (new Date(policy.recoveryExpiresAt).getTime() <= Date.now())
+      throw new DeletionError('DELETION_RECOVERY_EXPIRED');
+    const current = await collectRootIdentities(policy.roots);
+    if (
+      current.length !== policy.rootIdentities.length ||
+      current.some((r) => policy.rootIdentities.every((p) => !sameRootIdentity(r, p)))
+    )
+      throw new DeletionError('DELETION_ROOT_CHANGED');
+    await this.validateOwnerRootBoundaries(owner, policy.roots, policy.rootIdentities);
+    await verifyRecoveryEvidence(policy.recoveryProof, owner, scope, current);
+  }
+
+  private async validateOwnerRootBoundaries(owner: string, roots: string[], bound: DeletionRootIdentity[]) {
+    const others = await this.assetRepository.getDeletionRootsForOtherOwners(owner);
+    const otherRoots = [
+      ...others.external,
+      ...others.users.flatMap((other) => [
+        StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
+        StorageCore.getLibraryFolder(other),
+      ]),
+    ];
+    const current = await this.storageRepository.validateDeletionRoots(roots, otherRoots);
+    if (
+      current.length !== bound.length ||
+      current.some((root) => bound.every((stored) => !sameRootIdentity(root, stored)))
+    )
+      throw new DeletionError('DELETION_ROOT_CHANGED');
   }
 
   async deletionPreflight(auth: AuthDto, ids: string[]): Promise<DeletionPreflightResultDto[]> {
@@ -882,8 +985,7 @@ export class AssetService extends BaseService {
         scope = await this.assetRepository.getDeletionScope(auth.user.id, id);
         if (!scope) throw new DeletionError('ASSET_NOT_IN_TRASH');
         const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
-        if (receipt?.state !== 'complete' && !policy?.enabled)
-          throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+        if (receipt?.state !== 'complete') await this.checkCurrentPolicy(auth.user.id, scope, policy);
         results.push({ id, scope, authorized: true });
       } catch (error) {
         results.push({

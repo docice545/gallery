@@ -45,6 +45,7 @@ const ADMIN_ROUTES = new Set([
   'POST storage-migration/start',
   'POST system-metadata/admin-onboarding',
   'PUT assets/deletion-policy',
+  'PUT assets/managed-deletion-preparation',
   'PUT jobs/:name',
   'PUT libraries/:id',
   'PUT queues/:name',

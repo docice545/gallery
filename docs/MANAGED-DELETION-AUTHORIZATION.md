@@ -1,156 +1,129 @@
-# Managed deletion authorization: review and operator instructions
+# Managed deletion authorization — 5.7.3 (10)
 
-This patch is based on Gallery 5.7.2 (9). Review it before building a new release.
-The existing build 9 artifacts do **not** contain the new consent UI. No release
-APK, production Docker image or production deployment is produced by this task.
+This repair continues the build-9 consent UI and existing Immich deletion worker.
+Build-9 artifacts do not contain it. No release artifact or production deployment
+is produced by this development task.
 
-## Authorization in the app and web
+## Preparation and owner consent
 
-Open Trash → ⋮ → **Разрешение окончательного удаления** in the mobile app.
-On web, expand that section in Trash.
+On mobile open Trash → ⋮ → **Разрешение окончательного удаления**; on web expand
+the same section. Administrator preparation stores a **disabled** managed policy.
+The owner then explicitly confirms permanent deletion. Revocation needs no
+working storage or recovery evidence. Consent cannot select another owner,
+library or arbitrary root.
 
-- The account administrator first verifies backup restoration and exclusive managed
-  roots, supplies the SHA-256 of the real private recovery report and confirms the
-  attestation. **Проверить managed storage** stores a disabled policy; it does not
-  delete files or grant consent.
-- The owner selects **Разрешить удаление из managed storage** and confirms the
-  irreversible-deletion warning. No owner/library/root selection is accepted by
-  this operation. A non-admin asks their existing administrator to prepare their
-  disabled managed policy through the existing admin API, then grants consent.
-- **Отозвать разрешение** disables managed deletion without requiring storage access.
-- Empty Trash and selective deletion require the same policies. If an external
-  scope is blocked, no new files in that selection are deleted. Select managed
-  items separately. No external policy is automatically enabled.
-- Preparation proves neither recovery nor exclusive ownership by entering an
-  arbitrary hash. Use the actual, reviewed recovery evidence. A managed original
-  can be physically on Synology; confirm that evidence covers its actual roots.
+Preparation requires the SHA-256 identifier of an **installed signed recovery
+envelope**, not a free-form hash or checkbox. The server validates Ed25519 against
+a separately installed operator public key, owner/scope, tested database restore
+receipt, snapshot/export sample hashes, freshness (at most 24 hours), and every
+filesystem identity. Missing, fabricated, expired or redirected evidence fails
+closed. Follow [the recovery evidence procedure](../specs/testing/2026-10-10-trash-recovery-evidence.md)
+for actual generation, private inputs and read-only trust-store installation.
 
-The 291 offline external index records remain unchanged and outside user Trash.
-No SQL conversion is required. Existing policy/receipt tables are reused; **no new
-migration is needed**. The 12 managed Trash assets remain restorable until an
-explicit authorized permanent-deletion operation succeeds.
+The operator signing key is separate from account/API keys and never enters the
+application container. Existing accounts, keys and permissions are unchanged.
+The trusted operator must obtain real restore/export reports; a signature cannot
+prove that a dishonest signer performed those operations. Sample recovery proves
+the tested samples, not recoverability of every file.
 
-## Deployment after separate review and approval
+Capture identities in the **running server container's mount namespace**, after
+its final mount configuration. Host identities or another container's identities
+do not authorize this application's root. Recreating the container, remounting
+storage or replacing a root requires new evidence and preparation; preparation
+resets consent. Install both public key and evidence directory as read-only binds
+at the documented default paths. This is a separately reviewed storage-preparation
+change to the server service, not a hidden change in the image-only helper. No
+private signing key, NAS permission change or additional privileged service is
+required.
 
-1. Review the patch and automatic checks. Assign the next approved mobile build
-   number, preserving package/bundle identities, HP certificate and SideStore
-   extensions. Build backend, Android and unsigned iOS from the **same** reviewed
-   application SHA using existing workflows. Do not reuse build 9 artifacts as if
-   they contained this patch. Signing and device acceptance remain separate gates.
-2. Preserve verified PostgreSQL/NAS recovery evidence; make and validate a fresh
-   database backup using the existing recovery tooling. Record current image ID
-   and Compose files securely. Recheck AssetDelete/FileDelete jobs in every state
-   using the existing bounded inventory, not SCAN alone. Unexpected jobs or
-   incomplete inventory mean STOP; no automatic clearing or retry.
-3. Review image config/layers/manifest/checksum and migration compatibility before
-   loading it. Keep the previous image locally for rollback. Do not remove volumes,
-   reset the schema, prune Docker or change mounts. This patch has no schema change.
-4. Update only the server's image through an **image-only** Compose override added
-   last to the actual, verified Compose invocation. Keep every other field/service
-   unchanged. Do **not** use historical `trash_release.py deploy/rollback` actions
-   that install API-only worker overrides. Do not run `enable-workers` as a proxy
-   for thumbnail repair or retention authorization.
+An administrator can prepare another owner's `managed` scope through the existing
+admin policy API with `enabled:false`; that owner grants consent through their
+existing account. The admin policy API rejects `enabled:true` for managed storage;
+only the owner's consent endpoint enables it. Managed originals can themselves be on Synology: proof must
+cover their actual roots. Managed authorization never authorizes a library UUID.
+External scopes remain disabled until individually prepared, tested and approved.
 
-After approval and verified artifacts, the actual Compose invocation recorded
-from production supplies the variables below. Missing inputs stop execution.
-`COMPOSE_FILES` contains each original file in its original order. No credential
-or `.env` value is printed. This is a deployment template, not authorization to run it.
+## Filesystem boundary and interruption recovery
 
-```bash
-set -euo pipefail
-umask 077
-: "${APPROVED_IMAGE:?Immutable, verified new image reference required}"
-: "${EXPECTED_IMAGE_ID:?Verified loaded image config ID required}"
-: "${COMPOSE_PROJECT:?Use actual recorded Compose project}"
-: "${COMPOSE_DIRECTORY:?Use actual recorded Compose directory}"
-: "${SERVER_SERVICE:?Use actual server service name}"
-: "${RELEASE_STATE:?New private operator state directory required}"
-# Define COMPOSE_FILES as a Bash array of verified original files before this block.
-[[ ${#COMPOSE_FILES[@]} -gt 0 ]]
-[[ "$(sudo docker image inspect --format '{{.Id}}' "$APPROVED_IMAGE")" == "$EXPECTED_IMAGE_ID" ]]
-[[ -d "$RELEASE_STATE" && "$(stat -c %a "$RELEASE_STATE")" == 700 ]]
-[[ ! -e "$RELEASE_STATE/image-only.override.json" ]]
-export APPROVED_IMAGE SERVER_SERVICE RELEASE_STATE
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-p = Path(os.environ['RELEASE_STATE']) / 'image-only.override.json'
-with p.open('x') as f:
-    json.dump({'services': {os.environ['SERVER_SERVICE']: {'image': os.environ['APPROVED_IMAGE']}}}, f)
-p.chmod(0o600)
-PY
-BASE=(sudo docker compose --project-directory "$COMPOSE_DIRECTORY" -p "$COMPOSE_PROJECT")
-for file in "${COMPOSE_FILES[@]}"; do
-  [[ -f "$file" ]]
-  BASE+=(-f "$file")
-done
-# Verify the effective diff privately; never print Compose environment values.
-python3 - "$RELEASE_STATE" "$SERVER_SERVICE" "$APPROVED_IMAGE" "${BASE[@]:1}" <<'PY_CONFIG'
-import copy, json, os, subprocess, sys
-from pathlib import Path
-state, service, image = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-base = ['sudo', *sys.argv[4:]]
-read = lambda args: json.loads(subprocess.check_output(args, stderr=subprocess.DEVNULL))
-before = read([*base, 'config', '--format', 'json'])
-after = read([*base, '-f', str(state / 'image-only.override.json'), 'config', '--format', 'json'])
-assert service in before['services'], 'STOP: unknown server service'
-assert after['services'][service]['image'] == image, 'STOP: wrong target image'
-expected = copy.deepcopy(before)
-expected['services'][service]['image'] = image
-assert after == expected, 'STOP: changes beyond the server image'
-env = after['services'][service].get('environment', {})
-include = set(filter(None, str(env.get('IMMICH_WORKERS_INCLUDE') or '').split(',')))
-exclude = set(filter(None, str(env.get('IMMICH_WORKERS_EXCLUDE') or '').split(',')))
-assert not include or {'api', 'microservices'} <= include, 'STOP: API/microservices excluded'
-assert not {'api', 'microservices'} & exclude, 'STOP: API/microservices excluded'
-print('PASS image-only Compose difference; API + microservices configured')
-PY_CONFIG
-"${BASE[@]}" -f "$RELEASE_STATE/image-only.override.json" \
-  up -d --no-deps --no-build --pull never "$SERVER_SERVICE"
-```
+Policies bind canonical path, device/inode, mount ID/namespace/type/source,
+mount root and target. Linux descriptor walks use `O_NOFOLLOW` on every ancestor.
+Leaves must be exclusive regular files on the bound mount. Traversal, symlinks,
+hardlinks, unsupported filesystems and changed identities are rejected.
+Supported local ext4/xfs/Btrfs, overlay/tmpfs fixtures, and NFS/NFS4 use the explicit
+guard; actual HP/NFS rename, directory-fsync, UID mapping and mount behavior still
+require disposable operator acceptance. No filesystem permission is bypassed.
+Owner-root validation compares mount backing coordinates as well as paths and
+inodes. Nested bind aliases to another owner's storage are rejected; boundaries
+are checked again during preflight and at the worker's destructive checks.
+Ambiguous backing coordinates fail closed. NAS administrator-side remapping is
+outside the application's mount-namespace evidence and needs operator review.
 
-Do not reintroduce `IMMICH_WORKERS_INCLUDE=api` or
-`IMMICH_WORKERS_EXCLUDE=microservices`. Both API and microservices workers must
-run unless a separate healthy microservices service is explicitly configured.
-Do not change retention policy or authorize external deletion during deployment.
+A receipt commits a random quarantine name before moving the entry into the
+bound root's private `0700` `.gallery-deletion-quarantine` directory. The worker
+rehashes the captured entry, checks fresh authorization, detects mutation during
+that check, and unlinks through its anchored private directory. A last-moment
+public-name replacement is retained or restored without overwriting the new
+entry; it is never guessed and deleted. Watchers/scans exclude quarantine.
+Ownership, checksum, shared-reference, policy and receipt locks remain enforced.
 
-## Mandatory acceptance (not yet verified on production/devices)
+Authorization requires a controlled namespace: no hostile same-UID/root writer,
+NAS-side namespace writer or retained writable descriptor during deletion. Such
+actors can bypass directory protection or mutate an inode after any userspace
+check. Do not authorize uncontrolled roots. An admitted operation holds a policy
+share lock; revocation waits for that transaction and then blocks future work.
+It does not cancel an unlink already linearized before revocation.
 
-Use disposable fixtures only, and each existing user account separately.
+On interruption preserve the row, tombstone, receipt and named quarantine entry.
+A verified retry uses that same committed identity. A raced symlink, directory,
+hardlink or unexpected file may remain privately retained for individually
+reviewed recovery; never recursively clean quarantine. Non-complete old receipts
+without bound identity/quarantine metadata fail with `NO_ORIGINAL_IDENTITY_PROOF`;
+they are not automatically rebound to current bytes. Preserve them for review.
 
-1. Server healthy; API version/source/image correct. Logs show API worker and
-   microservices worker running, with no “No microservices worker is connected”.
-2. Upload a disposable screenshot through Android/web. Wait for background processing;
-   check thumbnail **and** preview availability with the authenticated image APIs;
-   both return valid image bytes. Open the photo on Android and web without gray
-   tiles/white viewer. Job completion, not worker startup alone, establishes PASS.
-3. Confirm genuine managed Trash is visible, offline index entries excluded, dates
-   preserved. With no policy, selective deletion is blocked and the file survives.
-4. Prepare disabled managed scope → explicit owner consent → permanently delete
-   one disposable managed photo/video. Verify actual original/paired-resource
-   outcomes and receipt; another user's files must remain unchanged.
-5. Select managed + unapproved external fixtures: no unlink and clear per-scope
-   explanation. Test Empty Trash on a disposable account with only authorized
-   fixtures; never empty a real family account for acceptance.
-6. Revoke consent, retry deletion, test interrupted request/restart, restore and
-   chronological timeline placement. Test OS denial and local-copy reporting on
-   S23/iPhone, including Live/Motion media. No physical-device PASS is claimed here.
-7. Thumbnail/preview jobs, albums, search, viewing and synchronization continue
-   after server restart. Automatic retention stays disabled by the existing guard.
+## Scope and migration behavior
 
-## Rollback
+Selective deletion and Empty Trash preflight every scope before new receipts.
+Missing or expired consent blocks the entire new selection and reports per-scope
+reasons. Runtime I/O failure or concurrent change can still leave accurately
+reported retryable outcomes; batch filesystem deletion is not atomic.
 
-Before rollback, explicitly revoke the new managed consent through the UI/API
-(if unavailable, the existing admin policy API with `enabled:false`). Do not drop
-policies/tombstones or replay queues. Keep external authorization unchanged.
-Use the same image-only procedure with the recorded previous immutable image,
-config image ID and a **new** private rollback state directory. Keep the original
-Compose invocation and healthy API + microservices configuration. Verify server
-health and fresh thumbnail/preview processing again. Old clients/backend remain
-schema compatible, but the new consent UI requires the new endpoints.
+Migration `1793700000000-BindDeletionRecovery` adds root identities and recovery
+expiry and disables unbound legacy grants. Rerun is safe. It changes no asset
+IDs/status/timestamps/owners/libraries/files or tombstones. The 291 active offline
+external index tombstones stay unchanged and outside user Trash. The 12 genuine
+managed Trash assets remain restorable. No user intent is inferred from deletedAt.
 
-Rollback cannot undo completed unlink operations. Restoring a removed original
-requires the already verified NAS/managed backup and an individually approved
-recovery procedure; do not replace the entire live database or discard newer
-uploads. No destructive schema rollback, global Docker cleanup or API-only worker
-gate is part of this procedure.
+## Deployment and rollback gates
+
+Follow [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md). Use the reviewed image-only helper
+which checks effective Compose plus image worker defaults. Historical mutating
+`deploy`, `rollback`, `enable-workers` entry points now stop before modification.
+Both API and microservices must run; that grants no retention/deletion consent.
+
+An unmodified build-9 rollback image lacks the new migration and hardened guard.
+A target must contain the hardened capability and compatible migration inventory,
+and pass startup against an isolated restored database. The helper rejects
+incompatible images. Preserve the same original private image state for rollback.
+Do not drop policy columns, tombstones, receipts or newer uploads. Image rollback
+cannot undo unlink; file recovery needs verified backups and per-file approval.
+
+## Required acceptance after approval
+
+Use disposable media/accounts only, each existing user separately:
+
+1. Missing/invalid evidence: preparation/deletion rejected; original survives.
+2. Valid disabled preparation → owner consent → selective photo/video and Empty
+   Trash; verify exact receipts and paired-media outcomes.
+3. Mixed managed/unapproved external selection: no new unlink and clear Russian
+   explanation. Other users, external originals and offline index stay intact.
+4. Revoke, interruption/retry, Restore chronology, restart/delayed sync, OS denial
+   and accurate local-copy results on S23/iPhone/web.
+5. API **and microservices** healthy; thumbnail **and preview** complete for a
+   disposable upload; Android/web viewing without gray tiles or white screens.
+6. Isolated hardened rollback rehearsal; albums/search/faces, upload/sync,
+   Live/Motion playback and Memories regression checks.
+
+Source tests are not device or production acceptance. Deployment, managed consent,
+external consent, Android signing and retention each require separate operator
+approval. Existing retention guard stays disabled. No production queues are
+cleared or activated by this task.

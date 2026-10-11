@@ -1,6 +1,6 @@
 import { Kysely } from 'kysely';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AssetStatus, AssetType, AssetVisibility, ChecksumAlgorithm, JobName, JobStatus } from 'src/enum.js';
@@ -11,14 +11,17 @@ import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { TrashRepository } from 'src/repositories/trash.repository.js';
 import { DB } from 'src/schema/index.js';
+import { up as bindRecovery } from 'src/schema/migrations-gallery/1793700000000-BindDeletionRecovery.js';
 import { AssetService } from 'src/services/asset.service.js';
-import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
+import { collectRootIdentities, snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
 import { newMediumService } from 'test/medium.factory.js';
+import { createTestRecoveryEvidenceStore } from 'test/recovery-evidence.js';
 import { getKyselyDB, newTestService } from 'test/utils.js';
 
 let db: Kysely<DB>;
 let root: string;
+let evidence: Awaited<ReturnType<typeof createTestRecoveryEvidenceStore>>;
 beforeAll(async () => {
   db = await getKyselyDB();
 });
@@ -27,8 +30,10 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'gallery-delete-pg-'));
+  evidence = await createTestRecoveryEvidenceStore();
 });
 afterEach(async () => {
+  await evidence.cleanup();
   await rm(root, { recursive: true, force: true });
 });
 const fixture = async (external = false) => {
@@ -49,13 +54,20 @@ const fixture = async (external = false) => {
   });
   return { ctx, user, asset, repo: new AssetRepository(db), scope: library?.id ?? 'managed' };
 };
-const authorize = async (f: Awaited<ReturnType<typeof fixture>>) =>
-  f.repo.setDeletionPolicy(f.user.id, f.scope, {
-    enabled: true,
+const prepared = async (f: Awaited<ReturnType<typeof fixture>>, enabled = true, actor = f.user.id) => {
+  const identities = await collectRootIdentities([root]);
+  const proof = await evidence.install(f.user.id, f.scope, identities);
+  return {
+    enabled,
     roots: [root],
-    recoveryProof: 'a'.repeat(64),
-    authorizedBy: f.user.id,
-  });
+    rootIdentities: identities,
+    recoveryExpiresAt: new Date(proof.expiresAt),
+    recoveryProof: proof.digest,
+    authorizedBy: actor,
+  };
+};
+const authorize = async (f: Awaited<ReturnType<typeof fixture>>) =>
+  f.repo.setDeletionPolicy(f.user.id, f.scope, await prepared(f));
 
 const service = (f: Awaited<ReturnType<typeof fixture>>) => {
   const storage = new StorageRepository(f.ctx.getMock(LoggingRepository));
@@ -77,6 +89,87 @@ const authFor = (f: Awaited<ReturnType<typeof fixture>>) => ({
 });
 
 describe('durable per-library authorization with real PostgreSQL and disposable media', () => {
+  it('rejects a fabricated digest before committing deletion intent', async () => {
+    const f = await fixture();
+    await f.repo.setDeletionPolicy(f.user.id, f.scope, { ...(await prepared(f)), recoveryProof: 'a'.repeat(64) });
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'DELETION_RECOVERY_UNAVAILABLE',
+    });
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(await new TrashRepository(db).restoreAll([f.asset.id])).toEqual([f.asset.id]);
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
+
+  it('rejects correctly signed evidence belonging to another owner', async () => {
+    const f = await fixture();
+    const values = await prepared(f);
+    const wrong = await evidence.install(randomUUID(), f.scope, values.rootIdentities);
+    await f.repo.setDeletionPolicy(f.user.id, f.scope, { ...values, recoveryProof: wrong.digest });
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'DELETION_RECOVERY_SCOPE_MISMATCH',
+    });
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
+
+  it('rejects the ancestor-symlink attack against a persisted grant before creating a receipt', async () => {
+    const base = root;
+    const granted = join(base, 'accepted');
+    const outside = join(base, 'outside');
+    await mkdir(granted);
+    await mkdir(outside);
+    root = join(granted, 'library');
+    await mkdir(root);
+    const f = await fixture();
+    await authorize(f);
+    await mkdir(join(outside, 'library'));
+    await writeFile(join(outside, 'library', 'photo.heic'), 'outside must survive');
+    await rename(granted, granted + '.saved');
+    await symlink(outside, granted);
+    try {
+      await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+        code: 'DELETION_ROOT_CHANGED',
+      });
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+      expect(await readFile(join(outside, 'library', 'photo.heic'), 'utf8')).toBe('outside must survive');
+      expect(await readFile(join(granted + '.saved', 'library', 'photo.heic'), 'utf8')).toContain('synthetic');
+    } finally {
+      root = base;
+    }
+  });
+
+  it('freshness expiration after capture leaves durable recovery state and permits only a verified retry', async () => {
+    const f = await fixture();
+    await authorize(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const realNow = Date.now;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(realNow);
+    let calls = 0;
+    try {
+      await expect(
+        f.repo.removeAuthorizedOriginals(f.asset.id, (file, recheck) =>
+          unlinkOriginal(file, async () => {
+            if (++calls === 2) clock.mockReturnValue(realNow() + 48 * 3_600_000);
+            await recheck();
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'DELETION_RECOVERY_EXPIRED' });
+    } finally {
+      clock.mockRestore();
+    }
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', f.asset.id)
+      .executeTakeFirstOrThrow();
+    expect(receipt).toMatchObject({ state: 'failed', errorCode: 'DELETION_RECOVERY_EXPIRED' });
+    expect(
+      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+    ).toContain('synthetic');
+    await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+  });
+
   it('is disabled by default and preserves the original and restorable Trash', async () => {
     const f = await fixture();
     await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
@@ -84,6 +177,17 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     });
     expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
     expect(await new TrashRepository(db).restoreAll([f.asset.id])).toEqual([f.asset.id]);
+  });
+
+  it('never imports retained private quarantine media through an external rescan', async () => {
+    const f = await fixture(true);
+    const directory = join(root, '.gallery-deletion-quarantine');
+    await mkdir(directory, { mode: 0o700 });
+    const retained = join(directory, randomUUID() + '.heic');
+    await writeFile(retained, 'private disposable retained recovery media');
+    expect(await f.repo.filterNewExternalAssetPaths(f.scope, [retained])).toEqual([]);
+    expect(await readFile(retained, 'utf8')).toBe('private disposable retained recovery media');
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
   });
 
   it.each([false, true])(
@@ -342,6 +446,79 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
 });
 
 describe('managed owner consent and offline index compatibility', () => {
+  it('migration rerun disables unbound legacy grants without modifying any asset or bound policy', async () => {
+    const f = await fixture(true);
+    const when = new Date('2026-10-02T12:00:00Z');
+    const { asset: offline } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: f.scope,
+      status: AssetStatus.Active,
+      deletedAt: when,
+      isOffline: true,
+    });
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
+      enabled: true,
+      roots: [root],
+      recoveryProof: 'a'.repeat(64),
+      authorizedBy: f.user.id,
+    });
+    await authorize(f);
+    const snapshot = await db.selectFrom('asset').selectAll().where('id', 'in', [offline.id, f.asset.id]).execute();
+    await bindRecovery(db as unknown as Kysely<unknown>);
+    await bindRecovery(db as unknown as Kysely<unknown>);
+    const legacy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
+    const bound = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+    expect(legacy?.enabled).toBe(false);
+    expect(bound?.enabled).toBe(true);
+    expect(await db.selectFrom('asset').selectAll().where('id', 'in', [offline.id, f.asset.id]).execute()).toEqual(
+      snapshot,
+    );
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
+
+  it('expired consent fails both mixed-scope preflights before creating any receipt', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const { library } = await f.ctx.newLibrary({ ownerId: f.user.id });
+    const externalPath = join(root, 'expired-external.mp4');
+    await writeFile(externalPath, 'external must survive');
+    const { asset: external } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: library.id,
+      isExternal: true,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+      originalPath: externalPath,
+    });
+    const values = await prepared({ ...f, scope: library.id });
+    await f.repo.setDeletionPolicy(f.user.id, library.id, { ...values, recoveryExpiresAt: new Date(0) });
+    const { sut } = service(f);
+    expect(await sut.permanentlyDelete(authFor(f), [f.asset.id, external.id])).toEqual([
+      { id: f.asset.id, scope: 'managed', state: 'blocked', code: 'DELETION_BATCH_NOT_AUTHORIZED' },
+      { id: external.id, scope: library.id, state: 'blocked', code: 'DELETION_RECOVERY_EXPIRED' },
+    ]);
+    await expect(sut.emptyAuthorizedTrash(authFor(f))).rejects.toThrow('DELETION_RECOVERY_EXPIRED');
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(await f.repo.getDeletionReceipt(f.user.id, external.id)).toBeUndefined();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await readFile(externalPath, 'utf8')).toBe('external must survive');
+  });
+
+  it('rejects enabling a legacy unbound policy even with a syntactically valid hash', async () => {
+    const f = await fixture();
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
+      enabled: false,
+      roots: [root],
+      recoveryProof: 'a'.repeat(64),
+      authorizedBy: f.user.id,
+    });
+    await expect(f.repo.updateManagedDeletionConsent(f.user.id, true, async () => {})).rejects.toMatchObject({
+      code: 'MANAGED_DELETION_PREPARATION_REQUIRED',
+    });
+    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
+    expect(policy?.enabled).toBe(false);
+  });
+
   it('keeps active offline index tombstones out of Trash without changing their timestamp or originals', async () => {
     const f = await fixture(true);
     const offlineDate = new Date('2026-10-02T12:00:00Z');
@@ -383,22 +560,18 @@ describe('managed owner consent and offline index compatibility', () => {
   it('consent is idempotent, preserves the administrator proof and cannot enable external scopes', async () => {
     const f = await fixture();
     const actor = randomUUID();
-    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
-      enabled: false,
-      roots: [root],
-      recoveryProof: 'b'.repeat(64),
-      authorizedBy: actor,
-    });
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', await prepared(f, false, actor));
+    const originalPolicy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
     const validate = vi.fn(async () => {});
     await f.repo.updateManagedDeletionConsent(f.user.id, true, validate);
     await f.repo.updateManagedDeletionConsent(f.user.id, true, validate);
     expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toMatchObject({
       enabled: true,
       roots: [root],
-      recoveryProof: 'b'.repeat(64),
+      recoveryProof: originalPolicy!.recoveryProof,
       authorizedBy: actor,
     });
-    expect(validate).toHaveBeenCalledWith([root], 'b'.repeat(64));
+    expect(validate).toHaveBeenCalledWith([root], originalPolicy!.recoveryProof, originalPolicy!.rootIdentities);
     expect(await f.repo.getDeletionPolicy(f.user.id, randomUUID())).toBeUndefined();
     await f.repo.updateManagedDeletionConsent(f.user.id, false, () =>
       Promise.reject(new Error('must not validate revocation')),
@@ -408,12 +581,7 @@ describe('managed owner consent and offline index compatibility', () => {
   });
   it('failed current-root validation rolls back consent atomically', async () => {
     const f = await fixture();
-    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
-      enabled: false,
-      roots: [root],
-      recoveryProof: 'b'.repeat(64),
-      authorizedBy: f.user.id,
-    });
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', await prepared(f, false));
     await expect(
       f.repo.updateManagedDeletionConsent(f.user.id, true, () => Promise.reject(new Error('ROOT_REPLACED'))),
     ).rejects.toThrow('ROOT_REPLACED');
@@ -491,12 +659,7 @@ describe('managed owner consent and offline index compatibility', () => {
 
   it('explicit managed consent enables selective deletion through the existing guarded lifecycle', async () => {
     const f = await fixture();
-    await f.repo.setDeletionPolicy(f.user.id, 'managed', {
-      enabled: false,
-      roots: [root],
-      recoveryProof: 'b'.repeat(64),
-      authorizedBy: f.user.id,
-    });
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', await prepared(f, false));
     const { sut } = service(f);
     const blocked = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
     expect(blocked[0].state).toBe('blocked');

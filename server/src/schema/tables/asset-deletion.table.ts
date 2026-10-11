@@ -11,6 +11,18 @@ import {
 } from '@immich/sql-tools';
 import { UserTable } from 'src/schema/tables/user.table.js';
 
+export interface DeletionRootIdentity {
+  path: string;
+  device: string;
+  inode: string;
+  mountId: string;
+  mountNamespace: string;
+  mountType: string;
+  mountSource: string;
+  mountRoot: string;
+  mountTarget: string;
+}
+
 export interface DeletionFile {
   path: string;
   root: string;
@@ -22,6 +34,8 @@ export interface DeletionFile {
   modified: string;
   sha256: string;
   sha1: string;
+  rootIdentity: DeletionRootIdentity;
+  quarantineName: string;
 }
 
 @Table('asset_deletion_policy')
@@ -37,6 +51,12 @@ export class AssetDeletionPolicyTable {
 
   @Column({ type: 'jsonb' })
   roots!: string[];
+
+  @Column({ type: 'jsonb', default: '[]' })
+  rootIdentities!: Generated<DeletionRootIdentity[]>;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  recoveryExpiresAt!: Generated<Timestamp | null>;
 
   @Column({ type: 'text' })
   recoveryProof!: string;

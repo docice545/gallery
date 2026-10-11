@@ -1,10 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import fs from 'node:fs/promises';
+import fs, { type FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import type { DeletionFile } from 'src/schema/tables/asset-deletion.table.js';
+import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
 
-// Safe public codes only. Never put original paths, identifiers or fs error messages in API/log output.
+// Release preflight loads this from the actual compiled image, alongside its migration inventory.
+export const AUTHORIZED_DELETION_CAPABILITY = 'bound-root-quarantine-signed-recovery-v1';
+
 export class DeletionError extends Error {
   constructor(public readonly code: string) {
     super(code);
@@ -14,84 +16,247 @@ export const deletionCode = (error: unknown) =>
   error instanceof DeletionError ? error.code : 'ORIGINAL_DELETE_FAILED';
 export const below = (root: string, file: string) => {
   const part = relative(root, file);
-  return part !== '' && part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part);
+  return part !== '' && part !== '..' && !part.startsWith('..' + sep) && !isAbsolute(part);
 };
 
-// Disposable derivatives use the ordinary repository unlink, but must not
-// traverse a symlinked parent into an original-media directory.
-export async function verifyDisposablePath(file: string, roots: string[]): Promise<void> {
-  const root = roots.find((candidate) => below(candidate, file));
-  if (!root || (await fs.realpath(root)) !== root || (await fs.realpath(dirname(file))) !== dirname(file)) {
-    throw new DeletionError('DISPOSABLE_PATH_NOT_CANONICAL');
+const supported = new Set(['ext4', 'xfs', 'btrfs', 'nfs', 'nfs4', 'overlay', 'tmpfs']);
+const quarantine = '.gallery-deletion-quarantine';
+const anchored = (fd: number, name: string) => '/proc/self/fd/' + fd + '/' + name;
+const decodeMount = (value: string) =>
+  value.replaceAll(/\\([0-7]{3})/g, (_, octal: string) => String.fromCodePoint(Number.parseInt(octal, 8)));
+
+// Walk from /, never from a path containing an unchecked ancestor. Every directory stays fd-anchored.
+async function openAbsoluteDirectory(path: string): Promise<FileHandle> {
+  if (process.platform !== 'linux' || !isAbsolute(path) || path !== resolve(path) || path === '/') {
+    throw new DeletionError('NONCANONICAL_DELETION_ROOT');
+  }
+  let handle = await fs.open('/', constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    for (const component of path.split(sep)) {
+      if (!component) continue;
+      const next = await fs.open(
+        anchored(handle.fd, component),
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      );
+      await handle.close();
+      handle = next;
+    }
+    return handle;
+  } catch {
+    await handle.close();
+    throw new DeletionError('DELETION_ROOT_CHANGED');
   }
 }
 
-export async function validateDeletionRoots(roots: string[], otherRoots: string[]): Promise<void> {
-  if (process.platform !== 'linux' || roots.length === 0 || roots.length > 128) {
+async function identity(handle: FileHandle, path: string): Promise<DeletionRootIdentity> {
+  const stat = await handle.stat({ bigint: true });
+  const info = await fs.readFile('/proc/self/fdinfo/' + handle.fd, 'utf8');
+  const mountId = /^mnt_id:\s*(\d+)$/m.exec(info)?.[1];
+  const namespace = await fs.readlink('/proc/self/ns/mnt');
+  const mountInfo = await fs.readFile('/proc/self/mountinfo', 'utf8');
+  const line = mountInfo.split('\n').find((line) => line.startsWith(mountId + ' '));
+  if (!stat.isDirectory() || !mountId || !line) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  const [left, right] = line.split(' - ', 2);
+  const fields = left.split(' ');
+  const source = right?.split(' ', 3);
+  if (!source || !supported.has(source[0])) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  return {
+    path,
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    mountId,
+    mountNamespace: namespace,
+    mountType: source[0],
+    mountSource: decodeMount(source[1]),
+    mountRoot: decodeMount(fields[3]),
+    mountTarget: decodeMount(fields[4]),
+  };
+}
+
+export const sameRootIdentity = (a: DeletionRootIdentity, b: DeletionRootIdentity) =>
+  (
+    [
+      'path',
+      'device',
+      'inode',
+      'mountId',
+      'mountNamespace',
+      'mountType',
+      'mountSource',
+      'mountRoot',
+      'mountTarget',
+    ] as const
+  ).every((key) => a[key] === b[key]);
+
+export async function collectRootIdentities(roots: string[]): Promise<DeletionRootIdentity[]> {
+  if (roots.length === 0 || roots.length > 128 || new Set(roots).size !== roots.length)
     throw new DeletionError('UNSUPPORTED_DELETION_SCOPE');
-  }
+  const result: DeletionRootIdentity[] = [];
   for (const root of roots) {
-    if (!isAbsolute(root) || root !== resolve(root) || root === '/' || (await fs.realpath(root)) !== root) {
-      throw new DeletionError('NONCANONICAL_DELETION_ROOT');
+    const handle = await openAbsoluteDirectory(root);
+    try {
+      result.push(await identity(handle, root));
+    } finally {
+      await handle.close();
     }
+  }
+  return result;
+}
+
+async function openRoot(root: DeletionRootIdentity): Promise<FileHandle> {
+  if (!root || !root.mountId || !root.mountNamespace) throw new DeletionError('DELETION_ROOT_CHANGED');
+  const handle = await openAbsoluteDirectory(root.path);
+  try {
+    if (!sameRootIdentity(await identity(handle, root.path), root)) throw new DeletionError('DELETION_ROOT_CHANGED');
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+const overlapping = (a: string, b: string) => a === b || below(a, b) || below(b, a);
+const isNfs = (root: DeletionRootIdentity) => root.mountType === 'nfs' || root.mountType === 'nfs4';
+
+function mountCoordinate(root: DeletionRootIdentity): string {
+  if (
+    !isAbsolute(root.mountRoot) ||
+    root.mountRoot !== resolve(root.mountRoot) ||
+    !isAbsolute(root.mountTarget) ||
+    root.mountTarget !== resolve(root.mountTarget) ||
+    !isAbsolute(root.path) ||
+    root.path !== resolve(root.path) ||
+    (root.path !== root.mountTarget && !below(root.mountTarget, root.path))
+  )
+    throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  return resolve(root.mountRoot, relative(root.mountTarget, root.path));
+}
+
+function nfsCoordinate(root: DeletionRootIdentity) {
+  // Separate NFS exports can have different st_dev values. Their export paths
+  // must be included; different server spellings are not proof of separation.
+  const source = /^(\[[^\]]+\]|[^:/\s]+):(\/.*)$/.exec(root.mountSource);
+  if (!source || source[2] !== resolve(source[2])) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  return { server: source[1].toLowerCase(), path: resolve(source[2], '.' + mountCoordinate(root)) };
+}
+
+// Mount IDs differ for bind aliases; inode comparison alone misses a bind of a
+// descendant directory. Compare the roots in their backing filesystem instead.
+export function assertDisjointDeletionRootMounts(root: DeletionRootIdentity, other: DeletionRootIdentity): void {
+  if (root.mountNamespace !== other.mountNamespace) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  const own = mountCoordinate(root),
+    theirs = mountCoordinate(other);
+  if (isNfs(root) && isNfs(other)) {
+    const ownNfs = nfsCoordinate(root),
+      otherNfs = nfsCoordinate(other);
+    if (ownNfs.server !== otherNfs.server) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+    if (overlapping(ownNfs.path, otherNfs.path)) throw new DeletionError('OVERLAPPING_OWNER_ROOTS');
+    return;
+  }
+  if (root.device === other.device && overlapping(own, theirs)) throw new DeletionError('OVERLAPPING_OWNER_ROOTS');
+  if (root.device !== other.device && (root.mountType === 'overlay' || other.mountType === 'overlay'))
+    throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+}
+
+export async function validateDeletionRoots(roots: string[], otherRoots: string[]): Promise<DeletionRootIdentity[]> {
+  const identities = await collectRootIdentities(roots);
+  const mountInfo = await fs.readFile('/proc/self/mountinfo', 'utf8');
+  if (mountInfo.length > 4 * 1024 * 1024) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  const mountLines = mountInfo.split('\n').filter(Boolean);
+  if (mountLines.length > 4096) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+  const mountTargets = mountLines.map((line) => decodeMount(line.split(' - ', 1)[0].split(' ', 5)[4]));
+  const otherIdentities = new Map<string, DeletionRootIdentity>();
+  const descendantTargets = new Set<string>();
+  for (const rootIdentity of identities) {
+    const root = rootIdentity.path;
     const own = await fs.stat(root, { bigint: true });
-    if (!own.isDirectory()) {
-      throw new DeletionError('INVALID_DELETION_ROOT');
-    }
-    // Check lexical containment AND directory identities along ancestors to detect NFS/bind aliases.
     const ancestors = new Set<string>();
     for (let cursor = root; cursor !== '/'; cursor = dirname(cursor)) {
       const value = await fs.stat(cursor, { bigint: true });
-      ancestors.add(`${value.dev}:${value.ino}`);
+      ancestors.add(String(value.dev) + ':' + value.ino);
     }
     for (const other of otherRoots) {
       let canonical: string;
       try {
         canonical = await fs.realpath(other);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          continue;
-        }
-        // An inaccessible other owner's scope cannot be proved disjoint.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
         throw new DeletionError('OTHER_OWNER_ROOT_UNAVAILABLE');
       }
-      if (root === canonical || below(root, canonical) || below(canonical, root)) {
+      if (root === canonical || below(root, canonical) || below(canonical, root))
         throw new DeletionError('OVERLAPPING_OWNER_ROOTS');
+      // A bind alias can also sit below the other owner's root, whose own
+      // identity still looks disjoint. Check every visible descendant mount.
+      const descendants = mountTargets.filter((target) => below(canonical, target));
+      for (const target of descendants) descendantTargets.add(target);
+      if (descendantTargets.size > 128) throw new DeletionError('UNSUPPORTED_DELETION_FILESYSTEM');
+      for (const target of new Set([canonical, ...descendants])) {
+        let otherIdentity = otherIdentities.get(target);
+        if (!otherIdentity) {
+          const otherHandle = await openAbsoluteDirectory(target);
+          try {
+            otherIdentity = await identity(otherHandle, target);
+            otherIdentities.set(target, otherIdentity);
+          } finally {
+            await otherHandle.close();
+          }
+        }
+        assertDisjointDeletionRootMounts(rootIdentity, otherIdentity);
       }
       const otherStat = await fs.stat(canonical, { bigint: true });
-      if (ancestors.has(`${otherStat.dev}:${otherStat.ino}`)) {
+      if (ancestors.has(String(otherStat.dev) + ':' + otherStat.ino))
         throw new DeletionError('OVERLAPPING_OWNER_ROOTS');
-      }
       for (let cursor = canonical; cursor !== '/'; cursor = dirname(cursor)) {
         const value = await fs.stat(cursor, { bigint: true });
-        if (value.dev === own.dev && value.ino === own.ino) {
-          throw new DeletionError('OVERLAPPING_OWNER_ROOTS');
-        }
+        if (value.dev === own.dev && value.ino === own.ino) throw new DeletionError('OVERLAPPING_OWNER_ROOTS');
       }
     }
-    // This never creates a probe file. EROFS/EACCES during the real authorized unlink still fail closed.
     await fs.access(root, constants.W_OK | constants.X_OK);
   }
+  // Reopen and compare so validation cannot publish a different root than the checked one.
+  for (const root of identities) {
+    const handle = await openRoot(root);
+    await handle.close();
+  }
+  return identities;
 }
 
-async function openParent(file: string, root: string, identity?: DeletionFile) {
-  if (!isAbsolute(file) || file !== resolve(file) || !below(root, file)) {
+export async function verifyDisposablePath(file: string, roots: string[]): Promise<void> {
+  const root = roots.find((candidate) => below(candidate, file));
+  if (!root || (await fs.realpath(root)) !== root || (await fs.realpath(dirname(file))) !== dirname(file))
+    throw new DeletionError('DISPOSABLE_PATH_NOT_CANONICAL');
+}
+
+async function openParent(file: string, root: DeletionRootIdentity): Promise<FileHandle> {
+  if (
+    !isAbsolute(file) ||
+    file !== resolve(file) ||
+    !below(root.path, file) ||
+    relative(root.path, file).split(sep).includes(quarantine)
+  ) {
     throw new DeletionError('ORIGINAL_OUTSIDE_AUTHORIZED_ROOT');
   }
-  let parent = await fs.open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  let parent = await openRoot(root);
   try {
-    const stat = await parent.stat({ bigint: true });
-    if (identity && (String(stat.dev) !== identity.rootDevice || String(stat.ino) !== identity.rootInode)) {
-      throw new DeletionError('DELETION_ROOT_CHANGED');
-    }
-    for (const component of relative(root, dirname(file)).split(sep)) {
-      if (!component) {
-        continue;
-      }
+    for (const component of relative(root.path, dirname(file)).split(sep)) {
+      if (!component) continue;
       const next = await fs.open(
-        `/proc/self/fd/${parent.fd}/${component}`,
+        anchored(parent.fd, component),
         constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
       );
+      try {
+        const nextIdentity = await identity(next, root.path);
+        if (
+          nextIdentity.mountId !== root.mountId ||
+          nextIdentity.mountNamespace !== root.mountNamespace ||
+          nextIdentity.device !== root.device
+        ) {
+          throw new DeletionError('DELETION_ROOT_CHANGED');
+        }
+      } catch (error) {
+        await next.close();
+        throw error;
+      }
       await parent.close();
       parent = next;
     }
@@ -102,90 +267,180 @@ async function openParent(file: string, root: string, identity?: DeletionFile) {
   }
 }
 
-export async function snapshotOriginal(file: string, roots: string[]): Promise<DeletionFile> {
-  const root = roots.find((candidate) => below(candidate, file));
-  if (!root) {
-    throw new DeletionError('ORIGINAL_OUTSIDE_AUTHORIZED_ROOT');
+async function hashFile(
+  parent: FileHandle,
+  name: string,
+  root: DeletionRootIdentity,
+  file: string,
+): Promise<DeletionFile> {
+  const handle = await fs.open(
+    anchored(parent.fd, name),
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || before.nlink !== 1n || String(before.dev) !== root.device)
+      throw new DeletionError('ORIGINAL_NOT_EXCLUSIVE_REGULAR_FILE');
+    const mountId = /^mnt_id:\s*(\d+)$/m.exec(await fs.readFile('/proc/self/fdinfo/' + handle.fd, 'utf8'))?.[1];
+    if (mountId !== root.mountId) throw new DeletionError('DELETION_ROOT_CHANGED');
+    const sha256 = createHash('sha256'),
+      sha1 = createHash('sha1');
+    for await (const chunk of handle.createReadStream({ autoClose: false })) {
+      sha256.update(chunk);
+      sha1.update(chunk);
+    }
+    const after = await handle.stat({ bigint: true });
+    if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs)
+      throw new DeletionError('ORIGINAL_CHANGED_DURING_VERIFICATION');
+    return {
+      path: file,
+      root: root.path,
+      rootDevice: root.device,
+      rootInode: root.inode,
+      device: String(before.dev),
+      inode: String(before.ino),
+      size: String(before.size),
+      modified: String(before.mtimeNs),
+      sha256: sha256.digest('hex'),
+      sha1: sha1.digest('hex'),
+      rootIdentity: root,
+      quarantineName: randomUUID(),
+    };
+  } finally {
+    await handle.close();
   }
-  const rootStat = await fs.stat(root, { bigint: true });
+}
+
+export async function snapshotOriginal(file: string, roots: DeletionRootIdentity[]): Promise<DeletionFile> {
+  const root = roots.find((candidate) => below(candidate.path, file));
+  if (!root) throw new DeletionError('ORIGINAL_OUTSIDE_AUTHORIZED_ROOT');
   const parent = await openParent(file, root);
   try {
-    const handle = await fs.open(
-      `/proc/self/fd/${parent.fd}/${basename(file)}`,
-      constants.O_RDONLY | constants.O_NOFOLLOW,
-    );
-    try {
-      const before = await handle.stat({ bigint: true });
-      if (!before.isFile() || before.nlink !== 1n) {
-        throw new DeletionError('ORIGINAL_NOT_EXCLUSIVE_REGULAR_FILE');
-      }
-      const sha256 = createHash('sha256');
-      const sha1 = createHash('sha1');
-      // Stream from the opened descriptor; never load a video into RAM.
-      for await (const chunk of handle.createReadStream({ autoClose: false })) {
-        sha256.update(chunk);
-        sha1.update(chunk);
-      }
-      const after = await handle.stat({ bigint: true });
-      if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
-        throw new DeletionError('ORIGINAL_CHANGED_DURING_VERIFICATION');
-      }
-      return {
-        path: file,
-        root,
-        rootDevice: String(rootStat.dev),
-        rootInode: String(rootStat.ino),
-        device: String(before.dev),
-        inode: String(before.ino),
-        size: String(before.size),
-        modified: String(before.mtimeNs),
-        sha256: sha256.digest('hex'),
-        sha1: sha1.digest('hex'),
-      };
-    } finally {
-      await handle.close();
-    }
+    return await hashFile(parent, basename(file), root, file);
   } finally {
     await parent.close();
   }
 }
 
-// Called ONLY by the existing Gallery deletion lifecycle after its durable authorization journal exists.
-export async function unlinkOriginal(proof: DeletionFile): Promise<void> {
-  const parent = await openParent(proof.path, proof.root, proof);
+const matches = (actual: DeletionFile, proof: DeletionFile) =>
+  actual.device === proof.device &&
+  actual.inode === proof.inode &&
+  actual.size === proof.size &&
+  actual.modified === proof.modified &&
+  actual.sha256 === proof.sha256;
+
+// Capture the entry by atomic rename into a private, fd-anchored directory BEFORE validation/unlink.
+// Unlike check-then-unlink on a public basename, a swapped source entry is never destroyed:
+// the capture is validated, mismatch is restored without overwrite (hard-link+unlink), or retained for recovery.
+// The random quarantine name is committed in the DB receipt before this routine runs.
+export async function unlinkOriginal(
+  proof: DeletionFile,
+  beforeUnlink: () => Promise<void> = async () => {},
+): Promise<void> {
+  if (
+    !proof.rootIdentity ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(proof.quarantineName)
+  )
+    throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+  const root = await openRoot(proof.rootIdentity);
+  let q: FileHandle | undefined;
+  let parent: FileHandle | undefined;
   try {
-    const anchored = `/proc/self/fd/${parent.fd}/${basename(proof.path)}`;
-    let actual: DeletionFile;
+    const qpath = anchored(root.fd, quarantine);
     try {
-      actual = await snapshotOriginal(proof.path, [proof.root]);
+      await fs.mkdir(qpath, { mode: 0o700 });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        // A committed proof of the previously existing file is required for idempotent recovery.
-        return;
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const qs = await q.stat({ bigint: true });
+    const qi = await identity(q, proof.root);
+    if (
+      (qs.mode & 0o777n) !== 0o700n ||
+      Number(qs.uid) !== process.getuid?.() ||
+      String(qs.dev) !== proof.rootIdentity.device ||
+      qi.mountId !== proof.rootIdentity.mountId
+    )
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    const captured = anchored(q.fd, proof.quarantineName);
+    try {
+      await fs.lstat(captured);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      parent = await openParent(proof.path, proof.rootIdentity);
+      // Validate before capture for normal failures; validate AGAIN after capture to defeat a source race.
+      try {
+        const original = await hashFile(parent, basename(proof.path), proof.rootIdentity, proof.path);
+        if (!matches(original, proof)) throw new DeletionError('ORIGINAL_IDENTITY_CHANGED');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw error;
+      }
+      await beforeUnlink();
+      const currentParent = await openParent(proof.path, proof.rootIdentity);
+      try {
+        const previous = await parent.stat({ bigint: true });
+        const current = await currentParent.stat({ bigint: true });
+        if (previous.dev !== current.dev || previous.ino !== current.ino)
+          throw new DeletionError('DELETION_ROOT_CHANGED');
+      } finally {
+        await currentParent.close();
+      }
+      await fs.rename(anchored(parent.fd, basename(proof.path)), captured);
+      await parent.sync();
+      await q.sync();
+    }
+    try {
+      const actual = await hashFile(q, proof.quarantineName, proof.rootIdentity, proof.path);
+      if (!matches(actual, proof)) throw new DeletionError('ORIGINAL_IDENTITY_CHANGED');
+      const before = await fs.lstat(captured, { bigint: true });
+      await beforeUnlink();
+      // Reopen from / again even when the caller has no policy callback. The
+      // root/quarantine namespace must still be the one admitted by the proof.
+      const currentRoot = await openRoot(proof.rootIdentity);
+      try {
+        const currentQuarantine = await fs.open(
+          anchored(currentRoot.fd, quarantine),
+          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+        );
+        try {
+          const current = await currentQuarantine.stat({ bigint: true });
+          if (current.dev !== qs.dev || current.ino !== qs.ino || current.mode !== qs.mode || current.uid !== qs.uid)
+            throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        } finally {
+          await currentQuarantine.close();
+        }
+      } finally {
+        await currentRoot.close();
+      }
+      const after = await fs.lstat(captured, { bigint: true });
+      if (
+        !after.isFile() ||
+        after.nlink !== 1n ||
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mtimeNs !== after.mtimeNs ||
+        before.ctimeNs !== after.ctimeNs
+      )
+        throw new DeletionError('ORIGINAL_CHANGED_DURING_VERIFICATION');
+      await fs.unlink(captured);
+      await q.sync();
+    } catch (error) {
+      // If capture raced a writer, recover the unexpected entry, never overwrite another live entry.
+      if (error instanceof DeletionError && error.code === 'ORIGINAL_IDENTITY_CHANGED' && parent) {
+        try {
+          await fs.link(captured, anchored(parent.fd, basename(proof.path)));
+          await fs.unlink(captured);
+        } catch {
+          /* retained under the durable quarantine name; no unsafe overwrite or guessed deletion */
+        }
       }
       throw error;
     }
-    if (
-      actual.device !== proof.device ||
-      actual.inode !== proof.inode ||
-      actual.size !== proof.size ||
-      actual.modified !== proof.modified ||
-      actual.sha256 !== proof.sha256
-    ) {
-      throw new DeletionError('ORIGINAL_IDENTITY_CHANGED');
-    }
-    const current = await fs.lstat(anchored, { bigint: true });
-    if (
-      !current.isFile() ||
-      String(current.dev) !== proof.device ||
-      String(current.ino) !== proof.inode ||
-      current.nlink !== 1n ||
-      String(current.mtimeNs) !== proof.modified
-    ) {
-      throw new DeletionError('ORIGINAL_IDENTITY_CHANGED');
-    }
-    await fs.unlink(anchored);
   } finally {
-    await parent.close();
+    await parent?.close();
+    await q?.close();
+    await root.close();
   }
 }
