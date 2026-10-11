@@ -72,7 +72,7 @@ class AssetApiRepository extends ApiRepository {
       body == null ? null : 'application/json',
     );
     if (response.statusCode != 200 && response.statusCode != 204) {
-      throw ApiException(response.statusCode, 'Managed deletion authorization unavailable');
+      throw ApiException(response.statusCode, utf8.decode(response.bodyBytes));
     }
     return response.statusCode == 204 ? {} : jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }

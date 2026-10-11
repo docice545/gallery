@@ -175,6 +175,31 @@ void main() {
     expect(jsonDecode(requests[2].body), {'enabled': false, 'confirmed': true});
   });
 
+  test('signed recovery preparation sends only the installed evidence digest and roots attestation', () async {
+    late Request request;
+    final sut = repository((value) async {
+      request = value;
+      return Response('', 204);
+    });
+    final digest = List.filled(64, 'a').join();
+    await sut.prepareManagedDeletion(digest);
+    expect(request.url.path, '/api/assets/managed-deletion-preparation');
+    expect(jsonDecode(request.body), {'recoveryProof': digest, 'verifiedExclusiveRoots': true});
+  });
+
+  test('preserves machine-readable signed recovery rejections for localized client feedback', () async {
+    const body = '{"message":"DELETION_RECOVERY_EXPIRED","error":"Conflict","statusCode":409}';
+    final sut = repository((_) async => Response(body, 409));
+    await expectLater(
+      sut.prepareManagedDeletion(List.filled(64, 'a').join()),
+      throwsA(
+        isA<ApiException>()
+            .having((error) => error.code, 'code', 409)
+            .having((error) => error.message, 'message', body),
+      ),
+    );
+  });
+
   test('mixed receipt states never convert failure into completion', () async {
     final sut = repository(
       (_) async =>

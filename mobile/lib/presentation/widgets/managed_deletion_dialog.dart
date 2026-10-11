@@ -6,6 +6,7 @@ import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/repositories/asset_api.repository.dart';
+import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 
 class ManagedDeletionDialog extends ConsumerStatefulWidget {
@@ -36,9 +37,9 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
           _error = null;
         });
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        setState(() => _error = context.t.scaffold_body_error_occurred);
+        setState(() => _error = managedDeletionErrorMessage(context, error));
       }
     }
   }
@@ -68,10 +69,13 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
     try {
       await action();
       await _load();
-    } catch (_) {
-      // No optimistic success on timeout. Reload server state on the next open/retry.
+    } catch (error) {
       if (mounted) {
-        setState(() => _error = context.t.scaffold_body_error_occurred);
+        final message = managedDeletionErrorMessage(context, error);
+        await _load();
+        if (mounted) {
+          setState(() => _error = message);
+        }
       }
     } finally {
       if (mounted) {
@@ -106,19 +110,21 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
                 TextButton(onPressed: _load, child: Text(context.t.retry)),
             ] else ...[
               Text(
-                status.enabled
+                !status.prepared
+                    ? context.t.managed_deletion_preparation_required
+                    : status.enabled
                     ? context.t.managed_deletion_enabled
-                    : status.prepared
-                    ? context.t.managed_deletion_prepared
-                    : context.t.managed_deletion_preparation_required,
+                    : context.t.managed_deletion_prepared,
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: _busy || !status.prepared ? null : () => _change(!status.enabled),
+                onPressed: _busy || (!status.enabled && !status.prepared) ? null : () => _change(!status.enabled),
                 child: Text(status.enabled ? context.t.managed_deletion_disable : context.t.managed_deletion_enable),
               ),
               if (status.canPrepare) ...[
                 const Divider(),
+                Text(context.t.managed_deletion_recovery_help),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _proof,
                   enabled: !_busy,

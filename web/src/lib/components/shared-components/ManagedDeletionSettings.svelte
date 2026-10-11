@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { managedDeletionErrorMessage } from '$lib/utils/deletion-message';
   import {
     managedDeletionStatus,
     prepareManagedDeletion,
@@ -11,16 +12,16 @@
 
   let status = $state<ManagedDeletionStatusDto>();
   let busy = $state(false);
-  let failed = $state(false);
+  let error = $state<string>();
   let proof = $state('');
   let verified = $state(false);
 
   const load = async () => {
     try {
       status = await managedDeletionStatus();
-      failed = false;
-    } catch {
-      failed = true;
+      error = undefined;
+    } catch (error_) {
+      error = managedDeletionErrorMessage($t, error_);
     }
   };
   onMount(() => {
@@ -29,12 +30,13 @@
 
   const run = async (action: () => Promise<void>) => {
     busy = true;
-    failed = false;
+    error = undefined;
     try {
       await action();
       await load();
-    } catch {
-      failed = true;
+    } catch (error_) {
+      await load();
+      error = managedDeletionErrorMessage($t, error_);
     } finally {
       busy = false;
     }
@@ -54,19 +56,19 @@
 <details class="mx-4 my-2 rounded-sm border p-3">
   <summary class="cursor-pointer font-medium">{$t('managed_deletion_title')}</summary>
   <p class="my-3">{$t('managed_deletion_description')}</p>
-  {#if failed}
-    <p role="alert">{$t('errors.unable_to_save_settings')}</p>
+  {#if error}
+    <p role="alert">{error}</p>
     <Button onclick={load} disabled={busy}>{$t('retry')}</Button>
   {/if}
   {#if status}
     <p class="my-3">
-      {status.enabled
-        ? $t('managed_deletion_enabled')
-        : status.prepared
-          ? $t('managed_deletion_prepared')
-          : $t('managed_deletion_preparation_required')}
+      {status.prepared
+        ? status.enabled
+          ? $t('managed_deletion_enabled')
+          : $t('managed_deletion_prepared')
+        : $t('managed_deletion_preparation_required')}
     </p>
-    <Button onclick={consent} disabled={busy || !status.prepared}>
+    <Button onclick={consent} disabled={busy || (!status.enabled && !status.prepared)}>
       {status.enabled ? $t('managed_deletion_disable') : $t('managed_deletion_enable')}
     </Button>
     {#if status.canPrepare}
@@ -83,6 +85,7 @@
           }
         }}
       >
+        <p>{$t('managed_deletion_recovery_help')}</p>
         <label
           >{$t('managed_deletion_recovery_proof')}
           <input
