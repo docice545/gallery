@@ -61,6 +61,16 @@ verification. Lost rename/unlink
 acknowledgements preserve a failed receipt for an authorized identity-checked retry;
 they are not silently reported as success.
 
+Some Synology NFS exports ignore the mode requested by `mkdir(0700)` and create
+`0777`. For a newly created quarantine only, Gallery validates its ownership,
+directory and mount identity, applies `FileHandle.chmod(0700)` to the opened
+descriptor and rechecks the actual mode and bound namespace before capturing any
+original. An existing insecure/foreign quarantine is never automatically repaired.
+Failed or ineffective chmod, substitution and unsupported filesystem operations
+remain failed operations with preserved bytes and receipts. Validate descriptor
+chmod on a disposable export using the actual container UID and NFS mount; the
+host's path-based chmod test alone does not validate the container operation.
+
 Soft Trash and Restore do not remove NAS originals. Restore preserves asset ID,
 capture dates and album membership and does not recreate local phone files. The
 291 `Active + deletedAt + isOffline` index tombstones remain unchanged and outside
@@ -146,6 +156,13 @@ passes within the filesystem subset.
 Earlier full-suite results and the two proven inherited backend failures are
 recorded in [GALLERY_P1_HANDOFF.md](GALLERY_P1_HANDOFF.md). Those expensive full
 runs were not repeated for this focused follow-up. No unrelated test was disabled.
+
+The subsequent Synology quarantine-mode fix passes 426 backend unit tests across
+8 files (including 74 filesystem guards) and 81 PostgreSQL tests across 3 files,
+with no failures or skips. It adds 24 filesystem regressions and 4 PostgreSQL
+cases for mode initialization, substitution, failed chmod and durable retries.
+ESLint, TypeScript and formatting checks pass. Client code and database schemas
+are unchanged by this fix; previous client suites were not repeated.
 
 Before claiming Synology acceptance, verify in a separate disposable scratch
 export/container with the same NFS protocol, UID/GID mapping and mount namespace:

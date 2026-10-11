@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import fs, { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import fs, { type FileHandle, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
@@ -20,6 +20,354 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   await rm(root, { recursive: true, force: true });
+});
+
+const quarantinePath = () => join(root, '.gallery-deletion-quarantine');
+const looseMkdir = () => {
+  const mkdirActual = fs.mkdir;
+  const chmodActual = fs.chmod;
+  vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
+    const result = await mkdirActual(path, options);
+    if (String(path).endsWith('/.gallery-deletion-quarantine')) await chmodActual(path, 0o777);
+    return result;
+  });
+};
+const onQuarantineOpen = (callback: (handle: FileHandle) => void) => {
+  const openActual = fs.open;
+  vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
+    const handle = await openActual(file, flags, mode);
+    if (String(file).endsWith('/.gallery-deletion-quarantine')) callback(handle);
+    return handle;
+  });
+};
+
+describe('private quarantine initialization on Synology-like filesystems', () => {
+  it('secures a newly created 0777 directory through its descriptor before capturing any original', async () => {
+    const file = join(root, 'photo.heic');
+    await writeFile(file, 'disposable original');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    const pathChmod = vi.spyOn(fs, 'chmod');
+    const descriptorChmod = vi.fn();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        descriptorChmod(mode);
+        await actual(mode);
+      });
+    });
+    let checks = 0;
+    await unlinkOriginal(proof, async () => {
+      const stat = await fs.stat(quarantinePath());
+      expect(stat.mode & 0o7777).toBe(0o700);
+      if (++checks === 1) expect(await readFile(file, 'utf8')).toBe('disposable original');
+    });
+    expect(descriptorChmod).toHaveBeenCalledExactlyOnceWith(0o700);
+    expect(pathChmod).not.toHaveBeenCalled();
+    await expect(readFile(file)).rejects.toHaveProperty('code', 'ENOENT');
+    await unlinkOriginal(proof);
+    expect(descriptorChmod).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([0o777, 0o755, 0o1700, 0o2700])('never repairs an existing directory with mode %o', async (mode) => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    await mkdir(quarantinePath());
+    await fs.chmod(quarantinePath(), mode);
+    const chmod = vi.fn();
+    onQuarantineOpen((handle) => {
+      vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(chmod).not.toHaveBeenCalled();
+    const stat = await fs.stat(quarantinePath());
+    expect(stat.mode & 0o7777).toBe(mode);
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+  });
+
+  it('reuses an existing private directory without calling chmod', async () => {
+    const file = join(root, 'video');
+    await writeFile(file, 'disposable video');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    await mkdir(quarantinePath(), { mode: 0o700 });
+    const chmod = vi.fn().mockRejectedValue(new Error('existing directory must not be chmodded'));
+    onQuarantineOpen((handle) => {
+      vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+    });
+    await unlinkOriginal(proof);
+    expect(chmod).not.toHaveBeenCalled();
+    await expect(readFile(file)).rejects.toHaveProperty('code', 'ENOENT');
+  });
+
+  it.each(['EACCES', 'EROFS', 'ESTALE', 'ETIMEDOUT'])(
+    'a descriptor chmod %s failure cannot capture or delete an original',
+    async (code) => {
+      const file = join(root, 'photo');
+      await writeFile(file, 'original must survive');
+      const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+      looseMkdir();
+      onQuarantineOpen((handle) => {
+        vi.spyOn(handle, 'chmod').mockRejectedValue(Object.assign(new Error('injected chmod failure'), { code }));
+      });
+      await expect(unlinkOriginal(proof)).rejects.toHaveProperty('code', code);
+      expect(await readFile(file, 'utf8')).toBe('original must survive');
+      expect(await fs.readdir(quarantinePath())).toEqual([]);
+    },
+  );
+
+  it('rejects a successful chmod acknowledgement when actual permissions remain public', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      vi.spyOn(handle, 'chmod').mockResolvedValue();
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+    expect(await fs.readdir(quarantinePath())).toEqual([]);
+  });
+
+  it('rejects foreign ownership before chmod', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    const chmod = vi.fn();
+    onQuarantineOpen((handle) => {
+      const statActual = handle.stat.bind(handle);
+      vi.spyOn(handle, 'stat').mockImplementation(async () => ({
+        ...(await statActual({ bigint: true })),
+        uid: BigInt(process.getuid!() + 1),
+        isDirectory: () => true,
+      }));
+      vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(chmod).not.toHaveBeenCalled();
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+  });
+
+  it.each(['uid', 'dev', 'ino'] as const)('rejects a changed %s after descriptor chmod', async (field) => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        await actual(mode);
+        const statActual = handle.stat.bind(handle);
+        vi.spyOn(handle, 'stat').mockImplementation(async () => {
+          const stat = await statActual({ bigint: true });
+          return { ...stat, [field]: stat[field] + 1n, isDirectory: () => true };
+        });
+      });
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+    expect(await fs.readdir(quarantinePath())).toEqual([]);
+  });
+
+  it('rejects a changed directory type after descriptor chmod', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        await actual(mode);
+        const statActual = handle.stat.bind(handle);
+        vi.spyOn(handle, 'stat').mockImplementation(async () => ({
+          ...(await statActual({ bigint: true })),
+          isDirectory: () => false,
+        }));
+      });
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+  });
+
+  it.each(['directory', 'symlink'])(
+    'rejects a %s substituted between lstat and open without chmodding it',
+    async (type) => {
+      const file = join(root, 'photo');
+      const outside = join(root, 'outside');
+      await mkdir(outside, { mode: 0o755 });
+      await fs.chmod(outside, 0o755);
+      await writeFile(file, 'original must survive');
+      await writeFile(join(outside, 'control'), 'outside must survive');
+      const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+      looseMkdir();
+      const openActual = fs.open;
+      const chmod = vi.fn();
+      let replaced = false;
+      vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+        if (!replaced && String(path).endsWith('/.gallery-deletion-quarantine')) {
+          replaced = true;
+          await fs.rename(quarantinePath(), quarantinePath() + '.saved');
+          if (type === 'directory') await mkdir(quarantinePath(), { mode: 0o755 });
+          else await symlink(outside, quarantinePath());
+        }
+        const handle = await openActual(path, flags, mode);
+        vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+        return handle;
+      });
+      await expect(unlinkOriginal(proof)).rejects.toHaveProperty(
+        'code',
+        type === 'directory' ? 'DELETION_QUARANTINE_CONFLICT' : 'ENOTDIR',
+      );
+      expect(chmod).not.toHaveBeenCalled();
+      expect(await readFile(file, 'utf8')).toBe('original must survive');
+      expect(await readFile(join(outside, 'control'), 'utf8')).toBe('outside must survive');
+      const stat = await fs.stat(outside);
+      expect(stat.mode & 0o7777).toBe(0o755);
+    },
+  );
+
+  it('detects quarantine replacement during chmod before moving the original', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        await actual(mode);
+        await fs.rename(quarantinePath(), quarantinePath() + '.saved');
+        await mkdir(quarantinePath(), { mode: 0o700 });
+        await fs.chmod(quarantinePath(), 0o700);
+        await writeFile(join(quarantinePath(), 'control'), 'replacement must survive');
+      });
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+    expect(await readFile(join(quarantinePath(), 'control'), 'utf8')).toBe('replacement must survive');
+    expect(await fs.readdir(quarantinePath() + '.saved')).toEqual([]);
+  });
+
+  it('blocks ancestor-symlink substitution during chmod and preserves the outside directory', async () => {
+    const allowed = join(root, 'allowed');
+    const outside = join(root, 'outside');
+    await mkdir(allowed);
+    await mkdir(outside, { mode: 0o755 });
+    await fs.chmod(outside, 0o755);
+    const file = join(allowed, 'photo');
+    await writeFile(file, 'authorized original must survive');
+    await writeFile(join(outside, 'photo'), 'outside must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([allowed]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        await actual(mode);
+        await fs.rename(allowed, allowed + '.saved');
+        await symlink(outside, allowed);
+      });
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_ROOT_CHANGED' });
+    expect(await readFile(join(allowed + '.saved', 'photo'), 'utf8')).toBe('authorized original must survive');
+    expect(await readFile(join(outside, 'photo'), 'utf8')).toBe('outside must survive');
+    const stat = await fs.stat(outside);
+    expect(stat.mode & 0o7777).toBe(0o755);
+  });
+
+  it('rejects mount-namespace identity changes during chmod', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        await actual(mode);
+        const readlinkActual = fs.readlink;
+        vi.spyOn(fs, 'readlink').mockImplementation(async (path, options) =>
+          String(path) === '/proc/self/ns/mnt' ? 'mnt:[changed]' : readlinkActual(path, options),
+        );
+      });
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+    expect(await fs.readdir(quarantinePath())).toEqual([]);
+  });
+
+  it('rejects a different quarantine mount ID during chmod even when device and inode match', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        await actual(mode);
+        const readActual = fs.readFile;
+        const changedMountId = proof.rootIdentity.mountId + '999';
+        vi.spyOn(fs, 'readFile').mockImplementation(async (path, options) => {
+          const result = await readActual(path, options);
+          if (typeof result !== 'string') return result;
+          if (String(path) === '/proc/self/fdinfo/' + handle.fd)
+            return result.replace(/^mnt_id:\s*\d+$/m, () => 'mnt_id:\t' + changedMountId);
+          if (String(path) === '/proc/self/mountinfo') {
+            const line = result.split('\n').find((line) => line.startsWith(proof.rootIdentity.mountId + ' '))!;
+            return result + '\n' + line.replace(/^\d+ /, () => changedMountId + ' ');
+          }
+          return result;
+        });
+      });
+    });
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    expect(await readFile(file, 'utf8')).toBe('original must survive');
+    expect(await fs.readdir(quarantinePath())).toEqual([]);
+  });
+
+  it('preserves a captured file after interruption and retries without changing existing permissions', async () => {
+    const file = join(root, 'video');
+    await writeFile(file, 'disposable video');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    const chmod = vi.fn();
+    onQuarantineOpen((handle) => {
+      const actual = handle.chmod.bind(handle);
+      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+        chmod(mode);
+        await actual(mode);
+      });
+    });
+    let calls = 0;
+    await expect(
+      unlinkOriginal(proof, () => {
+        if (++calls === 2) throw new DeletionError('DELETION_RECOVERY_EXPIRED');
+        return Promise.resolve();
+      }),
+    ).rejects.toMatchObject({ code: 'DELETION_RECOVERY_EXPIRED' });
+    const captured = join(quarantinePath(), proof.quarantineName);
+    expect(await readFile(captured, 'utf8')).toBe('disposable video');
+    await unlinkOriginal(proof);
+    expect(chmod).toHaveBeenCalledExactlyOnceWith(0o700);
+    await expect(readFile(captured)).rejects.toHaveProperty('code', 'ENOENT');
+  });
+
+  it('a permission change after capture blocks unlink and cannot be repaired by a retry', async () => {
+    const file = join(root, 'photo');
+    await writeFile(file, 'original must survive');
+    const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
+    looseMkdir();
+    let calls = 0;
+    await expect(
+      unlinkOriginal(proof, async () => {
+        if (++calls === 2) await fs.chmod(quarantinePath(), 0o777);
+      }),
+    ).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    const captured = join(quarantinePath(), proof.quarantineName);
+    expect(await readFile(captured, 'utf8')).toBe('original must survive');
+    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    const stat = await fs.stat(quarantinePath());
+    expect(stat.mode & 0o7777).toBe(0o777);
+    expect(await readFile(captured, 'utf8')).toBe('original must survive');
+  });
 });
 
 describe('owner boundaries in backing mount coordinates', () => {

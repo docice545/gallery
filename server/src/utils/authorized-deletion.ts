@@ -329,6 +329,34 @@ const matches = (actual: DeletionFile, proof: DeletionFile) =>
   actual.modified === proof.modified &&
   actual.sha256 === proof.sha256;
 
+async function verifyCurrentQuarantine(
+  rootIdentity: DeletionRootIdentity,
+  expected: DeletionRootIdentity,
+  mode: bigint,
+  uid: bigint,
+): Promise<void> {
+  const root = await openRoot(rootIdentity);
+  try {
+    const current = await fs.open(
+      anchored(root.fd, quarantine),
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    try {
+      const stat = await current.stat({ bigint: true });
+      if (
+        stat.mode !== mode ||
+        stat.uid !== uid ||
+        !sameRootIdentity(await identity(current, rootIdentity.path), expected)
+      )
+        throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    } finally {
+      await current.close();
+    }
+  } finally {
+    await root.close();
+  }
+}
+
 // Capture the entry by atomic rename into a private, fd-anchored directory BEFORE validation/unlink.
 // Unlike check-then-unlink on a public basename, a swapped source entry is never destroyed:
 // the capture is validated, mismatch is restored without overwrite (hard-link+unlink), or retained for recovery.
@@ -347,21 +375,48 @@ export async function unlinkOriginal(
   let parent: FileHandle | undefined;
   try {
     const qpath = anchored(root.fd, quarantine);
+    let created = false;
     try {
       await fs.mkdir(qpath, { mode: 0o700 });
+      created = true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
+    const entry = await fs.lstat(qpath, { bigint: true });
     q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    const qs = await q.stat({ bigint: true });
+    let qs = await q.stat({ bigint: true });
     const qi = await identity(q, proof.root);
     if (
-      (qs.mode & 0o777n) !== 0o700n ||
+      !entry.isDirectory() ||
+      !qs.isDirectory() ||
+      entry.dev !== qs.dev ||
+      entry.ino !== qs.ino ||
       Number(qs.uid) !== process.getuid?.() ||
       String(qs.dev) !== proof.rootIdentity.device ||
-      qi.mountId !== proof.rootIdentity.mountId
+      qi.device !== proof.rootIdentity.device ||
+      qi.mountId !== proof.rootIdentity.mountId ||
+      qi.mountNamespace !== proof.rootIdentity.mountNamespace
     )
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    if (created) {
+      // Synology NFS can ignore mkdir's requested mode. Only initialize a NEW,
+      // owned, bound directory via its descriptor; never repair an EEXIST entry.
+      await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode, qs.uid);
+      await q.chmod(0o700);
+      const secured = await q.stat({ bigint: true });
+      if (
+        !secured.isDirectory() ||
+        secured.dev !== qs.dev ||
+        secured.ino !== qs.ino ||
+        secured.uid !== qs.uid ||
+        !sameRootIdentity(await identity(q, proof.root), qi)
+      )
+        throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+      qs = secured;
+    }
+    if ((qs.mode & 0o7777n) !== 0o700n) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    // Reject root/directory replacement during chmod BEFORE capturing an original.
+    await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode, qs.uid);
     const captured = anchored(q.fd, proof.quarantineName);
     try {
       await fs.lstat(captured);
@@ -401,22 +456,7 @@ export async function unlinkOriginal(
       await beforeUnlink();
       // Reopen from / again even when the caller has no policy callback. The
       // root/quarantine namespace must still be the one admitted by the proof.
-      const currentRoot = await openRoot(proof.rootIdentity);
-      try {
-        const currentQuarantine = await fs.open(
-          anchored(currentRoot.fd, quarantine),
-          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-        );
-        try {
-          const current = await currentQuarantine.stat({ bigint: true });
-          if (current.dev !== qs.dev || current.ino !== qs.ino || current.mode !== qs.mode || current.uid !== qs.uid)
-            throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-        } finally {
-          await currentQuarantine.close();
-        }
-      } finally {
-        await currentRoot.close();
-      }
+      await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode, qs.uid);
       const after = await fs.lstat(captured, { bigint: true });
       if (
         !after.isFile() ||

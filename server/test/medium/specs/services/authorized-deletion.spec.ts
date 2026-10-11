@@ -467,6 +467,103 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
 });
 
 describe('external selective deletion, Empty Trash and NFS-like failure recovery', () => {
+  it.each([false, true])(
+    'secures NFS-like 0777 quarantine for managed/external=%s photo/video deletion with completed receipts',
+    async (external) => {
+      const f = await fixture(external);
+      const videoPath = join(root, 'disposable-video.mp4');
+      const controlPath = join(root, 'control');
+      await writeFile(videoPath, 'synthetic disposable video');
+      await writeFile(controlPath, 'unselected original must survive');
+      const { asset: video } = await f.ctx.newAsset({
+        ownerId: f.user.id,
+        libraryId: external ? f.scope : null,
+        isExternal: external,
+        type: AssetType.Video,
+        originalPath: videoPath,
+        status: AssetStatus.Trashed,
+        deletedAt: new Date(),
+      });
+      if (!external) await authorize(f);
+      const { sut } = external ? await externalConsent(f) : service(f);
+      const mkdirActual = fs.mkdir;
+      const chmodActual = fs.chmod;
+      vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
+        const result = await mkdirActual(path, options);
+        if (String(path).endsWith('/.gallery-deletion-quarantine')) await chmodActual(path, 0o777);
+        return result;
+      });
+      const openActual = fs.open;
+      const chmod = vi.fn();
+      vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+        const handle = await openActual(path, flags, mode);
+        if (String(path).endsWith('/.gallery-deletion-quarantine')) {
+          const actual = handle.chmod.bind(handle);
+          vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
+            chmod(mode);
+            await actual(mode);
+          });
+        }
+        return handle;
+      });
+      expect(await sut.permanentlyDelete(authFor(f), [f.asset.id, video.id])).toEqual([
+        { id: f.asset.id, scope: f.scope, state: 'complete' },
+        { id: video.id, scope: f.scope, state: 'complete' },
+      ]);
+      expect(chmod).toHaveBeenCalledExactlyOnceWith(0o700);
+      for (const asset of [f.asset, video]) {
+        await expect(readFile(asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+        expect(await f.repo.getDeletionReceipt(f.user.id, asset.id)).toMatchObject({ state: 'complete' });
+        expect(await f.repo.getById(asset.id)).toBeUndefined();
+      }
+      expect(await readFile(controlPath, 'utf8')).toBe('unselected original must survive');
+      const stat = await fs.stat(join(root, '.gallery-deletion-quarantine'));
+      expect(stat.mode & 0o7777).toBe(0o700);
+    },
+  );
+
+  it.each([false, true])(
+    'failed chmod for managed/external=%s preserves bytes and failed receipts across restart/retry',
+    async (external) => {
+      const f = await fixture(external);
+      if (!external) await authorize(f);
+      const { sut } = external ? await externalConsent(f) : service(f);
+      const mkdirActual = fs.mkdir;
+      const chmodActual = fs.chmod;
+      vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
+        const result = await mkdirActual(path, options);
+        if (String(path).endsWith('/.gallery-deletion-quarantine')) await chmodActual(path, 0o777);
+        return result;
+      });
+      const openActual = fs.open;
+      const chmod = vi.fn().mockRejectedValue(Object.assign(new Error('injected chmod failure'), { code: 'EACCES' }));
+      vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+        const handle = await openActual(path, flags, mode);
+        if (String(path).endsWith('/.gallery-deletion-quarantine')) vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+        return handle;
+      });
+      expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
+        { id: f.asset.id, scope: f.scope, state: 'failed', code: 'ORIGINAL_DELETE_FAILED' },
+      ]);
+      const receipt = await f.repo.getDeletionReceipt(f.user.id, f.asset.id);
+      expect(receipt).toMatchObject({ state: 'failed' });
+      await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject(
+        {
+          code: 'DELETION_QUARANTINE_CONFLICT',
+        },
+      );
+      expect(chmod).toHaveBeenCalledTimes(1); // EEXIST retry must not repair an insecure directory.
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({
+        operationId: receipt!.operationId,
+        state: 'failed',
+        errorCode: 'DELETION_QUARANTINE_CONFLICT',
+      });
+      expect(await f.repo.getById(f.asset.id)).toBeDefined();
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+      expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    },
+  );
+
   it('selective external deletion removes the real disposable original only after scoped owner consent', async () => {
     const f = await fixture(true);
     const { sut } = await externalConsent(f);
