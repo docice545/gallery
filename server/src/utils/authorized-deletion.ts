@@ -391,12 +391,12 @@ export async function unlinkOriginal(
       await q.sync();
     }
     try {
-      const actual = await hashFile(q, proof.quarantineName, proof.rootIdentity, proof.path);
-      if (!matches(actual, proof)) throw new DeletionError('ORIGINAL_IDENTITY_CHANGED');
       // Also require directory durability on a resumed capture. An NFS server
       // which rejects fsync must not reach unlink just because the first
-      // attempt left a valid quarantine entry behind.
+      // attempt left a valid quarantine entry behind. Rehash AFTER this wait.
       await q.sync();
+      const actual = await hashFile(q, proof.quarantineName, proof.rootIdentity, proof.path);
+      if (!matches(actual, proof)) throw new DeletionError('ORIGINAL_IDENTITY_CHANGED');
       const before = await fs.lstat(captured, { bigint: true });
       await beforeUnlink();
       // Reopen from / again even when the caller has no policy callback. The

@@ -720,6 +720,46 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
   });
 
+  it('a mutation during resumed directory sync is detected before unlink', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const renameActual = fs.rename;
+    const renameSpy = vi.spyOn(fs, 'rename').mockImplementationOnce(async (source, target) => {
+      await renameActual(source, target);
+      throw Object.assign(new Error('lost capture response'), { code: 'ETIMEDOUT' });
+    });
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toThrow();
+    renameSpy.mockRestore();
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', f.asset.id)
+      .executeTakeFirstOrThrow();
+    const captured = join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName);
+    const openActual = fs.open;
+    let mutated = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
+      const handle = await openActual(file, flags, mode);
+      if (String(file).endsWith('/.gallery-deletion-quarantine')) {
+        const syncActual = handle.sync.bind(handle);
+        vi.spyOn(handle, 'sync').mockImplementation(async () => {
+          if (!mutated) {
+            mutated = true;
+            await writeFile(captured, 'mutated bytes must not be unlinked');
+          }
+          await syncActual();
+        });
+      }
+      return handle;
+    });
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'ORIGINAL_IDENTITY_CHANGED',
+    });
+    expect(await readFile(captured, 'utf8')).toBe('mutated bytes must not be unlinked');
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(false);
+  });
+
   it('lost NFS unlink acknowledgement leaves failed receipt until an authorized retry completes', async () => {
     const f = await fixture(true);
     await externalConsent(f);

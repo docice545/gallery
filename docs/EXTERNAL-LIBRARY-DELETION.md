@@ -55,7 +55,9 @@ individual receipt states must be inspected, and only unresolved work retried.
 The existing worker atomically captures an eligible original into the bound root's
 private `0700` quarantine, verifies its bytes/identity and unlinks through anchored
 descriptors. No unconditional legacy unlink is enabled. A directory-sync failure
-blocks unlink on a resumed capture as well as the first attempt. Lost rename/unlink
+blocks unlink on a resumed capture as well as the first attempt. Durability waits
+finish before rehashing, so changes observed during sync cannot bypass content
+verification. Lost rename/unlink
 acknowledgements preserve a failed receipt for an authorized identity-checked retry;
 they are not silently reported as success.
 
@@ -125,7 +127,7 @@ Follow-up automated results (2026-10-11; zero failures or skips in these runs):
 | Check                                                              | Result                                                                      |
 | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
 | Backend authorization/Trash/library/security/controller unit tests | 452 PASS / 8 files; includes the 50 filesystem and 55 signed-evidence tests |
-| PostgreSQL authorized deletion/retention/Timeline suites           | 76 PASS / 3 files, real disposable DB/files                                 |
+| PostgreSQL authorized deletion/retention/Timeline suites           | 77 PASS / 3 files, real disposable DB/files                                 |
 | Flutter consent/API/Trash/Restore/sync/delete suites               | 248 PASS / 11 files on Flutter 3.47.2 / Dart 3.13.2                         |
 | Web consent/selection/Trash/Empty Trash suites                     | 41 PASS / 4 files                                                           |
 
@@ -133,6 +135,13 @@ Backend ESLint/type checking, Nest compilation (including the established alias
 rewrite and migration-copy step), OpenAPI/TypeScript/Dart contract generation,
 scoped Flutter analysis/formatting, web ESLint/TypeScript/Svelte diagnostics and
 format checks all passed. No new database migration was introduced.
+
+The resumed-sync mutation reproducer failed against the intermediate
+`8f6253113568e8b0fd1535b8d8496be2d193094d` guard: the promise incorrectly resolved
+`true`. Moving the durability wait before rehashing fixes it; the new test is
+included in the 77 passing PostgreSQL tests. Build only the final branch HEAD,
+not that intermediate commit. The original ancestor-symlink regression also
+passes within the filesystem subset.
 
 Earlier full-suite results and the two proven inherited backend failures are
 recorded in [GALLERY_P1_HANDOFF.md](GALLERY_P1_HANDOFF.md). Those expensive full
