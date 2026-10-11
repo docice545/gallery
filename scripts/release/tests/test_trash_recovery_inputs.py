@@ -173,6 +173,96 @@ class RecoveryInputs(unittest.TestCase):
                 inputs.capture(self.request, output, NOW)
         self.assertEqual(list(output.iterdir()), [])
 
+    def docker_mounts(self):
+        # Eight complete records, including mounts unrelated to the protected root.
+        return [
+            {**mount, 'Name': '', 'Driver': '', 'Mode': 'rw', 'Propagation': 'rprivate',
+             'Metadata': {'labels': {'first': 'one', 'second': 'two'}, 'options': ['one', 'two']}}
+            for mount in [self.mounts[0], *[
+                {'Destination': f'/unrelated/{number}', 'Source': str(self.base / f'other-{number}'),
+                 'Type': 'bind', 'RW': True} for number in range(7)]]
+        ]
+
+    def capture_mounts(self, before, after, output):
+        with self.current(), patch.object(inputs, 'container',
+                side_effect=[('a' * 64, before), ('a' * 64, after)]):
+            return inputs.capture(self.request, output, NOW)
+
+    def test_capture_accepts_mount_permutations_without_dropping_duplicate_records(self):
+        mounts = self.docker_mounts()
+        for number, before in enumerate((mounts, [*mounts, copy.deepcopy(mounts[-1])])):
+            with self.subTest(duplicate=bool(number)):
+                output = self.base / f'permuted-{number}'; output.mkdir(mode=0o700)
+                after = [dict(reversed(list(mount.items()))) for mount in reversed(copy.deepcopy(before))]
+                for mount in after:
+                    labels = mount['Metadata']['labels']
+                    mount['Metadata']['labels'] = dict(reversed(list(labels.items())))
+                original = copy.deepcopy(before)
+                self.assertEqual(self.capture_mounts(before, after, output),
+                                 {'result': 'PASS', 'roots': 1, 'consentGranted': False})
+                self.assertEqual(before, original)
+                manifest = json.loads((output / 'roots.json').read_bytes())
+                self.assertEqual(manifest['roots'], [self.root])
+                self.assertEqual(manifest['hostRoots'], {self.root['path']: str(self.host)})
+
+    def test_capture_rejects_changes_to_every_mount_field_including_unrelated_mounts(self):
+        before = self.docker_mounts()
+        changes = {'Destination': '/other', 'Source': str(self.base / 'changed'), 'Type': 'volume',
+                   'RW': False, 'Name': 'changed', 'Driver': 'local', 'Mode': 'ro', 'Propagation': 'shared',
+                   'Metadata': {'labels': {'first': 'changed', 'second': 'two'}, 'options': ['one', 'two']}}
+        for field, value in changes.items():
+            with self.subTest(field=field):
+                output = self.base / f'field-{field}'; output.mkdir(mode=0o700)
+                after = copy.deepcopy(before); after[-1][field] = value
+                with self.assertRaisesRegex(evidence.Stop, '^ROOT_CHANGED_DURING_CAPTURE$'):
+                    self.capture_mounts(before, list(reversed(after)), output)
+                self.assertEqual(list(output.iterdir()), [])
+
+    def test_capture_rejects_added_removed_or_type_changed_mount_fields(self):
+        before = self.docker_mounts()
+        cases = []
+        for field in before[-1]:
+            after = copy.deepcopy(before); del after[-1][field]
+            cases.append((f'removed-{field}', after))
+        after = copy.deepcopy(before); after[-1]['UnknownField'] = 'new'
+        cases.append(('added-field', after))
+        after = copy.deepcopy(before); after[-1]['RW'] = 1
+        cases.append(('boolean-to-integer', after))
+        after = copy.deepcopy(before); after[-1]['Metadata']['options'].reverse()
+        cases.append(('nested-list-order', after))
+        for name, after in cases:
+            with self.subTest(change=name):
+                output = self.base / name; output.mkdir(mode=0o700)
+                with self.assertRaisesRegex(evidence.Stop, '^ROOT_CHANGED_DURING_CAPTURE$'):
+                    self.capture_mounts(before, after, output)
+                self.assertEqual(list(output.iterdir()), [])
+
+    def test_capture_rejects_added_removed_or_duplicated_mounts(self):
+        before = self.docker_mounts()
+        extra = {**before[-1], 'Destination': '/extra', 'Source': str(self.base / 'extra')}
+        cases = {'added': [*before, extra], 'removed': before[:-1],
+                 'duplicated': [*before, copy.deepcopy(before[-1])],
+                 'duplicate-replaced-other': [*before[:-1], copy.deepcopy(before[-2])],
+                 'equal-count-and-set-different-multiplicity': (
+                     [*before, copy.deepcopy(before[-2])], [*before, copy.deepcopy(before[-1])])}
+        for name, mounts in cases.items():
+            with self.subTest(change=name):
+                previous, after = mounts if isinstance(mounts, tuple) else (before, mounts)
+                output = self.base / name; output.mkdir(mode=0o700)
+                with self.assertRaisesRegex(evidence.Stop, '^ROOT_CHANGED_DURING_CAPTURE$'):
+                    self.capture_mounts(previous, list(reversed(after)), output)
+                self.assertEqual(list(output.iterdir()), [])
+
+    def test_permuted_mounts_do_not_allow_changed_root_identity(self):
+        output = self.base / 'changed-root'; output.mkdir(mode=0o700)
+        mounts = self.docker_mounts()
+        with self.current(), patch.object(inputs, 'collect',
+                side_effect=[[self.root], [{**self.root, 'mountId': '32'}]]), \
+                patch.object(inputs, 'container', side_effect=[('a' * 64, mounts), ('a' * 64, list(reversed(mounts)))]):
+            with self.assertRaisesRegex(evidence.Stop, '^ROOT_CHANGED_DURING_CAPTURE$'):
+                inputs.capture(self.request, output, NOW)
+        self.assertEqual(list(output.iterdir()), [])
+
     def test_library_capture_reuses_actual_api_owner_uuid_and_import_paths(self):
         library = self.base / 'library.json'
         fixture.save(library, {'id': SCOPE, 'ownerId': OWNER, 'importPaths': [self.root['path']],

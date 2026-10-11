@@ -82,6 +82,12 @@ def container():
     return value, mounts
 
 
+def mount_snapshot(mounts):
+    # Docker inspect may reorder Mounts. Compare every complete JSON record,
+    # retaining duplicate multiplicity; never collapse by Destination/Source.
+    return sorted(evidence.compact_json(mount) for mount in mounts)
+
+
 def collect(paths):
     result = json.loads(read_command([*DOCKER, 'exec', '-i', SERVER, 'node', '--input-type=module', '-e', COLLECT],
                                      evidence.compact_json(paths)))
@@ -128,7 +134,8 @@ def capture(request, output_dir, now=None, *, library=None):
     roots = collect(value['roots'])
     hosts = {root['path']: host_mapping(root, mounts) for root in roots}
     after, current_mounts = container()
-    need(before == after and mounts == current_mounts and roots == collect(value['roots']), 'ROOT_CHANGED_DURING_CAPTURE')
+    need(before == after and mount_snapshot(mounts) == mount_snapshot(current_mounts) and
+         roots == collect(value['roots']), 'ROOT_CHANGED_DURING_CAPTURE')
     if not fixed_clock:
         now = datetime.now(timezone.utc)
     with evidence.directory_fd(output_dir, private=True) as out:
