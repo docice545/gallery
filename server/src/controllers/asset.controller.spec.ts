@@ -21,63 +21,41 @@ describe(AssetController.name, () => {
     service.resetAllMocks();
   });
 
-  describe.each([
-    ['managed', '/assets/admin/managed-deletion-preparation', 'prepareManagedDeletionForOwner'],
-    [
-      'external',
+  describe('hardened rollback API boundary', () => {
+    it.each([
+      '/assets/admin/managed-deletion-preparation',
       '/assets/admin/library-deletion-preparation/00000000-0000-4000-8000-000000000011',
-      'prepareLibraryDeletionForOwner',
-    ],
-  ] as const)('%s administrator preparation API', (kind, path, method) => {
-    const ownerId = '00000000-0000-4000-8000-000000000001';
-    const dto = { ownerId, recoveryProof: 'a'.repeat(64), verifiedExclusiveRoots: true };
-
-    it('requires administrator role and system-config permission, never shared-link authentication', () => {
-      expect(getAuthenticatedOptions(new Reflector(), AssetController.prototype[method])).toMatchObject({
-        admin: true,
-        permission: Permission.SystemConfigUpdate,
-        sharedLink: false,
-        public: false,
-      });
-    });
-
-    it('passes the selected owner separately and never passes roots or an enabled flag', async () => {
-      const { status } = await request(ctx.getHttpServer()).put(path).send(dto);
-      expect(status).toBe(204);
-      const preparation = { recoveryProof: dto.recoveryProof, verifiedExclusiveRoots: true };
-      expect(service[method]).toHaveBeenCalledExactlyOnceWith(
-        ...(kind === 'managed'
-          ? [undefined, ownerId, preparation]
-          : [undefined, ownerId, '00000000-0000-4000-8000-000000000011', preparation]),
-      );
+    ])('does not expose the new cross-owner administrator API: %s', async (path) => {
+      const { status } = await request(ctx.getHttpServer())
+        .put(path)
+        .send({
+          ownerId: '00000000-0000-4000-8000-000000000001',
+          recoveryProof: 'a'.repeat(64),
+          verifiedExclusiveRoots: true,
+        });
+      expect(status).toBe(404);
+      expect(service.prepareManagedDeletionForOwner).not.toHaveBeenCalled();
+      expect(service.prepareLibraryDeletionForOwner).not.toHaveBeenCalled();
       expect(service.setManagedDeletionConsent).not.toHaveBeenCalled();
       expect(service.setLibraryDeletionConsent).not.toHaveBeenCalled();
     });
 
     it.each([
-      { ownerId: undefined },
-      { ownerId: 'not-a-uuid' },
-      { enabled: true },
-      { enabled: false },
-      { roots: ['/unapproved'] },
-      { scope: 'managed' },
-      { recoveryProof: 'invented' },
-      { verifiedExclusiveRoots: false },
-    ])('rejects invalid or extra preparation fields: %j', async (change) => {
-      const { status } = await request(ctx.getHttpServer())
-        .put(path)
-        .send({ ...dto, ...change });
-      expect(status).toBe(400);
-      expect(service[method]).not.toHaveBeenCalled();
+      ['prepareManagedDeletion', 'setManagedDeletionConsent', true, Permission.SystemConfigUpdate],
+      ['prepareLibraryDeletion', 'setLibraryDeletionConsent', true, Permission.SystemConfigUpdate],
+    ] as const)('keeps owner preparation and consent separate: %s', (prepare, consent, admin, permission) => {
+      const reflector = new Reflector();
+      expect(getAuthenticatedOptions(reflector, AssetController.prototype[prepare])).toMatchObject({
+        admin,
+        permission,
+        sharedLink: false,
+      });
+      expect(getAuthenticatedOptions(reflector, AssetController.prototype[consent])).toMatchObject({
+        admin: false,
+        permission: Permission.AssetDelete,
+        sharedLink: false,
+      });
     });
-  });
-
-  it('requires an actual library UUID for administrator preparation', async () => {
-    const { status } = await request(ctx.getHttpServer())
-      .put('/assets/admin/library-deletion-preparation/not-a-uuid')
-      .send({ ownerId: factory.uuid(), recoveryProof: 'a'.repeat(64), verifiedExclusiveRoots: true });
-    expect(status).toBe(400);
-    expect(service.prepareLibraryDeletionForOwner).not.toHaveBeenCalled();
   });
 
   describe('PUT /assets', () => {

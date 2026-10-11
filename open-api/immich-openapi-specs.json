@@ -4959,91 +4959,6 @@
         "x-immich-state": "Deprecated"
       }
     },
-    "/assets/admin/library-deletion-preparation/{id}": {
-      "put": {
-        "operationId": "prepareLibraryDeletionForOwner",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AdminPrepareDeletionDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          },
-          {
-            "cookie": []
-          },
-          {
-            "api_key": []
-          }
-        ],
-        "tags": [
-          "Assets"
-        ],
-        "x-immich-admin-only": true,
-        "x-immich-permission": "systemConfig.update"
-      }
-    },
-    "/assets/admin/managed-deletion-preparation": {
-      "put": {
-        "operationId": "prepareManagedDeletionForOwner",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AdminPrepareDeletionDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          },
-          {
-            "cookie": []
-          },
-          {
-            "api_key": []
-          }
-        ],
-        "tags": [
-          "Assets"
-        ],
-        "x-immich-admin-only": true,
-        "x-immich-permission": "systemConfig.update"
-      }
-    },
     "/assets/bulk-upload-check": {
       "post": {
         "description": "Determine which assets have already been uploaded to the server based on their SHA1 checksums.",
@@ -28917,32 +28832,6 @@
         },
         "required": [
           "isOnboarded"
-        ],
-        "type": "object"
-      },
-      "AdminPrepareDeletionDto": {
-        "additionalProperties": false,
-        "properties": {
-          "ownerId": {
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-            "type": "string"
-          },
-          "recoveryProof": {
-            "pattern": "^[a-f0-9]{64}$",
-            "type": "string"
-          },
-          "verifiedExclusiveRoots": {
-            "enum": [
-              true
-            ],
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ownerId",
-          "recoveryProof",
-          "verifiedExclusiveRoots"
         ],
         "type": "object"
       },

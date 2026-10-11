@@ -44,8 +44,6 @@ const ADMIN_ROUTES = new Set([
   'POST storage-migration/rollback/:batchId',
   'POST storage-migration/start',
   'POST system-metadata/admin-onboarding',
-  'PUT assets/admin/managed-deletion-preparation',
-  'PUT assets/admin/library-deletion-preparation/:id',
   'PUT assets/deletion-policy',
   'PUT assets/managed-deletion-preparation',
   'PUT assets/library-deletion-preparation/:id',
