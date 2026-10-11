@@ -42,6 +42,10 @@ existing account. The admin policy API rejects `enabled:true` for managed storag
 only the owner's consent endpoint enables it. Managed originals can themselves be on Synology: proof must
 cover their actual roots. Managed authorization never authorizes a library UUID.
 External scopes remain disabled until individually prepared, tested and approved.
+The existing external unlink path and its separate administrator/owner workflow
+are described in [EXTERNAL-LIBRARY-DELETION.md](EXTERNAL-LIBRARY-DELETION.md).
+Trash now lists every owned external library, including empty ones for revocation.
+No managed permission enables these scopes.
 
 ## Filesystem boundary and interruption recovery
 

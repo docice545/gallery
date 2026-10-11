@@ -6,6 +6,16 @@ GitHub still had this HEAD when resuming; no newer CLI implementation was found.
 All existing edits were preserved. `work` was not merged or modified.
 Candidate source version: **5.7.3 (10)**; no release artifacts were built.
 
+The subsequent external-library follow-up is documented in
+[EXTERNAL-LIBRARY-DELETION.md](EXTERNAL-LIBRARY-DELETION.md). It adds the missing
+separate owner-consent workflow to the retained external unlink path, binds the
+current library configuration throughout deletion, preserves known shared originals
+as restorable Trash, and blocks unsupported directory fsync during retry. No
+production library is enabled and no additional migration or NAS service is added.
+The test counts below describe the preceding P1 completion; follow-up results are
+recorded in the external-library document. Build from the new exact final HEAD,
+not the preceding P1 HEAD, after separate approval.
+
 Completed source commits:
 
 - `19452ecfad7b39c921829f952ebd0f268e8dcc6a`: verified grants, filesystem

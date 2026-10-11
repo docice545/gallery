@@ -1760,12 +1760,31 @@ export class AssetRepository {
     enabled: boolean,
     validate: (roots: string[], recoveryProof: string, identities: DeletionRootIdentity[]) => Promise<void>,
   ): Promise<void> {
+    return this.updateDeletionConsent(ownerId, 'managed', enabled, validate);
+  }
+
+  async updateLibraryDeletionConsent(
+    ownerId: string,
+    scope: string,
+    enabled: boolean,
+    validate: (roots: string[], recoveryProof: string, identities: DeletionRootIdentity[]) => Promise<void>,
+  ): Promise<void> {
+    if (scope === 'managed') throw new DeletionError('UNSUPPORTED_DELETION_SCOPE');
+    return this.updateDeletionConsent(ownerId, scope, enabled, validate);
+  }
+
+  private async updateDeletionConsent(
+    ownerId: string,
+    scope: string,
+    enabled: boolean,
+    validate: (roots: string[], recoveryProof: string, identities: DeletionRootIdentity[]) => Promise<void>,
+  ): Promise<void> {
     await this.db.transaction().execute(async (tx) => {
       const policy = await tx
         .selectFrom('asset_deletion_policy')
         .selectAll()
         .where('ownerId', '=', ownerId)
-        .where('scope', '=', 'managed')
+        .where('scope', '=', scope)
         .forUpdate()
         .executeTakeFirst();
       if (
@@ -1781,16 +1800,18 @@ export class AssetRepository {
       // Lock the current policy through validation and consent. A concurrent
       // administrator revocation/preparation cannot be overwritten by a stale read.
       if (enabled) {
+        await this.verifyLibraryScope(tx, ownerId, scope, policy.roots);
         await validate(policy.roots, policy.recoveryProof, policy.rootIdentities);
-        await verifyRecoveryEvidence(policy.recoveryProof, ownerId, 'managed', policy.rootIdentities);
+        await verifyRecoveryEvidence(policy.recoveryProof, ownerId, scope, policy.rootIdentities);
       }
       await tx
         .updateTable('asset_deletion_policy')
-        .set({ enabled, updatedAt: new Date() })
+        .set({ enabled, updatedAt: new Date(), ...(scope !== 'managed' && { authorizedBy: ownerId }) })
         .where('ownerId', '=', ownerId)
-        .where('scope', '=', 'managed')
+        .where('scope', '=', scope)
         .execute();
-      // Keep the administrator's roots, proof and verification identity intact.
+      // Retain the signed preparation and roots. External scope records the
+      // owner's consent actor; administrator preparation alone never grants it.
     });
   }
 
@@ -1834,7 +1855,7 @@ export class AssetRepository {
             .where('scope', '=', existing.scope)
             .forShare()
             .executeTakeFirst();
-          await this.verifyBoundPolicy(ownerId, existing.scope, policy);
+          await this.verifyBoundPolicy(ownerId, existing.scope, policy, tx);
         }
         return;
       }
@@ -1857,7 +1878,7 @@ export class AssetRepository {
         .forShare()
         .executeTakeFirst();
       if (!policy) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
-      await this.verifyBoundPolicy(ownerId, scope, policy);
+      await this.verifyBoundPolicy(ownerId, scope, policy, tx);
       const targets = [asset];
       if (asset.livePhotoVideoId) {
         const parents = await tx
@@ -1878,6 +1899,19 @@ export class AssetRepository {
           targets.push(motion);
         }
       }
+      const targetIds = targets.map((target) => target.id);
+      const sidecars = await tx
+        .selectFrom('asset_file')
+        .select('path')
+        .where('assetId', 'in', targetIds)
+        .where('type', '=', AssetFileType.Sidecar)
+        .execute();
+      // A known shared original must remain ordinary, restorable Trash. Keep
+      // the execution-time checks below for references added after this read.
+      await this.assertExclusiveOriginals(tx, targetIds, [
+        ...targets.map((target) => target.originalPath),
+        ...sidecars.map(({ path }) => path),
+      ]);
       for (const target of targets) {
         const aliases = await tx
           .selectFrom('asset_duplicate_checksum')
@@ -1948,7 +1982,7 @@ export class AssetRepository {
             .where('scope', '=', target.scope)
             .forShare()
             .executeTakeFirst();
-          await this.verifyBoundPolicy(ownerId, target.scope, policy);
+          await this.verifyBoundPolicy(ownerId, target.scope, policy, tx);
           const current = await tx
             .selectFrom('asset')
             .selectAll()
@@ -1970,21 +2004,7 @@ export class AssetRepository {
             .where('type', '=', AssetFileType.Sidecar)
             .execute();
           const paths = [target.originalPath, ...sidecars.map(({ path }) => path)];
-          const reference = await tx
-            .selectFrom('asset')
-            .select('id')
-            .where('id', 'not in', ids)
-            .where('originalPath', 'in', paths)
-            .executeTakeFirst();
-          const fileReference = await tx
-            .selectFrom('asset_file')
-            .select('assetId')
-            .where('assetId', 'not in', ids)
-            .where('path', 'in', paths)
-            .executeTakeFirst();
-          if (reference || fileReference) {
-            throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
-          }
+          await this.assertExclusiveOriginals(tx, ids, paths);
           const files = [];
           for (const path of paths) {
             files.push(await snapshot(path, policy!.rootIdentities));
@@ -2057,7 +2077,7 @@ export class AssetRepository {
           .where('scope', '=', receipt.scope)
           .forShare()
           .executeTakeFirst();
-        await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy);
+        await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
         if (
           receipt.files.some(
             (file) =>
@@ -2077,23 +2097,9 @@ export class AssetRepository {
         for (const path of [...paths].sort()) {
           await sql`select pg_advisory_xact_lock(hashtextextended(${path}, 732))`.execute(tx);
         }
-        const reference = await tx
-          .selectFrom('asset')
-          .select('id')
-          .where('id', 'not in', ids)
-          .where('originalPath', 'in', paths)
-          .executeTakeFirst();
-        const fileReference = await tx
-          .selectFrom('asset_file')
-          .select('assetId')
-          .where('assetId', 'not in', ids)
-          .where('path', 'in', paths)
-          .executeTakeFirst();
-        if (reference || fileReference) {
-          throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
-        }
+        await this.assertExclusiveOriginals(tx, ids, paths);
         for (const file of receipt.files) {
-          await unlink(file, () => this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy));
+          await unlink(file, () => this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx));
         }
         await tx
           .updateTable('asset_deletion_tombstone')
@@ -2117,12 +2123,15 @@ export class AssetRepository {
     ownerId: string,
     scope: string,
     policy: Awaited<ReturnType<AssetRepository['getDeletionPolicy']>>,
+    tx: Transaction<DB>,
   ): Promise<void> {
-    if (!policy?.enabled) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (!policy?.enabled || (scope !== 'managed' && policy.authorizedBy !== ownerId))
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
     if (policy.rootIdentities.length === 0 || !policy.recoveryExpiresAt)
       throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
     if (new Date(policy.recoveryExpiresAt).getTime() <= Date.now())
       throw new DeletionError('DELETION_RECOVERY_EXPIRED');
+    await this.verifyLibraryScope(tx, ownerId, scope, policy.roots);
     const current = await collectRootIdentities(policy.roots);
     if (
       current.length !== policy.rootIdentities.length ||
@@ -2131,6 +2140,33 @@ export class AssetRepository {
       throw new DeletionError('DELETION_ROOT_CHANGED');
     }
     await verifyRecoveryEvidence(policy.recoveryProof, ownerId, scope, current);
+  }
+
+  private async verifyLibraryScope(tx: Transaction<DB>, ownerId: string, scope: string, roots: string[]) {
+    if (scope === 'managed') return;
+    // Hold the library identity/configuration through consent, intent and unlink.
+    // A concurrent import-path edit or library removal must serialize with the
+    // destructive transaction rather than invalidate an already checked scope.
+    const library = await tx.selectFrom('library').selectAll().where('id', '=', scope).forShare().executeTakeFirst();
+    if (!library || library.ownerId !== ownerId || library.deletedAt)
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (roots.some((root) => !library.importPaths.includes(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+  }
+
+  private async assertExclusiveOriginals(tx: Transaction<DB>, ids: string[], paths: string[]) {
+    const reference = await tx
+      .selectFrom('asset')
+      .select('id')
+      .where('id', 'not in', ids)
+      .where('originalPath', 'in', paths)
+      .executeTakeFirst();
+    const fileReference = await tx
+      .selectFrom('asset_file')
+      .select('assetId')
+      .where('assetId', 'not in', ids)
+      .where('path', 'in', paths)
+      .executeTakeFirst();
+    if (reference || fileReference) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
   }
 
   async getPermanentDeletionTargets(id: string) {

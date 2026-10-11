@@ -3,6 +3,7 @@
   import empty3Url from '$lib/assets/empty-3.svg';
   import UserPageLayout from '$lib/components/layouts/UserPageLayout.svelte';
   import ManagedDeletionSettings from '$lib/components/shared-components/ManagedDeletionSettings.svelte';
+  import ExternalDeletionSettings from '$lib/components/shared-components/ExternalDeletionSettings.svelte';
   import EmptyPlaceholder from '$lib/components/shared-components/EmptyPlaceholder.svelte';
   import DeleteAssets from '$lib/components/timeline/actions/DeleteAssetsAction.svelte';
   import RestoreAssets from './RestoreAction.svelte';
@@ -104,6 +105,7 @@
     >
       {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
         <ManagedDeletionSettings />
+        <ExternalDeletionSettings />
       {/if}
       <p class="p-4 font-medium text-gray-500/60 dark:text-gray-300/60">
         {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}

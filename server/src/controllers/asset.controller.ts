@@ -23,6 +23,7 @@ import {
   PermanentDeletionDto,
   PermanentDeletionResultDto,
   PrepareManagedDeletionDto,
+  TrashDeletionScopeDto,
 } from 'src/dtos/asset-deletion.dto.js';
 import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
@@ -137,6 +138,40 @@ export class AssetController {
   @HttpCode(HttpStatus.NO_CONTENT)
   setManagedDeletionConsent(@Auth() auth: AuthDto, @Body() dto: ManagedDeletionConsentDto): Promise<void> {
     return this.service.setManagedDeletionConsent(auth, dto.enabled);
+  }
+
+  @Get('library-deletion-policy')
+  @Authenticated({ permission: Permission.AssetDelete })
+  libraryDeletionScopes(@Auth() auth: AuthDto): Promise<TrashDeletionScopeDto[]> {
+    return this.service.libraryDeletionScopes(auth);
+  }
+
+  @Get('library-deletion-policy/:id')
+  @Authenticated({ permission: Permission.AssetDelete })
+  libraryDeletionStatus(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<ManagedDeletionStatusDto> {
+    return this.service.libraryDeletionStatus(auth, id);
+  }
+
+  @Put('library-deletion-preparation/:id')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareLibraryDeletion(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: PrepareManagedDeletionDto,
+  ): Promise<void> {
+    return this.service.prepareLibraryDeletion(auth, id, dto);
+  }
+
+  @Put('library-deletion-consent/:id')
+  @Authenticated({ permission: Permission.AssetDelete })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  setLibraryDeletionConsent(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: ManagedDeletionConsentDto,
+  ): Promise<void> {
+    return this.service.setLibraryDeletionConsent(auth, id, dto.enabled);
   }
 
   @Post('permanent-deletion/preflight')

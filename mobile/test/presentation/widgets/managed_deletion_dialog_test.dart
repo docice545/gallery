@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,8 +32,18 @@ void main() {
       () => repository.managedDeletionStatus(),
     ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: false, prepared: true, canPrepare: false));
     when(() => repository.setManagedDeletionConsent(any())).thenAnswer((_) async {});
+    when(() => repository.libraryDeletionScopes()).thenAnswer(
+      (_) async => [
+        {'scope': 'own-library-a', 'name': 'Моя библиотека', 'count': 0, 'authorized': false},
+        {'scope': 'own-library-b', 'name': 'Другая библиотека', 'count': 3, 'authorized': false},
+      ],
+    );
+    when(
+      () => repository.libraryDeletionStatus(any()),
+    ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: false, prepared: true, canPrepare: false));
+    when(() => repository.setLibraryDeletionConsent(any(), any())).thenAnswer((_) async {});
   });
-  Future<void> open(WidgetTester tester) async {
+  Future<void> open(WidgetTester tester, {bool external = false, bool settle = true}) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.resetPhysicalSize);
@@ -50,13 +62,17 @@ void main() {
               locale: context.locale,
               localizationsDelegates: context.localizationDelegates,
               supportedLocales: context.supportedLocales,
-              home: const Scaffold(body: ManagedDeletionDialog()),
+              home: Scaffold(body: ManagedDeletionDialog(external: external)),
             ),
           ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+    }
   }
 
   testWidgets('shows Russian managed-only explanation on a narrow high-DPI screen', (tester) async {
@@ -64,6 +80,86 @@ void main() {
     expect(find.text('Разрешение окончательного удаления'), findsOneWidget);
     expect(find.textContaining('Внешние библиотеки защищены отдельно'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('external consent is explicit and affects only the selected owner library', (tester) async {
+    await open(tester, external: true);
+    final context = tester.element(find.byType(ManagedDeletionDialog));
+    expect(find.textContaining('Моя библиотека'), findsOneWidget);
+    final enable = find.widgetWithText(FilledButton, context.t.external_deletion_enable);
+    await tester.ensureVisible(enable);
+    await tester.tap(enable);
+    await tester.pumpAndSettle();
+    verifyNever(() => repository.setLibraryDeletionConsent(any(), any()));
+    expect(find.text(context.t.external_deletion_confirm), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, context.t.external_deletion_enable));
+    await tester.pumpAndSettle();
+    verify(() => repository.setLibraryDeletionConsent('own-library-a', true)).called(1);
+    verifyNever(() => repository.setLibraryDeletionConsent('own-library-b', any()));
+    verifyNever(() => repository.setManagedDeletionConsent(any()));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('external library remains revocable with zero Trash assets and unavailable evidence', (tester) async {
+    when(
+      () => repository.libraryDeletionStatus(any()),
+    ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: true, prepared: false, canPrepare: false));
+    await open(tester, external: true);
+    final context = tester.element(find.byType(ManagedDeletionDialog));
+    final revoke = find.widgetWithText(FilledButton, context.t.managed_deletion_disable);
+    await tester.ensureVisible(revoke);
+    await tester.tap(revoke);
+    await tester.pumpAndSettle();
+    verify(() => repository.setLibraryDeletionConsent('own-library-a', false)).called(1);
+    verifyNever(() => repository.prepareLibraryDeletion(any(), any()));
+    verifyNever(() => repository.setManagedDeletionConsent(any()));
+  });
+
+  testWidgets('empty owned library list has no authorization action or perpetual spinner', (tester) async {
+    when(() => repository.libraryDeletionScopes()).thenAnswer((_) async => []);
+    await open(tester, external: true);
+    final context = tester.element(find.byType(ManagedDeletionDialog));
+    expect(find.text(context.t.external_deletion_empty), findsOneWidget);
+    expect(find.byType(FilledButton), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    verifyNever(() => repository.libraryDeletionStatus(any()));
+  });
+
+  testWidgets('changed library cannot reuse the previous verified status or proof', (tester) async {
+    when(
+      () => repository.libraryDeletionStatus('own-library-b'),
+    ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: false, prepared: false, canPrepare: false));
+    await open(tester, external: true);
+    await tester.ensureVisible(find.byType(DropdownButton<String>));
+    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Другая библиотека').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    verify(() => repository.libraryDeletionStatus('own-library-b')).called(1);
+    verifyNever(() => repository.setLibraryDeletionConsent(any(), any()));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('late status from another library cannot enable the selected unprepared library', (tester) async {
+    final oldStatus = Completer<ManagedDeletionStatus>();
+    when(() => repository.libraryDeletionStatus('own-library-a')).thenAnswer((_) => oldStatus.future);
+    when(
+      () => repository.libraryDeletionStatus('own-library-b'),
+    ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: false, prepared: false, canPrepare: false));
+    await open(tester, external: true, settle: false);
+    await tester.pump();
+    // Do not wait for the still-pending request's progress indicator to settle.
+    await tester.ensureVisible(find.byType(DropdownButton<String>));
+    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.textContaining('Другая библиотека').last);
+    await tester.pumpAndSettle();
+    oldStatus.complete(const ManagedDeletionStatus(enabled: true, prepared: true, canPrepare: false));
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    verifyNever(() => repository.setLibraryDeletionConsent(any(), any()));
     expect(tester.takeException(), isNull);
   });
   testWidgets('does not authorize before a separate confirmation', (tester) async {

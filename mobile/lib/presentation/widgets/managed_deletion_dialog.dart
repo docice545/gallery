@@ -10,7 +10,8 @@ import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 
 class ManagedDeletionDialog extends ConsumerStatefulWidget {
-  const ManagedDeletionDialog({super.key});
+  const ManagedDeletionDialog({super.key, this.external = false});
+  final bool external;
   @override
   ConsumerState<ManagedDeletionDialog> createState() => _ManagedDeletionDialogState();
 }
@@ -21,6 +22,9 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
   bool _verified = false;
   bool _busy = false;
   String? _error;
+  List<Map<String, dynamic>>? _libraries;
+  String? _libraryId;
+  int _loadRevision = 0;
 
   @override
   void initState() {
@@ -29,8 +33,29 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
   }
 
   Future<void> _load() async {
+    final revision = ++_loadRevision;
     try {
-      final status = await ref.read(assetApiRepositoryProvider).managedDeletionStatus();
+      final repository = ref.read(assetApiRepositoryProvider);
+      if (widget.external && _libraries == null) {
+        final libraries = await repository.libraryDeletionScopes();
+        if (!mounted || revision != _loadRevision) {
+          return;
+        }
+        setState(() {
+          _libraries = libraries;
+          _libraryId = libraries.isEmpty ? null : libraries.first['scope'] as String;
+        });
+        if (_libraryId == null) {
+          return;
+        }
+      }
+      final scope = _libraryId;
+      final status = widget.external
+          ? await repository.libraryDeletionStatus(scope!)
+          : await repository.managedDeletionStatus();
+      if (revision != _loadRevision || (widget.external && scope != _libraryId)) {
+        return;
+      }
       if (mounted) {
         setState(() {
           _status = status;
@@ -38,27 +63,32 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
         });
       }
     } catch (error) {
-      if (mounted) {
+      if (mounted && revision == _loadRevision) {
         setState(() => _error = managedDeletionErrorMessage(context, error));
       }
     }
   }
 
   Future<void> _change(bool enabled) async {
+    final scope = _libraryId;
     if (enabled) {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (_) => ConfirmDialog(
-          title: context.t.managed_deletion_enable,
-          content: context.t.managed_deletion_confirm,
-          ok: context.t.managed_deletion_enable,
+          title: widget.external ? context.t.external_deletion_enable : context.t.managed_deletion_enable,
+          content: widget.external ? context.t.external_deletion_confirm : context.t.managed_deletion_confirm,
+          ok: widget.external ? context.t.external_deletion_enable : context.t.managed_deletion_enable,
         ),
       );
-      if (confirmed != true || !mounted) {
+      if (confirmed != true || !mounted || scope != _libraryId) {
         return;
       }
     }
-    await _run(() => ref.read(assetApiRepositoryProvider).setManagedDeletionConsent(enabled));
+    await _run(
+      () => widget.external
+          ? ref.read(assetApiRepositoryProvider).setLibraryDeletionConsent(scope!, enabled)
+          : ref.read(assetApiRepositoryProvider).setManagedDeletionConsent(enabled),
+    );
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -94,32 +124,78 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
   Widget build(BuildContext context) {
     final status = _status;
     return AlertDialog(
-      title: Text(context.t.managed_deletion_title),
+      title: Text(widget.external ? context.t.external_deletion_title : context.t.managed_deletion_title),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(context.t.managed_deletion_description),
+            Text(widget.external ? context.t.external_deletion_description : context.t.managed_deletion_description),
             const SizedBox(height: 16),
+            if (widget.external && _libraries != null) ...[
+              if (_libraries!.isEmpty)
+                Text(context.t.external_deletion_empty)
+              else
+                DropdownButton<String>(
+                  isExpanded: true,
+                  value: _libraryId,
+                  items: _libraries!
+                      .map(
+                        (library) => DropdownMenuItem<String>(
+                          value: library['scope'] as String,
+                          child: Text(
+                            '${library['name'] ?? context.t.external_deletion_scope} (${library['scope']})',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _busy
+                      ? null
+                      : (scope) {
+                          if (scope == null || scope == _libraryId) {
+                            return;
+                          }
+                          setState(() {
+                            _libraryId = scope;
+                            _status = null;
+                            _error = null;
+                            _verified = false;
+                            _proof.clear();
+                          });
+                          unawaited(_load());
+                        },
+                ),
+            ],
             if (_error != null) Text(_error!, style: TextStyle(color: context.colorScheme.error)),
             if (status == null) ...[
-              if (_error == null)
+              if (_error == null && !(widget.external && _libraries?.isEmpty == true))
                 const CircularProgressIndicator()
-              else
+              else if (_error != null)
                 TextButton(onPressed: _load, child: Text(context.t.retry)),
             ] else ...[
               Text(
                 !status.prepared
-                    ? context.t.managed_deletion_preparation_required
+                    ? widget.external
+                          ? context.t.external_deletion_preparation_required
+                          : context.t.managed_deletion_preparation_required
                     : status.enabled
-                    ? context.t.managed_deletion_enabled
+                    ? widget.external
+                          ? context.t.external_deletion_enabled
+                          : context.t.managed_deletion_enabled
                     : context.t.managed_deletion_prepared,
               ),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: _busy || (!status.enabled && !status.prepared) ? null : () => _change(!status.enabled),
-                child: Text(status.enabled ? context.t.managed_deletion_disable : context.t.managed_deletion_enable),
+                child: Text(
+                  status.enabled
+                      ? context.t.managed_deletion_disable
+                      : widget.external
+                      ? context.t.external_deletion_enable
+                      : context.t.managed_deletion_enable,
+                ),
               ),
               if (status.canPrepare) ...[
                 const Divider(),
@@ -140,9 +216,16 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
                 OutlinedButton(
                   onPressed: _busy || !_verified || !RegExp(r'^[a-f0-9]{64}$').hasMatch(_proof.text.trim())
                       ? null
-                      : () =>
-                            _run(() => ref.read(assetApiRepositoryProvider).prepareManagedDeletion(_proof.text.trim())),
-                  child: Text(context.t.managed_deletion_prepare),
+                      : () => _run(
+                          () => widget.external
+                              ? ref
+                                    .read(assetApiRepositoryProvider)
+                                    .prepareLibraryDeletion(_libraryId!, _proof.text.trim())
+                              : ref.read(assetApiRepositoryProvider).prepareManagedDeletion(_proof.text.trim()),
+                        ),
+                  child: Text(
+                    widget.external ? context.t.external_deletion_prepare : context.t.managed_deletion_prepare,
+                  ),
                 ),
               ],
             ],

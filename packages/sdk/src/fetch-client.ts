@@ -1559,6 +1559,12 @@ export type ManagedDeletionConsentDto = {
     confirmed: true;
     enabled: boolean;
 };
+export type TrashDeletionScopeDto = {
+    authorized: boolean;
+    count: number;
+    name?: string;
+    scope: string;
+};
 export type ManagedDeletionStatusDto = {
     canPrepare: boolean;
     enabled: boolean;
@@ -4321,11 +4327,6 @@ export type TrashResponseDto = {
     /** Number of items in trash */
     count: number;
 };
-export type TrashDeletionScopeDto = {
-    authorized: boolean;
-    count: number;
-    scope: string;
-};
 export type UserGroupMemberResponseDto = {
     /** Avatar color */
     avatarColor?: string;
@@ -6401,6 +6402,44 @@ export function runAssetJobs({ assetJobsDto }: {
         ...opts,
         method: "POST",
         body: assetJobsDto
+    })));
+}
+export function setLibraryDeletionConsent({ id, managedDeletionConsentDto }: {
+    id: string;
+    managedDeletionConsentDto: ManagedDeletionConsentDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/assets/library-deletion-consent/${encodeURIComponent(id)}`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: managedDeletionConsentDto
+    })));
+}
+export function libraryDeletionScopes(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: TrashDeletionScopeDto[];
+    }>("/assets/library-deletion-policy", {
+        ...opts
+    }));
+}
+export function libraryDeletionStatus({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: ManagedDeletionStatusDto;
+    }>(`/assets/library-deletion-policy/${encodeURIComponent(id)}`, {
+        ...opts
+    }));
+}
+export function prepareLibraryDeletion({ id, prepareManagedDeletionDto }: {
+    id: string;
+    prepareManagedDeletionDto: PrepareManagedDeletionDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/assets/library-deletion-preparation/${encodeURIComponent(id)}`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: prepareManagedDeletionDto
     })));
 }
 export function setManagedDeletionConsent({ managedDeletionConsentDto }: {

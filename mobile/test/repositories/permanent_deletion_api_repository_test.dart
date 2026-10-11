@@ -187,6 +187,52 @@ void main() {
     expect(jsonDecode(request.body), {'recoveryProof': digest, 'verifiedExclusiveRoots': true});
   });
 
+  test(
+    'external status and owner consent use a separate exact library scope without supplying owner or roots',
+    () async {
+      final requests = <Request>[];
+      const scope = 'a55e67c9-e435-4f04-ab10-d37c8c33800f';
+      final sut = repository((request) async {
+        requests.add(request);
+        return Response(
+          request.method == 'GET' ? '{"enabled":false,"prepared":true,"canPrepare":false}' : '',
+          request.method == 'GET' ? 200 : 204,
+        );
+      });
+      expect((await sut.libraryDeletionStatus(scope)).prepared, isTrue);
+      await sut.setLibraryDeletionConsent(scope, true);
+      await sut.setLibraryDeletionConsent(scope, false);
+      expect(requests[0].url.path, '/api/assets/library-deletion-policy/$scope');
+      for (final request in requests.skip(1)) {
+        expect(request.url.path, '/api/assets/library-deletion-consent/$scope');
+      }
+      expect(jsonDecode(requests[1].body), {'enabled': true, 'confirmed': true});
+      expect(jsonDecode(requests[2].body), {'enabled': false, 'confirmed': true});
+    },
+  );
+
+  test('external preparation sends only the installed scope-bound evidence identifier', () async {
+    late Request request;
+    final sut = repository((value) async {
+      request = value;
+      return Response('', 204);
+    });
+    final digest = List.filled(64, 'b').join();
+    await sut.prepareLibraryDeletion('own-library', digest);
+    expect(request.url.path, '/api/assets/library-deletion-preparation/own-library');
+    expect(jsonDecode(request.body), {'recoveryProof': digest, 'verifiedExclusiveRoots': true});
+  });
+
+  test('library list includes empty libraries so owners can revoke without any remaining Trash item', () async {
+    final sut = repository((request) async {
+      expect(request.url.path, '/api/assets/library-deletion-policy');
+      return Response('[{"scope":"own-library","name":"My library","count":0,"authorized":true}]', 200);
+    });
+    expect(await sut.libraryDeletionScopes(), [
+      {'scope': 'own-library', 'name': 'My library', 'count': 0, 'authorized': true},
+    ]);
+  });
+
   test('preserves machine-readable signed recovery rejections for localized client feedback', () async {
     const body = '{"message":"DELETION_RECOVERY_EXPIRED","error":"Conflict","statusCode":409}';
     final sut = repository((_) async => Response(body, 409));

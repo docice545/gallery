@@ -77,6 +77,48 @@ class AssetApiRepository extends ApiRepository {
     return response.statusCode == 204 ? {} : jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
+  Future<List<Map<String, dynamic>>> libraryDeletionScopes() async {
+    final response = await _apiService.apiClient.invokeAPI(
+      '/assets/library-deletion-policy',
+      'GET',
+      <QueryParam>[],
+      null,
+      <String, String>{},
+      <String, String>{},
+      null,
+    );
+    if (response.statusCode != 200) {
+      throw ApiException(response.statusCode, utf8.decode(response.bodyBytes));
+    }
+    return (jsonDecode(utf8.decode(response.bodyBytes)) as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<ManagedDeletionStatus> libraryDeletionStatus(String libraryId) async {
+    final value = await _managedDeletionRequest(
+      '/assets/library-deletion-policy/${Uri.encodeComponent(libraryId)}',
+      'GET',
+    );
+    return ManagedDeletionStatus(
+      enabled: value['enabled'] as bool,
+      prepared: value['prepared'] as bool,
+      canPrepare: value['canPrepare'] as bool,
+    );
+  }
+
+  Future<void> setLibraryDeletionConsent(String libraryId, bool enabled) async {
+    await _managedDeletionRequest('/assets/library-deletion-consent/${Uri.encodeComponent(libraryId)}', 'PUT', {
+      'enabled': enabled,
+      'confirmed': true,
+    });
+  }
+
+  Future<void> prepareLibraryDeletion(String libraryId, String recoveryProof) async {
+    await _managedDeletionRequest('/assets/library-deletion-preparation/${Uri.encodeComponent(libraryId)}', 'PUT', {
+      'recoveryProof': recoveryProof,
+      'verifiedExclusiveRoots': true,
+    });
+  }
+
   Future<List<PermanentDeletionResult>> _preflightPermanentDeletion(List<String> ids) async {
     final results = <PermanentDeletionResult>[];
     for (var start = 0; start < ids.length; start += 200) {

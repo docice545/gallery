@@ -63,6 +63,11 @@ export class ManagedDeletionConsentDto extends createZodDto(
 
 export class TrashDeletionScopeDto extends createZodDto(
   z
-    .object({ scope: z.string(), count: z.number().int().nonnegative(), authorized: z.boolean() })
+    .object({
+      scope: z.string(),
+      name: z.string().optional(),
+      count: z.number().int().nonnegative(),
+      authorized: z.boolean(),
+    })
     .meta({ id: 'TrashDeletionScopeDto' }),
 ) {}

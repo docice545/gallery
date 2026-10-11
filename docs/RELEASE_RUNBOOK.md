@@ -157,6 +157,11 @@ blocked without separately reviewed recovery, scope approval, controlled writer
 namespace, verified NFS semantics and consent. Existing writable mounts are not
 permission to grant deletion. Read-only mounts remain unchanged. Automatic
 retention remains skipped by the existing guard.
+Use [EXTERNAL-LIBRARY-DELETION.md](EXTERNAL-LIBRARY-DELETION.md) for the existing
+external worker's per-library signed preparation and explicit owner consent in
+Trash. This is implemented functionality with separate authorization, not an
+automatic NAS grant. Validate real NFS semantics on disposable scratch media
+before authorizing family-library roots; no NFS permission change is included.
 
 ## 5. HP-signed Android update after approval
 

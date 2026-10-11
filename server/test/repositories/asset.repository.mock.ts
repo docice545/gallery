@@ -6,6 +6,7 @@ export const newAssetRepositoryMock = (): Mocked<RepositoryInterface<AssetReposi
   return {
     getDeletionScope: vitest.fn(),
     updateManagedDeletionConsent: vitest.fn(),
+    updateLibraryDeletionConsent: vitest.fn(),
     getOwnerTrash: vitest.fn(),
     getDeletionPolicy: vitest.fn(),
     setDeletionPolicy: vitest.fn(),

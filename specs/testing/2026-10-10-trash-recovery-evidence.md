@@ -28,7 +28,10 @@ private source reports for operator review.
 Preparing or renewing proof clears any previous deletion consent. Evidence
 installation itself grants no consent. The owner consent endpoint validates and
 locks the current preparation; the administrator policy endpoint cannot enable
-managed consent. Signatures, owner/scope, root identities, freshness,
+managed or external consent. External scopes use the exact library UUID and a
+separate owner consent endpoint; see
+[the external workflow](../../docs/EXTERNAL-LIBRARY-DELETION.md).
+Signatures, owner/scope, root identities, freshness,
 and consent remain enforced during deletion. Expired or changed evidence blocks
 each protected unlink, including after a worker has been stopped and restarted.
 

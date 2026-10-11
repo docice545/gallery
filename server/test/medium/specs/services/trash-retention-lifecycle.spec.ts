@@ -12,6 +12,7 @@ import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { DuplicateRepository } from 'src/repositories/duplicate.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
 import { JobRepository } from 'src/repositories/job.repository.js';
+import { LibraryRepository } from 'src/repositories/library.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { PartnerRepository } from 'src/repositories/partner.repository.js';
 import { SharedSpaceRepository } from 'src/repositories/shared-space.repository.js';
@@ -49,6 +50,7 @@ const setup = () => {
     real: [
       AssetRepository,
       AssetJobRepository,
+      LibraryRepository,
       AccessRepository,
       AlbumRepository,
       TrashRepository,
@@ -362,6 +364,7 @@ describe('isolated original files, real repositories and real file deletion work
         const { sut, ctx } = setup();
         const { user } = await ctx.newUser();
         const { library } = await ctx.newLibrary({ ownerId: user.id });
+        await new LibraryRepository(database).update(library.id, { importPaths: [root] });
         const original = join(root, kind.includes('video') ? 'original.mp4' : 'original.jpg');
         const untouched = join(root, 'outside-operation.jpg');
         const bytes = Buffer.from(`non-sensitive synthetic ${kind} original`);

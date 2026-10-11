@@ -2,6 +2,9 @@
   import { managedDeletionErrorMessage } from '$lib/utils/deletion-message';
   import {
     managedDeletionStatus,
+    libraryDeletionStatus,
+    prepareLibraryDeletion,
+    setLibraryDeletionConsent,
     prepareManagedDeletion,
     setManagedDeletionConsent,
     type ManagedDeletionStatusDto,
@@ -11,6 +14,7 @@
   import { t } from 'svelte-i18n';
 
   let status = $state<ManagedDeletionStatusDto>();
+  let { libraryId, libraryName }: { libraryId?: string; libraryName?: string } = $props();
   let busy = $state(false);
   let error = $state<string>();
   let proof = $state('');
@@ -18,7 +22,7 @@
 
   const load = async () => {
     try {
-      status = await managedDeletionStatus();
+      status = libraryId ? await libraryDeletionStatus({ id: libraryId }) : await managedDeletionStatus();
       error = undefined;
     } catch (error_) {
       error = managedDeletionErrorMessage($t, error_);
@@ -46,16 +50,36 @@
       return;
     }
     const enabled = !status.enabled;
-    if (enabled && !(await modalManager.showDialog({ prompt: $t('managed_deletion_confirm') }))) {
+    if (
+      enabled &&
+      !(await modalManager.showDialog({
+        prompt: $t(libraryId ? 'external_deletion_confirm' : 'managed_deletion_confirm'),
+      }))
+    ) {
       return;
     }
-    await run(() => setManagedDeletionConsent({ managedDeletionConsentDto: { enabled, confirmed: true } }));
+    await run(() =>
+      libraryId
+        ? setLibraryDeletionConsent({ id: libraryId, managedDeletionConsentDto: { enabled, confirmed: true } })
+        : setManagedDeletionConsent({ managedDeletionConsentDto: { enabled, confirmed: true } }),
+    );
   };
+  const prepare = () =>
+    run(() => {
+      const dto = { recoveryProof: proof.trim(), verifiedExclusiveRoots: true as const };
+      return libraryId
+        ? prepareLibraryDeletion({ id: libraryId, prepareManagedDeletionDto: dto })
+        : prepareManagedDeletion({ prepareManagedDeletionDto: dto });
+    });
 </script>
 
 <details class="mx-4 my-2 rounded-sm border p-3">
-  <summary class="cursor-pointer font-medium">{$t('managed_deletion_title')}</summary>
-  <p class="my-3">{$t('managed_deletion_description')}</p>
+  <summary class="cursor-pointer font-medium"
+    >{libraryId
+      ? `${libraryName || $t('external_deletion_scope')} (${libraryId})`
+      : $t('managed_deletion_title')}</summary
+  >
+  <p class="my-3">{$t(libraryId ? 'external_deletion_description' : 'managed_deletion_description')}</p>
   {#if error}
     <p role="alert">{error}</p>
     <Button onclick={load} disabled={busy}>{$t('retry')}</Button>
@@ -64,12 +88,14 @@
     <p class="my-3">
       {status.prepared
         ? status.enabled
-          ? $t('managed_deletion_enabled')
+          ? $t(libraryId ? 'external_deletion_enabled' : 'managed_deletion_enabled')
           : $t('managed_deletion_prepared')
-        : $t('managed_deletion_preparation_required')}
+        : $t(libraryId ? 'external_deletion_preparation_required' : 'managed_deletion_preparation_required')}
     </p>
     <Button onclick={consent} disabled={busy || (!status.enabled && !status.prepared)}>
-      {status.enabled ? $t('managed_deletion_disable') : $t('managed_deletion_enable')}
+      {status.enabled
+        ? $t('managed_deletion_disable')
+        : $t(libraryId ? 'external_deletion_enable' : 'managed_deletion_enable')}
     </Button>
     {#if status.canPrepare}
       <form
@@ -77,11 +103,7 @@
         onsubmit={(event) => {
           event.preventDefault();
           if (!busy && verified && /^[a-f0-9]{64}$/.test(proof.trim())) {
-            void run(() =>
-              prepareManagedDeletion({
-                prepareManagedDeletionDto: { recoveryProof: proof.trim(), verifiedExclusiveRoots: true },
-              }),
-            );
+            void prepare();
           }
         }}
       >
@@ -101,7 +123,7 @@
           {$t('managed_deletion_exclusive_roots')}</label
         >
         <Button type="submit" disabled={busy || !verified || !/^[a-f0-9]{64}$/.test(proof.trim())}
-          >{$t('managed_deletion_prepare')}</Button
+          >{$t(libraryId ? 'external_deletion_prepare' : 'managed_deletion_prepare')}</Button
         >
       </form>
     {/if}

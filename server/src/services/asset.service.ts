@@ -620,7 +620,12 @@ export class AssetService extends BaseService {
       !(await this.assetRepository.removeAuthorizedOriginals(id, (file, recheck) =>
         this.storageRepository.unlinkOriginal(file, async () => {
           await recheck();
-          await this.validateOwnerRootBoundaries(asset.ownerId, [file.root], [file.rootIdentity]);
+          await this.validateOwnerRootBoundaries(
+            asset.ownerId,
+            [file.root],
+            [file.rootIdentity],
+            asset.libraryId ?? 'managed',
+          );
         }),
       ))
     ) {
@@ -793,8 +798,13 @@ export class AssetService extends BaseService {
   }
 
   async setDeletionPolicy(auth: AuthDto, dto: DeletionPolicyDto): Promise<void> {
-    if (dto.scope === 'managed' && dto.enabled) {
-      throw new BadRequestException('Managed deletion requires separate owner consent');
+    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
+    if (dto.enabled) {
+      throw new BadRequestException(
+        dto.scope === 'managed'
+          ? 'Managed deletion requires separate owner consent'
+          : 'External deletion requires separate owner consent',
+      );
     }
     const existing = await this.assetRepository.getDeletionPolicy(dto.ownerId, dto.scope);
     // Revocation never requires available storage/evidence; it cannot replace trusted preparation.
@@ -881,6 +891,106 @@ export class AssetService extends BaseService {
     return { enabled: !!policy?.enabled, prepared, canPrepare: auth.user.isAdmin };
   }
 
+  async libraryDeletionScopes(auth: AuthDto): Promise<TrashDeletionScopeDto[]> {
+    const [libraries, assets] = await Promise.all([
+      this.libraryRepository.getAll(),
+      this.assetRepository.getOwnerTrash(auth.user.id),
+    ]);
+    return Promise.all(
+      libraries
+        .filter((library) => library.ownerId === auth.user.id && !library.deletedAt)
+        .map(async (library) => {
+          const status = await this.libraryDeletionStatus(auth, library.id);
+          return {
+            scope: library.id,
+            name: library.name,
+            count: assets.filter((asset) => asset.libraryId === library.id).length,
+            authorized: status.enabled && status.prepared,
+          };
+        }),
+    );
+  }
+
+  async libraryDeletionStatus(auth: AuthDto, scope: string): Promise<ManagedDeletionStatusDto> {
+    const library = await this.libraryRepository.get(scope);
+    if (!library || library.ownerId !== auth.user.id) throw new ForbiddenException('Unknown owner/library scope');
+    const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
+    let prepared = false;
+    if (
+      policy?.rootIdentities.length &&
+      policy.recoveryExpiresAt &&
+      new Date(policy.recoveryExpiresAt).getTime() > Date.now()
+    ) {
+      try {
+        const current = await this.validateDeletionPolicy({
+          ownerId: auth.user.id,
+          scope,
+          enabled: false,
+          roots: policy.roots,
+          recoveryProof: policy.recoveryProof,
+          verifiedExclusiveRoots: true,
+        });
+        if (
+          current.length !== policy.rootIdentities.length ||
+          current.some((r) => policy.rootIdentities.every((p) => !sameRootIdentity(r, p)))
+        )
+          throw new DeletionError('DELETION_ROOT_CHANGED');
+        await verifyRecoveryEvidence(policy.recoveryProof, auth.user.id, scope, current);
+        prepared = true;
+      } catch {
+        /* changed/deleted library, expired/missing evidence never enables consent */
+      }
+    }
+    return {
+      enabled: !!policy?.enabled && policy.authorizedBy === auth.user.id,
+      prepared,
+      canPrepare: auth.user.isAdmin,
+    };
+  }
+
+  async prepareLibraryDeletion(auth: AuthDto, scope: string, dto: PrepareManagedDeletionDto): Promise<void> {
+    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
+    const library = await this.libraryRepository.get(scope);
+    if (!library || library.ownerId !== auth.user.id || library.deletedAt)
+      throw new ForbiddenException('Unknown owner/library scope');
+    await this.setDeletionPolicy(auth, {
+      ownerId: auth.user.id,
+      scope,
+      enabled: false,
+      roots: library.importPaths,
+      ...dto,
+    });
+  }
+
+  async setLibraryDeletionConsent(auth: AuthDto, scope: string, enabled: boolean): Promise<void> {
+    const library = await this.libraryRepository.get(scope, true);
+    if (!library || library.ownerId !== auth.user.id || (enabled && library.deletedAt))
+      throw new ForbiddenException('Unknown owner/library scope');
+    try {
+      await this.assetRepository.updateLibraryDeletionConsent(
+        auth.user.id,
+        scope,
+        enabled,
+        async (roots, proof, bound) => {
+          const current = await this.validateDeletionPolicy({
+            ownerId: auth.user.id,
+            scope,
+            enabled: true,
+            roots,
+            recoveryProof: proof,
+            verifiedExclusiveRoots: true,
+          });
+          if (current.length !== bound.length || current.some((r) => bound.every((p) => !sameRootIdentity(r, p))))
+            throw new DeletionError('DELETION_ROOT_CHANGED');
+          await verifyRecoveryEvidence(proof, auth.user.id, scope, current);
+        },
+      );
+    } catch (error) {
+      if (error instanceof ConflictException || error instanceof BadRequestException) throw error;
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
   async prepareManagedDeletion(auth: AuthDto, dto: PrepareManagedDeletionDto): Promise<void> {
     if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
     const user = await this.userRepository.get(auth.user.id, {});
@@ -937,7 +1047,8 @@ export class AssetService extends BaseService {
     scope: string,
     policy: Awaited<ReturnType<typeof this.assetRepository.getDeletionPolicy>>,
   ) {
-    if (!policy?.enabled) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (!policy?.enabled || (scope !== 'managed' && policy.authorizedBy !== owner))
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
     if (policy.rootIdentities.length === 0 || !policy.recoveryExpiresAt)
       throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
     if (new Date(policy.recoveryExpiresAt).getTime() <= Date.now())
@@ -948,11 +1059,22 @@ export class AssetService extends BaseService {
       current.some((r) => policy.rootIdentities.every((p) => !sameRootIdentity(r, p)))
     )
       throw new DeletionError('DELETION_ROOT_CHANGED');
-    await this.validateOwnerRootBoundaries(owner, policy.roots, policy.rootIdentities);
+    await this.validateOwnerRootBoundaries(owner, policy.roots, policy.rootIdentities, scope);
     await verifyRecoveryEvidence(policy.recoveryProof, owner, scope, current);
   }
 
-  private async validateOwnerRootBoundaries(owner: string, roots: string[], bound: DeletionRootIdentity[]) {
+  private async validateOwnerRootBoundaries(
+    owner: string,
+    roots: string[],
+    bound: DeletionRootIdentity[],
+    scope: string,
+  ) {
+    if (scope !== 'managed') {
+      const library = await this.libraryRepository.get(scope);
+      if (!library || library.ownerId !== owner || library.deletedAt)
+        throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+      if (roots.some((root) => !library.importPaths.includes(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+    }
     const others = await this.assetRepository.getDeletionRootsForOtherOwners(owner);
     const otherRoots = [
       ...others.external,

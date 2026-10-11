@@ -184,6 +184,14 @@ class _TrashKebabMenu extends ConsumerWidget {
           onPressed: () => _emptyTrash(context, ref),
           menuItem: true,
         ),
+        if (ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion)))
+          BaseActionButton(
+            label: context.t.external_deletion_title,
+            iconData: Icons.folder_delete_outlined,
+            onPressed: () =>
+                showDialog<void>(context: context, builder: (_) => const ManagedDeletionDialog(external: true)),
+            menuItem: true,
+          ),
         BaseActionButton(
           label: context.t.restore_all,
           iconData: Icons.restore_outlined,

@@ -1,15 +1,17 @@
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import fs, { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AssetStatus, AssetType, AssetVisibility, ChecksumAlgorithm, JobName, JobStatus } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
+import { LibraryRepository } from 'src/repositories/library.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { TrashRepository } from 'src/repositories/trash.repository.js';
+import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
 import { up as bindRecovery } from 'src/schema/migrations-gallery/1793700000000-BindDeletionRecovery.js';
 import { AssetService } from 'src/services/asset.service.js';
@@ -33,6 +35,7 @@ beforeEach(async () => {
   evidence = await createTestRecoveryEvidenceStore();
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await evidence.cleanup();
   await rm(root, { recursive: true, force: true });
 });
@@ -41,6 +44,7 @@ const fixture = async (external = false) => {
   const { user } = await ctx.newUser();
   const libraryFixture = external ? await ctx.newLibrary({ ownerId: user.id }) : undefined;
   const library = libraryFixture?.library;
+  if (library) await new LibraryRepository(db).update(library.id, { importPaths: [root] });
   const path = join(root, 'photo.heic');
   await writeFile(path, 'synthetic disposable original');
   const { asset } = await ctx.newAsset({
@@ -81,12 +85,24 @@ const service = (f: Awaited<ReturnType<typeof fixture>>) => {
   test.mocks.event.emit.mockResolvedValue();
   test.mocks.user.updateUsage.mockResolvedValue();
   test.mocks.job.queue.mockResolvedValue();
+  test.mocks.user.get.mockImplementation((id, options) => new UserRepository(db).get(id, options));
+  const libraries = new LibraryRepository(db);
+  test.mocks.library.get.mockImplementation((id) => libraries.get(id));
+  test.mocks.library.getAll.mockImplementation(() => libraries.getAll());
   return { storage, ...test };
 };
 const authFor = (f: Awaited<ReturnType<typeof fixture>>) => ({
   ...authStub.user1,
   user: { ...authStub.user1.user, id: f.user.id },
 });
+
+const externalConsent = async (f: Awaited<ReturnType<typeof fixture>>) => {
+  await f.repo.setDeletionPolicy(f.user.id, f.scope, await prepared(f, false, randomUUID()));
+  const s = service(f);
+  await s.sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
+  expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject({ authorizedBy: f.user.id });
+  return s;
+};
 
 describe('durable per-library authorization with real PostgreSQL and disposable media', () => {
   it('rejects a fabricated digest before committing deletion intent', async () => {
@@ -356,35 +372,40 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     ).toHaveLength(4);
   });
 
-  it('deletes the exclusive Live/Motion video first and retains the still for retry on failure', async () => {
-    const f = await fixture();
-    await authorize(f);
-    const motionPath = join(root, 'motion.mov');
-    await writeFile(motionPath, 'synthetic paired video');
-    const { asset: motion } = await f.ctx.newAsset({
-      ownerId: f.user.id,
-      type: AssetType.Video,
-      visibility: AssetVisibility.Hidden,
-      originalPath: motionPath,
-    });
-    await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
-    const { sut, storage } = service(f);
-    const unlink = new StorageRepository(f.ctx.getMock(LoggingRepository)).unlinkOriginal;
-    let fail = true;
-    vi.spyOn(storage, 'unlinkOriginal').mockImplementation(async (proof) => {
-      if (fail && proof.path === motionPath) throw new Error('fixture failure');
-      await unlink(proof);
-    });
-    const failed = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
-    expect(failed[0].state).toBe('failed');
-    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
-    expect(await db.selectFrom('asset').select('id').where('id', '=', f.asset.id).executeTakeFirst()).toBeDefined();
-    fail = false;
-    const completed = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
-    expect(completed[0].state).toBe('complete');
-    await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
-    expect(await db.selectFrom('asset').select('id').where('id', '=', motion.id).executeTakeFirst()).toBeUndefined();
-  });
+  it.each([false, true])(
+    'deletes the exclusive Live/Motion video first and retains the still for retry (external=%s)',
+    async (external) => {
+      const f = await fixture(external);
+      await authorize(f);
+      const motionPath = join(root, 'motion.mov');
+      await writeFile(motionPath, 'synthetic paired video');
+      const { asset: motion } = await f.ctx.newAsset({
+        ownerId: f.user.id,
+        type: AssetType.Video,
+        visibility: AssetVisibility.Hidden,
+        originalPath: motionPath,
+        libraryId: f.asset.libraryId,
+        isExternal: external,
+      });
+      await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
+      const { sut, storage } = service(f);
+      const unlink = new StorageRepository(f.ctx.getMock(LoggingRepository)).unlinkOriginal;
+      let fail = true;
+      vi.spyOn(storage, 'unlinkOriginal').mockImplementation(async (proof) => {
+        if (fail && proof.path === motionPath) throw new Error('fixture failure');
+        await unlink(proof);
+      });
+      const failed = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
+      expect(failed[0].state).toBe('failed');
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+      expect(await db.selectFrom('asset').select('id').where('id', '=', f.asset.id).executeTakeFirst()).toBeDefined();
+      fail = false;
+      const completed = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
+      expect(completed[0].state).toBe('complete');
+      await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
+      expect(await db.selectFrom('asset').select('id').where('id', '=', motion.id).executeTakeFirst()).toBeUndefined();
+    },
+  );
 
   it('suppresses renamed/recreated-library byte-identical imports without changing path checksums', async () => {
     const f = await fixture(true);
@@ -442,6 +463,278 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     expect(await db.selectFrom('asset').select('status').where('id', '=', f.asset.id).executeTakeFirst()).toEqual({
       status: AssetStatus.Trashed,
     });
+  });
+});
+
+describe('external selective deletion, Empty Trash and NFS-like failure recovery', () => {
+  it('selective external deletion removes the real disposable original only after scoped owner consent', async () => {
+    const f = await fixture(true);
+    const { sut } = await externalConsent(f);
+    expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
+      { id: f.asset.id, scope: f.scope, state: 'complete' },
+    ]);
+    await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
+    expect(await db.selectFrom('asset').select('id').where('id', '=', f.asset.id).executeTakeFirst()).toBeUndefined();
+    expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toBeUndefined();
+  });
+
+  it('Empty Trash removes eligible external photo/video originals but excludes active offline tombstones', async () => {
+    const f = await fixture(true);
+    const videoPath = join(root, 'disposable-video.mp4');
+    const offlinePath = join(root, 'offline-photo.heic');
+    await writeFile(videoPath, 'disposable synthetic video');
+    await writeFile(offlinePath, 'offline original must survive');
+    const { asset: video } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: f.scope,
+      isExternal: true,
+      type: AssetType.Video,
+      originalPath: videoPath,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+    });
+    const { asset: offline } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: f.scope,
+      isExternal: true,
+      originalPath: offlinePath,
+      status: AssetStatus.Active,
+      isOffline: true,
+      deletedAt: new Date('2026-10-02T12:00:00Z'),
+    });
+    const { sut } = await externalConsent(f);
+    expect(await sut.emptyAuthorizedTrash(authFor(f))).toEqual({ count: 2 });
+    for (const id of [f.asset.id, video.id])
+      expect(await f.repo.getDeletionReceipt(f.user.id, id)).toMatchObject({ state: 'complete' });
+    await expect(readFile(videoPath)).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await readFile(offlinePath, 'utf8')).toBe('offline original must survive');
+    expect(await f.repo.getDeletionReceipt(f.user.id, offline.id)).toBeUndefined();
+    expect(
+      await db.selectFrom('asset').select(['status', 'isOffline']).where('id', '=', offline.id).executeTakeFirst(),
+    ).toEqual({ status: AssetStatus.Active, isOffline: true });
+    expect(await sut.libraryDeletionScopes(authFor(f))).toEqual([
+      expect.objectContaining({ scope: f.scope, count: 0, authorized: true }),
+    ]);
+    await sut.setLibraryDeletionConsent(authFor(f), f.scope, false);
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject({ enabled: false });
+  });
+
+  it('another administrator flag alone cannot authorize an external original', async () => {
+    const f = await fixture(true);
+    await f.repo.setDeletionPolicy(f.user.id, f.scope, await prepared(f, true, randomUUID()));
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
+    });
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await new TrashRepository(db).restoreAll([f.asset.id])).toEqual([f.asset.id]);
+  });
+
+  it('external consent revocation blocks a persisted operation and a renewed consent can safely resume it', async () => {
+    const f = await fixture(true);
+    const { sut } = await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await sut.setLibraryDeletionConsent(authFor(f), f.scope, false);
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
+    });
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    await sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
+    expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
+      { id: f.asset.id, scope: f.scope, state: 'complete' },
+    ]);
+  });
+
+  it.each(['paths', 'owner', 'deleted'])(
+    'changed external library %s blocks an already committed intent',
+    async (change) => {
+      const f = await fixture(true);
+      await externalConsent(f);
+      await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+      const libraries = new LibraryRepository(db);
+      switch (change) {
+        case 'paths': {
+          await libraries.update(f.scope, { importPaths: [] });
+          break;
+        }
+        case 'owner': {
+          const { user } = await f.ctx.newUser();
+          await libraries.update(f.scope, { ownerId: user.id });
+
+          break;
+        }
+        case 'deleted': {
+          await libraries.softDelete(f.scope);
+          // No default
+          break;
+        }
+      }
+      await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+        code: change === 'paths' ? 'DELETION_ROOT_CHANGED' : 'LIBRARY_DELETION_NOT_AUTHORIZED',
+      });
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'failed' });
+    },
+  );
+
+  it('library edits cannot race the destructive transaction after its scope check', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const { promise: ready, resolve: entered } = Promise.withResolvers<void>();
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    const deletion = f.repo.removeAuthorizedOriginals(f.asset.id, async (file, recheck) => {
+      entered();
+      await gate;
+      await unlinkOriginal(file, recheck);
+    });
+    await ready;
+    try {
+      await expect(
+        db.transaction().execute(async (tx) => {
+          await sql`set local lock_timeout = '150ms'`.execute(tx);
+          await tx.updateTable('library').set({ importPaths: [] }).where('id', '=', f.scope).execute();
+        }),
+      ).rejects.toHaveProperty('code', '55P03');
+    } finally {
+      release();
+      await deletion;
+    }
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+  });
+
+  it('external authorization never deletes an original referenced by another owner', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    const { user } = await f.ctx.newUser();
+    const { library } = await f.ctx.newLibrary({ ownerId: user.id });
+    const { asset: shared } = await f.ctx.newAsset({
+      ownerId: user.id,
+      libraryId: library.id,
+      isExternal: true,
+      originalPath: f.asset.originalPath,
+    });
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'ORIGINAL_SHARED_WITH_OTHER_ASSET',
+    });
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await db.selectFrom('asset').select('id').where('id', '=', shared.id).executeTakeFirst()).toBeDefined();
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(await new TrashRepository(db).restoreAll([f.asset.id])).toEqual([f.asset.id]);
+  });
+
+  it('managed consent does not authorize external assets or create a partial mixed-scope deletion', async () => {
+    const f = await fixture(true);
+    const managedPath = join(root, 'managed.heic');
+    await writeFile(managedPath, 'managed must survive');
+    const { asset: managed } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      originalPath: managedPath,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+    });
+    await f.repo.setDeletionPolicy(f.user.id, 'managed', await prepared({ ...f, scope: 'managed' }));
+    const { sut } = service(f);
+    const result = await sut.permanentlyDelete(authFor(f), [managed.id, f.asset.id]);
+    expect(result.map((r) => r.state)).toEqual(['blocked', 'blocked']);
+    await expect(sut.emptyAuthorizedTrash(authFor(f))).rejects.toThrow('LIBRARY_DELETION_NOT_AUTHORIZED');
+    for (const id of [managed.id, f.asset.id]) expect(await f.repo.getDeletionReceipt(f.user.id, id)).toBeUndefined();
+    expect(await readFile(managedPath, 'utf8')).toBe('managed must survive');
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
+
+  it.each(['ESTALE', 'EROFS', 'EACCES', 'ETIMEDOUT'])(
+    'NFS-like capture %s failure preserves bytes and a retryable receipt',
+    async (code) => {
+      const f = await fixture(true);
+      await externalConsent(f);
+      await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+      const renameSpy = vi
+        .spyOn(fs, 'rename')
+        .mockRejectedValueOnce(Object.assign(new Error('disposable injected fault'), { code }));
+      await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+        code: 'ORIGINAL_DELETE_FAILED',
+      });
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'failed' });
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+      renameSpy.mockRestore();
+      expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+      expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+    },
+  );
+
+  it('lost NFS rename acknowledgement resumes from the captured original without overwriting or guessing', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const renameActual = fs.rename;
+    const renameSpy = vi.spyOn(fs, 'rename').mockImplementationOnce(async (source, target) => {
+      await renameActual(source, target);
+      throw Object.assign(new Error('injected lost response'), { code: 'ETIMEDOUT' });
+    });
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toThrow();
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', f.asset.id)
+      .executeTakeFirstOrThrow();
+    expect(receipt.state).toBe('failed');
+    expect(
+      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+    ).toContain('synthetic');
+    renameSpy.mockRestore();
+    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
+  });
+
+  it('unsupported NFS directory fsync cannot unlink on first attempt or resumed capture', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const openActual = fs.open;
+    const openSpy = vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
+      const handle = await openActual(file, flags, mode);
+      if (String(file).endsWith('/.gallery-deletion-quarantine'))
+        vi.spyOn(handle, 'sync').mockRejectedValue(Object.assign(new Error('injected NFS fsync'), { code: 'EINVAL' }));
+      return handle;
+    });
+    const unlinkSpy = vi.spyOn(fs, 'unlink');
+    for (const repository of [f.repo, new AssetRepository(db)]) {
+      await expect(repository.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+        code: 'ORIGINAL_DELETE_FAILED',
+      });
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'failed' });
+    }
+    expect(unlinkSpy).not.toHaveBeenCalled();
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', f.asset.id)
+      .executeTakeFirstOrThrow();
+    expect(
+      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+    ).toContain('synthetic');
+    openSpy.mockRestore();
+    expect(await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+  });
+
+  it('lost NFS unlink acknowledgement leaves failed receipt until an authorized retry completes', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const unlinkActual = fs.unlink;
+    const unlinkSpy = vi.spyOn(fs, 'unlink').mockImplementationOnce(async (file) => {
+      await unlinkActual(file);
+      throw Object.assign(new Error('injected lost response'), { code: 'ETIMEDOUT' });
+    });
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toThrow();
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'failed' });
+    unlinkSpy.mockRestore();
+    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
   });
 });
 
