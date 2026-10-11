@@ -103,6 +103,13 @@ service. API **and microservices** must be enabled; an API-only topology stops.
 It never removes orphans, globally prunes Docker, resets data or modifies queues.
 Keep the inpainting container even if not listed in the current Compose files.
 
+For the already built ea51a8ac Gallery 5.7.3 (10) image, use the pinned, logged
+operator handoff in [BUILD10-IMAGE-UPDATE.md](BUILD10-IMAGE-UPDATE.md).
+The image helper hashes the fully resolved env-file configuration; a source-file
+`compose config --hash` can differ from the actual container hash. Strict drift
+checks remain enabled, and old plans require a new private state directory.
+The handoff reuses atomic deletion-queue checks without altering queues.
+
 ```bash
 set -euo pipefail
 umask 077

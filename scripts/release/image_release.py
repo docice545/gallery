@@ -9,6 +9,7 @@ import copy
 from datetime import datetime, timezone
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,7 @@ POSTGRES = 'immich_postgres'
 DOCKER = ['docker', '--host=unix:///var/run/docker.sock']
 ID = r'sha256:[0-9a-f]{64}'
 CAPABILITY = 'bound-root-quarantine-signed-recovery-v1'
+CONFIG_HASH_MODE = 'resolved-environment-compose-escaped-v1'
 BOUND_MIGRATION = '1793700000000-BindDeletionRecovery'
 # Upstream ships a .ts.ts source, hence a .ts.js compiled file and this exact
 # existing Kysely ledger name. No other dotted or path-like names are accepted.
@@ -64,7 +66,10 @@ def need(value, code):
 
 
 def run(command, timeout=30, input=None):
-    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, input=input)
+    local_env = dict(os.environ)
+    for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_TLS', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH'):
+        local_env.pop(key, None)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, input=input, env=local_env)
     need(result.returncode == 0, 'COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')
     return result.stdout
 
@@ -239,7 +244,18 @@ def effective(base, override=None):
 
 
 def config_hash(base, override=None):
-    parts = run([*base, *(['-f', str(override)] if override else []), 'config', '--hash', SERVICE]).split()
+    # Compose's config --hash uses WithoutEnvironmentResolution. Unlike create/up,
+    # it omits env_file contents, so hashing the source files gives a false drift
+    # alarm. Hash the already resolved model instead, using the SAME Compose
+    # ServiceHash implementation. Compose escapes literal $ as $$ in this output:
+    # its loader reverses that escape once, WITHOUT expanding the original value.
+    # --no-interpolate would wrongly retain doubled dollars and give a bad hash.
+    # Pass private values through stdin, never argv, a public file or diagnostics.
+    resolved = effective(base, override)
+    need('-f' in base, 'ACTUAL_COMPOSE_FILES_REQUIRED')
+    prefix = base[:base.index('-f')]
+    parts = run([*prefix, '-f', '-', 'config', '--hash', SERVICE],
+                input=json.dumps(resolved)).split()
     need(len(parts) == 2 and parts[0] == SERVICE and re.fullmatch('[0-9a-f]{64}', parts[1]),
          'COMPOSE_CONFIG_HASH_UNAVAILABLE')
     return parts[1]
@@ -250,6 +266,33 @@ def image_only(before, after, target):
     need(SERVICE in expected.get('services', {}), 'SERVER_SERVICE_MISSING')
     expected['services'][SERVICE]['image'] = target
     need(after == expected, 'COMPOSE_CHANGED_BEYOND_SELECTED_IMAGE')
+
+
+def queue_safety():
+    # Reuse the existing bounded, read-only queue collector and atomic LLEN/ZCARD
+    # checks. No SCAN-only emptiness claim, pause, retry, delete or worker switch.
+    modules = {}
+    for name in ('trash_release', 'trash_predeploy'):
+        path = Path(__file__).with_name(name + '.py')
+        need(path.is_file() and not path.is_symlink(), 'REVIEWED_QUEUE_HELPERS_REQUIRED')
+        spec = importlib.util.spec_from_file_location('image_queue_' + name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        modules[name] = module
+    legacy, predeploy = modules['trash_release'], modules['trash_predeploy']
+    program = legacy.NODE_BASE + predeploy.QUEUE_BODY.replace('__LUA__', json.dumps(predeploy.COUNTS_LUA))
+    row = json.loads(run([*DOCKER, 'exec', '-i', SERVER, 'node', '--input-type=module'], input=program))
+    states = set(legacy.STATES)
+    need(isinstance(row, dict) and not row.get('error') and row.get('atomic') is True and
+         row.get('inventoryComplete') is True and type(row.get('unresolvedDeletionHashes')) is int and
+         row['unresolvedDeletionHashes'] == 0 and
+         set(row.get('deletionNames', {})) == {'AssetDelete', 'FileDelete'} and
+         all(type(n) is int and n == 0 for n in row['deletionNames'].values()) and
+         all(set(row.get(field, {})) == states and
+             all(type(n) is int and n == 0 for n in row[field].values()) for field in ('before', 'counts')),
+         'DELETION_QUEUES_NONEMPTY_OR_INCOMPLETE_NO_JOBS_CHANGED')
+    print('PASS atomic deletion queue counts and legacy inventory; empty at this instant only')
+    return row
 
 
 def inventory():
@@ -303,8 +346,12 @@ def plan(args):
     before = effective(base)
     need(json.loads(docker('image', 'inspect', before['services'][SERVICE]['image']))[0]['Id'] == old['Image'],
          'COMPOSE_IMAGE_DIFFERS_FROM_RUNNING_SERVER')
-    need(config_hash(base) == identity(old).get('com.docker.compose.config-hash'),
-         'COMPOSE_DIFFERS_FROM_RUNNING_SERVER')
+    actual_hash = config_hash(base)
+    running_hash = identity(old).get('com.docker.compose.config-hash')
+    need(re.fullmatch('[0-9a-f]{64}', running_hash or ''), 'RUNNING_COMPOSE_HASH_REQUIRED')
+    need(actual_hash == running_hash,
+         f'COMPOSE_DIFFERS_FROM_RUNNING_SERVER running={running_hash} resolved={actual_hash}')
+    print('PASS resolved env-file configuration hash equals running container')
     workers(environment(old))
     workers(merged_environment(before, previous))
     workers(merged_environment(before, target))
@@ -328,6 +375,8 @@ def plan(args):
     need(merged_environment(before, image(rollback_image)).get('IMMICH_SOURCE_COMMIT') == rollback_source,
          'COMPOSE_OVERRIDES_ROLLBACK_SOURCE')
     for selected in (previous, target, image(rollback_image)):
+        need((selected['Config'].get('Volumes') or {}) == (previous['Config'].get('Volumes') or {}),
+             'IMAGE_VOLUME_DEFAULTS_CHANGED')
         database_binding(before, selected)
     live = live_migrations()
     need(live <= migration_names(candidate_proof), 'CANDIDATE_MISSING_APPLIED_MIGRATION')
@@ -344,7 +393,8 @@ def plan(args):
     if dotenv.exists():
         need(dotenv.is_file() and not dotenv.is_symlink(), 'REGULAR_DOTENV_REQUIRED')
         files.append(dotenv)
-    receipt = {'schemaVersion': 1, 'createdAt': datetime.now(timezone.utc).isoformat(), 'base': base,
+    receipt = {'schemaVersion': 1, 'configHashMode': CONFIG_HASH_MODE,
+               'createdAt': datetime.now(timezone.utc).isoformat(), 'base': base,
                'previousImage': old['Image'], 'candidateImage': args.image, 'previousContainer': old['Id'],
                'previousSource': environment(old).get('IMMICH_SOURCE_COMMIT'), 'sourceCommit': args.source_commit,
                'previousVersion': old_version, 'serverVersion': version, 'api': args.api,
@@ -365,6 +415,7 @@ def plan(args):
 
 def prerequisites(state, rollback=False):
     receipt = private_json(state / 'image-plan.json')
+    need(receipt.get('configHashMode') == CONFIG_HASH_MODE, 'NEW_RESOLVED_COMPOSE_PLAN_REQUIRED')
     need(receipt.get('schemaVersion') == 1 and receipt['base'][:2] == DOCKER[:2] and
          receipt['base'] == [*DOCKER, 'compose', '--project-directory', str(DIRECTORY), '-p', PROJECT,
                              *[value for path in receipt['fileHashes'] if path != str(DIRECTORY / '.env')
@@ -425,6 +476,8 @@ def execute(args, rollback=False):
     if rollback:
         need((state / 'apply-attempt.json').exists(), 'UPDATE_ATTEMPT_REQUIRED_FOR_ROLLBACK')
     if not args.execute_approved:
+        if not rollback:
+            queue_safety()
         print('PASS ' + ('rollback' if rollback else 'update') + ' preflight; dry-run, no mutation')
         return
     authorized(args)
@@ -445,6 +498,8 @@ def execute(args, rollback=False):
         if pending:
             need(getattr(args, 'approve_migration', False) and os.environ.get('GALLERY_ADDITIVE_MIGRATION_APPROVED') == 'YES',
                  'SEPARATE_ADDITIVE_MIGRATION_APPROVAL_REQUIRED')
+        if not rollback:
+            queue_safety()  # Last bounded observation immediately before update; not a durable pause.
         attempt = state / ('rollback-attempt.json' if rollback else 'apply-attempt.json')
         save(attempt, {'targetImage': target, 'migrationsApproved': sorted(pending),
                        'startedAt': datetime.now(timezone.utc).isoformat()})

@@ -37,6 +37,19 @@ def proof(source, version):
                                                      'services/asset.service.js', 'services/library.service.js')}}
 
 
+class LocalDockerExecution(unittest.TestCase):
+    def test_inherited_endpoint_selectors_cannot_redirect_local_socket_calls(self):
+        selectors = {'DOCKER_HOST': 'tcp://must-not-use.invalid:1234', 'DOCKER_CONTEXT': 'foreign',
+                     'DOCKER_TLS': '1', 'DOCKER_TLS_VERIFY': '1', 'DOCKER_CERT_PATH': '/synthetic/tls'}
+        with patch.dict(os.environ, {**selectors, 'SYNTHETIC_USER_SETTING': 'preserved'}), \
+                patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='ok')) as run:
+            self.assertEqual(release.run([*LOCAL_DOCKER, 'version']), 'ok')
+        env = run.call_args.kwargs['env']
+        self.assertTrue(all(key not in env for key in selectors))
+        self.assertEqual(env['SYNTHETIC_USER_SETTING'], 'preserved')
+        self.assertEqual(run.call_args.args[0], [*LOCAL_DOCKER, 'version'])
+
+
 class ActualImageProof(unittest.TestCase):
     def test_upstream_double_extension_identity_is_accepted_in_packaged_and_live_inventory(self):
         valid = proof(CANDIDATE_SOURCE, (5, 7, 3))
@@ -216,6 +229,90 @@ class WorkerConfiguration(unittest.TestCase):
                     self.assertEqual(merged['IMMICH_WORKERS_INCLUDE'], '')
 
 
+class ResolvedComposeHash(unittest.TestCase):
+    def setUp(self):
+        self.base = [*LOCAL_DOCKER, 'compose', '--project-directory', '/synthetic/immich',
+                     '-p', 'immich', '-f', '/synthetic/compose.yml', '-f', '/synthetic/recovery.json']
+        self.resolved = {'name': 'immich', 'services': {release.SERVICE: {
+            'image': PREVIOUS, 'environment': {'PRIVATE': 'synthetic-$$literal-$$$$', 'EMPTY': ''},
+            'volumes': [{'type': 'bind', 'source': '/synthetic/evidence',
+                         'target': '/run/recovery', 'read_only': True}]}},
+            'networks': {'default': {'name': 'immich_default'}}}
+
+    def test_hashes_full_compose_escaped_resolved_model_using_private_stdin(self):
+        with patch.object(release, 'effective', return_value=self.resolved) as effective, \
+                patch.object(release, 'run', return_value=release.SERVICE + ' ' + PREVIOUS_HASH + '\n') as run:
+            self.assertEqual(release.config_hash(self.base), PREVIOUS_HASH)
+        effective.assert_called_once_with(self.base, None)
+        command = run.call_args.args[0]
+        self.assertEqual(command, [*self.base[:self.base.index('-f')], '-f', '-', 'config', '--hash', release.SERVICE])
+        self.assertEqual(json.loads(run.call_args.kwargs['input']), self.resolved)
+        self.assertNotIn(self.resolved['services'][release.SERVICE]['environment']['PRIVATE'], command)
+
+    def test_candidate_and_rollback_overrides_are_resolved_before_hashing(self):
+        for name, target in (('image-only.override.json', CANDIDATE), ('rollback-image-only.override.json', PREVIOUS)):
+            override = Path('/synthetic/' + name)
+            resolved = copy.deepcopy(self.resolved)
+            resolved['services'][release.SERVICE]['image'] = target
+            with self.subTest(override=name), patch.object(release, 'effective', return_value=resolved) as effective, \
+                    patch.object(release, 'run', return_value=release.SERVICE + ' ' + CANDIDATE_HASH) as run:
+                release.config_hash(self.base, override)
+            effective.assert_called_once_with(self.base, override)
+            self.assertEqual(json.loads(run.call_args.kwargs['input']), resolved)
+
+    def test_invalid_hash_output_and_unavailable_environment_resolution_fail_closed(self):
+        for output in ('', PREVIOUS_HASH, 'foreign ' + PREVIOUS_HASH,
+                       release.SERVICE + ' invalid', release.SERVICE + ' ' + PREVIOUS_HASH + ' extra'):
+            with self.subTest(output=output), patch.object(release, 'effective', return_value=self.resolved), \
+                    patch.object(release, 'run', return_value=output), \
+                    self.assertRaisesRegex(release.Stop, 'COMPOSE_CONFIG_HASH_UNAVAILABLE'):
+                release.config_hash(self.base)
+        with patch.object(release, 'effective', side_effect=release.Stop('ENV_RESOLUTION_FAILED')), \
+                patch.object(release, 'run') as run, self.assertRaisesRegex(release.Stop, 'ENV_RESOLUTION_FAILED'):
+            release.config_hash(self.base)
+        run.assert_not_called()
+
+
+class DeletionQueueEvidence(unittest.TestCase):
+    def valid(self):
+        counts = {name: 0 for name in ('active', 'wait', 'paused', 'delayed', 'prioritized', 'waiting-children', 'failed')}
+        return {'atomic': True, 'inventoryComplete': True, 'before': counts.copy(), 'counts': counts.copy(),
+                'unresolvedDeletionHashes': 0, 'deletionNames': {'AssetDelete': 0, 'FileDelete': 0}}
+
+    def test_reuses_atomic_counts_and_bounded_orphan_inventory_readonly(self):
+        with patch.object(release, 'run', return_value=json.dumps(self.valid())) as run:
+            self.assertEqual(release.queue_safety(), self.valid())
+        self.assertEqual(run.call_args.args[0], [*LOCAL_DOCKER, 'exec', '-i', release.SERVER, 'node', '--input-type=module'])
+        program = run.call_args.kwargs['input']
+        for required in ('LLEN', 'ZCARD', 'inventoryComplete', 'AssetDelete', 'FileDelete'):
+            self.assertIn(required, program)
+        for forbidden in ('.del(', '.lpop(', '.rpop(', '.pause(', '.resume(', '.retry(', '.clean(', '.remove('):
+            self.assertNotIn(forbidden, program)
+
+    def test_scan_empty_but_atomic_state_nonempty_legacy_hash_or_incomplete_inventory_stops(self):
+        for field in ('atomic', 'inventoryComplete', 'unresolvedDeletionHashes', 'AssetDelete', 'FileDelete',
+                      'before.active', 'counts.wait', 'counts.failed', 'missing-state', 'boolean-count', 'error'):
+            row = self.valid()
+            if field in ('atomic', 'inventoryComplete'):
+                row[field] = False
+            elif field == 'unresolvedDeletionHashes':
+                row[field] = 1
+            elif field in ('AssetDelete', 'FileDelete'):
+                row['deletionNames'][field] = 1
+            elif '.' in field:
+                group, state = field.split('.')
+                row[group][state] = 1
+            elif field == 'missing-state':
+                row['counts'].pop('delayed')
+            elif field == 'boolean-count':
+                row['counts']['wait'] = False
+            else:
+                row['error'] = 'QUEUE_READ_FAILED'
+            with self.subTest(field=field), patch.object(release, 'run', return_value=json.dumps(row)), \
+                    self.assertRaisesRegex(release.Stop, 'DELETION_QUEUES_NONEMPTY_OR_INCOMPLETE_NO_JOBS_CHANGED'):
+                release.queue_safety()
+
+
 class OperatorFixture(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -284,7 +381,8 @@ class OperatorFixture(unittest.TestCase):
         release.save(self.state / 'base-config.json', self.before)
         release.save(self.state / 'planned-config.json', self.after)
         release.save(self.state / 'image-only.override.json', {'services': {release.SERVICE: {'image': CANDIDATE}}})
-        self.receipt = {'schemaVersion': 1, 'base': self.base, 'previousImage': PREVIOUS,
+        self.receipt = {'schemaVersion': 1, 'configHashMode': release.CONFIG_HASH_MODE,
+                        'base': self.base, 'previousImage': PREVIOUS,
                         'candidateImage': CANDIDATE, 'previousContainer': self.old['Id'],
                         'previousSource': PREVIOUS_SOURCE, 'sourceCommit': CANDIDATE_SOURCE,
                         'rollbackImage': PREVIOUS, 'rollbackSource': PREVIOUS_SOURCE,
@@ -327,6 +425,7 @@ class OperatorFixture(unittest.TestCase):
                 'inspect': {'return_value': current}, 'effective': {'side_effect': effective},
                 'image': {'side_effect': image}, 'inventory': {'return_value': copy.deepcopy(self.other)},
                 'health': {'side_effect': healthy}, 'config_hash': {'side_effect': config_hash},
+                'queue_safety': {'return_value': {}},
                 'docker': {'return_value': json.dumps([self.previous_image])},
                 'database_binding': {'return_value': None},
                 'ping': {'return_value': {'major': 5, 'minor': 7, 'patch': 1, 'prerelease': None}},
@@ -490,6 +589,13 @@ class ComposeAndPlanning(OperatorFixture):
             mocks['run'].assert_not_called()
         self.assertEqual(list(self.state.iterdir()), [])
 
+    def test_changed_candidate_image_volume_defaults_cannot_create_anonymous_storage(self):
+        self.candidate_image['Config']['Volumes'] = {'/unexpected-data': {}}
+        with self.runtime() as mocks, self.assertRaisesRegex(release.Stop, 'IMAGE_VOLUME_DEFAULTS_CHANGED'):
+            release.plan(self.args)
+        mocks['run'].assert_not_called()
+        self.assertEqual(list(self.state.iterdir()), [])
+
     def test_plan_changed_other_container_does_not_issue_receipt(self):
         with self.runtime() as mocks:
             mocks['inventory'].side_effect = [self.other, {}]
@@ -503,6 +609,17 @@ class PrerequisiteFailures(OperatorFixture):
     def setUp(self):
         super().setUp()
         self.seed_plan()
+
+    def test_legacy_or_unknown_hash_mode_requires_a_new_plan_without_any_execution(self):
+        for mode in (None, 'raw-env-file-omitting-hash', 'unknown'):
+            changed = copy.deepcopy(self.receipt)
+            changed['configHashMode'] = mode
+            (self.state / 'image-plan.json').write_text(json.dumps(changed))
+            with self.subTest(mode=mode), self.runtime() as mocks, \
+                    self.assertRaisesRegex(release.Stop, 'NEW_RESOLVED_COMPOSE_PLAN_REQUIRED'):
+                release.prerequisites(self.state)
+            mocks['inspect'].assert_not_called()
+            mocks['run'].assert_not_called()
 
     def test_original_compose_and_dotenv_mutations_rejected_before_docker(self):
         for path in [*self.files, self.directory / '.env']:
@@ -631,6 +748,24 @@ class ExecutionFailures(OperatorFixture):
     def assert_no_completion(self, rollback=False):
         self.assertTrue((self.state / ('rollback-attempt.json' if rollback else 'apply-attempt.json')).is_file())
         self.assertFalse((self.state / ('rolled-back.json' if rollback else 'applied.json')).exists())
+
+    def test_incomplete_or_nonempty_queue_stops_before_attempt_and_up(self):
+        with self.runtime() as mocks:
+            mocks['queue_safety'].side_effect = release.Stop('DELETION_QUEUES_NONEMPTY_OR_INCOMPLETE_NO_JOBS_CHANGED')
+            with self.assertRaisesRegex(release.Stop, 'DELETION_QUEUES_NONEMPTY_OR_INCOMPLETE'):
+                release.execute(self.args)
+            mocks['run'].assert_not_called()
+        self.assertFalse((self.state / 'apply-attempt.json').exists())
+
+    def test_emergency_rollback_does_not_require_exec_in_a_stopped_api_container(self):
+        release.save(self.state / 'apply-attempt.json', {'targetImage': CANDIDATE})
+        current = self.container(CANDIDATE, 'failed-candidate', CANDIDATE_HASH, CANDIDATE_SOURCE)
+        current['State']['Running'] = False
+        with self.runtime(current) as mocks:
+            mocks['queue_safety'].side_effect = AssertionError('stopped API must not be execed')
+            release.execute(self.args, rollback=True)
+            mocks['queue_safety'].assert_not_called()
+        self.assertTrue((self.state / 'rolled-back.json').exists())
 
     def test_additive_migration_requires_separate_approval_before_attempt_or_up(self):
         baseline = {MIGRATIONS[0]['name']}
