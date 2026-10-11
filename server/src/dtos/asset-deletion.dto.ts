@@ -57,6 +57,10 @@ export class PrepareManagedDeletionDto extends createZodDto(
     .meta({ id: 'PrepareManagedDeletionDto' }),
 ) {}
 
+export class AdminPrepareDeletionDto extends createZodDto(
+  PrepareManagedDeletionDto.schema.extend({ ownerId: z.uuid() }).strict().meta({ id: 'AdminPrepareDeletionDto' }),
+) {}
+
 export class ManagedDeletionConsentDto extends createZodDto(
   z.object({ enabled: z.boolean(), confirmed: z.literal(true) }).meta({ id: 'ManagedDeletionConsentDto' }),
 ) {}

@@ -3,7 +3,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs, { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { AssetStatus, AssetType, AssetVisibility, ChecksumAlgorithm, JobName, JobStatus } from 'src/enum.js';
+import type { AuthDto } from 'src/dtos/auth.dto.js';
+import { StorageCore } from 'src/cores/storage.core.js';
+import {
+  AssetStatus,
+  AssetType,
+  AssetVisibility,
+  ChecksumAlgorithm,
+  JobName,
+  JobStatus,
+  StorageFolder,
+} from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
@@ -104,6 +114,99 @@ const externalConsent = async (f: Awaited<ReturnType<typeof fixture>>) => {
   expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject({ authorizedBy: f.user.id });
   return s;
 };
+
+describe.each([false, true])('administrator preparation and owner consent (external=%s)', (external) => {
+  const admin: AuthDto = { ...authStub.admin, user: { ...authStub.admin.user, id: randomUUID() } };
+  const preparationService = (f: Awaited<ReturnType<typeof fixture>>) => {
+    const actualFolder = StorageCore.getFolderLocation;
+    const actualLibrary = StorageCore.getLibraryFolder;
+    vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
+      owner === f.user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
+    );
+    vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((user) =>
+      user.id === f.user.id ? root : actualLibrary(user),
+    );
+    const test = service(f);
+    return {
+      ...test,
+      prepare: (proof: string, owner = f.user.id) => {
+        const dto = { recoveryProof: proof, verifiedExclusiveRoots: true as const };
+        return external
+          ? test.sut.prepareLibraryDeletionForOwner(admin, owner, f.scope, dto)
+          : test.sut.prepareManagedDeletionForOwner(admin, owner, dto);
+      },
+    };
+  };
+
+  it('stores only a disabled target-owner policy after real signed root verification', async () => {
+    const f = await fixture(external);
+    const values = await prepared(f, false, admin.user.id);
+    const s = preparationService(f);
+    await s.prepare(values.recoveryProof);
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject(values);
+    expect(await f.repo.getDeletionPolicy(admin.user.id, f.scope)).toBeUndefined();
+    expect(await f.repo.getDeletionPolicy(f.user.id, external ? 'managed' : randomUUID())).toBeUndefined();
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(s.mocks.job.queue).not.toHaveBeenCalled();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toBe('synthetic disposable original');
+  });
+
+  it('administrator cannot consent for the prepared owner; owner can enable and revoke only that scope', async () => {
+    const f = await fixture(external);
+    const s = preparationService(f);
+    const evidence = await prepared(f, false);
+    await s.prepare(evidence.recoveryProof);
+    const consent = (auth: AuthDto, enabled: boolean) =>
+      external
+        ? s.sut.setLibraryDeletionConsent(auth, f.scope, enabled)
+        : s.sut.setManagedDeletionConsent(auth, enabled);
+    await expect(consent(admin, true)).rejects.toThrow();
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject({ enabled: false });
+    await consent(authFor(f), true);
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject({ enabled: true });
+    expect(await f.repo.getDeletionPolicy(admin.user.id, f.scope)).toBeUndefined();
+    await consent(authFor(f), false);
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toMatchObject({ enabled: false });
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toBe('synthetic disposable original');
+  });
+
+  it('rejects a real signature belonging to another owner without storing a policy', async () => {
+    const f = await fixture(external);
+    const values = await prepared(f, false);
+    const wrong = await evidence.install(admin.user.id, f.scope, values.rootIdentities);
+    await expect(preparationService(f).prepare(wrong.digest)).rejects.toThrow('DELETION_RECOVERY_SCOPE_MISMATCH');
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toBeUndefined();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toBe('synthetic disposable original');
+  });
+
+  it('rejects expired signed preparation without storing a policy', async () => {
+    const f = await fixture(external);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now - 2 * 60 * 60 * 1000);
+    const values = await prepared(f, false);
+    clock.mockRestore();
+    await expect(preparationService(f).prepare(values.recoveryProof)).rejects.toThrow('DELETION_RECOVERY_EXPIRED');
+    expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toBeUndefined();
+  });
+
+  it('rejects a substituted root inode against the original signed proof', async () => {
+    const parent = root;
+    root = join(parent, 'authorized');
+    await mkdir(root);
+    try {
+      const f = await fixture(external);
+      const values = await prepared(f, false);
+      await rename(root, root + '.saved');
+      await mkdir(root);
+      await expect(preparationService(f).prepare(values.recoveryProof)).rejects.toThrow('DELETION_ROOT_CHANGED');
+      expect(await f.repo.getDeletionPolicy(f.user.id, f.scope)).toBeUndefined();
+      expect(await readFile(join(root + '.saved', 'photo.heic'), 'utf8')).toBe('synthetic disposable original');
+    } finally {
+      root = parent;
+    }
+  });
+});
 
 describe('durable per-library authorization with real PostgreSQL and disposable media', () => {
   it('rejects a fabricated digest before committing deletion intent', async () => {

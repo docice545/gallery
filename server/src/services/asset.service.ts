@@ -819,10 +819,14 @@ export class AssetService extends BaseService {
       });
       return;
     }
+    await this.prepareDeletionPolicy(auth, dto);
+  }
+
+  private async prepareDeletionPolicy(auth: AuthDto, dto: DeletionPolicyDto): Promise<void> {
     const identities = await this.validateDeletionPolicy(dto);
     const evidence = await this.verifyEvidence(dto.recoveryProof, dto.ownerId, dto.scope, identities);
     await this.assetRepository.setDeletionPolicy(dto.ownerId, dto.scope, {
-      enabled: dto.enabled,
+      enabled: false,
       roots: dto.roots,
       rootIdentities: identities,
       recoveryExpiresAt: new Date(evidence.expiresAt),
@@ -949,16 +953,26 @@ export class AssetService extends BaseService {
   }
 
   async prepareLibraryDeletion(auth: AuthDto, scope: string, dto: PrepareManagedDeletionDto): Promise<void> {
+    return this.prepareLibraryDeletionForOwner(auth, auth.user.id, scope, dto);
+  }
+
+  async prepareLibraryDeletionForOwner(
+    auth: AuthDto,
+    ownerId: string,
+    scope: string,
+    dto: PrepareManagedDeletionDto,
+  ): Promise<void> {
     if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
     const library = await this.libraryRepository.get(scope);
-    if (!library || library.ownerId !== auth.user.id || library.deletedAt)
+    if (!library || library.ownerId !== ownerId || library.deletedAt)
       throw new ForbiddenException('Unknown owner/library scope');
-    await this.setDeletionPolicy(auth, {
-      ownerId: auth.user.id,
+    await this.prepareDeletionPolicy(auth, {
+      ownerId,
       scope,
       enabled: false,
       roots: library.importPaths,
-      ...dto,
+      recoveryProof: dto.recoveryProof,
+      verifiedExclusiveRoots: dto.verifiedExclusiveRoots,
     });
   }
 
@@ -992,28 +1006,24 @@ export class AssetService extends BaseService {
   }
 
   async prepareManagedDeletion(auth: AuthDto, dto: PrepareManagedDeletionDto): Promise<void> {
+    return this.prepareManagedDeletionForOwner(auth, auth.user.id, dto);
+  }
+
+  async prepareManagedDeletionForOwner(auth: AuthDto, ownerId: string, dto: PrepareManagedDeletionDto): Promise<void> {
     if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
-    const user = await this.userRepository.get(auth.user.id, {});
+    const user = await this.userRepository.get(ownerId, {});
     if (!user) throw new BadRequestException('Unknown owner');
     const allowed = [StorageCore.getFolderLocation(StorageFolder.Upload, user.id), StorageCore.getLibraryFolder(user)];
     const roots: string[] = [];
     for (const root of new Set(allowed)) if (await this.storageRepository.checkFileExists(root)) roots.push(root);
     if (roots.length === 0) throw new BadRequestException('No existing managed storage roots');
-    const identities = await this.validateDeletionPolicy({
+    await this.prepareDeletionPolicy(auth, {
       ownerId: user.id,
       scope: 'managed',
       roots,
       enabled: false,
-      ...dto,
-    });
-    const evidence = await this.verifyEvidence(dto.recoveryProof, user.id, 'managed', identities);
-    await this.assetRepository.setDeletionPolicy(user.id, 'managed', {
-      enabled: false,
-      roots,
-      rootIdentities: identities,
-      recoveryExpiresAt: new Date(evidence.expiresAt),
       recoveryProof: dto.recoveryProof,
-      authorizedBy: auth.user.id,
+      verifiedExclusiveRoots: dto.verifiedExclusiveRoots,
     });
   }
 

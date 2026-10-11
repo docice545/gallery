@@ -16,6 +16,7 @@ import { ApiExcludeEndpoint, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
 import {
+  AdminPrepareDeletionDto,
   DeletionPolicyDto,
   DeletionPreflightResultDto,
   ManagedDeletionConsentDto,
@@ -133,6 +134,14 @@ export class AssetController {
     return this.service.prepareManagedDeletion(auth, dto);
   }
 
+  @Put('admin/managed-deletion-preparation')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareManagedDeletionForOwner(@Auth() auth: AuthDto, @Body() dto: AdminPrepareDeletionDto): Promise<void> {
+    const { ownerId, ...preparation } = dto;
+    return this.service.prepareManagedDeletionForOwner(auth, ownerId, preparation);
+  }
+
   @Put('managed-deletion-consent')
   @Authenticated({ permission: Permission.AssetDelete })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -161,6 +170,18 @@ export class AssetController {
     @Body() dto: PrepareManagedDeletionDto,
   ): Promise<void> {
     return this.service.prepareLibraryDeletion(auth, id, dto);
+  }
+
+  @Put('admin/library-deletion-preparation/:id')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareLibraryDeletionForOwner(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: AdminPrepareDeletionDto,
+  ): Promise<void> {
+    const { ownerId, ...preparation } = dto;
+    return this.service.prepareLibraryDeletionForOwner(auth, ownerId, id, preparation);
   }
 
   @Put('library-deletion-consent/:id')

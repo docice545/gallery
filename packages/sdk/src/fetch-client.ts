@@ -1496,6 +1496,11 @@ export type AssetBulkUpdateDto = {
     timeZone?: string;
     visibility?: AssetVisibility;
 };
+export type AdminPrepareDeletionDto = {
+    ownerId: string;
+    recoveryProof: string;
+    verifiedExclusiveRoots: true;
+};
 export type AssetBulkUploadCheckItem = {
     /** Base64 or hex encoded SHA1 hash */
     checksum: string;
@@ -6342,6 +6347,25 @@ export function updateAssets({ assetBulkUpdateDto }: {
         ...opts,
         method: "PUT",
         body: assetBulkUpdateDto
+    })));
+}
+export function prepareLibraryDeletionForOwner({ id, adminPrepareDeletionDto }: {
+    id: string;
+    adminPrepareDeletionDto: AdminPrepareDeletionDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/assets/admin/library-deletion-preparation/${encodeURIComponent(id)}`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: adminPrepareDeletionDto
+    })));
+}
+export function prepareManagedDeletionForOwner({ adminPrepareDeletionDto }: {
+    adminPrepareDeletionDto: AdminPrepareDeletionDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText("/assets/admin/managed-deletion-preparation", oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: adminPrepareDeletionDto
     })));
 }
 /**

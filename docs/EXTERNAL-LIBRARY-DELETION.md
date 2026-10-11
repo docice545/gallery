@@ -102,8 +102,10 @@ user Trash; no migration is added by this follow-up. Retention remains skipped.
 5. An administrator who owns the library opens Trash → **Разрешение удаления из
    внешней библиотеки**, selects its name/UUID and prepares the installed proof.
    On web expand the same section and the selected library. For another owner,
-   an administrator uses the existing admin policy endpoint with that exact owner,
-   library UUID, verified roots/proof and `enabled:false`.
+   an administrator uses `PUT /assets/admin/library-deletion-preparation/{UUID}`
+   with that exact `ownerId`, installed `recoveryProof` and
+   `verifiedExclusiveRoots:true`. The server derives current import roots and
+   verifies owner/scope/root binding; preparation always stores `enabled:false`.
 6. The owner signs into their existing account, selects that same library in Trash,
    chooses **Разрешить удаление из этой библиотеки** and confirms. Do this separately
    for each library/user. Enabling one library grants no other scope or retention.
@@ -114,13 +116,15 @@ user Trash; no migration is added by this follow-up. Retention remains skipped.
 
 Additive endpoints (all under `/api`, using existing permissions):
 
-| Endpoint                                          | Contract                                                                                                                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /assets/library-deletion-policy`             | Owner's non-deleted libraries, including empty ones: `scope`, optional `name`, genuine Trash `count`, `authorized`. No filesystem paths or recovery contents. |
-| `GET /assets/library-deletion-policy/{UUID}`      | Owner only: `enabled`, `prepared`, `canPrepare`.                                                                                                              |
-| `PUT /assets/library-deletion-preparation/{UUID}` | Admin-owned library: `{recoveryProof, verifiedExclusiveRoots:true}`; prepares disabled policy from configured import roots.                                   |
-| `PUT /assets/deletion-policy`                     | Existing admin-only preparation/revocation of another owner's verified scope. `enabled:true` is rejected.                                                     |
-| `PUT /assets/library-deletion-consent/{UUID}`     | Owner only: `{enabled:true/false, confirmed:true}`; exact scope, no supplied owner or arbitrary roots.                                                        |
+| Endpoint                                                | Contract                                                                                                                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /assets/library-deletion-policy`                   | Owner's non-deleted libraries, including empty ones: `scope`, optional `name`, genuine Trash `count`, `authorized`. No filesystem paths or recovery contents. |
+| `GET /assets/library-deletion-policy/{UUID}`            | Owner only: `enabled`, `prepared`, `canPrepare`.                                                                                                              |
+| `PUT /assets/library-deletion-preparation/{UUID}`       | Admin-owned library: `{recoveryProof, verifiedExclusiveRoots:true}`; prepares disabled policy from configured import roots.                                   |
+| `PUT /assets/admin/library-deletion-preparation/{UUID}` | Admin + system-config permission: `{ownerId,recoveryProof,verifiedExclusiveRoots:true}`; exact owner/library association required; never grants consent.      |
+| `PUT /assets/admin/managed-deletion-preparation`        | Same protected preparation for the selected owner's managed roots only; never grants external-library consent.                                                |
+| `PUT /assets/deletion-policy`                           | Existing admin-only preparation/revocation of another owner's verified scope. `enabled:true` is rejected.                                                     |
+| `PUT /assets/library-deletion-consent/{UUID}`           | Owner only: `{enabled:true/false, confirmed:true}`; exact scope, no supplied owner or arbitrary roots.                                                        |
 
 Selective deletion, Empty Trash and receipt/status APIs retain their existing
 contracts. Generated TypeScript/Dart contracts include the new endpoints. Older

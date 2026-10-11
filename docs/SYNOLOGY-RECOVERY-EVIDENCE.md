@@ -283,16 +283,16 @@ done
 операция отказывается. Server отдельно требует действительный `ro` bind и
 проверяет current evidence перед разрешением unlink.
 
-Для каждого другого owner администратор вызывает существующий
-`PUT /api/assets/deletion-policy`. Сформировать private JSON из
-`prepared-N/input-receipt.json`, `prepared-N/roots.json` и `proof-N.json`:
+Для каждого owner администратор вызывает отдельный защищённый preparation API:
+`PUT /api/assets/admin/library-deletion-preparation/<library UUID>` для внешней
+библиотеки или `PUT /api/assets/admin/managed-deletion-preparation` для managed.
+Нужны admin role и существующее разрешение `systemConfig.update`; аккаунты и
+API keys не пересоздаются. Сформировать private JSON из `prepared-N/input-receipt.json`
+и `proof-N.json`:
 
 ```json
 {
   "ownerId": "<exact capture owner UUID>",
-  "scope": "<exact library UUID>",
-  "enabled": false,
-  "roots": ["<exact verified import root>"],
   "recoveryProof": "<evidenceSHA256>",
   "verifiedExclusiveRoots": true
 }
@@ -305,10 +305,22 @@ NFS UID/GID mapping и отсутствие других writers/общих orig
 ```bash
 curl --fail --silent --show-error --request PUT --header "@$PHASE/api-header" \
   --header 'Content-Type: application/json' --data-binary '@<private policy JSON>' \
-  "$API/assets/deletion-policy" --output '<unused private response file>'
+  "$API/assets/admin/library-deletion-preparation/<exact library UUID>" \
+  --output '<unused private response file>'
 ```
 
-Backend отклоняет `enabled:true` от administrator preparation. Для своей library
+Для managed отправить тот же JSON на `$API/assets/admin/managed-deletion-preparation`
+с evidence именно для этого `ownerId` и scope `managed`. Для external UUID в URL
+должен принадлежать этому owner; proof должен содержать тот же UUID как scope.
+Roots берутся на сервере из текущих managed paths/importPaths и проверяются
+против подписанной root identity, NFS identity и срока действия evidence.
+Preparation всегда повторяет проверку, включая ранее установленный proof,
+сохраняет `enabled:false` и не запускает retention или удаление файлов.
+Поля `enabled`, `roots` и `scope` в новом preparation JSON запрещены.
+Generic `PUT /api/assets/deletion-policy` сохраняется для совместимости и
+административного отзыва; он также не допускает `enabled:true`.
+
+Для своей library
 администратор также может подготовить installed proof через Android/web Trash.
 Проверка proof не даёт администратору права согласиться за другой owner.
 
