@@ -38,6 +38,33 @@ def proof(source, version):
 
 
 class ActualImageProof(unittest.TestCase):
+    def test_upstream_double_extension_identity_is_accepted_in_packaged_and_live_inventory(self):
+        valid = proof(CANDIDATE_SOURCE, (5, 7, 3))
+        valid['migrations'].append({'name': release.LEGACY_CHECKSUM_MIGRATION, 'sha256': 'd' * 64})
+        with patch.object(release, 'image', return_value={'Config': {'Env': ['IMMICH_SOURCE_COMMIT=' + CANDIDATE_SOURCE]}}), \
+                patch.object(release, 'run', return_value=json.dumps(valid)):
+            self.assertEqual(release.probe_image(CANDIDATE, CANDIDATE_SOURCE, (5, 7, 3)), valid)
+        names = [row['name'] for row in valid['migrations']]
+        with patch.object(release, 'postgres', return_value=('database', 'postgres', 'immich')), \
+                patch.object(release, 'run', return_value=json.dumps(names)):
+            self.assertEqual(release.live_migrations(), set(names))
+
+    def test_arbitrary_dotted_or_path_names_still_fail_closed_in_both_inventories(self):
+        for name in ('1774548649115-Other.ts', '1774548649115-AddChecksumAlgorithm.ts.ts',
+                     '../1774548649115-AddChecksumAlgorithm.ts', '1800000000000-Other.js'):
+            invalid = proof(CANDIDATE_SOURCE, (5, 7, 3))
+            invalid['migrations'].append({'name': name, 'sha256': 'd' * 64})
+            with self.subTest(name=name), \
+                    patch.object(release, 'image', return_value={'Config': {'Env': ['IMMICH_SOURCE_COMMIT=' + CANDIDATE_SOURCE]}}), \
+                    patch.object(release, 'run', return_value=json.dumps(invalid)), \
+                    self.assertRaisesRegex(release.Stop, 'PACKAGED_MIGRATION_PROOF_REQUIRED'):
+                release.probe_image(CANDIDATE, CANDIDATE_SOURCE, (5, 7, 3))
+            with self.subTest(live_name=name), \
+                    patch.object(release, 'postgres', return_value=('database', 'postgres', 'immich')), \
+                    patch.object(release, 'run', return_value=json.dumps([release.BOUND_MIGRATION, name])), \
+                    self.assertRaisesRegex(release.Stop, 'LIVE_MIGRATION_INVENTORY_REQUIRED'):
+                release.live_migrations()
+
     def test_probe_reads_actual_compiled_guard_and_migrations_without_application_startup(self):
         valid = proof(CANDIDATE_SOURCE, (5, 7, 2))
         with patch.object(release, 'image', return_value={'Config': {'Env': ['IMMICH_SOURCE_COMMIT=' + CANDIDATE_SOURCE]}}), \

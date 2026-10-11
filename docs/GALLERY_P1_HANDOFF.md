@@ -10,9 +10,12 @@ Completed source commits:
 
 - `19452ecfad7b39c921829f952ebd0f268e8dcc6a`: verified grants, filesystem
   boundaries, migration and backend regressions.
-- `8a0dd25fc1`: client consent/errors, translations and candidate version.
+- `8a0dd25fc11c13e89bf5fecc5c8a2b8fb92262d7`: client consent/errors,
+  translations and candidate version.
+- `cceb5733d2b63b5812a5e5d9bd3682d61dc5132b`: worker-preserving deployment,
+  hardened rollback and release runbook.
 
-The release-tooling commit containing this handoff completes the series. Obtain
+The final tooling-only migration-name correction completes the series. Obtain
 the exact final source with `git rev-parse HEAD`; do not substitute either earlier
 commit when building the three release components.
 
@@ -64,9 +67,9 @@ managed consent grants no external-library rights. Retention remains skipped.
 | Full Flutter before final localized-code additions | 4,651 PASS, zero failures, one pre-existing skipped suite            |
 | Final Flutter mapping/API/widget check             | 26 PASS / two files, zero failures/skips                             |
 | Final web settings/selection/Trash/Empty Trash     | 35 PASS / four files, zero failures/skips                            |
-| Python release tooling                             | 266 PASS; 10 explicit opt-in Docker fixture skips / 276 total        |
+| Python release tooling                             | 271 PASS; 10 explicit opt-in Docker fixture skips / 281 total        |
 | Recovery generator subset                          | 32 PASS, included in Python total                                    |
-| Image-only deployment/rollback subset              | 61 PASS, mocked; included in Python total                            |
+| Image-only deployment/rollback subset              | 63 PASS, mocked; included in Python total                            |
 | Backend lint/typecheck/Nest compilation            | PASS; migration copy and compatibility aliases preserved             |
 | Scoped client analysis/typecheck/lint/format       | PASS; Svelte zero errors/warnings                                    |
 | Python/shell and embedded Node-probe syntax        | PASS                                                                 |
@@ -85,6 +88,17 @@ unsupported revert SQL ledger. `server/src/utils/shared-space-album-scope.guard.
 misidentifies a multiline import in `memory.repository.ts:22` as a module-level
 asset read. Neither is a new deletion regression. No test was disabled to hide it.
 Database revert SQL is not the release rollback mechanism.
+
+The final clean-HEAD metadata check identified one tooling-only blocker: the
+unchanged upstream `1774548649115-AddChecksumAlgorithm.ts.ts` migration has a
+historical `.ts` suffix in its Kysely ledger name. Build metadata now accepts only
+that exact source path with pinned SHA-256, and image/live inventory accepts only
+that exact nonstandard ledger name. No migration was renamed or changed. Five
+new tests cover the valid exception and rejection of changed bytes/arbitrary
+dotted or traversal names. The two affected suites pass 83 tests; the full Python
+results above include them. A read-only probe of the actual local compiled tree
+accepted all 170 migration entries, including this ID and the new binding
+migration; this is not a packaged-image or Docker validation.
 
 ## Security regressions and limitations
 

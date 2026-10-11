@@ -28,6 +28,9 @@ DOCKER = ['docker', '--host=unix:///var/run/docker.sock']
 ID = r'sha256:[0-9a-f]{64}'
 CAPABILITY = 'bound-root-quarantine-signed-recovery-v1'
 BOUND_MIGRATION = '1793700000000-BindDeletionRecovery'
+# Upstream ships a .ts.ts source, hence a .ts.js compiled file and this exact
+# existing Kysely ledger name. No other dotted or path-like names are accepted.
+LEGACY_CHECKSUM_MIGRATION = '1774548649115-AddChecksumAlgorithm.ts'
 IMAGE_PROBE = r'''
 import fs from 'node:fs';import crypto from 'node:crypto';
 const root='/usr/src/app/server',dist=root+'/dist';
@@ -89,6 +92,11 @@ def migration_names(proof):
     return {row['name'] for row in proof['migrations']}
 
 
+def valid_migration_name(name):
+    return isinstance(name, str) and (name == LEGACY_CHECKSUM_MIGRATION or
+                                     re.fullmatch(r'[0-9]{13}-[A-Za-z0-9_-]+', name) is not None)
+
+
 def probe_image(image_id, source_commit, server_version):
     """Read the actual packaged guard/migrations; never start application workers."""
     need(environment(image(image_id)).get('IMMICH_SOURCE_COMMIT') == source_commit, 'TARGET_SOURCE_MISMATCH')
@@ -108,7 +116,7 @@ def probe_image(image_id, source_commit, server_version):
     migrations = proof.get('migrations', [])
     need(isinstance(migrations, list) and 0 < len(migrations) <= 1000 and
          all(isinstance(row, dict) and set(row) == {'name', 'sha256'} and
-             re.fullmatch(r'[0-9]{13}-[A-Za-z0-9_-]+', row.get('name', '')) and
+             valid_migration_name(row.get('name')) and
              re.fullmatch('[0-9a-f]{64}', row.get('sha256', '')) for row in migrations),
          'PACKAGED_MIGRATION_PROOF_REQUIRED')
     names = migration_names(proof)
@@ -156,7 +164,7 @@ def live_migrations():
                            '-h', '/var/run/postgresql', '-p', '5432',
                            '-U', user, '-d', database, '--command', LIVE_MIGRATIONS], timeout=30))
     need(isinstance(names, list) and names and len(set(names)) == len(names) and
-         all(isinstance(name, str) and re.fullmatch(r'[0-9]{13}-[A-Za-z0-9_-]+', name) for name in names),
+         all(valid_migration_name(name) for name in names),
          'LIVE_MIGRATION_INVENTORY_REQUIRED')
     return set(names)
 

@@ -44,6 +44,13 @@ version, build = match.group(1), int(match.group(2))
 need(build <= 2100000000, 'committed mobile build exceeds Android version code limit')
 
 roots = ('server/src/schema/migrations', 'server/src/schema/migrations-gallery')
+# Preserve the upstream filename/ledger identity; never rename a migration that
+# existing databases have applied. This is the sole nonstandard source name and
+# is admitted only with its immutable, reviewed bytes.
+legacy_sources = {
+    'server/src/schema/migrations/1774548649115-AddChecksumAlgorithm.ts.ts':
+        '64f3e4c147deb4d57d92dbc5e556ef081110923f08953865bb0bba36312944af',
+}
 def migrations(commit):
     found = {}
     for entry in git('ls-tree', '-r', '-z', commit, '--', *roots).split(b'\0'):
@@ -55,10 +62,11 @@ def migrations(commit):
             continue
         mode, kind, _ = header.decode().split()
         name = pathlib.PurePosixPath(path).stem
+        digest = hashlib.sha256(git('show', commit + ':' + path)).hexdigest()
         need(mode in ('100644', '100755') and kind == 'blob' and
              str(pathlib.PurePosixPath(path).parent) in roots and
-             re.fullmatch(r'[0-9]+-[A-Za-z0-9_-]+', name), 'regular named migration source required')
-        digest = hashlib.sha256(git('show', commit + ':' + path)).hexdigest()
+             (re.fullmatch(r'[0-9]+-[A-Za-z0-9_-]+', name) or legacy_sources.get(path) == digest),
+             'regular named migration source required')
         need(name not in found or found[name]['sha256'] == digest, 'conflicting duplicate migration source')
         found[name] = {'name': name, 'path': path, 'sha256': digest}
     return found

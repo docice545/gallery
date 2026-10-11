@@ -17,6 +17,8 @@ SPEC.loader.exec_module(candidate)
 BASE_MIGRATION = '1710000000000-ExistingMigration'
 AUTHORIZED_MIGRATION = '1793600000000-AddAuthorizedAssetDeletion'
 RECOVERY_MIGRATION = '1793700000000-BindDeletionRecovery'
+LEGACY_CHECKSUM_PATH = 'server/src/schema/migrations/1774548649115-AddChecksumAlgorithm.ts.ts'
+LEGACY_CHECKSUM_SHA = '64f3e4c147deb4d57d92dbc5e556ef081110923f08953865bb0bba36312944af'
 
 
 class CommittedBuildMetadata(unittest.TestCase):
@@ -148,6 +150,36 @@ class CommittedBuildMetadata(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['migrationsAdded'],
                          [AUTHORIZED_MIGRATION, RECOVERY_MIGRATION, upstream_name])
+
+    def test_pinned_upstream_double_extension_retains_existing_ledger_identity(self):
+        contents = (ROOT / LEGACY_CHECKSUM_PATH).read_text()
+        self.assertEqual(hashlib.sha256(contents.encode()).hexdigest(), LEGACY_CHECKSUM_SHA)
+        self.write(LEGACY_CHECKSUM_PATH, contents)
+        self.baseline = self.commit()
+        source = self.next_release()
+        result = self.check(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # It is a pre-existing migration, not a new schema change or renamed ID.
+        self.assertEqual(json.loads(result.stdout)['migrationsAdded'],
+                         [AUTHORIZED_MIGRATION, RECOVERY_MIGRATION])
+
+    def test_changed_upstream_double_extension_bytes_are_rejected(self):
+        self.write(LEGACY_CHECKSUM_PATH, (ROOT / LEGACY_CHECKSUM_PATH).read_text())
+        self.baseline = self.commit()
+        self.write(LEGACY_CHECKSUM_PATH, 'export const changed = true;\n')
+        source = self.commit()
+        result = self.check(source)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('regular named migration source required', result.stderr)
+
+    def test_arbitrary_double_extensions_are_not_accepted(self):
+        for name in ('1774548649115-Other.ts.ts', '1800000000000-Other.ts.ts'):
+            with self.subTest(name=name):
+                self.write('server/src/schema/migrations/' + name, 'export const unexpected = true;\n')
+                source = self.commit()
+                result = self.check(source)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('regular named migration source required', result.stderr)
 
     def test_symlinked_migration_source_is_rejected(self):
         path = self.repo / 'server/src/schema/migrations-gallery' / (RECOVERY_MIGRATION + '.ts')

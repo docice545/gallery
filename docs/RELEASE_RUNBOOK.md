@@ -34,6 +34,9 @@ archive SHA-256 and migration provenance. No production Compose file is loaded.
 Its default migration baseline is the deployed build-9 application
 `e6ab95e695f085c3016072ebff44d4ba02695cb5`; any different reviewed baseline must
 be supplied explicitly with `MIGRATION_BASE_SHA` and reconciled with the live DB.
+The historical upstream `1774548649115-AddChecksumAlgorithm.ts.ts` filename and
+its existing `.ts` ledger suffix are preserved. The source exception requires
+its exact reviewed SHA-256; arbitrary dotted migration names remain rejected.
 Do not silently override version, source or migrate a production database to test
 an image. Verify the archive checksum, config/layers/descriptors, packaged source,
 architecture, version, hardened deletion capability and compiled migrations.
