@@ -288,6 +288,19 @@ def build_payload(*, owner_id, scope, roots_path, backup, postgres_receipt, nas_
     need(nonempty(owner_id) and nonempty(scope), 'OWNER_AND_SCOPE_REQUIRED')
     need(type(valid_for_hours) is int and 1 <= valid_for_hours <= 24, 'VALIDITY_MUST_BE_1_TO_24_HOURS')
     roots, hosts = read_roots(roots_path)
+    proof, proof_hash = private_json(nas_proof)
+    if 'authorization' in proof:
+        binding = proof['authorization']
+        _, roots_hash = private_json(roots_path)
+        need(type(binding) is dict and set(binding) == {'version', 'ownerId', 'scope', 'rootsSHA256', 'inputReceipt'} and
+             type(binding['version']) is int and binding['version'] == 1 and
+             binding['ownerId'] == owner_id and binding['scope'] == scope and binding['rootsSHA256'] == roots_hash,
+             'PREPARED_OWNER_SCOPE_OR_ROOTS_MISMATCH')
+        receipt, _ = private_json(absolute_path(binding['inputReceipt']))
+        need(type(receipt.get('version')) is int and receipt['version'] == 1 and receipt.get('consentGranted') is False and
+             receipt.get('ownerId') == owner_id and receipt.get('scope') == scope and
+             receipt.get('rootsSHA256') == roots_hash and receipt.get('proofSHA256') == proof_hash,
+             'PREPARED_INPUT_RECEIPT_INVALID')
     postgres, checked = postgres_evidence(backup, postgres_receipt, now)
     mounts, exported = mount_evidence(nas_proof, roots, hosts, now)
     if not fixed_clock:

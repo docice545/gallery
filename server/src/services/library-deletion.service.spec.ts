@@ -78,6 +78,32 @@ describe('external library owner consent reuses the verified deletion lifecycle'
     ).rejects.toThrow('External deletion requires separate owner consent');
     expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalled();
   });
+  it.each([1, 2, 3])('admin prepares external owner %i without enabling or taking their consent', async (index) => {
+    const ownerId = `00000000-0000-4000-8000-00000000000${index}`;
+    const libraryId = `00000000-0000-4000-8000-00000000001${index}`;
+    mocks.asset.getDeletionPolicy.mockResolvedValue(undefined);
+    mocks.user.get.mockResolvedValue({ ...userStub.user1, id: ownerId });
+    mocks.library.get.mockResolvedValue({ ...library, id: libraryId, ownerId });
+    await sut.setDeletionPolicy(authStub.admin, {
+      ownerId,
+      scope: libraryId,
+      enabled: false,
+      roots: [path],
+      recoveryProof: proof,
+      verifiedExclusiveRoots: true,
+    });
+    expect(recovery.verifyRecoveryEvidence).toHaveBeenCalledWith(proof, ownerId, libraryId, identities);
+    expect(mocks.asset.setDeletionPolicy).toHaveBeenCalledWith(
+      ownerId,
+      libraryId,
+      expect.objectContaining({ enabled: false, authorizedBy: authStub.admin.user.id }),
+    );
+    await expect(sut.setLibraryDeletionConsent(authStub.admin, libraryId, true)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(mocks.asset.updateLibraryDeletionConsent).not.toHaveBeenCalled();
+    expect(mocks.asset.updateManagedDeletionConsent).not.toHaveBeenCalled();
+  });
   it('rejects non-admin preparation without touching storage', async () => {
     await expect(
       sut.prepareLibraryDeletion(authStub.user1, scope, {

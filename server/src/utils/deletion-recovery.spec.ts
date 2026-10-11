@@ -255,6 +255,15 @@ describe('trusted recovery evidence for original deletion', () => {
       code: 'DELETION_RECOVERY_INVALID',
     });
   });
+  it('rejects an unsigned envelope even with its correct whole-file digest', async () => {
+    const digest = await publish(report());
+    const changed = await rewrite(digest, (envelope) => {
+      delete envelope.signature;
+    });
+    await expect(verifyRecoveryEvidence(changed, 'owner', 'MANAGED', [identity])).rejects.toMatchObject({
+      code: 'DELETION_RECOVERY_INVALID',
+    });
+  });
 
   it.each([
     [

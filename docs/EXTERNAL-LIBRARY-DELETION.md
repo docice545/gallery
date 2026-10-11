@@ -86,6 +86,10 @@ user Trash; no migration is added by this follow-up. Retention remains skipped.
    write access is ineligible. No broad permission change or privileged fallback
    is provided.
 3. Follow [the existing signed-evidence procedure](../specs/testing/2026-10-10-trash-recovery-evidence.md).
+   The normal Synology input preparation and publication commands are in
+   [SYNOLOGY-RECOVERY-EVIDENCE.md](SYNOLOGY-RECOVERY-EVIDENCE.md); the diagnostic's
+   old share-level proof cannot be silently made fresh or used without real
+   per-root snapshot export receipts.
    Use `--scope <exact-library-UUID>`, the same owner ID, and only that library's
    verified import roots. Supply real fresh isolated PostgreSQL restore evidence
    and photo/video snapshot exports for every covered root. Existing old recovery

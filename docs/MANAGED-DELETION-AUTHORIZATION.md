@@ -19,6 +19,10 @@ receipt, snapshot/export sample hashes, freshness (at most 24 hours), and every
 filesystem identity. Missing, fabricated, expired or redirected evidence fails
 closed. Follow [the recovery evidence procedure](../specs/testing/2026-10-10-trash-recovery-evidence.md)
 for actual generation, private inputs and read-only trust-store installation.
+For managed originals actually on Synology, the
+[normal NAS input preparation workflow](SYNOLOGY-RECOVERY-EVIDENCE.md) records
+per-root snapshot export provenance before signing. Managed roots on local HP
+storage need their own genuine recovery source; NAS metadata cannot stand in for it.
 
 The operator signing key is separate from account/API keys and never enters the
 application container. Existing accounts, keys and permissions are unchanged.

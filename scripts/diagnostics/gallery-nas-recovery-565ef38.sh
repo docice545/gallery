@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
+# Optional per-owner/root captures are read by the existing local recovery helper.
+# This file stays usable as a standalone NAS diagnostic when no captures are supplied.
+export GALLERY_RECOVERY_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 python3 - <<'PY'
 import collections, contextlib, getpass, hashlib, importlib.util, json, os, pwd, re
-import shutil, ssl, stat, subprocess, sys, tempfile, time, urllib.parse, urllib.request, warnings
+import shutil, ssl, stat, subprocess, sys, tempfile, time, urllib.parse, urllib.request, warnings, uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
@@ -11,6 +14,8 @@ PIN='565ef38c0c39f3ee896f5afd055d4d57a676d503'
 TOOL_SHA='56c12526736e51abad3adf321c0b9665ec9b70f8472641af966feba4c45f7a2c'
 HOME_POINT='2026-10-09T03:00:02'
 IMMICH_POINT='GMT+03-2026.10.09-20.15.17'
+SNAPSHOT_IDS={'homes':os.environ.get('GALLERY_NAS_HOMES_SNAPSHOT'),
+ 'Immich':os.environ.get('GALLERY_NAS_IMMICH_SNAPSHOT')}
 PHOTO={'.jpg','.jpeg','.png','.heic','.heif','.webp','.tif','.tiff','.avif'}
 VIDEO={'.mp4','.mov','.m4v','.mkv','.webm','.avi','.3gp','.mts','.m2ts'}
 LIMIT=256*1024**2; BUDGET=2*1024**3; MAX_ENTRIES=100000; MAX_SECONDS=900
@@ -74,6 +79,9 @@ def point_time(name):
 
 def wanted(share,name):
  t=point_time(name)
+ if SNAPSHOT_IDS.get(share):
+  need(point_time(SNAPSHOT_IDS[share]) is not None,'ACTUAL_SNAPSHOT_ID_REQUIRED')
+  return bool(t and name==SNAPSHOT_IDS[share])
  return bool(t and (name==IMMICH_POINT if share=='Immich' else t.replace(tzinfo=None).isoformat()==HOME_POINT))
 
 def discover(base,share):
@@ -236,7 +244,8 @@ def recover(source,live,target,dsm,stats):
   need(fingerprint(live.stat())==fingerprint(before),'LIVE_CHANGED_DURING_HASH')
   if not dsm: need(fingerprint(source.stat())==fingerprint(source_before),'SNAPSHOT_CHANGED_DURING_EXPORT')
   need(value==h.hexdigest(),'RECOVERED_BYTES_DIFFER')
-  return {'original':str(live),'recovered':str(target),'size':n,'sha256':value,'snapshotSource':str(source)}
+  return {'original':str(live),'recovered':str(target),'size':n,'sha256':value,'snapshotSource':str(source),
+   'exportedAt':datetime.now(timezone.utc).isoformat()}
  except Exception:
   with contextlib.suppress(OSError): os.close(fd)
   target.unlink(missing_ok=True)  # Only this new local incomplete export.
@@ -295,7 +304,10 @@ def main():
  state=Path(tempfile.mkdtemp(prefix='gallery-nas-recovery-',dir='/home/doctoriceadm'))
  report={'scope':'NAS_ONLY_NO_PRODUCTION_MUTATION','toolingCommit':PIN,
   'checks':{'POSTGRES_RESTORE':'NOT_REPEATED','NAS_RECOVERY':'FAIL'},'scopes':{},'blockers':[],'deploymentAuthorized':False}
- proof={'mounts':{},'provenance':{},'scopeResults':{},'postgresRestoreReused':True}; dsm=None; inputs={}
+ proof={'mounts':{},'provenance':{},'scopeResults':{},'postgresRestoreReused':True,'rootExports':[],
+  'recoveryOperation':{'version':1,'operationId':str(uuid.uuid4()),
+   'startedAt':datetime.now(timezone.utc).isoformat(),'exportDirectory':str(state),'snapshotOriginConfirmed':False}}
+ dsm=None; inputs={}
  try:
   old=Path(ask('Папка прежнего PG PASS: recovery-report.txt + backup-verified.json (скрыто): ')).expanduser()
   audit=Path(ask('Путь завершённого PASS audit JSON/TXT (скрыто): ')).expanduser()
@@ -318,6 +330,13 @@ def main():
    m=mount(Path(path)); need(m['target']==path and m['fstype'] in ('nfs','nfs4') and m['source']=='10.10.10.95:'+export,'LIVE_NFS_MAPPING_MISMATCH_'+label)
    if label=='homes': need('ro' in m['options'].split(','),'HOMES_PARENT_NOT_READ_ONLY')
   tool=get_tool(state,old)
+  requests=[]
+  if os.environ.get('GALLERY_NAS_RECOVERY_CAPTURES'):
+   helpers=Path(os.environ['GALLERY_RECOVERY_SCRIPT_DIR']).parent/'release'
+   sys.path.insert(0,str(helpers))
+   import trash_recovery_inputs as recovery_inputs
+   try: requests=recovery_inputs.load_requests(os.environ['GALLERY_NAS_RECOVERY_CAPTURES'])
+   except recovery_inputs.Stop as error: raise Stop(str(error)) from None
   points={'homes':discover(Path(ROOTS['homes'][0]),'homes'), 'Immich':discover(Path(ROOTS['managed'][0]),'Immich')}
   if any(p is None for p in points.values()): dsm=DSM()
   api_roots={}
@@ -338,11 +357,13 @@ def main():
     real=info.get('additional',{}).get('real_path')
     need(not real or name in PurePosixPath(real).parts,'DSM_REAL_PATH_NOT_SELECTED_SNAPSHOT')
    proof['provenance'][share]={'snapshotId':name,'snapshotTimestamp':point_time(name).isoformat(),
+    'snapshotRoot':str(root if root is not None else api_roots[share]),
     'metadataSource':'DSM_SNAPSHOT_LIST' if dsm else 'NFS_DIRECTORY_ID_PLUS_DSM_OPERATOR_ATTESTATION',
     'dsmSnapshotMetadata':row,'nfsSnapshotAccessible':root is not None,
     'fileStationRootMetadata':{k:info[k] for k in ('path','isdir','additional') if k in info} if root is None else None}
    print(share+': snapshot '+name+'; '+('NFS READ-ONLY OPERATIONS' if root else 'DSM FILE STATION READ/DOWNLOAD'))
   need(ask('Подтверждаю по DSM: показанные ID/даты принадлежат snapshots ВСЕЙ homes/Immich; Immich locked. YES: ')=='YES','DSM_SNAPSHOT_ORIGIN_SCOPE_ATTESTATION_REQUIRED')
+  proof['recoveryOperation']['snapshotOriginConfirmed']=True
   budget={'written':0}; scopes={}
   for label in ('docice','chudo_anna','Lenia','managed'):
    share='Immich' if label=='managed' else 'homes'; suffix=PurePosixPath('.') if label=='managed' else PurePosixPath(label)/'Photos'
@@ -354,6 +375,19 @@ def main():
    for kind,status in stats['result'].items():
     print(label+' '+kind+': '+status)
     if status!='PASS': report['blockers'].append(label+'_'+kind.upper()+'_'+status)
+  # Export representative bytes from every requested owner/scope root, not just
+  # the broad share. No supplied receipt/timestamp is invented or refreshed.
+  for index,request in enumerate(requests):
+   share=request['share']; suffix=PurePosixPath(request['snapshotSuffix'])
+   nfs=points[share]; api=dsm if nfs is None else None
+   root=(nfs.joinpath(*suffix.parts) if nfs else api_roots[share]/suffix)
+   samples,stats=select_samples(root,Path(request['hostRoot']),state,'root-'+str(index),api,budget)
+   entry={k:request[k] for k in ('ownerId','scope','root','hostRoot','manifestSHA256','share')}
+   entry.update(snapshotRoot=str(root),samples=samples,result='PASS' if
+    all(stats['result'][kind]=='PASS' for kind in ('photo','video')) and not stats.get('error') else 'FAIL')
+   proof['rootExports'].append(entry)
+   print('Requested root '+str(index)+': '+entry['result'])
+   if entry['result']!='PASS': report['blockers'].append('REQUESTED_ROOT_'+str(index)+'_RECOVERY_INCOMPLETE')
   proof['scopeResults']=report['scopes']
   for dest,label in auditmap.items():
    labels=('docice','chudo_anna','Lenia') if label=='homes' else (label,)
@@ -366,6 +400,7 @@ def main():
      samples.append(s)
    proof['mounts'][dest]={'operator_attests_snapshot_export':True,
     'snapshot_reference':share+' '+p['snapshotId']+' '+p['snapshotTimestamp'], 'samples':samples}
+  proof['recoveryOperation']['completedAt']=datetime.now(timezone.utc).isoformat()
   save(state/'nas-proof.json',proof)
   if not report['blockers']:
    need(all(sha(p)==v for p,v in inputs.items()),'PREVIOUS_EVIDENCE_CHANGED')

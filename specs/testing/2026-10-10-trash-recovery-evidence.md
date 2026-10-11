@@ -7,6 +7,14 @@ It does not call Docker, create a backup, perform a restore/export, access an AP
 change a policy, enable deletion, or deploy anything. All automated examples and
 tests use synthetic data; no production recovery or deployment was run here.
 
+For Synology, use the normal [capture/export/prepare/publish procedure](../../docs/SYNOLOGY-RECOVERY-EVIDENCE.md)
+instead of manually constructing the per-root inputs below. The updated NAS
+diagnostic records actual sample export times and owner/scope-bound root exports;
+`trash_recovery_inputs.py` verifies those source records and writes the compatible
+provenance files. Old share-level reports without these records remain useful
+historical evidence, but cannot be upgraded by assigning current timestamps.
+The schemas below also remain available for other genuine backup/export tools.
+
 ## Trust and consent
 
 Recovery evidence belongs to the operator trusted by the server's locally
@@ -131,6 +139,14 @@ provenance file per root:
 
 Every supplied root requires 2–128 samples including both photo and video, including for scope
 `managed` (lowercase). Proof root coverage must equal manifest root coverage exactly.
+Prepared NAS inputs additionally contain an `authorization` object binding
+`ownerId`, `scope`, the exact root-manifest SHA-256 and a private completion receipt.
+The generator requires that receipt to match the exact prepared proof bytes,
+owner/scope and manifest, and to record `consentGranted:false`. Missing receipts
+from interrupted preparation or different command-line owner/scope fail before
+signing. These fields belong only to the local input contract, not the signed
+server payload. Existing genuine per-root input producers without this optional
+adapter metadata retain the original generator contract and operator trust boundary.
 Empty or photo-only roots cannot satisfy this v1 evidence contract just by
 declaring a missing sample. Such preparation must remain blocked until an operator
 performs a separately approved recovery exercise using representative disposable
