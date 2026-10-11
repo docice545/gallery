@@ -16,6 +16,16 @@ The test counts below describe the preceding P1 completion; follow-up results ar
 recorded in the external-library document. Build from the new exact final HEAD,
 not the preceding P1 HEAD, after separate approval.
 
+The Synology root-squash follow-up stores the actual quarantine UID/GID and
+filesystem/mount identity in the existing policy and receipt JSON before capture.
+It passes 451 relevant backend unit tests (including 98 filesystem and 56 recovery
+guards) and 92 PostgreSQL tests. No schema migration or client change is introduced.
+New NFS creation no longer assumes the process UID equals the NAS owner; existing
+quarantine must have its committed registration and is never automatically adopted
+or chmod-repaired. Interrupted initialization and changed mount/namespace identities
+remain fail-closed operator gates. See
+[the ownership procedure](MANAGED-DELETION-AUTHORIZATION.md#quarantine-ownership-with-synology-nfs-root-squash).
+
 Completed source commits:
 
 - `19452ecfad7b39c921829f952ebd0f268e8dcc6a`: verified grants, filesystem

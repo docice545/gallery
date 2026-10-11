@@ -133,6 +133,32 @@ describe('trusted recovery evidence for original deletion', () => {
     });
   });
 
+  it('keeps the signed storage identity valid when a trusted quarantine binding is added', async () => {
+    const digest = await publish(report());
+    const bound: DeletionRootIdentity = {
+      ...identity,
+      quarantineIdentity: {
+        device: identity.device,
+        inode: '789',
+        mountId: identity.mountId,
+        mountNamespace: identity.mountNamespace,
+        uid: '1024',
+        gid: '100',
+      },
+    };
+    await expect(verifyRecoveryEvidence(digest, 'owner', 'MANAGED', [bound])).resolves.toHaveProperty('digest', digest);
+    // Only optional, structurally valid registry metadata may accompany the
+    // nine signed storage fields. It cannot substitute for signed evidence.
+    await expect(
+      verifyRecoveryEvidence(digest, 'owner', 'MANAGED', [{ ...bound, device: '999' }]),
+    ).rejects.toMatchObject({ code: 'DELETION_ROOT_CHANGED' });
+    await expect(
+      verifyRecoveryEvidence(digest, 'owner', 'MANAGED', [
+        { ...bound, quarantineIdentity: { ...bound.quarantineIdentity!, uid: '-1' } },
+      ]),
+    ).rejects.toMatchObject({ code: 'DELETION_ROOT_CHANGED' });
+  });
+
   it('binds an external library scope and supports root order changes', async () => {
     const value = report();
     const second = { ...identity, path: '/photos/owner-two', inode: '999' };

@@ -164,6 +164,41 @@ cases for mode initialization, substitution, failed chmod and durable retries.
 ESLint, TypeScript and formatting checks pass. Client code and database schemas
 are unchanged by this fix; previous client suites were not repeated.
 
+The subsequent root-squash correction registers the quarantine's actual NAS
+UID/GID and filesystem/mount identity in the existing policy and receipt JSON,
+committing that binding before any original is captured. New NFS directories no
+longer assume their owner equals the container UID. Unregistered existing entries,
+changed owners/groups/inodes/mounts and altered modes fail closed; retries verify
+the stored binding without chmod. Interrupted initialization cannot authorize an
+unknown directory. See the [ownership and recovery procedure](MANAGED-DELETION-AUTHORIZATION.md#quarantine-ownership-with-synology-nfs-root-squash).
+
+No production scope is enabled by this change. The 291 active offline index
+tombstones remain outside Trash and deletion. Actual Synology validation still
+requires separately approved disposable media and checking DSM ACL exclusivity;
+synthetic UID/GID and mount metadata do not prove those production properties.
+
+Root-squash correction validation (2026-10-11, final source): **451 backend unit
+tests / eight files** and **92 PostgreSQL integration tests / three files** passed,
+with zero failures or skips. The unit total includes **98 filesystem security**
+and **56 signed-recovery** tests. Compared with the preceding mode-only fix,
+24 filesystem, one signed-evidence and 11 PostgreSQL regression cases were added.
+UID `0` → NAS `1024:100`, ignored mkdir mode, mount metadata and NFS failures are
+injected; descriptor chmod, rename, fsync, hashing and unlink operate on real
+disposable Linux files. PostgreSQL observes committed policy/receipt bindings
+before rename through another connection. Restart, concurrency, revocation,
+unknown directories and substituted receipts are checked. No production data,
+NAS server or mobile artifact is involved.
+
+Full TypeScript checking, changed-file ESLint and formatting pass. Full backend
+ESLint reports three pre-existing errors: two formatting errors in
+`src/schema/migrations-gallery/1793400000000-FixMemoryCandidateSchema.ts:6–7`,
+and `unicorn/no-unnecessary-splice` in
+`test/medium/specs/services/asset.service.spec.ts:287`. Both source files and
+`eslint.config.mjs` are byte-identical to base
+`3ad43272e2452a90598631c874b31abcbe4191b0`; linting those unchanged files again
+from the server directory reproduces the same three errors. They were not hidden
+or disabled, and unrelated Memories migration/test code was not edited.
+
 Before claiming Synology acceptance, verify in a separate disposable scratch
 export/container with the same NFS protocol, UID/GID mapping and mount namespace:
 

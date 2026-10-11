@@ -2,7 +2,7 @@ import { Kysely, sql } from 'kysely';
 import { createHash, randomUUID } from 'node:crypto';
 import fs, { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { AssetStatus, AssetType, AssetVisibility, ChecksumAlgorithm, JobName, JobStatus } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
@@ -18,6 +18,7 @@ import { AssetService } from 'src/services/asset.service.js';
 import { collectRootIdentities, snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
 import { newMediumService } from 'test/medium.factory.js';
+import { emulateNfsRootSquash } from 'test/nfs-quarantine.js';
 import { createTestRecoveryEvidenceStore } from 'test/recovery-evidence.js';
 import { getKyselyDB, newTestService } from 'test/utils.js';
 
@@ -468,9 +469,10 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
 
 describe('external selective deletion, Empty Trash and NFS-like failure recovery', () => {
   it.each([false, true])(
-    'secures NFS-like 0777 quarantine for managed/external=%s photo/video deletion with completed receipts',
+    'commits root-squashed 1024:100 quarantine before managed/external=%s photo/video capture',
     async (external) => {
       const f = await fixture(external);
+      await emulateNfsRootSquash(root);
       const videoPath = join(root, 'disposable-video.mp4');
       const controlPath = join(root, 'control');
       await writeFile(videoPath, 'synthetic disposable video');
@@ -486,14 +488,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       });
       if (!external) await authorize(f);
       const { sut } = external ? await externalConsent(f) : service(f);
-      const mkdirActual = fs.mkdir;
-      const chmodActual = fs.chmod;
-      vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
-        const result = await mkdirActual(path, options);
-        if (String(path).endsWith('/.gallery-deletion-quarantine')) await chmodActual(path, 0o777);
-        return result;
-      });
-      const openActual = fs.open;
+      const preparedPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+      const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
       const chmod = vi.fn();
       vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
         const handle = await openActual(path, flags, mode);
@@ -506,11 +502,32 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         }
         return handle;
       });
+      const renameActual = fs.rename;
+      vi.spyOn(fs, 'rename').mockImplementation(async (source, target) => {
+        // Independent connection observes committed bindings before the first
+        // destructive filesystem action, not an uncommitted worker snapshot.
+        const policy = await new AssetRepository(db).getDeletionPolicy(f.user.id, f.scope);
+        const receipt = await db
+          .selectFrom('asset_deletion_tombstone')
+          .selectAll()
+          .where('ownerId', '=', f.user.id)
+          .where('assetId', '=', basename(String(source)) === 'photo.heic' ? f.asset.id : video.id)
+          .executeTakeFirstOrThrow();
+        expect(policy?.rootIdentities[0].quarantineIdentity).toMatchObject({ uid: '1024', gid: '100' });
+        expect(receipt.files[0].rootIdentity.quarantineIdentity).toEqual(policy!.rootIdentities[0].quarantineIdentity);
+        const stat = await fs.stat(join(root, '.gallery-deletion-quarantine'));
+        expect(stat.mode & 0o7777).toBe(0o700);
+        await renameActual(source, target);
+      });
       expect(await sut.permanentlyDelete(authFor(f), [f.asset.id, video.id])).toEqual([
         { id: f.asset.id, scope: f.scope, state: 'complete' },
         { id: video.id, scope: f.scope, state: 'complete' },
       ]);
       expect(chmod).toHaveBeenCalledExactlyOnceWith(0o700);
+      expect(process.getuid?.()).toBe(0);
+      expect(process.getgid?.()).toBe(0);
+      const committedPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+      expect(committedPolicy?.updatedAt).toEqual(preparedPolicy!.updatedAt);
       for (const asset of [f.asset, video]) {
         await expect(readFile(asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
         expect(await f.repo.getDeletionReceipt(f.user.id, asset.id)).toMatchObject({ state: 'complete' });
@@ -521,6 +538,239 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       expect(stat.mode & 0o7777).toBe(0o700);
     },
   );
+
+  it('a root-squashed capture survives interruption and a new repository resumes the persisted binding', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    let calls = 0;
+    await expect(
+      f.repo.removeAuthorizedOriginals(f.asset.id, (file, recheck) =>
+        unlinkOriginal(file, async () => {
+          await recheck();
+          if (++calls === 2) throw Object.assign(new Error('worker interrupted after capture'), { code: 'ETIMEDOUT' });
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', f.asset.id)
+      .executeTakeFirstOrThrow();
+    const binding = receipt.files[0].rootIdentity.quarantineIdentity;
+    expect(binding).toMatchObject({ uid: '1024', gid: '100' });
+    expect(receipt.state).toBe('failed');
+    const policy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+    expect(policy?.rootIdentities[0].quarantineIdentity).toEqual(binding);
+    expect(
+      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+    ).toContain('synthetic');
+    const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
+    const chmod = vi.fn();
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await openActual(path, flags, mode);
+      if (String(path).endsWith('/.gallery-deletion-quarantine')) vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+      return handle;
+    });
+    const restarted = new AssetRepository(db);
+    expect(await restarted.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(chmod).not.toHaveBeenCalled();
+    expect(await restarted.removeForDeletion(f.asset)).toBe(true);
+    expect(await restarted.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
+    const reloaded = await restarted.getDeletionPolicy(f.user.id, f.scope);
+    expect(reloaded?.rootIdentities[0].quarantineIdentity).toEqual(binding);
+  });
+
+  it('concurrent NFS deletion attempts use one committed binding and one completed removal', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const rename = vi.spyOn(fs, 'rename');
+    expect(
+      await Promise.all([
+        f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal),
+        new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal),
+      ]),
+    ).toEqual([true, true]);
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+    expect(await new AssetRepository(db).removeForDeletion(f.asset)).toBe(false);
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
+  });
+
+  it('revocation remains effective after root-squashed registration commits but before capture', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    const { sut } = await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await expect(
+      f.repo.removeAuthorizedOriginals(f.asset.id, () =>
+        Promise.reject(Object.assign(new Error('before capture'), { code: 'ESTALE' })),
+      ),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+    const binding = (await f.repo.getDeletionPolicy(f.user.id, f.scope))!.rootIdentities[0].quarantineIdentity;
+    expect(binding).toMatchObject({ uid: '1024', gid: '100' });
+    await sut.setLibraryDeletionConsent(authFor(f), f.scope, false);
+    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
+    });
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    await sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
+    expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
+      { id: f.asset.id, scope: f.scope, state: 'complete' },
+    ]);
+  });
+
+  it('preparation refresh preserves the trusted binding and ignores supplied quarantine metadata', async () => {
+    const f = await fixture();
+    await emulateNfsRootSquash(root);
+    await authorize(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await expect(
+      f.repo.removeAuthorizedOriginals(f.asset.id, () =>
+        Promise.reject(Object.assign(new Error('before capture'), { code: 'ESTALE' })),
+      ),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+    const previous = (await f.repo.getDeletionPolicy(f.user.id, f.scope))!;
+    const values = await prepared(f);
+    values.rootIdentities[0].quarantineIdentity = { ...previous.rootIdentities[0].quarantineIdentity!, uid: '999' };
+    await f.repo.setDeletionPolicy(f.user.id, f.scope, values);
+    expect((await f.repo.getDeletionPolicy(f.user.id, f.scope))!.rootIdentities[0].quarantineIdentity).toEqual(
+      previous.rootIdentities[0].quarantineIdentity,
+    );
+    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+  });
+
+  it('same-owner unregistered quarantine cannot be adopted through prepared input or retry', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    await externalConsent(f);
+    await mkdir(join(root, '.gallery-deletion-quarantine'));
+    await fs.chmod(join(root, '.gallery-deletion-quarantine'), 0o700);
+    const values = await prepared(f, false, randomUUID());
+    const stat = await fs.lstat(join(root, '.gallery-deletion-quarantine'), { bigint: true });
+    values.rootIdentities[0].quarantineIdentity = {
+      device: String(stat.dev),
+      inode: String(stat.ino),
+      mountId: values.rootIdentities[0].mountId,
+      mountNamespace: values.rootIdentities[0].mountNamespace,
+      uid: '1024',
+      gid: '100',
+    };
+    await f.repo.setDeletionPolicy(f.user.id, f.scope, values);
+    await service(f).sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    for (const repository of [f.repo, new AssetRepository(db)]) {
+      await expect(repository.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+        code: 'DELETION_QUARANTINE_CONFLICT',
+      });
+    }
+    expect((await f.repo.getDeletionPolicy(f.user.id, f.scope))!.rootIdentities[0].quarantineIdentity).toBeUndefined();
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({
+      state: 'failed',
+      errorCode: 'DELETION_QUARANTINE_CONFLICT',
+    });
+  });
+
+  it('failure of initialization fsync leaves an unbound private directory and no moved original', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
+    const openSpy = vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await openActual(path, flags, mode);
+      if (String(path).endsWith('/.gallery-deletion-quarantine'))
+        vi.spyOn(handle, 'sync').mockRejectedValue(Object.assign(new Error('init fsync'), { code: 'EINVAL' }));
+      return handle;
+    });
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'ORIGINAL_DELETE_FAILED',
+    });
+    openSpy.mockRestore();
+    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'DELETION_QUARANTINE_CONFLICT',
+    });
+    expect((await f.repo.getDeletionPolicy(f.user.id, f.scope))!.rootIdentities[0].quarantineIdentity).toBeUndefined();
+    expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
+
+  it('replacement of a persisted NFS quarantine by the same mapped owner cannot capture originals', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await expect(
+      f.repo.removeAuthorizedOriginals(f.asset.id, () =>
+        Promise.reject(Object.assign(new Error('before capture'), { code: 'ESTALE' })),
+      ),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+    const quarantine = join(root, '.gallery-deletion-quarantine');
+    await rename(quarantine, quarantine + '.saved');
+    await mkdir(quarantine);
+    await fs.chmod(quarantine, 0o700);
+    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'DELETION_QUARANTINE_CONFLICT',
+    });
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await fs.readdir(quarantine)).toEqual([]);
+  });
+
+  it.each(['uid', 'gid', 'mountId'] as const)(
+    'a changed receipt quarantine %s cannot override its policy',
+    async (key) => {
+      const f = await fixture(true);
+      await emulateNfsRootSquash(root);
+      await externalConsent(f);
+      await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+      await expect(
+        f.repo.removeAuthorizedOriginals(f.asset.id, () =>
+          Promise.reject(Object.assign(new Error('before capture'), { code: 'ESTALE' })),
+        ),
+      ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+      const receipt = await db
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', f.asset.id)
+        .executeTakeFirstOrThrow();
+      receipt.files[0].rootIdentity.quarantineIdentity![key] = '99999';
+      await db
+        .updateTable('asset_deletion_tombstone')
+        .set({ files: receipt.files })
+        .where('assetId', '=', f.asset.id)
+        .execute();
+      await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject(
+        {
+          code: 'DELETION_QUARANTINE_CONFLICT',
+        },
+      );
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+      expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    },
+  );
+
+  it('cannot initialize or adopt quarantine for a legacy receipt missing the original root proof', async () => {
+    const f = await fixture(true);
+    await emulateNfsRootSquash(root);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await db
+      .updateTable('asset_deletion_tombstone')
+      .set({ files: sql`files #- '{0,rootIdentity}'` })
+      .where('assetId', '=', f.asset.id)
+      .execute();
+    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
+      code: 'NO_ORIGINAL_IDENTITY_PROOF',
+    });
+    await expect(fs.lstat(join(root, '.gallery-deletion-quarantine'))).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+  });
 
   it.each([false, true])(
     'failed chmod for managed/external=%s preserves bytes and failed receipts across restart/retry',
@@ -535,7 +785,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         if (String(path).endsWith('/.gallery-deletion-quarantine')) await chmodActual(path, 0o777);
         return result;
       });
-      const openActual = fs.open;
+      const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
       const chmod = vi.fn().mockRejectedValue(Object.assign(new Error('injected chmod failure'), { code: 'EACCES' }));
       vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
         const handle = await openActual(path, flags, mode);
@@ -789,7 +1039,14 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     const f = await fixture(true);
     await externalConsent(f);
     await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
-    const openActual = fs.open;
+    // Commit registration first, then interrupt BEFORE any source capture.
+    // This proves the directory identity survives a failed deletion transaction.
+    await expect(
+      f.repo.removeAuthorizedOriginals(f.asset.id, () =>
+        Promise.reject(Object.assign(new Error('injected pre-capture interruption'), { code: 'ESTALE' })),
+      ),
+    ).rejects.toHaveProperty('code', 'ORIGINAL_DELETE_FAILED');
+    const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
     const openSpy = vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
       const handle = await openActual(file, flags, mode);
       if (String(file).endsWith('/.gallery-deletion-quarantine'))
@@ -834,7 +1091,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       .where('assetId', '=', f.asset.id)
       .executeTakeFirstOrThrow();
     const captured = join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName);
-    const openActual = fs.open;
+    const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
     let mutated = false;
     vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
       const handle = await openActual(file, flags, mode);

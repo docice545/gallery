@@ -2,7 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import fs, { type FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
+import type {
+  DeletionFile,
+  DeletionQuarantineIdentity,
+  DeletionRootIdentity,
+} from 'src/schema/tables/asset-deletion.table.js';
 
 // Release preflight loads this from the actual compiled image, alongside its migration inventory.
 export const AUTHORIZED_DELETION_CAPABILITY = 'bound-root-quarantine-signed-recovery-v1';
@@ -329,11 +333,42 @@ const matches = (actual: DeletionFile, proof: DeletionFile) =>
   actual.modified === proof.modified &&
   actual.sha256 === proof.sha256;
 
+const QUARANTINE_KEYS = ['device', 'inode', 'mountId', 'mountNamespace', 'uid', 'gid'] as const;
+
+export function validQuarantineIdentity(value: unknown): value is DeletionQuarantineIdentity {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    Object.keys(entry).length === QUARANTINE_KEYS.length &&
+    QUARANTINE_KEYS.every((key) => typeof entry[key] === 'string') &&
+    ['device', 'inode', 'mountId', 'uid', 'gid'].every((key) => /^(?:0|[1-9]\d*)$/.test(entry[key] as string)) &&
+    /^mnt:\[\d+\]$/.test(entry.mountNamespace as string)
+  );
+}
+
+export const sameQuarantineIdentity = (a: unknown, b: unknown) =>
+  validQuarantineIdentity(a) && validQuarantineIdentity(b) && QUARANTINE_KEYS.every((key) => a[key] === b[key]);
+
+async function quarantineIdentity(handle: FileHandle, root: DeletionRootIdentity): Promise<DeletionQuarantineIdentity> {
+  const stat = await handle.stat({ bigint: true });
+  if (!stat.isDirectory()) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+  const actual = await identity(handle, root.path);
+  if (!sameRootIdentity(actual, { ...root, inode: String(stat.ino) }))
+    throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+  return {
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    mountId: actual.mountId,
+    mountNamespace: actual.mountNamespace,
+    uid: String(stat.uid),
+    gid: String(stat.gid),
+  };
+}
+
 async function verifyCurrentQuarantine(
   rootIdentity: DeletionRootIdentity,
-  expected: DeletionRootIdentity,
+  expected: DeletionQuarantineIdentity,
   mode: bigint,
-  uid: bigint,
 ): Promise<void> {
   const root = await openRoot(rootIdentity);
   try {
@@ -345,14 +380,81 @@ async function verifyCurrentQuarantine(
       const stat = await current.stat({ bigint: true });
       if (
         stat.mode !== mode ||
-        stat.uid !== uid ||
-        !sameRootIdentity(await identity(current, rootIdentity.path), expected)
+        String(stat.uid) !== expected.uid ||
+        String(stat.gid) !== expected.gid ||
+        !sameRootIdentity(await identity(current, rootIdentity.path), {
+          ...rootIdentity,
+          device: expected.device,
+          inode: expected.inode,
+          mountId: expected.mountId,
+          mountNamespace: expected.mountNamespace,
+        })
       )
         throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     } finally {
       await current.close();
     }
   } finally {
+    await root.close();
+  }
+}
+
+// The caller commits the returned binding in the policy and receipt BEFORE
+// calling unlinkOriginal. Never adopt an unregistered EEXIST directory.
+export async function bindQuarantine(bound: DeletionRootIdentity): Promise<DeletionRootIdentity> {
+  const root = await openRoot(bound);
+  let q: FileHandle | undefined;
+  try {
+    const qpath = anchored(root.fd, quarantine);
+    const existing = bound.quarantineIdentity;
+    if (!existing) {
+      try {
+        await fs.mkdir(qpath, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        throw error;
+      }
+    } else if (!validQuarantineIdentity(existing)) {
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    }
+    const entry = await fs.lstat(qpath, { bigint: true });
+    q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const stat = await q.stat({ bigint: true });
+    if (
+      !entry.isDirectory() ||
+      !stat.isDirectory() ||
+      entry.dev !== stat.dev ||
+      entry.ino !== stat.ino ||
+      entry.uid !== stat.uid ||
+      entry.gid !== stat.gid ||
+      String(stat.dev) !== bound.device
+    )
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    const captured = await quarantineIdentity(q, bound);
+    if (existing) {
+      if (!sameQuarantineIdentity(existing, captured) || (stat.mode & 0o7777n) !== 0o700n)
+        throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+      await verifyCurrentQuarantine(bound, existing, stat.mode);
+      return bound;
+    }
+    // Local filesystems retain the process UID guard. On NFS, creation plus
+    // descriptor chmod proves control of the mapped principal; record that
+    // actual UID/GID, rather than assuming it equals the container UID/GID.
+    const entries = await fs.readdir('/proc/self/fd/' + q.fd);
+    if ((!isNfs(bound) && Number(stat.uid) !== process.getuid?.()) || entries.length > 0)
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    await verifyCurrentQuarantine(bound, captured, stat.mode);
+    await q.chmod(0o700);
+    if (!sameQuarantineIdentity(await quarantineIdentity(q, bound), captured))
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    await verifyCurrentQuarantine(bound, captured, BigInt(constants.S_IFDIR | 0o700));
+    const securedEntries = await fs.readdir('/proc/self/fd/' + q.fd);
+    if (securedEntries.length > 0) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    await q.sync();
+    await root.sync();
+    return { ...bound, quarantineIdentity: captured };
+  } finally {
+    await q?.close();
     await root.close();
   }
 }
@@ -367,6 +469,7 @@ export async function unlinkOriginal(
 ): Promise<void> {
   if (
     !proof.rootIdentity ||
+    !validQuarantineIdentity(proof.rootIdentity.quarantineIdentity) ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(proof.quarantineName)
   )
     throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
@@ -375,48 +478,12 @@ export async function unlinkOriginal(
   let parent: FileHandle | undefined;
   try {
     const qpath = anchored(root.fd, quarantine);
-    let created = false;
-    try {
-      await fs.mkdir(qpath, { mode: 0o700 });
-      created = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    }
-    const entry = await fs.lstat(qpath, { bigint: true });
     q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    let qs = await q.stat({ bigint: true });
-    const qi = await identity(q, proof.root);
-    if (
-      !entry.isDirectory() ||
-      !qs.isDirectory() ||
-      entry.dev !== qs.dev ||
-      entry.ino !== qs.ino ||
-      Number(qs.uid) !== process.getuid?.() ||
-      String(qs.dev) !== proof.rootIdentity.device ||
-      qi.device !== proof.rootIdentity.device ||
-      qi.mountId !== proof.rootIdentity.mountId ||
-      qi.mountNamespace !== proof.rootIdentity.mountNamespace
-    )
+    const qs = await q.stat({ bigint: true });
+    const qi = proof.rootIdentity.quarantineIdentity;
+    if ((qs.mode & 0o7777n) !== 0o700n || !sameQuarantineIdentity(await quarantineIdentity(q, proof.rootIdentity), qi))
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-    if (created) {
-      // Synology NFS can ignore mkdir's requested mode. Only initialize a NEW,
-      // owned, bound directory via its descriptor; never repair an EEXIST entry.
-      await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode, qs.uid);
-      await q.chmod(0o700);
-      const secured = await q.stat({ bigint: true });
-      if (
-        !secured.isDirectory() ||
-        secured.dev !== qs.dev ||
-        secured.ino !== qs.ino ||
-        secured.uid !== qs.uid ||
-        !sameRootIdentity(await identity(q, proof.root), qi)
-      )
-        throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-      qs = secured;
-    }
-    if ((qs.mode & 0o7777n) !== 0o700n) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-    // Reject root/directory replacement during chmod BEFORE capturing an original.
-    await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode, qs.uid);
+    await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode);
     const captured = anchored(q.fd, proof.quarantineName);
     try {
       await fs.lstat(captured);
@@ -441,6 +508,9 @@ export async function unlinkOriginal(
       } finally {
         await currentParent.close();
       }
+      // The policy wait must not let a changed owner, mode or namespace expose
+      // the original by moving it into a directory that is no longer private.
+      await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode);
       await fs.rename(anchored(parent.fd, basename(proof.path)), captured);
       await parent.sync();
       await q.sync();
@@ -456,7 +526,7 @@ export async function unlinkOriginal(
       await beforeUnlink();
       // Reopen from / again even when the caller has no policy callback. The
       // root/quarantine namespace must still be the one admitted by the proof.
-      await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode, qs.uid);
+      await verifyCurrentQuarantine(proof.rootIdentity, qi, qs.mode);
       const after = await fs.lstat(captured, { bigint: true });
       if (
         !after.isFile() ||

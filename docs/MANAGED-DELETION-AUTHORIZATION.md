@@ -70,6 +70,46 @@ public-name replacement is retained or restored without overwriting the new
 entry; it is never guessed and deleted. Watchers/scans exclude quarantine.
 Ownership, checksum, shared-reference, policy and receipt locks remain enforced.
 
+### Quarantine ownership with Synology NFS root squash
+
+Container UID/GID and the NAS file owner can differ. For a newly created NFS
+quarantine, the worker binds the actual UID/GID, device/inode and mount ID/namespace.
+Creation must succeed without `EEXIST`; the pathname and held no-follow directory
+descriptor must identify the same empty directory. Descriptor `chmod(0700)` must
+succeed, preserve those identities, and leave the directory empty and private.
+Both directory and root `fsync` must succeed. No original moves while the initial
+mkdir mode is `0777`. Local filesystems retain the process-UID check.
+
+The worker commits this registration in the existing policy `rootIdentities` JSON
+and receipt `files` JSON in a separate PostgreSQL transaction **before** rename.
+No new table, column or data migration is needed. Recovery-envelope signatures
+still bind the original nine storage identity fields; registry metadata is produced
+only by the worker and cannot be supplied through administrator preparation.
+Refreshing preparation for the same bound root preserves the trusted registration
+and resets consent as before.
+
+Every reuse verifies recorded UID **and** GID, device/inode, mount identity and
+exact `0700` permissions; it never repairs an existing directory. Identity and
+privacy are rechecked after the authorization wait, before capture and before
+unlink. A new worker/repository can resume a committed capture using the same
+database binding. An unknown existing directory is rejected even if it is empty,
+has the mapped owner, and has mode `0700`.
+
+If mkdir/chmod/fsync or the registration transaction is interrupted before commit,
+the unregistered directory is left intact and originals have not moved. Retry
+stops with `DELETION_QUARANTINE_CONFLICT`; do not adopt it, auto-chmod it, delete it
+or recursively clean it. Preserve the failed receipt and arrange a separately
+approved inspection/recovery. Old captures lacking this registration also require
+individual review. A changed mount/namespace/root or mapped owner remains a STOP,
+not an automatic rebinding to current storage.
+
+On disposable Synology test media, separately verify that mapped-owner descriptor
+chmod, fsync, rename and unlink work and that other NAS principals cannot access
+the private directory (including DSM ACLs). NFS users mapped to the same UID and
+NAS administrators remain within the trusted namespace boundary; mode bits cannot
+isolate mutually hostile clients sharing one NAS principal. Do not authorize an
+export where that exclusivity cannot be established.
+
 Authorization requires a controlled namespace: no hostile same-UID/root writer,
 NAS-side namespace writer or retained writable descriptor during deletion. Such
 actors can bypass directory protection or mutate an inode after any userspace

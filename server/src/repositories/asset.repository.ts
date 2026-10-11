@@ -39,7 +39,14 @@ import { AssetFileTable } from 'src/schema/tables/asset-file.table.js';
 import { AssetJobStatusTable } from 'src/schema/tables/asset-job-status.table.js';
 import { AssetMetadataTable } from 'src/schema/tables/asset-metadata.table.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
-import { DeletionError, collectRootIdentities, deletionCode, sameRootIdentity } from 'src/utils/authorized-deletion.js';
+import {
+  DeletionError,
+  bindQuarantine,
+  collectRootIdentities,
+  deletionCode,
+  sameQuarantineIdentity,
+  sameRootIdentity,
+} from 'src/utils/authorized-deletion.js';
 import {
   anyUuid,
   asUuid,
@@ -1748,11 +1755,26 @@ export class AssetRepository {
       recoveryExpiresAt?: Date;
     },
   ) {
-    await this.db
-      .insertInto('asset_deletion_policy')
-      .values({ ownerId, scope, ...values })
-      .onConflict((oc) => oc.columns(['ownerId', 'scope']).doUpdateSet({ ...values, updatedAt: new Date() }))
-      .execute();
+    await this.db.transaction().execute(async (tx) => {
+      const previous = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', scope)
+        .forUpdate()
+        .executeTakeFirst();
+      const identities = values.rootIdentities?.map((root) => {
+        const stored = previous?.rootIdentities.find((bound) => sameRootIdentity(root, bound));
+        const { quarantineIdentity: _untrusted, ...identity } = root;
+        return stored?.quarantineIdentity ? { ...identity, quarantineIdentity: stored.quarantineIdentity } : identity;
+      });
+      const prepared = { ...values, ...(identities && { rootIdentities: identities }) };
+      await tx
+        .insertInto('asset_deletion_policy')
+        .values({ ownerId, scope, ...prepared })
+        .onConflict((oc) => oc.columns(['ownerId', 'scope']).doUpdateSet({ ...prepared, updatedAt: new Date() }))
+        .execute();
+    });
   }
 
   async updateManagedDeletionConsent(
@@ -2037,6 +2059,9 @@ export class AssetRepository {
     unlink: (file: DeletionFile, recheck: () => Promise<void>) => Promise<void>,
   ): Promise<boolean> {
     try {
+      // Separate committed phase: a crash during unlink must not roll back the
+      // trusted directory identity while leaving a captured original on disk.
+      await this.bindOriginalQuarantines(id);
       return await this.db.transaction().execute(async (tx) => {
         const intent = await tx
           .selectFrom('asset_deletion_tombstone')
@@ -2081,7 +2106,12 @@ export class AssetRepository {
         if (
           receipt.files.some(
             (file) =>
-              !file.rootIdentity || policy!.rootIdentities.every((root) => !sameRootIdentity(file.rootIdentity, root)),
+              !file.rootIdentity ||
+              policy!.rootIdentities.every(
+                (root) =>
+                  !sameRootIdentity(file.rootIdentity, root) ||
+                  !sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity),
+              ),
           )
         ) {
           throw new DeletionError('DELETION_ROOT_CHANGED');
@@ -2117,6 +2147,53 @@ export class AssetRepository {
         .execute();
       throw new DeletionError(deletionCode(error));
     }
+  }
+
+  private async bindOriginalQuarantines(id: string): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const intent = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('ownerId')
+        .where('assetId', '=', id)
+        .executeTakeFirst();
+      if (!intent) return;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
+      const receipt = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (receipt.state === 'complete' || receipt.state === 'files-removed') return;
+      if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
+        throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .forUpdate()
+        .executeTakeFirst();
+      await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+      const roots = [...policy!.rootIdentities];
+      const files: DeletionFile[] = [];
+      for (const file of receipt.files) {
+        const index = roots.findIndex((root) => sameRootIdentity(file.rootIdentity, root));
+        if (index === -1) throw new DeletionError('DELETION_ROOT_CHANGED');
+        const recorded = file.rootIdentity.quarantineIdentity;
+        if (recorded && !sameQuarantineIdentity(recorded, roots[index].quarantineIdentity))
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        roots[index] = await bindQuarantine(roots[index]);
+        files.push({ ...file, rootIdentity: roots[index] });
+      }
+      await tx
+        .updateTable('asset_deletion_policy')
+        .set({ rootIdentities: roots })
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .execute();
+      await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
+    });
   }
 
   private async verifyBoundPolicy(

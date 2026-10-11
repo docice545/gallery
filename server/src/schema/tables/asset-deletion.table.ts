@@ -21,6 +21,16 @@ export interface DeletionRootIdentity {
   mountSource: string;
   mountRoot: string;
   mountTarget: string;
+  quarantineIdentity?: DeletionQuarantineIdentity;
+}
+
+export interface DeletionQuarantineIdentity {
+  device: string;
+  inode: string;
+  mountId: string;
+  mountNamespace: string;
+  uid: string;
+  gid: string;
 }
 
 export interface DeletionFile {

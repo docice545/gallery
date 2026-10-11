@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import fs, { type FileHandle } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
-import { DeletionError } from 'src/utils/authorized-deletion.js';
+import { DeletionError, validQuarantineIdentity } from 'src/utils/authorized-deletion.js';
 
 const MAX_AGE = 24 * 60 * 60 * 1000;
 const SHA256 = /^[a-f\d]{64}$/;
@@ -236,7 +236,13 @@ function validateReport(report: unknown, ownerId: string, scope: string, roots: 
       new Set(roots.map((root) => root.path)).size === roots.length &&
       roots.every((root) => {
         const reported = reportedRoots.get(root.path);
-        return rootIdentity(root) && reported && ROOT_KEYS.every((key) => reported[key] === root[key]);
+        const { quarantineIdentity, ...storage } = root;
+        return (
+          rootIdentity(storage) &&
+          (quarantineIdentity === undefined || validQuarantineIdentity(quarantineIdentity)) &&
+          reported &&
+          ROOT_KEYS.every((key) => reported[key] === root[key])
+        );
       }),
     'DELETION_ROOT_CHANGED',
   );
