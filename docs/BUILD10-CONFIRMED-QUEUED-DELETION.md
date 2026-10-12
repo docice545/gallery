@@ -5,6 +5,32 @@ Owner approval: удалить ранее запрошенные пользов�
 FileDelete IDs `886, 887, 888, 929, 930, 953`. Это не blanket authorization
 для NAS originals без owner/scope/receipt/recovery доказательств.
 
+## Исправление legacy upload payload
+
+`31a8aecf` отвергал любой `temporaryOwnerId` до вызова handler. Реальные шесть
+jobs имеют `{files: ["/data/upload/<owner UUID>/..."], temporaryOwnerId: "<owner UUID>"}`.
+Это существующий native upload-cleanup contract: `AssetMediaService.onUploadError`,
+`handleUploadError`, cleanup после переноса в S3. В disk-конфигурации S3 отключён.
+Маркер означает cleanup незавершённой/отклонённой загрузки; он **не доказывает**
+permanent-delete asset из Trash и не является managed/external policy.
+
+Допуск узкий: только шесть подтверждённых IDs и неизменённые raw hashes/payloads;
+маркер уже присутствует, canonical path принадлежит ровно этому owner upload root,
+owner существует и не удалён. Compiled upload producer работающего image обязан
+byte-for-byte совпасть с producer frozen ea51. Положительная связь — существующий
+native cleanup marker в доверенной server queue плюс явное подтверждение именно
+этих jobs оператором. UUID в basename, отсутствие asset row или checksum сами
+по себе не создают intent. Payload, API keys и политики не переписываются.
+
+До RW bind проверяются ссылки всех владельцев в asset/asset_file/profile, включая
+absolute и relative keys; наличие asset-deletion tombstone (originalPath, aliases,
+files) блокирует cleanup и требует настоящего asset deletion handler/receipt.
+Проверки повторяются непосредственно перед capture/unlink. Bare legacy original
+без marker — STOP, а не автоматически добавленный `temporaryOwnerId` или consent.
+Первая попытка, остановившаяся на unsupported payload, оставляет sealed inventory;
+новый инструмент проверяет его и сохраняет отдельный `cleanup-intent-v1.json`.
+Старые reports не удаляются и не заменяются.
+
 ## Что выполняет инструмент
 
 `hp_build10_queued_delete.py` использует существующий RUN_ROOT, prepared hardened
@@ -28,8 +54,11 @@ migrations, Compose, source/version, API и microservices, unrelated containers.
 Для шести jobs создаётся краткоживущий handler container **из того же готового
 ea51 image**, не новый образ или NAS service. AppModule/cron/API/microservices в
 нём не bootstrap. Он использует уже существующую network namespace; все volumes
-сервера, originals и evidence подключаются RO. Только уже существующие RW
-`thumbs`, `encoded-video`, `profile` подключаются RW. Host/NAS mount flags не
+сервера, library originals и evidence подключаются RO. RW получают только
+выбранные disposable roots (`thumbs`, `encoded-video`, `profile`) или точный
+`upload/<проверенный owner UUID>` для подтверждённых cleanup jobs. Целый `/data`,
+`upload`, `library` и чужие owner roots никогда не становятся RW в helper.
+Host/NAS mount flags не
 меняются. Root directory device/inode/UID/GID проверяются до/после bind; source
 symlinks, неоднозначные/nested mounts и изменённые fingerprints — STOP.
 Read-only rootfs, no-new-privileges, cap-drop ALL + FOWNER (для NFS root squash),
@@ -43,8 +72,10 @@ Read-only rootfs, no-new-privileges, cap-drop ALL + FOWNER (для NFS root squa
 `snapshotOriginal/bindQuarantine/unlinkOriginal`: identity/checksum proof,
 descriptor-relative traversal, atomic capture, 0700 quarantine, повторная
 проверка references и защита от ancestor substitution. Все пути сначала
-проверяются на disposable scope и физическое отделение от upload/library/external
-roots. Максимум 256 paths/job и 4 GiB данных. Root bindings/nonce/checksum сохраняются
+проверяются на disposable scope и физическое отделение от library/external/других
+owner roots, включая bind/NFS aliases. Только собственный temporary upload root
+исключается из protected list для своего cleanup. Максимум 256 paths/job и 4 GiB данных.
+Root bindings/nonce/checksum сохраняются
 на HP **до capture/unlink**. Эти manifests не являются recoveryProof/backup evidence.
 
 BullMQ `Job.remove({removeChildren:false})` вызывается только после `Success`
@@ -57,10 +88,13 @@ remaining files; private proofs позволяют verified retry в той же
 
 ## Hard STOP, без обходов
 
-- Legacy FileDelete с upload/library/external original: нужны реальные
+- Legacy FileDelete с library/external original либо upload без native cleanup marker: нужны реальные
   owner/scope/deletion intent/receipt и актуальная recovery authorization.
   Plain path и operator confirmation не заменяют эти сведения. Нельзя подставлять
   temporaryOwnerId, менять job payload или policies через SQL.
+- Не совпадает compiled native producer, owner отсутствует/удалён, путь другого
+  owner или traversal, есть live/shared reference либо asset-deletion tombstone.
+  Это STOP до helper/file mutation, без синтеза разрешения.
 - Среди других jobs есть незавершённый AssetDelete/AssetEmptyTrash: нужен отдельный
   разбор именно этих intent/receipt; инструмент их не считает завершёнными.
 - Новые/изменённые jobs, orphan deletion hash, active/failed/delayed jobs,
@@ -114,14 +148,39 @@ API-only variables, down, remove-orphans, prune, queue clear или SQL restore.
 проверенный hardened rollback; возвращает FAIL, а не успех установки.
 
 Reports: `RUN_ROOT/queued-user-deletions/queue-snapshot.json`, `file-proofs.json`,
+`cleanup-intent-v1.json`, `cleanup-intent-seal-v1.json`, `native-cleanup-producer-v1.json`,
 `deletion-report-*.json`, `installation-report.json`, `stop-*.json`, plus existing
 `hardened-rollback/image-state` receipts. Source paths/env/proofs private.
 Не повторять image apply после незавершённого apply-attempt. SSH disconnect
 решается повторным attach к той же tmux-сессии, не запуском второго executor.
 
-`originalsDeleted: 0` в FileDelete report намеренно означает только derivative
-cleanup; это не утверждение об окончательном удалении всех NAS originals.
+Report отдельно считает `filesRemoved`, `alreadyAbsent` и
+`confirmedUploadCleanupFilesRemoved`. `libraryOriginalsDeleted: 0` означает, что
+этот инструмент не выдаёт permission для managed/external library deletion.
 Physical S23/iPhone, actual HP/NFS jobs и thumbnail/preview postflight здесь
 не считаются пройденными. После install проверить disposable upload/preview,
 Trash/Restore и source/version/health; разрешения владельцев обновить штатно
 после реальных recovery checks (mount namespace сервера изменится).
+
+## Следующий этап: отдельно разрешённое удаление NAS originals
+
+После успешного image-only install проверить source `ea51a8ac...`, server 5.7.3,
+API **и** microservices, Gallery/web viewing и thumbnail/preview на disposable upload.
+Никакого глобального resume `backgroundTask`: 21 jobs должны остаться paused.
+Сначала отдельно проверить их назначение, а retention не активировать.
+
+Для каждой managed/external scope требуется актуальная реальная recovery validation,
+root manifest именно нового контейнера и Ed25519 evidence не старше 24 часов:
+существующие `trash_recovery_inputs.py`, `trash_recovery_evidence.py` и
+[`SYNOLOGY-RECOVERY-EVIDENCE.md`](SYNOLOGY-RECOVERY-EVIDENCE.md). Старое evidence не
+переподписывать с фиктивно обновлённым временем. Administrator выполняет prepare
+для точного ownerId/libraryId через существующий protected API, каждый владелец
+самостоятельно даёт consent в Android. Managed consent не разрешает external scope.
+Read-only NAS mount не изменять. Первый selective delete/restore и Empty Trash —
+только на disposable assets, после отдельного operator authorization.
+291 offline index tombstones не являются пользовательской корзиной.
+
+Автоматические регрессии: native handler/descriptor quarantine на одноразовых
+Linux files; read-only PostgreSQL + Redis lab с фактическим выполнением шести
+jobs, ссылкой после подготовки, проверкой tombstone aliases, физическим отсутствием,
+ACK и точным сохранением 21 paused hashes/order. Ни один из них не обращается к HP/NAS.

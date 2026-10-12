@@ -26,7 +26,8 @@ class Fixture(unittest.TestCase):
         self.r.phase.mkdir(mode=0o700)
         self.state = self.runroot / 'hardened-rollback/image-state'; self.state.mkdir(mode=0o700, parents=True)
         self.snapshot = {'paused': True, 'counts': {'paused': 27}, 'mediaRoot': '/data', 'knownBackgroundJobs': ['FileDelete', 'MemoryGenerate'],
-                         'jobs': [{'id': id, 'name': 'FileDelete', 'hash': id} for id in m.IDS] +
+                         'jobs': [{'id': id, 'name': 'FileDelete', 'hash': id, 'data': {'files': ['/data/'+
+                                  ('thumbs', 'encoded-video', 'profile')[i % 3]+'/fixture-'+id]}} for i, id in enumerate(m.IDS)] +
                                  [{'id': str(1000+i), 'name': 'MemoryGenerate', 'hash': str(i)} for i in range(21)],
                          'rootPhysical': [{'path': '/data/'+f, 'device': '1', 'inode': str(i), 'uid': '0', 'gid': '0'}
                                           for i, f in enumerate(('thumbs', 'encoded-video', 'profile'))]}
@@ -41,11 +42,15 @@ class Fixture(unittest.TestCase):
         self.r.start_helper = Mock()
         self.r.close_helper = Mock()
         self.result = {'completed': True, 'records': [], 'preserved': 21, 'queuePaused': True, 'originalsDeleted': 0}
+        self.intent = {'contract': 'confirmed-native-cleanup-v1', 'rootPhysical': self.snapshot['rootPhysical'],
+                       'files': [{'root': r['path']} for r in self.snapshot['rootPhysical']]}
+        self.r.producer_contract = Mock(return_value={'image': self.r.hp.CURRENT, 'nativeProducerSHA256': 'a'*64})
         self.actions = []
         def node(action, **kwargs):
             self.actions.append(action)
             if action == 'inventory': return self.snapshot
             if action == 'admit': return {'passed': True}
+            if action == 'intent': return {**self.intent, 'snapshotSeal': self.r.values()['snapshotSeal']}
             if action == 'prepare': return {'snapshotSeal': self.r.values()['snapshotSeal'], 'proofs': []}
             if action == 'execute': return self.result
             if action == 'gate': return {'passed': True, 'preserved': 21}
@@ -103,7 +108,7 @@ class Fixture(unittest.TestCase):
 
     def test_helper_originals_are_ro_and_only_three_derivative_subdirectories_rw(self):
         # Restore the real method; no actual Docker command is executed.
-        self.run_operator(False)
+        self.run_operator()
         self.r.start_helper = m.Runner.start_helper.__get__(self.r)
         self.r.handlers = Mock()
         current = {'Id': 'production-id', 'Image': self.r.hp.CURRENT, 'Config': {'Env': ['DB_PASSWORD=SYNTHETIC_PRIVATE', 'IMMICH_SOURCE_COMMIT=']},
@@ -119,7 +124,7 @@ class Fixture(unittest.TestCase):
         calls = []
         def run(args, **kw):
             calls.append(args)
-            if args[:3] == ['sudo', '-n', 'realpath']: return args[-1]
+            if args[:3] == ['sudo', '-n', 'realpath']: return args[-1]+'\n'
             if 'exec' in args: return json.dumps(self.snapshot['rootPhysical'])
             return 'unique'
         self.core.run.side_effect = run
@@ -133,6 +138,64 @@ class Fixture(unittest.TestCase):
         self.assertTrue(all('upload' not in bind and 'library' not in bind for bind in binds))
         self.assertEqual((self.r.phase/'native-handler.env').stat().st_mode & 0o777, 0o600)
         self.assertNotIn('IMMICH_SOURCE_COMMIT=', (self.r.phase/'native-handler.env').read_text())
+
+    def test_confirmed_upload_scope_is_narrow_and_other_owners_libraries_stay_read_only(self):
+        owner = '11111111-1111-4111-8111-111111111111'
+        scope = '/data/upload/' + owner
+        for job in self.snapshot['jobs'][:6]: job['data']['temporaryOwnerId'] = owner
+        self.intent = {'contract': 'confirmed-native-cleanup-v1', 'rootPhysical': [{
+            'path': scope, 'device': '1', 'inode': '99', 'uid': '1024', 'gid': '100'}], 'files': [{'root': scope}]}
+        self.run_operator()
+        self.r.producer_contract.assert_called_once()
+        self.r.start_helper = m.Runner.start_helper.__get__(self.r)
+        self.r.handlers = Mock()
+        current = {'Id': 'prod', 'Image': self.r.hp.CURRENT, 'Config': {'Env': []}, 'Mounts': [
+            {'Destination': '/data', 'Source': '/fixture/media', 'Type': 'bind', 'RW': True},
+            {'Destination': '/external', 'Source': '/fixture/nas', 'Type': 'bind', 'RW': True}]}
+        helper = {'Id': 'helper', 'Image': self.r.hp.TARGET, 'State': {'Running': True, 'StartedAt': 'fixed', 'Pid': 123},
+                  'Config': {'Labels': {'gallery.confirmed-files.run': str(self.runroot)}},
+                  'HostConfig': {'ReadonlyRootfs': True, 'CapDrop': ['ALL'], 'CapAdd': ['FOWNER'],
+                                 'Memory': 512*1024**2, 'NanoCpus': 500_000_000, 'NetworkMode': 'container:prod'},
+                  'Mounts': [{'Destination': '/data', 'RW': False}, {'Destination': '/external', 'RW': False},
+                             {'Destination': scope, 'RW': True}]}
+        self.core.inspect.side_effect = lambda name: current if name == self.core.SERVER else helper
+        self.core.docker = Mock(return_value='')
+        calls = []
+        def run(args, **kw):
+            calls.append(args)
+            if args[:3] == ['sudo', '-n', 'realpath']: return args[-1]+'\n'
+            if 'exec' in args: return json.dumps(self.intent['rootPhysical'])
+            return 'helper'
+        self.core.run.side_effect = run
+        self.r.start_helper()
+        command = next(c for c in calls if 'run' in c)
+        mounts = [command[i+1] for i, value in enumerate(command) if value == '--mount']
+        self.assertEqual(mounts, ['type=bind,src=/fixture/media/upload/'+owner+',dst='+scope])
+        self.assertEqual({mount.split(',dst=')[1] for mount in mounts}, {scope})
+
+    def test_unproven_intent_stops_before_helper_and_deployment(self):
+        old = self.r.node.side_effect
+        self.r.node.side_effect = lambda action, **kw: self.core.need(False, 'LEGACY_ORIGINAL_REQUIRES_ASSET_DELETION_INTENT') if action == 'intent' else old(action, **kw)
+        with self.assertRaisesRegex(self.core.Stop, 'LEGACY_ORIGINAL_REQUIRES'): self.run_operator()
+        self.r.start_helper.assert_not_called(); self.core.execute.assert_not_called()
+
+    def test_cached_intent_tampering_is_rejected(self):
+        self.run_operator()
+        path = self.r.phase/'cleanup-intent-v1.json'
+        data = self.core.private_json(path); data['rootPhysical'][0]['inode'] = 'changed'
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(self.core.Stop, 'SEALED_CLEANUP_INTENT_CHANGED'): self.r.intent_values()
+
+    def test_native_cleanup_producer_mismatch_rejected_without_new_authorization(self):
+        self.r.producer_contract = m.Runner.producer_contract.__get__(self.r)
+        self.core.run.side_effect = ['a'*64, 'b'*64]
+        with self.assertRaisesRegex(self.core.Stop, 'LEGACY_UPLOAD_PRODUCER_DIFFERS'): self.r.producer_contract()
+        self.assertFalse((self.r.phase/'native-cleanup-producer-v1.json').exists())
+
+    def test_native_producer_hash_stdout_newline_is_not_a_contract_change(self):
+        self.r.producer_contract = m.Runner.producer_contract.__get__(self.r)
+        self.core.run.side_effect = ['a'*64+'\n', 'a'*64+'\n']
+        self.assertEqual(self.r.producer_contract()['nativeProducerSHA256'], 'a'*64)
 
     def test_helper_fingerprint_preserves_duplicate_mounts_and_ignores_order_only(self):
         item = {'Id': 'id', 'Image': 'image', 'State': {'StartedAt': 'fixed', 'Pid': 123},

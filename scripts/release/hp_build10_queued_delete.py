@@ -17,7 +17,7 @@ from types import SimpleNamespace
 IDS = ['886', '887', '888', '929', '930', '953']
 FILES = ['services/storage.service.js', 'repositories/storage.repository.js', 'repositories/asset.repository.js',
          'utils/authorized-deletion.js', 'utils/deletion-recovery.js', 'backends/disk-storage.backend.js',
-         'services/job.service.js', 'enum.js', 'repositories/config.repository.js']
+         'services/job.service.js', 'enum.js', 'repositories/config.repository.js', 'services/asset-media.service.js']
 
 
 def load(name):
@@ -75,9 +75,31 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
                                             self.hp.TARGET, '--input-type=module', '-e', code]))
         self.core.need(set(actual) == set(FILES) and actual == expected, 'RUNNING_HANDLERS_DIFFER_REQUIRE_REVIEW')
 
+    def producer_contract(self):
+        # The persisted temporaryOwnerId must be the real existing native
+        # authenticated upload-cleanup contract, never a newly invented flag.
+        code = "import fs from 'node:fs/promises';import {createHash} from 'node:crypto';console.log(createHash('sha256').update(await fs.readFile('/usr/src/app/server/dist/services/asset-media.service.js')).digest('hex'));"
+        actual = self.core.run([*self.core.DOCKER, 'exec', self.core.SERVER, 'node', '--input-type=module', '-e', code]).strip()
+        expected = self.core.run([*self.core.DOCKER, 'run', '--rm', '--pull', 'never', '--network', 'none',
+                                  '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+                                  '--memory', '256m', '--cpus', '1', '--pids-limit', '64', '--entrypoint', 'node',
+                                  self.hp.TARGET, '--input-type=module', '-e', code]).strip()
+        self.core.need(re.fullmatch('[a-f0-9]{64}', actual) and actual == expected,
+                       'LEGACY_UPLOAD_PRODUCER_DIFFERS_FROM_FROZEN_SOURCE')
+        return {'image': self.hp.CURRENT, 'nativeProducerSHA256': actual}
+
+    def intent_values(self):
+        intent = self.core.private_json(self.phase / 'cleanup-intent-v1.json')
+        seal = self.core.private_json(self.phase / 'cleanup-intent-seal-v1.json')['sha256']
+        self.core.need(hashlib.sha256(json.dumps(intent, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest() == seal,
+                       'SEALED_CLEANUP_INTENT_CHANGED')
+        self.core.need(intent.get('contract') == 'confirmed-native-cleanup-v1' and
+                       intent.get('snapshotSeal') == self.values()['snapshotSeal'], 'CLEANUP_INTENT_CONTRACT_CHANGED')
+        return {'intent': intent, 'intentSeal': seal}
+
     def start_helper(self):
         # No production AppModule bootstrap. Existing originals/evidence are RO;
-        # only verified derivative subdirectories are writable in this helper.
+        # only verified derivative/owner upload subdirectories are writable.
         current = self.core.inspect(self.core.SERVER)
         self.core.need(current['Image'] == self.hp.CURRENT, 'EXPECTED_CURRENT_IMAGE_REQUIRED')
         ids = self.core.docker('ps', '-aq', '--filter', 'name=^/' + self.helper + '$').split()
@@ -88,26 +110,38 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
                            item['Config']['Labels'].get('gallery.confirmed-files.run') == str(self.root),
                            'EXISTING_HELPER_NOT_OUR_RUNNING_NAMESPACE')
             self.helper_binding(item)
+            writable = {r['path'] for r in self.intent_values()['intent']['rootPhysical']}
+            self.core.need({r['Destination'] for r in item['Mounts'] if r.get('RW')} == writable,
+                           'EXISTING_HELPER_SCOPE_DIFFERS_NO_AUTOMATIC_REMOUNT')
             self.handlers()
             return
         media = self.values()['snapshot']['mediaRoot']
         self.core.need(media.startswith('/') and media == posixpath.normpath(media), 'VERIFIED_MEDIA_ROOT_REQUIRED')
-        # Exact folders from the stock handler; never upload/library/external roots.
+        # Never grant RW to the whole upload tree or any library/external root.
         mounts = []
         rows = current['Mounts']
         self.core.need(len({r['Destination'] for r in rows}) == len(rows), 'UNAMBIGUOUS_CONTAINER_MOUNTS_REQUIRED')
-        for folder in ('thumbs', 'encoded-video', 'profile'):
-            destination = media + '/' + folder
-            self.core.need(not any(r['Destination'].startswith(destination + '/') for r in rows), 'NESTED_DERIVATIVE_MOUNT_REQUIRES_REVIEW')
+        intent = self.intent_values()['intent']
+        writable = {r['path'] for r in intent['rootPhysical']}
+        expected = {s['root'] for s in intent['files']}
+        self.core.need(writable == expected and bool(writable) and len(writable) <= 128,
+                       'EXACT_CONFIRMED_WRITABLE_ROOTS_REQUIRED')
+        for destination in sorted(writable):
+            relative = destination.removeprefix(media + '/')
+            self.core.need(destination.startswith(media + '/') and destination == posixpath.normpath(destination) and
+                           (relative in ('thumbs', 'encoded-video', 'profile') or
+                            re.fullmatch('upload/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', relative)),
+                           'UNSUPPORTED_WRITABLE_CLEANUP_SCOPE')
+            self.core.need(not any(r['Destination'].startswith(destination + '/') for r in rows), 'NESTED_CLEANUP_MOUNT_REQUIRES_REVIEW')
             parents = [r for r in rows if destination == r['Destination'] or destination.startswith(r['Destination'].rstrip('/') + '/')]
             self.core.need(bool(parents), 'EXISTING_MEDIA_MOUNT_REQUIRED')
             bound = max(parents, key=lambda r: len(r['Destination']))
             self.core.need(bound['Type'] in ('bind', 'volume') and bound.get('RW') is True,
-                           'EXISTING_WRITABLE_DERIVATIVE_MOUNT_REQUIRED')
+                           'EXISTING_WRITABLE_CLEANUP_MOUNT_REQUIRED')
             source = bound['Source'].rstrip('/') + destination[len(bound['Destination'].rstrip('/')):]
-            actual = self.core.run(['sudo', '-n', 'realpath', '--canonicalize-existing', source])
+            actual = self.core.run(['sudo', '-n', 'realpath', '--canonicalize-existing', source]).strip()
             self.core.need(actual == source and ',' not in source and ',' not in destination,
-                           'CANONICAL_EXISTING_DERIVATIVE_SOURCE_REQUIRED')
+                           'CANONICAL_EXISTING_CLEANUP_SOURCE_REQUIRED')
             mounts.extend(['--mount', 'type=bind,src=' + source + ',dst=' + destination])
         env_file = self.phase / 'native-handler.env'
         self.core.need(not env_file.exists(), 'FAILED_HELPER_CREATION_RETAINED_NO_ENV_OVERWRITE')
@@ -128,20 +162,19 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
                        host.get('Memory') == 512 * 1024 ** 2 and host.get('NanoCpus') == 500_000_000 and
                        host.get('NetworkMode') == 'container:' + current['Id'],
                        'SCOPED_HELPER_SECURITY_PROFILE_REQUIRED')
-        writable = {media + '/' + name for name in ('thumbs', 'encoded-video', 'profile')}
         self.core.need(len({r['Destination'] for r in item['Mounts']}) == len(item['Mounts']) and
                        {r['Destination'] for r in item['Mounts']} == {r['Destination'] for r in rows} | writable and
                        all(r.get('RW') is (r['Destination'] in writable) for r in item['Mounts']),
-                       'ORIGINALS_AND_EVIDENCE_MUST_BE_READ_ONLY_IN_HELPER')
+                       'NONSELECTED_ORIGINALS_AND_EVIDENCE_MUST_BE_READ_ONLY_IN_HELPER')
         self.core.save(self.phase / 'native-handler.json', self.helper_fingerprint(item))
         self.handlers()
         # Bind the admissible directory BEFORE mounting it writable in a new
         # namespace. Cross-namespace mount IDs differ, device/inode must not.
         code = "import fs from 'node:fs/promises';const result=[];for(const path of " + json.dumps(
-            [r['path'] for r in self.values()['snapshot']['rootPhysical']]) + \
+            [r['path'] for r in intent['rootPhysical']]) + \
             "){const s=await fs.stat(path,{bigint:true});result.push({path,device:String(s.dev),inode:String(s.ino),uid:String(s.uid),gid:String(s.gid)});}console.log(JSON.stringify(result));"
         observed = json.loads(self.core.run([*self.core.DOCKER, 'exec', self.helper, 'node', '--input-type=module', '-e', code]))
-        self.core.need(observed == self.values()['snapshot']['rootPhysical'], 'DERIVATIVE_ROOT_SUBSTITUTED_NO_FILES_TOUCHED')
+        self.core.need(observed == intent['rootPhysical'], 'CLEANUP_ROOT_SUBSTITUTED_NO_FILES_TOUCHED')
 
     def helper_fingerprint(self, item):
         return {'id': item['Id'], 'image': item['Image'],
@@ -189,7 +222,7 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
 
     def gate(self):
         proof = self.core.private_json(self.phase / 'file-proofs.json')
-        result = self.node('gate', **self.values(), proof=proof)
+        result = self.node('gate', **self.values(), **self.intent_values(), proof=proof)
         self.core.need(result.get('passed') is True, 'PRESERVED_QUEUE_GATE_FAILED')
         print('PASS no pending AssetDelete/FileDelete; other jobs unchanged and paused:', result['preserved'])
         return result
@@ -201,7 +234,10 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
         self.hp.private(self.phase, True)
         lock = self.phase / '.operator.lock'
         with os.fdopen(os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600), 'w') as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.core.need(False, 'CONFIRMED_OPERATION_ALREADY_RUNNING')
             item = self.core.inspect(self.core.SERVER)
             self.core.identity(item)
             self.core.need(item['Image'] == self.hp.CURRENT, 'EXPECTED_CURRENT_IMAGE_REQUIRED')
@@ -227,6 +263,21 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
                 return
             self.core.need(os.environ.get('GALLERY_USER_QUEUED_DELETION_APPROVED') == 'YES' and
                            os.environ.get('GALLERY_DEPLOYMENT_APPROVED') == 'YES', 'EXPLICIT_QUEUE_AND_IMAGE_APPROVAL_REQUIRED')
+            intent_file = self.phase / 'cleanup-intent-v1.json'
+            if any(j.get('data', {}).get('temporaryOwnerId') for j in inventory['jobs'] if j['id'] in IDS):
+                producer = self.producer_contract()
+                producer_file = self.phase / 'native-cleanup-producer-v1.json'
+                if producer_file.exists():
+                    self.core.need(self.core.private_json(producer_file) == producer, 'NATIVE_CLEANUP_PRODUCER_CHANGED')
+                else:
+                    self.core.save(producer_file, producer)
+            if not intent_file.exists():
+                intent = self.node('intent', **values)
+                self.core.save(intent_file, intent)  # Read-only, before any helper RW bind or quarantine.
+                self.core.save(self.phase / 'cleanup-intent-seal-v1.json', {'sha256': hashlib.sha256(
+                    json.dumps(intent, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()})
+            intent_values = self.intent_values()
+            print('PASS existing native cleanup intent; sealed files:', len(intent_values['intent']['files']))
             # Prepare independently verified rollback before executing any deletion.
             if not (self.root / 'hardened-rollback').exists():
                 self.core.run(['bash', str(Path(__file__).with_name('hp_build10_rollback.sh')),
@@ -243,10 +294,10 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
             else:
                 self.start_helper()
                 if not proof_file.exists():
-                    proof = self.node('prepare', **values)
+                    proof = self.node('prepare', **values, **intent_values)
                     self.core.save(proof_file, proof)  # Durable identity/checksum/quarantine names BEFORE capture/unlink.
                 proof = self.core.private_json(proof_file)
-                result = self.node('execute', **values, proof=proof)
+                result = self.node('execute', **values, **intent_values, proof=proof)
                 report = self.phase / ('deletion-report-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
                 self.core.save(report, result)
             print('DELETION_RESULT:', json.dumps(result, sort_keys=True))
