@@ -134,6 +134,30 @@ rollback не зависит от существования helper. В случ
 helper удерживается с сохранённой private identity для verified recovery, не
 bootstrap workers. Не удалять его до проверки capture/receipt.
 
+### Продолжение после `SCOPED_HELPER_SECURITY_PROFILE_REQUIRED`
+
+Docker inspect может возвращать `CAP_FOWNER` для запроса `--cap-add FOWNER`.
+Это один и тот же Linux capability, не дополнительные права. Сравнение принимает
+оба написания, сохраняя требование ровно одного FOWNER и drop ALL; лишние,
+повторяющиеся или неизвестные capabilities отклоняются.
+
+В `5c908688` этот STOP возникал после создания idle helper, но до записи
+`native-handler.json` и подготовки файлов. Исправленный runner штатно проверяет
+такой существующий helper до допуска в preflight inventory: требуется реальный
+ранний STOP receipt, отсутствие file-proofs/deletion reports, неизменённый sealed
+inventory и актуальные owner/reference/root checks. Проверяются image/label,
+idle command, exact mounts/source/RW boundaries, production env и image defaults,
+readonly rootfs, private namespaces, no-new-privileges, seccomp, только FOWNER
+в kernel capability masks, память 512 MiB, CPU 0.5 и 128 PIDs.
+
+Только после всех проверок записывается container identity receipt и отдельный
+`helper-recovery-*.json`; это не deletion consent или recoveryProof. Helper не
+пересоздаётся, его namespace сохраняется, старые evidence/STOP reports не
+переписываются. Если файл уже мог быть подготовлен, receipt отсутствует или
+профиль отличается — конкретный STOP без автоматического adoption/cleanup.
+Повторный запуск использует тот же RUN_ROOT и новый pinned tooling directory;
+очереди и production mount permissions не меняются.
+
 В этом операторском workflow queue gate дополнительно разрешает **точно те же
 21 paused non-original-deletion jobs** с исходными hashes/order и zero unresolved
 AssetDelete/FileDelete; default `image_release.py` empty-queue gate не меняется.

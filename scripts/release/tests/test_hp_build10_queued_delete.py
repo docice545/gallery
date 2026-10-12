@@ -17,6 +17,17 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 
 
 class Fixture(unittest.TestCase):
+    def complete_helper(self, helper, current):
+        helper.update(Name='/'+self.r.helper, Path='node', Args=['-e', 'setInterval(()=>{},10000)'])
+        helper['Config'].update(Entrypoint=['node'], Cmd=['-e', 'setInterval(()=>{},10000)'])
+        helper['HostConfig'].update(Privileged=False, PidsLimit=128, SecurityOpt=['no-new-privileges'],
+                                  PidMode='', IpcMode='private', UTSMode='', UsernsMode='')
+        for row in helper['Mounts']:
+            original = next((r for r in current['Mounts'] if r['Destination'] == row['Destination']), None)
+            row.update(Type='bind', Source=original['Source'] if original else '/fixture/media'+row['Destination'][5:])
+            if row['RW']: row['Propagation'] = 'rprivate'
+        return helper
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix='gallery-queued-release-test-')
         self.addCleanup(temp.cleanup)
@@ -119,6 +130,7 @@ class Fixture(unittest.TestCase):
                                  'Memory': 512*1024**2, 'NanoCpus': 500_000_000, 'NetworkMode': 'container:production-id'},
                   'Mounts': [{'Destination': '/data', 'RW': False}] +
                             [{'Destination': '/data/'+folder, 'RW': True} for folder in ('thumbs', 'encoded-video', 'profile')]}
+        self.complete_helper(helper, current)
         self.core.inspect.side_effect = lambda name: current if name == self.core.SERVER else helper
         self.core.docker = Mock(return_value='')
         calls = []
@@ -158,6 +170,7 @@ class Fixture(unittest.TestCase):
                                  'Memory': 512*1024**2, 'NanoCpus': 500_000_000, 'NetworkMode': 'container:prod'},
                   'Mounts': [{'Destination': '/data', 'RW': False}, {'Destination': '/external', 'RW': False},
                              {'Destination': scope, 'RW': True}]}
+        self.complete_helper(helper, current)
         self.core.inspect.side_effect = lambda name: current if name == self.core.SERVER else helper
         self.core.docker = Mock(return_value='')
         calls = []
@@ -204,6 +217,122 @@ class Fixture(unittest.TestCase):
         self.assertEqual(a, self.r.helper_fingerprint({**item, 'Mounts': list(reversed(item['Mounts']))}))
         self.assertNotEqual(a, self.r.helper_fingerprint({**item, 'Mounts': item['Mounts']+[{'x': 1}]}))
         self.assertNotEqual(a, self.r.helper_fingerprint({**item, 'State': {'StartedAt': 'changed', 'Pid': 999}}))
+
+
+class SecurityProfile(unittest.TestCase):
+    def setUp(self):
+        self.core = m.load('image_release')
+        self.current = {'Id': 'pinned-production-id'}
+        self.host = {'ReadonlyRootfs': True, 'Privileged': False, 'CapDrop': ['ALL'], 'CapAdd': ['CAP_FOWNER'],
+                     'Memory': 512*1024**2, 'NanoCpus': 500_000_000, 'PidsLimit': 128,
+                     'SecurityOpt': ['no-new-privileges'], 'PidMode': '', 'IpcMode': 'private', 'UTSMode': '',
+                     'UsernsMode': '', 'NetworkMode': 'container:pinned-production-id'}
+
+    def test_docker_cap_prefix_is_semantically_identical_but_not_extra_permission(self):
+        for value in ('FOWNER', 'CAP_FOWNER'):
+            with self.subTest(value=value):
+                m.security_profile(self.core, {'HostConfig': {**self.host, 'CapAdd': [value]}}, self.current)
+
+    def test_rejects_extra_duplicate_or_malformed_capability(self):
+        for added in (['CAP_SYS_ADMIN'], ['FOWNER', 'SYS_ADMIN'], ['FOWNER', 'CAP_FOWNER'],
+                      ['CAP_CAP_FOWNER'], [], None, ['CAP_fowner']):
+            with self.subTest(added=added), self.assertRaisesRegex(self.core.Stop, 'CAPABILITIES'):
+                m.security_profile(self.core, {'HostConfig': {**self.host, 'CapAdd': added}}, self.current)
+
+    def test_rejects_every_unsafe_profile_dimension(self):
+        changes = [dict(ReadonlyRootfs=False), dict(Privileged=True), dict(CapDrop=[]),
+                   dict(Memory=0), dict(NanoCpus=0), dict(PidsLimit=-1), dict(SecurityOpt=[]),
+                   dict(SecurityOpt=['no-new-privileges', 'seccomp=unconfined']), dict(PidMode='host'),
+                   dict(IpcMode='host'), dict(UTSMode='host'), dict(UsernsMode='host'),
+                   dict(Devices=[{'PathOnHost': '/dev/dri/renderD128'}]), dict(DeviceRequests=[{}]),
+                   dict(PortBindings={'80/tcp': [{}]}), dict(NetworkMode='host'),
+                   dict(NetworkMode='container:another-id')]
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(self.core.Stop):
+                m.security_profile(self.core, {'HostConfig': {**self.host, **change}}, self.current)
+
+
+class EarlyStopRecovery(unittest.TestCase):
+    # Reuse setup/helpers, not Fixture's test methods.
+    complete_helper = Fixture.complete_helper
+    run_operator = Fixture.run_operator
+
+    def setUp(self):
+        Fixture.setUp(self)
+        self.run_operator(False)
+        intent = {**self.intent, 'snapshotSeal': self.r.values()['snapshotSeal']}
+        self.core.save(self.r.phase/'cleanup-intent-v1.json', intent)
+        self.core.save(self.r.phase/'cleanup-intent-seal-v1.json', {'sha256': hashlib.sha256(
+            json.dumps(intent, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()})
+        self.core.save(self.r.phase/'stop-fixture.json', {'code': 'SCOPED_HELPER_SECURITY_PROFILE_REQUIRED'})
+        self.current = {'Id': 'prod', 'Image': self.r.hp.CURRENT, 'Config': {'Env': ['FIXTURE_PRIVATE=synthetic']},
+                        'Mounts': [{'Type': 'bind', 'Source': '/fixture/media', 'Destination': '/data', 'RW': True}]}
+        self.helper = self.complete_helper({
+            'Id': 'verified-helper', 'Image': self.r.hp.TARGET,
+            'State': {'Running': True, 'StartedAt': 'fixed', 'Pid': 123},
+            'Config': {'Labels': {'gallery.confirmed-files.run': str(self.runroot)},
+                       'Env': ['BAKED=source', 'FIXTURE_PRIVATE=synthetic'], 'User': '', 'WorkingDir': '/app'},
+            'HostConfig': {'ReadonlyRootfs': True, 'CapDrop': ['ALL'], 'CapAdd': ['CAP_FOWNER'],
+                           'Memory': 512*1024**2, 'NanoCpus': 500_000_000, 'NetworkMode': 'container:prod'},
+            'Mounts': [{'Destination': '/data', 'RW': False}]+[{'Destination': r['path'], 'RW': True}
+                      for r in intent['rootPhysical']],
+        }, self.current)
+        self.core.inspect.side_effect = lambda name: self.current if name == self.core.SERVER else self.helper
+        self.core.image = Mock(return_value={'Config': {'Env': ['BAKED=source'], 'User': '', 'WorkingDir': '/app'}})
+        self.r.handlers = Mock()
+        self.kernel = {'CapEff': '0000000000000008', 'CapPrm': '0000000000000008', 'CapBnd': '0000000000000008',
+                       'CapInh': '0000000000000000', 'CapAmb': '0000000000000000', 'NoNewPrivs': '1', 'Seccomp': '2'}
+        def run(args, **kwargs):
+            if args[:3] == ['sudo', '-n', 'realpath']: return args[-1]+'\n'
+            if '/proc/1/status' in args[-1]: return json.dumps(self.kernel)
+            if 'exec' in args: return json.dumps(intent['rootPhysical'])
+            self.fail('Unexpected Docker mutation during early recovery')
+        self.core.run.side_effect = run
+        (self.r.phase/'native-handler.env').write_text('FIXTURE_PRIVATE=synthetic\n')
+        (self.r.phase/'native-handler.env').chmod(0o600)
+
+    def test_revalidates_existing_helper_without_recreation_or_deletion(self):
+        with redirect_stdout(io.StringIO()): self.r.recover_unsealed_helper(self.helper, self.current)
+        self.assertTrue((self.r.phase/'native-handler.json').exists())
+        self.assertEqual(self.core.private_json(self.r.phase/'native-handler.json'), self.r.helper_fingerprint(self.helper))
+        self.assertTrue(list(self.r.phase.glob('helper-recovery-*.json')))
+        self.r.helper_binding(self.helper)
+        self.assertFalse((self.r.phase/'file-proofs.json').exists())
+        self.core.execute.assert_not_called()
+
+    def test_any_possible_prior_file_operation_blocks_adoption(self):
+        self.core.save(self.r.phase/'file-proofs.json', {'fixture': 'must preserve'})
+        with self.assertRaisesRegex(self.core.Stop, 'AFTER_FILE_WORK_FORBIDDEN'):
+            self.r.recover_unsealed_helper(self.helper, self.current)
+        self.assertFalse((self.r.phase/'native-handler.json').exists())
+
+    def test_missing_original_stop_receipt_blocks_adoption(self):
+        (self.r.phase/'stop-fixture.json').write_text(json.dumps({'code': 'SOME_OTHER_STOP'}))
+        with self.assertRaisesRegex(self.core.Stop, 'EARLY_HELPER_STOP_REQUIRED'):
+            self.r.recover_unsealed_helper(self.helper, self.current)
+
+    def test_changed_queue_or_root_intent_blocks_adoption(self):
+        old = self.r.node.side_effect
+        self.r.node.side_effect = lambda action, **kwargs: {'changed': True} if action == 'intent' else old(action, **kwargs)
+        with self.assertRaisesRegex(self.core.Stop, 'INTENT_CHANGED'):
+            self.r.recover_unsealed_helper(self.helper, self.current)
+
+    def test_changed_host_binding_blocks_adoption(self):
+        self.helper['Mounts'][1]['Source'] = '/another/owner'
+        with self.assertRaisesRegex(self.core.Stop, 'WRITABLE_BIND_CHANGED'):
+            self.r.recover_unsealed_helper(self.helper, self.current)
+
+    def test_changed_env_or_kernel_sandbox_blocks_adoption(self):
+        for change in ('env', 'capabilities', 'privileges', 'seccomp'):
+            with self.subTest(change=change):
+                before = self.helper['Config']['Env'][:]; saved = self.kernel.copy()
+                if change == 'env': self.helper['Config']['Env'].append('INJECTED=not-permitted')
+                if change == 'capabilities': self.kernel['CapEff'] = '0000000000200008'
+                if change == 'privileges': self.kernel['NoNewPrivs'] = '0'
+                if change == 'seccomp': self.kernel['Seccomp'] = '0'
+                with self.assertRaises(self.core.Stop): self.r.recover_unsealed_helper(self.helper, self.current)
+                self.helper['Config']['Env'] = before; self.kernel = saved
+                self.assertFalse((self.r.phase/'native-handler.json').exists())
 
 
 if __name__ == '__main__':

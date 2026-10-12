@@ -18,6 +18,36 @@ IDS = ['886', '887', '888', '929', '930', '953']
 FILES = ['services/storage.service.js', 'repositories/storage.repository.js', 'repositories/asset.repository.js',
          'utils/authorized-deletion.js', 'utils/deletion-recovery.js', 'backends/disk-storage.backend.js',
          'services/job.service.js', 'enum.js', 'repositories/config.repository.js', 'services/asset-media.service.js']
+KERNEL_PROFILE_PROBE = r'''import fs from 'node:fs/promises';
+const s=await fs.readFile('/proc/1/status','utf8'),r={};
+for(const k of ['CapEff','CapPrm','CapBnd','CapInh','CapAmb','NoNewPrivs','Seccomp'])
+ r[k]=new RegExp('^'+k+':\\s*(\\S+)','m').exec(s)?.[1];
+console.log(JSON.stringify(r));'''
+
+
+def capability_names(values):
+    # Docker versions serialize --cap-add FOWNER as FOWNER or CAP_FOWNER.
+    # Keep cardinality/order: extra or duplicate capabilities still fail.
+    if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+        return None
+    return [v.removeprefix('CAP_') for v in values]
+
+
+def security_profile(core, item, current):
+    host = item['HostConfig']
+    core.need(host.get('ReadonlyRootfs') is True and host.get('Privileged') is False,
+              'SCOPED_HELPER_READONLY_PRIVILEGE_REQUIRED')
+    core.need(capability_names(host.get('CapDrop')) == ['ALL'] and
+              capability_names(host.get('CapAdd')) == ['FOWNER'], 'SCOPED_HELPER_CAPABILITIES_REQUIRED')
+    core.need(host.get('Memory') == 512 * 1024 ** 2 and host.get('NanoCpus') == 500_000_000 and
+              host.get('PidsLimit') == 128, 'SCOPED_HELPER_RESOURCE_LIMITS_REQUIRED')
+    core.need(host.get('SecurityOpt') in (['no-new-privileges'], ['no-new-privileges:true']),
+              'SCOPED_HELPER_NO_NEW_PRIVILEGES_REQUIRED')
+    core.need(host.get('PidMode') == '' and host.get('IpcMode') in ('', 'private') and
+              host.get('UTSMode') == '' and host.get('UsernsMode') == '', 'SCOPED_HELPER_PRIVATE_NAMESPACES_REQUIRED')
+    core.need(not host.get('Devices') and not host.get('DeviceRequests') and not host.get('PortBindings'),
+              'SCOPED_HELPER_NO_HOST_DEVICES_OR_PORTS_REQUIRED')
+    core.need(host.get('NetworkMode') == 'container:' + current['Id'], 'SCOPED_HELPER_PINNED_NETWORK_REQUIRED')
 
 
 def load(name):
@@ -97,28 +127,11 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
                        intent.get('snapshotSeal') == self.values()['snapshotSeal'], 'CLEANUP_INTENT_CONTRACT_CHANGED')
         return {'intent': intent, 'intentSeal': seal}
 
-    def start_helper(self):
-        # No production AppModule bootstrap. Existing originals/evidence are RO;
-        # only verified derivative/owner upload subdirectories are writable.
-        current = self.core.inspect(self.core.SERVER)
-        self.core.need(current['Image'] == self.hp.CURRENT, 'EXPECTED_CURRENT_IMAGE_REQUIRED')
-        ids = self.core.docker('ps', '-aq', '--filter', 'name=^/' + self.helper + '$').split()
-        if ids:
-            self.core.need(len(ids) == 1, 'HELPER_AMBIGUOUS')
-            item = self.core.inspect(self.helper)
-            self.core.need(item['Image'] == self.hp.TARGET and item['State'].get('Running') and
-                           item['Config']['Labels'].get('gallery.confirmed-files.run') == str(self.root),
-                           'EXISTING_HELPER_NOT_OUR_RUNNING_NAMESPACE')
-            self.helper_binding(item)
-            writable = {r['path'] for r in self.intent_values()['intent']['rootPhysical']}
-            self.core.need({r['Destination'] for r in item['Mounts'] if r.get('RW')} == writable,
-                           'EXISTING_HELPER_SCOPE_DIFFERS_NO_AUTOMATIC_REMOUNT')
-            self.handlers()
-            return
+    def helper_mounts(self, current):
         media = self.values()['snapshot']['mediaRoot']
         self.core.need(media.startswith('/') and media == posixpath.normpath(media), 'VERIFIED_MEDIA_ROOT_REQUIRED')
         # Never grant RW to the whole upload tree or any library/external root.
-        mounts = []
+        mounts = {}
         rows = current['Mounts']
         self.core.need(len({r['Destination'] for r in rows}) == len(rows), 'UNAMBIGUOUS_CONTAINER_MOUNTS_REQUIRED')
         intent = self.intent_values()['intent']
@@ -142,7 +155,102 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
             actual = self.core.run(['sudo', '-n', 'realpath', '--canonicalize-existing', source]).strip()
             self.core.need(actual == source and ',' not in source and ',' not in destination,
                            'CANONICAL_EXISTING_CLEANUP_SOURCE_REQUIRED')
-            mounts.extend(['--mount', 'type=bind,src=' + source + ',dst=' + destination])
+            mounts[destination] = source
+        return mounts
+
+    def verify_helper(self, item, current):
+        self.core.need(item['Image'] == self.hp.TARGET and item['State'].get('Running') and
+                       item.get('Name') == '/' + self.helper and
+                       item['Config'].get('Labels', {}).get('gallery.confirmed-files.run') == str(self.root),
+                       'EXISTING_HELPER_NOT_OUR_RUNNING_NAMESPACE')
+        security_profile(self.core, item, current)
+        self.core.need(item['Config'].get('Entrypoint') == ['node'] and
+                       item['Config'].get('Cmd') == ['-e', 'setInterval(()=>{},10000)'] and item.get('Path') == 'node' and
+                       item.get('Args') == ['-e', 'setInterval(()=>{},10000)'], 'HELPER_IDLE_PROCESS_REQUIRED')
+        mounts = self.helper_mounts(current)
+        rows = current['Mounts']
+        actual = item['Mounts']
+        self.core.need(len({r['Destination'] for r in actual}) == len(actual) and
+                       {r['Destination'] for r in actual} == {r['Destination'] for r in rows} | set(mounts),
+                       'EXACT_SCOPED_HELPER_MOUNTS_REQUIRED')
+        previous = {r['Destination']: r for r in rows}
+        for row in actual:
+            destination = row['Destination']
+            if destination in mounts:
+                self.core.need(row.get('RW') is True and row['Type'] == 'bind' and row['Source'] == mounts[destination] and
+                               row.get('Propagation') == 'rprivate', 'SCOPED_HELPER_WRITABLE_BIND_CHANGED')
+            else:
+                before = previous[destination]
+                self.core.need(row.get('RW') is False and all(row.get(k) == before.get(k) for k in
+                               ('Type', 'Source', 'Name', 'Driver', 'Propagation')),
+                               'NONSELECTED_ORIGINALS_AND_EVIDENCE_MUST_BE_READ_ONLY_IN_HELPER')
+        self.handlers()
+        self.verify_helper_roots()
+
+    def verify_helper_roots(self):
+        intent = self.intent_values()['intent']
+        code = "import fs from 'node:fs/promises';const result=[];for(const path of " + json.dumps(
+            [r['path'] for r in intent['rootPhysical']]) + \
+            "){const s=await fs.stat(path,{bigint:true});result.push({path,device:String(s.dev),inode:String(s.ino),uid:String(s.uid),gid:String(s.gid)});}console.log(JSON.stringify(result));"
+        observed = json.loads(self.core.run([*self.core.DOCKER, 'exec', self.helper, 'node', '--input-type=module', '-e', code]))
+        self.core.need(observed == intent['rootPhysical'], 'CLEANUP_ROOT_SUBSTITUTED_NO_FILES_TOUCHED')
+
+    def recover_unsealed_helper(self, item, current):
+        # The old guard stopped AFTER docker run but BEFORE recording its identity.
+        # Only this verified early failure may be recovered; never adopt a helper
+        # once file preparation/deletion could have started.
+        self.core.need(not (self.phase / 'file-proofs.json').exists() and
+                       not list(self.phase.glob('deletion-report-*.json')) and
+                       not (self.phase / 'installation-report.json').exists(), 'UNSEALED_HELPER_AFTER_FILE_WORK_FORBIDDEN')
+        self.core.need(any(self.core.private_json(p).get('code') == 'SCOPED_HELPER_SECURITY_PROFILE_REQUIRED'
+                           for p in self.phase.glob('stop-*.json')), 'VERIFIED_EARLY_HELPER_STOP_REQUIRED')
+        fresh = self.node('intent', **self.values())  # Exact queue, owners/references, physical/mount roots; read-only.
+        self.core.need(fresh == self.intent_values()['intent'], 'CLEANUP_INTENT_CHANGED_NO_HELPER_RECOVERY')
+        self.verify_helper(item, current)
+        # Validate original private env-file against production; don't trust an
+        # existing labelled helper with different credentials or process defaults.
+        env_file = self.phase / 'native-handler.env'
+        self.hp.private(env_file)
+        expected_env = [v for v in current['Config']['Env'] if not v.split('=', 1)[0].startswith(
+            ('IMMICH_SOURCE_', 'IMMICH_BUILD_', 'IMMICH_REPOSITORY'))]
+        self.core.need(env_file.read_text() == '\n'.join(expected_env) + '\n', 'HELPER_ENV_SOURCE_CHANGED')
+        target = self.core.image(self.hp.TARGET)['Config']
+        def env_map(values):
+            self.core.need(all('=' in v and '\n' not in v and '\r' not in v for v in values), 'HELPER_ENV_INVALID')
+            pairs = [v.split('=', 1) for v in values]
+            self.core.need(len({k for k, _ in pairs}) == len(pairs), 'HELPER_ENV_AMBIGUOUS')
+            return dict(pairs)
+        expected = {**env_map(target.get('Env', [])), **env_map(expected_env)}
+        self.core.need(env_map(item['Config'].get('Env', [])) == expected and
+                       all(item['Config'].get(k) == target.get(k) for k in ('User', 'WorkingDir')),
+                       'UNSEALED_HELPER_ENV_OR_IMAGE_DEFAULTS_CHANGED')
+        status = json.loads(self.core.run([*self.core.DOCKER, 'exec', self.helper, 'node', '--input-type=module', '-e', KERNEL_PROFILE_PROBE]))
+        self.core.need(status.get('NoNewPrivs') == '1' and status.get('Seccomp') == '2' and
+                       all(isinstance(status.get(k), str) and re.fullmatch('[0-9a-f]{1,16}', status[k]) and
+                           (int(status[k], 16) & ~8) == 0 for k in ('CapEff', 'CapPrm', 'CapBnd')) and
+                       int(status.get('CapBnd', '0'), 16) == 8 and
+                       status.get('CapInh') == '0000000000000000' and status.get('CapAmb') == '0000000000000000',
+                       'HELPER_KERNEL_SANDBOX_REQUIRED')
+        self.core.need(self.core.inspect(self.core.SERVER)['Id'] == current['Id'] and
+                       self.helper_fingerprint(self.core.inspect(self.helper)) == self.helper_fingerprint(item),
+                       'HELPER_OR_SERVER_CHANGED_DURING_RECOVERY')
+        self.core.save(self.phase / 'native-handler.json', self.helper_fingerprint(item))
+        self.core.save(self.phase / ('helper-recovery-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json'),
+                       {'verifiedBeforeFilePreparation': True, 'intentSeal': self.intent_values()['intentSeal'],
+                        'helperIdentity': self.helper_fingerprint(item), 'kernelSandboxVerified': True})
+        print('PASS existing scoped helper revalidated after early STOP; no file preparation/deletion yet')
+
+    def start_helper(self):
+        current = self.core.inspect(self.core.SERVER)
+        self.core.need(current['Image'] == self.hp.CURRENT, 'EXPECTED_CURRENT_IMAGE_REQUIRED')
+        ids = self.core.docker('ps', '-aq', '--filter', 'name=^/' + self.helper + '$').split()
+        if ids:
+            self.core.need(len(ids) == 1, 'HELPER_AMBIGUOUS')
+            item = self.core.inspect(self.helper)
+            self.helper_binding(item)
+            self.verify_helper(item, current)
+            return
+        mounts = self.helper_mounts(current)
         env_file = self.phase / 'native-handler.env'
         self.core.need(not env_file.exists(), 'FAILED_HELPER_CREATION_RETAINED_NO_ENV_OVERWRITE')
         env = [v for v in current['Config']['Env'] if not v.split('=', 1)[0].startswith(('IMMICH_SOURCE_', 'IMMICH_BUILD_', 'IMMICH_REPOSITORY'))]
@@ -151,30 +259,14 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
             out.write('\n'.join(env) + '\n'); out.flush(); os.fsync(out.fileno())
         self.core.run([*self.core.DOCKER, 'run', '-d', '--pull', 'never', '--name', self.helper,
                        '--label', 'gallery.confirmed-files.run=' + str(self.root), '--network', 'container:' + self.core.SERVER,
-                       '--volumes-from', self.core.SERVER + ':ro', *mounts, '--read-only', '--cap-drop', 'ALL',
+                       '--volumes-from', self.core.SERVER + ':ro', *[value for destination, source in mounts.items()
+                       for value in ('--mount', 'type=bind,src=' + source + ',dst=' + destination)], '--read-only', '--cap-drop', 'ALL',
                        '--cap-add', 'FOWNER', '--security-opt', 'no-new-privileges', '--pids-limit', '128',
                        '--memory', '512m', '--cpus', '0.5', '--env-file', str(env_file),
                        '--entrypoint', 'node', self.hp.TARGET, '-e', 'setInterval(()=>{},10000)'])
         item = self.core.inspect(self.helper)
-        host = item['HostConfig']
-        self.core.need(host.get('ReadonlyRootfs') is True and not host.get('Privileged') and
-                       host.get('CapDrop') == ['ALL'] and host.get('CapAdd') == ['FOWNER'] and
-                       host.get('Memory') == 512 * 1024 ** 2 and host.get('NanoCpus') == 500_000_000 and
-                       host.get('NetworkMode') == 'container:' + current['Id'],
-                       'SCOPED_HELPER_SECURITY_PROFILE_REQUIRED')
-        self.core.need(len({r['Destination'] for r in item['Mounts']}) == len(item['Mounts']) and
-                       {r['Destination'] for r in item['Mounts']} == {r['Destination'] for r in rows} | writable and
-                       all(r.get('RW') is (r['Destination'] in writable) for r in item['Mounts']),
-                       'NONSELECTED_ORIGINALS_AND_EVIDENCE_MUST_BE_READ_ONLY_IN_HELPER')
+        self.verify_helper(item, current)
         self.core.save(self.phase / 'native-handler.json', self.helper_fingerprint(item))
-        self.handlers()
-        # Bind the admissible directory BEFORE mounting it writable in a new
-        # namespace. Cross-namespace mount IDs differ, device/inode must not.
-        code = "import fs from 'node:fs/promises';const result=[];for(const path of " + json.dumps(
-            [r['path'] for r in intent['rootPhysical']]) + \
-            "){const s=await fs.stat(path,{bigint:true});result.push({path,device:String(s.dev),inode:String(s.ino),uid:String(s.uid),gid:String(s.gid)});}console.log(JSON.stringify(result));"
-        observed = json.loads(self.core.run([*self.core.DOCKER, 'exec', self.helper, 'node', '--input-type=module', '-e', code]))
-        self.core.need(observed == intent['rootPhysical'], 'CLEANUP_ROOT_SUBSTITUTED_NO_FILES_TOUCHED')
 
     def helper_fingerprint(self, item):
         return {'id': item['Id'], 'image': item['Image'],
@@ -195,7 +287,10 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
         def preparation_inventory():
             rows = original()
             if '/' + self.helper in rows:
-                self.helper_binding(self.core.inspect(self.helper))
+                item = self.core.inspect(self.helper)
+                if not (self.phase / 'native-handler.json').exists():
+                    self.recover_unsealed_helper(item, self.core.inspect(self.core.SERVER))
+                self.helper_binding(item)
                 rows.pop('/' + self.helper)
             return rows
         try:
