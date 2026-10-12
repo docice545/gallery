@@ -158,6 +158,13 @@ readonly rootfs, private namespaces, no-new-privileges, seccomp, только FO
 Повторный запуск использует тот же RUN_ROOT и новый pinned tooling directory;
 очереди и production mount permissions не меняются.
 
+Старый `COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED` не сообщает, какая команда упала,
+поэтому он не доказывает дополнительную причину сбоя на HP. Новый runner сохраняет
+fail-closed и выводит только фиксированные коды этапа/операции, например
+`HELPER_RECOVERY_KERNEL_DOCKER_EXEC_FAILED`. Аргументы, stderr, credentials и пути
+медиа не печатаются. Это позволяет точно локализовать следующий отказ без раскрытия
+private output; ошибка операции не считается успешным восстановлением.
+
 В этом операторском workflow queue gate дополнительно разрешает **точно те же
 21 paused non-original-deletion jobs** с исходными hashes/order и zero unresolved
 AssetDelete/FileDelete; default `image_release.py` empty-queue gate не меняется.

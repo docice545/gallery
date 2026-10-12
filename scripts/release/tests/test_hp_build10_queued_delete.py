@@ -219,6 +219,49 @@ class Fixture(unittest.TestCase):
         self.assertNotEqual(a, self.r.helper_fingerprint({**item, 'State': {'StartedAt': 'changed', 'Pid': 999}}))
 
 
+class PrivateCommandDiagnostics(unittest.TestCase):
+    def setUp(self):
+        self.core = m.load('image_release')
+
+    def test_subprocess_failure_reports_only_fixed_stage_and_verb(self):
+        args = ['sudo', '-n', 'docker', '--host=unix:///var/run/docker.sock', 'run',
+                '--env', 'PRIVATE_TOKEN=synthetic', 'private-image', 'exec']
+        run = Mock(side_effect=self.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'))
+        with self.assertRaisesRegex(self.core.Stop, '^HANDLER_HASH_VERIFICATION_DOCKER_RUN_FAILED$') as error:
+            m.checked_command(self.core, run, 'HANDLER_HASH_VERIFICATION', args, timeout=30)
+        self.assertNotIn('PRIVATE_TOKEN', str(error.exception))
+        self.assertNotIn('private-image', str(error.exception))
+        run.assert_called_once_with(args, timeout=30)
+
+    def test_existing_safety_stop_is_preserved(self):
+        stop = self.core.Stop('SCOPED_HELPER_CAPABILITIES_REQUIRED')
+        with self.assertRaises(self.core.Stop) as error:
+            m.checked_command(self.core, Mock(side_effect=stop), 'IMAGE_UPDATE', ['docker', 'inspect'])
+        self.assertIs(error.exception, stop)
+
+    def test_success_output_and_arguments_are_unchanged(self):
+        run = Mock(return_value='private captured stdout')
+        self.assertEqual(m.checked_command(self.core, run, 'NATIVE_REQUEST', ['docker', 'exec'], input='private'),
+                         'private captured stdout')
+        run.assert_called_once_with(['docker', 'exec'], input='private')
+
+    def test_operation_classifier_does_not_scan_private_arguments(self):
+        self.assertEqual(m.command_kind(['docker', '--host=unix:///var/run/docker.sock', 'run', 'exec']), 'DOCKER_RUN')
+        self.assertEqual(m.command_kind(['sudo', '-n', 'realpath', '-e', '/private']), 'HOST_MAPPING')
+        self.assertEqual(m.command_kind(['bash', '/private/docker', 'exec']), 'PRIVATE_SUBPROCESS')
+        self.assertEqual(m.command_kind(['bash', '/private/prepare.sh', 'docker', 'exec']), 'PRIVATE_SUBPROCESS')
+        self.assertEqual(m.command_kind(['docker', '--unknown', 'exec']), 'PRIVATE_SUBPROCESS')
+
+    def test_nested_native_request_restores_image_update_stage_even_after_failure(self):
+        runner = SimpleNamespace(command_stage='IMAGE_UPDATE')
+        @m.command_stage('NATIVE_REQUEST')
+        def gate(value):
+            self.assertEqual(value.command_stage, 'NATIVE_REQUEST')
+            raise self.core.Stop('OTHER_JOBS_CHANGED_NO_DEPLOYMENT')
+        with self.assertRaises(self.core.Stop): gate(runner)
+        self.assertEqual(runner.command_stage, 'IMAGE_UPDATE')
+
+
 class SecurityProfile(unittest.TestCase):
     def setUp(self):
         self.core = m.load('image_release')

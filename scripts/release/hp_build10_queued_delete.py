@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import fcntl
+from functools import wraps
 import hashlib
 import importlib.util
 import json
@@ -31,6 +32,41 @@ def capability_names(values):
     if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
         return None
     return [v.removeprefix('CAP_') for v in values]
+
+
+def command_kind(command):
+    # Fixed operation names only; never echo argv, stderr, credentials or paths.
+    if command[:3] == ['sudo', '-n', 'realpath']: return 'HOST_MAPPING'
+    prefix = 1 if command[:1] == ['docker'] else 3 if command[:3] == ['sudo', '-n', 'docker'] else None
+    if prefix is not None:
+        args = command[prefix:]
+        if args and args[0].startswith('--host='): args = args[1:]
+        if args and args[0] in ('exec', 'run', 'inspect', 'ps', 'compose', 'image', 'stop', 'rm'):
+            return 'DOCKER_' + args[0].upper()
+    return 'PRIVATE_SUBPROCESS'
+
+
+def checked_command(core, original_run, stage, command, **kwargs):
+    try:
+        return original_run(command, **kwargs)
+    except core.Stop as error:
+        if str(error) == 'COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED':
+            raise core.Stop(stage + '_' + command_kind(command) + '_FAILED') from None
+        raise
+
+
+def command_stage(name):
+    def decorate(method):
+        @wraps(method)
+        def scoped(self, *args, **kwargs):
+            previous = self.command_stage
+            self.command_stage = name
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                self.command_stage = previous
+        return scoped
+    return decorate
 
 
 def security_profile(core, item, current):
@@ -67,7 +103,13 @@ class Runner:
         self.phase = root / 'queued-user-deletions'
         self.program = Path(__file__).with_suffix('.mjs').read_text()
         self.helper = 'gallery-confirmed-files-' + hashlib.sha256(str(root).encode()).hexdigest()[:12]
+        self.command_stage = 'PREFLIGHT'
+        original_run = self.core.run
+        def checked_run(command, **kwargs):
+            return checked_command(self.core, original_run, self.command_stage, command, **kwargs)
+        self.core.run = checked_run
 
+    @command_stage('NATIVE_REQUEST')
     def node(self, action, **values):
         item = self.core.inspect(self.core.SERVER)
         self.core.identity(item)
@@ -93,6 +135,7 @@ console.log(JSON.stringify({ok:false,code:/^[A-Z][A-Z0-9_]{0,180}$/.test(e.messa
         self.core.need(row.get('ok') is True, row.get('code', 'NATIVE_RESULT_INVALID'))
         return row['result']
 
+    @command_stage('HANDLER_HASH_VERIFICATION')
     def handlers(self):
         code = '''import fs from 'node:fs/promises';import {createHash} from 'node:crypto';
 const result={};for(const file of ''' + json.dumps(FILES) + ''')result[file]=createHash('sha256').update(
@@ -105,6 +148,7 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
                                             self.hp.TARGET, '--input-type=module', '-e', code]))
         self.core.need(set(actual) == set(FILES) and actual == expected, 'RUNNING_HANDLERS_DIFFER_REQUIRE_REVIEW')
 
+    @command_stage('PRODUCER_VERIFICATION')
     def producer_contract(self):
         # The persisted temporaryOwnerId must be the real existing native
         # authenticated upload-cleanup contract, never a newly invented flag.
@@ -195,6 +239,7 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
         observed = json.loads(self.core.run([*self.core.DOCKER, 'exec', self.helper, 'node', '--input-type=module', '-e', code]))
         self.core.need(observed == intent['rootPhysical'], 'CLEANUP_ROOT_SUBSTITUTED_NO_FILES_TOUCHED')
 
+    @command_stage('HELPER_RECOVERY')
     def recover_unsealed_helper(self, item, current):
         # The old guard stopped AFTER docker run but BEFORE recording its identity.
         # Only this verified early failure may be recovered; never adopt a helper
@@ -207,6 +252,7 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
         fresh = self.node('intent', **self.values())  # Exact queue, owners/references, physical/mount roots; read-only.
         self.core.need(fresh == self.intent_values()['intent'], 'CLEANUP_INTENT_CHANGED_NO_HELPER_RECOVERY')
         self.verify_helper(item, current)
+        self.command_stage = 'HELPER_RECOVERY_KERNEL'
         # Validate original private env-file against production; don't trust an
         # existing labelled helper with different credentials or process defaults.
         env_file = self.phase / 'native-handler.env'
@@ -279,6 +325,7 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
         self.core.need(self.helper_fingerprint(item) == self.core.private_json(self.phase / 'native-handler.json'),
                        'NATIVE_HANDLER_IDENTITY_CHANGED')
 
+    @command_stage('IMAGE_PREFLIGHT')
     def preparation_prerequisites(self, state):
         # A retained helper after an interrupted file operation is our sole
         # permitted addition during preparation. Deployment uses the original,
@@ -403,11 +450,14 @@ await fs.readFile('/usr/src/app/server/dist/'+file)).digest('hex');console.log(J
             # Narrow operator workflow only. The base tool's default empty-queue
             # gate is untouched; here a full sealed inventory proves preservation.
             self.core.queue_safety = self.gate
+            self.command_stage = 'IMAGE_UPDATE_PREFLIGHT'
             self.core.execute(SimpleNamespace(state=state, execute_approved=False), rollback=False)
             try:
+                self.command_stage = 'IMAGE_UPDATE'
                 self.core.execute(SimpleNamespace(state=state, execute_approved=True), rollback=False)
             except Exception:
                 if (state / 'apply-attempt.json').exists() and not (state / 'rolled-back.json').exists():
+                    self.command_stage = 'HARDENED_ROLLBACK'
                     self.core.execute(SimpleNamespace(state=state, execute_approved=True), rollback=True)
                     print('DEPLOYMENT_FAILED_HARDENED_ROLLBACK_VERIFIED')
                 raise
