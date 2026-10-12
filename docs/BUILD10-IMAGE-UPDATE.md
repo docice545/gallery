@@ -51,6 +51,10 @@ defaults не могут создать незапланированное хр�
   проверенный совместимый rollback image и стандартный `image_release.py plan`
   с его `--rollback-image`, `--rollback-source-commit`, `--rollback-server-version`.
   Обёртка не создаёт и не маскирует такой образ.
+  Для подтверждённого HP STOP `REVIEWED_ROLLBACK_SOURCE_REQUIRED` с пустым baked
+  source старого образа использовать готовый отдельный fallback и сценарий в
+  [BUILD10-ROLLBACK-SOURCE.md](BUILD10-ROLLBACK-SOURCE.md). Он сохраняет существующий
+  RUN_ROOT и failed state; не подставлять предполагаемый SHA старому image.
 - При pending migrations эта короткая обёртка останавливается. Требуется отдельный
   approved backup/migration workflow; автоматического `--approve-migration` нет.
 - API и microservices работают вместе. Никакие include/exclude переменные не

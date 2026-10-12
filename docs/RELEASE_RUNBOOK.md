@@ -109,6 +109,11 @@ The image helper hashes the fully resolved env-file configuration; a source-file
 `compose config --hash` can differ from the actual container hash. Strict drift
 checks remain enabled, and old plans require a new private state directory.
 The handoff reuses atomic deletion-queue checks without altering queues.
+If the old HP image has an empty baked source and stops with
+`REVIEWED_ROLLBACK_SOURCE_REQUIRED`, use the separately built hardened fallback
+and pinned operator workflow in [BUILD10-ROLLBACK-SOURCE.md](BUILD10-ROLLBACK-SOURCE.md).
+This is a limited rollback of the new cross-owner preparation API; all deletion
+guards and migrations remain intact. Never stamp a guessed source into the old image.
 
 ```bash
 set -euo pipefail
