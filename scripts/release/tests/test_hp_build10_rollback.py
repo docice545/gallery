@@ -256,6 +256,13 @@ class PrepareTests(Fixture):
         self.assertNotIn('up', self.run.call_args.args[0])
         self.assertEqual(hp.binding(self.runroot, core), phase / 'image-state')
 
+    def test_images_only_preparation_never_grants_queue_or_deployment_pass(self):
+        with self.patched(), patch.object(core, 'prerequisites') as checks:
+            hp.prepare(self.args, core, check_queue=False)
+            checks.assert_called_once()
+            self.execute.assert_not_called()
+        self.assertTrue((self.runroot / 'hardened-rollback/image-state/image-plan.json').exists())
+
     def test_full_guard_or_migration_check_failure_never_executes_update(self):
         for code in ('HARDENED_ROLLBACK_GUARD_FILES_MUST_MATCH', 'HARDENED_ROLLBACK_MIGRATIONS_MUST_MATCH'):
             with self.subTest(code=code), self.patched():

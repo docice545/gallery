@@ -80,7 +80,7 @@ if [ ! -e "$MANIFEST" ]; then
 fi
 test ! -L "$MANIFEST"
 printf '%s  %s\n' "$MANIFEST_SHA256" "$MANIFEST" | sha256sum --check --strict
-for file in hp_build10_rollback.py hp_build10_rollback.sh image_release.py trash_image_identity.py trash_release.py trash_predeploy.py; do
+for file in hp_build10_rollback.py hp_build10_rollback.sh image_release.py trash_image_identity.py trash_release.py trash_predeploy.py hp_build10_queued_delete.py hp_build10_queued_delete.mjs; do
   if [ ! -e "$TOOLS/$file" ]; then
     curl --fail --silent --show-error --location "$BASE/$file" --output "$TOOLS/$file"
   fi

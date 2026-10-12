@@ -147,7 +147,7 @@ def archive_proof(identity, archive, manifest):
     return config, proof
 
 
-def prepare(args, core):
+def prepare(args, core, check_queue=True):
     phase = args.run_root / 'hardened-rollback'
     need(not phase.exists() and not phase.is_symlink(), 'KEEP_EXISTING_PHASE_USE_CHECK_OR_STATUS')
     old = core.inspect(core.SERVER)
@@ -204,8 +204,14 @@ def prepare(args, core):
     core.save(phase / 'rollback-evidence.json', {'ciRun': CI_RUN, 'artifactId': CI_ARTIFACT, 'zipSHA256': ZIP_SHA256,
               'sourceCommit': ROLLBACK_SOURCE, 'identity': loaded, 'manifestSHA256': sha(directory / 'manifest.json'),
               'planSHA256': sha(state / 'image-plan.json'), 'previousSource': 'UNVERIFIED_NOT_SELECTED_FOR_ROLLBACK'})
-    core.execute(SimpleNamespace(state=state, execute_approved=False), rollback=False)
-    print('PASS hardened rollback loaded and full deployment preflight; production not changed')
+    if check_queue:
+        core.execute(SimpleNamespace(state=state, execute_approved=False), rollback=False)
+        print('PASS hardened rollback loaded and full deployment preflight; production not changed')
+    else:
+        # Image readiness may precede an explicitly approved queue drain. This
+        # is never a deployment preflight/approval: execution still checks queues.
+        core.prerequisites(state)
+        print('PASS images/config/migrations ready; QUEUE_GATE_NOT_RUN; no deployment')
 
 
 def binding(root, core):
@@ -231,7 +237,7 @@ def binding(root, core):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'check', 'apply', 'rollback', 'status'))
+    parser.add_argument('action', choices=('prepare', 'prepare-images', 'check', 'apply', 'rollback', 'status'))
     parser.add_argument('--run-root', required=True, type=Path)
     parser.add_argument('--artifact-zip', type=Path)
     parser.add_argument('--api', default='http://127.0.0.1:2283/api')
@@ -246,15 +252,15 @@ def main():
              root.name.startswith('gallery-build10-release-'), 'EXISTING_DOCTORICEADM_RELEASE_ROOT_REQUIRED')
         private(root, True)
         args.run_root = root
-        need(args.action != 'prepare' or (args.artifact_zip and not args.execute_approved),
+        need(args.action not in ('prepare', 'prepare-images') or (args.artifact_zip and not args.execute_approved),
              'PREPARE_REQUIRES_ZIP_AND_NEVER_DEPLOYS')
         need(not args.execute_approved or args.action in ('apply', 'rollback'), 'ONLY_APPLY_ROLLBACK_EXECUTE')
         for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_TLS', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH'):
             os.environ.pop(key, None)
         core = load_module('image_release')
         core.DOCKER = [*(['sudo', '-n'] if args.sudo_docker else []), 'docker', '--host=unix:///var/run/docker.sock']
-        if args.action == 'prepare':
-            prepare(args, core)
+        if args.action in ('prepare', 'prepare-images'):
+            prepare(args, core, check_queue=args.action == 'prepare')
         else:
             state = binding(root, core)
             if args.action == 'status':

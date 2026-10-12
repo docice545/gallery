@@ -5,7 +5,7 @@ umask 077
 action=${1:-}
 run_root=${2:-}
 [[ $# == 2 ]] || { echo 'STOP EXACT_TWO_ARGUMENTS_REQUIRED' >&2; exit 2; }
-case "$action" in continue|prepare|check|apply|rollback|status) ;; *)
+case "$action" in continue|prepare|prepare-images|check|apply|rollback|status) ;; *)
   echo 'Usage: hp_build10_rollback.sh continue|prepare|check|apply|rollback|status PRIVATE_RUN_DIRECTORY' >&2
   exit 2
 esac
@@ -57,7 +57,7 @@ PY
     # Keep the private .part as the exact downloaded bytes; no cleanup of old evidence.
   fi
   printf '%s  %s\n' "$expected" "$zip" | sha256sum --check --strict
-  run_tool prepare --artifact-zip "$zip"
+  run_tool "${1:-prepare}" --artifact-zip "$zip"
 }
 
 if [[ "$action" == continue ]]; then
@@ -70,7 +70,7 @@ if [[ "$action" == continue ]]; then
   action=apply
 fi
 case "$action" in
-  prepare) prepare ;;
+  prepare|prepare-images) prepare "$action" ;;
   check|status) run_tool "$action" ;;
   apply|rollback)
     # Concrete verified dry-run before approval; the helper rechecks under lock.

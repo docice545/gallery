@@ -114,6 +114,11 @@ If the old HP image has an empty baked source and stops with
 and pinned operator workflow in [BUILD10-ROLLBACK-SOURCE.md](BUILD10-ROLLBACK-SOURCE.md).
 This is a limited rollback of the new cross-owner preparation API; all deletion
 guards and migrations remain intact. Never stamp a guessed source into the old image.
+For the separately owner-approved six paused FileDelete jobs, use
+[BUILD10-CONFIRMED-QUEUED-DELETION.md](BUILD10-CONFIRMED-QUEUED-DELETION.md).
+It preserves other jobs, never resumes them, and acknowledges a selected job only
+after native handler success and physical verification. Legacy original-file
+jobs without durable authorization remain blocked.
 
 ```bash
 set -euo pipefail
