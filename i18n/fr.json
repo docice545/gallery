@@ -1481,6 +1481,7 @@
   "deselect_all": "Tout désélectionner",
   "details": "Détails",
   "detected_faces": "Visages détectés",
+  "device_deletion_identity_unverified": "Certaines copies sélectionnées sur cet appareil n’ont pas pu être associées en toute sécurité aux originaux supprimés. Leur suppression de cet appareil n’est pas confirmée.",
   "device_deletion_result": "Sur l’appareil : {removed} supprimés, {remaining} restants. Non supprimés : {names}",
   "device_deletion_retry": "Supprimer les copies restantes sur cet appareil",
   "device_deletion_retry_confirmation": "Seules les copies liées à des suppressions définitives terminées seront supprimées de cet appareil. Les données du serveur et du NAS restent inchangées. Android ou iOS peut demander votre autorisation.",

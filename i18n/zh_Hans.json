@@ -1473,6 +1473,7 @@
   "deselect_all": "取消全选",
   "details": "详情",
   "detected_faces": "检测到的人脸",
+  "device_deletion_identity_unverified": "无法安全地将部分选定的设备副本与已删除的原始文件匹配。尚未确认它们已从此设备移除。",
   "device_deletion_result": "设备：已移除 {removed} 项，剩余 {remaining} 项。未移除：{names}",
   "device_deletion_retry": "删除设备上剩余的副本",
   "device_deletion_retry_confirmation": "仅删除与已完成的永久删除关联的设备副本。服务器和 NAS 数据不会改变。Android 或 iOS 可能要求您授权。",

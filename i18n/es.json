@@ -1482,6 +1482,7 @@
   "deselect_all": "Deseleccionar todo",
   "details": "Detalles",
   "detected_faces": "Caras detectadas",
+  "device_deletion_identity_unverified": "Algunas copias seleccionadas del dispositivo no se pudieron relacionar de forma segura con los originales eliminados. No se ha confirmado su eliminación de este dispositivo.",
   "device_deletion_result": "Dispositivo: {removed} eliminados, {remaining} pendientes. No eliminados: {names}",
   "device_deletion_retry": "Eliminar las copias restantes del dispositivo",
   "device_deletion_retry_confirmation": "Solo se eliminarán las copias del dispositivo vinculadas a eliminaciones permanentes completadas. Los datos del servidor y del NAS no cambian. Android o iOS puede solicitar tu autorización.",

@@ -1482,6 +1482,7 @@
   "deselect_all": "Alle abwählen",
   "details": "Details",
   "detected_faces": "Erkannte Gesichter",
+  "device_deletion_identity_unverified": "Einige ausgewählte Gerätekopien konnten den gelöschten Originalen nicht sicher zugeordnet werden. Ihre Entfernung von diesem Gerät ist nicht bestätigt.",
   "device_deletion_result": "Gerät: {removed} entfernt, {remaining} verbleiben. Nicht entfernt: {names}",
   "device_deletion_retry": "Verbleibende Gerätekopien löschen",
   "device_deletion_retry_confirmation": "Dies löscht nur Gerätekopien, die zu abgeschlossenen endgültigen Löschungen gehören. Server- und NAS-Daten bleiben unverändert. Android oder iOS kann Ihre Zustimmung anfordern.",

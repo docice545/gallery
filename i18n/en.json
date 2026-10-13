@@ -1487,6 +1487,7 @@
   "deselect_all": "Deselect All",
   "details": "Details",
   "detected_faces": "Detected faces",
+  "device_deletion_identity_unverified": "Some selected device copies could not be safely matched to the deleted originals. Their removal from this device is not confirmed.",
   "device_deletion_result": "Device: {removed} removed, {remaining} remain. Not removed: {names}",
   "device_deletion_retry": "Delete remaining device copies",
   "device_deletion_retry_confirmation": "This removes only device copies linked to completed permanent deletions. Server and NAS data are unchanged. Android or iOS may require your authorization.",

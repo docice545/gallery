@@ -370,6 +370,22 @@ void main() {
     });
 
     group('permanent', () {
+      testWidgets('stale selected local identity cannot bypass verified deletion identities', (tester) async {
+        final asset = owned(deletedAt: DateTime(2024), localId: 'reused-local-id');
+        when(() => assetService.getDeletionLocalIds([asset.id])).thenAnswer((_) async => []);
+
+        await pumpDelete(tester, {asset});
+        await respondToDialog(tester, confirm: true);
+
+        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => assetService.getDeletionLocalIds([asset.id])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any(), trash: false));
+        expect(find.textContaining(StaticTranslations.instance.device_deletion_identity_unverified), findsOneWidget);
+        expect(find.textContaining('0 removed, 0 remain'), findsNothing);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
       testWidgets('trashes active assets even when the old trash feature flag is disabled', (tester) async {
         final asset = owned();
         await pumpDelete(tester, {asset}, trashEnabled: false);
@@ -389,6 +405,7 @@ void main() {
 
       testWidgets('permanently deletes a merged asset and removes its device copy', (tester) async {
         final asset = owned(deletedAt: DateTime(2024), localId: 'local');
+        when(() => assetService.getDeletionLocalIds([asset.id])).thenAnswer((_) async => ['local']);
 
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await respondToDialog(tester, confirm: true);
@@ -409,6 +426,7 @@ void main() {
 
       testWidgets('permanently deletes locked folder assets even with trash enabled', (tester) async {
         final asset = owned(deletedAt: DateTime(2024), localId: 'local');
+        when(() => assetService.getDeletionLocalIds([asset.id])).thenAnswer((_) async => ['local']);
 
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: true);
@@ -425,6 +443,60 @@ void main() {
 
         verifyNever(() => assetService.deleteWithResults(any()));
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+      });
+
+      testWidgets('partial permanent deletion cleans up only completed verified device identities', (tester) async {
+        final completed = owned(deletedAt: DateTime(2024), localId: 'stale-completed-id');
+        final blocked = owned(deletedAt: DateTime(2024), localId: 'blocked-device-id');
+        when(() => assetService.deleteWithResults(any())).thenAnswer(
+          (_) async => [
+            PermanentDeletionResult(id: completed.id, state: 'complete'),
+            PermanentDeletionResult(id: blocked.id, state: 'blocked', code: 'LIBRARY_DELETION_NOT_AUTHORIZED'),
+          ],
+        );
+        when(() => assetService.getDeletionLocalIds([completed.id])).thenAnswer((_) async => ['verified-completed-id']);
+
+        await pumpDelete(tester, {completed, blocked});
+        await respondToDialog(tester, confirm: true);
+
+        verify(() => assetService.getDeletionLocalIds([completed.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['verified-completed-id'], trash: false)).called(1);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {completed, blocked});
+        expect(find.textContaining('1 permanently deleted, 1 incomplete'), findsOneWidget);
+        expect(find.textContaining(StaticTranslations.instance.device_deletion_identity_unverified), findsOneWidget);
+      });
+
+      testWidgets('a rescanned verified copy reports OS denial without treating a stale selected ID as verified', (
+        tester,
+      ) async {
+        final asset = owned(deletedAt: DateTime(2024), localId: 'stale-selected-id');
+        when(() => assetService.getDeletionLocalIds([asset.id])).thenAnswer((_) async => ['verified-current-id']);
+        when(
+          () => cleanupService.deleteLocalAssetsDetailed(['verified-current-id'], trash: false),
+        ).thenAnswer((_) async => const LocalDeletionResult(deletedIds: [], remainingIds: ['verified-current-id']));
+
+        await pumpDelete(tester, {asset});
+        await respondToDialog(tester, confirm: true);
+
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['verified-current-id'], trash: false)).called(1);
+        expect(find.textContaining('0 removed, 1 remain'), findsOneWidget);
+        expect(find.textContaining(StaticTranslations.instance.device_deletion_identity_unverified), findsOneWidget);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('permanent deletion never includes another owner server or device identities', (tester) async {
+        final mine = owned(deletedAt: DateTime(2024), localId: 'stale-own-device');
+        final theirs = RemoteAssetFactory.create(deletedAt: DateTime(2024), localId: 'other-owner-device');
+        when(() => assetService.getDeletionLocalIds([mine.id])).thenAnswer((_) async => ['verified-own-device']);
+
+        await pumpDelete(tester, {mine, theirs});
+        await respondToDialog(tester, confirm: true);
+
+        verify(() => assetService.deleteWithResults([mine.id])).called(1);
+        verify(() => assetService.getDeletionLocalIds([mine.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['verified-own-device'], trash: false)).called(1);
       });
     });
 
@@ -455,6 +527,7 @@ void main() {
     group('prompt handling', () {
       testWidgets('permanent delete shows a single app dialog', (tester) async {
         final asset = owned(deletedAt: DateTime(2024), localId: 'local');
+        when(() => assetService.getDeletionLocalIds([asset.id])).thenAnswer((_) async => ['local']);
 
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await tester.pump(const Duration(milliseconds: 300));

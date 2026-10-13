@@ -18,7 +18,7 @@ import 'package:logging/logging.dart';
 typedef LivePhotoPreviewBuilder =
     Widget Function(BaseAsset asset, VoidCallback onCompleted, VoidCallback onStarted, VoidCallback onFailed);
 
-/// Opt-in scope used only by the main Photos timeline. Cached/offscreen grid
+/// Opt-in scope for supported gallery timelines, including Photos and albums. Cached/offscreen grid
 /// rows register geometry, not players. Visibility is sampled after layout and
 /// after scroll settles; there is no per-tile polling or video prefetch.
 class TimelineLivePhotoScope extends ConsumerStatefulWidget {

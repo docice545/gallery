@@ -185,6 +185,7 @@ class DeleteAction extends AssetActionBuilder {
     List<String> remoteIds,
   ) async {
     final assetService = ref.read(assetServiceProvider);
+    final selectedAssets = ref.read(assetsActionProvider(source));
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => ConfirmDialog(
@@ -208,12 +209,13 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
     final completed = results.where((result) => result.complete).map((result) => result.id).toSet();
-    final assets = ref.read(assetsActionProvider(source));
-    final permittedLocalIds = assets
+    final selectedLocalIds = selectedAssets
         .where((asset) => completed.contains(asset.remoteId))
         .map((asset) => asset.localId)
         .nonNulls
-        .toList();
+        .toSet();
+    // Selected DTOs may retain a reused device ID. Only owner-scoped deletion
+    // markers joined to the current local checksum authorize device cleanup.
     final retainedLocalIds = await assetService.getDeletionLocalIds(completed.toList());
     if (!context.mounted) {
       return null;
@@ -221,10 +223,11 @@ class DeleteAction extends AssetActionBuilder {
     if (!_isCurrentOwner(ref, ownerId)) {
       return null;
     }
+    final hasUnverifiedCopies = selectedLocalIds.difference(retainedLocalIds.toSet()).isNotEmpty;
     final local = await _cleanupLocalAssetsDetailed(
       context,
       ref,
-      {...permittedLocalIds, ...retainedLocalIds}.toList(),
+      retainedLocalIds,
       ownerId: ownerId,
       requestCustomPrompt: false,
       trash: false,
@@ -240,10 +243,15 @@ class DeleteAction extends AssetActionBuilder {
         .map((result) => deletionMessage(context, result))
         .take(25)
         .join(', ');
+    final deviceMessage = hasUnverifiedCopies
+        ? retainedLocalIds.isEmpty
+              ? context.t.device_deletion_identity_unverified
+              : '${_deviceResult(context, ref, local)} ${context.t.device_deletion_identity_unverified}'
+        : _deviceResult(context, ref, local);
     return (
       message:
-          '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: incomplete)}. ${_deviceResult(context, ref, local)}',
-      complete: completed.length == results.length && local.remainingIds.isEmpty,
+          '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: incomplete)}. $deviceMessage',
+      complete: completed.length == results.length && local.remainingIds.isEmpty && !hasUnverifiedCopies,
     );
   }
 }

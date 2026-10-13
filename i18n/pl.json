@@ -1485,6 +1485,7 @@
   "deselect_all": "Odznacz wszystkie",
   "details": "Szczegóły",
   "detected_faces": "Wykryte twarze",
+  "device_deletion_identity_unverified": "Niektórych wybranych kopii na urządzeniu nie można było bezpiecznie powiązać z usuniętymi oryginałami. Ich usunięcie z tego urządzenia nie zostało potwierdzone.",
   "device_deletion_result": "Urządzenie: usunięto {removed}, pozostało {remaining}. Nie usunięto: {names}",
   "device_deletion_retry": "Usuń pozostałe kopie z urządzenia",
   "device_deletion_retry_confirmation": "Zostaną usunięte tylko kopie na urządzeniu powiązane z zakończonym trwałym usunięciem. Dane serwera i NAS pozostaną bez zmian. Android lub iOS może poprosić o zgodę.",

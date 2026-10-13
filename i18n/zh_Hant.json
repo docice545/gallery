@@ -1479,6 +1479,7 @@
   "deselect_all": "取消全選",
   "details": "詳細資訊",
   "detected_faces": "偵測到的臉孔",
+  "device_deletion_identity_unverified": "無法安全地將部分選取的裝置副本與已刪除的原始檔案配對。尚未確認它們已從此裝置移除。",
   "device_deletion_result": "裝置：已移除 {removed} 個，剩餘 {remaining} 個。未移除：{names}",
   "device_deletion_retry": "刪除裝置上剩餘的副本",
   "device_deletion_retry_confirmation": "僅刪除與已完成的永久刪除關聯的裝置副本。伺服器和 NAS 資料不會變更。Android 或 iOS 可能要求您授權。",

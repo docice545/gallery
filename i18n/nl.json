@@ -1483,6 +1483,7 @@
   "deselect_all": "Alles deselecteren",
   "details": "Details",
   "detected_faces": "Gedetecteerde gezichten",
+  "device_deletion_identity_unverified": "Sommige geselecteerde apparaatkopieën konden niet veilig aan de verwijderde originelen worden gekoppeld. Hun verwijdering van dit apparaat is niet bevestigd.",
   "device_deletion_result": "Apparaat: {removed} verwijderd, {remaining} resterend. Niet verwijderd: {names}",
   "device_deletion_retry": "Resterende apparaatkopieën verwijderen",
   "device_deletion_retry_confirmation": "Dit verwijdert alleen apparaatkopieën die bij voltooide definitieve verwijderingen horen. Server- en NAS-gegevens blijven ongewijzigd. Android of iOS kan om uw toestemming vragen.",
