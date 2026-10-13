@@ -7,7 +7,7 @@
 **Application source заморожен:** `f26b46059726ca3c55c63c3ce1edde7e45d8404f`,
 version `5.7.3+11`. Immutable build ref: `build/gallery-build11-f26b4605`.
 Последний завершённый tooling commit:
-`553b6f17049575cd566f891fecbe80e6615e2348`.
+`8369b9f531abee8546f685f29f845bd718fec84c`.
 Final HEAD определяется `git log -1`; handoff не может содержать свой собственный SHA.
 
 ## Новая выполненная работа
@@ -55,9 +55,11 @@ PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
   Build-only, no paid signing/store upload. Unsigned IPA requires existing SideStore.
   Cloud read of redirected iOS logs returned403; escalation was not granted.
   Do not retry/bypass; byte/version verification is still performed by artifact CI sealer.
-- Android https://github.com/docice545/gallery/actions/runs/38379958872:
-  last observation **IN PROGRESS**, release APK build after native/emulator gates.
-  Source `f26b4605…`. No production signing. Do not cancel/duplicate/rebuild unnecessarily.
+- Android **SUCCESS**: https://github.com/docice545/gallery/actions/runs/38379958872.
+  Source `f26b4605…`. `android-media-pilot-validation-apk`, ID11803644959, ZIP SHA256
+  `7c01dc8ab8391a33f8b813d5531e46aa5df445587158df43258eaf59ffc67517`.
+  `android-media-pilot-native-tests`, ID11804900535. CI debug certificate; cannot update HP-signed installation.
+  Do not rebuild successful mobile artifacts for tooling-only corrections.
 - Compatible rollback remains run38288841511/sourcec4c2d199…/artifact11764458784;
   successful main backend verifies its actual HTTP startup on Build11 schema.
 - First main backend run38377573475 failed only external fixture validation;
@@ -65,8 +67,8 @@ PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
 
 ## Точная следующая операция
 
-1. Once Android38379958872 is SUCCESS, dispatch existing
-   `gallery-trash-release-proof.yml` on this tooling branch with `build11=true`,
+1. All three component runs are SUCCESS. Existing
+   `gallery-trash-release-proof.yml` was dispatched on this tooling branch with `build11=true`,
    source_commit=f26b46059726ca3c55c63c3ce1edde7e45d8404f,
    backend_run=38379404888, android_run=38379958872, ios_run=38377576890,
    rollback_run=38288841511,
@@ -78,7 +80,10 @@ PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
    On failure: fix tooling/harness only when justified, repeat affected workflow;
    preserve application source unless a real runtime blocker requires changing it.
 3. Publish final package/checksums only after all genuine installation checks PASS.
-   Current distribution lab is **NOT EXECUTED**, package **NOT READY**.
+   Current distribution run **38385050973 IN PROGRESS**, package **NOT READY** until actual lab PASS.
+   Previous proof38384393537 failed before lab: adapter omitted ARCHIVE_SHA.
+   Fixed8369b9f5; 3 regression tests PASS including actual small-image Docker load/save, no mocks-only identity claim.
+   Current proof passed classic Docker and entered containerd/package/lab stage.
 4. Update this handoff with final run/artifacts/actual lab results and source/tooling
    SHAs; never present mock fixture packages or GitHub ZIP digest as APK/IPA/image hash.
 
