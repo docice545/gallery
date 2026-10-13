@@ -7,7 +7,7 @@
 **Application source заморожен:** `f26b46059726ca3c55c63c3ce1edde7e45d8404f`,
 version `5.7.3+11`. Immutable build ref: `build/gallery-build11-f26b4605`.
 Последний завершённый tooling commit:
-`8369b9f531abee8546f685f29f845bd718fec84c`.
+`448c53619542758add9e9c76cf66baa84f0d07b2`.
 Final HEAD определяется `git log -1`; handoff не может содержать свой собственный SHA.
 
 ## Продолжение: конкретная причина installation CI установлена
@@ -32,6 +32,19 @@ clean-install/upgrade ещё требует следующего distribution ru
 Workflow теперь сохраняет bounded failure code и небольшие реальные verification
 reports даже при отказе полного пакета. Acceptance matrix добавлена в checksum
 manifest; её отсутствие или изменение отклоняется.
+
+Текущий actual distribution run:
+https://github.com/docice545/gallery/actions/runs/38424787561,
+HEAD `448c53619542758add9e9c76cf66baa84f0d07b2`. Same-source sealing и classic
+image/rollback proof уже PASS; containerd + actual installation lab выполняются.
+Следующий шаг — прочитать окончательный результат/небольшой verification artifact
+этого run, без повторной сборки backend/mobile.
+
+Дополнительно исправлен только русский runbook: Ubuntu tty-scoped sudo нужно
+подтвердить внутри tmux, до журнала; rollback также использует tmux/private log/
+pipefail и verification только после успеха. 10 Bash blocks syntax PASS,
+четыре executable wrappers syntax PASS, Prettier/diff PASS. Эти docs ещё должны
+войти в окончательный compiled package; не считать старую инструкцию полной.
 
 ## Новая выполненная работа
 

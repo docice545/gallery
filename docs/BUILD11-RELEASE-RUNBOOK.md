@@ -100,7 +100,8 @@ printf 'PRIVATE_STATE=%s\n' "$STATE"
 sudo -v
 tmux new-session -s gallery-build11-prepare bash -c '
   set -uo pipefail; umask 077
-  journal=$(mktemp "$2/preparation-XXXXXXXX.log")
+  sudo -v || { printf "STOP SUDO_AUTHORIZATION_REQUIRED\n"; exec bash; }
+  journal=$(mktemp "$2/preparation-XXXXXXXX.log") || { printf "STOP PRIVATE_JOURNAL_REQUIRED\n"; exec bash; }
   bash "$1/tools/gallery-upgrade.sh" prepare "$1" "$2" "$3" "$4" 2>&1 | tee "$journal"
   result=$?
   printf "RESULT exit=%s journal=%s\n" "$result" "$journal"
@@ -116,7 +117,13 @@ tmux new-session -s gallery-build11-prepare bash -c '
 sandbox/RW mounts и отсутствие ссылок, не изобретая разрешение на NAS originals.
 
 Отключение SSH не прекращает `tmux`. Возврат: `tmux attach -t
-gallery-build11-prepare`. Сохраните выведенный `PRIVATE_STATE`: это единственный
+gallery-build11-prepare`. Внутри каждой tmux-сессии выполняется отдельный
+`sudo -v`: Ubuntu обычно связывает sudo timestamp с terminal, поэтому авторизации
+во внешней SSH-сессии недостаточно для последующих `sudo -n docker`.
+Пароль запрашивается до подключения журнала и в него не попадает. Если указанная
+tmux-сессия уже существует, сначала подключитесь к ней; повторно создавайте её
+только после завершения предыдущего запуска и проверки его `RESULT`.
+Сохраните выведенный `PRIVATE_STATE`: это единственный
 каталог для check/apply/verify/rollback данного запуска. Нельзя менять receipt
 или очищать state ради повторной попытки.
 
@@ -146,7 +153,8 @@ printf '%s  %s\n' "$BUILD11_SHA256SUMS_SHA256" "$PACKAGE/SHA256SUMS" | sha256sum
 sudo -v
 tmux new-session -s gallery-build11-upgrade bash -c '
   set -uo pipefail; umask 077
-  journal=$(mktemp "$2/upgrade-XXXXXXXX.log")
+  sudo -v || { printf "STOP SUDO_AUTHORIZATION_REQUIRED\n"; exec bash; }
+  journal=$(mktemp "$2/upgrade-XXXXXXXX.log") || { printf "STOP PRIVATE_JOURNAL_REQUIRED\n"; exec bash; }
   GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_ADDITIVE_MIGRATION_APPROVED=YES \
   GALLERY_USER_QUEUED_DELETION_APPROVED=YES \
     bash "$1/tools/gallery-upgrade.sh" upgrade "$1" "$2" "$3" "$4" \
@@ -236,7 +244,8 @@ printf 'INSTALL_ROOT=%s CONFIG_ROOT=%s\n' "$NEW_ROOT" "$CONFIG_ROOT"
 sudo -v
 tmux new-session -s gallery-build11-install bash -c '
   set -uo pipefail; umask 077
-  journal=$(mktemp "$3/install-XXXXXXXX.log")
+  sudo -v || { printf "STOP SUDO_AUTHORIZATION_REQUIRED\n"; exec bash; }
+  journal=$(mktemp "$3/install-XXXXXXXX.log") || { printf "STOP PRIVATE_JOURNAL_REQUIRED\n"; exec bash; }
   GALLERY_FRESH_INSTALL_APPROVED=YES \
     bash "$1/tools/gallery-install.sh" "$1" "$2" "$3/private.env" "$4" \
     --execute-approved --nas-storage-config "$3/nas.json" 2>&1 | tee "$journal"
@@ -328,10 +337,26 @@ additive migration и tombstones сохраняются: не удаляйте �
 Old runtime отказывает новым storage grants и должен работать с Trash/Restore.
 
 ```bash
-sudo -v
-GALLERY_DEPLOYMENT_APPROVED=YES bash "$PACKAGE/tools/gallery-rollback.sh" \
-  "$PACKAGE" "$STATE" "$OLD_RUN" "$BUILD11_NAS_EVIDENCE" --execute-approved
-bash "$PACKAGE/tools/gallery-verify.sh" "$PACKAGE" "$STATE" "$OLD_RUN" "$BUILD11_NAS_EVIDENCE"
+set -euo pipefail
+umask 077
+: "${PACKAGE:?Укажите тот же проверенный Build11 package}"
+: "${STATE:?Укажите private state этого deployment}"
+: "${OLD_RUN:?Укажите сохранённый Build10 RUN_ROOT}"
+: "${BUILD11_NAS_EVIDENCE:?Укажите проверенную NAS evidence}"
+tmux new-session -s gallery-build11-rollback bash -c '
+  set -uo pipefail; umask 077
+  sudo -v || { printf "STOP SUDO_AUTHORIZATION_REQUIRED\n"; exec bash; }
+  journal=$(mktemp "$2/rollback-XXXXXXXX.log") || { printf "STOP PRIVATE_JOURNAL_REQUIRED\n"; exec bash; }
+  GALLERY_DEPLOYMENT_APPROVED=YES bash "$1/tools/gallery-rollback.sh" \
+    "$1" "$2" "$3" "$4" --execute-approved 2>&1 | tee "$journal"
+  result=$?
+  if [ "$result" -eq 0 ]; then
+    bash "$1/tools/gallery-verify.sh" "$1" "$2" "$3" "$4" 2>&1 | tee -a "$journal"
+    result=$?
+  fi
+  printf "RESULT exit=%s journal=%s\n" "$result" "$journal"
+  exec bash
+' _ "$PACKAGE" "$STATE" "$OLD_RUN" "$BUILD11_NAS_EVIDENCE"
 ```
 
 Rollback меняет только server image. Сохранённый backup не восстанавливается
@@ -356,7 +381,8 @@ umask 077
 sudo -v
 tmux new-session -s gallery-build11-fresh-rollback bash -c '
   set -uo pipefail; umask 077
-  journal=$(mktemp "$2/fresh-rollback-XXXXXXXX.log")
+  sudo -v || { printf "STOP SUDO_AUTHORIZATION_REQUIRED\n"; exec bash; }
+  journal=$(mktemp "$2/fresh-rollback-XXXXXXXX.log") || { printf "STOP PRIVATE_JOURNAL_REQUIRED\n"; exec bash; }
   GALLERY_DEPLOYMENT_APPROVED=YES bash "$1/tools/gallery-rollback.sh" \
     --fresh-install "$1" "$2" --execute-approved 2>&1 | tee "$journal"
   result=$?
