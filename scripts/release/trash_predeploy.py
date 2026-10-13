@@ -42,6 +42,10 @@ PG_TAG = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0'
 PG_DIGEST = 'sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23'
 PG_PINNED_REF = PG_TAG + '@' + PG_DIGEST
 PG_REPO_DIGEST = 'ghcr.io/immich-app/postgres@' + PG_DIGEST
+# Verified children of the exact registry index above, not interchangeable
+# digests. containerd may identify the running image by its multiarch index.
+PG_AMD64_MANIFEST = 'sha256:b1d33572a9a0634aa6d344077467ad32847812a37fa3859f702952cba22a2f55'
+PG_AMD64_CONFIG = 'sha256:178719aeb38df6f0ce8edc1d8320008379fcf04eb3444e76419cc98d9861e331'
 SUMMARY_SQL = '''SELECT json_build_object(
  'assetCount',(SELECT count(*) FROM asset),
  'libraryCount',(SELECT count(*) FROM library),
@@ -245,9 +249,34 @@ def postgres_identity(tool, pg):
     need(isinstance(images, list) and len(images) == 2 and
          all(isinstance(row, dict) and row.get('Id') == image_id for row in images),
          'POSTGRES_PINNED_IMAGE_ID_MISMATCH')
-    need(all(isinstance(row.get('RepoDigests'), list) and PG_REPO_DIGEST in row['RepoDigests'] and
-             row.get('Architecture') == 'amd64' and row.get('Os') == 'linux' for row in images),
+    need(all(isinstance(row.get('RepoDigests'), list) and PG_REPO_DIGEST in row['RepoDigests'] for row in images),
          'POSTGRES_EXPECTED_DIGEST_OR_PLATFORM_MISSING')
+    if image_id != PG_DIGEST:
+        # Preserve the classic store path, including older HP Docker APIs.
+        need(all(row.get('Architecture') == 'amd64' and row.get('Os') == 'linux' for row in images),
+             'POSTGRES_EXPECTED_DIGEST_OR_PLATFORM_MISSING')
+        return
+    # An index does not prove a platform. Admit ONLY this pinned index and
+    # resolve its pre-verified amd64 child locally; never pull or infer a child.
+    need(all(
+        isinstance(row.get('Descriptor'), dict) and row['Descriptor'].get('digest') == PG_DIGEST and
+        row.get('Architecture') in (None, '', 'amd64') and row.get('Os') in (None, '', 'linux')
+        for row in images), 'POSTGRES_PINNED_INDEX_DESCRIPTOR_REQUIRED')
+    try:
+        selected = json.loads(tool.docker('image', 'inspect', '--platform', 'linux/amd64', PG_PINNED_REF))
+    except Exception:
+        raise Stop('POSTGRES_LOCAL_PINNED_PLATFORM_LOOKUP_FAILED') from None
+    need(isinstance(selected, list) and len(selected) == 1 and isinstance(selected[0], dict),
+         'POSTGRES_PINNED_PLATFORM_IDENTITY_MISMATCH')
+    platform = selected[0]
+    need(platform.get('Id') in (PG_AMD64_CONFIG, PG_AMD64_MANIFEST) and
+         isinstance(platform.get('RepoDigests'), list) and PG_REPO_DIGEST in platform['RepoDigests'] and
+         platform.get('Architecture') == 'amd64' and platform.get('Os') == 'linux',
+         'POSTGRES_PINNED_PLATFORM_IDENTITY_MISMATCH')
+    descriptor = platform.get('Descriptor')
+    need((descriptor is None and platform['Id'] == PG_AMD64_CONFIG) or
+         (isinstance(descriptor, dict) and descriptor.get('digest') == PG_AMD64_MANIFEST and
+          platform['Id'] == PG_AMD64_MANIFEST), 'POSTGRES_PINNED_PLATFORM_DESCRIPTOR_MISMATCH')
 
 
 def topology(tool):

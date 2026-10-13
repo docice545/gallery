@@ -1,4 +1,5 @@
 """Synthetic evidence and opt-in disposable PostgreSQL/Redis. Never HP access."""
+import ast
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from datetime import datetime, timedelta, timezone
 import gzip
@@ -136,6 +137,110 @@ class PostgresIdentity(unittest.TestCase):
                     ['POSTGRES_USER=postgres', 'POSTGRES_DB=other']):
             tool, pg, _ = self.fixture(); pg['Config']['Env'] = env
             with self.assertRaisesRegex(p.Stop, 'USER_OR_DATABASE_CHANGED'): p.topology(tool)
+
+    def containerd_fixture(self, config=False):
+        tool, pg, _ = self.fixture()
+        pg['Image'] = p.PG_DIGEST
+        index = {'Id': p.PG_DIGEST, 'RepoDigests': [p.PG_REPO_DIGEST],
+                 'Descriptor': {'digest': p.PG_DIGEST}}
+        platform = {'Id': p.PG_AMD64_CONFIG if config else p.PG_AMD64_MANIFEST,
+                    'RepoDigests': [p.PG_REPO_DIGEST], 'Architecture': 'amd64', 'Os': 'linux'}
+        if not config:
+            platform['Descriptor'] = {'digest': p.PG_AMD64_MANIFEST}
+        return tool, pg, index, platform
+
+    def test_pinned_containerd_index_resolves_only_verified_amd64_manifest_or_config(self):
+        for reference in (p.PG_TAG, p.PG_PINNED_REF):
+            for config in (False, True):
+                with self.subTest(reference=reference, config=config):
+                    tool, pg, index, platform = self.containerd_fixture(config)
+                    pg['Config']['Image'] = reference
+                    tool.docker.side_effect = [json.dumps([index, index]), json.dumps([platform])]
+                    result = p.topology(tool)
+                    self.assertEqual(result[release.POSTGRES]['image'], p.PG_DIGEST)
+                    self.assertEqual(tool.docker.call_args_list[0].args,
+                                     ('image', 'inspect', pg['Image'], p.PG_PINNED_REF))
+                    self.assertEqual(tool.docker.call_args_list[1].args,
+                                     ('image', 'inspect', '--platform', 'linux/amd64', p.PG_PINNED_REF))
+                    self.assertEqual(tool.docker.call_count, 2)
+
+    def test_containerd_index_requires_both_descriptors_and_rejects_wrong_platform(self):
+        for row in (0, 1):
+            for field, value in (('Descriptor', None), ('Descriptor', {'digest': 'sha256:' + 'e' * 64}),
+                                 ('Architecture', 'arm64'), ('Os', 'windows')):
+                with self.subTest(row=row, field=field, value=value):
+                    tool, _, index, _ = self.containerd_fixture()
+                    images = [dict(index), dict(index)]
+                    images[row][field] = value
+                    tool.docker.return_value = json.dumps(images)
+                    with self.assertRaisesRegex(p.Stop, 'PINNED_INDEX_DESCRIPTOR_REQUIRED'):
+                        p.topology(tool)
+                    self.assertEqual(tool.docker.call_count, 1)
+
+    def test_containerd_wrong_index_id_or_repository_cannot_reach_platform_lookup(self):
+        for row in (0, 1):
+            for field, value in (('Id', 'sha256:' + 'e' * 64), ('RepoDigests', []),
+                                 ('RepoDigests', ['other/postgres@' + p.PG_DIGEST]),
+                                 ('RepoDigests', ['ghcr.io/immich-app/postgres@sha256:' + 'e' * 64])):
+                with self.subTest(row=row, field=field, value=value):
+                    tool, _, index, _ = self.containerd_fixture()
+                    images = [dict(index), dict(index)]
+                    images[row][field] = value
+                    tool.docker.return_value = json.dumps(images)
+                    with self.assertRaises(p.Stop):
+                        p.topology(tool)
+                    self.assertEqual(tool.docker.call_count, 1)
+
+    def test_containerd_wrong_child_config_manifest_platform_or_repository_is_rejected(self):
+        for field, value in (('Id', 'sha256:' + 'e' * 64), ('Id', p.PG_DIGEST),
+                             ('Architecture', 'arm64'), ('Os', 'windows'), ('Architecture', None),
+                             ('Os', None), ('RepoDigests', []), ('RepoDigests', None),
+                             ('RepoDigests', ['other/postgres@' + p.PG_DIGEST]),
+                             ('RepoDigests', ['ghcr.io/immich-app/postgres@sha256:' + 'e' * 64])):
+            with self.subTest(field=field, value=value):
+                tool, _, index, platform = self.containerd_fixture()
+                platform[field] = value
+                tool.docker.side_effect = [json.dumps([index, index]), json.dumps([platform])]
+                with self.assertRaisesRegex(p.Stop, 'PINNED_PLATFORM_IDENTITY_MISMATCH'):
+                    p.topology(tool)
+
+    def test_containerd_platform_descriptor_must_match_exact_verified_child(self):
+        for value in (None, {}, {'digest': p.PG_DIGEST}, {'digest': 'sha256:' + 'e' * 64}):
+            with self.subTest(descriptor=value):
+                tool, _, index, platform = self.containerd_fixture()
+                platform['Descriptor'] = value
+                tool.docker.side_effect = [json.dumps([index, index]), json.dumps([platform])]
+                with self.assertRaisesRegex(p.Stop, 'PINNED_PLATFORM_DESCRIPTOR_MISMATCH'):
+                    p.topology(tool)
+        tool, _, index, platform = self.containerd_fixture(config=True)
+        platform['Descriptor'] = {'digest': p.PG_AMD64_MANIFEST}
+        tool.docker.side_effect = [json.dumps([index, index]), json.dumps([platform])]
+        with self.assertRaisesRegex(p.Stop, 'PINNED_PLATFORM_DESCRIPTOR_MISMATCH'):
+            p.topology(tool)
+
+    def test_containerd_missing_or_unsupported_platform_inspection_stops_without_pull(self):
+        tool, _, index, _ = self.containerd_fixture()
+        tool.docker.side_effect = [json.dumps([index, index]), RuntimeError('private unsupported API response')]
+        with self.assertRaisesRegex(p.Stop, '^POSTGRES_LOCAL_PINNED_PLATFORM_LOOKUP_FAILED$'):
+            p.topology(tool)
+        self.assertEqual(tool.docker.call_count, 2)
+        self.assertTrue(all(call.args[:2] == ('image', 'inspect') for call in tool.docker.call_args_list))
+
+    def test_containerd_invalid_or_incomplete_platform_inspection_is_rejected(self):
+        for value in ('invalid-json', '[]', '{}', '[{}]', '[null]', '[{}, {}]'):
+            with self.subTest(value=value):
+                tool, _, index, _ = self.containerd_fixture()
+                tool.docker.side_effect = [json.dumps([index, index]), value]
+                with self.assertRaises(p.Stop):
+                    p.topology(tool)
+
+    def test_containerd_verified_children_match_installer_pins_without_runtime_import_dependency(self):
+        tree = ast.parse((ROOT / 'scripts/release/gallery_install.py').read_text())
+        pins = next(ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign) and
+                    any(isinstance(target, ast.Name) and target.id == 'PUBLIC_DEPENDENCIES' for target in node.targets))
+        expected = pins[p.PG_PINNED_REF]
+        self.assertEqual(p.PG_AMD64_MANIFEST, expected['manifest'])
+        self.assertEqual(p.PG_AMD64_CONFIG, expected['config'])
 
 
 class Guards(unittest.TestCase):
