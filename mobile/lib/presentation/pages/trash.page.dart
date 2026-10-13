@@ -88,16 +88,22 @@ class TrashActionsMenu extends ConsumerWidget {
         ok: context.t.delete_from_device,
       ),
     );
-    if (confirmed != true || !context.mounted) return;
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
     final owner = ref.read(currentUserProvider)?.id;
-    if (owner == null) return;
+    if (owner == null) {
+      return;
+    }
     try {
       final service = ref.read(assetServiceProvider);
       // Only completed, owner-scoped server receipts can offer this retry.
       // Current checksum matching excludes media IDs reused for another file.
       final ids = await service.getPendingDeviceDeletionAssetIds(owner);
       final localIds = ids.isEmpty ? <String>[] : await service.getDeletionLocalIds(ids);
-      if (!context.mounted || ref.read(currentUserProvider)?.id != owner) return;
+      if (!context.mounted || ref.read(currentUserProvider)?.id != owner) {
+        return;
+      }
       if (localIds.isEmpty) {
         ImmichToast.show(context: context, msg: context.t.device_deletion_retry_none);
         return;
@@ -105,7 +111,9 @@ class TrashActionsMenu extends ConsumerWidget {
       // This is an explicit OS-only operation. Do not create another server
       // deletion intent, restore cloud records, or retry incomplete receipts.
       final local = await ref.read(cleanupServiceProvider).deleteLocalAssetsDetailed(localIds, trash: false);
-      if (!context.mounted) return;
+      if (!context.mounted) {
+        return;
+      }
       ImmichToast.show(
         context: context,
         msg: context.t.device_deletion_result(
@@ -142,7 +150,9 @@ class TrashActionsMenu extends ConsumerWidget {
       // rows based on a count-only response or delete newly arriving assets.
       final ids = await service.getTrashIds(user.id);
       final results = await service.deleteWithResults(ids);
-      if (!context.mounted || ref.read(currentUserProvider)?.id != user.id) return;
+      if (!context.mounted || ref.read(currentUserProvider)?.id != user.id) {
+        return;
+      }
       final completed = results.where((result) => result.complete).map((result) => result.id).toList();
       final localIds = await service.getDeletionLocalIds(completed);
       if (!context.mounted || ref.read(currentUserProvider)?.id != user.id) {

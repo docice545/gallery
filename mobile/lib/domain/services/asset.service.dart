@@ -282,7 +282,9 @@ class AssetService {
       await _trashedLocalRepository.applyTrashedAssets(deletedIds);
     } else {
       await _localRepository.deleteAssets(deletedIds);
-      if (!trash) await _trashedLocalRepository.deleteAssets(deletedIds);
+      if (!trash) {
+        await _trashedLocalRepository.deleteAssets(deletedIds);
+      }
     }
     return deletedIds.length;
   }

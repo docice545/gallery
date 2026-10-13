@@ -45,7 +45,9 @@ void main() {
   }
 
   Future<void> openDeviceRetry(WidgetTester tester, {bool pump = true}) async {
-    if (pump) await tester.pumpTestWidget(context, const TrashActionsMenu());
+    if (pump) {
+      await tester.pumpTestWidget(context, const TrashActionsMenu());
+    }
     await tester.tap(find.byIcon(Icons.more_vert_rounded));
     await tester.pumpAndSettle();
     await tester.tap(find.text(StaticTranslations.instance.device_deletion_retry));

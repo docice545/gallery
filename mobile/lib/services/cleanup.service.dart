@@ -21,13 +21,9 @@ class CleanupService {
 
   final LocalAssetRepository _localAssetRepository;
   final AssetMediaRepository _assetMediaRepository;
-  final TrashedLocalAssetRepository? _trashedLocalRepository;
+  final TrashedLocalAssetRepository? trashedLocalRepository;
 
-  const CleanupService(
-    this._localAssetRepository,
-    this._assetMediaRepository, {
-    TrashedLocalAssetRepository? trashedLocalRepository,
-  }) : _trashedLocalRepository = trashedLocalRepository;
+  const CleanupService(this._localAssetRepository, this._assetMediaRepository, {this.trashedLocalRepository});
 
   Future<RemovalCandidatesResult> getRemovalCandidates(
     String userId,
@@ -66,7 +62,9 @@ class CleanupService {
         // Trash rows after permanent cleanup. Cache failures must surface;
         // they are not permission denials or successful completed retries.
         await _localAssetRepository.deleteAssets(acknowledged.toList());
-        if (!trash) await _trashedLocalRepository?.deleteAssets(acknowledged.toList());
+        if (!trash) {
+          await trashedLocalRepository?.deleteAssets(acknowledged.toList());
+        }
         deleted.addAll(acknowledged);
       }
     }
