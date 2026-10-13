@@ -21,6 +21,7 @@ import 'package:immich_mobile/infrastructure/repositories/settings.repository.da
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/pages/library.page.dart';
+import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/library/library_album_preview.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 
@@ -124,6 +125,39 @@ void main() {
     await tester.pump();
   }
 
+  Future<void> waitForThumbnail(WidgetTester tester, String assetId, String thumbhash) async {
+    // Native codec completion runs outside the widget test's fake clock. Wait
+    // for the actual cached image frame instead of racing a fixed microtask count
+    // against pumpAndSettle's loading-spinner animation.
+    await tester.runAsync(() async {
+      final ready = Completer<void>();
+      final stream = RemoteImageProvider.thumbnail(
+        assetId: assetId,
+        thumbhash: thumbhash,
+      ).resolve(ImageConfiguration.empty);
+      final listener = ImageStreamListener(
+        (image, _) {
+          image.dispose();
+          if (!ready.isCompleted) {
+            ready.complete();
+          }
+        },
+        onError: (Object error, StackTrace? stack) {
+          if (!ready.isCompleted) {
+            ready.completeError(error, stack);
+          }
+        },
+      );
+      stream.addListener(listener);
+      try {
+        await ready.future.timeout(const Duration(seconds: 10));
+      } finally {
+        stream.removeListener(listener);
+      }
+    });
+    await tester.pumpAndSettle();
+  }
+
   _previewTestWidgets('slow initialization is loading, late album arrival automatically becomes mosaic', (
     tester,
   ) async {
@@ -204,8 +238,7 @@ void main() {
         (albumId: 'good-album', thumbnailId: 'good', thumbHash: 'two'),
       ],
     );
-    await tester.runAsync(() => pumpEventQueue(times: 30));
-    await tester.pumpAndSettle();
+    await waitForThumbnail(tester, 'good', 'two');
     expect(find.byKey(const ValueKey('library-album-fallback-bad-album')), findsOneWidget);
     expect(find.byKey(const ValueKey('library-album-preview-good-album-good')), findsOneWidget);
     expect(find.byType(RawImage), findsOneWidget);
@@ -217,15 +250,13 @@ void main() {
     await tester.tap(find.byIcon(Icons.refresh));
     await tester.pump();
     await tester.pump();
-    await tester.runAsync(() => pumpEventQueue(times: 30));
-    await tester.pumpAndSettle();
+    await waitForThumbnail(tester, 'bad', 'one');
     expect(find.byKey(const ValueKey('library-album-fallback-bad-album')), findsNothing);
     expect(find.byType(RawImage), findsNWidgets(2));
     expect(requests, hasLength(3), reason: 'retry only downloads failed image; good completed image stays cached');
     await tester.pumpWidget(const SizedBox());
     await mount(tester, cached: [(albumId: 'good-album', thumbnailId: 'good', thumbHash: 'two')]);
-    await tester.runAsync(() => pumpEventQueue(times: 30));
-    await tester.pumpAndSettle();
+    await waitForThumbnail(tester, 'good', 'two');
     expect(requests, hasLength(3), reason: 'existing completed Flutter thumbnail cache is reused');
     await tester.pumpWidget(const SizedBox());
   });

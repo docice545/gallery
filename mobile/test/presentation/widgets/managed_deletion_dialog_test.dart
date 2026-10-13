@@ -162,6 +162,18 @@ void main() {
     verifyNever(() => repository.setLibraryDeletionConsent(any(), any()));
     expect(tester.takeException(), isNull);
   });
+  testWidgets('ordinary managed storage is usable without recovery proof or administrator preparation', (tester) async {
+    when(
+      () => repository.managedDeletionStatus(),
+    ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: true, prepared: true, canPrepare: false));
+    await open(tester);
+    final context = tester.element(find.byType(ManagedDeletionDialog));
+    expect(find.text(context.t.managed_deletion_enabled), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(CheckboxListTile), findsNothing);
+    verifyNever(() => repository.prepareManagedDeletion(any()));
+  });
+
   testWidgets('does not authorize before a separate confirmation', (tester) async {
     await open(tester);
     final enable = find.widgetWithText(FilledButton, 'Разрешить удаление из управляемого хранилища');
@@ -178,7 +190,7 @@ void main() {
     await open(tester);
     final button = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(button.onPressed, isNull);
-    expect(find.textContaining('Администратор должен сначала'), findsOneWidget);
+    expect(find.textContaining('недоступно для безопасного удаления'), findsOneWidget);
   });
   testWidgets('owner can revoke without confirmation and no filesystem preparation', (tester) async {
     when(
@@ -240,28 +252,28 @@ void main() {
     'OVERLAPPING_OWNER_ROOTS',
     'UNSUPPORTED_DELETION_FILESYSTEM',
     'DELETION_QUARANTINE_CONFLICT',
+    'LIBRARY_STORAGE_READ_ONLY',
   ]) {
-    testWidgets('localizes $code after a rejected signed-evidence preparation', (tester) async {
+    testWidgets('localizes $code from a previous-server consent failure without proof inputs', (tester) async {
       when(
         () => repository.managedDeletionStatus(),
-      ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: false, prepared: false, canPrepare: true));
-      when(() => repository.prepareManagedDeletion(any())).thenThrow(ApiException(409, '{"message":"$code"}'));
+      ).thenAnswer((_) async => const ManagedDeletionStatus(enabled: false, prepared: true, canPrepare: true));
+      when(() => repository.setManagedDeletionConsent(true)).thenThrow(ApiException(409, '{"message":"$code"}'));
       await open(tester);
       final context = tester.element(find.byType(ManagedDeletionDialog));
-      expect(find.text(context.t.managed_deletion_recovery_help), findsOneWidget);
-      await tester.enterText(find.byType(TextField), List.filled(64, 'a').join());
-      await tester.ensureVisible(find.byType(CheckboxListTile));
-      await tester.tap(find.byType(CheckboxListTile));
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(CheckboxListTile), findsNothing);
+      final enable = find.widgetWithText(FilledButton, context.t.managed_deletion_enable);
+      await tester.ensureVisible(enable);
+      await tester.tap(enable);
       await tester.pumpAndSettle();
-      final prepare = find.widgetWithText(OutlinedButton, context.t.managed_deletion_prepare);
-      await tester.ensureVisible(prepare);
-      await tester.tap(prepare);
+      await tester.tap(find.widgetWithText(TextButton, context.t.managed_deletion_enable));
       await tester.pumpAndSettle();
       final result = PermanentDeletionResult(id: 'fixture', state: 'blocked', code: code);
       expect(find.text(deletionMessage(context, result)), findsOneWidget);
       expect(find.textContaining(code), findsNothing);
-      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
-      verifyNever(() => repository.setManagedDeletionConsent(any()));
+      verify(() => repository.setManagedDeletionConsent(true)).called(1);
+      verifyNever(() => repository.prepareManagedDeletion(any()));
       expect(tester.takeException(), isNull);
     });
   }

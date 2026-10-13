@@ -504,7 +504,7 @@ void main() {
     });
 
     group('deleteLocal button', () {
-      test('should not show when asset is local only, as there is no backup to fall back on', () {
+      test('shows the explicit device-only operation for a local-only asset', () {
         final localAsset = createLocalAsset();
         final context = ActionButtonContext(
           asset: localAsset,
@@ -518,7 +518,23 @@ void main() {
           source: ActionSource.timeline,
         );
 
-        expect(ActionButtonType.deleteLocal.shouldShow(context), isFalse);
+        expect(ActionButtonType.deleteLocal.shouldShow(context), isTrue);
+      });
+
+      test('backed-up local asset has device-only deletion without remote-owner metadata', () {
+        final context = ActionButtonContext(
+          asset: createLocalAsset(remoteId: 'existing-cloud-id'),
+          isOwner: false,
+          isArchived: false,
+          isTrashEnabled: true,
+          isInLockedView: false,
+          currentAlbum: null,
+          advancedTroubleshooting: false,
+          isStacked: false,
+          source: ActionSource.viewer,
+        );
+        expect(ActionButtonType.deleteLocal.shouldShow(context), isTrue);
+        expect(ActionButtonType.deleteEverywhere.shouldShow(context), isTrue);
       });
 
       test('should not show when asset is not local only', () {

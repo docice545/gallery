@@ -83,8 +83,25 @@ class LivePhotoAutoplayController extends ChangeNotifier {
   bool _retryUsed = false;
   Object? _pendingToken;
   Timer? _timer;
+  int _leaseRevision = 0;
 
   Object? get activeToken => _activeToken;
+  int get leaseRevision => _leaseRevision;
+
+  /// A real return to the feed grants one new settled playback, without
+  /// turning ordinary gestures, selection or settings toggles into loops.
+  void startFeedActivation() {
+    if (_disposed) {
+      return;
+    }
+    _stop();
+    _lastPlayedAsset = null;
+    _lastPlayedViewportExtent = null;
+    _scrollDisplacementSincePlayback = 0;
+    _retryAsset = null;
+    _retryUsed = false;
+    _schedule();
+  }
 
   void setEnabled(bool enabled) {
     if (_enabled == enabled || _disposed) {
@@ -114,7 +131,8 @@ class LivePhotoAutoplayController extends ChangeNotifier {
 
   /// Position is relative to the last playback, not the last scroll event.
   /// Small drags may accumulate into a new viewport, but a fling out and back,
-  /// a tap, route change, or settings toggle cannot rearm the same region.
+  /// a tap or settings toggle cannot rearm the same region. Actual feed
+  /// reactivation starts a new one-shot budget through startFeedActivation.
   void updateViewport({required double scrollOffset, required double viewportExtent, bool fromScroll = true}) {
     if (_disposed || !scrollOffset.isFinite || !viewportExtent.isFinite || viewportExtent <= 0) {
       return;
@@ -218,6 +236,7 @@ class LivePhotoAutoplayController extends ChangeNotifier {
       _activeCandidate = current;
       _activeStarted = false;
       _activeToken = candidate.token;
+      _leaseRevision++;
       notifyListeners();
     });
   }

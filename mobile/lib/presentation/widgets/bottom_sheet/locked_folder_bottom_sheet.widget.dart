@@ -18,6 +18,8 @@ class LockedFolderBottomSheet extends StatelessWidget {
       shouldCloseOnMinExtent: false,
       actions: <ActionColumnButton>[
         .new(action: DeleteAction(source: .timeline)),
+        .new(action: CleanupLocalAction(source: .timeline)),
+        .new(action: DeleteEverywhereAction(source: .timeline)),
         .new(action: AssetDebugAction(source: .timeline)),
         .new(action: ShareAction(source: .timeline)),
         .new(action: DownloadAction(source: .timeline)),

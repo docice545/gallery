@@ -577,7 +577,9 @@ void main() {
     expect(log.maxConcurrent, 1);
   });
 
-  testWidgets('backgrounding releases playback, and returning keeps the used viewport static', (tester) async {
+  testWidgets('backgrounding releases playback and returning rearms one visible preview after settling', (
+    tester,
+  ) async {
     final log = _PlaybackLog();
     await _pumpScope(tester, log);
     await _settlePlayback(tester);
@@ -590,15 +592,27 @@ void main() {
     await tester.pump();
     expect(log.alive, isEmpty);
     await _settlePlayback(tester);
+    expect(log.alive, {'first'});
+    expect(log.starts, ['first', 'first']);
+    log.completions['first']!();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
     expect(log.alive, isEmpty);
-    expect(log.starts, ['first']);
+    expect(log.starts, ['first', 'first'], reason: 'one new activation does not loop or cascade');
+    expect(log.maxConcurrent, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.starts, ['first', 'first'], reason: 'duplicate resume notifications are not new activations');
   });
 
-  testWidgets('covering the timeline with another route stops its still-mounted playback', (tester) async {
+  testWidgets('returning from a viewer rearms playback and ignores callbacks from the previous lease', (tester) async {
     final log = _PlaybackLog();
     final navigator = GlobalKey<NavigatorState>();
     await _pumpScope(tester, log, navigatorKey: navigator);
     await _settlePlayback(tester);
+    final previousCompletion = log.completions['first']!;
+    final previousFailure = log.failures['first']!;
     unawaited(navigator.currentState!.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())));
     await tester.pumpAndSettle();
     expect(log.alive, isEmpty);
@@ -606,8 +620,18 @@ void main() {
     navigator.currentState!.pop();
     await tester.pumpAndSettle();
     await _settlePlayback(tester);
+    expect(log.alive, {'first'});
+    expect(log.starts, ['first', 'first']);
+    previousCompletion();
+    previousFailure();
+    await tester.pump();
+    expect(log.alive, {'first'}, reason: 'old callbacks cannot revoke the new lease for the same asset');
+    log.completions['first']!();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
     expect(log.alive, isEmpty);
-    expect(log.starts, ['first']);
+    expect(log.starts, ['first', 'first']);
+    expect(log.maxConcurrent, 1);
   });
 
   testWidgets('opening the filter sheet stops playback and closing it cannot resume the same viewport', (tester) async {
@@ -626,6 +650,31 @@ void main() {
     await _settlePlayback(tester);
     expect(log.alive, isEmpty);
     expect(log.starts, ['first']);
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('a covering filter route does not consume a new viewer activation budget', (tester) async {
+    final log = _PlaybackLog();
+    final navigator = GlobalKey<NavigatorState>();
+    final container = await _pumpScope(tester, log, navigatorKey: navigator);
+    await _settlePlayback(tester);
+    container.read(photosFilterSheetProvider.notifier).state = FilterSheetVisibility.visible;
+    unawaited(navigator.currentState!.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())));
+    await tester.pumpAndSettle();
+    expect(log.alive, isEmpty);
+    container.read(photosFilterSheetProvider.notifier).state = FilterSheetVisibility.hidden;
+    await tester.pump();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    await _settlePlayback(tester);
+    expect(log.starts, ['first'], reason: 'closing a filter remains an ordinary interaction');
+    unawaited(navigator.currentState!.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())));
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    await _settlePlayback(tester);
+    expect(log.alive, {'first'}, reason: 'a subsequent genuine return to the feed rearms playback');
+    expect(log.starts, ['first', 'first']);
     expect(log.maxConcurrent, 1);
   });
 

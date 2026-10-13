@@ -14,6 +14,7 @@ String? _managedDeletionFailureMessage(BuildContext context, String? code) => sw
   'OVERLAPPING_OWNER_ROOTS' ||
   'UNSUPPORTED_DELETION_FILESYSTEM' ||
   'DELETION_QUARANTINE_CONFLICT' => context.t.managed_deletion_roots_changed,
+  'LIBRARY_STORAGE_READ_ONLY' => context.t.storage_read_only_deletion,
   'MANAGED_DELETION_PREPARATION_REQUIRED' => context.t.managed_deletion_preparation_required,
   _ => null,
 };

@@ -737,6 +737,21 @@ describe('global-search root', () => {
   });
 
   it('allows ArrowDown to move through live person filter matches', async () => {
+    // The 150ms request may finish during keyboard input on a busy CI worker.
+    // Keep its response consistent with the seeded choices instead of clearing
+    // them with the default empty fixture while this test exercises navigation.
+    vi.mocked(getFilterSuggestions).mockResolvedValueOnce({
+      people: ['a', 'b', 'c'].map((name) => ({ id: `person:${name}`, name })),
+      cameraMakes: [],
+      countries: [],
+      hasAssetsInAlbum: false,
+      hasAssetsNotInAlbum: false,
+      hasFavorites: false,
+      hasUnnamedPeople: false,
+      mediaTypes: [],
+      ratings: [],
+      tags: [],
+    });
     const manager = new GlobalSearchManager();
     manager.open();
     manager.setQuery('person:');

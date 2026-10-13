@@ -108,7 +108,9 @@
         <ExternalDeletionSettings />
       {/if}
       <p class="p-4 font-medium text-gray-500/60 dark:text-gray-300/60">
-        {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
+        {#if featureFlagsManager.valueOrUndefined?.ownerStorageDeletion}
+          {$t('trash_retention_scope_info', { values: { days: serverConfigManager.value.trashDays } })}
+        {:else if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
           {$t('trash_manual_retention_info')}
         {:else}
           {$t('trashed_items_will_be_permanently_deleted_after', {

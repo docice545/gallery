@@ -3,9 +3,7 @@
   import {
     managedDeletionStatus,
     libraryDeletionStatus,
-    prepareLibraryDeletion,
     setLibraryDeletionConsent,
-    prepareManagedDeletion,
     setManagedDeletionConsent,
     type ManagedDeletionStatusDto,
   } from '@immich/sdk';
@@ -17,8 +15,6 @@
   let { libraryId, libraryName }: { libraryId?: string; libraryName?: string } = $props();
   let busy = $state(false);
   let error = $state<string>();
-  let proof = $state('');
-  let verified = $state(false);
 
   const load = async () => {
     try {
@@ -64,13 +60,6 @@
         : setManagedDeletionConsent({ managedDeletionConsentDto: { enabled, confirmed: true } }),
     );
   };
-  const prepare = () =>
-    run(() => {
-      const dto = { recoveryProof: proof.trim(), verifiedExclusiveRoots: true as const };
-      return libraryId
-        ? prepareLibraryDeletion({ id: libraryId, prepareManagedDeletionDto: dto })
-        : prepareManagedDeletion({ prepareManagedDeletionDto: dto });
-    });
 </script>
 
 <details class="mx-4 my-2 rounded-sm border p-3">
@@ -97,35 +86,5 @@
         ? $t('managed_deletion_disable')
         : $t(libraryId ? 'external_deletion_enable' : 'managed_deletion_enable')}
     </Button>
-    {#if status.canPrepare}
-      <form
-        class="mt-4 flex flex-col gap-3"
-        onsubmit={(event) => {
-          event.preventDefault();
-          if (!busy && verified && /^[a-f0-9]{64}$/.test(proof.trim())) {
-            void prepare();
-          }
-        }}
-      >
-        <p>{$t('managed_deletion_recovery_help')}</p>
-        <label
-          >{$t('managed_deletion_recovery_proof')}
-          <input
-            class="block w-full rounded-sm border p-2"
-            bind:value={proof}
-            disabled={busy}
-            maxlength="64"
-            autocomplete="off"
-          />
-        </label>
-        <label
-          ><input type="checkbox" bind:checked={verified} disabled={busy} />
-          {$t('managed_deletion_exclusive_roots')}</label
-        >
-        <Button type="submit" disabled={busy || !verified || !/^[a-f0-9]{64}$/.test(proof.trim())}
-          >{$t(libraryId ? 'external_deletion_prepare' : 'managed_deletion_prepare')}</Button
-        >
-      </form>
-    {/if}
   {/if}
 </details>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { cleanClass } from '$lib';
+  import { observeLivePhotoPlayback } from '$lib/utils/live-photo-autoplay';
   import { Icon } from '@immich/ui';
   import { mdiAlertCircleOutline, mdiPauseCircleOutline, mdiPlayCircleOutline } from '@mdi/js';
   import { Duration } from 'luxon';
@@ -10,6 +11,7 @@
     url: string;
     durationInSeconds?: number;
     enablePlayback?: boolean;
+    visibleAutoplay?: boolean;
     playbackOnIconHover?: boolean;
     showTime?: boolean;
     curve?: boolean;
@@ -22,6 +24,7 @@
     url,
     durationInSeconds = 0,
     enablePlayback = $bindable(false),
+    visibleAutoplay = false,
     playbackOnIconHover = false,
     showTime = true,
     curve = false,
@@ -30,13 +33,55 @@
     class: className,
   }: Props = $props();
 
+  let container: HTMLDivElement | undefined = $state();
+  let automaticPlayback = $state(false);
+  let retry = $state(0);
+  let playback = $derived(enablePlayback || automaticPlayback);
+  let registration: ReturnType<typeof observeLivePhotoPlayback> | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => {
+    if (!visibleAutoplay || !container) {
+      return;
+    }
+    registration = observeLivePhotoPlayback(container, (active) => {
+      automaticPlayback = active;
+      if (!active) {
+        clearTimeout(retryTimer);
+        retry = 0;
+      }
+    });
+    return () => {
+      registration?.destroy();
+      registration = undefined;
+      clearTimeout(retryTimer);
+    };
+  });
+
+  const playbackError = () => {
+    if (!player?.src) {
+      return;
+    }
+    error = true;
+    loading = false;
+    // Retry once, then release the decoder. Scrolling out and back allows a new attempt.
+    if (automaticPlayback && retry === 0) {
+      retryTimer = setTimeout(() => {
+        retry = 1;
+        loading = true;
+      }, 500);
+    } else if (automaticPlayback) {
+      registration?.suspend();
+    }
+  };
+
   let remainingSeconds = $state(durationInSeconds);
   let loading = $state(true);
   let error = $state(false);
   let player: HTMLVideoElement | undefined = $state();
 
   $effect(() => {
-    if (!enablePlayback) {
+    if (!playback) {
       remainingSeconds = durationInSeconds;
       return;
     }
@@ -63,65 +108,63 @@
   };
 </script>
 
-{#if enablePlayback}
-  <video
-    bind:this={player}
-    class={cleanClass('h-full w-full object-cover', className)}
-    class:rounded-xl={curve}
-    muted
-    autoplay
-    loop
-    src={url}
-    onplay={() => {
-      loading = false;
-      error = false;
-    }}
-    onerror={() => {
-      if (!player?.src) {
-        // Do not show error when the URL is empty.
-        return;
-      }
-      error = true;
-      loading = false;
-    }}
-    ontimeupdate={({ currentTarget }) => {
-      const remaining = currentTarget.duration - currentTarget.currentTime;
-      remainingSeconds = Math.min(Math.ceil(Number.isNaN(remaining) ? Infinity : remaining), durationInSeconds);
-    }}
-  ></video>
-{/if}
-
-<div
-  class="@container absolute inset-x-0 top-0 flex place-items-center justify-end gap-1 text-xs font-medium text-white text-shadow-[1px_1px_6px_rgb(0_0_0)]"
->
-  {#if showTime}
-    <span class="hidden pt-2 @min-[100px]:inline">
-      {#if remainingSeconds < 60}
-        {Duration.fromObject({ seconds: remainingSeconds }).toFormat('m:ss')}
-      {:else if remainingSeconds < 3600}
-        {Duration.fromObject({ seconds: remainingSeconds }).toFormat('mm:ss')}
-      {:else}
-        {Duration.fromObject({ seconds: remainingSeconds }).toFormat('h:mm:ss')}
-      {/if}
-    </span>
+<div bind:this={container} class="size-full">
+  {#if playback}
+    {#key retry}
+      <video
+        bind:this={player}
+        class={cleanClass('h-full w-full object-cover', className)}
+        class:rounded-xl={curve}
+        muted
+        playsinline
+        autoplay
+        loop
+        src={url}
+        onplay={() => {
+          loading = false;
+          error = false;
+        }}
+        onerror={playbackError}
+        ontimeupdate={({ currentTarget }) => {
+          const remaining = currentTarget.duration - currentTarget.currentTime;
+          remainingSeconds = Math.min(Math.ceil(Number.isNaN(remaining) ? Infinity : remaining), durationInSeconds);
+        }}
+      ></video>
+    {/key}
   {/if}
 
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <span
-    class="pe-2 pt-2 drop-shadow-[1px_1px_6px_rgb(0_0_0)] @max-[99px]:scale-75 @max-[99px]:pe-1 @max-[99px]:pt-1"
-    onmouseenter={onMouseEnter}
-    onmouseleave={onMouseLeave}
+  <div
+    class="@container absolute inset-x-0 top-0 flex place-items-center justify-end gap-1 text-xs font-medium text-white text-shadow-[1px_1px_6px_rgb(0_0_0)]"
   >
-    {#if enablePlayback}
-      {#if loading}
-        <LoadingSpinner size="large" />
-      {:else if error}
-        <Icon icon={mdiAlertCircleOutline} size="24" class="text-red-600" />
-      {:else}
-        <Icon icon={pauseIcon} size="24" />
-      {/if}
-    {:else}
-      <Icon icon={playIcon} size="24" />
+    {#if showTime}
+      <span class="hidden pt-2 @min-[100px]:inline">
+        {#if remainingSeconds < 60}
+          {Duration.fromObject({ seconds: remainingSeconds }).toFormat('m:ss')}
+        {:else if remainingSeconds < 3600}
+          {Duration.fromObject({ seconds: remainingSeconds }).toFormat('mm:ss')}
+        {:else}
+          {Duration.fromObject({ seconds: remainingSeconds }).toFormat('h:mm:ss')}
+        {/if}
+      </span>
     {/if}
-  </span>
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span
+      class="pe-2 pt-2 drop-shadow-[1px_1px_6px_rgb(0_0_0)] @max-[99px]:scale-75 @max-[99px]:pe-1 @max-[99px]:pt-1"
+      onmouseenter={onMouseEnter}
+      onmouseleave={onMouseLeave}
+    >
+      {#if playback}
+        {#if loading}
+          <LoadingSpinner size="large" />
+        {:else if error}
+          <Icon icon={mdiAlertCircleOutline} size="24" class="text-red-600" />
+        {:else}
+          <Icon icon={pauseIcon} size="24" />
+        {/if}
+      {:else}
+        <Icon icon={playIcon} size="24" />
+      {/if}
+    </span>
+  </div>
 </div>

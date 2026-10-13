@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +13,7 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
+import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:mocktail/mocktail.dart';
@@ -50,7 +54,13 @@ void main() {
         localId: localId,
       );
 
-  Future<void> pumpDelete(WidgetTester tester, Set<BaseAsset> selection, {bool trashEnabled = true}) async {
+  Future<void> pumpDelete(
+    WidgetTester tester,
+    Set<BaseAsset> selection, {
+    bool trashEnabled = true,
+    bool everywhere = false,
+    bool device = false,
+  }) async {
     if (!trashEnabled) {
       when(
         () => context.service.serverInfo.getServerFeatures(),
@@ -59,7 +69,13 @@ void main() {
 
     await tester.pumpTestWidget(
       context,
-      const ActionIconButton(action: DeleteAction(source: .timeline)),
+      ActionIconButton(
+        action: device
+            ? const CleanupLocalAction(source: .timeline)
+            : everywhere
+            ? const DeleteEverywhereAction(source: .timeline)
+            : const DeleteAction(source: .timeline),
+      ),
       overrides: context.selected(selection),
     );
 
@@ -103,17 +119,17 @@ void main() {
         verify(() => assetService.trash([mine.id])).called(1);
       });
 
-      testWidgets('trashes a merged asset and requests authorized removal of its device copy', (tester) async {
+      testWidgets('Gallery-only Trash leaves a backed-up device copy intact', (tester) async {
         final asset = owned(localId: 'local');
 
         await pumpDelete(tester, {asset});
         await tester.pumpAndSettle();
 
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
         verify(() => assetService.trash([asset.id])).called(1);
       });
 
-      testWidgets('trashes backed-up assets while moving local-only selections to device Trash', (tester) async {
+      testWidgets('Gallery-only mixed selection trashes only owned server assets', (tester) async {
         final backedUp = owned(localId: 'backed-up-local');
         final localOnly = LocalAssetFactory.create(id: 'local-only');
 
@@ -121,7 +137,17 @@ void main() {
         await tester.pumpAndSettle();
 
         verify(() => assetService.trash([backedUp.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['backed-up-local', 'local-only'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+      });
+
+      testWidgets('Gallery-only deletion of a backed-up local-album representation preserves the device copy', (
+        tester,
+      ) async {
+        final local = LocalAssetFactory.create(id: 'local-album-copy', remoteId: 'own-cloud-id');
+        await pumpDelete(tester, {local});
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash(['own-cloud-id'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
       testWidgets('offers an undo that restores the trashed assets', (tester) async {
@@ -133,6 +159,70 @@ void main() {
         await tester.pump();
 
         verify(() => assetService.restoreTrash([asset.id])).called(1);
+      });
+    });
+
+    group('DeleteEverywhereAction', () {
+      testWidgets('waits for cloud Trash before deleting device copies', (tester) async {
+        final asset = owned(localId: 'phone-copy');
+        final accepted = Completer<void>();
+        when(() => assetService.trash(any())).thenAnswer((_) => accepted.future);
+        await pumpDelete(tester, {asset}, everywhere: true);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        accepted.complete();
+        await tester.pumpAndSettle();
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['phone-copy'])).called(1);
+        expect(find.text('Undo'), findsNothing);
+      });
+
+      testWidgets('cloud rejection never deletes the only local copy', (tester) async {
+        final asset = owned(localId: 'phone-copy');
+        when(() => assetService.trash(any())).thenThrow(StateError('fixture offline'));
+        await pumpDelete(tester, {asset}, everywhere: true);
+        await tester.pumpAndSettle();
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        verifyNever(() => assetService.deleteWithResults(any()));
+      });
+
+      testWidgets('bulk local denial reports remaining copies and preserves selection', (tester) async {
+        final photo = owned(localId: 'local-photo');
+        final video = RemoteAssetFactory.create(ownerId: context.currentUser.id, localId: 'local-video', type: .video);
+        when(() => cleanupService.deleteLocalAssetsDetailed(any())).thenAnswer(
+          (_) async => const LocalDeletionResult(deletedIds: ['local-photo'], remainingIds: ['local-video']),
+        );
+        await pumpDelete(tester, {photo, video}, everywhere: true);
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash([photo.id, video.id])).called(1);
+        expect(find.textContaining('1 removed, 1 remain'), findsOneWidget);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {photo, video});
+        expect(find.text('Undo'), findsNothing);
+      });
+
+      testWidgets('mixed everywhere operation includes local-only copies after cloud acceptance', (tester) async {
+        final backedUp = owned(localId: 'backed-up');
+        final localOnly = LocalAssetFactory.create(id: 'local-only');
+        await pumpDelete(tester, {backedUp, localOnly}, everywhere: true);
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash([backedUp.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['backed-up', 'local-only'])).called(1);
+      });
+
+      testWidgets('everywhere deletion supports backed-up local-album representations', (tester) async {
+        final local = LocalAssetFactory.create(id: 'local-album-copy', remoteId: 'own-cloud-id');
+        await pumpDelete(tester, {local}, everywhere: true);
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash(['own-cloud-id'])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['local-album-copy'])).called(1);
+      });
+
+      testWidgets('cannot delete a different owner device copy', (tester) async {
+        final own = owned(localId: 'mine');
+        final other = RemoteAssetFactory.create(localId: 'other-phone');
+        await pumpDelete(tester, {own, other}, everywhere: true);
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash([own.id])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['mine'])).called(1);
       });
     });
 
@@ -199,7 +289,7 @@ void main() {
       testWidgets('removes the device copy with no remote call', (tester) async {
         final asset = LocalAssetFactory.create();
 
-        await pumpDelete(tester, {asset});
+        await pumpDelete(tester, {asset}, device: true);
         await tester.pumpAndSettle();
 
         verify(() => cleanupService.deleteLocalAssetsDetailed([asset.id])).called(1);
@@ -207,15 +297,15 @@ void main() {
         verifyNever(() => assetService.deleteWithResults(any()));
       });
 
-      testWidgets('is labelled trash', (tester) async {
+      testWidgets('Gallery-only action is hidden for a local-only asset', (tester) async {
         await tester.pumpTestWidget(
           context,
           const ActionButton(action: DeleteAction(source: .timeline)),
           overrides: context.selected({LocalAssetFactory.create()}),
         );
 
-        expect(find.text(StaticTranslations.instance.trash), findsOneWidget);
-        expect(find.text(StaticTranslations.instance.delete), findsNothing);
+        expect(find.byType(ImmichTextButton), findsNothing);
+        expect(find.text(StaticTranslations.instance.delete_from_gallery), findsNothing);
       });
     });
 
@@ -240,7 +330,7 @@ void main() {
         await StoreService.I.put(StoreKey.manageLocalMediaAndroid, true);
         final asset = LocalAssetFactory.create();
 
-        await pumpDelete(tester, {asset});
+        await pumpDelete(tester, {asset}, device: true);
         await tester.pump(const Duration(milliseconds: 300));
 
         expect(find.text(StaticTranslations.instance.move_to_device_trash), findsOneWidget);
@@ -257,12 +347,36 @@ void main() {
         await StoreService.I.put(StoreKey.manageLocalMediaAndroid, true);
         final asset = LocalAssetFactory.create();
 
-        await pumpDelete(tester, {asset});
+        await pumpDelete(tester, {asset}, device: true);
         await respondToDialog(tester, confirm: false);
 
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
         debugDefaultTargetPlatformOverride = null;
       });
+    });
+
+    testWidgets('Russian narrow-screen menu distinguishes all three deletion modes', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpTestWidget(
+        context,
+        const Column(
+          children: [
+            ActionButton(action: DeleteAction(source: .timeline)),
+            ActionButton(action: CleanupLocalAction(source: .timeline)),
+            ActionButton(action: DeleteEverywhereAction(source: .timeline)),
+          ],
+        ),
+        overrides: context.selected({owned(localId: 'phone')}),
+      );
+      await EasyLocalization.of(tester.element(find.byType(Column).first))!.setLocale(const Locale('ru'));
+      await tester.pumpAndSettle();
+      expect(find.text('Удалить из «Фото»'), findsOneWidget);
+      expect(find.text('Удалить с устройства'), findsOneWidget);
+      expect(find.text('Удалить везде'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('is hidden when nothing can be deleted', (tester) async {
@@ -277,7 +391,7 @@ void main() {
   });
 
   group('CleanupLocalAction', () {
-    testWidgets('deletes only backed up device copies', (tester) async {
+    testWidgets('device-only deletion handles both backed-up and local-only copies', (tester) async {
       final backedUp = LocalAssetFactory.create(remoteId: 'remote');
       final localOnly = LocalAssetFactory.create();
 
@@ -288,17 +402,33 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      verify(() => cleanupService.deleteLocalAssetsDetailed([backedUp.id])).called(1);
+      verify(() => cleanupService.deleteLocalAssetsDetailed([backedUp.id, localOnly.id])).called(1);
+      verifyNever(() => assetService.trash(any()));
+      verifyNever(() => assetService.deleteWithResults(any()));
     });
 
-    testWidgets('is hidden when no backed up assets are selected', (tester) async {
+    testWidgets('device-only permission denial never changes the cloud or clears selection', (tester) async {
+      final asset = owned(localId: 'kept-phone');
+      when(
+        () => cleanupService.deleteLocalAssetsDetailed(any()),
+      ).thenAnswer((_) async => const LocalDeletionResult(deletedIds: [], remainingIds: ['kept-phone']));
+      await pumpDelete(tester, {asset}, device: true);
+      await tester.pumpAndSettle();
+      verifyNever(() => assetService.trash(any()));
+      verifyNever(() => assetService.deleteWithResults(any()));
+      expect(find.textContaining('0 removed, 1 remain'), findsOneWidget);
+      final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+      expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+    });
+
+    testWidgets('local-only assets have a clearly labelled device action', (tester) async {
       await tester.pumpTestWidget(
         context,
-        const ActionIconButton(action: CleanupLocalAction(source: .timeline)),
+        const ActionButton(action: CleanupLocalAction(source: .timeline)),
         overrides: context.selected({LocalAssetFactory.create()}),
       );
 
-      expect(find.byType(ImmichIconButton), findsNothing);
+      expect(find.text(StaticTranslations.instance.delete_from_device), findsOneWidget);
     });
   });
 }

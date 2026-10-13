@@ -17,9 +17,7 @@ class ManagedDeletionDialog extends ConsumerStatefulWidget {
 }
 
 class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
-  final _proof = TextEditingController();
   ManagedDeletionStatus? _status;
-  bool _verified = false;
   bool _busy = false;
   String? _error;
   List<Map<String, dynamic>>? _libraries;
@@ -115,12 +113,6 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
   }
 
   @override
-  void dispose() {
-    _proof.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final status = _status;
     return AlertDialog(
@@ -161,8 +153,6 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
                             _libraryId = scope;
                             _status = null;
                             _error = null;
-                            _verified = false;
-                            _proof.clear();
                           });
                           unawaited(_load());
                         },
@@ -197,37 +187,6 @@ class _ManagedDeletionDialogState extends ConsumerState<ManagedDeletionDialog> {
                       : context.t.managed_deletion_enable,
                 ),
               ),
-              if (status.canPrepare) ...[
-                const Divider(),
-                Text(context.t.managed_deletion_recovery_help),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _proof,
-                  enabled: !_busy,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(labelText: context.t.managed_deletion_recovery_proof),
-                ),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _verified,
-                  onChanged: _busy ? null : (v) => setState(() => _verified = v ?? false),
-                  title: Text(context.t.managed_deletion_exclusive_roots),
-                ),
-                OutlinedButton(
-                  onPressed: _busy || !_verified || !RegExp(r'^[a-f0-9]{64}$').hasMatch(_proof.text.trim())
-                      ? null
-                      : () => _run(
-                          () => widget.external
-                              ? ref
-                                    .read(assetApiRepositoryProvider)
-                                    .prepareLibraryDeletion(_libraryId!, _proof.text.trim())
-                              : ref.read(assetApiRepositoryProvider).prepareManagedDeletion(_proof.text.trim()),
-                        ),
-                  child: Text(
-                    widget.external ? context.t.external_deletion_prepare : context.t.managed_deletion_prepare,
-                  ),
-                ),
-              ],
             ],
           ],
         ),

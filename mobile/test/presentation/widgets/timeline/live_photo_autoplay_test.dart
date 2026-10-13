@@ -131,6 +131,32 @@ void main() {
   });
 
   group('single live photo playback lease', () {
+    test('a new feed activation rearms the same asset once with a new lease revision', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('first')]);
+        clock.elapse(livePhotoSettlingDelay);
+        final previousRevision = controller.leaseRevision;
+        controller.started('first');
+        controller.complete('first');
+        controller.setEnabled(false);
+        controller.startFeedActivation();
+        clock.elapse(const Duration(seconds: 1));
+        expect(controller.activeToken, isNull, reason: 'reactivation cannot allocate while disabled');
+        controller.setEnabled(true);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'first');
+        expect(controller.leaseRevision, greaterThan(previousRevision));
+        controller.complete('first');
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull, reason: 'each activation retains the one-shot budget');
+        controller.dispose();
+        controller.startFeedActivation();
+        clock.elapse(const Duration(seconds: 1));
+        expect(clock.nonPeriodicTimerCount, 0);
+      });
+    });
+
     test('cold initialization interrupted by navigation retries without a viewer warmup', () {
       fakeAsync((clock) {
         final controller = _controller();

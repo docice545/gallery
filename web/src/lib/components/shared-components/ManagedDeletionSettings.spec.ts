@@ -58,21 +58,13 @@ describe('explicit external library owner consent', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'external_deletion_enable' }));
     expect(setLibraryDeletionConsent).not.toHaveBeenCalled();
   });
-  it('requires administrator preparation bound to that exact library', async () => {
-    vi.mocked(libraryDeletionStatus).mockResolvedValue({ enabled: false, prepared: false, canPrepare: true });
+  it('does not request administrator recovery proofs for writable owner configuration', async () => {
+    vi.mocked(libraryDeletionStatus).mockResolvedValue({ enabled: false, prepared: true, canPrepare: true });
     await openLibrary();
-    expect(screen.getByRole('button', { name: 'external_deletion_enable' })).toBeDisabled();
-    await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'b'.repeat(64) } });
-    await fireEvent.click(screen.getByRole('checkbox'));
-    await fireEvent.click(screen.getByRole('button', { name: 'external_deletion_prepare' }));
-    await waitFor(() =>
-      expect(prepareLibraryDeletion).toHaveBeenCalledWith({
-        id: scope,
-        prepareManagedDeletionDto: { recoveryProof: 'b'.repeat(64), verifiedExclusiveRoots: true },
-      }),
-    );
-    expect(prepareManagedDeletion).not.toHaveBeenCalled();
-    expect(setLibraryDeletionConsent).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'external_deletion_enable' })).toBeEnabled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(prepareLibraryDeletion).not.toHaveBeenCalled();
   });
   it('revokes even when evidence is expired without re-preparing or asking destructive confirmation', async () => {
     vi.mocked(libraryDeletionStatus).mockResolvedValue({ enabled: true, prepared: false, canPrepare: false });
@@ -124,7 +116,7 @@ describe('explicit owner managed consent', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
     expect(setManagedDeletionConsent).not.toHaveBeenCalled();
   });
-  it('cannot enable unprepared storage and explains the administrator prerequisite', async () => {
+  it('cannot enable storage whose roots failed validation', async () => {
     vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: false, canPrepare: false });
     await open();
     expect(screen.getByRole('button', { name: 'managed_deletion_enable' })).toBeDisabled();
@@ -143,23 +135,13 @@ describe('explicit owner managed consent', () => {
     );
     expect(modalManager.showDialog).not.toHaveBeenCalled();
   });
-  it('requires supplied evidence and explicit administrator attestation before preparation', async () => {
+  it('keeps legacy administrative proof entry out of ordinary owner settings', async () => {
     vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: false, canPrepare: true });
     await open();
-    const prepare = screen.getByRole('button', { name: 'managed_deletion_prepare' });
-    expect(prepare).toBeDisabled();
-    await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'a'.repeat(64) } });
-    expect(prepare).toBeDisabled();
-    await fireEvent.click(screen.getByRole('checkbox'));
-    await fireEvent.click(prepare);
-    await waitFor(() =>
-      expect(prepareManagedDeletion).toHaveBeenCalledWith({
-        prepareManagedDeletionDto: {
-          recoveryProof: 'a'.repeat(64),
-          verifiedExclusiveRoots: true,
-        },
-      }),
-    );
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'managed_deletion_prepare' })).not.toBeInTheDocument();
+    expect(prepareManagedDeletion).not.toHaveBeenCalled();
     expect(setManagedDeletionConsent).not.toHaveBeenCalled();
   });
   it('does not claim successful consent on a failed request', async () => {
@@ -197,6 +179,7 @@ describe('explicit owner managed consent', () => {
     expect(setManagedDeletionConsent).toHaveBeenCalledOnce();
   });
   it.each([
+    ['LIBRARY_STORAGE_READ_ONLY', 'storage_read_only_deletion'],
     ['DELETION_RECOVERY_UNAVAILABLE', 'managed_deletion_recovery_missing'],
     ['DELETION_RECOVERY_INVALID', 'managed_deletion_recovery_invalid'],
     ['DELETION_RECOVERY_EXPIRED', 'managed_deletion_recovery_expired'],
@@ -206,19 +189,16 @@ describe('explicit owner managed consent', () => {
     ['UNSUPPORTED_DELETION_FILESYSTEM', 'managed_deletion_roots_changed'],
     ['DELETION_QUARANTINE_CONFLICT', 'managed_deletion_roots_changed'],
   ])('shows localized guidance for %s without granting consent', async (code, key) => {
-    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: false, canPrepare: true });
-    vi.mocked(prepareManagedDeletion).mockRejectedValueOnce({
+    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: true, canPrepare: false });
+    vi.mocked(setManagedDeletionConsent).mockRejectedValueOnce({
       __http: true,
       data: JSON.stringify({ message: code, error: 'Conflict', statusCode: 409 }),
     });
     await open();
-    expect(screen.getByText('managed_deletion_recovery_help')).toBeInTheDocument();
-    await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'a'.repeat(64) } });
-    await fireEvent.click(screen.getByRole('checkbox'));
-    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_prepare' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(key));
     expect(screen.getByRole('alert')).not.toHaveTextContent(code);
-    expect(screen.getByRole('button', { name: 'managed_deletion_enable' })).toBeDisabled();
-    expect(setManagedDeletionConsent).not.toHaveBeenCalled();
+    expect(screen.queryByText('managed_deletion_enabled')).not.toBeInTheDocument();
+    expect(setManagedDeletionConsent).toHaveBeenCalledOnce();
   });
 });

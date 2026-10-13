@@ -85,6 +85,7 @@ enum ActionButtonType {
   removeFromAlbum,
   restoreTrash,
   deleteLocal,
+  deleteEverywhere,
   delete,
   advancedInfo;
 
@@ -125,7 +126,13 @@ enum ActionButtonType {
             context.asset.hasRemote,
       ActionButtonType.deleteLocal =>
         !context.isInLockedView && //
-            context.asset.isMerged,
+            context.asset.hasLocal &&
+            (context.asset is LocalAsset || context.isOwner),
+      ActionButtonType.deleteEverywhere =>
+        (context.isOwner || context.asset is LocalAsset) &&
+            !context.isInLockedView &&
+            context.asset.isMerged &&
+            context.timelineOrigin != TimelineOrigin.trash,
       ActionButtonType.upload =>
         !context.isInLockedView && //
             context.asset.storage == AssetState.local,
@@ -193,6 +200,7 @@ enum ActionButtonType {
       ActionButtonType.moveToLockFolder ||
       ActionButtonType.removeFromLockFolder => ActionMenuItem(action: LockAction(source: context.source)),
       ActionButtonType.deleteLocal => ActionMenuItem(action: CleanupLocalAction(source: context.source)),
+      ActionButtonType.deleteEverywhere => ActionMenuItem(action: DeleteEverywhereAction(source: context.source)),
       ActionButtonType.upload => ActionMenuItem(
         action: UploadAction(source: context.source, showProgress: context.source == ActionSource.viewer),
       ),
@@ -255,6 +263,7 @@ enum ActionButtonType {
     ActionButtonType.unarchive => 10,
     ActionButtonType.moveToLockFolder => 10,
     ActionButtonType.deleteLocal => 10,
+    ActionButtonType.deleteEverywhere => 10,
     ActionButtonType.delete => 10,
     ActionButtonType.restoreTrash => 10,
     // 90: advancedInfo

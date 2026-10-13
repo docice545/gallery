@@ -42,6 +42,8 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
   RouteData? _routeData;
   ModalRoute<dynamic>? _modalRoute;
   bool _foreground = true;
+  bool _feedActive = false;
+  bool _filterCoveredFeed = false;
   bool _scrolling = false;
   final Set<int> _pointers = {};
   bool _refreshScheduled = false;
@@ -103,8 +105,23 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
     }
     final active =
         (_modalRoute?.isCurrent ?? true) && (_routeData?.isActive ?? true) && TickerMode.valuesOf(context).enabled;
-    controller.setEnabled(_settingEnabled && !_selecting && !_filterSheetVisible && _foreground && active);
+    _setFeedEnabled(active);
     refresh();
+  }
+
+  void _setFeedEnabled(bool routeActive) {
+    final active = _foreground && routeActive;
+    if (!active && _filterSheetVisible) {
+      _filterCoveredFeed = true;
+    }
+    if (active && !_feedActive) {
+      if (!_selecting && !_filterSheetVisible && !_filterCoveredFeed) {
+        controller.startFeedActivation();
+      }
+      _filterCoveredFeed = false;
+    }
+    _feedActive = active;
+    controller.setEnabled(_settingEnabled && !_selecting && !_filterSheetVisible && active);
   }
 
   @override
@@ -155,7 +172,7 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
         'enabled=$enabled setting=$_settingEnabled selecting=$_selecting '
             'filter=$_filterSheetVisible foreground=$_foreground route=$active scrolling=$_scrolling',
       );
-      controller.setEnabled(enabled);
+      _setFeedEnabled(active);
       // There is no active player while scrolling/touching. Defer geometry work
       // until settling so it does not compete with rendering the scroll frames.
       if (enabled && !_scrolling && _pointers.isEmpty) {
@@ -399,9 +416,30 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
     if (scope == null || scope.controller.activeToken != _token) {
       return const SizedBox.expand();
     }
-    void onCompleted() => scope.controller.complete(_token);
-    void onStarted() => scope.controller.started(_token);
-    void onFailed() => scope.controller.failed(_token);
+    final leaseRevision = scope.controller.leaseRevision;
+    bool isCurrentLease() =>
+        mounted &&
+        _scope == scope &&
+        scope.controller.activeToken == _token &&
+        scope.controller.leaseRevision == leaseRevision;
+    void onCompleted() {
+      if (isCurrentLease()) {
+        scope.controller.complete(_token);
+      }
+    }
+
+    void onStarted() {
+      if (isCurrentLease()) {
+        scope.controller.started(_token);
+      }
+    }
+
+    void onFailed() {
+      if (isCurrentLease()) {
+        scope.controller.failed(_token);
+      }
+    }
+
     if (widget.requireMatchingFraming && widget.framingImageSize == null) {
       // Edited/unknown still geometry cannot be registered to the motion frame.
       // Consume only this viewport's reservation; never try the next live photo.
@@ -458,7 +496,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                               imageSize: widget.framingImageSize,
                               faces: widget.faces,
                             ).requiredSize,
-                      previewIsActive: () => scope.controller.activeToken == _token,
+                      previewIsActive: isCurrentLease,
                       onPreviewCompleted: onCompleted,
                       onPreviewStarted: onStarted,
                       onPreviewFailed: onFailed,

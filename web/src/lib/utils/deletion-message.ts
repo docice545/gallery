@@ -3,6 +3,9 @@ import { getServerErrorMessage } from '$lib/utils/handle-error';
 
 const managedDeletionErrorKey = (code?: string) => {
   switch (code) {
+    case 'LIBRARY_STORAGE_READ_ONLY': {
+      return 'storage_read_only_deletion';
+    }
     case 'DELETION_RECOVERY_UNAVAILABLE': {
       return 'managed_deletion_recovery_missing';
     }

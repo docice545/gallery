@@ -58,9 +58,12 @@ class TrashPage extends StatelessWidget {
               padding: const EdgeInsets.all(16.0),
               sliver: SliverToBoxAdapter(
                 child: Text(
-                  ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion))
-                      ? context.t.trash_manual_retention_info
-                      : context.t.trash_page_info(days: trashDays),
+                  ref.watch(serverInfoProvider.select((v) => v.serverFeatures.trash)) &&
+                          trashDays > 0 &&
+                          (!ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion)) ||
+                              ref.watch(serverInfoProvider.select((v) => v.serverFeatures.ownerStorageDeletion)))
+                      ? context.t.trash_retention_scope_info(days: trashDays)
+                      : context.t.trash_manual_retention_info,
                 ),
               ),
             );
