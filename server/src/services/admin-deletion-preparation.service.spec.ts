@@ -57,6 +57,7 @@ describe.each(['managed', 'external'] as const)('administrator %s preparation fo
     mocks.asset.getDeletionRootsForOtherOwners.mockResolvedValue({ external: [], users: [] });
     vi.spyOn(StorageCore, 'getFolderLocation').mockReturnValue(path);
     vi.spyOn(StorageCore, 'getLibraryFolder').mockReturnValue(path);
+    vi.spyOn(deletion, 'assertWritableDeletionRoots').mockResolvedValue();
     vi.spyOn(recovery, 'verifyRecoveryEvidence').mockResolvedValue({
       digest: proof,
       expiresAt: expiresAt.toISOString(),
@@ -118,6 +119,7 @@ describe.each(['managed', 'external'] as const)('administrator %s preparation fo
       mocks.asset.getDeletionPolicy.mockResolvedValue({
         ownerId,
         scope,
+        authorizationMode: 'recovery',
         enabled: true,
         roots: [path],
         rootIdentities: identities,
@@ -158,15 +160,15 @@ describe.each(['managed', 'external'] as const)('administrator %s preparation fo
       expect(mocks.asset.updateLibraryDeletionConsent).not.toHaveBeenCalled();
     } else {
       await sut.setManagedDeletionConsent(authStub.admin, true);
-      expect(mocks.asset.updateManagedDeletionConsent).toHaveBeenCalledWith(
+      expect(mocks.asset.setDeletionPolicy).toHaveBeenLastCalledWith(
         authStub.admin.user.id,
-        true,
-        expect.any(Function),
+        'managed',
+        expect.objectContaining({ authorizationMode: 'storage', enabled: true, authorizedBy: authStub.admin.user.id }),
       );
-      expect(mocks.asset.updateManagedDeletionConsent).not.toHaveBeenCalledWith(
+      expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalledWith(
         ownerId,
-        expect.anything(),
-        expect.anything(),
+        'managed',
+        expect.objectContaining({ enabled: true }),
       );
     }
   });

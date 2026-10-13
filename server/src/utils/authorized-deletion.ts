@@ -9,7 +9,7 @@ import type {
 } from 'src/schema/tables/asset-deletion.table.js';
 
 // Release preflight loads this from the actual compiled image, alongside its migration inventory.
-export const AUTHORIZED_DELETION_CAPABILITY = 'bound-root-quarantine-signed-recovery-v1';
+export const AUTHORIZED_DELETION_CAPABILITY = 'bound-root-quarantine-owner-storage-v2';
 
 export class DeletionError extends Error {
   constructor(public readonly code: string) {
@@ -91,6 +91,69 @@ export const sameRootIdentity = (a: DeletionRootIdentity, b: DeletionRootIdentit
       'mountTarget',
     ] as const
   ).every((key) => a[key] === b[key]);
+
+// Mount IDs/namespaces describe a container instance, not persisted storage.
+// Rebind those ephemeral values only when every physical coordinate still agrees.
+export const samePhysicalRootIdentity = (a: DeletionRootIdentity, b: DeletionRootIdentity) =>
+  (['path', 'device', 'inode', 'mountType', 'mountSource', 'mountRoot', 'mountTarget'] as const).every(
+    (key) => a[key] === b[key],
+  );
+
+export async function assertWritableDeletionRoots(roots: DeletionRootIdentity[]): Promise<void> {
+  const mountInfo = await fs.readFile('/proc/self/mountinfo', 'utf8');
+  for (const root of roots) {
+    const line = mountInfo.split('\n').find((entry) => entry.startsWith(root.mountId + ' '));
+    const [mount, filesystem] = line?.split(' - ', 2) ?? [];
+    if (
+      !mount ||
+      !filesystem ||
+      mount.split(' ', 6)[5].split(',').includes('ro') ||
+      filesystem.split(' ', 3)[2].split(',').includes('ro')
+    )
+      throw new DeletionError('LIBRARY_STORAGE_READ_ONLY');
+    try {
+      await fs.access(root.path, constants.W_OK);
+    } catch {
+      throw new DeletionError('LIBRARY_STORAGE_READ_ONLY');
+    }
+  }
+}
+
+export async function refreshStorageRootIdentities(bound: DeletionRootIdentity[]): Promise<DeletionRootIdentity[]> {
+  const current = await collectRootIdentities(bound.map((root) => root.path));
+  const result: DeletionRootIdentity[] = [];
+  for (const root of current) {
+    const previous = bound.find((stored) => samePhysicalRootIdentity(root, stored));
+    if (!previous) throw new DeletionError('DELETION_ROOT_CHANGED');
+    if (!previous.quarantineIdentity) {
+      result.push(root);
+      continue;
+    }
+    const directory = await openRoot(root);
+    try {
+      const handle = await fs.open(
+        anchored(directory.fd, quarantine),
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      );
+      try {
+        const stat = await handle.stat({ bigint: true });
+        const actual = await quarantineIdentity(handle, root);
+        const expected = previous.quarantineIdentity;
+        if (
+          (stat.mode & 0o7777n) !== 0o700n ||
+          (['device', 'inode', 'uid', 'gid'] as const).some((key) => actual[key] !== expected[key])
+        )
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        result.push({ ...root, quarantineIdentity: actual });
+      } finally {
+        await handle.close();
+      }
+    } finally {
+      await directory.close();
+    }
+  }
+  return result;
+}
 
 export async function collectRootIdentities(roots: string[]): Promise<DeletionRootIdentity[]> {
   if (roots.length === 0 || roots.length > 128 || new Set(roots).size !== roots.length)

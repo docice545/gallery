@@ -19,7 +19,7 @@
 import { Kysely, expressionBuilder } from 'kysely';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { TimeBucketDto } from 'src/dtos/time-bucket.dto.js';
-import { AssetVisibility, SharedSpaceRole, TimeBucketSize } from 'src/enum.js';
+import { AssetStatus, AssetVisibility, SharedSpaceRole, TimeBucketSize } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AssetRepository, withTimeBucketAssetFilters } from 'src/repositories/asset.repository.js';
 import { ConfigRepository } from 'src/repositories/config.repository.js';
@@ -118,7 +118,11 @@ const hiddenThenFiltered = async (
   await ctx.newAlbumAsset({ albumId: album.id, assetId: asset.id });
   await spaceRepo.hideAlbumForUser(space.id, album.id, user.id);
   if (opts.trashed) {
-    await defaultDatabase.updateTable('asset').set({ deletedAt: new Date() }).where('id', '=', asset.id).execute();
+    await defaultDatabase
+      .updateTable('asset')
+      .set({ status: AssetStatus.Trashed, deletedAt: new Date() })
+      .where('id', '=', asset.id)
+      .execute();
   }
 
   return { user, auth: factory.auth({ user }), asset, space, album };

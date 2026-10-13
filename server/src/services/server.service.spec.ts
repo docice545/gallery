@@ -154,6 +154,7 @@ describe(ServerService.name, () => {
         configFile: false,
         trash: true,
         authorizedDeletion: true,
+        ownerStorageDeletion: true,
         email: false,
         realtimeTranscoding: false,
         peopleStatistics: false,

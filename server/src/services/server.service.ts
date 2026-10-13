@@ -137,6 +137,7 @@ export class ServerService extends BaseService {
       search: true,
       trash: trash.enabled,
       authorizedDeletion: true,
+      ownerStorageDeletion: true,
       oauth: oauth.enabled,
       oauthAutoLaunch: oauth.autoLaunch,
       ocr: isOcrEnabled(machineLearning),

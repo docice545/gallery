@@ -53,6 +53,14 @@ afterEach(async () => {
 const fixture = async (external = false) => {
   const { ctx } = newMediumService(AssetService, { database: db, real: [AssetRepository], mock: [LoggingRepository] });
   const { user } = await ctx.newUser();
+  const actualFolder = StorageCore.getFolderLocation;
+  const actualLibrary = StorageCore.getLibraryFolder;
+  vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
+    owner === user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
+  );
+  vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
+    owner.id === user.id ? root : actualLibrary(owner),
+  );
   const libraryFixture = external ? await ctx.newLibrary({ ownerId: user.id }) : undefined;
   const library = libraryFixture?.library;
   if (library) await new LibraryRepository(db).update(library.id, { importPaths: [root] });
@@ -98,7 +106,7 @@ const service = (f: Awaited<ReturnType<typeof fixture>>) => {
   test.mocks.job.queue.mockResolvedValue();
   test.mocks.user.get.mockImplementation((id, options) => new UserRepository(db).get(id, options));
   const libraries = new LibraryRepository(db);
-  test.mocks.library.get.mockImplementation((id) => libraries.get(id));
+  test.mocks.library.get.mockImplementation((id, includeDeleted) => libraries.get(id, includeDeleted));
   test.mocks.library.getAll.mockImplementation(() => libraries.getAll());
   return { storage, ...test };
 };
@@ -118,14 +126,6 @@ const externalConsent = async (f: Awaited<ReturnType<typeof fixture>>) => {
 describe.each([false, true])('administrator preparation and owner consent (external=%s)', (external) => {
   const admin: AuthDto = { ...authStub.admin, user: { ...authStub.admin.user, id: randomUUID() } };
   const preparationService = (f: Awaited<ReturnType<typeof fixture>>) => {
-    const actualFolder = StorageCore.getFolderLocation;
-    const actualLibrary = StorageCore.getLibraryFolder;
-    vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
-      owner === f.user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
-    );
-    vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((user) =>
-      user.id === f.user.id ? root : actualLibrary(user),
-    );
     const test = service(f);
     return {
       ...test,
@@ -630,7 +630,13 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       expect(process.getuid?.()).toBe(0);
       expect(process.getgid?.()).toBe(0);
       const committedPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
-      expect(committedPolicy?.updatedAt).toEqual(preparedPolicy!.updatedAt);
+      if (external) expect(committedPolicy?.updatedAt).toEqual(preparedPolicy!.updatedAt);
+      else {
+        // Ordinary managed deletion upgrades enabled legacy preparation once;
+        // quarantine registration itself never edits the consent revision.
+        expect(committedPolicy?.authorizationMode).toBe('storage');
+        expect(committedPolicy?.updatedAt.getTime()).toBeGreaterThanOrEqual(preparedPolicy!.updatedAt.getTime());
+      }
       for (const asset of [f.asset, video]) {
         await expect(readFile(asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
         expect(await f.repo.getDeletionReceipt(f.user.id, asset.id)).toMatchObject({ state: 'complete' });
@@ -825,7 +831,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     expect(await fs.readdir(quarantine)).toEqual([]);
   });
 
-  it.each(['uid', 'gid', 'mountId'] as const)(
+  it.each(['uid', 'gid', 'mountId', 'mountNamespace'] as const)(
     'a changed receipt quarantine %s cannot override its policy',
     async (key) => {
       const f = await fixture(true);
@@ -857,6 +863,35 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
     },
   );
+
+  it('refreshes a consistent old-container receipt namespace only after physical storage and quarantine match', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await expect(
+      f.repo.removeAuthorizedOriginals(f.asset.id, () => Promise.reject(new Error('synthetic before capture'))),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', f.asset.id)
+      .executeTakeFirstOrThrow();
+    for (const file of receipt.files) {
+      file.rootIdentity.mountId = 'old-container-id';
+      file.rootIdentity.mountNamespace = 'mnt:[old-container]';
+      file.rootIdentity.quarantineIdentity!.mountId = 'old-container-id';
+      file.rootIdentity.quarantineIdentity!.mountNamespace = 'mnt:[old-container]';
+    }
+    await db
+      .updateTable('asset_deletion_tombstone')
+      .set({ files: receipt.files })
+      .where('assetId', '=', f.asset.id)
+      .execute();
+    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
+    await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
+  });
 
   it('cannot initialize or adopt quarantine for a legacy receipt missing the original root proof', async () => {
     const f = await fixture(true);
@@ -1270,6 +1305,7 @@ describe('managed owner consent and offline index compatibility', () => {
     const f = await fixture();
     await authorize(f);
     const { library } = await f.ctx.newLibrary({ ownerId: f.user.id });
+    await new LibraryRepository(db).update(library.id, { importPaths: [root] });
     const externalPath = join(root, 'expired-external.mp4');
     await writeFile(externalPath, 'external must survive');
     const { asset: external } = await f.ctx.newAsset({

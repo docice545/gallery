@@ -20,6 +20,7 @@ import { isEmpty, isUndefined, omitBy } from 'lodash-es';
 import { InjectKysely } from 'nestjs-kysely';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
+import { StorageCore } from 'src/cores/storage.core.js';
 import { type LockableProperty, Stack, lockableProperties } from 'src/database.js';
 import { Chunked, ChunkedArray, DummyValue, GenerateSql } from 'src/decorators.js';
 import {
@@ -30,6 +31,7 @@ import {
   AssetType,
   AssetVisibility,
   CalendarHeatmapType,
+  StorageFolder,
   TimeBucketSize,
 } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
@@ -44,6 +46,8 @@ import {
   bindQuarantine,
   collectRootIdentities,
   deletionCode,
+  refreshStorageRootIdentities,
+  samePhysicalRootIdentity,
   sameQuarantineIdentity,
   sameRootIdentity,
 } from 'src/utils/authorized-deletion.js';
@@ -1668,6 +1672,16 @@ export class AssetRepository {
       if (receipt && receipt.state !== 'files-removed') {
         return false;
       }
+      if (receipt?.operationId === asset.id) {
+        const companion = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('assetId')
+          .where('operationId', '=', asset.id)
+          .where('assetId', '!=', asset.id)
+          .where('state', '!=', 'complete')
+          .executeTakeFirst();
+        if (companion) return false;
+      }
       const removed = await tx
         .deleteFrom('asset')
         .where('id', '=', asUuid(asset.id))
@@ -1717,14 +1731,18 @@ export class AssetRepository {
       .execute();
   }
 
-  async getDeletionScope(ownerId: string, id: string): Promise<string | undefined> {
+  async getDeletionScope(ownerId: string, id: string, allowActive = false): Promise<string | undefined> {
     const asset = await this.db
       .selectFrom('asset')
-      .select(['libraryId', 'status'])
+      .select(['libraryId', 'status', 'deletedAt', 'isOffline'])
       .where('ownerId', '=', ownerId)
       .where('id', '=', id)
       .executeTakeFirst();
-    if (asset?.status === AssetStatus.Trashed) return asset.libraryId ?? 'managed';
+    if (
+      asset?.status === AssetStatus.Trashed ||
+      (allowActive && asset?.status === AssetStatus.Active && !asset.deletedAt && !asset.isOffline)
+    )
+      return asset!.libraryId ?? 'managed';
     const receipt = await this.db
       .selectFrom('asset_deletion_tombstone')
       .select('scope')
@@ -1752,7 +1770,8 @@ export class AssetRepository {
       recoveryProof: string;
       authorizedBy: string;
       rootIdentities?: DeletionRootIdentity[];
-      recoveryExpiresAt?: Date;
+      recoveryExpiresAt?: Date | null;
+      authorizationMode?: 'recovery' | 'storage';
     },
   ) {
     await this.db.transaction().execute(async (tx) => {
@@ -1763,18 +1782,78 @@ export class AssetRepository {
         .where('scope', '=', scope)
         .forUpdate()
         .executeTakeFirst();
+      if (previous && !values.enabled && values.authorizationMode === 'storage') {
+        // Owner revocation must remain possible after a library/root changes.
+        // Only disable the existing grant; never replace its trusted coordinates
+        // with caller values or require available storage to withdraw consent.
+        await tx
+          .updateTable('asset_deletion_policy')
+          .set({ enabled: false, updatedAt: new Date() })
+          .where('ownerId', '=', ownerId)
+          .where('scope', '=', scope)
+          .execute();
+        return;
+      }
       const identities = values.rootIdentities?.map((root) => {
-        const stored = previous?.rootIdentities.find((bound) => sameRootIdentity(root, bound));
+        const stored = previous?.rootIdentities.find((bound) =>
+          values.authorizationMode === 'storage'
+            ? samePhysicalRootIdentity(root, bound)
+            : sameRootIdentity(root, bound),
+        );
         const { quarantineIdentity: _untrusted, ...identity } = root;
         return stored?.quarantineIdentity ? { ...identity, quarantineIdentity: stored.quarantineIdentity } : identity;
       });
-      const prepared = { ...values, ...(identities && { rootIdentities: identities }) };
+      const prepared = {
+        authorizationMode: 'recovery' as const,
+        ...values,
+        ...(identities && { rootIdentities: identities }),
+      };
+      await this.verifyLibraryScope(tx, ownerId, scope, prepared.roots);
       await tx
         .insertInto('asset_deletion_policy')
         .values({ ownerId, scope, ...prepared })
         .onConflict((oc) => oc.columns(['ownerId', 'scope']).doUpdateSet({ ...prepared, updatedAt: new Date() }))
         .execute();
     });
+  }
+
+  async createManagedStorageDeletionPolicy(ownerId: string, roots: string[], rootIdentities: DeletionRootIdentity[]) {
+    // A default managed grant never overwrites an explicit owner revocation.
+    await this.db
+      .insertInto('asset_deletion_policy')
+      .values({
+        ownerId,
+        scope: 'managed',
+        authorizationMode: 'storage',
+        enabled: true,
+        roots,
+        rootIdentities,
+        recoveryProof: '',
+        recoveryExpiresAt: null,
+        authorizedBy: ownerId,
+      })
+      .onConflict((conflict) => conflict.columns(['ownerId', 'scope']).doNothing())
+      .execute();
+    return this.getDeletionPolicy(ownerId, 'managed');
+  }
+
+  streamExpiredTrash(cutoff: Date) {
+    // Offline external index tombstones are never user Trash/retention input.
+    return this.db
+      .selectFrom('asset')
+      .select(['id', 'ownerId', 'libraryId'])
+      .where('status', '=', AssetStatus.Trashed)
+      .where('deletedAt', '<=', cutoff)
+      .stream();
+  }
+
+  streamPendingDeletions() {
+    return this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select(['assetId', 'operationId', 'ownerId', 'scope'])
+      .where('state', '!=', 'complete')
+      .orderBy('assetId')
+      .stream();
   }
 
   async updateManagedDeletionConsent(
@@ -1858,6 +1937,8 @@ export class AssetRepository {
     id: string,
     ownerId: string,
     snapshot: (path: string, roots: DeletionRootIdentity[]) => Promise<DeletionFile>,
+    trashedBefore?: Date,
+    allowActive = false,
   ) {
     // Commit intent before hashing large video. A timeout/restart can then query the actual server receipt.
     await this.db.transaction().execute(async (tx) => {
@@ -1888,7 +1969,12 @@ export class AssetRepository {
         .where('ownerId', '=', ownerId)
         .forUpdate()
         .executeTakeFirst();
-      if (!asset || asset.status !== AssetStatus.Trashed) {
+      if (
+        !asset ||
+        (asset.status !== AssetStatus.Trashed &&
+          (!(allowActive && asset.status === AssetStatus.Active) || asset.deletedAt || asset.isOffline)) ||
+        (trashedBefore && (!asset.deletedAt || new Date(asset.deletedAt).getTime() > trashedBefore.getTime()))
+      ) {
         throw new DeletionError('ASSET_NOT_IN_TRASH');
       }
       const scope = asset.libraryId ?? 'managed';
@@ -1955,6 +2041,7 @@ export class AssetRepository {
             contentChecksum: Buffer.alloc(0),
             aliases: aliases.map(({ checksum }) => checksum.toString('hex')),
             authorization: {
+              mode: policy.authorizationMode,
               actor: policy.authorizedBy,
               recoveryProof: policy.recoveryProof,
               policyUpdatedAt: new Date(policy.updatedAt).toISOString(),
@@ -1967,7 +2054,7 @@ export class AssetRepository {
       }
       await tx
         .updateTable('asset')
-        .set({ status: AssetStatus.Deleted })
+        .set({ status: AssetStatus.Deleted, deletedAt: asset.deletedAt ?? new Date() })
         .where(
           'id',
           'in',
@@ -2178,10 +2265,24 @@ export class AssetRepository {
       const roots = [...policy!.rootIdentities];
       const files: DeletionFile[] = [];
       for (const file of receipt.files) {
-        const index = roots.findIndex((root) => sameRootIdentity(file.rootIdentity, root));
+        const index = roots.findIndex((root) =>
+          policy!.authorizationMode === 'storage'
+            ? samePhysicalRootIdentity(file.rootIdentity, root)
+            : sameRootIdentity(file.rootIdentity, root),
+        );
         if (index === -1) throw new DeletionError('DELETION_ROOT_CHANGED');
         const recorded = file.rootIdentity.quarantineIdentity;
-        if (recorded && !sameQuarantineIdentity(recorded, roots[index].quarantineIdentity))
+        if (
+          recorded &&
+          (recorded.mountId !== file.rootIdentity.mountId ||
+            recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
+            (policy!.authorizationMode === 'storage'
+              ? !roots[index].quarantineIdentity ||
+                (['device', 'inode', 'uid', 'gid'] as const).some(
+                  (key) => recorded[key] !== roots[index].quarantineIdentity![key],
+                )
+              : !sameQuarantineIdentity(recorded, roots[index].quarantineIdentity)))
+        )
           throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
         roots[index] = await bindQuarantine(roots[index]);
         files.push({ ...file, rootIdentity: roots[index] });
@@ -2204,6 +2305,13 @@ export class AssetRepository {
   ): Promise<void> {
     if (!policy?.enabled || (scope !== 'managed' && policy.authorizedBy !== ownerId))
       throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (policy.authorizationMode === 'storage') {
+      if (policy.authorizedBy !== ownerId || policy.rootIdentities.length === 0)
+        throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+      await this.verifyLibraryScope(tx, ownerId, scope, policy.roots);
+      policy.rootIdentities = await refreshStorageRootIdentities(policy.rootIdentities);
+      return;
+    }
     if (policy.rootIdentities.length === 0 || !policy.recoveryExpiresAt)
       throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
     if (new Date(policy.recoveryExpiresAt).getTime() <= Date.now())
@@ -2220,7 +2328,21 @@ export class AssetRepository {
   }
 
   private async verifyLibraryScope(tx: Transaction<DB>, ownerId: string, scope: string, roots: string[]) {
-    if (scope === 'managed') return;
+    if (scope === 'managed') {
+      const user = await tx
+        .selectFrom('user')
+        .select(['id', 'storageLabel'])
+        .where('id', '=', ownerId)
+        .forShare()
+        .executeTakeFirst();
+      if (!user) throw new DeletionError('ASSET_NOT_OWNED');
+      const allowed = new Set([
+        StorageCore.getFolderLocation(StorageFolder.Upload, ownerId),
+        StorageCore.getLibraryFolder(user),
+      ]);
+      if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+      return;
+    }
     // Hold the library identity/configuration through consent, intent and unlink.
     // A concurrent import-path edit or library removal must serialize with the
     // destructive transaction rather than invalidate an already checked scope.

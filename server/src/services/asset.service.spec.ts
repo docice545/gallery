@@ -1483,6 +1483,14 @@ describe(AssetService.name, () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('honors upstream disabled Trash by using owner-scoped permanent deletion', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
+      const delegated = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([{ id: 'asset1', state: 'complete' }]);
+      await sut.deleteAll(authStub.user1, { ids: ['asset1'] });
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1'], true);
+      expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
+    });
+
     it('should force delete a batch of assets', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
 
@@ -1491,7 +1499,7 @@ describe(AssetService.name, () => {
         { id: 'asset2', state: 'complete' },
       ]);
       await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true });
-      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2']);
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2'], true);
       expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
 
@@ -1550,13 +1558,45 @@ describe(AssetService.name, () => {
   });
 
   describe('handleAssetDeletionCheck', () => {
-    it.each([false, true])('never starts unapproved retention even when trash enabled=%s', async (enabled) => {
-      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled, days: 30 } });
-      mocks.assetJob.streamForDeletedJob.mockReturnValue(makeStream([AssetFactory.create()]));
-      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Skipped);
+    beforeEach(() => {
+      mocks.asset.streamPendingDeletions.mockReturnValue(makeStream([]));
+      mocks.asset.streamExpiredTrash.mockReturnValue(makeStream([]));
+    });
+    it('does not expire Trash when the upstream retention setting is disabled', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.streamExpiredTrash).not.toHaveBeenCalled();
       expect(mocks.assetJob.streamForDeletedJob).not.toHaveBeenCalled();
-      expect(mocks.job.queueAll).not.toHaveBeenCalled();
-      expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+    it('recovers only sealed pending original-deletion intents even with retention disabled', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
+      mocks.asset.streamPendingDeletions.mockReturnValue(
+        makeStream([{ assetId: 'pending', operationId: 'pending', ownerId: 'owner', scope: 'managed' }]),
+      );
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.job.queue).toHaveBeenCalledWith({
+        name: JobName.AssetDelete,
+        data: { id: 'pending', deletionId: 'pending', deleteOnDisk: true },
+      });
+      expect(mocks.asset.streamExpiredTrash).not.toHaveBeenCalled();
+    });
+    it('queries only expired user Trash instead of legacy deletedAt/offline index records', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: true, days: 30 } });
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.streamExpiredTrash).toHaveBeenCalledWith(expect.any(Date));
+      expect(mocks.assetJob.streamForDeletedJob).not.toHaveBeenCalled();
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+    });
+    it('preserves read-only external Trash without creating a deletion intent', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: true, days: 30 } });
+      mocks.asset.streamExpiredTrash.mockReturnValue(
+        makeStream([{ id: 'external', ownerId: 'owner', libraryId: 'readonly-library' }]),
+      );
+      mocks.asset.getDeletionPolicy.mockResolvedValue(undefined);
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
     });
   });
 
@@ -1566,6 +1606,32 @@ describe(AssetService.name, () => {
       mocks.asset.claimDeletion.mockResolvedValue(true);
       mocks.asset.removeForDeletion.mockResolvedValue(true);
       mocks.asset.removeAuthorizedOriginals.mockResolvedValue(true);
+      mocks.asset.getDeletionReceipt.mockImplementation((_owner, id) =>
+        Promise.resolve({ assetId: id, operationId: id, state: 'pending', errorCode: null }),
+      );
+    });
+
+    it('does not turn a legacy queue identifier into a new deletion intent', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.getDeletionReceipt.mockResolvedValue(undefined);
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Skipped,
+      );
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.removeAuthorizedOriginals).not.toHaveBeenCalled();
+    });
+
+    it('finishes only a sealed intent interrupted during file preparation before invoking original removal', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Success,
+      );
+      expect(mocks.asset.preparePermanentDeletion).toHaveBeenCalledWith(asset.id, asset.ownerId, expect.any(Function));
+      expect(mocks.asset.preparePermanentDeletion.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.asset.removeAuthorizedOriginals.mock.invocationCallOrder[0],
+      );
     });
 
     it.each(['active/restored', 'trashed', 'unclassified motion/library'])(

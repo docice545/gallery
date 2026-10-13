@@ -141,10 +141,13 @@ const ServerFeaturesSchema = z
     facialRecognition: z.boolean().describe('Whether facial recognition is enabled'),
     map: z.boolean().describe('Whether map feature is enabled'),
     trash: z.boolean().describe('Whether trash feature is enabled'),
-    authorizedDeletion: z
+    authorizedDeletion: z.boolean().optional().describe('Durable owner-scoped permanent deletion receipts'),
+    ownerStorageDeletion: z
       .boolean()
       .optional()
-      .describe('Durable, explicit per-library permanent deletion; automatic retention is disabled'),
+      .describe(
+        'Normal managed-owner deletion and persistent writable external-library mode; expiration follows trash settings',
+      ),
     reverseGeocoding: z.boolean().describe('Whether reverse geocoding is enabled'),
     importFaces: z.boolean().describe('Whether face import is enabled'),
     oauth: z.boolean().describe('Whether OAuth is enabled'),

@@ -49,12 +49,19 @@ export interface DeletionFile {
 }
 
 @Table('asset_deletion_policy')
+@Check({
+  name: 'asset_deletion_policy_authorization_mode',
+  expression: "\"authorizationMode\" IN ('recovery', 'storage')",
+})
 export class AssetDeletionPolicyTable {
   @ForeignKeyColumn(() => UserTable, { primary: true, onDelete: 'CASCADE', index: false })
   ownerId!: string;
 
   @PrimaryColumn({ type: 'text' })
   scope!: string;
+
+  @Column({ type: 'text', default: 'recovery' })
+  authorizationMode!: Generated<'recovery' | 'storage'>;
 
   @Column({ type: 'boolean', default: false })
   enabled!: Generated<boolean>;
@@ -118,7 +125,7 @@ export class AssetDeletionTombstoneTable {
   aliases!: string[];
 
   @Column({ type: 'jsonb' })
-  authorization!: { actor: string; recoveryProof: string; policyUpdatedAt: string };
+  authorization!: { actor: string; recoveryProof: string; policyUpdatedAt: string; mode?: 'recovery' | 'storage' };
 
   @Column({ type: 'jsonb' })
   files!: DeletionFile[];

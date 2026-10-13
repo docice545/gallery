@@ -5,6 +5,9 @@ import { AssetRepository } from 'src/repositories/asset.repository.js';
 export const newAssetRepositoryMock = (): Mocked<RepositoryInterface<AssetRepository>> => {
   return {
     getDeletionScope: vitest.fn(),
+    createManagedStorageDeletionPolicy: vitest.fn(),
+    streamExpiredTrash: vitest.fn(),
+    streamPendingDeletions: vitest.fn(),
     updateManagedDeletionConsent: vitest.fn(),
     updateLibraryDeletionConsent: vitest.fn(),
     getOwnerTrash: vitest.fn(),

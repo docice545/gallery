@@ -161,13 +161,31 @@ describe('Database Migration Scenarios', () => {
       const before = await repo.getMigrations();
       const lastMigration = before.at(-1)!.name;
 
-      expect(lastMigration).toBe('1793600000000-AddAuthorizedAssetDeletion');
-      await expect(repo.revertLastMigration()).rejects.toThrow('Deletion tombstones must survive rollback');
-      expect(await repo.getMigrations()).toEqual(before);
+      expect(lastMigration).toBe('1794050000000-OwnerStorageDeletion');
+      // The additive storage-mode migration has a non-destructive down path:
+      // disable new grants while retaining its column, identities and receipts.
+      await expect(repo.revertLastMigration()).resolves.toBe(lastMigration);
+      const afterStorageRevert = await repo.getMigrations();
+      expect(afterStorageRevert).toEqual(before.slice(0, -1));
+      await expect(repo.revertLastMigration()).rejects.toThrow(
+        'Keep bound deletion policies and durable receipts. Use forward-compatible rollback.',
+      );
+      expect(await repo.getMigrations()).toEqual(afterStorageRevert);
       const { rows } = await sql<{
         journal: string;
       }>`SELECT to_regclass('asset_deletion_tombstone') AS journal`.execute(db);
       expect(rows[0].journal).toBe('asset_deletion_tombstone');
+      const { rows: columns } = await sql<{ column_name: string }>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='asset_deletion_policy'
+        AND column_name IN ('authorizationMode', 'rootIdentities', 'recoveryExpiresAt')
+        ORDER BY column_name
+      `.execute(db);
+      expect(columns.map(({ column_name }) => column_name)).toEqual([
+        'authorizationMode',
+        'recoveryExpiresAt',
+        'rootIdentities',
+      ]);
     } finally {
       await db.destroy();
     }

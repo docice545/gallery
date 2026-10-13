@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { StorageCore } from 'src/cores/storage.core.js';
-import { AssetFileType, AssetStatus, AssetType, AssetVisibility, JobName, JobStatus } from 'src/enum.js';
+import { AssetFileType, AssetStatus, AssetType, AssetVisibility, JobName, JobStatus, StorageFolder } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AlbumRepository } from 'src/repositories/album.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
+import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { DuplicateRepository } from 'src/repositories/duplicate.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
 import { JobRepository } from 'src/repositories/job.repository.js';
@@ -18,6 +19,7 @@ import { PartnerRepository } from 'src/repositories/partner.repository.js';
 import { SharedSpaceRepository } from 'src/repositories/shared-space.repository.js';
 import { StackRepository } from 'src/repositories/stack.repository.js';
 import { StorageRepository } from 'src/repositories/storage.repository.js';
+import { SystemMetadataRepository } from 'src/repositories/system-metadata.repository.js';
 import { TrashRepository } from 'src/repositories/trash.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
@@ -59,6 +61,8 @@ const setup = () => {
       SharedSpaceRepository,
       StackRepository,
       UserRepository,
+      ConfigRepository,
+      SystemMetadataRepository,
     ],
     mock: [EventRepository, JobRepository, LoggingRepository, StorageRepository],
   });
@@ -363,6 +367,14 @@ describe('isolated original files, real repositories and real file deletion work
       try {
         const { sut, ctx } = setup();
         const { user } = await ctx.newUser();
+        const actualFolder = StorageCore.getFolderLocation;
+        const actualLibrary = StorageCore.getLibraryFolder;
+        vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
+          owner === user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
+        );
+        vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
+          owner.id === user.id ? root : actualLibrary(owner),
+        );
         const { library } = await ctx.newLibrary({ ownerId: user.id });
         await new LibraryRepository(database).update(library.id, { importPaths: [root] });
         const original = join(root, kind.includes('video') ? 'original.mp4' : 'original.jpg');
@@ -443,6 +455,7 @@ describe('isolated original files, real repositories and real file deletion work
         }
         expect(await readFile(untouched, 'utf8')).toBe('must survive every mode');
       } finally {
+        vi.restoreAllMocks();
         await evidence.cleanup();
         await rm(root, { recursive: true, force: true });
       }

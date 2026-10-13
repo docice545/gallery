@@ -46,6 +46,7 @@
 //
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 // Server root — vitest runs with cwd at server/ (matches face-identity-query-shape.spec.ts).
@@ -78,6 +79,21 @@ const deriveScopingFiles = (): string[] => {
 };
 
 const SCOPING_FILES = deriveScopingFiles();
+
+// Imports declare names, not access paths or visibility predicates. Blank the
+// complete syntax node (including multiline imports), retaining line numbers
+// and executable text after an import on the same line. Imported gate names
+// must also never falsely satisfy a nearby query's visibility requirement.
+const executableScanLines = (source: string): string[] => {
+  const file = ts.createSourceFile('scope-guard.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const ranges = file.statements
+    .filter((statement) => ts.isImportDeclaration(statement) || ts.isImportEqualsDeclaration(statement))
+    .map((statement) => [statement.getStart(file), statement.getEnd()] as const)
+    .reverse();
+  for (const [start, end] of ranges)
+    source = source.slice(0, start) + source.slice(start, end).replaceAll(/[^\r\n]/g, ' ') + source.slice(end);
+  return source.split('\n');
+};
 
 // ── shared helpers ─────────────────────────────────────────────────────────
 
@@ -202,7 +218,7 @@ const ALBUM_ALLOWLIST: Record<string, string> = {
 
 describe('space-album scope guard: every library scoping arm has album coverage', () => {
   it.each(SCOPING_FILES)('%s', (file) => {
-    const lines = readFileSync(join(SERVER_ROOT, file), 'utf8').split('\n');
+    const lines = executableScanLines(readFileSync(join(SERVER_ROOT, file), 'utf8'));
     const orphans: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
@@ -417,41 +433,54 @@ const VIS_ALLOWLIST: Record<string, string> = {
 
 const VIS_WINDOW = 50;
 
+const findVisibilityOrphans = (source: string, file: string) => {
+  const lines = executableScanLines(source);
+  const orphans: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || !SPACE_READ_MARKER.test(raw)) continue;
+    if (VIS_BENIGN_LINE.some((re) => re.test(trimmed))) continue;
+    const fn = enclosingFn(lines, i);
+    if (VIS_ALLOWLIST[key(file, fn)]) continue;
+    const lo = Math.max(0, i - VIS_WINDOW);
+    const hi = Math.min(lines.length, i + VIS_WINDOW + 1);
+    if (!lines.slice(lo, hi).some((line) => VIS_GATE_MARKER.test(line)))
+      orphans.push(`${file}:${i + 1} (in ${fn}): ${trimmed.slice(0, 90)}`);
+  }
+  return orphans;
+};
+
+describe('space visibility scanner import regressions', () => {
+  const imports = `import {
+    spaceAlbumAssetExists,
+    spaceVisibilityGate,
+  } from 'src/utils/shared-space-album-scope.js';\n`;
+  it('ignores a complete multiline import without declaring an asset read', () => {
+    expect(findVisibilityOrphans(imports, 'fixture.repository.ts')).toEqual([]);
+  });
+  it('still rejects an ungated real helper read even when a gate name is imported nearby', () => {
+    const read = `async read() {
+      return db.selectFrom('asset').where(eb => spaceAlbumAssetExists(eb, {}));
+    }`;
+    expect(findVisibilityOrphans(imports + read, 'fixture.repository.ts')).toHaveLength(1);
+  });
+  it('preserves a real ungated read on the same line as an import', () => {
+    const source = `import { spaceAlbumAssetExists } from 'scope'; spaceAlbumAssetExists(eb, {});`;
+    expect(findVisibilityOrphans(source, 'fixture.repository.ts')).toHaveLength(1);
+  });
+  it('accepts an actual visibility predicate and leaves executable calls in the scan', () => {
+    const read = `async read() {
+      return db.selectFrom('asset').where(eb => spaceAlbumAssetExists(eb, {})).where(spaceVisibilityGate(eb));
+    }`;
+    expect(findVisibilityOrphans(imports + read, 'fixture.repository.ts')).toEqual([]);
+    expect(executableScanLines(imports + read).join('\n')).toContain('spaceAlbumAssetExists(eb, {})');
+  });
+});
+
 describe('space-visibility gate guard: every space asset read has a visibility gate', () => {
   it.each(SCOPING_FILES)('%s', (file) => {
-    const lines = readFileSync(join(SERVER_ROOT, file), 'utf8').split('\n');
-    const orphans: string[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const raw = lines[i];
-      const trimmed = raw.trim();
-
-      if (trimmed.startsWith('//') || trimmed.startsWith('*')) {
-        continue;
-      }
-      if (!SPACE_READ_MARKER.test(raw)) {
-        continue;
-      }
-      // The helper/scope module and its import lines are definitions, not reads.
-      if (/^import\b/.test(trimmed) || /from 'src\/utils\/shared-space-album-scope'/.test(trimmed)) {
-        continue;
-      }
-      if (VIS_BENIGN_LINE.some((re) => re.test(trimmed))) {
-        continue;
-      }
-
-      const fn = enclosingFn(lines, i);
-      if (VIS_ALLOWLIST[key(file, fn)]) {
-        continue;
-      }
-
-      const lo = Math.max(0, i - VIS_WINDOW);
-      const hi = Math.min(lines.length, i + VIS_WINDOW + 1);
-      const covered = lines.slice(lo, hi).some((l) => VIS_GATE_MARKER.test(l));
-      if (!covered) {
-        orphans.push(`${file}:${i + 1} (in ${fn}): ${trimmed.slice(0, 90)}`);
-      }
-    }
+    const orphans = findVisibilityOrphans(readFileSync(join(SERVER_ROOT, file), 'utf8'), file);
 
     expect(
       orphans,

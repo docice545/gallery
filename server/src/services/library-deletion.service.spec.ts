@@ -39,6 +39,7 @@ const library = {
 const policy = {
   ownerId: library.ownerId,
   scope,
+  authorizationMode: 'recovery' as const,
   enabled: false,
   roots: [path],
   rootIdentities: identities,
@@ -58,6 +59,9 @@ describe('external library owner consent reuses the verified deletion lifecycle'
     mocks.asset.getDeletionRootsForOtherOwners.mockResolvedValue({ external: [], users: [] });
     mocks.storage.validateDeletionRoots.mockResolvedValue(identities);
     vi.spyOn(roots, 'collectRootIdentities').mockResolvedValue(identities);
+    vi.spyOn(roots, 'refreshStorageRootIdentities').mockResolvedValue(identities);
+    vi.spyOn(roots, 'assertWritableDeletionRoots').mockResolvedValue();
+    mocks.storage.checkFileExists.mockResolvedValue(true);
     vi.spyOn(recovery, 'verifyRecoveryEvidence').mockResolvedValue({
       digest: proof,
       expiresAt: expiresAt.toISOString(),
@@ -135,50 +139,48 @@ describe('external library owner consent reuses the verified deletion lifecycle'
     mocks.asset.getDeletionPolicy.mockResolvedValue({ ...policy, enabled: true });
     expect(await sut.libraryDeletionStatus(authStub.user1, scope)).toMatchObject({ enabled: false });
   });
-  it('does not advertise preparation with an expired persisted policy', async () => {
+  it('ordinary storage configuration does not depend on an expired legacy recovery receipt', async () => {
     mocks.asset.getDeletionPolicy.mockResolvedValue({ ...policy, recoveryExpiresAt: new Date(0) });
-    expect(await sut.libraryDeletionStatus(authStub.user1, scope)).toMatchObject({ prepared: false });
+    expect(await sut.libraryDeletionStatus(authStub.user1, scope)).toMatchObject({ prepared: true, enabled: false });
     expect(recovery.verifyRecoveryEvidence).not.toHaveBeenCalled();
   });
-  it('owner consent revalidates the exact library scope and never changes managed authorization', async () => {
-    mocks.asset.updateLibraryDeletionConsent.mockImplementation(async (_owner, _scope, enabled, validate) => {
-      if (enabled) await validate([path], proof, identities);
-    });
+  it('owner explicitly configures the exact external import root writable without managed authorization', async () => {
     await sut.setLibraryDeletionConsent(authStub.user1, scope, true);
-    expect(mocks.asset.updateLibraryDeletionConsent).toHaveBeenCalledWith(
+    expect(mocks.asset.setDeletionPolicy).toHaveBeenCalledWith(
       library.ownerId,
       scope,
-      true,
-      expect.any(Function),
+      expect.objectContaining({
+        enabled: true,
+        authorizationMode: 'storage',
+        roots: [path],
+        rootIdentities: identities,
+        recoveryProof: '',
+        authorizedBy: library.ownerId,
+      }),
     );
-    expect(recovery.verifyRecoveryEvidence).toHaveBeenCalledWith(proof, library.ownerId, scope, identities);
+    expect(recovery.verifyRecoveryEvidence).not.toHaveBeenCalled();
     expect(mocks.asset.updateManagedDeletionConsent).not.toHaveBeenCalled();
+  });
+  it('never enables paths missing from the configured external import roots', async () => {
+    mocks.storage.checkFileExists.mockResolvedValue(false);
+    await expect(sut.setLibraryDeletionConsent(authStub.user1, scope, true)).rejects.toThrow('DELETION_ROOT_CHANGED');
     expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalled();
   });
-  it('never accepts roots outside current library importPaths', async () => {
-    mocks.asset.updateLibraryDeletionConsent.mockImplementation(async (_owner, _scope, _enabled, validate) =>
-      validate(['/unapproved'], proof, identities),
+  it('rejects a read-only external mount without changing filesystem permissions', async () => {
+    vi.mocked(roots.assertWritableDeletionRoots).mockRejectedValue(
+      new roots.DeletionError('LIBRARY_STORAGE_READ_ONLY'),
     );
     await expect(sut.setLibraryDeletionConsent(authStub.user1, scope, true)).rejects.toThrow(
-      'Root is not an existing owner library root',
+      'LIBRARY_STORAGE_READ_ONLY',
     );
-  });
-  it('rejects expired signed evidence before consent can commit', async () => {
-    vi.mocked(recovery.verifyRecoveryEvidence).mockRejectedValue(new roots.DeletionError('DELETION_RECOVERY_EXPIRED'));
-    mocks.asset.updateLibraryDeletionConsent.mockImplementation(async (_owner, _scope, _enabled, validate) =>
-      validate([path], proof, identities),
-    );
-    await expect(sut.setLibraryDeletionConsent(authStub.user1, scope, true)).rejects.toThrow(
-      'DELETION_RECOVERY_EXPIRED',
-    );
+    expect(mocks.asset.setDeletionPolicy).not.toHaveBeenCalled();
   });
   it('revocation requires no recovery verification or filesystem availability', async () => {
     await sut.setLibraryDeletionConsent(authStub.user1, scope, false);
-    expect(mocks.asset.updateLibraryDeletionConsent).toHaveBeenCalledWith(
+    expect(mocks.asset.setDeletionPolicy).toHaveBeenCalledWith(
       library.ownerId,
       scope,
-      false,
-      expect.any(Function),
+      expect.objectContaining({ enabled: false }),
     );
     expect(mocks.storage.validateDeletionRoots).not.toHaveBeenCalled();
     expect(recovery.verifyRecoveryEvidence).not.toHaveBeenCalled();

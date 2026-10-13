@@ -5,12 +5,21 @@ import { join } from 'node:path';
 import type { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
-import { AssetFileType, AssetMetadataKey, AssetStatus, AssetVisibility, JobName, SharedLinkType } from 'src/enum.js';
+import {
+  AssetFileType,
+  AssetMetadataKey,
+  AssetStatus,
+  AssetVisibility,
+  JobName,
+  SharedLinkType,
+  StorageFolder,
+} from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AlbumRepository } from 'src/repositories/album.repository.js';
 import { AssetEditRepository } from 'src/repositories/asset-edit.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
+import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
 import { JobRepository } from 'src/repositories/job.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
@@ -22,10 +31,16 @@ import { SharedLinkRepository } from 'src/repositories/shared-link.repository.js
 import { SharedSpaceRepository } from 'src/repositories/shared-space.repository.js';
 import { StackRepository } from 'src/repositories/stack.repository.js';
 import { StorageRepository } from 'src/repositories/storage.repository.js';
+import { SystemMetadataRepository } from 'src/repositories/system-metadata.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetService } from 'src/services/asset.service.js';
-import { snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
+import {
+  collectRootIdentities,
+  snapshotOriginal,
+  unlinkOriginal,
+  validateDeletionRoots,
+} from 'src/utils/authorized-deletion.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
@@ -46,6 +61,8 @@ const setup = (db?: Kysely<DB>) => {
       SharedSpaceRepository,
       StackRepository,
       UserRepository,
+      ConfigRepository,
+      SystemMetadataRepository,
     ],
     mock: [EventRepository, LoggingRepository, JobRepository, StorageRepository, OcrRepository, MapRepository],
   });
@@ -284,11 +301,23 @@ describe(AssetService.name, () => {
   describe('delete', () => {
     const fixtureRoots: string[] = [];
     afterEach(async () => {
+      vi.restoreAllMocks();
       await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
     });
     const authorize = async (ctx: ReturnType<typeof setup>['ctx'], ownerId: string, id: string) => {
       const root = await mkdtemp(join(tmpdir(), 'gallery-stack-delete-'));
       fixtureRoots.push(root);
+      // Earlier fixtures reset this singleton. Real bootstrap always sets the
+      // configured media root before checking other owners' storage boundaries.
+      StorageCore.setMediaLocation(ctx.get(ConfigRepository).getEnv().storage.mediaLocation ?? '/data');
+      const actualFolder = StorageCore.getFolderLocation;
+      const actualLibrary = StorageCore.getLibraryFolder;
+      vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
+        owner === ownerId && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
+      );
+      vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
+        owner.id === ownerId ? root : actualLibrary(owner),
+      );
       const original = join(root, 'original.jpg');
       await writeFile(original, 'synthetic stack deletion fixture');
       const assets = ctx.get(AssetRepository);
@@ -304,14 +333,26 @@ describe(AssetService.name, () => {
         await ctx.database.updateTable('asset_file').set({ path: sidecar }).where('id', '=', file.id).execute();
       }
       await assets.setDeletionPolicy(ownerId, 'managed', {
+        authorizationMode: 'storage',
         enabled: true,
         roots: [root],
-        recoveryProof: 'a'.repeat(64),
+        rootIdentities: await collectRootIdentities([root]),
+        recoveryProof: '',
         authorizedBy: ownerId,
       });
       ctx.getMock(StorageRepository).snapshotOriginal.mockImplementation(snapshotOriginal);
       ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
+      ctx.getMock(StorageRepository).validateDeletionRoots.mockImplementation(validateDeletionRoots);
       return original;
+    };
+    const forceDelete = async (sut: AssetService, user: { id: string }, id: string) => {
+      const permanent = vi.spyOn(sut, 'permanentlyDelete');
+      try {
+        await sut.deleteAll(factory.auth({ user }), { ids: [id], force: true });
+      } catch (error) {
+        expect(await permanent.mock.results[0].value).toEqual([{ id, scope: 'managed', state: 'complete' }]);
+        throw error;
+      }
     };
     it('should delete asset', async () => {
       const { sut, ctx } = setup();
@@ -329,7 +370,7 @@ describe(AssetService.name, () => {
       ]);
 
       await authorize(ctx, user.id, asset.id);
-      await sut.deleteAll(factory.auth({ user }), { ids: [asset.id], force: true });
+      await forceDelete(sut, user, asset.id);
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
 
       expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({
@@ -352,7 +393,7 @@ describe(AssetService.name, () => {
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
       await authorize(ctx, user.id, asset1.id);
-      await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
+      await forceDelete(sut, user, asset1.id);
       await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
 
       // stack is deleted as well
@@ -372,7 +413,7 @@ describe(AssetService.name, () => {
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
       await authorize(ctx, user.id, asset1.id);
-      await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
+      await forceDelete(sut, user, asset1.id);
       await sut.handleAssetDeletion({ id: asset1.id, deleteOnDisk: true });
 
       // new primary asset is picked
@@ -397,7 +438,7 @@ describe(AssetService.name, () => {
       expect(result).toMatchObject({ primaryAssetId: asset1.id });
 
       await authorize(ctx, user.id, asset1.id);
-      await sut.deleteAll(factory.auth({ user }), { ids: [asset1.id], force: true });
+      await forceDelete(sut, user, asset1.id);
 
       // stack is deleted as well
       await expect(ctx.get(StackRepository).getById(stack.id)).resolves.toBe(undefined);

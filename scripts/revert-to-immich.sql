@@ -163,6 +163,12 @@ DROP TABLE IF EXISTS "classification_category" CASCADE;
 DROP TABLE IF EXISTS "storage_migration_log" CASCADE;
 DROP TABLE IF EXISTS "asset_duplicate_checksum" CASCADE;
 
+-- Fork-only automatic-stack suppression and memory proposal metadata.
+-- Native asset/stack/memory rows remain intact. This fallback conversion is
+-- unavailable whenever durable deletion tombstones exist (the first guard).
+DROP TABLE IF EXISTS "stack_suppression" CASCADE;
+DROP TABLE IF EXISTS "memory_candidate" CASCADE;
+
 -- -----------------------------------------------------------------------------
 -- 3. Drop Gallery-only functions.
 --
@@ -503,11 +509,14 @@ DELETE FROM "kysely_migrations"
   '1787100000000-DropPersonFksBeforeClusterGroups',
   '1790000000000-FixFaceRepairScanInFlightIndex',
   '1791000000000-RepointFaceReviewToPersonGroup',
+  '1791070000000-AddStackSuppression',
+  '1791071000000-AddMemoryCandidates',
   '1792123120451-AddSharedLinkSpaceId',
   '1793000000000-AddSharedSpaceAlbumHidden',
   '1793100000000-AddSharedSpaceAlbumFolderTable',
   '1793200000000-SharedSpaceAlbumFolderAuditTable',
   '1793300000000-ClearPreOptionMFaceRepairScans',
+  '1793400000000-FixMemoryCandidateSchema',
   -- Build-time compatibility alias (server/bin/sync-gallery-migrations.mjs): this migration was
   -- renumbered off 1793000000000 when fork PR #1060 took that timestamp, but rolling RC instances
   -- had already recorded the pre-rename name. Drop that row too, or upstream's migrator aborts
@@ -613,7 +622,7 @@ BEGIN
        'storage_migration_log', 'asset_duplicate_checksum',
        'face_person_verdict', 'face_repair_scan', 'face_repair_decline',
        'face_repair_scan_flagged_face', 'face_repair_lock',
-       'pet_search'
+       'pet_search', 'stack_suppression', 'memory_candidate'
      );
   IF fork_tables_left > 0 THEN
     RAISE EXCEPTION 'revert-to-immich: % Gallery table(s) still present after cleanup — aborting.', fork_tables_left;

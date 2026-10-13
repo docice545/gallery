@@ -6,8 +6,10 @@ import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset
 import {
   DeletionError,
   assertDisjointDeletionRootMounts,
+  assertWritableDeletionRoots,
   bindQuarantine,
   collectRootIdentities,
+  refreshStorageRootIdentities,
   snapshotOriginal,
   unlinkOriginal,
   validateDeletionRoots,
@@ -48,6 +50,75 @@ const onQuarantineOpen = (callback: (handle: FileHandle) => void) => {
     return handle;
   });
 };
+
+describe('persistent storage grants across container namespaces', () => {
+  it('rebinds only ephemeral mount IDs after unchanged root and quarantine physical identity', async () => {
+    const [current] = await collectRootIdentities([root]);
+    const bound = await bindQuarantine(current);
+    const old = {
+      ...bound,
+      mountId: 'old-container-id',
+      mountNamespace: 'mnt:[old-container]',
+      quarantineIdentity: {
+        ...bound.quarantineIdentity!,
+        mountId: 'old-container-id',
+        mountNamespace: 'mnt:[old-container]',
+      },
+    };
+    const [refreshed] = await refreshStorageRootIdentities([old]);
+    expect(refreshed).toEqual(bound);
+    await assertWritableDeletionRoots([refreshed]);
+    const file = join(root, 'photo.heic');
+    await writeFile(file, 'disposable photo');
+    await unlinkOriginal(await snapshotOriginal(file, [refreshed]));
+    await expect(readFile(file)).rejects.toHaveProperty('code', 'ENOENT');
+  });
+  it.each(['device', 'inode', 'mountType', 'mountSource', 'mountRoot', 'mountTarget'] as const)(
+    'rejects changed physical %s rather than treating it as a container restart',
+    async (field) => {
+      const [bound] = await collectRootIdentities([root]);
+      await expect(refreshStorageRootIdentities([{ ...bound, [field]: 'different-storage' }])).rejects.toMatchObject({
+        code: 'DELETION_ROOT_CHANGED',
+      });
+    },
+  );
+  it('rejects ancestor symlink substitution before rebinding an ordinary owner grant', async () => {
+    const allowed = join(root, 'allowed');
+    const outside = join(root, 'outside');
+    await mkdir(allowed);
+    await mkdir(outside);
+    await writeFile(join(outside, 'photo'), 'must survive');
+    const bound = await collectRootIdentities([allowed]);
+    await fs.rename(allowed, allowed + '.saved');
+    await symlink(outside, allowed);
+    await expect(refreshStorageRootIdentities(bound)).rejects.toMatchObject({ code: 'DELETION_ROOT_CHANGED' });
+    expect(await readFile(join(outside, 'photo'), 'utf8')).toBe('must survive');
+  });
+  it('does not adopt a substituted or non-private quarantine after restart', async () => {
+    const [initial] = await collectRootIdentities([root]);
+    const bound = await bindQuarantine(initial);
+    await fs.chmod(quarantinePath(), 0o777);
+    await expect(refreshStorageRootIdentities([bound])).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+    await fs.rename(quarantinePath(), quarantinePath() + '.saved');
+    await mkdir(quarantinePath(), { mode: 0o700 });
+    await expect(refreshStorageRootIdentities([bound])).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
+  });
+  it('rejects read-only mount flags even for a process with elevated filesystem access', async () => {
+    const [bound] = await collectRootIdentities([root]);
+    const originalRead = fs.readFile;
+    vi.spyOn(fs, 'readFile').mockImplementation(async (path, options) => {
+      const content = await originalRead(path, options);
+      if (String(path) !== '/proc/self/mountinfo') return content;
+      return String(content)
+        .split('\n')
+        .map((line) =>
+          line.startsWith(bound.mountId + ' ') ? line.replace(' rw,', ' ro,').replace(' rw ', ' ro ') : line,
+        )
+        .join('\n');
+    });
+    await expect(assertWritableDeletionRoots([bound])).rejects.toMatchObject({ code: 'LIBRARY_STORAGE_READ_ONLY' });
+  });
+});
 
 describe('quarantine identity under NFS root squash', () => {
   it('binds mapped UID/GID before capture, then verifies a deserialized proof without chmod', async () => {
