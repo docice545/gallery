@@ -6,9 +6,50 @@
 
 **Application source заморожен:** `f26b46059726ca3c55c63c3ce1edde7e45d8404f`,
 version `5.7.3+11`. Immutable build ref: `build/gallery-build11-f26b4605`.
-Последний завершённый tooling commit:
-`448c53619542758add9e9c76cf66baa84f0d07b2`.
+Последний завершённый tooling/docs commit:
+`b4daf53432253d98c25074c7acd4ea57969c867a`.
 Final HEAD определяется `git log -1`; handoff не может содержать свой собственный SHA.
+
+## Актуальный STOP: final installation CI, не application build
+
+Distribution run38424787561 **FAILED** (HEAD448c536195),
+https://github.com/docice545/gallery/actions/runs/38424787561.
+Same-source APK/IPA/backend seal, tamper tests и actual classic image/rollback
+proof PASS. Containerd+installation step FAILED; Checks API подтверждает
+`PACKAGED_INSTALLER_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED`.
+Финальный compiled distribution не опубликован; **NOT READY**.
+
+Создан настоящий небольшой artifact
+`gallery-build11-verification-report-38424787561`, ID11827544540,
+14545 bytes, ZIP SHA256
+`4e325a2c677f1975ec714e52a8d42124ffa20d0dbefac91e375283587d7d718d`.
+Он содержит candidate profile, реальные image/rollback/upstream reports и
+`build11-installation-lab.json` с точной stage/line. Это не installable distribution.
+Чтение отчёта и job115391216929 logs перенаправляется на
+`productionresultssa1.blob.core.windows.net`, отсутствующий в runtime allowlist;
+обычный и require_escalated download вернули403. API/Git auth работают.
+Не обходить proxy/сетевую политику, не просить новый token и не повторять CI вслепую.
+
+Cloud configuration draft сохранён: добавлен ТОЛЬКО host1, сохранены прежние
+hosts, package-manager preset и ранее подготовленный host14. Draft `saved`,
+`requires_publish=true`; это НЕ применённая runtime policy. Нужно применить
+добавление через настройки Cloud, затем один раз скачать маленький report и
+прочитать точную Docker-command/stage/line. Если CLI продолжает в независимой
+dev-среде с уже разрешённым GitHub access, эквивалентный read-only download:
+
+```bash
+gh run download 38424787561 --repo docice545/gallery \
+  --name gallery-build11-verification-report-38424787561 \
+  --dir /tmp/gallery-build11-verification-38424787561
+gh run view 38424787561 --repo docice545/gallery --log-failed
+```
+
+Это не поручение выполнять команды на HP production. После диагностики исправить
+ТОЛЬКО подтверждённую tooling/CI причину, проверить affected tests и повторить
+existing Build11 proof workflow. Последний русский runbook commitb4daf53432
+тоже должен войти в final package. Backend/APK/IPA не пересобирать без runtime
+дефекта: `git diff f26b4605 HEAD -- server mobile web open-api i18n pnpm-lock.yaml
+package.json pnpm-workspace.yaml` пустой. Все source inputs сохранены.
 
 ## Продолжение: конкретная причина installation CI установлена
 
@@ -36,7 +77,7 @@ manifest; её отсутствие или изменение отклоняет
 Текущий actual distribution run:
 https://github.com/docice545/gallery/actions/runs/38424787561,
 HEAD `448c53619542758add9e9c76cf66baa84f0d07b2`. Same-source sealing и classic
-image/rollback proof уже PASS; containerd + actual installation lab выполняются.
+image/rollback proof уже PASS; окончательный failed result указан выше.
 Следующий шаг — прочитать окончательный результат/небольшой verification artifact
 этого run, без повторной сборки backend/mobile.
 
