@@ -4,8 +4,20 @@ name: Gallery frozen Trash artifact proof and handoff
 on:
   workflow_dispatch:
     inputs:
+      build11:
+        description: 'Seal Build11 compiled artifacts and the actual tested hardened rollback; historical defaults are unchanged'
+        type: boolean
+        default: false
+      rollback_run:
+        description: 'Build11 only: exact successful existing hardened fallback run'
+        type: string
+        default: ''
+      rollback_source:
+        description: 'Build11 only: full source SHA for rollback_run'
+        type: string
+        default: ''
       source_commit:
-        description: 'Full build-9 application SHA; leave all inputs empty for historical build-8 proof'
+        description: 'Full application SHA; Build11 requires every run input, otherwise empty means historical build-8'
         type: string
         default: ''
       backend_run:
@@ -21,24 +33,52 @@ on:
 permissions:
   contents: read
   actions: read
+  packages: read
 
 jobs:
   proof:
     if: github.repository == 'docice545/gallery'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       APP_SOURCE: ${{ inputs.source_commit || '6a558b554e26e8c0fc5bc5c99259a92e7ef26a56' }}
       BACKEND_RUN: ${{ inputs.backend_run || '37953392247' }}
       ANDROID_RUN: ${{ inputs.android_run || '37944044747' }}
       IOS_RUN: ${{ inputs.ios_run || '37936380827' }}
-      IS_CANDIDATE: ${{ inputs.source_commit != '' }}
+      IS_CANDIDATE: ${{ inputs.source_commit != '' && !inputs.build11 }}
+      IS_BUILD11: ${{ inputs.build11 }}
+      ROLLBACK_RUN: ${{ inputs.rollback_run }}
+      ROLLBACK_SOURCE: ${{ inputs.rollback_source }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Authenticate read-only GHCR disposable fixtures
+        if: inputs.build11
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify explicit Build11 CI inputs before any download
+        if: inputs.build11
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPLICIT_SOURCE: ${{ inputs.source_commit }}
+          EXPLICIT_BACKEND: ${{ inputs.backend_run }}
+          EXPLICIT_ANDROID: ${{ inputs.android_run }}
+          EXPLICIT_IOS: ${{ inputs.ios_run }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/build11_compatibility_receipt.py verify-runs \
+            --source "$EXPLICIT_SOURCE" --backend-run "$EXPLICIT_BACKEND" \
+            --android-run "$EXPLICIT_ANDROID" --ios-run "$EXPLICIT_IOS" \
+            --rollback-run "$ROLLBACK_RUN" --rollback-source "$ROLLBACK_SOURCE"
+          git merge-base --is-ancestor "$APP_SOURCE" HEAD
+          git diff --exit-code "$APP_SOURCE" HEAD -- server mobile web packages i18n branding package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs patches .dockerignore
       - name: Enforce exact application inputs and complete build provenance
+        if: '!inputs.build11'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -74,6 +114,32 @@ jobs:
           name: ios-unsigned-ipa
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/frozen/ios
+      - name: Download the existing hardened fallback once
+        if: inputs.build11
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: docice545/gallery
+          run-id: ${{ inputs.rollback_run }}
+          name: gallery-trash-server-linux-amd64
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/rollback
+      - name: Ensure SDK 36 artifact verification tools on disposable runner
+        if: inputs.build11
+        run: |
+          set -euo pipefail
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0' </dev/null
+          test -x "$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/aapt"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/zipalign"
+      - name: Seal Build11 same-source APK IPA and complete backend archive
+        if: inputs.build11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/build11_artifacts.py "$RUNNER_TEMP/frozen" "$APP_SOURCE" \
+            "$BACKEND_RUN" "$ANDROID_RUN" "$IOS_RUN" "$RUNNER_TEMP/candidate-profile.json"
       - name: Seal build-9 profile using verified run/artifact identities
         if: env.IS_CANDIDATE == 'true'
         env:
@@ -85,7 +151,22 @@ jobs:
         env:
           GALLERY_DISPOSABLE_RELEASE_TESTS: '1'
         run: python3 -m unittest scripts.release.tests.test_trash_image_identity scripts.release.tests.test_release_candidate -v
+      - name: Build11 actual image and rollback proof on classic Docker
+        if: inputs.build11
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GALLERY_DISPOSABLE_RELEASE_TESTS: '1'
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/release/tests -p 'test_build11*.py'
+          python3 scripts/release/build11_compatibility_receipt.py build \
+            --artifacts "$RUNNER_TEMP/frozen" --rollback-artifacts "$RUNNER_TEMP/rollback" \
+            --profile "$RUNNER_TEMP/candidate-profile.json" \
+            --profile-sha256 "$(sha256sum "$RUNNER_TEMP/candidate-profile.json" | cut -d' ' -f1)" \
+            --rollback-run "$ROLLBACK_RUN" --rollback-source "$ROLLBACK_SOURCE" \
+            --output "$RUNNER_TEMP/classic-compatibility.json"
       - name: Classic Docker import and artifact verification
+        if: '!inputs.build11'
         run: |
           set -euo pipefail
           docker load -i "$RUNNER_TEMP/frozen/backend/gallery-server-linux-amd64.tar.gz"
@@ -102,7 +183,53 @@ jobs:
           jq '.features["containerd-snapshotter"] = true' "$RUNNER_TEMP/runner-daemon-before.json" > "$RUNNER_TEMP/runner-containerd.json"
           sudo cp "$RUNNER_TEMP/runner-containerd.json" /etc/docker/daemon.json
           sudo systemctl start docker
+      - name: Verify Build11 on containerd and assemble compiled distribution
+        if: inputs.build11
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GALLERY_DISPOSABLE_RELEASE_TESTS: '1'
+        run: |
+          set -euo pipefail
+          python3 scripts/release/build11_compatibility_receipt.py build \
+            --artifacts "$RUNNER_TEMP/frozen" --rollback-artifacts "$RUNNER_TEMP/rollback" \
+            --profile "$RUNNER_TEMP/candidate-profile.json" \
+            --profile-sha256 "$(sha256sum "$RUNNER_TEMP/candidate-profile.json" | cut -d' ' -f1)" \
+            --rollback-run "$ROLLBACK_RUN" --rollback-source "$ROLLBACK_SOURCE" \
+            --output "$RUNNER_TEMP/reviewed-compatibility.json"
+          cmp "$RUNNER_TEMP/classic-compatibility.json" "$RUNNER_TEMP/reviewed-compatibility.json"
+          python3 scripts/release/build11_package.py \
+            --artifacts "$RUNNER_TEMP/frozen" --rollback-artifacts "$RUNNER_TEMP/rollback" \
+            --profile "$RUNNER_TEMP/candidate-profile.json" \
+            --profile-sha256 "$(sha256sum "$RUNNER_TEMP/candidate-profile.json" | cut -d' ' -f1)" \
+            --compatibility "$RUNNER_TEMP/reviewed-compatibility.json" \
+            --compatibility-sha256 "$(sha256sum "$RUNNER_TEMP/reviewed-compatibility.json" | cut -d' ' -f1)" \
+            --machine-learning-image sha256:adb5169bfdaa615c8ebd0e38530e10f17cc64202aeb5adf63335e95bad55f31b \
+            --machine-learning-reference ghcr.io/open-noodle/gallery-ml@sha256:711baa1712989ed52b8f3d02955d97641eceb614386cc4d096c7934538cb4f72 \
+            --output "$RUNNER_TEMP/gallery-build11-distribution"
+          python3 scripts/release/upstream_compatibility.py --report "$RUNNER_TEMP/build11-upstream-compatibility.json"
+          GALLERY_ISOLATED_CI=1 python3 scripts/release/build11_installation_smoke.py \
+            "$RUNNER_TEMP/gallery-build11-distribution" "$RUNNER_TEMP/build11-installation-lab.json"
+          GALLERY_ISOLATED_CI=1 python3 scripts/release/build11_distribution_finalize.py \
+            "$RUNNER_TEMP/gallery-build11-distribution" \
+            --installation-report "$RUNNER_TEMP/build11-installation-lab.json" \
+            --upstream-report "$RUNNER_TEMP/build11-upstream-compatibility.json" \
+            --release-notes docs/BUILD11-RELEASE-NOTES.md
+          tar -C "$RUNNER_TEMP/gallery-build11-distribution" -czf "$RUNNER_TEMP/gallery-build11-5.7.3-build11.tar.gz" .
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum gallery-build11-5.7.3-build11.tar.gz > gallery-build11-5.7.3-build11.tar.gz.sha256
+          )
+          {
+            echo 'Build11 compiled distribution (production and physical-device acceptance remain operator gates)'
+            echo "Application source: $APP_SOURCE"
+            echo "Backend: https://github.com/docice545/gallery/actions/runs/$BACKEND_RUN"
+            echo "Android: https://github.com/docice545/gallery/actions/runs/$ANDROID_RUN"
+            echo "iOS: https://github.com/docice545/gallery/actions/runs/$IOS_RUN"
+            echo "Rollback: https://github.com/docice545/gallery/actions/runs/$ROLLBACK_RUN"
+            sha256sum "$RUNNER_TEMP/gallery-build11-5.7.3-build11.tar.gz"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Verify immutable content on containerd and package final handoff
+        if: '!inputs.build11'
         run: |
           set -euo pipefail
           docker load -i "$RUNNER_TEMP/frozen/backend/gallery-server-linux-amd64.tar.gz"
@@ -113,6 +240,16 @@ jobs:
           python3 scripts/release/verify_frozen_bundle.py "$RUNNER_TEMP/frozen" "$RUNNER_TEMP/gallery-trash-handoff" "${profile[@]}"
           sha256sum "$RUNNER_TEMP/gallery-trash-handoff/release-manifest.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: inputs.build11
+        with:
+          name: gallery-build11-distribution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/gallery-build11-5.7.3-build11.tar.gz
+            ${{ runner.temp }}/gallery-build11-5.7.3-build11.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: '!inputs.build11'
         with:
           name: gallery-trash-frozen-handoff-${{ github.run_id }}
           path: ${{ runner.temp }}/gallery-trash-handoff/

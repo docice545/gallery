@@ -17,6 +17,8 @@ BASE = 'ea51a8acdc6f18ab5917c19b6f3833d740b4e9ba'
 VERSION = '5.7.3'
 BUILD = 11
 ROOT = Path(__file__).resolve().parents[2]
+APPLICATION_INPUTS = ('server', 'mobile', 'web', 'packages', 'i18n', 'branding', 'package.json', 'pnpm-lock.yaml',
+                      'pnpm-workspace.yaml', '.pnpmfile.cjs', 'patches', '.dockerignore')
 
 
 def need(value, code):
@@ -72,6 +74,24 @@ def gh(endpoint):
     return json.loads(subprocess.check_output(['gh', 'api', endpoint], text=True))
 
 
+def verify_backend_source(row, source, backend=None):
+    tooling = row.get('head_sha', '')
+    need(re.fullmatch('[0-9a-f]{40}', tooling), 'EXACT_BACKEND_TOOLING_SOURCE_REQUIRED')
+    if tooling != source:
+        # Harness-only corrections may be built from a reviewed descendant.
+        # The immutable application revision is still git-archived by the
+        # existing server builder. Verify ancestry and ALL application inputs,
+        # then require the downloaded manifest to name that exact workflow HEAD.
+        for command in (['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', source, tooling],
+                        ['git', '-C', str(ROOT), 'diff', '--exit-code', source, tooling, '--', *APPLICATION_INPUTS]):
+            result = subprocess.run(command, capture_output=True, check=False)
+            need(result.returncode == 0, 'BACKEND_TOOLING_ONLY_IDENTICAL_APPLICATION_INPUTS_REQUIRED')
+    if backend is not None:
+        need(backend.get('sourceCommit') == source and backend.get('toolingCommit') == tooling,
+             'EXACT_BACKEND_SOURCE_AND_TOOLING_MANIFEST_REQUIRED')
+    return tooling
+
+
 def seal(directory, source, runs, output):
     need(re.fullmatch('[0-9a-f]{40}', source) and not output.exists() and not output.is_symlink(), 'NEW_PROFILE_AND_EXACT_SOURCE')
     backend = json.loads((directory / 'backend/manifest.json').read_text())
@@ -81,7 +101,10 @@ def seal(directory, source, runs, output):
         need(row['status'] == 'completed' and row['conclusion'] == 'success', 'SUCCESSFUL_CI_REQUIRED')
         expected = 'gallery-trash-server-build.yml' if platform == 'backend' else 'gallery-build-mobile.yml'
         need(row['path'].endswith('/' + expected), 'EXISTING_WORKFLOW_REQUIRED')
-        need(row['head_sha'] == source, 'SAME_EXACT_APPLICATION_SOURCE_REQUIRED')
+        if platform == 'backend':
+            verify_backend_source(row, source, backend)
+        else:
+            need(row['head_sha'] == source, 'SAME_EXACT_APPLICATION_SOURCE_REQUIRED')
         items = gh(f'repos/docice545/gallery/actions/runs/{run}/artifacts')['artifacts']
         name = {'backend': 'gallery-trash-server-linux-amd64', 'android': 'android-media-pilot-validation-apk',
                 'ios': 'ios-unsigned-ipa'}[platform]

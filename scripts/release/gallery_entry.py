@@ -44,7 +44,7 @@ def verify_package(package):
         'backend/manifest.json', 'backend/build11-rollback-runtime.json', 'backend/gallery-server-linux-amd64.tar.gz', 'android/app-release.apk',
         'ios/Photos-unsigned.ipa', 'rollback/manifest.json', 'rollback/gallery-server-linux-amd64.tar.gz',
         'config/docker-compose.yml', 'docs/BUILD11-RELEASE-RUNBOOK.md',
-        'docs/BUILD11-UPSTREAM-COMPATIBILITY.md', 'docs/BUILD11-USER-MANUAL-RU.md',
+        'docs/BUILD11-UPSTREAM-COMPATIBILITY.md', 'docs/BUILD11-USER-MANUAL-RU.md', 'docs/BUILD11-TEST-REPORT.md',
         'ios-tools/release/prepare_sidestore.py', 'ios-tools/release/ios_artifact.py',
         'ios-tools/package_unsigned_ios.py', 'ios-tools/verify_ios_archive.py'}
     need(required <= records.keys() and
@@ -61,6 +61,22 @@ def verify_package(package):
     compatibility = json.loads((package / 'reviewed-compatibility.json').read_text())
     need(compatibility.get('testReportSHA256') == records['backend/build11-rollback-runtime.json'],
          'PINNED_ROLLBACK_RUNTIME_REPORT_REQUIRED')
+    validation = config.get('installationValidation')
+    if validation is not None:
+        reports = {'reportSHA256': 'validation/installation-lab.json',
+                   'inputChecksumManifestSHA256': 'validation/installation-lab-input-SHA256SUMS',
+                   'upstreamReportSHA256': 'validation/upstream-compatibility.json'}
+        need(isinstance(validation, dict) and
+             validation.get('status') == 'ACTUAL_ISOLATED_PASS_HP_AND_DEVICES_NOT_TESTED' and
+             all(validation.get(key) == records.get(path) and path in records for key, path in reports.items()) and
+             'docs/BUILD11-RELEASE-NOTES.md' in records, 'PINNED_INSTALLATION_VALIDATION_REPORTS_REQUIRED')
+        report = json.loads((package / reports['reportSHA256']).read_text())
+        need(report.get('result') == 'PASS' and report.get('sourceCommit') == config['sourceCommit'] and
+             report.get('packageSHA256') == validation['inputChecksumManifestSHA256'] and
+             report.get('syntheticMediaOnly') is True and report.get('productionChanged') is False and
+             all(report.get(key) is False for key in ('hpRecoveryEvidenceVerified', 'productionNfsVerified',
+                                                      'physicalAndroidIosVerified', 'hpSixLegacyCleanupExecuted')),
+             'INSTALLATION_REPORT_SOURCE_INPUT_OR_OPERATOR_GATE_CHANGED')
     return config
 
 

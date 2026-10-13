@@ -15,7 +15,7 @@ TOOLS = ('gallery_entry.py', 'gallery_install.py', 'gallery-install.sh', 'galler
          'android_sign_package.py', 'SignExistingApk.java', 'hp_build10_queued_delete.py',
          'hp_build10_queued_delete.mjs', 'hp_build10_rollback.py', 'hp_build10_rollback.sh',
          'build10-rollback-tooling.sha256')
-DOCS = ('BUILD11-RELEASE-RUNBOOK.md', 'BUILD11-UPSTREAM-COMPATIBILITY.md', 'BUILD11-USER-MANUAL-RU.md')
+DOCS = ('BUILD11-RELEASE-RUNBOOK.md', 'BUILD11-UPSTREAM-COMPATIBILITY.md', 'BUILD11-USER-MANUAL-RU.md', 'BUILD11-TEST-REPORT.md')
 
 
 def assemble(args):
@@ -45,9 +45,23 @@ def assemble(args):
                    runtime.get('sourceCommit') == profile['sourceCommit'] and
                    runtime.get('candidateImageId') == profile['backend']['imageId'] and
                    runtime.get('rollbackSourceCommit') == rollback_manifest['sourceCommit'] and
-                   runtime.get('rollbackImageId') == rollback_manifest['imageId'] and
+                   re.fullmatch('sha256:[0-9a-f]{64}', runtime.get('rollbackImageId', '')) and
                    runtime.get('rollbackArchiveSHA256') == rollback_manifest['archiveSHA256'],
                    'ROLLBACK_RUNTIME_IMAGE_SOURCE_OR_ACCEPTANCE_MISMATCH')
+    if runtime['rollbackImageId'] != rollback_manifest['imageId']:
+        mapping = compatibility.get('rollbackRuntimeImageIdentity', {})
+        artifacts.need(mapping.get('configDigest') == rollback_manifest['imageId'] and
+                       mapping.get('loadedImageId') == runtime['rollbackImageId'] and
+                       mapping.get('identityKind') in ('MANIFEST_DIGEST', 'INDEX_DIGEST'),
+                       'ROLLBACK_RUNTIME_DESCRIPTOR_MAPPING_REQUIRED')
+        # Preserve the real backend receipt. Accept a containerd manifest/index
+        # ID only after the same immutable archive proves its entire graph.
+        with (args.rollback_artifacts / 'gallery-server-linux-amd64.tar.gz').open('rb') as file:
+            identity = artifacts.identity.scan(file, rollback_manifest['imageId'], rollback_manifest['imageTag'],
+                                               runtime['rollbackImageId'])
+        artifacts.need(compatibility.get('rollbackRuntimeImageIdentity') ==
+                       {key: identity[key] for key in ('configDigest', 'loadedImageId', 'identityKind')},
+                       'VERIFIED_ROLLBACK_RUNTIME_DESCRIPTOR_MAPPING_REQUIRED')
     args.output.mkdir(mode=0o700)
     for name in paths:
         target = args.output / name; target.parent.mkdir(parents=True, exist_ok=True)

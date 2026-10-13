@@ -14,6 +14,7 @@ import build11_artifacts as artifacts
 import build11_package as m
 import gallery_entry as entry
 from test_build11_artifacts import profile
+from test_trash_image_identity import fixture
 
 class Assembly(unittest.TestCase):
     def setUp(self):
@@ -66,6 +67,40 @@ class Assembly(unittest.TestCase):
     def test_different_report_bytes_are_rejected_even_if_outcome_is_identical(self):
         self.runtime_path.write_text(json.dumps(self.runtime,indent=2))
         with self.assertRaisesRegex(ValueError,'REAL_ROLLBACK_RUNTIME_REPORT'):m.assemble(self.args)
+        self.assertFalse(self.args.output.exists())
+
+    def test_containerd_runtime_id_is_preserved_and_bound_to_actual_archive_graph(self):
+        stream, config, loaded = fixture(oci=True, tag='gallery-test:identity')
+        (self.rollback / 'gallery-server-linux-amd64.tar.gz').write_bytes(stream.getvalue())
+        self.rollback_manifest.update(imageId=config, imageTag='gallery-test:identity',
+                                      archiveSHA256=artifacts.digest(self.rollback / 'gallery-server-linux-amd64.tar.gz'))
+        (self.rollback / 'manifest.json').write_text(json.dumps(self.rollback_manifest))
+        self.runtime.update(rollbackImageId=loaded, rollbackArchiveSHA256=self.rollback_manifest['archiveSHA256'])
+        self.runtime_path.write_text(json.dumps(self.runtime))
+        self.compatibility.update(rollbackImage=config, testReportSHA256=artifacts.digest(self.runtime_path),
+                                  rollbackRuntimeImageIdentity=dict(configDigest=config, loadedImageId=loaded,
+                                                                    identityKind='MANIFEST_DIGEST'))
+        self.compatibility_path.write_text(json.dumps(self.compatibility))
+        self.args.compatibility_sha256=artifacts.digest(self.compatibility_path)
+        m.assemble(self.args)
+        self.assertEqual((self.args.output / 'backend/build11-rollback-runtime.json').read_bytes(),
+                         self.runtime_path.read_bytes())
+
+    def test_forged_containerd_alias_is_rejected_even_with_plausible_identity_fields(self):
+        stream, config, loaded = fixture(oci=True, tag='gallery-test:identity')
+        (self.rollback / 'gallery-server-linux-amd64.tar.gz').write_bytes(stream.getvalue())
+        self.rollback_manifest.update(imageId=config, imageTag='gallery-test:identity',
+                                      archiveSHA256=artifacts.digest(self.rollback / 'gallery-server-linux-amd64.tar.gz'))
+        (self.rollback / 'manifest.json').write_text(json.dumps(self.rollback_manifest))
+        foreign='sha256:'+'e'*64
+        self.runtime.update(rollbackImageId=foreign, rollbackArchiveSHA256=self.rollback_manifest['archiveSHA256'])
+        self.runtime_path.write_text(json.dumps(self.runtime))
+        self.compatibility.update(rollbackImage=config, testReportSHA256=artifacts.digest(self.runtime_path),
+                                  rollbackRuntimeImageIdentity=dict(configDigest=config, loadedImageId=foreign,
+                                                                    identityKind='MANIFEST_DIGEST'))
+        self.compatibility_path.write_text(json.dumps(self.compatibility))
+        self.args.compatibility_sha256=artifacts.digest(self.compatibility_path)
+        with self.assertRaisesRegex(artifacts.identity.IdentityError,'NOT_IN_VERIFIED_GRAPH'):m.assemble(self.args)
         self.assertFalse(self.args.output.exists())
 
 if __name__=='__main__':unittest.main()
