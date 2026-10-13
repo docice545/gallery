@@ -12,6 +12,7 @@ import 'package:immich_mobile/presentation/widgets/album/pending_uploads_banner.
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/remote_album_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/remote_album/album_option.widget.dart';
 import 'package:immich_mobile/presentation/widgets/remote_album/space_link_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
@@ -19,6 +20,7 @@ import 'package:immich_mobile/providers/infrastructure/current_album.provider.da
 import 'package:immich_mobile/providers/infrastructure/remote_album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/space_album_actions.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
+import 'package:immich_mobile/providers/photos_filter/filter_sheet.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/widgets/common/date_time_picker.dart';
@@ -224,27 +226,34 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
     return TimelineRouteScope(
       timelineServiceBuilder: (ref, scope, groupBy) =>
           ref.watch(timelineFactoryProvider).remoteAlbum(albumId: _album.id, groupBy: groupBy, temporalScope: scope),
-      overrides: [currentRemoteAlbumScopedProvider.overrideWithValue(_album)],
-      child: Timeline(
-        withGroupingPill: true,
-        topSliverWidget: PendingUploadsBanner(albumId: _album.id),
-        appBar: RemoteAlbumSliverAppBar(
-          icon: Icons.photo_album_outlined,
-          kebabMenu: _AlbumKebabMenu(
-            album: _album,
-            onDeleteAlbum: () => deleteAlbum(context),
-            onAddUsers: () => addUsers(context),
-            onAddPhotos: () => addAssets(context),
-            onToggleAlbumOrder: () => toggleAlbumOrder(),
-            onEditAlbum: () => showEditAlbum(context),
-            onCreateSharedLink: () => unawaited(context.pushRoute(SharedLinkEditRoute(albumId: _album.id))),
-            onShowOptions: () => context.pushRoute(AlbumOptionsRoute(album: _album)),
-            onLinkToSpace: () => unawaited(linkToSpace(context)),
+      overrides: [
+        currentRemoteAlbumScopedProvider.overrideWithValue(_album),
+        // The retained main Photos tab may have its own filter panel open. It
+        // does not cover this album; keep that state separate from its previews.
+        photosFilterSheetProvider.overrideWith((_) => FilterSheetVisibility.hidden),
+      ],
+      child: TimelineLivePhotoScope(
+        child: Timeline(
+          withGroupingPill: true,
+          topSliverWidget: PendingUploadsBanner(albumId: _album.id),
+          appBar: RemoteAlbumSliverAppBar(
+            icon: Icons.photo_album_outlined,
+            kebabMenu: _AlbumKebabMenu(
+              album: _album,
+              onDeleteAlbum: () => deleteAlbum(context),
+              onAddUsers: () => addUsers(context),
+              onAddPhotos: () => addAssets(context),
+              onToggleAlbumOrder: () => toggleAlbumOrder(),
+              onEditAlbum: () => showEditAlbum(context),
+              onCreateSharedLink: () => unawaited(context.pushRoute(SharedLinkEditRoute(albumId: _album.id))),
+              onShowOptions: () => context.pushRoute(AlbumOptionsRoute(album: _album)),
+              onLinkToSpace: () => unawaited(linkToSpace(context)),
+            ),
+            onEditTitle: isOwner ? () => showEditAlbum(context) : null,
+            onActivity: () => showActivity(context),
           ),
-          onEditTitle: isOwner ? () => showEditAlbum(context) : null,
-          onActivity: () => showActivity(context),
+          bottomSheet: RemoteAlbumBottomSheet(album: _album),
         ),
-        bottomSheet: RemoteAlbumBottomSheet(album: _album),
       ),
     );
   }

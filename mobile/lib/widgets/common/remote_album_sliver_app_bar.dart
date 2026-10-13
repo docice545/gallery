@@ -232,7 +232,8 @@ class _ExpandedBackgroundState extends ConsumerState<_ExpandedBackground> with S
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     if (dateRange.hasValue)
                       Text(

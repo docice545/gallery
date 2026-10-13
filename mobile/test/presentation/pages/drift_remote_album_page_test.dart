@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/album/album.model.dart';
+import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
@@ -21,20 +24,32 @@ import 'package:immich_mobile/domain/services/user.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
+import 'package:immich_mobile/platform/local_image_api.g.dart';
+import 'package:immich_mobile/platform/remote_image_api.g.dart';
+import 'package:immich_mobile/presentation/pages/local_timeline.page.dart';
 import 'package:immich_mobile/presentation/pages/remote_album.page.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
 import 'package:immich_mobile/presentation/widgets/remote_album/album_option.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_bottom_pill.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/user.provider.dart' as infra;
+import 'package:immich_mobile/providers/photos_filter/filter_sheet.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:native_video_player/native_video_player.dart';
 // easy_localization initializes shared_preferences internally; tests need the mock initializer.
 // ignore: depend_on_referenced_packages
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart';
 
+import '../../infrastructure/repository.mock.dart';
+import '../../service.mocks.dart';
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
 
@@ -43,6 +58,26 @@ class _MockTimelineFactory extends Mock implements TimelineFactory {}
 class _MockRemoteAlbumService extends Mock implements RemoteAlbumService {}
 
 class _MockUserService extends Mock implements UserService {}
+
+class _MockVideoController extends Mock implements NativeVideoPlayerController {}
+
+class _ObservedSignal extends ChangeNotifier {
+  bool get observed => hasListeners;
+}
+
+class _ObservedValue<T> extends ValueNotifier<T> {
+  _ObservedValue(super.value);
+
+  bool get observed => hasListeners;
+}
+
+class _PlayingInfo extends Fake implements PlaybackInfo {
+  @override
+  PlaybackStatus get status => PlaybackStatus.playing;
+
+  @override
+  int get position => 100;
+}
 
 class _StubCurrentUserNotifier extends CurrentUserProvider {
   _StubCurrentUserNotifier(super.service, UserDto user) {
@@ -72,10 +107,16 @@ RemoteAlbum _albumFixture(String ownerId) => RemoteAlbum(
   isShared: false,
 );
 
-TimelineService _service(List<Bucket> buckets) {
+TimelineService _service(List<Bucket> buckets, {bool live = false, bool local = false}) {
   final assets = <BaseAsset>[
     for (var i = 0; i < buckets.fold<int>(0, (total, bucket) => total + bucket.assetCount); i++)
-      TestUtils.createRemoteAsset(id: 'asset-$i'),
+      if (local)
+        TestUtils.createLocalAsset(
+          id: 'local-$i',
+          remoteId: 'asset-$i',
+        ).copyWith(playbackStyle: live ? AssetPlaybackStyle.livePhoto : AssetPlaybackStyle.image)
+      else
+        TestUtils.createRemoteAsset(id: 'asset-$i').copyWith(livePhotoVideoId: live ? 'motion-$i' : null),
   ];
 
   return TimelineService((
@@ -87,7 +128,7 @@ TimelineService _service(List<Bucket> buckets) {
       }
       return assets.sublist(offset, end);
     },
-    origin: TimelineOrigin.remoteAlbum,
+    origin: local ? TimelineOrigin.localAlbum : TimelineOrigin.remoteAlbum,
   ));
 }
 
@@ -104,6 +145,9 @@ void main() {
     initializeTimeZones();
     registerFallbackValue(const TimelineTemporalScope.none());
     registerFallbackValue(GroupAssetsBy.day);
+    registerFallbackValue(TestUtils.createRemoteAsset(id: 'lookup-fallback'));
+    registerFallbackValue(TestUtils.createLocalAsset(id: 'local-lookup-fallback'));
+    registerFallbackValue(await VideoSource.init(path: 'test.mp4', type: VideoSourceType.file));
     db = Drift(drift.DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
     await StoreService.init(storeRepository: StoreRepository(db), listenUpdates: false);
     await SettingsRepository.ensureInitialized(db);
@@ -137,6 +181,8 @@ void main() {
     AlbumUserRole role = AlbumUserRole.viewer,
     Completer<AlbumUserRole?>? roleCompleter,
     bool noCurrentUser = false,
+    bool live = false,
+    bool local = false,
   }) async {
     final user = _user('user-1');
     final album = _albumFixture(ownerId);
@@ -163,10 +209,17 @@ void main() {
     ).thenAnswer((_) async => album);
 
     final factory = _MockTimelineFactory();
-    final service = _service(buckets);
+    final service = _service(buckets, live: live, local: local);
     addTearDown(service.dispose);
     when(
       () => factory.remoteAlbum(
+        albumId: any(named: 'albumId'),
+        groupBy: any(named: 'groupBy'),
+        temporalScope: any(named: 'temporalScope'),
+      ),
+    ).thenReturn(service);
+    when(
+      () => factory.localAlbum(
         albumId: any(named: 'albumId'),
         groupBy: any(named: 'groupBy'),
         temporalScope: any(named: 'temporalScope'),
@@ -177,10 +230,24 @@ void main() {
     when(() => userService.tryGetMyUser()).thenReturn(noCurrentUser ? null : user);
     when(() => userService.watchMyUser()).thenAnswer((_) => const Stream<UserDto?>.empty());
 
+    final assetService = MockAssetService();
+    when(() => assetService.getAsset(any())).thenAnswer((call) async => call.positionalArguments.first as BaseAsset);
+    when(() => assetService.getRemoteAsset(any())).thenAnswer((call) async {
+      final id = call.positionalArguments.first as String;
+      return TestUtils.createRemoteAsset(id: id).copyWith(livePhotoVideoId: id.replaceFirst('asset-', 'motion-'));
+    });
+    final storage = MockStorageRepository();
+    when(
+      () => storage.isAssetAvailableLocally(any(), withSubtype: any(named: 'withSubtype')),
+    ).thenAnswer((_) async => false);
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           timelineFactoryProvider.overrideWithValue(factory),
+          if (live) assetServiceProvider.overrideWithValue(assetService),
+          if (live) storageRepositoryProvider.overrideWithValue(storage),
+          if (live) photosFilterSheetProvider.overrideWith((_) => FilterSheetVisibility.visible),
           remoteAlbumServiceProvider.overrideWithValue(albumService),
           infra.userServiceProvider.overrideWithValue(userService),
           currentUserProvider.overrideWith(
@@ -193,7 +260,15 @@ void main() {
           supportedLocales: const [Locale('en')],
           path: '../i18n',
           fallbackLocale: const Locale('en'),
-          child: MaterialApp(home: withStubRouter(RemoteAlbumPage(album: album))),
+          child: MaterialApp(
+            home: withStubRouter(
+              local
+                  ? LocalTimelinePage(
+                      album: LocalAlbum(id: 'local-album', name: 'Local Test', updatedAt: DateTime(2026)),
+                    )
+                  : RemoteAlbumPage(album: album),
+            ),
+          ),
         ),
       ),
     );
@@ -213,6 +288,152 @@ void main() {
 
   RemoteAlbumOption albumOption(WidgetTester tester) =>
       tester.widget<RemoteAlbumOption>(find.byType(RemoteAlbumOption));
+
+  for (final local in [false, true]) {
+    testWidgets('${local ? 'local' : 'remote'} album cold-opens a muted paired Live Photo without warming the viewer', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      // Rendering/image channels are mocked; the production player still resolves
+      // the paired source and is initialized through its real onViewReady boundary.
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final channels = <BasicMessageChannel<Object?>>[
+        const BasicMessageChannel(
+          'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
+          RemoteImageApi.pigeonChannelCodec,
+        ),
+        const BasicMessageChannel(
+          'dev.flutter.pigeon.immich_mobile.RemoteImageApi.cancelRequest',
+          RemoteImageApi.pigeonChannelCodec,
+        ),
+        const BasicMessageChannel(
+          'dev.flutter.pigeon.immich_mobile.LocalImageApi.requestImage',
+          LocalImageApi.pigeonChannelCodec,
+        ),
+        const BasicMessageChannel(
+          'dev.flutter.pigeon.immich_mobile.LocalImageApi.cancelRequest',
+          LocalImageApi.pigeonChannelCodec,
+        ),
+      ];
+      for (final channel in channels) {
+        messenger.setMockDecodedMessageHandler(channel, (_) async => <Object?>[null]);
+      }
+      addTearDown(() {
+        for (final channel in channels) {
+          messenger.setMockDecodedMessageHandler(channel, null);
+        }
+      });
+      final stages = <String>[];
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.INFO;
+      final subscription = Logger('TimelineLivePhoto').onRecord.listen((record) => stages.add(record.message));
+      addTearDown(() async {
+        Logger.root.level = previousLevel;
+        await subscription.cancel();
+      });
+      await pumpAlbumPage(tester, live: true, local: local);
+      final parent = ProviderScope.containerOf(tester.element(find.byType(EasyLocalization)));
+      expect(parent.read(photosFilterSheetProvider), FilterSheetVisibility.visible);
+      final albumScope = ProviderScope.containerOf(tester.element(find.byType(TimelineLivePhotoScope)));
+      expect(albumScope.read(photosFilterSheetProvider), FilterSheetVisibility.hidden);
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+      expect(find.byType(NativeVideoViewer), findsOneWidget, reason: stages.join(' | '));
+      expect(find.byType(NativeVideoPlayerView), findsOneWidget);
+
+      final ready = _ObservedSignal();
+      final ended = ChangeNotifier();
+      final position = _ObservedValue(100);
+      final status = ValueNotifier(PlaybackStatus.playing);
+      final error = ValueNotifier<String?>(null);
+      final controller = _MockVideoController();
+      final commands = <String>[];
+      addTearDown(() {
+        ready.dispose();
+        ended.dispose();
+        position.dispose();
+        status.dispose();
+        error.dispose();
+      });
+      when(() => controller.onPlaybackReady).thenReturn(ready);
+      when(() => controller.onPlaybackEnded).thenReturn(ended);
+      when(() => controller.onPlaybackPositionChanged).thenReturn(position);
+      when(() => controller.onPlaybackStatusChanged).thenReturn(status);
+      when(() => controller.onError).thenReturn(error);
+      when(() => controller.videoSource).thenReturn(null);
+      when(
+        () => controller.videoInfo,
+      ).thenReturn(VideoInfo.fromJson({'height': 1080, 'width': 1920, 'duration': 2000}));
+      when(() => controller.playbackInfo).thenReturn(_PlayingInfo());
+      when(() => controller.setVolume(any())).thenAnswer((call) async {
+        commands.add('volume:${call.positionalArguments.single}');
+      });
+      when(() => controller.setLoop(any())).thenAnswer((call) async {
+        commands.add('loop:${call.positionalArguments.single}');
+      });
+      when(() => controller.loadVideoSource(any())).thenAnswer((_) async {
+        commands.add('load');
+        ready.notifyListeners();
+      });
+      when(() => controller.play()).thenAnswer((_) async {
+        commands.add('play');
+      });
+      when(() => controller.pause()).thenAnswer((_) async {
+        commands.add('pause');
+      });
+
+      final preview = tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer));
+      tester.widget<NativeVideoPlayerView>(find.byType(NativeVideoPlayerView)).onViewReady!(controller);
+      await tester.runAsync(() => pumpEventQueue());
+      await tester.pump();
+      expect(commands.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+      final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
+      final pairedId = local
+          ? preview.asset.remoteId!.replaceFirst('asset-', 'motion-')
+          : (preview.asset as RemoteAsset).livePhotoVideoId;
+      expect(source.path, 'http://test-server/assets/$pairedId/video/playback');
+      expect(source.type, VideoSourceType.network);
+
+      // A real progress callback consumes the same one-shot budget as the main
+      // feed. Completion releases the native surface, rather than cascading
+      // through the other visible Live Photos in this album.
+      position.notifyListeners();
+      ended.notifyListeners();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(NativeVideoViewer), findsNothing);
+      expect(ready.observed, isFalse);
+      expect(position.observed, isFalse);
+
+      // The album's real virtualized scroll view grants a fresh settled lease
+      // only after moving to another region, with one native surface at a time.
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable).first);
+      scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+      expect(find.byType(NativeVideoViewer), findsOneWidget);
+      expect(tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer)).asset.id, isNot(preview.asset.id));
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(find.byType(NativeVideoViewer), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump();
+      expect(find.byType(NativeVideoViewer), findsOneWidget);
+      expect(commands.where((command) => command == 'play'), hasLength(1), reason: 'the old disposed decoder is inert');
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => pumpEventQueue());
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
 
   Future<void> openEditDialog(WidgetTester tester) async {
     albumOption(tester).onEditAlbum!();
