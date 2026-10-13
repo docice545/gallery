@@ -272,18 +272,19 @@ jobs:
         if: always() && inputs.build11
         run: |
           python3 - <<'PY'
-          import json, os, re
+          import json, os, sys
           from pathlib import Path
+          sys.path.insert(0, 'scripts/release')
+          from build11_installation_smoke import public_failure
           path = Path(os.environ['RUNNER_TEMP']) / 'build11-installation-lab.json'
           if path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
               row = json.loads(path.read_text())
-              if row.get('result') == 'FAIL':
-                  code = row.get('failure', '')
-                  if not re.fullmatch('[A-Z][A-Z0-9_]{0,150}', code):
-                      code = 'INSTALLATION_LAB_FAILED_PRIVATE_DETAILS_OMITTED'
-                  print('::error title=Build11 actual installation gate::' + code)
+              safe = public_failure(row)
+              if safe is not None:
+                  message = json.dumps(safe, sort_keys=True)
+                  print('::error title=Build11 actual installation gate::' + message)
                   with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as file:
-                      file.write('\nInstallation gate: FAIL; sanitized code: `' + code + '`\n')
+                      file.write('\nInstallation gate: FAIL; sanitized diagnostic: `' + message + '`\n')
           PY
       - name: Preserve verification reports even when final package is blocked
         if: always() && inputs.build11

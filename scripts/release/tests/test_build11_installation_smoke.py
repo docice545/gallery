@@ -72,6 +72,81 @@ class Boundary(unittest.TestCase):
                 lab.command(['docker', 'bad'])
 
 
+class SanitizedDiagnostics(unittest.TestCase):
+    def test_allowlisted_operation_omits_compose_paths_images_and_arguments(self):
+        cases = [(['sudo', '-n', 'docker', '--host='+lab.SOCKET, 'image', 'inspect', '--platform', 'linux/amd64', 'private-image'],
+                  'DOCKER_IMAGE_INSPECT_PLATFORM'),
+                 (['docker', '--host='+lab.SOCKET, 'compose', '--project-directory', '/private-user', '-p', 'immich',
+                   '-f', '/private-configuration', 'config', '--hash', '*'], 'DOCKER_COMPOSE_CONFIG'),
+                 (['docker', '--host='+lab.SOCKET, 'compose', '-f', '/private-config', 'up', '-d'], 'DOCKER_COMPOSE_START'),
+                 (['docker', '--host='+lab.SOCKET, 'exec', 'private-container', 'private-command'], 'DOCKER_CONTAINER_EXEC'),
+                 (['private-api-token'], 'OTHER_COMMAND')]
+        for args, expected in cases:
+            with self.subTest(expected=expected):self.assertEqual(lab.docker_operation(args), expected)
+
+    def test_stderr_is_only_classified_never_returned_or_printed(self):
+        cases = [('--platform requires API version 1.49 private-token', 'DOCKER_API_VERSION_UNSUPPORTED'),
+                 ('unknown flag: --platform /private-name', 'DOCKER_PLATFORM_FLAG_UNSUPPORTED'),
+                 ('no matching manifest for linux/arm64 secret-token', 'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE'),
+                 ('no such image private-path', 'DOCKER_IMAGE_UNAVAILABLE'),
+                 ('sudo: a password is required SECRET_PASSWORD', 'SUDO_NONINTERACTIVE_AUTHORIZATION_REQUIRED'),
+                 ('Cannot connect to the Docker daemon /private-socket', 'DOCKER_LOCAL_DAEMON_UNAVAILABLE'),
+                 ('validating /private-compose: Additional property private is not allowed', 'COMPOSE_CONFIGURATION_INVALID'),
+                 ('permission denied /personal/photo.jpg', 'PERMISSION_DENIED'),
+                 ('arbitrary stderr SECRET_PASSWORD /personal/photo.jpg', 'PRIVATE_ERROR_OMITTED')]
+        for stderr, expected in cases:
+            with self.subTest(expected=expected):self.assertEqual(lab.error_category(stderr), expected)
+
+    def test_failing_docker_operation_exposes_only_fixed_metadata(self):
+        args=['docker', '--host='+lab.SOCKET, 'image', 'inspect', '--platform', 'linux/amd64', '/private-image']
+        completed=subprocess.CompletedProcess(args, 17, 'SECRET_TOKEN', 'requires API version 1.49 SECRET_PASSWORD /private-name')
+        with patch.dict(os.environ, CI), patch.object(lab.subprocess,'run',return_value=completed):
+            with self.assertRaises(lab.LabFailure) as caught:lab.command(args)
+        self.assertEqual(caught.exception.diagnostic, {'operation':'DOCKER_IMAGE_INSPECT_PLATFORM', 'returnCode':17,
+                                                     'errorCategory':'DOCKER_API_VERSION_UNSUPPORTED'})
+        self.assertNotIn('SECRET',str(caught.exception));self.assertNotIn('private',json.dumps(caught.exception.diagnostic))
+
+    def test_child_metadata_and_actual_installer_code_are_preserved_without_private_fields(self):
+        diagnostic={'operation':'DOCKER_IMAGE_INSPECT_PLATFORM','returnCode':1,
+                    'errorCategory':'DOCKER_API_VERSION_UNSUPPORTED','clientApiVersion':'1.50',
+                    'serverApiVersion':'1.48','installerFailureLine':73,'privatePath':'/family/private','stderr':'SECRET'}
+        stdout='INSTALL_COMMAND_DIAGNOSTIC '+json.dumps(diagnostic)+'\nFAIL_ACTUAL_PACKAGED_INSTALLER: COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED\n'
+        with patch.dict(os.environ,CI),patch.object(lab.subprocess,'run',return_value=subprocess.CompletedProcess([],1,stdout,'SECRET')):
+            with self.assertRaises(lab.LabFailure) as caught:lab.command(['python3','private-installer'])
+        self.assertEqual(str(caught.exception),'PACKAGED_INSTALLER_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')
+        self.assertEqual(caught.exception.diagnostic['serverApiVersion'],'1.48')
+        self.assertNotIn('private',json.dumps(caught.exception.diagnostic));self.assertNotIn('SECRET',json.dumps(caught.exception.diagnostic))
+
+    def test_untrusted_public_report_cannot_publish_paths_tokens_or_non_numeric_versions(self):
+        row={'result':'FAIL','failure':'PRIVATE_SECRET_TOKEN','failedStage':'/private/family-name',
+             'failureLine':'SECRET','stderr':'private-password','commandDiagnostic':{
+                 'operation':'DOCKER_IMAGE_PULL','returnCode':1,'errorCategory':'REGISTRY_ACCESS_DENIED',
+                 'clientApiVersion':'private-password','serverApiVersion':'1.50\nSECRET',
+                 'installerFailureLine':'/private/source','argv':['private-secret'], 'stderr':'SECRET'}}
+        safe=lab.public_failure(row)
+        self.assertEqual(safe,{'failure':'INSTALLATION_LAB_FAILED_PRIVATE_DETAILS_OMITTED','failedStage':'UNKNOWN_STAGE',
+                              'commandDiagnostic':{'operation':'DOCKER_IMAGE_PULL','returnCode':1,'errorCategory':'REGISTRY_ACCESS_DENIED'}})
+        self.assertFalse(any(value in json.dumps(safe) for value in ('PRIVATE_SECRET','private','password','SECRET')))
+        row.update(failure='PACKAGED_INSTALLER_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED',
+                   failedStage='interrupted configuration creation',failureLine=187)
+        self.assertEqual(lab.public_failure(row)['failureLine'],187)
+        self.assertEqual(lab.public_failure(row)['failedStage'],'interrupted configuration creation')
+
+    def test_invalid_diagnostic_types_out_of_range_numbers_and_unknown_categories_are_rejected(self):
+        base={'operation':'DOCKER_COMPOSE_CONFIG','returnCode':1,'errorCategory':'COMPOSE_CONFIGURATION_INVALID'}
+        for key,value in [('operation',{}),('operation','private-password'),('returnCode',True),('returnCode',10000),
+                          ('errorCategory',[]),('errorCategory','PRIVATE_SECRET')]:
+            with self.subTest(key=key,value=value):self.assertIsNone(lab.validated_diagnostic({**base,key:value}))
+        self.assertIsNone(lab.public_failure({'result':'PASS'}))
+        self.assertEqual(lab.public_failure({'result':'FAIL','failedStage':[]})['failedStage'],'UNKNOWN_STAGE')
+
+    def test_unknown_stdout_error_marker_cannot_publish_arbitrary_uppercase_secret(self):
+        result=subprocess.CompletedProcess([],1,'STOP PRIVATE_SECRET_TOKEN\n','/personal/photo.jpg')
+        with patch.dict(os.environ,CI),patch.object(lab.subprocess,'run',return_value=result):
+            with self.assertRaisesRegex(lab.LabFailure,'^LAB_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED$'):
+                lab.command(['private-command'])
+
+
 class PausedQueue(unittest.TestCase):
     def test_exact_all_27_hashes_order_and_six_originals_pass(self):
         lab.unchanged_queue(queue(), copy.deepcopy(queue()))
@@ -161,22 +236,49 @@ class GenuineFaultInjection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); tools = root / 'tools'; tools.mkdir()
             fixture = tools / 'gallery_install.py'
-            fixture.write_text("from types import SimpleNamespace\n"
-                               "core=SimpleNamespace(save=lambda *a:None,health=lambda *a:None)\n"
+            prefix=("from types import SimpleNamespace\nimport subprocess\n"
+                    "class Stop(Exception): pass\n"
+                    "core=SimpleNamespace(save=lambda *a:None,health=lambda *a:None,subprocess=subprocess,Stop=Stop,DOCKER=['docker'])\n")
+            fixture.write_text(prefix+
                                "def install(args): raise RuntimeError('REAL_SETUP_FAILURE')\n")
             result = subprocess.run([sys.executable, '-B', '-c', lab.INSTALL_CHILD, str(root), str(root),
-                                     str(root / 'env'), 'sha256:' + 'a' * 64, 'before-plan'],
+                                     str(root / 'env'), 'sha256:' + 'a' * 64, 'before-plan', str(Path(lab.__file__).resolve())],
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 1)
             self.assertNotIn('PASS_EXPECTED', result.stdout)
-            fixture.write_text("from types import SimpleNamespace\n"
-                               "core=SimpleNamespace(save=lambda *a:None,health=lambda *a:None)\n"
+            fixture.write_text(prefix+
                                "def install(args): core.save(args.directory/'fresh-install-plan.json',{})\n")
             result = subprocess.run([sys.executable, '-B', '-c', lab.INSTALL_CHILD, str(root), str(root),
-                                     str(root / 'env'), 'sha256:' + 'a' * 64, 'before-plan'],
+                                     str(root / 'env'), 'sha256:' + 'a' * 64, 'before-plan', str(Path(lab.__file__).resolve())],
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 90)
             self.assertIn('PASS_EXPECTED_INJECTED_INTERRUPTION', result.stdout)
+
+    def test_child_observes_actual_failed_process_and_sanitizes_version_probe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);tools=root/'tools';tools.mkdir()
+            (tools/'gallery_install.py').write_text("""from types import SimpleNamespace
+import subprocess,json
+class Stop(Exception):pass
+def process(command,*args,**kwargs):
+  if 'version' in command:
+    return subprocess.CompletedProcess(command,0,json.dumps({'Client':{'ApiVersion':'1.50'},'Server':{'ApiVersion':'1.48'},'private':'SECRET'}),'')
+  return subprocess.CompletedProcess(command,1,'private-stdout','--platform requires API version 1.49 SECRET_PASSWORD /private-family')
+core=SimpleNamespace(save=lambda *a:None,health=lambda *a:None,subprocess=SimpleNamespace(run=process,TimeoutExpired=subprocess.TimeoutExpired),Stop=Stop,DOCKER=['docker','--host=unix:///var/run/docker.sock'])
+def install(args):
+  result=core.subprocess.run([*core.DOCKER,'image','inspect','--platform','linux/amd64','/private-image'],text=True,capture_output=True)
+  if result.returncode:raise Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')
+""")
+            result=subprocess.run([sys.executable,'-B','-c',lab.INSTALL_CHILD,str(root),str(root),str(root/'env'),
+                                   'sha256:'+'a'*64,'before-plan',str(Path(lab.__file__).resolve())],text=True,capture_output=True)
+            self.assertEqual(result.returncode,1);self.assertNotIn('PASS_EXPECTED',result.stdout)
+            line=next(line for line in result.stdout.splitlines() if line.startswith('INSTALL_COMMAND_DIAGNOSTIC '))
+            safe=json.loads(line[len('INSTALL_COMMAND_DIAGNOSTIC '):])
+            self.assertEqual(safe['operation'],'DOCKER_IMAGE_INSPECT_PLATFORM')
+            self.assertEqual(safe['returnCode'],1);self.assertEqual(safe['errorCategory'],'DOCKER_API_VERSION_UNSUPPORTED')
+            self.assertEqual(safe['clientApiVersion'],'1.50');self.assertEqual(safe['serverApiVersion'],'1.48')
+            self.assertTrue(type(safe['installerFailureLine']) is int)
+            self.assertFalse(any(value in result.stdout+result.stderr for value in ('SECRET_PASSWORD','/private-family','private-stdout','/private-image')))
 
 
 if __name__ == '__main__':

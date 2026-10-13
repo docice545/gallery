@@ -2,6 +2,8 @@ import { Kysely } from 'kysely';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import request from 'supertest';
+import { TrashController } from 'src/controllers/trash.controller.js';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { AssetStatus, ChecksumAlgorithm, JobStatus, StorageFolder } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
@@ -14,10 +16,11 @@ import { TrashRepository } from 'src/repositories/trash.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetService } from 'src/services/asset.service.js';
+import { TrashService } from 'src/services/trash.service.js';
 import { DeletionError, snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
-import { getKyselyDB, newTestService } from 'test/utils.js';
+import { controllerSetup, getKyselyDB, newTestService } from 'test/utils.js';
 
 let db: Kysely<DB>;
 let base: string;
@@ -92,7 +95,157 @@ const fixture = async (external = false) => {
   };
 };
 
+const upstreamTrashEndpoint = async (f: Awaited<ReturnType<typeof fixture>>) => {
+  const { sut: trash } = newTestService(TrashService);
+  const http = await controllerSetup(TrashController, [
+    { provide: TrashService, useValue: trash },
+    { provide: AssetService, useValue: f.sut },
+  ]);
+  http.authenticate.mockResolvedValue(f.auth);
+  return http;
+};
+
 describe('Build11 ordinary owner deletion with real PostgreSQL and synthetic filesystem media', () => {
+  it('upstream no-body Empty Trash physically deletes owned managed Trash only and returns the original count contract', async () => {
+    const f = await fixture();
+    const secondPath = join(f.root, 'second-video.mov');
+    await writeFile(secondPath, 'disposable managed video');
+    const { asset: second } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      originalPath: secondPath,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+    });
+    const activePath = join(f.root, 'active-photo.heic');
+    await writeFile(activePath, 'active managed original stays');
+    const { asset: active } = await f.ctx.newAsset({ ownerId: f.user.id, originalPath: activePath });
+    const externalRoot = join(base, 'offline-external');
+    await mkdir(externalRoot);
+    const { library } = await f.ctx.newLibrary({ ownerId: f.user.id });
+    await new LibraryRepository(db).update(library.id, { importPaths: [externalRoot] });
+    const offlinePath = join(externalRoot, 'offline-photo.heic');
+    await writeFile(offlinePath, 'offline index original stays');
+    const offlineDate = new Date('2026-10-01T10:00:00Z');
+    const { asset: offline } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: library.id,
+      isExternal: true,
+      originalPath: offlinePath,
+      status: AssetStatus.Active,
+      isOffline: true,
+      deletedAt: offlineDate,
+    });
+    const { user: other } = await f.ctx.newUser();
+    const otherPath = join(base, 'other-owner-photo.heic');
+    await writeFile(otherPath, 'other owner original stays');
+    const { asset: otherAsset } = await f.ctx.newAsset({
+      ownerId: other.id,
+      originalPath: otherPath,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+    });
+    const before = await db
+      .selectFrom('asset')
+      .selectAll()
+      .where('id', 'in', [active.id, offline.id, otherAsset.id])
+      .execute();
+    const http = await upstreamTrashEndpoint(f);
+    try {
+      const response = await request(http.getHttpServer()).post('/trash/empty');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ count: 2 });
+      const repeated = await request(http.getHttpServer()).post('/trash/empty');
+      expect(repeated.status).toBe(200);
+      expect(repeated.body).toEqual({ count: 0 });
+      for (const asset of [f.asset, second]) {
+        await expect(readFile(asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+        expect(await f.repo.getDeletionReceipt(f.user.id, asset.id)).toMatchObject({ state: 'complete' });
+      }
+      expect(
+        await db.selectFrom('asset').selectAll().where('id', 'in', [active.id, offline.id, otherAsset.id]).execute(),
+      ).toEqual(before);
+      expect(await readFile(activePath, 'utf8')).toBe('active managed original stays');
+      expect(await readFile(offlinePath, 'utf8')).toBe('offline index original stays');
+      expect(await readFile(otherPath, 'utf8')).toBe('other owner original stays');
+      expect(await f.repo.getDeletionPolicy(f.user.id, library.id)).toBeUndefined();
+    } finally {
+      await http.close();
+    }
+  });
+
+  it('upstream Empty Trash rejects mixed unmanaged external scope before creating receipts or deleting any managed original', async () => {
+    const f = await fixture();
+    const externalRoot = join(base, 'read-only-external');
+    await mkdir(externalRoot);
+    const { library } = await f.ctx.newLibrary({ ownerId: f.user.id });
+    await new LibraryRepository(db).update(library.id, { importPaths: [externalRoot] });
+    const externalPath = join(externalRoot, 'video.mov');
+    await writeFile(externalPath, 'unauthorized external original stays');
+    const { asset: external } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      libraryId: library.id,
+      isExternal: true,
+      originalPath: externalPath,
+      status: AssetStatus.Trashed,
+      deletedAt: new Date(),
+    });
+    const http = await upstreamTrashEndpoint(f);
+    try {
+      const response = await request(http.getHttpServer()).post('/trash/empty');
+      expect(response.status).toBe(409);
+      expect(response.body.message).toBe('LIBRARY_DELETION_NOT_AUTHORIZED');
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
+      expect(await readFile(externalPath, 'utf8')).toBe('unauthorized external original stays');
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+      expect(await f.repo.getDeletionReceipt(f.user.id, external.id)).toBeUndefined();
+      expect(f.mocks.job.queue).not.toHaveBeenCalled();
+    } finally {
+      await http.close();
+    }
+  });
+
+  it('upstream Empty Trash supports an explicitly writable external owner scope through the existing guarded lifecycle', async () => {
+    const f = await fixture(true);
+    await f.sut.setLibraryDeletionConsent(f.auth, f.scope, true);
+    const http = await upstreamTrashEndpoint(f);
+    try {
+      const response = await request(http.getHttpServer()).post('/trash/empty');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ count: 1 });
+      await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
+      expect(await f.repo.filterNewExternalAssetPaths(f.scope, [f.asset.originalPath])).toEqual([]);
+    } finally {
+      await http.close();
+    }
+  });
+
+  it('upstream Empty Trash cannot permanently delete an item restored after the owner Trash snapshot', async () => {
+    const f = await fixture();
+    const getOwnerTrash = f.repo.getOwnerTrash.bind(f.repo);
+    vi.spyOn(f.repo, 'getOwnerTrash').mockImplementationOnce(async (ownerId) => {
+      const snapshot = await getOwnerTrash(ownerId);
+      await new TrashRepository(db).restoreAll([f.asset.id]);
+      return snapshot;
+    });
+    const http = await upstreamTrashEndpoint(f);
+    try {
+      const response = await request(http.getHttpServer()).post('/trash/empty');
+      expect(response.status).toBe(409);
+      expect(await readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
+      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toBeUndefined();
+      expect(
+        await db.selectFrom('asset').select(['status', 'deletedAt']).where('id', '=', f.asset.id).executeTakeFirst(),
+      ).toEqual({
+        status: AssetStatus.Active,
+        deletedAt: null,
+      });
+      expect(f.mocks.job.queue).not.toHaveBeenCalled();
+    } finally {
+      await http.close();
+    }
+  });
+
   it('managed owner can delete without recovery evidence and durable receipt prevents restart/reimport', async () => {
     const f = await fixture();
     expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toBeUndefined();

@@ -7,6 +7,7 @@ The small fault injections interrupt real configuration/startup operations;
 they do not replace Docker, PostgreSQL, HTTP, migration or queue assertions.
 """
 import argparse
+import ast
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -33,10 +34,135 @@ NAMES = ('immich_server', 'immich_postgres', 'immich_redis', 'immich_machine_lea
 MARKER = 'BUILD11_DISPOSABLE_COMPILED_PACKAGE_LAB_NOT_HP_VALIDATION'
 MIGRATION = '1794050000000-OwnerStorageDeletion'
 JOB_IDS = tuple('build11-lab-' + str(n) for n in range(1, 28))
+STAGES = frozenset({
+    'interrupted configuration creation',
+    'configuration resume and real service-start interruption',
+    'actual clean-install resume', 'actual completed-install repeat',
+    'actual packaged fresh-install rollback and repeat',
+    'compiled Build10 runtime representative state',
+    'real image-only upgrade plan and dry-run',
+    'real migration and simulated post-upgrade health interruption',
+    'actual HTTP synthetic Trash/Restore/managed permanent delete',
+    'real hardened rollback after interrupted upgrade',
+    'idempotent interrupted attempt refusal',
+})
+OPERATIONS = frozenset({
+    'DOCKER_IMAGE_INSPECT', 'DOCKER_IMAGE_INSPECT_PLATFORM', 'DOCKER_IMAGE_PULL',
+    'DOCKER_IMAGE_LOAD', 'DOCKER_CONTAINER_INSPECT', 'DOCKER_CONTAINER_LIST',
+    'DOCKER_CONTAINER_EXEC', 'DOCKER_COMPOSE_CONFIG', 'DOCKER_COMPOSE_START',
+    'DOCKER_COMPOSE_LIST', 'DOCKER_VERSION', 'DOCKER_OTHER', 'OTHER_COMMAND',
+})
+ERROR_CATEGORIES = frozenset({
+    'DOCKER_API_VERSION_UNSUPPORTED', 'DOCKER_PLATFORM_FLAG_UNSUPPORTED',
+    'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE', 'DOCKER_IMAGE_UNAVAILABLE',
+    'SUDO_NONINTERACTIVE_AUTHORIZATION_REQUIRED', 'PERMISSION_DENIED',
+    'DOCKER_LOCAL_DAEMON_UNAVAILABLE', 'COMPOSE_CONFIGURATION_INVALID',
+    'DOCKER_RESOURCE_CONFLICT', 'REGISTRY_ACCESS_DENIED', 'COMMAND_TIMEOUT',
+    'PRIVATE_ERROR_OMITTED',
+})
 
 
 class LabFailure(Exception):
-    pass
+    def __init__(self, code, diagnostic=None):
+        super().__init__(code)
+        self.diagnostic = validated_diagnostic(diagnostic)
+
+
+def docker_operation(args):
+    """Return only a fixed operation; arguments, image names and paths stay private."""
+    tokens = list(args) if isinstance(args, (list, tuple)) else []
+    if tokens[:2] == ['sudo', '-n']:
+        tokens = tokens[2:]
+    if not tokens or tokens.pop(0) != 'docker':
+        return 'OTHER_COMMAND'
+    if tokens and tokens[0] == '--host=' + SOCKET:
+        tokens.pop(0)
+    if tokens[:2] == ['image', 'inspect']:
+        return 'DOCKER_IMAGE_INSPECT_PLATFORM' if '--platform' in tokens[2:] else 'DOCKER_IMAGE_INSPECT'
+    fixed = {('image', 'pull'): 'DOCKER_IMAGE_PULL', ('image', 'load'): 'DOCKER_IMAGE_LOAD'}
+    if tuple(tokens[:2]) in fixed:
+        return fixed[tuple(tokens[:2])]
+    if tokens and tokens[0] == 'compose':
+        tokens = tokens[1:]
+        while tokens and tokens[0] in ('--project-directory', '-p', '--project-name', '-f', '--file', '--env-file'):
+            tokens = tokens[2:]
+        return {'config': 'DOCKER_COMPOSE_CONFIG', 'up': 'DOCKER_COMPOSE_START',
+                'ps': 'DOCKER_COMPOSE_LIST'}.get(tokens[0] if tokens else '', 'DOCKER_OTHER')
+    return {'inspect': 'DOCKER_CONTAINER_INSPECT', 'ps': 'DOCKER_CONTAINER_LIST',
+            'exec': 'DOCKER_CONTAINER_EXEC', 'version': 'DOCKER_VERSION'}.get(
+                tokens[0] if tokens else '', 'DOCKER_OTHER')
+
+
+def error_category(stderr):
+    """Classify Docker stderr without publishing a single byte of its contents."""
+    text = stderr[:65536].lower() if isinstance(stderr, str) else ''
+    cases = (
+        ('DOCKER_API_VERSION_UNSUPPORTED', r'requires? api version|client is newer than server|client version .* is too (?:new|old)|minimum supported api version'),
+        ('DOCKER_PLATFORM_FLAG_UNSUPPORTED', r'unknown flag: --platform|flag provided but not defined: -platform'),
+        ('DOCKER_REQUESTED_PLATFORM_UNAVAILABLE', r'no matching manifest for|platform .*not (?:found|available)|does not match the specified platform'),
+        ('DOCKER_IMAGE_UNAVAILABLE', r'no such image|image .*not found|manifest unknown'),
+        ('SUDO_NONINTERACTIVE_AUTHORIZATION_REQUIRED', r'sudo:.*(?:password is required|terminal is required|not allowed)'),
+        ('DOCKER_LOCAL_DAEMON_UNAVAILABLE', r'cannot connect to the docker daemon|error during connect|is the docker daemon running'),
+        ('COMPOSE_CONFIGURATION_INVALID', r'validating .*additional propert|unsupported config option|invalid compose|services\..*must be a'),
+        ('DOCKER_RESOURCE_CONFLICT', r'container name .*already in use|port is already allocated|address already in use'),
+        ('REGISTRY_ACCESS_DENIED', r'pull access denied|unauthorized:|denied: requested access'),
+        ('PERMISSION_DENIED', r'permission denied|operation not permitted'),
+    )
+    return next((category for category, pattern in cases if re.search(pattern, text)), 'PRIVATE_ERROR_OMITTED')
+
+
+def validated_diagnostic(value):
+    """An allowlist crosses both the child-process and public Checks API boundary."""
+    if not isinstance(value, dict) or not isinstance(value.get('operation'), str) or \
+            value['operation'] not in OPERATIONS or not isinstance(value.get('errorCategory'), str) or \
+            value['errorCategory'] not in ERROR_CATEGORIES:
+        return None
+    code = value.get('returnCode')
+    if not (value['errorCategory'] == 'COMMAND_TIMEOUT' and code is None) and \
+            (type(code) is not int or not -128 <= code <= 255):
+        return None
+    result = {key: value[key] for key in ('operation', 'returnCode', 'errorCategory')}
+    for name in ('clientApiVersion', 'serverApiVersion'):
+        version = value.get(name)
+        if isinstance(version, str) and re.fullmatch(r'[0-9]{1,2}\.[0-9]{1,3}', version):
+            result[name] = version
+    line = value.get('installerFailureLine')
+    if type(line) is int and 1 <= line <= 1000000:
+        result['installerFailureLine'] = line
+    return result
+
+
+def verified_failure_code(value):
+    """Only literal guard codes in reviewed tooling may become a public error."""
+    if not isinstance(value, str) or not re.fullmatch('[A-Z][A-Z0-9_]{0,150}', value):
+        return None
+    codes = {'LAB_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED', 'LAB_FAILED_PRIVATE_DETAILS_OMITTED',
+             'INSTALLATION_LAB_FAILED_PRIVATE_DETAILS_OMITTED', 'STOP_PRIVATE_DETAILS_OMITTED'}
+    for name in ('build11_installation_smoke.py', 'gallery_install.py', 'image_release.py',
+                 'gallery_entry.py', 'build11_operator.py'):
+        for node in ast.walk(ast.parse((Path(__file__).parent / name).read_text())):
+            if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute)) and \
+                    (node.func.id if isinstance(node.func, ast.Name) else node.func.attr) in ('need', 'Stop', 'LabFailure'):
+                codes.update(arg.value for arg in node.args if isinstance(arg, ast.Constant) and
+                             isinstance(arg.value, str) and re.fullmatch('[A-Z][A-Z0-9_]{0,150}', arg.value))
+    return value if value in codes or value.startswith('PACKAGED_INSTALLER_') and \
+        value[len('PACKAGED_INSTALLER_'):] in codes else None
+
+
+def public_failure(row):
+    """Publish only fixed stage labels, bounded codes/numbers and validated diagnostics."""
+    if not isinstance(row, dict) or row.get('result') != 'FAIL':
+        return None
+    code = verified_failure_code(row.get('failure')) or 'INSTALLATION_LAB_FAILED_PRIVATE_DETAILS_OMITTED'
+    stage = row.get('failedStage')
+    result = {'failure': code, 'failedStage': stage if isinstance(stage, str) and stage in STAGES else 'UNKNOWN_STAGE'}
+    line = row.get('failureLine')
+    if type(line) is int and 1 <= line <= 1000000:
+        result['failureLine'] = line
+    diagnostic = validated_diagnostic(row.get('commandDiagnostic'))
+    if diagnostic:
+        result['commandDiagnostic'] = diagnostic
+    return result
 
 
 def need(value, code):
@@ -61,8 +187,19 @@ def command(args, *, input=None, timeout=180, expected=0):
     if result.returncode != expected:
         # Only fixed codes printed by our own wrapper become public diagnostics;
         # Docker/Compose stderr and request data remain private.
-        fixed = re.findall(r'^(?:FAIL_ACTUAL_PACKAGED_INSTALLER:|STOP) ([A-Z0-9_]+)$', result.stdout, re.MULTILINE)
-        raise LabFailure('PACKAGED_INSTALLER_' + fixed[-1] if fixed else 'LAB_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')
+        fixed = [value for value in re.findall(r'^(?:FAIL_ACTUAL_PACKAGED_INSTALLER:|STOP) ([A-Z0-9_]+)$', result.stdout, re.MULTILINE)
+                 if verified_failure_code(value)]
+        diagnostic = None
+        for line in result.stdout.splitlines():
+            if line.startswith('INSTALL_COMMAND_DIAGNOSTIC ') and len(line) <= 2048:
+                try:
+                    diagnostic = validated_diagnostic(json.loads(line[len('INSTALL_COMMAND_DIAGNOSTIC '):]))
+                except (ValueError, TypeError):
+                    pass
+        if diagnostic is None and docker_operation(args) != 'OTHER_COMMAND':
+            diagnostic = validated_diagnostic({'operation': docker_operation(args), 'returnCode': result.returncode,
+                                               'errorCategory': error_category(result.stderr)})
+        raise LabFailure('PACKAGED_INSTALLER_' + fixed[-1] if fixed else 'LAB_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED', diagnostic)
     return result.stdout
 
 
@@ -106,11 +243,29 @@ def installation_containers(directory):
 
 
 INSTALL_CHILD = r'''
-import json,os,sys
+import json,os,sys,traceback
 from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, str(Path(sys.argv[1])/'tools'))
 import gallery_install as installer
+# Diagnostic helpers belong to the reviewed CI harness, not the application or
+# production installer. Observe the actual subprocess without changing execution.
+sys.path.append(str(Path(sys.argv[6]).parent))
+import build11_installation_smoke as diagnostics
+previous_process=installer.core.subprocess.run
+last_failure=None
+def observed_process(command,*args,**kwargs):
+  global last_failure
+  last_failure=None
+  try: result=previous_process(command,*args,**kwargs)
+  except installer.core.subprocess.TimeoutExpired:
+    last_failure={'operation':diagnostics.docker_operation(command),'returnCode':None,'errorCategory':'COMMAND_TIMEOUT'}
+    raise
+  if result.returncode != 0:
+    last_failure={'operation':diagnostics.docker_operation(command),'returnCode':result.returncode,
+                  'errorCategory':diagnostics.error_category(result.stderr)}
+  return result
+installer.core.subprocess.run=observed_process
 fault=sys.argv[5]
 if fault == 'before-plan':
   previous=installer.core.save
@@ -128,7 +283,22 @@ except Exception as error:
   expected={'before-plan':'INJECTED_PLAN_WRITE_INTERRUPTION','after-start':'INJECTED_POST_START_INTERRUPTION'}.get(fault)
   if isinstance(error,RuntimeError) and str(error)==expected:
     print('PASS_EXPECTED_INJECTED_INTERRUPTION');sys.exit(90)
-  code=str(error) if __import__('re').fullmatch('[A-Z0-9_]+',str(error)) else type(error).__name__.upper()
+  if last_failure is not None and (isinstance(error,installer.core.subprocess.TimeoutExpired) or
+      isinstance(error,installer.core.Stop) and str(error)=='COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'):
+    last_failure['installerFailureLine']=traceback.extract_tb(error.__traceback__)[-1].lineno
+    # Numeric API versions only; a failed read-only version probe never replaces
+    # the real failure or exposes registry credentials, stderr or command args.
+    try:
+      versions=previous_process([*installer.core.DOCKER,'version','--format','{{json .}}'],text=True,capture_output=True,timeout=10)
+      if versions.returncode == 0:
+        row=json.loads(versions.stdout)
+        for side,name in [('Client','clientApiVersion'),('Server','serverApiVersion')]:
+          last_failure[name]=row.get(side,{}).get('ApiVersion')
+    except Exception: pass
+    safe=diagnostics.validated_diagnostic(last_failure)
+    if safe is not None: print('INSTALL_COMMAND_DIAGNOSTIC '+json.dumps(safe,sort_keys=True))
+  code=diagnostics.verified_failure_code(str(error)) if isinstance(error,installer.core.Stop) else None
+  if code is None: code='STOP_PRIVATE_DETAILS_OMITTED'
   print('FAIL_ACTUAL_PACKAGED_INSTALLER: '+code);sys.exit(1)
 if fault: print('FAIL_FAULT_NOT_REACHED');sys.exit(1)
 '''
@@ -139,7 +309,7 @@ def invoke_installer(package, directory, environment, ml_image, fault=''):
     os.environ['GALLERY_FRESH_INSTALL_APPROVED'] = 'YES'
     try:
         return command([sys.executable, '-B', '-c', INSTALL_CHILD, str(package), str(directory),
-                        str(environment), ml_image, fault], timeout=2400, expected=90 if fault else 0)
+                        str(environment), ml_image, fault, str(Path(__file__).resolve())], timeout=2400, expected=90 if fault else 0)
     finally:
         if previous is None:
             os.environ.pop('GALLERY_FRESH_INSTALL_APPROVED', None)
@@ -715,6 +885,9 @@ def run(package, output):
         report['failure'] = code if isinstance(error, LabFailure) or re.fullmatch('[A-Z0-9_]+', code) else 'LAB_FAILED_PRIVATE_DETAILS_OMITTED'
         report['failureType'] = type(error).__name__
         report['failureLine'] = traceback.extract_tb(error.__traceback__)[-1].lineno
+        diagnostic = validated_diagnostic(getattr(error, 'diagnostic', None))
+        if diagnostic:
+            report['commandDiagnostic'] = diagnostic
         print('FAIL installation lab stage=' + stage + ' code=' + report['failure'], flush=True)
     finally:
         report['completedAt'] = datetime.now(timezone.utc).isoformat()
