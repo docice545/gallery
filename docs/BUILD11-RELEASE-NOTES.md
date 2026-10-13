@@ -1,13 +1,26 @@
 # Noodle Gallery 5.7.3 (11): release candidate
 
-Application source: `f26b46059726ca3c55c63c3ce1edde7e45d8404f`.
+Application source: `89447178806ccc509ff0b52358b7491842041047`.
+Immutable build ref: `build/gallery-build11-89447178`.
 Release tooling имеет отдельный pinned commit; точные compiled artifacts,
 контрольные суммы и CI runs включаются в package manifest после verification.
+Сборки прежнего source `f26b4605…` superseded: новые mobile runtime fixes
+требуют новых same-source backend/web, Android и iOS артефактов.
+Неопубликованные исправления HP не считаются интегрированными.
 
 ## Изменения
 
 - Раздельные операции Gallery / Device / Everywhere в мобильном клиенте.
   Удаление на устройстве учитывает реальное подтверждение ОС и частичные отказы.
+- Исправлена идентичность backup после переиспользования OS media ID: новые байты
+  проходят независимый hashing, ранее удалённые байты не загружаются повторно.
+  Фоновая загрузка iOS ожидает local scan, remote sync и hashing перед upload;
+  ошибка, отмена или исчерпание бюджета не запускают следующие этапы.
+- Local deletion использует текущие owner-scoped checksum-verified IDs и реальные
+  server receipts. После отказа ОС доступен явно подтверждаемый device-only retry;
+  он не повторяет permanent deletion на сервере. Gallery-only Trash сохраняет
+  локальную копию даже после поздней синхронизации; offline index records не
+  считаются разрешением на удаление устройства.
 - Штатное окончательное удаление managed assets аутентифицированным владельцем.
   Для каждой external library требуется отдельное явно включённое writable mode;
   включение managed scope не разрешает удаление из внешней библиотеки.
@@ -17,7 +30,9 @@ Release tooling имеет отдельный pinned commit; точные compil
   проверку Ed25519, owner/scope/root и freshness; поддельные proofs не принимаются.
 - Исправлен Live Photo autoplay lifecycle: initial timeline, scrolling, viewer
   return и background/resume. Ограничено количество декодеров; предусмотрены
-  disposal и bounded retries. Сохранены исходные media associations.
+  disposal и bounded retries. Сохранены исходные media associations. Cold-open
+  autoplay paired Live Photos работает также в remote/local album timelines;
+  route-local filter не меняет сохранённые настройки основной ленты.
 - Подготовлены versioned checksum-verified install/upgrade/verify/rollback tools,
   private resumable signing handoff, совместимый hardened fallback и русский
   installation/user manual. API и microservices сохраняются вместе.

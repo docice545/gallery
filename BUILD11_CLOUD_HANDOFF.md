@@ -1,4 +1,76 @@
-# Gallery Build 11: актуальное продолжение 2026-10-13
+# Gallery Build 11: Android sync / backup завершение 2026-10-13
+
+## Точная текущая точка продолжения (имеет приоритет над историей ниже)
+
+Cloud branch: `candidate/gallery-5.7.3-build11-upstream`.
+Новый application source: `89447178806ccc509ff0b52358b7491842041047`, версия
+**5.7.3 (11)**. Immutable build ref: `build/gallery-build11-89447178`.
+Старый source `f26b4605` и его успешные APK/IPA/backend artifacts **SUPERSEDED**:
+они не содержат новых runtime fixes. Его build ref не менялся. Неопубликованные
+HP-исправления неизвестны и **НЕ интегрированы**; доказательства ниже Cloud-only.
+Production/`work` не изменяются, merge в HP branch не выполняется.
+
+Завершённые опубликованные commits:
+
+- `0753a3eb4cbe074a972ac876d8211209f3a6860b`: настоящий старый HTTP Empty Trash
+  контракт/controller + PG14 tests; неиспользуемый legacy service409 не был
+  поломкой API. Sanitized Docker operation/category/APIversion diagnostics для CI.
+- `b3a7262a02f075a4d287001d3306c82d50a1f23b`: paired Live Photo autoplay в
+  remote/local albums, локальный filter scope, narrow header Wrap; 116 PASS.
+- `be1962a1799d3677425cb38c7498168bbac276d3`: stable checksum backup identity,
+  owner/device intent, offline-index protection, completed receipts, OS-only retry,
+  late local scan/cached-active receipt handling, cache cleanup, account guards.
+- `5be385d3e3e2012a44596ffa9cb50eadd5eac79b`: запрет stale selected localId
+  fallback в OS unlink; честное предупреждение, 40 widget tests PASS.
+- `661f85d294164a138ac263c455fbccd61a1e1da5`: iOS discovery→remote→hash→upload
+  вместо гонки четырёх параллельных этапов; budget/cancellation/drain сохранены.
+- `89447178806ccc509ff0b52358b7491842041047`: strict analysis cleanup,
+  без изменения поведения/constructor arguments; 42 affected tests PASS.
+
+Final validation после всех runtime fixes:
+
+- **Полный Flutter: 4786 PASS, 1 SKIP, 0 FAIL** (260s).
+  `/tmp/build11-cloud-final-flutter.log`; concurrency4, no-pub, expanded.
+- **Полный analyze --fatal-infos: No issues found**.
+  `/tmp/build11-cloud-final-analyze-fixed.log`.
+- Current web deletion/Trash/Live Photo regressions: **24 PASS**,
+  `/tmp/build11-cloud-final-web-focused.log`. Unchanged Chromium8 PASS сохранён.
+- Backup/local-sync/background regression85 PASS; real HashService+Drift28 PASS.
+  Hashing не зависит от candidates/counts, unknown reused ID не блокирует hash.
+- iOS actual worker6 PASS, 60 affected PASS; native bridge mocked, не device PASS.
+- Sync service94 PASS; device receipt + pending40 PASS; OS retry UI15 PASS.
+- Backend runtime не менялся: full unit6858 PASS+1 expected+12skip,
+  PG14 3370 PASS+12skip сохранены; новые controller7/PG HTTP lifecycle17 PASS.
+- Build11 Python88 PASS+1 opt-in Docker SKIP. Signed recovery-proof не ослаблен;
+  новых миграций эти продолжения не вводят. Existing additive179405 остаётся.
+
+Уже запущенные **новые** builds (не дублировать):
+
+- Backend/web: https://github.com/docice545/gallery/actions/runs/38484089051
+- Unsigned iOS: https://github.com/docice545/gallery/actions/runs/38484090958
+
+Оба exact source89447178, пока IN_PROGRESS, НЕ утверждать build PASS.
+Backend использует existing reviewed rollback run38288841511/sourcec4c2d199…;
+iOS existing workflow development + empty version (никаких Store/TestFlight).
+Android dispatch подготовлен `/tmp/build11-final-android-dispatch.json`, но ещё
+НЕ выполнен: сначала дождаться результата iOS, чтобы shared concurrency не отменил
+его. После successful iOS запустить только existing Android media pilot на том же
+immutable ref; не использовать HP keys, не считать debug APK production update.
+
+Следующий шаг: проверить завершение этих двух runs один раз; при настоящем failure
+прочитать доступную ошибку и исправить только причину. После Android собрать
+actual distribution proof с новым source/three exact successful run IDs; old failed
+proof38424787561 не был install PASS. New diagnostics доступны через Checks API
+даже когда redirected blob log запрещён Cloud policy. Записывать реальные
+artifact IDs/checksums из manifest, не подставлять ZIP hash вместо binary hash.
+
+Физические S23/iPhone, актуальная restored HP DB upgrade/rollback, реальные NFS
+и current6+21 queue receipts остаются NOT TESTED/operator gates. Source review или
+синтетические tests не превращают их в PASS. Production/signing/deployment нет.
+
+---
+
+# Предыдущая передача (историческая, f26 artifacts больше не текущий candidate)
 
 Ветка `candidate/gallery-5.7.3-build11-upstream`. Production `work/main` не
 изменялись. Не переносить эту ветку поверх незакоммиченных HP изменений:

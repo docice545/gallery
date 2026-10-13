@@ -1,18 +1,32 @@
 # Gallery Build 11: подтверждённые результаты проверок
 
-Application source: `f26b46059726ca3c55c63c3ce1edde7e45d8404f`.
+Application source: `89447178806ccc509ff0b52358b7491842041047`.
+Immutable build ref: `build/gallery-build11-89447178`.
 Версия: `5.7.3 (11)`. Production не участвовал в проверках.
+
+Этот Cloud source включает исправления автоматического backup, owner-scoped
+локального удаления и Live Photos в альбомах. Неопубликованные файлы HP не
+получены и не считаются интегрированными. Старые сборки source `f26b4605…`
+**SUPERSEDED**: они не содержат новые runtime-исправления и не являются финальными
+артефактами этого candidate.
 
 ## Завершённые application gates
 
-| Проверка                                        |  PASS | Ожидаемые / пропущенные        |         FAIL |
-| ----------------------------------------------- | ----: | ------------------------------ | -----------: |
-| Финальный полный backend unit suite             | 6 858 | 1 expected failure, 12 skipped | 0 unexpected |
-| Финальный полный PostgreSQL 14 medium suite     | 3 370 | 12 skipped                     |            0 |
-| Полный Flutter suite, сохранённый результат     | 4 697 | 1 skipped                      |            0 |
-| Полный web suite, сохранённый результат         | 6 458 | 2 skipped, 4 TODO              |            0 |
-| Chromium Live Photo lifecycle                   |     8 | synthetic MP4 и mocked API     |            0 |
-| Filesystem, signed recovery и guard regressions |   205 | входит в backend gates         |            0 |
+| Проверка                                           |  PASS | Ожидаемые / пропущенные              |         FAIL |
+| -------------------------------------------------- | ----: | ------------------------------------ | -----------: |
+| Финальный полный backend unit suite                | 6 858 | 1 expected failure, 12 skipped       | 0 unexpected |
+| Финальный полный PostgreSQL 14 medium suite        | 3 370 | 12 skipped                           |            0 |
+| Полный Flutter suite текущего Cloud source         | 4 786 | 1 skipped                            |            0 |
+| Полный web suite, сохранённый результат            | 6 458 | 2 skipped, 4 TODO                    |            0 |
+| Актуальные focused web deletion tests              |    24 | 4 файла                              |            0 |
+| Upstream Empty Trash HTTP controller               |     7 | новый focused suite                  |            0 |
+| Upstream Empty Trash PostgreSQL 14                 |    17 | disposable DB                        |            0 |
+| iOS background worker: реальная последовательность |     6 | fake native/platform boundaries      |            0 |
+| Affected iOS worker / local-sync tests             |    60 | включает worker coverage             |            0 |
+| Remote / local album cold-open Live Photo          |     2 | widget controller fixtures           |            0 |
+| Album / Live Photo focused suite                   |   116 | 4 файла, включает эти 2 widget tests |            0 |
+| Chromium Live Photo lifecycle                      |     8 | synthetic MP4 и mocked API           |            0 |
+| Filesystem, signed recovery и guard regressions    |   205 | входит в backend gates               |            0 |
 
 Backend unit: 212 файлов passed, 1 skipped; duration 238.05 s.
 PostgreSQL: все 189 файлов passed; duration 443.44 s.
@@ -20,16 +34,50 @@ PostgreSQL: все 189 файлов passed; duration 443.44 s.
 `should fail if time bucket is invalid` (`it.fails`). Она не скрывается и не
 считается подтверждением корректного отклонения invalid time bucket.
 
-Полные final backend/PG suites заменяют незавершённые post-fix gates из старого
-handoff. Flutter/web/browser не запускались повторно: application source не менялся.
-Backend TypeScript, Flutter analyze, web TypeScript/Svelte, scoped ESLint и
-форматирование прошли в предыдущей сессии на тех же application inputs.
+Полные backend/PG и web/browser результаты сохранены с предыдущего gate;
+неизменённые runtime inputs позволяют использовать их в указанной области.
+Новые Empty Trash controller/PG тесты дополнительно проверяют upstream HTTP
+контракт. Полный Flutter suite запущен заново после mobile runtime-исправлений:
+**4 786 PASS, 1 SKIP, 0 FAIL**. Полный `flutter analyze --fatal-infos`:
+**No issues found**. Новые scoped suites входят в полный Flutter результат и
+не складываются с ним повторно. Browser 8 не запускался заново: web autoplay
+inputs не изменились; его PASS не переносится на physical mobile decoder.
+Backend TypeScript, web TypeScript/Svelte, scoped ESLint и форматирование имеют
+сохранённые результаты; новые проверки перечислены в handoff.
+
+## Проверенные исправления текущего Cloud source
+
+1. Переиспользованный ОС media ID с другими байтами больше не наследует старый
+   backup hash. Действительный новый файл остаётся upload candidate; подтверждённая
+   удалённая копия не воскресает после изменения metadata, scan или исчезновения
+   server row.
+2. «Удалить из «Фото»» при включённой local/remote sync сохраняет телефонную
+   копию, подавляя server resurrection. Android offline index tombstones
+   остаются offline records; Restore не создаёт новый device file.
+3. Завершённый receipt с `permanent=false` обрабатывается как восстановимое
+   legacy-состояние. Нельзя считать его доказательством завершённого unlink и
+   автоматически удалять устройство на основании отсутствующего server row.
+4. После Empty Trash и отказа ОС есть явно подтверждаемое **OS-only retry**.
+   Оно выбирает только completed receipts текущего owner и локальные IDs с
+   проверенным текущим checksum. Смена аккаунта прекращает OS-операцию;
+   неопознанные или устаревшие selection IDs получают предупреждение.
+5. Настоящий iOS background worker сканирует устройство, синхронизирует сервер,
+   вычисляет native hash и только затем начинает upload. Timeout/cancellation
+   дожидаются owned work перед закрытием DB. Неуспешный hash не отправляет
+   unhashed кандидатов и не сообщает success.
+6. Remote/local album связывает still/motion до cold-open autoplay. Scope и
+   owner filters отделяют device assets от cloud album assets. Live Photo
+   остаётся muted в ленте и использует ограниченный controller budget. Два
+   cold-open widget теста выполнены на 390×844; все 116 scoped cases прошли.
 
 Команды из корня repository, после активации pinned toolchain:
 
 ```bash
 pnpm --config.verify-deps-before-run=false --dir server exec vitest --config test/vitest.config.mjs --run
 pnpm --config.verify-deps-before-run=false --dir server exec vitest --config test/vitest.config.medium.mjs --run --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
+cd mobile
+flutter test
+flutter analyze --fatal-infos
 ```
 
 PostgreSQL работал исключительно в disposable testcontainers на проверенном
@@ -41,6 +89,32 @@ SHA-256 финальных локальных логов:
 
 - Backend unit: `35cb2b0816979fa89a1e7c8aa52ce1a09793475d7c3f4bde680139f2a69344b4`.
 - PostgreSQL 14: `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
+- Текущий полный Flutter: `e0dad6d832d4929aa5e03efd3308af71340d1a919f2e1d3edc1417e23c0808c6`.
+- Текущий Flutter analyze: `8ee6ed4f65b29e35647635e81d445aa6ca2e181be14bd3cdfdd9268bd65bacbf`.
+- Focused web: `c745e1691d05b60c71d9415b764b0792d0f869195472a1e399f4a918689ea041`.
+- Upstream controller: `16909ca1a5199b8b2d9db915db89072d70317517da9aaa6533caf01a1faa3ee4`.
+- Upstream PostgreSQL: `98cde3b87ca2c45b5e68bc5fc182ce9198822214071b43c07bb7c1981714f669`.
+- iOS worker 6: `381ce32c18bbe9f52d8f265117c2528f20768b3e30fea353c8c09821b73afc22`.
+- Affected iOS 60: `9646b6dac4e1919f19e7d46bca1516ddf56743c1c10ce27782bce802a404e2ee`.
+- Album / Live Photo 116: `e97975feb2974f049a5c5cf3bf019be36553de6fe9fe3b6880056f3af0f4b503`.
+
+Эти локальные логи хранятся в текущем Cloud workspace под `/tmp`, это не пути
+операторской установки. Краткие immutable результаты сохраняются в release
+пакете и handoff; приватные данные в Git не включаются.
+
+## Сборки нового source
+
+- [Backend CI 38484089051](https://github.com/docice545/gallery/actions/runs/38484089051):
+  запущен для текущего application source; итог и artifact SHA ещё не подтверждены.
+- [Unsigned iOS CI 38484090958](https://github.com/docice545/gallery/actions/runs/38484090958):
+  запущен для текущего source; итог и IPA/archive SHA ещё не подтверждены.
+- Android запускается после iOS, чтобы общий concurrency group не отменил IPA.
+  До опубликованного результата новый APK — **NOT TESTED / NOT BUILT**.
+- Compiled installation/distribution proof выполняется только с новыми
+  backend/Android/iOS артефактами; старый f26 пакет не закрывает этот gate.
+
+CI RUNNING не считается PASS. Актуальные завершённые результаты, точные immutable
+checksums и artifact URLs записываются в canonical handoff после проверки.
 
 ## Границы доказательств
 
