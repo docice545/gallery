@@ -10,6 +10,29 @@ version `5.7.3+11`. Immutable build ref: `build/gallery-build11-f26b4605`.
 `8369b9f531abee8546f685f29f845bd718fec84c`.
 Final HEAD определяется `git log -1`; handoff не может содержать свой собственный SHA.
 
+## Продолжение: конкретная причина installation CI установлена
+
+Лог run38385050973 теперь получен через штатный GitHub proxy; обхода сетевой
+политики не было. Classic/containerd image probes, APK/IPA verification и
+provisional package прошли. Actual lab начался и остановился на
+`PACKAGED_INSTALLER_PINNED_PUBLIC_DEPENDENCY_IDENTITY_REQUIRED`, до изменения
+production (вся среда disposable).
+
+Docker containerd возвращает multi-platform index при обычном inspect без
+OS/architecture. Исправление проверяет exact pinned index → linux/amd64 manifest
+→ config через `image inspect --platform`, но сохраняет исходный index ID для
+идентичности созданного контейнера. Произвольные references/digests/архитектуры
+отклоняются. Для clean install нужен Docker Engine/CLI28+, API1.49+; HP upgrade
+не обновляет Docker и не пересоздаёт PostgreSQL/Valkey.
+
+Проверки этого исправления: 36 installer tests PASS; Build11 discovery
+80 PASS, 1 opt-in Docker test SKIP (81 total); Python compile, diff и Prettier PASS.
+Actual classic daemon exact PG/Valkey identity checks PASS. Actual containerd
+clean-install/upgrade ещё требует следующего distribution run, а не mock теста.
+Workflow теперь сохраняет bounded failure code и небольшие реальные verification
+reports даже при отказе полного пакета. Acceptance matrix добавлена в checksum
+manifest; её отсутствие или изменение отклоняется.
+
 ## Новая выполненная работа
 
 - `83efa782b744f4233a75658b05507b782c1cf617`: CI-only исправление external fixture.
@@ -53,8 +76,8 @@ PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
   `ios-unsigned-archive`, ID `11803410088`, ZIP SHA256
   `3f998e516f02e73a656ca069a8965de2a7ab18eefc1877c096fcf05436d6ab62`.
   Build-only, no paid signing/store upload. Unsigned IPA requires existing SideStore.
-  Cloud read of redirected iOS logs returned403; escalation was not granted.
-  Do not retry/bypass; byte/version verification is still performed by artifact CI sealer.
+  APK/IPA/image byte/version verification выполнен distribution CI sealer перед
+  последующим installer отказом; успешные mobile artifacts не пересобирать.
 - Android **SUCCESS**: https://github.com/docice545/gallery/actions/runs/38379958872.
   Source `f26b4605…`. `android-media-pilot-validation-apk`, ID11803644959, ZIP SHA256
   `7c01dc8ab8391a33f8b813d5531e46aa5df445587158df43258eaf59ffc67517`.
@@ -91,17 +114,14 @@ PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
 3. Publish final package/checksums only after all genuine installation checks PASS.
    Current distribution run **38385050973 FAILED** at
    `Verify Build11 on containerd and assemble compiled distribution`; package **NOT READY**.
-   Exact failing command/cause is not yet known: redirected job log returned403;
-   read-only escalation for job115254649938 also returned403. Exact failure is
-   `CONNECT tunnel failed, response403`; redirect host
-   `productionresultssa14.blob.core.windows.net` is absent from the cloud allowlist.
-   A draft adds ONLY that host and preserves every configured domain; it requires
-   application/publication in environment settings. No credential is missing or requested.
-   Do not bypass policy, weaken identity checks or rerun blindly.
+   Первоначальный доступ к redirected log был403; штатный повтор теперь успешен.
+   Причина установлена и исправляется выше: Docker containerd pinned dependency
+   platform inspect. Сетевой отказ больше не считается текущим blocker.
    Previous proof38384393537 failed before lab: adapter omitted ARCHIVE_SHA.
    Fixed8369b9f5; 3 regression tests PASS including actual small-image Docker load/save, no mocks-only identity claim.
-   This proof passed classic Docker; containerd/package/lab step failed.
-   Whether actual installation lab started/completed is NOT VERIFIED; no published distribution artifact.
+   This proof passed classic/containerd identity and provisional package.
+   Actual installation lab started, failed before config creation; final published
+   distribution artifact пока отсутствует. Повторить только affected proof workflow.
 4. Update this handoff with final run/artifacts/actual lab results and source/tooling
    SHAs; never present mock fixture packages or GitHub ZIP digest as APK/IPA/image hash.
 

@@ -61,6 +61,7 @@ class Package(unittest.TestCase):
                      'ios/Photos-unsigned.ipa', 'rollback/manifest.json', 'rollback/gallery-server-linux-amd64.tar.gz',
                      'config/docker-compose.yml', 'docs/BUILD11-RELEASE-RUNBOOK.md',
                      'docs/BUILD11-UPSTREAM-COMPATIBILITY.md', 'docs/BUILD11-USER-MANUAL-RU.md', 'docs/BUILD11-TEST-REPORT.md',
+                     'docs/BUILD11-ACCEPTANCE.md',
                      'ios-tools/release/prepare_sidestore.py', 'ios-tools/release/ios_artifact.py',
                      'ios-tools/package_unsigned_ios.py', 'ios-tools/verify_ios_archive.py'):
             path = self.root / name; path.parent.mkdir(exist_ok=True, parents=True); path.write_text('fixture')
@@ -83,6 +84,13 @@ class Package(unittest.TestCase):
     def test_tampered_or_missing_tool_fails(self):
         (self.root/'tools/image_release.py').write_text('changed')
         with self.assertRaisesRegex(ValueError, 'FILE_CHANGED'): entry.verify_package(self.root)
+
+    def test_acceptance_evidence_must_be_unchanged_and_present(self):
+        report = self.root/'docs/BUILD11-ACCEPTANCE.md'
+        report.write_text('changed acceptance evidence')
+        with self.assertRaisesRegex(ValueError, 'FILE_CHANGED'): entry.verify_package(self.root)
+        report.unlink(); self.update()
+        with self.assertRaisesRegex(ValueError, 'MUST_BE_CHECKSUMMED'): entry.verify_package(self.root)
 
     def test_unlisted_executable_cannot_escape_checksums(self):
         (self.root/'tools/unlisted.py').write_text('fixture')

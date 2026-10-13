@@ -20,6 +20,58 @@ import image_release as core
 
 INITIALIZATION = 'fresh-install-initialization.json'
 
+# Verified registry index -> linux/amd64 manifest -> image-config chains.
+# Keep the actual container identity (config in the classic store, index in
+# containerd) separate from --platform inspect's selected manifest identity.
+PUBLIC_DEPENDENCIES = {
+    'ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23': {
+        'config': 'sha256:178719aeb38df6f0ce8edc1d8320008379fcf04eb3444e76419cc98d9861e331',
+        'manifest': 'sha256:b1d33572a9a0634aa6d344077467ad32847812a37fa3859f702952cba22a2f55',
+        'repositories': ('ghcr.io/immich-app/postgres',),
+    },
+    'docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d': {
+        'config': 'sha256:c439a6b7b7dfe74b25d78f9e5d27fbaeb761f676de82eb1a154c5b719a8cfb3e',
+        'manifest': 'sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e',
+        'repositories': ('valkey/valkey', 'docker.io/valkey/valkey'),
+    },
+}
+
+
+def pinned_public_dependency(reference):
+    """Resolve one exact dependency without mistaking an index for a platform."""
+    expected = PUBLIC_DEPENDENCIES.get(reference)
+    core.need(expected is not None, 'PINNED_PUBLIC_DEPENDENCY_REFERENCE_REQUIRED')
+    try:
+        images = json.loads(core.docker('image', 'inspect', reference))
+    except core.Stop:
+        core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
+        images = json.loads(core.docker('image', 'inspect', reference))
+    # API 1.49+ selects an actual platform. Unsupported daemons fail closed;
+    # do not infer platform from an index or accept another architecture.
+    selected = json.loads(core.docker('image', 'inspect', '--platform', 'linux/amd64', reference))
+    code = 'PINNED_PUBLIC_DEPENDENCY_IDENTITY_REQUIRED'
+    core.need(len(images) == len(selected) == 1, code)
+    image, platform = images[0], selected[0]
+    digest = reference.split('@', 1)[1]
+    repo_digests = {repository + '@' + digest for repository in expected['repositories']}
+    for item in (image, platform):
+        core.need(isinstance(item.get('RepoDigests'), list) and
+                  bool(repo_digests.intersection(item['RepoDigests'])), code)
+    core.need(image.get('Id') in (expected['config'], digest) and
+              platform.get('Id') in (expected['config'], expected['manifest']) and
+              platform.get('Architecture') == 'amd64' and platform.get('Os') == 'linux', code)
+    for item, descriptor_digest in ((image, digest), (platform, expected['manifest'])):
+        descriptor = item.get('Descriptor')
+        if descriptor is None:
+            # The classic image store exposes only the verified config ID.
+            core.need(item.get('Id') == expected['config'], code)
+        else:
+            core.need(isinstance(descriptor, dict) and descriptor.get('digest') == descriptor_digest and
+                      item.get('Id') == descriptor_digest, code)
+    # Containerd creates containers with the original index ID, not the
+    # --platform inspection's child manifest ID (Moby ImageService.GetImage).
+    return image['Id']
+
 
 def publish_initialization_file(directory, name, data):
     """Publish one journal-owned immutable file; interrupted full staging is reusable."""
@@ -226,19 +278,7 @@ def install(args):
         # identities for this immutable digest are accepted, never arbitrary IDs.
         machine_learning_image = ml[0]['Id']
         core.image(machine_learning_image)
-    dependencies = (
-        'ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23',
-        'docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d')
-    dependency_images = []
-    for reference in dependencies:
-        try:
-            images = json.loads(core.docker('image', 'inspect', reference))
-        except core.Stop:
-            core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
-            images = json.loads(core.docker('image', 'inspect', reference))
-        core.need(len(images) == 1 and images[0].get('Architecture') == 'amd64' and images[0].get('Os') == 'linux',
-                  'PINNED_PUBLIC_DEPENDENCY_IDENTITY_REQUIRED')
-        dependency_images.append(images[0]['Id'])
+    dependency_images = [pinned_public_dependency(reference) for reference in PUBLIC_DEPENDENCIES]
     # All persistent paths are NEW local directories below this fresh state.
     if not resuming:
         managed = next((row for row in nas['mounts'] if row['destination'] == '/data'), None)

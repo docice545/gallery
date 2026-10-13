@@ -44,7 +44,7 @@ def verify_package(package):
         'backend/manifest.json', 'backend/build11-rollback-runtime.json', 'backend/gallery-server-linux-amd64.tar.gz', 'android/app-release.apk',
         'ios/Photos-unsigned.ipa', 'rollback/manifest.json', 'rollback/gallery-server-linux-amd64.tar.gz',
         'config/docker-compose.yml', 'docs/BUILD11-RELEASE-RUNBOOK.md',
-        'docs/BUILD11-UPSTREAM-COMPATIBILITY.md', 'docs/BUILD11-USER-MANUAL-RU.md', 'docs/BUILD11-TEST-REPORT.md',
+        'docs/BUILD11-UPSTREAM-COMPATIBILITY.md', 'docs/BUILD11-USER-MANUAL-RU.md', 'docs/BUILD11-TEST-REPORT.md', 'docs/BUILD11-ACCEPTANCE.md',
         'ios-tools/release/prepare_sidestore.py', 'ios-tools/release/ios_artifact.py',
         'ios-tools/package_unsigned_ios.py', 'ios-tools/verify_ios_archive.py'}
     need(required <= records.keys() and

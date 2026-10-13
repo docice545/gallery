@@ -17,8 +17,96 @@ import build11_operator as operator
 SOURCE = 'a'*40
 CANDIDATE = 'sha256:'+'b'*64
 ML = 'sha256:'+'c'*64
-DB = 'sha256:'+'d'*64
-REDIS = 'sha256:'+'e'*64
+DB, REDIS = [row['config'] for row in m.PUBLIC_DEPENDENCIES.values()]
+
+
+class PublicDependencies(unittest.TestCase):
+    def metadata(self, reference, containerd=False):
+        expected=m.PUBLIC_DEPENDENCIES[reference]
+        digest=reference.split('@',1)[1]
+        common={'RepoDigests':[expected['repositories'][0]+'@'+digest]}
+        if containerd:
+            original={**common,'Id':digest,'Descriptor':{'digest':digest}}
+            selected={**common,'Id':expected['manifest'],'Architecture':'amd64','Os':'linux',
+                      'Descriptor':{'digest':expected['manifest']}}
+        else:
+            original={**common,'Id':expected['config'],'Architecture':'amd64','Os':'linux'}
+            selected=dict(original)
+        return original,selected
+
+    def resolve(self,reference,original,selected):
+        def inspect(*args):
+            if args==('image','inspect',reference):return json.dumps([original])
+            if args==('image','inspect','--platform','linux/amd64',reference):return json.dumps([selected])
+            self.fail('Unexpected dependency operation')
+        with patch.object(m.core,'docker',side_effect=inspect),patch.object(m.core,'run') as run:
+            value=m.pinned_public_dependency(reference)
+            run.assert_not_called()
+            return value
+
+    def test_classic_verified_config_ids_for_both_pinned_dependencies(self):
+        for reference,expected in m.PUBLIC_DEPENDENCIES.items():
+            with self.subTest(reference=reference):
+                self.assertEqual(self.resolve(reference,*self.metadata(reference)),expected['config'])
+
+    def test_containerd_selects_actual_platform_but_keeps_container_index_identity(self):
+        for reference in m.PUBLIC_DEPENDENCIES:
+            with self.subTest(reference=reference):
+                self.assertEqual(self.resolve(reference,*self.metadata(reference,True)),reference.split('@',1)[1])
+
+    def test_wrong_or_absent_platform_never_accepted_from_index(self):
+        reference=next(iter(m.PUBLIC_DEPENDENCIES))
+        for field,value in [('Architecture','arm64'),('Architecture',None),('Os','windows'),('Os',None)]:
+            original,selected=self.metadata(reference,True);selected[field]=value
+            with self.subTest(field=field,value=value),self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):
+                self.resolve(reference,original,selected)
+
+    def test_unverified_config_manifest_index_or_descriptor_fails_closed(self):
+        reference=next(iter(m.PUBLIC_DEPENDENCIES))
+        for store in (False,True):
+            for side in ('original','selected'):
+                for field in ('Id','Descriptor'):
+                    original,selected=self.metadata(reference,store)
+                    target=original if side=='original' else selected
+                    target[field]='sha256:'+'f'*64 if field=='Id' else {'digest':'sha256:'+'f'*64}
+                    with self.subTest(store=store,side=side,field=field),self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):
+                        self.resolve(reference,original,selected)
+        original,selected=self.metadata(reference,True);del original['Descriptor']
+        with self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):self.resolve(reference,original,selected)
+        original,selected=self.metadata(reference,True);del selected['Descriptor']
+        with self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):self.resolve(reference,original,selected)
+
+    def test_missing_or_wrong_registry_digest_on_either_inspection_fails(self):
+        reference=next(iter(m.PUBLIC_DEPENDENCIES))
+        for side in ('original','selected'):
+            for digests in (None,[],['ghcr.io/immich-app/postgres@sha256:'+'f'*64],
+                            ['unrelated/postgres@'+reference.split('@',1)[1]]):
+                original,selected=self.metadata(reference,True)
+                (original if side=='original' else selected)['RepoDigests']=digests
+                with self.subTest(side=side,digests=digests),self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):
+                    self.resolve(reference,original,selected)
+
+    def test_mutable_or_unreviewed_dependency_reference_cannot_inspect_or_pull(self):
+        for reference in ('valkey/valkey:9',next(iter(m.PUBLIC_DEPENDENCIES)).split('@',1)[0]+'@sha256:'+'f'*64):
+            with patch.object(m.core,'docker') as docker,patch.object(m.core,'run') as run,\
+                 self.subTest(reference=reference),self.assertRaisesRegex(m.core.Stop,'DEPENDENCY_REFERENCE'):
+                m.pinned_public_dependency(reference)
+            docker.assert_not_called();run.assert_not_called()
+
+    def test_missing_dependency_pulls_only_exact_reference_and_revalidates_platform(self):
+        reference=next(iter(m.PUBLIC_DEPENDENCIES));original,selected=self.metadata(reference)
+        with patch.object(m.core,'docker',side_effect=[m.core.Stop('absent'),json.dumps([original]),json.dumps([selected])]) as docker,\
+             patch.object(m.core,'run') as run:
+            self.assertEqual(m.pinned_public_dependency(reference),original['Id'])
+            run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+            self.assertEqual(docker.call_args_list[-1].args,('image','inspect','--platform','linux/amd64',reference))
+
+    def test_unsupported_platform_inspection_has_no_unqualified_fallback(self):
+        reference=next(iter(m.PUBLIC_DEPENDENCIES));original,_=self.metadata(reference)
+        with patch.object(m.core,'docker',side_effect=[json.dumps([original]),m.core.Stop('API_PLATFORM_UNSUPPORTED')]) as docker,\
+             patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,'API_PLATFORM_UNSUPPORTED'):
+            m.pinned_public_dependency(reference)
+        self.assertEqual(docker.call_count,2);run.assert_not_called()
 
 class FreshInstall(unittest.TestCase):
     def setUp(self):
@@ -57,8 +145,10 @@ class FreshInstall(unittest.TestCase):
             return ' '.join(row['Id'] for row in self.rows if row['Name']=='/'+args[-1][7:-1])
         if args[0]=='inspect': return json.dumps(self.rows)
         if args[:2]==('image','inspect'):
-            identifier=DB if 'postgres:' in args[2] else REDIS
-            return json.dumps([{'Id':identifier,'Architecture':'amd64','Os':'linux'}])
+            reference=args[-1]
+            expected=m.PUBLIC_DEPENDENCIES[reference]
+            return json.dumps([{'Id':expected['config'],'Architecture':'amd64','Os':'linux',
+                                'RepoDigests':[expected['repositories'][0]+'@'+reference.split('@',1)[1]]}])
         self.fail('Unexpected Docker action')
 
     def invoke(self):

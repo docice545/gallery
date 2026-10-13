@@ -15,7 +15,8 @@ TOOLS = ('gallery_entry.py', 'gallery_install.py', 'gallery-install.sh', 'galler
          'android_sign_package.py', 'SignExistingApk.java', 'hp_build10_queued_delete.py',
          'hp_build10_queued_delete.mjs', 'hp_build10_rollback.py', 'hp_build10_rollback.sh',
          'build10-rollback-tooling.sha256')
-DOCS = ('BUILD11-RELEASE-RUNBOOK.md', 'BUILD11-UPSTREAM-COMPATIBILITY.md', 'BUILD11-USER-MANUAL-RU.md', 'BUILD11-TEST-REPORT.md')
+DOCS = ('BUILD11-RELEASE-RUNBOOK.md', 'BUILD11-UPSTREAM-COMPATIBILITY.md', 'BUILD11-USER-MANUAL-RU.md',
+        'BUILD11-TEST-REPORT.md', 'BUILD11-ACCEPTANCE.md')
 
 
 def assemble(args):

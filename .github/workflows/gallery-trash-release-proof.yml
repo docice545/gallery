@@ -268,6 +268,35 @@ jobs:
             ${{ runner.temp }}/gallery-build11-5.7.3-build11.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
+      - name: Publish bounded public installation failure code
+        if: always() && inputs.build11
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'build11-installation-lab.json'
+          if path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
+              row = json.loads(path.read_text())
+              if row.get('result') == 'FAIL':
+                  code = row.get('failure', '')
+                  if not re.fullmatch('[A-Z][A-Z0-9_]{0,150}', code):
+                      code = 'INSTALLATION_LAB_FAILED_PRIVATE_DETAILS_OMITTED'
+                  print('::error title=Build11 actual installation gate::' + code)
+                  with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as file:
+                      file.write('\nInstallation gate: FAIL; sanitized code: `' + code + '`\n')
+          PY
+      - name: Preserve verification reports even when final package is blocked
+        if: always() && inputs.build11
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gallery-build11-verification-report-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/candidate-profile.json
+            ${{ runner.temp }}/reviewed-compatibility.json
+            ${{ runner.temp }}/build11-upstream-compatibility.json
+            ${{ runner.temp }}/build11-installation-lab.json
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: '!inputs.build11'
         with:

@@ -36,6 +36,11 @@ receipts нет. Остальные 21 задания сохраняются pau
 `curl`, `sha256sum`, существующее право `sudo docker`; пароль вводится только в
 обычном `sudo -v`. Скрипты не получают права сами и не устанавливают пакеты.
 Публичные зависимости clean install загружаются только по неизменяемым digest.
+Для clean install требуется Docker Engine/CLI 28+ (API 1.49+): platform-specific
+inspect проверяет именно `linux/amd64` child manifest закреплённого multi-platform
+index. Одного index ID без OS/architecture недостаточно. Проверяются точные
+index/manifest/config digests PostgreSQL/Valkey; произвольная замена tag/digest
+не допускается. HP upgrade не обновляет Docker и не пересоздаёт эти зависимости.
 
 Нужны свежий SQL/gzip backup, проверка восстановления именно этого backup в
 изолированный PostgreSQL и реальные NAS recovery evidence не старше 24 часов.
