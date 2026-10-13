@@ -80,10 +80,15 @@ PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
    On failure: fix tooling/harness only when justified, repeat affected workflow;
    preserve application source unless a real runtime blocker requires changing it.
 3. Publish final package/checksums only after all genuine installation checks PASS.
-   Current distribution run **38385050973 IN PROGRESS**, package **NOT READY** until actual lab PASS.
+   Current distribution run **38385050973 FAILED** at
+   `Verify Build11 on containerd and assemble compiled distribution`; package **NOT READY**.
+   Exact failing command/cause is not yet known: redirected job log returned403;
+   read-only escalation request for job115254649938 is pending. Do not bypass
+   permission, weaken identity checks or rerun blindly.
    Previous proof38384393537 failed before lab: adapter omitted ARCHIVE_SHA.
    Fixed8369b9f5; 3 regression tests PASS including actual small-image Docker load/save, no mocks-only identity claim.
-   Current proof passed classic Docker and entered containerd/package/lab stage.
+   This proof passed classic Docker; containerd/package/lab step failed.
+   Whether actual installation lab started/completed is NOT VERIFIED; no published distribution artifact.
 4. Update this handoff with final run/artifacts/actual lab results and source/tooling
    SHAs; never present mock fixture packages or GitHub ZIP digest as APK/IPA/image hash.
 
