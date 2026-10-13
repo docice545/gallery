@@ -228,6 +228,26 @@ jobs:
             echo "Rollback: https://github.com/docice545/gallery/actions/runs/$ROLLBACK_RUN"
             sha256sum "$RUNNER_TEMP/gallery-build11-5.7.3-build11.tar.gz"
           } >> "$GITHUB_STEP_SUMMARY"
+          # Publish only verified public artifact identities, also readable via
+          # Checks API when a cloud executor cannot access redirected log storage.
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          profile = json.loads((root / 'candidate-profile.json').read_text())
+          receipt = {'sourceCommit': profile['sourceCommit'], 'version': profile['mobileVersion'],
+                     'build': profile['mobileBuild'], 'backendImage': profile['backend']['imageId'],
+                     'backendArchiveSHA256': profile['backend']['archiveSHA256'],
+                     'androidAPK_SHA256': profile['android']['sha256'],
+                     'androidCertificateSHA256': profile['android']['certificateSHA256'],
+                     'iosIPA_SHA256': profile['ios']['sha256']}
+          with (root / 'gallery-build11-5.7.3-build11.tar.gz').open('rb') as file:
+              receipt['distributionSHA256'] = hashlib.file_digest(file, 'sha256').hexdigest()
+          raw = json.dumps(receipt, sort_keys=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as file:
+              file.write('\nVerified public artifact receipt:\n```json\n' + raw + '\n```\n')
+          print('::notice title=Build11 verified public artifact receipt::' + raw)
+          PY
       - name: Verify immutable content on containerd and package final handoff
         if: '!inputs.build11'
         run: |
