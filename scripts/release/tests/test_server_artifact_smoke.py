@@ -293,9 +293,12 @@ class SmokeLifecycle(SmokeFixture):
                 if args[1].endswith('-pg'):
                     return json.dumps([{'Image': POSTGRES_IMAGE}])
                 server_run = next(call for call in calls if call[0] == 'run' and call[-1] == IMAGE)
-                mount = server_run[server_run.index('--mount') + 1]
+                mounts = [server_run[i + 1] for i, value in enumerate(server_run[:-1]) if value == '--mount']
+                self.assertIn('type=volume,destination=/external', mounts)
+                mount = next(value for value in mounts if value.startswith('type=bind,'))
                 trust = mount.split('source=', 1)[1].split(',', 1)[0]
-                return json.dumps([{'Mounts': [{'Type': 'bind', 'Source': trust, 'Destination': smoke.LAB_TRUST, 'RW': False}],
+                return json.dumps([{'Mounts': [{'Type': 'bind', 'Source': trust, 'Destination': smoke.LAB_TRUST, 'RW': False},
+                                               {'Type': 'volume', 'Destination': '/external', 'RW': True}],
                                     'NetworkSettings': {'Ports': {'2283/tcp': [{'HostPort': '12345'}]}}}])
             if args[0] == 'exec':
                 if args[-1] == smoke.NODE_LAB_ROOTS:
@@ -396,10 +399,10 @@ class Build11OrdinaryStorage(SmokeFixture):
     def test_external_physical_success_requires_default_denial_owner_consent_and_file_absence(self):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
         media = smoke.synthetic_png(22)
-        request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, media,
+        request = Mock(side_effect=[{'id': scope}, {'importPaths': [{'importPath': smoke.EXTERNAL_LAB_ROOT, 'isValid': True}]}, None, None, {'isTrashed': True}, media,
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
             [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
-        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], True, [], []]) as storage:
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': smoke.EXTERNAL_LAB_ROOT}, [ASSET], True, [], []]) as storage:
             result = smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
         self.assertTrue(result['ownerWritablePhysicalDeletion'])
         self.assertFalse(result['productionNFSVerified'])
@@ -410,16 +413,34 @@ class Build11OrdinaryStorage(SmokeFixture):
 
     def test_external_success_response_cannot_hide_a_file_still_present(self):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
-        request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, smoke.synthetic_png(22),
+        request = Mock(side_effect=[{'id': scope}, {'importPaths': [{'importPath': smoke.EXTERNAL_LAB_ROOT, 'isValid': True}]}, None, None, {'isTrashed': True}, smoke.synthetic_png(22),
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
             [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
-        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': smoke.EXTERNAL_LAB_ROOT}, [ASSET], False]), self.assertRaises(AssertionError):
             smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
 
     def test_runtime_fixture_refuses_production_container_before_any_exec(self):
         with patch.object(smoke, 'docker') as docker, self.assertRaisesRegex(RuntimeError, 'OWNED_DISPOSABLE_SERVER_REQUIRED'):
             smoke.storage_fixture('immich_server', 'writeExternal')
         docker.assert_not_called()
+
+    def test_external_fixture_uses_separate_volume_not_managed_upload_root(self):
+        self.assertTrue(smoke.EXTERNAL_LAB_ROOT.startswith('/external/'))
+        self.assertIn("const root='" + smoke.EXTERNAL_LAB_ROOT + "'", smoke.NODE_STORAGE_FIXTURE)
+        self.assertNotIn("const root='/data/", smoke.NODE_STORAGE_FIXTURE)
+        with patch.object(smoke, 'storage_fixture', return_value={'root': '/data/build11-external-ci'}), \
+                self.assertRaisesRegex(RuntimeError, 'EXACT_DISPOSABLE_EXTERNAL_ROOT_REQUIRED'):
+            smoke.external_smoke(Mock(), 'gallery-trash-ci-123456789abc-server', OWNER)
+
+    def test_invalid_external_import_root_stops_before_scan_or_deletion(self):
+        scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
+        for response in ({'importPaths': []}, {'importPaths': [{'importPath': smoke.EXTERNAL_LAB_ROOT, 'isValid': False}]},
+                         {'importPaths': [{'importPath': '/unexpected', 'isValid': True}]}):
+            request = Mock(side_effect=[{'id': scope}, response])
+            with self.subTest(response=response), patch.object(smoke, 'storage_fixture', return_value={'root': smoke.EXTERNAL_LAB_ROOT}), \
+                    self.assertRaisesRegex(RuntimeError, 'SYNTHETIC_EXTERNAL_IMPORT_ROOT_INVALID'):
+                smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
+            self.assertFalse(any('scan' in call.args[0] or 'permanent-deletion' in call.args[0] for call in request.call_args_list))
 
     def test_thumbnails_require_both_processed_file_types_and_http_reads(self):
         request = Mock(return_value=b'encoded preview')

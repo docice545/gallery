@@ -25,6 +25,7 @@ POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a
 ROOT = Path(__file__).resolve().parents[2]
 LAB_MARKER = 'SYNTHETIC_DISPOSABLE_CI_LAB_NOT_PRODUCTION_RECOVERY'
 LAB_TRUST = '/run/gallery-smoke-lab-recovery'
+EXTERNAL_LAB_ROOT = '/external/build11-external-ci'
 ROLLBACK_SOURCE = '81867689be4d773473b6a3f417eee16c0329231e'
 ROLLBACK_ARCHIVE_SHA = 'd0e9e46997df44e6fe5bcb614608672b7e3bec3a6ab8667f440583337f27a45a'
 ROLLBACK_IMAGE = 'sha256:0f9e791e36ce747a02b53827122e514277b0195ef2ec43e64d2b7eaaa0238ab2'
@@ -368,7 +369,9 @@ const {getKyselyConfig}=await import('file:///usr/src/app/server/dist/utils/data
 let input='';for await(const part of process.stdin)input+=part;
 const data=JSON.parse(input),config=new ConfigRepository().getEnv();
 if(config.storage.mediaLocation!=='/data')throw new Error('DISPOSABLE_STORAGE_REQUIRED');
-const root='/data/build11-external-ci',file=root+'/synthetic.png';
+// Upstream intentionally rejects external libraries nested inside /data.
+// This separate anonymous fixture volume never binds any host/NAS originals.
+const root='/external/build11-external-ci',file=root+'/synthetic.png';
 if(data.action==='writeExternal'){
   await fs.mkdir(root,{recursive:true,mode:0o700});
   await fs.writeFile(file,Buffer.from(data.media,'base64'),{flag:'wx',mode:0o600});
@@ -418,7 +421,13 @@ def external_smoke(request, server, owner):
     require_lab()
     media = synthetic_png(22)
     fixture = storage_fixture(server, 'writeExternal', media=base64.b64encode(media).decode())
+    if fixture.get('root') != EXTERNAL_LAB_ROOT:
+        raise RuntimeError('EXACT_DISPOSABLE_EXTERNAL_ROOT_REQUIRED')
     scope = request('/libraries', 'POST', {'ownerId': owner, 'name': 'Disposable CI external', 'importPaths': [fixture['root']]})['id']
+    validation = request('/libraries/' + scope + '/validate', 'POST', {'importPaths': [fixture['root']]})
+    paths = validation.get('importPaths', [])
+    if (len(paths) != 1 or paths[0].get('importPath') != fixture['root'] or paths[0].get('isValid') is not True):
+        raise RuntimeError('SYNTHETIC_EXTERNAL_IMPORT_ROOT_INVALID')
     request('/libraries/' + scope + '/scan', 'POST')
     deadline = time.monotonic() + 120
     while True:
@@ -506,7 +515,8 @@ def main():
             (server, manifest['imageId'], ['-e', f'DB_HOSTNAME={db}', '-e', 'DB_PASSWORD=disposable-ci-password',
                 '-e', f'REDIS_HOSTNAME={redis}', '-e', 'IMMICH_WORKERS_INCLUDE=api,microservices',
                 '-e', 'IMMICH_WORKERS_EXCLUDE=',
-                '-e', 'IMMICH_MEDIA_LOCATION=/data', *trust_arguments, '-p', '127.0.0.1::2283']),
+                '-e', 'IMMICH_MEDIA_LOCATION=/data', '--mount', 'type=volume,destination=/external',
+                *trust_arguments, '-p', '127.0.0.1::2283']),
         ]:
             stage = 'create isolated fixture ' + ('postgres' if name == db else 'redis' if name == redis else 'server')
             postgres_command = ['postgres', '-c', 'shared_preload_libraries=vchord.so',
@@ -519,6 +529,9 @@ def main():
                    mount.get('Destination') == LAB_TRUST and mount.get('RW') is False
                    for mount in server_info.get('Mounts', [])):
             raise RuntimeError('READ_ONLY_DISPOSABLE_LAB_TRUST_MOUNT_REQUIRED')
+        external_mounts = [mount for mount in server_info.get('Mounts', []) if mount.get('Destination') == '/external']
+        if len(external_mounts) != 1 or external_mounts[0].get('Type') != 'volume' or external_mounts[0].get('RW') is not True:
+            raise RuntimeError('SEPARATE_DISPOSABLE_EXTERNAL_VOLUME_REQUIRED')
         mapping = server_info['NetworkSettings']['Ports']['2283/tcp'][0]
         if not re.fullmatch('[0-9]+', mapping.get('HostPort', '')) or not 0 < int(mapping['HostPort']) < 65536:
             raise RuntimeError('DISPOSABLE_LOOPBACK_PORT_REQUIRED')
