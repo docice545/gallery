@@ -100,7 +100,8 @@ def artifact_image(backend, source, version, expected, cache=None, allow_load=Fa
             if str(error) != 'COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED': raise
             core.run([*core.DOCKER, 'image', 'load', '--input', str(archive)], timeout=900)
     tool = SimpleNamespace(verify_artifact=verify_artifact, docker=core.docker, DOCKER=core.DOCKER,
-                           IMAGE=expected['imageId'], TAG=expected['imageTag'], SOURCE=source, SOURCE_REF='v' + version)
+                           IMAGE=expected['imageId'], TAG=expected['imageTag'], SOURCE=source, SOURCE_REF='v' + version,
+                           ARCHIVE_SHA=expected['archiveSHA256'])
     proof = identity.verify_loaded(tool, backend)
     if cache is not None: core.save(cache, {**proof, 'sourceCommit': source, 'archiveSHA256': expected['archiveSHA256']})
     return proof['loadedImageId']
