@@ -1,3 +1,5 @@
+> Исторический checkpoint; актуальная передача: [BUILD11_CLOUD_HANDOFF.md](../BUILD11_CLOUD_HANDOFF.md).
+
 # Gallery Build 11 — resume state
 
 Branch: `candidate/gallery-5.7.3-build11-upstream`.

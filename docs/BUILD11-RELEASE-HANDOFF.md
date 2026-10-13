@@ -1,3 +1,5 @@
+> Исторический checkpoint; актуальная передача: [BUILD11_CLOUD_HANDOFF.md](../BUILD11_CLOUD_HANDOFF.md).
+
 # Build11 release tooling progress
 
 Branch: `candidate/gallery-5.7.3-build11-upstream`; application development is
