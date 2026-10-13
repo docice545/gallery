@@ -1,3 +1,98 @@
+# Gallery Build 11: актуальное продолжение 2026-10-13
+
+Ветка `candidate/gallery-5.7.3-build11-upstream`. Production `work/main` не
+изменялись. Не переносить эту ветку поверх незакоммиченных HP изменений:
+интеграция только отдельно после их сохранения/review.
+
+**Application source заморожен:** `f26b46059726ca3c55c63c3ce1edde7e45d8404f`,
+version `5.7.3+11`. Immutable build ref: `build/gallery-build11-f26b4605`.
+Последний завершённый tooling commit:
+`553b6f17049575cd566f891fecbe80e6615e2348`.
+Final HEAD определяется `git log -1`; handoff не может содержать свой собственный SHA.
+
+## Новая выполненная работа
+
+- `83efa782b744f4233a75658b05507b782c1cf617`: CI-only исправление external fixture.
+  Первый backend smoke правильно отверг external root внутри managed `/data`.
+  Fixture перенесена в отдельный anonymous `/external` volume, проверяется
+  upstream validate API перед scan. Application source не менялся, mobile rebuild
+  из-за этого не требуется. 33 smoke contract tests PASS.
+- `982a4a38228f58492698ec37bf1500ff31a60f60`: private durable initialization
+  journal, interruption/resume до записи plan, actual Compose/env/mount/network/
+  container verification и отдельный fresh-install image-only rollback с настоящим
+  receipt. Default `TARGET_ALREADY_RUNNING` guard остаётся; fake apply receipt нет.
+  28 installer +78 image-release tests PASS.
+- `553b6f17049575cd566f891fecbe80e6615e2348`: explicit Build11 mode в существующем
+  artifact proof workflow, real compiled guard/migration probes, classic/containerd
+  descriptor-graph identity mapping, same-source seal и actual installation lab.
+  Все 30 lab checks обязательны перед upload. Signed recovery-proof не ослаблен.
+  77 Build11 Python tests PASS. Это unit/contracts, не actual installation PASS.
+- Полные final backend gates реально выполнены: **6858 passed, 1 expected fail,
+  12 skipped**, 0 unexpected failures; **PG14 3370 passed, 12 skipped, 0 failed**,
+  189 files. Никаких изменений runtime/fixtures для прохождения этих gates.
+  Старый post-fix full-suite blocker закрыт. Flutter/web/browser не повторялись.
+
+Exact commands, limits и log SHA:
+`docs/BUILD11-TEST-REPORT.md`; machine-readable cloud evidence
+`/tmp/build11-resume-final-gates.json`. Backend unit log SHA
+`35cb2b0816979fa89a1e7c8aa52ce1a09793475d7c3f4bde680139f2a69344b4`,
+PG14 log SHA `c2f89658dc2e389950b1c2c4193476eaa59f2e656c0f789371887b15ca840b5e`.
+
+## CI/артефакты текущего продолжения
+
+- Backend **SUCCESS**: https://github.com/docice545/gallery/actions/runs/38379404888
+  Application source `f26b4605…`, audited tooling HEAD `83efa782b7…`.
+  Artifact `gallery-trash-server-linux-amd64`, ID `11802997305`, ZIP SHA256
+  `d6f42f03efec15d40443a79aca68d3d6c07c8367a5bc518352fb8a42200025fa`.
+  CI реально проверил upload/Trash/Restore, thumbnail/preview, ordinary managed
+  deletion, external writable original unlink и old-runtime rollback HTTP.
+  Immutable image/archive identities брать из опубликованного manifest, не ZIP hash.
+- iOS **SUCCESS**: https://github.com/docice545/gallery/actions/runs/38377576890
+  Source `f26b4605…`. `ios-unsigned-ipa`, ID `11803385671`, ZIP SHA256
+  `6305cb9e5403a6169bac38da9883fa758a0e24f948e8fa90c841e2022f53778a`;
+  `ios-unsigned-archive`, ID `11803410088`, ZIP SHA256
+  `3f998e516f02e73a656ca069a8965de2a7ab18eefc1877c096fcf05436d6ab62`.
+  Build-only, no paid signing/store upload. Unsigned IPA requires existing SideStore.
+  Cloud read of redirected iOS logs returned403; escalation was not granted.
+  Do not retry/bypass; byte/version verification is still performed by artifact CI sealer.
+- Android https://github.com/docice545/gallery/actions/runs/38379958872:
+  last observation **IN PROGRESS**, release APK build after native/emulator gates.
+  Source `f26b4605…`. No production signing. Do not cancel/duplicate/rebuild unnecessarily.
+- Compatible rollback remains run38288841511/sourcec4c2d199…/artifact11764458784;
+  successful main backend verifies its actual HTTP startup on Build11 schema.
+- First main backend run38377573475 failed only external fixture validation;
+  it is superseded by successful38379404888, not a second application candidate.
+
+## Точная следующая операция
+
+1. Once Android38379958872 is SUCCESS, dispatch existing
+   `gallery-trash-release-proof.yml` on this tooling branch with `build11=true`,
+   source_commit=f26b46059726ca3c55c63c3ce1edde7e45d8404f,
+   backend_run=38379404888, android_run=38379958872, ios_run=38377576890,
+   rollback_run=38288841511,
+   rollback_source=c4c2d1991b01a372aa833a1f5ea0f9acc23be67a.
+2. This workflow downloads each artifact once, validates APK/IPA/image provenance,
+   classic+containerd identity, packages binaries, executes actual clean install /
+   fresh rollback / representative Build10 upgrade / interrupted rollback /27paused
+   job preservation /managed+external physical deletion on synthetic files only.
+   On failure: fix tooling/harness only when justified, repeat affected workflow;
+   preserve application source unless a real runtime blocker requires changing it.
+3. Publish final package/checksums only after all genuine installation checks PASS.
+   Current distribution lab is **NOT EXECUTED**, package **NOT READY**.
+4. Update this handoff with final run/artifacts/actual lab results and source/tooling
+   SHAs; never present mock fixture packages or GitHub ZIP digest as APK/IPA/image hash.
+
+No HP changes, production restore/delete, real NAS files, signing keys, merge,
+queues, VPN/DNS/Memories changes. Physical S23/iPhone, actual HP recovered DB/NFS,
+legacy-six reconciliation and remaining21 paused preservation remain operator gates.
+New docs: BUILD11-DISTRIBUTION-CI.md, BUILD11-INSTALLATION-LAB.md,
+BUILD11-RELEASE-NOTES.md, BUILD11-TEST-REPORT.md; Russian runbook now includes
+`gallery-rollback.sh --fresh-install PACKAGE INSTALL_DIRECTORY --execute-approved`.
+
+---
+
+## Предыдущая передача (историческая; новые результаты выше имеют приоритет)
+
 # Gallery Build 11: передача Cloud → CLI
 
 Статус: **NOT READY для production**. Разработка сохранена; это не готовый
