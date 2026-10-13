@@ -89,7 +89,7 @@ const executableScanLines = (source: string): string[] => {
   const ranges = file.statements
     .filter((statement) => ts.isImportDeclaration(statement) || ts.isImportEqualsDeclaration(statement))
     .map((statement) => [statement.getStart(file), statement.getEnd()] as const)
-    .reverse();
+    .toReversed();
   for (const [start, end] of ranges)
     source = source.slice(0, start) + source.slice(start, end).replaceAll(/[^\r\n]/g, ' ') + source.slice(end);
   return source.split('\n');
@@ -445,7 +445,7 @@ const findVisibilityOrphans = (source: string, file: string) => {
     if (VIS_ALLOWLIST[key(file, fn)]) continue;
     const lo = Math.max(0, i - VIS_WINDOW);
     const hi = Math.min(lines.length, i + VIS_WINDOW + 1);
-    if (!lines.slice(lo, hi).some((line) => VIS_GATE_MARKER.test(line)))
+    if (lines.slice(lo, hi).every((line) => !VIS_GATE_MARKER.test(line)))
       orphans.push(`${file}:${i + 1} (in ${fn}): ${trimmed.slice(0, 90)}`);
   }
   return orphans;

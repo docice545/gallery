@@ -28,6 +28,7 @@ POSTGRES = 'immich_postgres'
 DOCKER = ['docker', '--host=unix:///var/run/docker.sock']
 ID = r'sha256:[0-9a-f]{64}'
 CAPABILITY = 'bound-root-quarantine-signed-recovery-v1'
+OWNER_STORAGE_CAPABILITY = 'bound-root-quarantine-owner-storage-v2'
 CONFIG_HASH_MODE = 'resolved-environment-compose-escaped-v1'
 BOUND_MIGRATION = '1793700000000-BindDeletionRecovery'
 # Upstream ships a .ts.ts source, hence a .ts.js compiled file and this exact
@@ -102,7 +103,7 @@ def valid_migration_name(name):
                                      re.fullmatch(r'[0-9]{13}-[A-Za-z0-9_-]+', name) is not None)
 
 
-def probe_image(image_id, source_commit, server_version):
+def probe_image(image_id, source_commit, server_version, capability=CAPABILITY):
     """Read the actual packaged guard/migrations; never start application workers."""
     need(environment(image(image_id)).get('IMMICH_SOURCE_COMMIT') == source_commit, 'TARGET_SOURCE_MISMATCH')
     proof = json.loads(run([*DOCKER, 'run', '--rm', '--pull', 'never', '--network', 'none', '--read-only',
@@ -110,7 +111,7 @@ def probe_image(image_id, source_commit, server_version):
                            '--memory', '256m', '--cpus', '1', '--entrypoint', 'node', image_id,
                            '--input-type=module', '-e', IMAGE_PROBE]))
     expected_version = '.'.join(str(part) for part in server_version)
-    need(proof.get('capability') == CAPABILITY and proof.get('sourceCommit') == source_commit and
+    need(capability in (CAPABILITY, OWNER_STORAGE_CAPABILITY) and proof.get('capability') == capability and proof.get('sourceCommit') == source_commit and
          proof.get('serverVersion') == expected_version, 'HARDENED_IMAGE_CAPABILITY_SOURCE_VERSION_REQUIRED')
     files = proof.get('guardFiles', {})
     need(set(files) == {'utils/authorized-deletion.js', 'utils/deletion-recovery.js',
@@ -127,6 +128,65 @@ def probe_image(image_id, source_commit, server_version):
     names = migration_names(proof)
     need(len(names) == len(migrations) and BOUND_MIGRATION in names, 'BOUND_DELETION_MIGRATION_REQUIRED')
     return proof
+
+
+def proof_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def rollback_compatibility(candidate, rollback, reviewed=None):
+    if reviewed is None:
+        need(candidate['migrations'] == rollback['migrations'], 'HARDENED_ROLLBACK_MIGRATIONS_MUST_MATCH')
+        need(candidate['guardFiles'] == rollback['guardFiles'], 'HARDENED_ROLLBACK_GUARD_FILES_MUST_MATCH')
+        return
+    need(reviewed.get('schemaVersion') == 1 and reviewed.get('contract') == 'build11-reviewed-additive-upgrade-v1',
+         'REVIEWED_COMPATIBILITY_CONTRACT_REQUIRED')
+    for field, actual in (('candidateProofSHA256', candidate), ('rollbackProofSHA256', rollback)):
+        need(reviewed.get(field) == proof_digest(actual), 'REVIEWED_PACKAGED_PROOF_MISMATCH')
+    need(candidate['capability'] == OWNER_STORAGE_CAPABILITY and rollback['capability'] == CAPABILITY,
+         'REVIEWED_STORAGE_AND_RECOVERY_GUARDS_REQUIRED')
+    old = {r['name']: r['sha256'] for r in rollback['migrations']}
+    new = {r['name']: r['sha256'] for r in candidate['migrations']}
+    need(old.keys() <= new.keys() and all(new[k] == v for k, v in old.items()),
+         'APPLIED_MIGRATIONS_REMOVED_OR_CHANGED')
+    added = [{'name': k, 'sha256': new[k]} for k in sorted(new.keys() - old.keys())]
+    declared = reviewed.get('migrationsAdded')
+    need(isinstance(declared, list) and len(declared) == 1 and
+         declared[0].get('name') == '1794050000000-OwnerStorageDeletion' and
+         re.fullmatch('[0-9a-f]{64}', declared[0].get('sha256', '')), 'ONLY_REVIEWED_ADDITIVE_STORAGE_MODE_ALLOWED')
+    if added:
+        need(added == declared, 'ONLY_REVIEWED_ADDITIVE_STORAGE_MODE_ALLOWED')
+    else:
+        # A hardened fallback may include this exact forward-only migration,
+        # because Kysely refuses applied names whose source files are absent.
+        # This is a separately built, tested image, never a runtime bind/alias.
+        selected = declared[0]
+        need(reviewed.get('rollbackContainsAdditiveMigration') is True and
+             old.get(selected['name']) == new.get(selected['name']) == selected['sha256'],
+             'REVIEWED_FORWARD_MIGRATION_IN_ROLLBACK_REQUIRED')
+    checks = {'isolatedDatabase': True, 'oldRuntimeStartsOnUpgradedSchema': True,
+              'storagePoliciesRejectedByRollback': True, 'trashRestoreAfterRollback': True,
+              'syntheticMediaOnly': True, 'productionChanged': False}
+    need(reviewed.get('rollbackTest') == checks and re.fullmatch('[0-9a-f]{64}', reviewed.get('testReportSHA256', '')),
+         'REAL_ISOLATED_ROLLBACK_TEST_REPORT_REQUIRED')
+
+
+def reviewed_compatibility(args):
+    path, expected = getattr(args, 'compatibility_receipt', None), getattr(args, 'compatibility_sha256', None)
+    if path is None and expected is None:
+        return None
+    need(path is not None and re.fullmatch('[0-9a-f]{64}', expected or '') and
+         path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024 and sha(path) == expected,
+         'PINNED_REVIEWED_COMPATIBILITY_RECEIPT_REQUIRED')
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as file:
+        raw = file.read(1024 * 1024 + 1)
+    need(len(raw) <= 1024 * 1024 and hashlib.sha256(raw).hexdigest() == expected,
+         'PINNED_REVIEWED_COMPATIBILITY_RECEIPT_REQUIRED')
+    value = json.loads(raw)
+    need(value.get('candidateImage') == args.image and value.get('candidateSource') == args.source_commit and
+         value.get('rollbackImage') == args.rollback_image and value.get('rollbackSource') == args.rollback_source_commit,
+         'REVIEWED_COMPATIBILITY_IMAGE_SOURCE_MISMATCH')
+    return value
 
 
 def postgres():
@@ -365,12 +425,12 @@ def plan(args):
     rollback_source = getattr(args, 'rollback_source_commit', None) or environment(previous).get('IMMICH_SOURCE_COMMIT')
     rollback_version = getattr(args, 'rollback_server_version', None) or tuple(old_version[key] for key in ('major', 'minor', 'patch'))
     need(re.fullmatch('[0-9a-f]{40}', rollback_source or ''), 'REVIEWED_ROLLBACK_SOURCE_REQUIRED')
-    candidate_proof = probe_image(args.image, args.source_commit, args.server_version)
+    compatibility = reviewed_compatibility(args)
+    candidate_proof = probe_image(args.image, args.source_commit, args.server_version, OWNER_STORAGE_CAPABILITY) if compatibility else probe_image(args.image, args.source_commit, args.server_version)
     rollback_proof = probe_image(rollback_image, rollback_source, rollback_version)
     # Recognition markers alone are insufficient: the rollback application must
     # retain the descriptor, authenticated recovery and policy guards itself.
-    need(candidate_proof['migrations'] == rollback_proof['migrations'], 'HARDENED_ROLLBACK_MIGRATIONS_MUST_MATCH')
-    need(candidate_proof['guardFiles'] == rollback_proof['guardFiles'], 'HARDENED_ROLLBACK_GUARD_FILES_MUST_MATCH')
+    rollback_compatibility(candidate_proof, rollback_proof, compatibility)
     workers(merged_environment(before, image(rollback_image)))
     need(merged_environment(before, image(rollback_image)).get('IMMICH_SOURCE_COMMIT') == rollback_source,
          'COMPOSE_OVERRIDES_ROLLBACK_SOURCE')
@@ -407,6 +467,9 @@ def plan(args):
                'baseConfigSHA256': sha(state / 'base-config.json'),
                'plannedConfigSHA256': sha(state / 'planned-config.json'), 'overrideSHA256': sha(override),
                'previousConfigHash': config_hash(base), 'candidateConfigHash': config_hash(base, override)}
+    if compatibility:
+        save(state / 'reviewed-compatibility.json', compatibility)
+        receipt['reviewedCompatibilitySHA256'] = sha(state / 'reviewed-compatibility.json')
     need(inspect(SERVER)['Id'] == old['Id'] and inventory() == receipt['otherContainers'],
          'CONTAINERS_CHANGED_DURING_PLAN')
     save(state / 'image-plan.json', receipt)
@@ -433,11 +496,19 @@ def prerequisites(state, rollback=False):
     need(after == private_json(state / 'planned-config.json'), 'PLANNED_COMPOSE_CHANGED')
     item = inspect(SERVER)
     labels = identity(item, require_running=not rollback)
-    need(item['Image'] in (receipt['previousImage'], receipt['candidateImage']), 'LIVE_IMAGE_CHANGED_EXTERNALLY')
+    accepted_images = (receipt['previousImage'], receipt['candidateImage'])
+    if rollback and (state / 'rolled-back.json').exists():
+        restored = private_json(state / 'rolled-back.json')
+        need(restored.get('image') == receipt['rollbackImage'] and restored.get('container') == item['Id'],
+             'RECORDED_ROLLBACK_CONTAINER_CHANGED')
+        accepted_images = (*accepted_images, receipt['rollbackImage'])
+    need(item['Image'] in accepted_images, 'LIVE_IMAGE_CHANGED_EXTERNALLY')
     if not rollback:
         need(item['Id'] == receipt['previousContainer'] and item['Image'] == receipt['previousImage'],
              'SERVER_CHANGED_SINCE_PLAN')
     expected_hash = receipt['previousConfigHash'] if item['Image'] == receipt['previousImage'] else receipt['candidateConfigHash']
+    if item['Image'] == receipt['rollbackImage'] and (state / 'rolled-back.json').exists():
+        expected_hash = config_hash(receipt['base'], state / 'rollback-image-only.override.json')
     need(labels.get('com.docker.compose.config-hash') == expected_hash, 'LIVE_COMPOSE_CHANGED_EXTERNALLY')
     need(inventory() == receipt['otherContainers'], 'UNRELATED_CONTAINERS_CHANGED')
     workers(environment(item))
@@ -445,16 +516,18 @@ def prerequisites(state, rollback=False):
         selected_image = image(selected)
         workers(merged_environment(before, selected_image))
         database_binding(before, selected_image)
+    compatibility = None
+    if receipt.get('reviewedCompatibilitySHA256'):
+        compatibility = private_json(state / 'reviewed-compatibility.json')
+        need(sha(state / 'reviewed-compatibility.json') == receipt['reviewedCompatibilitySHA256'],
+             'REVIEWED_COMPATIBILITY_RECEIPT_CHANGED')
     for selected, source, version, field in (
         (receipt['candidateImage'], receipt['sourceCommit'], receipt['serverVersion'], 'candidateProof'),
         (receipt['rollbackImage'], receipt['rollbackSource'], receipt['rollbackVersion'], 'rollbackProof'),
     ):
-        actual = probe_image(selected, source, tuple(version[key] for key in ('major', 'minor', 'patch')))
+        actual = probe_image(selected, source, tuple(version[key] for key in ('major', 'minor', 'patch')), OWNER_STORAGE_CAPABILITY) if compatibility and field == 'candidateProof' else probe_image(selected, source, tuple(version[key] for key in ('major', 'minor', 'patch')))
         need(actual == receipt[field], 'PACKAGED_IMAGE_PROOF_CHANGED')
-    need(receipt['candidateProof']['migrations'] == receipt['rollbackProof']['migrations'],
-         'HARDENED_ROLLBACK_MIGRATIONS_MUST_MATCH')
-    need(receipt['candidateProof']['guardFiles'] == receipt['rollbackProof']['guardFiles'],
-         'HARDENED_ROLLBACK_GUARD_FILES_MUST_MATCH')
+    rollback_compatibility(receipt['candidateProof'], receipt['rollbackProof'], compatibility)
     live = live_migrations()
     need(set(receipt['liveMigrations']) <= live <= migration_names(receipt['candidateProof']),
          'LIVE_MIGRATIONS_CHANGED_EXTERNALLY')
@@ -542,6 +615,8 @@ def main(argv=None):
     parser.add_argument('--rollback-image', help='Separately reviewed hardened immutable rollback image; defaults to current image')
     parser.add_argument('--rollback-source-commit')
     parser.add_argument('--rollback-server-version', type=version)
+    parser.add_argument('--compatibility-receipt', type=Path, help='Public reviewed Build11 image/migration/rollback proof')
+    parser.add_argument('--compatibility-sha256', help='Exact reviewed compatibility receipt checksum from release handoff')
     parser.add_argument('--api', default='http://127.0.0.1:2283/api')
     parser.add_argument('--execute-approved', action='store_true')
     parser.add_argument('--approve-migration', action='store_true')

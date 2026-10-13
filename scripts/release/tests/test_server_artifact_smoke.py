@@ -282,7 +282,7 @@ class SmokeLifecycle(SmokeFixture):
 
     def test_full_mocked_lab_flow_uses_new_version_immutable_image_and_explicit_consent(self):
         calls, requests, state = [], [], {'trashed': False, 'deleted': False, 'prepared': False, 'enabled': False}
-        media = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/1cAAAAASUVORK5CYII=')
+        media = smoke.synthetic_png()
         def docker(*args, **kwargs):
             calls.append(args)
             if args[:2] == ('network', 'create'):
@@ -328,18 +328,18 @@ class SmokeLifecycle(SmokeFixture):
             elif path == '/assets/permanent-deletion':
                 if state['enabled']:
                     state['deleted'] = True
-                    result = [{'id': ASSET, 'state': 'complete'}]
-                else: result = [{'id': ASSET, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
+                    result = [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}]
+                else: result = [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
             elif path == '/users/me': result = {'id': OWNER}
             elif path == '/assets/managed-deletion-preparation':
                 self.assertEqual(body, {'recoveryProof': DIGEST, 'verifiedExclusiveRoots': True})
                 state['prepared'] = True
             elif path == '/assets/managed-deletion-consent':
-                self.assertTrue(state['prepared'])
-                self.assertEqual(body, {'enabled': True, 'confirmed': True})
-                state['enabled'] = True
+                self.assertEqual(body, {'enabled': body['enabled'], 'confirmed': True})
+                state['prepared'] = True
+                state['enabled'] = body['enabled']
             elif path == '/assets/managed-deletion-policy':
-                result = {'enabled': state['enabled'], 'prepared': state['prepared'], 'canPrepare': True}
+                result = {'enabled': state['enabled'], 'prepared': state['prepared'], 'canPrepare': False}
             elif path == '/assets/' + ASSET + '/deletion-status': result = {'id': ASSET, 'state': 'complete'}
             elif path != '/auth/admin-sign-up': self.fail('Unexpected mocked route: ' + path)
             return io.BytesIO(json.dumps(result).encode() if result is not None else b'')
@@ -350,6 +350,8 @@ class SmokeLifecycle(SmokeFixture):
                 patch.object(smoke, 'verify_artifact', return_value=(self.manifest, self.version)), \
                 patch.object(smoke, 'lab_keys', return_value=KEYS), patch.object(smoke, 'docker', side_effect=docker), \
                 patch.object(smoke, 'publish_lab_evidence', return_value=DIGEST), \
+                patch.object(smoke, 'thumbnail_smoke') as thumbnails, \
+                patch.object(smoke, 'external_smoke', return_value={'syntheticMediaOnly': True}) as external, \
                 patch.object(smoke.urllib.request, 'build_opener', return_value=opener) as build_opener, redirect_stdout(output):
             self.assertEqual(smoke.main(), 0, output.getvalue())
         server_run = next(call for call in calls if call[0] == 'run' and call[-1] == IMAGE)
@@ -358,7 +360,7 @@ class SmokeLifecycle(SmokeFixture):
         self.assertIn('IMMICH_WORKERS_EXCLUDE=', server_run)
         self.assertNotIn('IMMICH_WORKERS_EXCLUDE=microservices', server_run)
         self.assertNotIn(self.manifest['imageTag'], server_run)
-        self.assertIn(('/assets/managed-deletion-preparation', 'PUT'), requests)
+        self.assertNotIn(('/assets/managed-deletion-preparation', 'PUT'), requests)
         self.assertIn(('/assets/managed-deletion-consent', 'PUT'), requests)
         self.assertNotIn(('/assets/deletion-policy', 'PUT'), requests)
         self.assertEqual(build_opener.call_args.args[0].proxies, {})
@@ -369,9 +371,138 @@ class SmokeLifecycle(SmokeFixture):
         self.assertFalse(completed['isolatedRecoveryEvidence']['productionRecoveryVerified'])
         self.assertTrue(completed['isolatedRecoveryEvidence']['testOnly'])
         self.assertEqual(completed['isolatedWorkerConfiguration'], 'API_AND_MICROSERVICES')
-        self.assertEqual(completed['thumbnailPreviewVerification'], 'NOT_PERFORMED')
-        self.assertIn('signed synthetic recovery', completed['isolatedSmoke'])
+        self.assertEqual(completed['thumbnailPreviewVerification'], 'PASS_SYNTHETIC_FILES_AND_HTTP')
+        self.assertIn('ordinary owner consent', completed['isolatedSmoke'])
+        thumbnails.assert_called_once()
+        external.assert_called_once()
         self.assertEqual(len([call for call in calls if call[0] == 'rm']), 3)
+
+
+class Build11OrdinaryStorage(SmokeFixture):
+    def test_managed_owner_revoke_then_consent_never_submits_a_recovery_proof(self):
+        media = smoke.synthetic_png()
+        request = Mock(side_effect=[None,
+            [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
+            media, None, {'enabled': True, 'prepared': True, 'canPrepare': False},
+            [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}], {'id': ASSET, 'state': 'complete'}])
+        with patch.object(smoke, 'publish_lab_evidence') as publish:
+            smoke.ordinary_managed_smoke(request, ASSET, media)
+        publish.assert_not_called()
+        calls = [call.args for call in request.call_args_list]
+        self.assertEqual(calls[0], ('/assets/managed-deletion-consent', 'PUT', {'enabled': False, 'confirmed': True}))
+        self.assertEqual(calls[3], ('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True}))
+        self.assertFalse(any('preparation' in call[0] for call in calls))
+
+    def test_external_physical_success_requires_default_denial_owner_consent_and_file_absence(self):
+        scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
+        media = smoke.synthetic_png(22)
+        request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, media,
+            [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
+            [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], True, [], []]) as storage:
+            result = smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
+        self.assertTrue(result['ownerWritablePhysicalDeletion'])
+        self.assertFalse(result['productionNFSVerified'])
+        self.assertEqual([call.args[1] for call in storage.call_args_list],
+                         ['writeExternal', 'externalIds', 'fileGone', 'externalIds', 'rescanGate'])
+        self.assertIn(('/assets/library-deletion-consent/' + scope, 'PUT', {'enabled': True, 'confirmed': True}),
+                      [call.args for call in request.call_args_list])
+
+    def test_external_success_response_cannot_hide_a_file_still_present(self):
+        scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
+        request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, smoke.synthetic_png(22),
+            [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
+            [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
+            smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
+
+    def test_runtime_fixture_refuses_production_container_before_any_exec(self):
+        with patch.object(smoke, 'docker') as docker, self.assertRaisesRegex(RuntimeError, 'OWNED_DISPOSABLE_SERVER_REQUIRED'):
+            smoke.storage_fixture('immich_server', 'writeExternal')
+        docker.assert_not_called()
+
+    def test_thumbnails_require_both_processed_file_types_and_http_reads(self):
+        request = Mock(return_value=b'encoded preview')
+        with patch.object(smoke, 'storage_fixture', return_value=['thumbnail', 'preview']):
+            smoke.thumbnail_smoke(request, 'gallery-trash-ci-123456789abc-server', ASSET)
+        self.assertEqual(request.call_count, 2)
+        with patch.object(smoke, 'storage_fixture', return_value=['thumbnail']), \
+                patch.object(smoke.time, 'monotonic', side_effect=[0, 121]), self.assertRaisesRegex(RuntimeError, 'NOT_PROCESSED'):
+            smoke.thumbnail_smoke(request, 'gallery-trash-ci-123456789abc-server', ASSET)
+
+    def test_png_is_valid_deterministic_and_unique_for_independent_lifecycles(self):
+        image = smoke.synthetic_png(33)
+        self.assertEqual(image, smoke.synthetic_png(33))
+        self.assertNotEqual(image, smoke.synthetic_png(22))
+        self.assertTrue(image.startswith(b'\x89PNG\r\n\x1a\n'))
+        data = image[8:]
+        while data:
+            size = int.from_bytes(data[:4], 'big')
+            kind, payload = data[4:8], data[8:8 + size]
+            crc = int.from_bytes(data[8 + size:12 + size], 'big')
+            self.assertEqual(smoke.zlib.crc32(kind + payload), crc)
+            data = data[12 + size:]
+
+    def test_modified_existing_rollback_archive_is_rejected_before_docker_load(self):
+        manifest = {**self.manifest, 'sourceCommit': smoke.ROLLBACK_SOURCE,
+                    'imageId': smoke.ROLLBACK_IMAGE, 'archiveSHA256': smoke.ROLLBACK_ARCHIVE_SHA}
+        (self.directory / 'manifest.json').write_text(json.dumps(manifest))
+        with patch.object(smoke, 'docker') as docker, self.assertRaisesRegex(RuntimeError, 'ROLLBACK_ARCHIVE_CHANGED'):
+            smoke.load_rollback(self.directory)
+        docker.assert_not_called()
+
+    def test_rollback_is_not_available_outside_explicit_disposable_lab(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(smoke, 'docker') as docker, \
+                self.assertRaisesRegex(RuntimeError, 'EXPLICIT_DISPOSABLE_CI_LAB_REQUIRED'):
+            smoke.load_rollback(self.directory)
+        docker.assert_not_called()
+
+    def test_reviewed_rollback_overrides_require_all_three_immutable_pins(self):
+        pins = {'GALLERY_SMOKE_ROLLBACK_SOURCE': 'e' * 40,
+                'GALLERY_SMOKE_ROLLBACK_IMAGE': IMAGE,
+                'GALLERY_SMOKE_ROLLBACK_ARCHIVE_SHA256': DIGEST}
+        with patch.dict(os.environ, pins):
+            self.assertEqual(smoke.rollback_identity(), ('e' * 40, IMAGE, DIGEST))
+        for field, value in ((name, '') for name in pins):
+            with self.subTest(field=field), patch.dict(os.environ, {**pins, field: value}), \
+                    self.assertRaisesRegex(RuntimeError, 'COMPLETE_IMMUTABLE_REVIEWED_ROLLBACK_PINS_REQUIRED'):
+                smoke.rollback_identity()
+        for field, value in (('GALLERY_SMOKE_ROLLBACK_SOURCE', 'work'),
+                             ('GALLERY_SMOKE_ROLLBACK_IMAGE', 'gallery-server:latest'),
+                             ('GALLERY_SMOKE_ROLLBACK_ARCHIVE_SHA256', 'unverified')):
+            with self.subTest(field=field), patch.dict(os.environ, {**pins, field: value}), \
+                    self.assertRaisesRegex(RuntimeError, 'COMPLETE_IMMUTABLE_REVIEWED_ROLLBACK_PINS_REQUIRED'):
+                smoke.rollback_identity()
+
+    def test_compiled_migration_is_read_with_no_database_mount_network_or_workers(self):
+        with patch.object(smoke, 'docker', return_value=json.dumps([DIGEST, DIGEST])) as docker:
+            self.assertEqual(smoke.additive_migration_hash(IMAGE), DIGEST)
+        command = docker.call_args.args
+        self.assertIn('--read-only', command)
+        self.assertIn('none', command)
+        self.assertNotIn('--mount', command)
+        self.assertNotIn('--volumes-from', command)
+        self.assertNotIn('-p', command)
+        self.assertIn('--entrypoint', command)
+        self.assertIn('1794050000000-OwnerStorageDeletion.js', command[-1])
+
+    def test_missing_or_different_compiled_migration_copies_are_rejected(self):
+        for hashes in ([], [DIGEST], [DIGEST, 'e' * 64], ['not-a-hash', 'not-a-hash']):
+            with self.subTest(hashes=hashes), patch.object(smoke, 'docker', return_value=json.dumps(hashes)), \
+                    self.assertRaisesRegex(RuntimeError, 'EXACT_COMPILED_ADDITIVE_MIGRATION_REQUIRED'):
+                smoke.additive_migration_hash(IMAGE)
+        with patch.object(smoke, 'docker') as docker, \
+                self.assertRaisesRegex(RuntimeError, 'IMMUTABLE_MIGRATION_IMAGE_REQUIRED'):
+            smoke.additive_migration_hash('gallery:latest')
+        docker.assert_not_called()
+
+    def test_rollback_requires_byte_identical_candidate_additive_migration(self):
+        with patch.object(smoke, 'additive_migration_hash', side_effect=[DIGEST, DIGEST]) as check:
+            self.assertEqual(smoke.verify_rollback_migration(POSTGRES_IMAGE, IMAGE), DIGEST)
+        self.assertEqual([call.args[0] for call in check.call_args_list], [POSTGRES_IMAGE, IMAGE])
+        with patch.object(smoke, 'additive_migration_hash', side_effect=[DIGEST, 'e' * 64]), \
+                self.assertRaisesRegex(RuntimeError, 'PINNED_ROLLBACK_ADDITIVE_MIGRATION_MISMATCH'):
+            smoke.verify_rollback_migration(POSTGRES_IMAGE, IMAGE)
 
 
 if __name__ == '__main__':

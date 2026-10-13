@@ -95,6 +95,16 @@ const albumSharedAsset = async (ctx: ReturnType<typeof setup>['ctx']) => {
   return { owner, viewer, asset, album };
 };
 
+const forceDelete = async (sut: AssetService, user: { id: string }, id: string) => {
+  const permanent = vi.spyOn(sut, 'permanentlyDelete');
+  try {
+    await sut.deleteAll(factory.auth({ user }), { ids: [id], force: true });
+  } catch (error) {
+    expect(await permanent.mock.results[0].value).toEqual([{ id, scope: 'managed', state: 'complete' }]);
+    throw error;
+  }
+};
+
 describe(AssetService.name, () => {
   describe('get', () => {
     it('should not return an asset of another user', async () => {
@@ -302,7 +312,9 @@ describe(AssetService.name, () => {
     const fixtureRoots: string[] = [];
     afterEach(async () => {
       vi.restoreAllMocks();
-      await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+      const roots = [...fixtureRoots];
+      fixtureRoots.length = 0;
+      await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
     });
     const authorize = async (ctx: ReturnType<typeof setup>['ctx'], ownerId: string, id: string) => {
       const root = await mkdtemp(join(tmpdir(), 'gallery-stack-delete-'));
@@ -344,15 +356,6 @@ describe(AssetService.name, () => {
       ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
       ctx.getMock(StorageRepository).validateDeletionRoots.mockImplementation(validateDeletionRoots);
       return original;
-    };
-    const forceDelete = async (sut: AssetService, user: { id: string }, id: string) => {
-      const permanent = vi.spyOn(sut, 'permanentlyDelete');
-      try {
-        await sut.deleteAll(factory.auth({ user }), { ids: [id], force: true });
-      } catch (error) {
-        expect(await permanent.mock.results[0].value).toEqual([{ id, scope: 'managed', state: 'complete' }]);
-        throw error;
-      }
     };
     it('should delete asset', async () => {
       const { sut, ctx } = setup();

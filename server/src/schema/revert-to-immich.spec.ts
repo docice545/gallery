@@ -58,7 +58,7 @@ describe('revert-to-immich.sql', () => {
     expect(sql.slice(barrier, sql.indexOf('END IF;', barrier))).toContain('RAISE EXCEPTION');
     expect(barrier).toBeLessThan(sql.indexOf('DROP TABLE IF EXISTS'));
     for (const table of ['asset_deletion_policy', 'asset_deletion_tombstone'])
-      expect(sql).not.toMatch(new RegExp(`DROP TABLE[^;]*"?${table}\\b`));
+      expect(sql).not.toMatch(new RegExp(String.raw`DROP TABLE[^;]*"?${table}\b`));
   });
 
   it('drops every fork table with CASCADE', () => {

@@ -489,7 +489,7 @@ def fresh_backup(tool, state):
     return target, comparable(snapshot)
 
 
-def restore_exact(tool, backup, state, expected):
+def restore_exact(tool, backup, state, expected, transition=None):
     need(not (state / 'backup-verified.json').exists(), 'OLD_RESTORE_RECEIPT_CANNOT_VERIFY_FRESH_BACKUP')
     original = tool.docker
     observed = []
@@ -505,7 +505,9 @@ def restore_exact(tool, backup, state, expected):
             summary_valid(restored)
             need(comparable(restored) == expected, 'FRESH_RESTORE_COUNTS_OR_MIGRATIONS_DIFFER_FROM_DUMP_SNAPSHOT')
             observed.append(restored)
-            if hasattr(tool, 'CANDIDATE_PROFILE'):
+            if transition is not None:
+                transition(tool, original, args[1], query, restored, state, backup)
+            elif hasattr(tool, 'CANDIDATE_PROFILE'):
                 import candidate_restore
                 candidate_restore.transition(tool, original, args[1], query, restored, state, backup)
         return result

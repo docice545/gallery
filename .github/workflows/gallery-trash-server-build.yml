@@ -9,10 +9,21 @@ on:
         type: string
         required: false
         default: ''
+      rollback_run:
+        description: 'Optional successful existing artifact run for the reviewed schema-compatible rollback; no rebuild.'
+        type: string
+        required: false
+        default: ''
+      rollback_source:
+        description: 'Exact full source SHA of rollback_run; both rollback inputs must be supplied together.'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
   packages: read
+  actions: read
 
 jobs:
   build:
@@ -32,6 +43,7 @@ jobs:
       - name: Build existing server Dockerfile and export image
         env:
           EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
+          MIGRATION_BASE_SHA: ea51a8acdc6f18ab5917c19b6f3833d740b4e9ba
         run: scripts/release/server_build.sh "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
       # The pinned disposable PostgreSQL fixture is public on GHCR. Anonymous
       # pulls from shared runner addresses hit the registry's rate limit.
@@ -42,11 +54,69 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify the reviewed rollback run before download
+        if: inputs.rollback_run != '' || inputs.rollback_source != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_RUN: ${{ inputs.rollback_run }}
+          REVIEWED_SOURCE: ${{ inputs.rollback_source }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          run, source = os.environ['REVIEWED_RUN'], os.environ['REVIEWED_SOURCE']
+          assert re.fullmatch('[1-9][0-9]*', run) and re.fullmatch('[0-9a-f]{40}', source)
+          def gh(path):
+              return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+          prefix = 'repos/docice545/gallery/actions/runs/' + run
+          row = gh(prefix)
+          assert row['head_sha'] == source and row['status'] == 'completed' and row['conclusion'] == 'success'
+          assert row['path'].endswith('/gallery-trash-server-build.yml')
+          artifacts = [a for a in gh(prefix + '/artifacts')['artifacts']
+                       if a['name'] == 'gallery-trash-server-linux-amd64' and not a['expired']]
+          assert len(artifacts) == 1 and 0 < artifacts[0]['size_in_bytes'] <= 2 * 1024**3
+          print('PASS exact successful rollback workflow source and downloadable artifact')
+          PY
+      - name: Download the existing reviewed rollback artifact once
+        if: inputs.rollback_run != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.rollback_run }}
+          repository: docice545/gallery
+          name: gallery-trash-server-linux-amd64
+          path: ${{ runner.temp }}/gallery-rollback-artifact
+      - name: Pin the downloaded rollback manifest for the isolated runtime test
+        if: inputs.rollback_run != ''
+        env:
+          REVIEWED_SOURCE: ${{ inputs.rollback_source }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'gallery-rollback-artifact'
+          manifest = json.loads((root / 'manifest.json').read_text())
+          assert manifest['sourceCommit'] == os.environ['REVIEWED_SOURCE']
+          assert re.fullmatch('sha256:[0-9a-f]{64}', manifest['imageId'])
+          assert re.fullmatch('[0-9a-f]{64}', manifest['archiveSHA256'])
+          with (root / 'gallery-server-linux-amd64.tar.gz').open('rb') as file:
+              assert hashlib.file_digest(file, 'sha256').hexdigest() == manifest['archiveSHA256']
+          with open(os.environ['GITHUB_ENV'], 'a') as file:
+              for key, value in [('GALLERY_SMOKE_ROLLBACK_SOURCE', manifest['sourceCommit']),
+                                 ('GALLERY_SMOKE_ROLLBACK_IMAGE', manifest['imageId']),
+                                 ('GALLERY_SMOKE_ROLLBACK_ARCHIVE_SHA256', manifest['archiveSHA256'])]:
+                  file.write(key + '=' + value + '\n')
+          print('PASS immutable rollback archive and source pins; layers verified by smoke before startup')
+          PY
       - name: Fresh disposable PostgreSQL/Redis HTTP Trash and Restore smoke test
         env:
           GALLERY_ISOLATED_CI: '1'
           EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
-        run: python3 scripts/release/server_artifact_smoke.py "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
+          REVIEWED_ROLLBACK_RUN: ${{ inputs.rollback_run }}
+        run: |
+          if [[ -n "$REVIEWED_ROLLBACK_RUN" ]]; then
+            python3 scripts/release/server_artifact_smoke.py "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact" "$RUNNER_TEMP/gallery-rollback-artifact"
+          else
+            python3 scripts/release/server_artifact_smoke.py "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gallery-trash-server-linux-amd64

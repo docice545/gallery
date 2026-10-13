@@ -9,6 +9,7 @@ import os
 import re
 from pathlib import Path
 import secrets
+import struct
 import shutil
 import subprocess
 import sys
@@ -17,11 +18,16 @@ import time
 import traceback
 import urllib.request
 import urllib.error
+import zlib
+from types import SimpleNamespace
 
 POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67'
 ROOT = Path(__file__).resolve().parents[2]
 LAB_MARKER = 'SYNTHETIC_DISPOSABLE_CI_LAB_NOT_PRODUCTION_RECOVERY'
 LAB_TRUST = '/run/gallery-smoke-lab-recovery'
+ROLLBACK_SOURCE = '81867689be4d773473b6a3f417eee16c0329231e'
+ROLLBACK_ARCHIVE_SHA = 'd0e9e46997df44e6fe5bcb614608672b7e3bec3a6ab8667f440583337f27a45a'
+ROLLBACK_IMAGE = 'sha256:0f9e791e36ce747a02b53827122e514277b0195ef2ec43e64d2b7eaaa0238ab2'
 NODE_LAB_KEYS = r'''
 import {generateKeyPairSync} from 'node:crypto';
 const {privateKey, publicKey} = generateKeyPairSync('ed25519');
@@ -241,6 +247,205 @@ def assert_removed_asset_not_restorable(request, asset_id):
     raise AssertionError('Restore unexpectedly accepted a permanently removed asset')
 
 
+def synthetic_png(color=0):
+    """Valid small synthetic PNG for actual thumbnail/preview processing."""
+    def chunk(kind, data):
+        return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
+    width, height = 64, 64
+    pixels = b''.join(b'\x00' + bytes((color, 127, 255)) * width for _ in range(height))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress(pixels)) + chunk(b'IEND', b''))
+
+
+def upload_synthetic(request, media):
+    boundary = 'gallery-ci-boundary'
+    parts = []
+    for key in ('fileCreatedAt', 'fileModifiedAt'):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n2024-05-06T10:20:30.000Z\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="assetData"; filename="fixture.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + media + b'\r\n')
+    parts.append(f'--{boundary}--\r\n'.encode())
+    return request('/assets', 'POST', b''.join(parts), 'multipart/form-data; boundary=' + boundary)['id']
+
+
+def ordinary_managed_smoke(request, asset_id, media):
+    require_lab()
+    request('/assets/managed-deletion-consent', 'PUT', {'enabled': False, 'confirmed': True})
+    blocked = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+    assert blocked == [{'id': asset_id, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
+    assert request(f'/assets/{asset_id}/original', raw=True) == media
+    request('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True})
+    assert request('/assets/managed-deletion-policy') == {'enabled': True, 'prepared': True, 'canPrepare': False}
+    result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+    assert result == [{'id': asset_id, 'scope': 'managed', 'state': 'complete'}]
+    assert request('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'state': 'complete'}
+    return result
+
+
+def rollback_identity():
+    """Reviewed CI pins only; never resolve a mutable image or fabricate source."""
+    fields = ('GALLERY_SMOKE_ROLLBACK_SOURCE', 'GALLERY_SMOKE_ROLLBACK_IMAGE',
+              'GALLERY_SMOKE_ROLLBACK_ARCHIVE_SHA256')
+    values = [os.environ.get(name) for name in fields]
+    if not any(values):
+        return ROLLBACK_SOURCE, ROLLBACK_IMAGE, ROLLBACK_ARCHIVE_SHA
+    if (not all(values) or not re.fullmatch('[0-9a-f]{40}', values[0]) or
+            not re.fullmatch('sha256:[0-9a-f]{64}', values[1]) or
+            not re.fullmatch('[0-9a-f]{64}', values[2])):
+        raise RuntimeError('COMPLETE_IMMUTABLE_REVIEWED_ROLLBACK_PINS_REQUIRED')
+    return tuple(values)
+
+
+NODE_ADDITIVE_MIGRATION = r'''
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+const roots=['migrations','migrations-gallery'];
+const hashes=[];
+for(const root of roots) {
+  const bytes=await fs.readFile('/usr/src/app/server/dist/schema/'+root+'/1794050000000-OwnerStorageDeletion.js');
+  hashes.push(createHash('sha256').update(bytes).digest('hex'));
+}
+process.stdout.write(JSON.stringify(hashes));
+'''
+
+
+def additive_migration_hash(image):
+    """Read compiled migration bytes without a database, media or worker startup."""
+    if not re.fullmatch('sha256:[0-9a-f]{64}', image):
+        raise RuntimeError('IMMUTABLE_MIGRATION_IMAGE_REQUIRED')
+    hashes = json.loads(docker('run', '--rm', '--pull', 'never', '--network', 'none', '--read-only',
+                               '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+                               '--memory', '256m', '--pids-limit', '32', '--entrypoint', 'node',
+                               image, '--input-type=module', '-e', NODE_ADDITIVE_MIGRATION))
+    if (not isinstance(hashes, list) or len(hashes) != 2 or hashes[0] != hashes[1] or
+            not re.fullmatch('[0-9a-f]{64}', hashes[0])):
+        raise RuntimeError('EXACT_COMPILED_ADDITIVE_MIGRATION_REQUIRED')
+    return hashes[0]
+
+
+def verify_rollback_migration(rollback, candidate):
+    digest = additive_migration_hash(rollback)
+    if digest != additive_migration_hash(candidate):
+        raise RuntimeError('PINNED_ROLLBACK_ADDITIVE_MIGRATION_MISMATCH')
+    return digest
+
+
+def load_rollback(directory, candidate_image=None):
+    """Reuse one previously published immutable rollback; no image rebuild or pull."""
+    require_lab()
+    source, image_id, archive_sha = rollback_identity()
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    archive = directory / 'gallery-server-linux-amd64.tar.gz'
+    if (manifest.get('sourceCommit') != source or manifest.get('archiveSHA256') != archive_sha or
+            manifest.get('imageId') != image_id or not archive.is_file() or archive.is_symlink()):
+        raise RuntimeError('PINNED_ROLLBACK_ARTIFACT_REQUIRED')
+    with archive.open('rb') as file:
+        if hashlib.file_digest(file, 'sha256').hexdigest() != archive_sha:
+            raise RuntimeError('PINNED_ROLLBACK_ARCHIVE_CHANGED')
+    docker('load', '-i', str(archive))
+    spec = importlib.util.spec_from_file_location('smoke_image_identity', Path(__file__).with_name('trash_image_identity.py'))
+    identity = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(identity)
+    # Existing streaming verifier checks config, ordered layers, source and
+    # Docker manifest digest across classic/containerd stores.
+    tool = SimpleNamespace(IMAGE=image_id, TAG=manifest['imageTag'], SOURCE=source,
+                           SOURCE_REF='v' + manifest['serverVersion'], ARCHIVE_SHA=archive_sha,
+                           docker=docker, verify_artifact=lambda _: archive,
+                           DOCKER=['docker', '--host=unix:///var/run/docker.sock'])
+    proof = identity.verify_loaded(tool, directory)
+    if candidate_image is not None:
+        verify_rollback_migration(proof['loadedImageId'], candidate_image)
+    return proof['loadedImageId'], manifest
+
+
+NODE_STORAGE_FIXTURE = r'''
+import fs from 'node:fs/promises';
+import {createRequire} from 'node:module';
+const require=createRequire('/usr/src/app/server/package.json');
+require('reflect-metadata');
+const {Kysely,sql}=require('kysely');
+const {ConfigRepository}=await import('file:///usr/src/app/server/dist/repositories/config.repository.js');
+const {getKyselyConfig}=await import('file:///usr/src/app/server/dist/utils/database.js');
+let input='';for await(const part of process.stdin)input+=part;
+const data=JSON.parse(input),config=new ConfigRepository().getEnv();
+if(config.storage.mediaLocation!=='/data')throw new Error('DISPOSABLE_STORAGE_REQUIRED');
+const root='/data/build11-external-ci',file=root+'/synthetic.png';
+if(data.action==='writeExternal'){
+  await fs.mkdir(root,{recursive:true,mode:0o700});
+  await fs.writeFile(file,Buffer.from(data.media,'base64'),{flag:'wx',mode:0o600});
+  console.log(JSON.stringify({root}));
+}else if(data.action==='fileGone'){
+  try{await fs.lstat(file);console.log('false');}catch(error){if(error.code!=='ENOENT')throw error;console.log('true');}
+}else{
+  const db=new Kysely(getKyselyConfig(config.database.config));
+  try{
+    if(data.action==='externalIds'){
+      const rows=await db.selectFrom('asset').select('id').where('libraryId','=',data.scope).execute();
+      console.log(JSON.stringify(rows.map(row=>row.id)));
+    }else if(data.action==='mediaTypes'){
+      const rows=await db.selectFrom('asset_file').select('type').where('assetId','=',data.id).execute();
+      console.log(JSON.stringify(rows.map(row=>row.type)));
+    }else if(data.action==='rescanGate'){
+      const {AssetRepository}=await import('file:///usr/src/app/server/dist/repositories/asset.repository.js');
+      console.log(JSON.stringify(await new AssetRepository(db).filterNewExternalAssetPaths(data.scope,[file])));
+    }else throw new Error('UNKNOWN_FIXED_LAB_ACTION');
+  }finally{await db.destroy();}
+}
+'''
+
+
+def storage_fixture(server, action, **values):
+    require_lab()
+    if not re.fullmatch(r'gallery-trash-ci-[0-9a-f]{12}-server', server):
+        raise RuntimeError('OWNED_DISPOSABLE_SERVER_REQUIRED')
+    return json.loads(docker('exec', '-i', server, 'node', '--input-type=module', '-e', NODE_STORAGE_FIXTURE,
+                            input=json.dumps({'action': action, **values})))
+
+
+def thumbnail_smoke(request, server, asset_id):
+    deadline = time.monotonic() + 120
+    while True:
+        types = storage_fixture(server, 'mediaTypes', id=asset_id)
+        if {'thumbnail', 'preview'}.issubset(types):
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError('SYNTHETIC_THUMBNAIL_AND_PREVIEW_NOT_PROCESSED')
+        time.sleep(2)
+    assert request(f'/assets/{asset_id}/thumbnail?size=thumbnail', raw=True)
+    assert request(f'/assets/{asset_id}/thumbnail?size=preview', raw=True)
+
+
+def external_smoke(request, server, owner):
+    require_lab()
+    media = synthetic_png(22)
+    fixture = storage_fixture(server, 'writeExternal', media=base64.b64encode(media).decode())
+    scope = request('/libraries', 'POST', {'ownerId': owner, 'name': 'Disposable CI external', 'importPaths': [fixture['root']]})['id']
+    request('/libraries/' + scope + '/scan', 'POST')
+    deadline = time.monotonic() + 120
+    while True:
+        ids = storage_fixture(server, 'externalIds', scope=scope)
+        if len(ids) == 1:
+            break
+        if len(ids) > 1 or time.monotonic() > deadline:
+            raise RuntimeError('SYNTHETIC_EXTERNAL_SCAN_INCOMPLETE_OR_DUPLICATED')
+        time.sleep(2)
+    asset_id = ids[0]
+    request('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
+    assert request('/assets/' + asset_id)['isTrashed'] is True
+    assert request('/assets/' + asset_id + '/original', raw=True) == media
+    denied = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+    assert denied == [{'id': asset_id, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
+    request('/assets/library-deletion-consent/' + scope, 'PUT', {'enabled': True, 'confirmed': True})
+    result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
+    assert result == [{'id': asset_id, 'scope': scope, 'state': 'complete'}]
+    assert storage_fixture(server, 'fileGone') is True
+    assert storage_fixture(server, 'externalIds', scope=scope) == []
+    # Exercise the actual compiled external-scan admission query, rather than
+    # claiming an asynchronously queued rescan completed merely from count=0.
+    assert storage_fixture(server, 'rescanGate', scope=scope) == []
+    return {'externalScopeDefaultReadOnly': True, 'ownerWritablePhysicalDeletion': True,
+            'externalScanSuppression': True, 'syntheticMediaOnly': True, 'productionNFSVerified': False}
+
+
 def docker_failure_reason(stderr):
     """Classify CLI failures without emitting arbitrary credential/path text."""
     value = stderr.lower()
@@ -275,10 +480,11 @@ def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1':
         print('FAIL only runs on an explicitly isolated GitHub runner; no containers touched')
         return 1
-    if len(sys.argv) != 3:
-        print('FAIL exact source SHA and existing artifact directory required')
+    if len(sys.argv) not in (3, 4):
+        print('FAIL exact source SHA and existing artifact directory, optional pinned rollback directory required')
         return 1
-    sha, output = sys.argv[1:]
+    sha, output = sys.argv[1:3]
+    rollback_directory = Path(sys.argv[3]) if len(sys.argv) == 4 else None
     directory = Path(output)
     names = []
     network = None
@@ -348,15 +554,8 @@ def main():
         credentials = {'email': 'trash-ci@example.invalid', 'password': secrets.token_urlsafe(24)}
         request('/auth/admin-sign-up', 'POST', {**credentials, 'name': 'Disposable CI'})
         token = request('/auth/login', 'POST', credentials)['accessToken']
-        # Synthetic 1x1 PNG. This HTTP smoke does not certify thumbnail/preview processing.
-        media = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/1cAAAAASUVORK5CYII=')
-        boundary = 'gallery-ci-boundary'
-        parts = []
-        for key in ('fileCreatedAt', 'fileModifiedAt'):
-            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n2024-05-06T10:20:30.000Z\r\n'.encode())
-        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="assetData"; filename="fixture.png"\r\nContent-Type: image/png\r\n\r\n'.encode() + media + b'\r\n')
-        parts.append(f'--{boundary}--\r\n'.encode())
-        asset_id = request('/assets', 'POST', b''.join(parts), 'multipart/form-data; boundary=' + boundary)['id']
+        media = synthetic_png()
+        asset_id = upload_synthetic(request, media)
         original = request(f'/assets/{asset_id}/original', raw=True)
         assert original == media
         before = request('/assets/' + asset_id)
@@ -371,7 +570,10 @@ def main():
         assert request('/trash/restore/assets', 'POST', {'ids': [asset_id]})['count'] == 0
         assert request(f'/assets/{asset_id}/original', raw=True) == original
         print('PASS real HTTP upload/Trash/Restore/idempotency/date/original-byte preservation')
-        stage = 'explicit library authorization/permanent deletion/durable receipt'
+        stage = 'synthetic thumbnail and preview jobs'
+        thumbnail_smoke(request, server, asset_id)
+        print('PASS actual microservices thumbnail/preview files and HTTP photo viewing')
+        stage = 'ordinary owner consent/permanent deletion/durable receipt'
         def required(path, method='GET', data=None, **kwargs):
             try:
                 return request(path, method, data, **kwargs)
@@ -379,15 +581,8 @@ def main():
                 raise http_failure(method, path, error) from None
 
         required('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
-        blocked = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-        assert blocked == [{'id': asset_id, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
-        assert required(f'/assets/{asset_id}/original', raw=True) == media
         owner = required('/users/me')['id']
-        postgres_image = json.loads(docker('inspect', db))[0]['Image']
-        authorize_lab_fixture(required, server, owner, postgres_image, trust, keys)
-        result = required('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-        assert result == [{'id': asset_id, 'state': 'complete'}]
-        assert required('/assets/' + asset_id + '/deletion-status') == result[0]
+        ordinary_managed_smoke(required, asset_id, media)
         assert_removed_asset_not_restorable(request, asset_id)
         try:
             request(f'/assets/{asset_id}/original', raw=True)
@@ -395,11 +590,14 @@ def main():
         except urllib.error.HTTPError as error:
             assert error.code in (400, 404)
         try:
-            request('/assets', 'POST', b''.join(parts), 'multipart/form-data; boundary=' + boundary)
+            upload_synthetic(request, media)
             raise AssertionError('Permanent identity was reimported')
         except urllib.error.HTTPError as error:
             assert error.code == 410
-        print('PASS real HTTP default-deny/lab-signed preparation/owner consent/permanent receipt/reimport suppression')
+        print('PASS real HTTP owner revocation/ordinary consent/permanent receipt/reimport suppression; no recovery proof')
+        stage = 'ordinary owner external writable scope and physical deletion'
+        external_result = external_smoke(required, server, owner)
+        print('PASS actual external scan/default read-only/owner writable physical deletion/reimport gate')
         stage = 'read-only diagnostic runtime'
         spec = importlib.util.spec_from_file_location('audit', Path(__file__).parents[1] / 'diagnostics/hp_trash_release_audit.py')
         audit = importlib.util.module_from_spec(spec)
@@ -411,11 +609,70 @@ def main():
         assert result['postgres']['readOnly'] == 'on'
         assert result['runningVersion'] == manifest['serverVersion']
         print('PASS diagnostic SELECT/read-only Redis path on the compiled image')
-        manifest['isolatedSmoke'] = 'PASS: disposable lab migrations + HTTP Trash/Restore/consent/permanent deletion + signed synthetic recovery + read-only audit'
+        manifest['isolatedSmoke'] = 'PASS: disposable lab migrations + HTTP Trash/Restore/ordinary owner consent/permanent deletion + read-only audit'
         manifest['isolatedRecoveryEvidence'] = {'testOnly': True, 'marker': LAB_MARKER,
                                                'productionRecoveryVerified': False, 'productionAuthorization': False}
         manifest['isolatedWorkerConfiguration'] = 'API_AND_MICROSERVICES'
-        manifest['thumbnailPreviewVerification'] = 'NOT_PERFORMED'
+        manifest['thumbnailPreviewVerification'] = 'PASS_SYNTHETIC_FILES_AND_HTTP'
+        manifest['isolatedExternalDeletion'] = external_result
+        manifest['rollbackVerification'] = 'NOT_TESTED_NO_PINNED_ROLLBACK_ARTIFACT'
+        if rollback_directory:
+            stage = 'pinned existing rollback archive integrity'
+            rollback_image, rollback_manifest = load_rollback(rollback_directory, manifest['imageId'])
+            rollback_media = synthetic_png(33)
+            rollback_asset = upload_synthetic(request, rollback_media)
+            request('/assets', 'DELETE', {'ids': [rollback_asset], 'force': False})
+            assert request('/assets/' + rollback_asset)['isTrashed'] is True
+            # Stop ONLY our candidate fixture; production never participates.
+            stage = 'actual old runtime on upgraded isolated database'
+            docker('stop', server)
+            old_server = prefix + '-rollback-server'
+            docker('run', '-d', '--name', old_server, '--network', network, '--volumes-from', server,
+                   '-e', f'DB_HOSTNAME={db}', '-e', 'DB_PASSWORD=disposable-ci-password',
+                   '-e', f'REDIS_HOSTNAME={redis}', '-e', 'IMMICH_WORKERS_INCLUDE=api,microservices',
+                   '-e', 'IMMICH_WORKERS_EXCLUDE=', '-e', 'IMMICH_MEDIA_LOCATION=/data',
+                   '-p', '127.0.0.1::2283', rollback_image)
+            names.append(old_server)
+            old_info = json.loads(docker('inspect', old_server))[0]
+            mapping = old_info['NetworkSettings']['Ports']['2283/tcp'][0]
+            if not re.fullmatch('[0-9]+', mapping.get('HostPort', '')) or not 0 < int(mapping['HostPort']) < 65536:
+                raise RuntimeError('DISPOSABLE_ROLLBACK_LOOPBACK_PORT_REQUIRED')
+            base = 'http://127.0.0.1:' + mapping['HostPort'] + '/api'
+            token = None
+            deadline = time.monotonic() + 180
+            while True:
+                try:
+                    assert request('/server/ping') == {'res': 'pong'}
+                    break
+                except Exception:
+                    if time.monotonic() > deadline:
+                        raise RuntimeError('PINNED_OLD_RUNTIME_DID_NOT_START_ON_BUILD11_DATABASE') from None
+                    time.sleep(2)
+            expected_old = tuple(map(int, rollback_manifest['serverVersion'].split('.')))
+            assert request('/server/version') == dict(zip(('major', 'minor', 'patch', 'prerelease'), (*expected_old, None)))
+            token = request('/auth/login', 'POST', credentials)['accessToken']
+            assert request('/assets/' + rollback_asset)['isTrashed'] is True
+            assert request('/assets/' + rollback_asset + '/original', raw=True) == rollback_media
+            denied = request('/assets/permanent-deletion', 'POST', {'ids': [rollback_asset], 'confirmed': True})
+            assert len(denied) == 1 and denied[0]['state'] == 'blocked' and denied[0]['code'] == 'MANAGED_DELETION_PREPARATION_REQUIRED'
+            assert request('/assets/' + rollback_asset + '/original', raw=True) == rollback_media
+            assert request('/trash/restore/assets', 'POST', {'ids': [rollback_asset]}) == {'count': 1}
+            assert request('/assets/' + rollback_asset)['isTrashed'] is False
+            assert request('/assets/' + rollback_asset + '/original', raw=True) == rollback_media
+            receipt = {'schemaVersion': 1, 'sourceCommit': sha, 'candidateImageId': manifest['imageId'],
+                       'rollbackSourceCommit': rollback_manifest['sourceCommit'], 'rollbackImageId': rollback_image,
+                       'rollbackArchiveSHA256': rollback_manifest['archiveSHA256'],
+                       'isolatedDatabase': True, 'oldRuntimeStartsOnUpgradedSchema': True,
+                       'storagePoliciesRejectedByRollback': True, 'trashRestoreAfterRollback': True,
+                       'syntheticMediaOnly': True, 'productionChanged': False,
+                       'testedAt': datetime.now(timezone.utc).isoformat()}
+            receipt_path = directory / 'build11-rollback-runtime.json'
+            with receipt_path.open('x') as file:
+                json.dump(receipt, file, indent=2)
+                file.write('\n')
+            manifest['rollbackVerification'] = 'PASS_ACTUAL_PINNED_OLD_RUNTIME_HTTP_ON_BUILD11_SCHEMA'
+            manifest['rollbackRuntimeReceiptSHA256'] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+            print('PASS actual old image/API/auth/Trash/Restore on upgraded isolated DB; storage-mode deletion remains rejected')
         (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         # Public receipt allows verification without downloading the large image.
         print('PASS backend receipt:', json.dumps({key: manifest[key] for key in (
