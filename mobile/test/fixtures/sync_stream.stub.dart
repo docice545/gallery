@@ -112,6 +112,7 @@ abstract final class SyncStreamStub {
       data: SyncAssetV1(
         checksum: checksum,
         deletedAt: deletedAt,
+        isTrashed: Optional.present(deletedAt != null),
         duration: '0',
         fileCreatedAt: DateTime(2025),
         fileModifiedAt: DateTime(2025, 1, 2),

@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
@@ -40,6 +42,8 @@ class _AbortCallbackWrapper {
 class _MockAbortCallbackWrapper extends Mock implements _AbortCallbackWrapper {}
 
 class _MockAssetsApi extends Mock implements AssetsApi {}
+
+class _MockApiClient extends Mock implements ApiClient {}
 
 /// A /server/features response; [syncRequestTypes] defaults to ABSENT — the shape an
 /// older fork server (no capability signalling) produces.
@@ -150,11 +154,19 @@ void main() {
     when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => makeServerFeatures());
 
     when(() => mockSyncStreamRepo.getPendingTrashOperations()).thenAnswer((_) async => []);
+    when(
+      () => mockSyncStreamRepo.getDeviceTrashSyncIds(any()),
+    ).thenAnswer((call) async => call.positionalArguments.first as List<String>);
+    when(() => mockSyncStreamRepo.getDeletionLocalIds(any())).thenAnswer((_) async => []);
+    when(() => mockSyncStreamRepo.retainPermanentDeletion(any())).thenAnswer((_) async {});
+    when(() => mockLocalAssetRepo.deleteAssets(any())).thenAnswer((_) async {});
+    when(() => mockTrashedLocalAssetRepo.deleteAssets(any())).thenAnswer((_) async {});
     when(() => mockSyncStreamRepo.updateUsersV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteUsersV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updatePartnerV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deletePartnerV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateAssetsV1(any())).thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.updateAssetsV2(any())).thenAnswer(successHandler);
     when(
       () => mockSyncStreamRepo.updateAssetsV1(any(), debugLabel: any(named: 'debugLabel')),
     ).thenAnswer(successHandler);
@@ -243,6 +255,9 @@ void main() {
       final ids = invocation.positionalArguments.first as List<String>;
       return ids;
     });
+    when(
+      () => mockAssetMediaRepo.deleteAll(any(), trash: false),
+    ).thenAnswer((call) async => call.positionalArguments.first as List<String>);
     when(() => mockAssetMediaRepo.restoreAssetsFromTrash(any())).thenAnswer((_) async => []);
     await Store.put(StoreKey.manageLocalMediaAndroid, false);
   });
@@ -1188,6 +1203,146 @@ void main() {
       verify(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(any())).called(1);
       verifyNever(() => mockAssetMediaRepo.deleteAll(any()));
       verify(() => mockSyncStreamRepo.deleteAssetsV1(any())).called(1);
+    });
+
+    test('legacy server deletion keeps the explicitly enabled upstream recoverable device Trash behavior', () async {
+      final local = LocalAssetStub.image1.copyWith(id: 'legacy-local');
+      when(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(['remote-asset'])).thenAnswer(
+        (_) async => {
+          'album': [local],
+        },
+      );
+      await simulateEvents([SyncStreamStub.assetDeleteV1]);
+      verify(() => mockAssetMediaRepo.deleteAll(['legacy-local'])).called(1);
+      verify(
+        () => mockTrashedLocalAssetRepo.trashLocalAsset({
+          'album': [local],
+        }),
+      ).called(1);
+      verifyNever(() => mockAssetMediaRepo.deleteAll(any(), trash: false));
+      verifyNever(() => mockLocalAssetRepo.deleteAssets(any()));
+      verifyNever(() => mockTrashedLocalAssetRepo.deleteAssets(any()));
+      verifyNever(() => mockSyncStreamRepo.retainPermanentDeletion(any()));
+      verify(() => mockSyncApiRepo.ack(['asset-delete-ack'])).called(1);
+    });
+
+    test('legacy server deletion with disabled local media sync never invokes OS deletion', () async {
+      await Store.put(StoreKey.manageLocalMediaAndroid, false);
+      await simulateEvents([SyncStreamStub.assetDeleteV1]);
+      verifyNever(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(any()));
+      verifyNever(() => mockAssetMediaRepo.deleteAll(any(), trash: any(named: 'trash')));
+      verifyNever(() => mockSyncStreamRepo.retainPermanentDeletion(any()));
+      verify(() => mockSyncApiRepo.ack(['asset-delete-ack'])).called(1);
+    });
+
+    for (final type in [SyncEntityType.assetV1, SyncEntityType.assetV2]) {
+      for (final explicitTrash in [const Optional<bool?>.absent(), const Optional<bool?>.present(false)]) {
+        test(
+          'offline index deletedAt without explicit Trash never triggers an OS deletion ($type/$explicitTrash)',
+          () async {
+            var event = SyncStreamStub.assetTrashed(id: 'index', checksum: 'checksum', ack: 'index-ack');
+            (event.data as SyncAssetV1).isTrashed = explicitTrash;
+            if (type == SyncEntityType.assetV2) {
+              event = SyncEvent(
+                type: type,
+                data: SyncAssetV2.fromJson({...((event.data as SyncAssetV1).toJson()), 'duration': 0})!,
+                ack: event.ack,
+              );
+            }
+            await simulateEvents([event]);
+            verifyNever(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(any()));
+            verifyNever(() => mockAssetMediaRepo.deleteAll(any()));
+            verify(() => mockSyncApiRepo.ack(['index-ack'])).called(1);
+          },
+        );
+      }
+    }
+
+    test('locally initiated Gallery-only Trash server echo cannot delete the device copy', () async {
+      when(() => mockSyncStreamRepo.getDeviceTrashSyncIds(any())).thenAnswer((_) async => []);
+      await simulateEvents([SyncStreamStub.assetTrashed(id: 'gallery-only', checksum: 'checksum', ack: 'gallery-ack')]);
+      verifyNever(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(any()));
+      verifyNever(() => mockAssetMediaRepo.deleteAll(any()));
+      verify(() => mockSyncApiRepo.ack(['gallery-ack'])).called(1);
+    });
+
+    for (final state in ['blocked', 'failed', 'pending', 'complete']) {
+      test('authorized assetDelete OS cleanup requires a completed receipt ($state)', () async {
+        final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+        when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+        final apiClient = _MockApiClient();
+        when(() => mockApi.apiClient).thenReturn(apiClient);
+        when(() => apiClient.invokeAPI(any(), any(), any(), any(), any(), any(), any())).thenAnswer(
+          (_) async => http.Response(
+            jsonEncode([
+              {'id': 'remote-asset', 'state': state},
+            ]),
+            200,
+          ),
+        );
+        when(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(any())).thenAnswer(
+          (_) async => {
+            'album': [LocalAssetStub.image1.copyWith(id: 'local-complete')],
+          },
+        );
+        await simulateEvents([SyncStreamStub.assetDeleteV1]);
+        if (state == 'complete') {
+          verify(() => mockAssetMediaRepo.deleteAll(['local-complete'], trash: false)).called(1);
+          verify(() => mockLocalAssetRepo.deleteAssets(['local-complete'])).called(1);
+          verify(() => mockTrashedLocalAssetRepo.deleteAssets(['local-complete'])).called(1);
+          verifyNever(() => mockTrashedLocalAssetRepo.trashLocalAsset(any()));
+        } else {
+          verifyNever(() => mockLocalAssetRepo.getAssetsFromBackupAlbums(any()));
+          verifyNever(() => mockAssetMediaRepo.deleteAll(any(), trash: any(named: 'trash')));
+        }
+        verify(() => mockSyncStreamRepo.deleteAssetsV1(any())).called(1);
+        verify(() => mockSyncApiRepo.ack(['asset-delete-ack'])).called(1);
+      });
+    }
+
+    test('completed server receipt with denied OS deletion retains the device cache for explicit retry', () async {
+      final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+      when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+      final apiClient = _MockApiClient();
+      when(() => mockApi.apiClient).thenReturn(apiClient);
+      when(() => apiClient.invokeAPI(any(), any(), any(), any(), any(), any(), any())).thenAnswer(
+        (_) async => http.Response(
+          jsonEncode([
+            {'id': 'remote-asset', 'state': 'complete'},
+          ]),
+          200,
+        ),
+      );
+      when(() => mockSyncStreamRepo.getDeletionLocalIds(any())).thenAnswer((_) async => ['denied-local']);
+      when(() => mockAssetMediaRepo.deleteAll(any(), trash: false)).thenAnswer((_) async => []);
+      await simulateEvents([SyncStreamStub.assetDeleteV1]);
+      verify(() => mockAssetMediaRepo.deleteAll(['denied-local'], trash: false)).called(1);
+      verify(() => mockLocalAssetRepo.deleteAssets([])).called(1);
+      verify(() => mockTrashedLocalAssetRepo.deleteAssets([])).called(1);
+      verify(() => mockSyncStreamRepo.retainPermanentDeletion(['remote-asset'])).called(1);
+    });
+
+    test('completed receipt ignores unrelated and duplicate OS acknowledgements during cache cleanup', () async {
+      final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+      when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+      final apiClient = _MockApiClient();
+      when(() => mockApi.apiClient).thenReturn(apiClient);
+      when(() => apiClient.invokeAPI(any(), any(), any(), any(), any(), any(), any())).thenAnswer(
+        (_) async => http.Response(
+          jsonEncode([
+            {'id': 'remote-asset', 'state': 'complete'},
+          ]),
+          200,
+        ),
+      );
+      when(() => mockSyncStreamRepo.getDeletionLocalIds(any())).thenAnswer((_) async => ['selected-local']);
+      when(
+        () => mockAssetMediaRepo.deleteAll(any(), trash: false),
+      ).thenAnswer((_) async => ['selected-local', 'selected-local', 'unrelated-local']);
+      await simulateEvents([SyncStreamStub.assetDeleteV1]);
+      verify(() => mockLocalAssetRepo.deleteAssets(['selected-local'])).called(1);
+      verify(() => mockTrashedLocalAssetRepo.deleteAssets(['selected-local'])).called(1);
+      verify(() => mockSyncApiRepo.ack(['asset-delete-ack'])).called(1);
     });
 
     test("server Restore never silently recreates an intentionally deleted device copy", () async {

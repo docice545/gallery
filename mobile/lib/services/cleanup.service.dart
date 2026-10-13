@@ -3,11 +3,17 @@ import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 
 final cleanupServiceProvider = Provider<CleanupService>((ref) {
-  return CleanupService(ref.watch(driftProvider).localAssetRepository, ref.watch(assetMediaRepositoryProvider));
+  final db = ref.watch(driftProvider);
+  return CleanupService(
+    db.localAssetRepository,
+    ref.watch(assetMediaRepositoryProvider),
+    trashedLocalRepository: db.trashedLocalAssetRepository,
+  );
 });
 
 class CleanupService {
@@ -15,8 +21,13 @@ class CleanupService {
 
   final LocalAssetRepository _localAssetRepository;
   final AssetMediaRepository _assetMediaRepository;
+  final TrashedLocalAssetRepository? _trashedLocalRepository;
 
-  const CleanupService(this._localAssetRepository, this._assetMediaRepository);
+  const CleanupService(
+    this._localAssetRepository,
+    this._assetMediaRepository, {
+    TrashedLocalAssetRepository? trashedLocalRepository,
+  }) : _trashedLocalRepository = trashedLocalRepository;
 
   Future<RemovalCandidatesResult> getRemovalCandidates(
     String userId,
@@ -43,15 +54,20 @@ class CleanupService {
     for (int index = 0; index < unique.length; index += _deleteBatchSize) {
       final end = index + _deleteBatchSize < unique.length ? index + _deleteBatchSize : unique.length;
       final batch = unique.sublist(index, end);
+      final Set<String> acknowledged;
       try {
-        final acknowledged = (await _assetMediaRepository.deleteAll(batch, trash: trash)).where(batch.contains).toSet();
-        if (acknowledged.isNotEmpty) {
-          // Remove only OS-acknowledged IDs, not an assumed count of the selection.
-          deleted.addAll(acknowledged);
-          await _localAssetRepository.deleteAssets(acknowledged.toList());
-        }
+        acknowledged = (await _assetMediaRepository.deleteAll(batch, trash: trash)).where(batch.contains).toSet();
       } catch (_) {
         // OS denial/network/iCloud failure affects this batch. Never claim all were removed.
+        continue;
+      }
+      if (acknowledged.isNotEmpty) {
+        // Remove only OS-acknowledged IDs, including cached Android device
+        // Trash rows after permanent cleanup. Cache failures must surface;
+        // they are not permission denials or successful completed retries.
+        await _localAssetRepository.deleteAssets(acknowledged.toList());
+        if (!trash) await _trashedLocalRepository?.deleteAssets(acknowledged.toList());
+        deleted.addAll(acknowledged);
       }
     }
     return LocalDeletionResult(

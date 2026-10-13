@@ -18,6 +18,8 @@ import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 
 typedef _DeletionMessage = ({String message, bool complete});
 
+bool _isCurrentOwner(WidgetRef ref, String ownerId) => ref.read(currentUserProvider)?.id == ownerId;
+
 typedef _State = ({List<String> localIds, List<String> remoteIds, bool trash});
 
 final _stateProvider = Provider.family.autoDispose<_State?, ActionSource>((ref, source) {
@@ -90,6 +92,7 @@ class DeleteAction extends AssetActionBuilder {
     }
 
     final (:localIds, :remoteIds, :trash) = state;
+    final ownerId = ref.read(authUserProvider).id;
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
     final clearSelection = ref.read(clearSelectionProvider(source));
@@ -99,15 +102,24 @@ class DeleteAction extends AssetActionBuilder {
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
       ToastOption? undo;
       if (trash) {
-        result = await _moveToTrash(context, ref, remoteIds, removeLocalCopies ? localIds : const []);
+        result = await _moveToTrash(context, ref, ownerId, remoteIds, removeLocalCopies ? localIds : const []);
         if (!removeLocalCopies) {
-          undo = .new(onUndo: () => assetService.restoreTrash(remoteIds));
+          undo = .new(
+            onUndo: () async {
+              if (context.mounted && _isCurrentOwner(ref, ownerId)) {
+                await assetService.restoreTrash(remoteIds);
+              }
+            },
+          );
         }
       } else {
-        result = await _deletePermanently(context, ref, remoteIds);
+        result = await _deletePermanently(context, ref, ownerId, remoteIds);
       }
 
-      if (result == null) {
+      if (!context.mounted) {
+        return;
+      }
+      if (result == null || !_isCurrentOwner(ref, ownerId)) {
         return;
       }
 
@@ -139,11 +151,15 @@ class DeleteAction extends AssetActionBuilder {
   Future<_DeletionMessage?> _moveToTrash(
     BuildContext context,
     WidgetRef ref,
+    String ownerId,
     List<String> remoteIds,
     List<String> localIds,
   ) async {
     await ref.read(assetServiceProvider).trash(remoteIds);
     if (!context.mounted) {
+      return null;
+    }
+    if (!_isCurrentOwner(ref, ownerId)) {
       return null;
     }
     final message = context.t.trash_action_prompt(count: remoteIds.length);
@@ -152,14 +168,22 @@ class DeleteAction extends AssetActionBuilder {
     }
     // Server acceptance precedes any device operation: an offline/uncertain
     // server request must not remove the phone's only available copy.
-    final local = await _cleanupLocalAssetsDetailed(context, ref, localIds);
+    final local = await _cleanupLocalAssetsDetailed(context, ref, localIds, ownerId: ownerId);
     if (!context.mounted) {
+      return null;
+    }
+    if (!_isCurrentOwner(ref, ownerId)) {
       return null;
     }
     return (message: '$message. ${_deviceResult(context, ref, local)}', complete: local.remainingIds.isEmpty);
   }
 
-  Future<_DeletionMessage?> _deletePermanently(BuildContext context, WidgetRef ref, List<String> remoteIds) async {
+  Future<_DeletionMessage?> _deletePermanently(
+    BuildContext context,
+    WidgetRef ref,
+    String ownerId,
+    List<String> remoteIds,
+  ) async {
     final assetService = ref.read(assetServiceProvider);
     final confirmed = await showDialog<bool>(
       context: context,
@@ -169,12 +193,18 @@ class DeleteAction extends AssetActionBuilder {
         ok: context.t.delete_permanently,
       ),
     );
-    if (confirmed != true || !context.mounted) {
+    if (!context.mounted) {
+      return null;
+    }
+    if (confirmed != true || !_isCurrentOwner(ref, ownerId)) {
       return null;
     }
 
     final results = await assetService.deleteWithResults(remoteIds);
     if (!context.mounted) {
+      return null;
+    }
+    if (!_isCurrentOwner(ref, ownerId)) {
       return null;
     }
     final completed = results.where((result) => result.complete).map((result) => result.id).toSet();
@@ -188,14 +218,21 @@ class DeleteAction extends AssetActionBuilder {
     if (!context.mounted) {
       return null;
     }
+    if (!_isCurrentOwner(ref, ownerId)) {
+      return null;
+    }
     final local = await _cleanupLocalAssetsDetailed(
       context,
       ref,
       {...permittedLocalIds, ...retainedLocalIds}.toList(),
+      ownerId: ownerId,
       requestCustomPrompt: false,
       trash: false,
     );
     if (!context.mounted) {
+      return null;
+    }
+    if (!_isCurrentOwner(ref, ownerId)) {
       return null;
     }
     final incomplete = results
@@ -252,12 +289,16 @@ class CleanupLocalAction extends AssetActionBuilder {
       return;
     }
 
+    final ownerId = ref.read(authUserProvider).id;
     final toastService = ref.read(toastServiceProvider);
     final clearSelection = ref.read(clearSelectionProvider(source));
 
     try {
-      final result = await _cleanupLocalAssetsDetailed(context, ref, assetIds);
+      final result = await _cleanupLocalAssetsDetailed(context, ref, assetIds, ownerId: ownerId);
       if (!context.mounted) {
+        return;
+      }
+      if (!_isCurrentOwner(ref, ownerId)) {
         return;
       }
 
@@ -291,6 +332,7 @@ Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
   BuildContext context,
   WidgetRef ref,
   List<String> assetIds, {
+  required String ownerId,
   bool requestCustomPrompt = true,
   bool trash = true,
 }) async {
@@ -313,10 +355,21 @@ Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
         ok: context.t.ok,
       ),
     );
-    if (confirmed != true) {
+    if (!context.mounted) {
+      return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
+    }
+    if (confirmed != true || !_isCurrentOwner(ref, ownerId)) {
       return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
     }
   }
 
+  // Account changes while a server request or app/OS prompt is pending must
+  // never authorize device deletion for the previous owner's selection.
+  if (!context.mounted) {
+    return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
+  }
+  if (!_isCurrentOwner(ref, ownerId)) {
+    return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
+  }
   return cleanupService.deleteLocalAssetsDetailed(assetIds, trash: trash);
 }

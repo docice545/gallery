@@ -8,6 +8,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
@@ -21,6 +22,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../service.mocks.dart';
 import '../../factories/local_asset_factory.dart';
 import '../../factories/remote_asset_factory.dart';
+import '../../factories/user_factory.dart';
 import '../presentation_context.dart';
 
 void main() {
@@ -89,11 +91,15 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> respondToDialog(WidgetTester tester, {required bool confirm}) async {
+  Future<void> respondToDialog(WidgetTester tester, {required bool confirm, bool settle = true}) async {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(ConfirmDialog), findsOneWidget);
     await tester.tap(find.byType(TextButton).at(confirm ? 1 : 0)); // [cancel, ok]
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
   }
 
   group('DeleteAction', () {
@@ -223,6 +229,143 @@ void main() {
         await tester.pumpAndSettle();
         verify(() => assetService.trash([own.id])).called(1);
         verify(() => cleanupService.deleteLocalAssetsDetailed(['mine'])).called(1);
+      });
+    });
+
+    group('account isolation across pending deletion', () {
+      late StreamController<UserDto?> users;
+
+      setUp(() {
+        users = StreamController<UserDto?>.broadcast();
+        when(context.service.user.watchMyUser).thenAnswer((_) => users.stream);
+      });
+
+      tearDown(() async {
+        await users.close();
+      });
+
+      Future<void> switchAccount(WidgetTester tester) async {
+        users.add(UserFactory.createDto());
+        await tester.pump();
+      }
+
+      testWidgets('late Trash acceptance cannot delete device copies in a different account', (tester) async {
+        final asset = owned(localId: 'old-owner-phone');
+        final accepted = Completer<void>();
+        when(() => assetService.trash(any())).thenAnswer((_) => accepted.future);
+        await pumpDelete(tester, {asset}, everywhere: true);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        await switchAccount(tester);
+        accepted.complete();
+        await tester.pumpAndSettle();
+
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('late Gallery Trash acceptance cannot announce success or clear another account selection', (
+        tester,
+      ) async {
+        final asset = owned();
+        final accepted = Completer<void>();
+        when(() => assetService.trash(any())).thenAnswer((_) => accepted.future);
+        await pumpDelete(tester, {asset});
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        await switchAccount(tester);
+        accepted.complete();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('permanent deletion confirmation cannot cross an account change', (tester) async {
+        final asset = owned(deletedAt: DateTime(2024), localId: 'old-owner-phone');
+        await pumpDelete(tester, {asset});
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        await switchAccount(tester);
+        await respondToDialog(tester, confirm: true);
+
+        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('late permanent deletion acknowledgement cannot clean up a different account device', (tester) async {
+        final asset = owned(deletedAt: DateTime(2024), localId: 'old-owner-phone');
+        final accepted = Completer<List<PermanentDeletionResult>>();
+        when(() => assetService.deleteWithResults(any())).thenAnswer((_) => accepted.future);
+        await pumpDelete(tester, {asset});
+        await respondToDialog(tester, confirm: true, settle: false);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        await switchAccount(tester);
+        accepted.complete([PermanentDeletionResult(id: asset.id, state: 'complete')]);
+        await tester.pumpAndSettle();
+
+        verifyNever(() => assetService.getDeletionLocalIds(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('retained device identity lookup cannot cross an account change', (tester) async {
+        final asset = owned(deletedAt: DateTime(2024), localId: 'old-owner-phone');
+        final retained = Completer<List<String>>();
+        when(() => assetService.getDeletionLocalIds(any())).thenAnswer((_) => retained.future);
+        await pumpDelete(tester, {asset});
+        await respondToDialog(tester, confirm: true, settle: false);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        await switchAccount(tester);
+        retained.complete(['retained-old-owner-phone']);
+        await tester.pumpAndSettle();
+
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('device deletion app prompt cannot cross an account change', (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        await StoreService.I.put(StoreKey.manageLocalMediaAndroid, true);
+        final asset = owned(localId: 'old-owner-phone');
+        await pumpDelete(tester, {asset}, device: true);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        await switchAccount(tester);
+        await respondToDialog(tester, confirm: true);
+
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+        debugDefaultTargetPlatformOverride = null;
+      });
+
+      testWidgets('late OS result cannot announce completion or clear another account selection', (tester) async {
+        final asset = owned(localId: 'old-owner-phone');
+        final device = Completer<LocalDeletionResult>();
+        when(() => cleanupService.deleteLocalAssetsDetailed(any())).thenAnswer((_) => device.future);
+        await pumpDelete(tester, {asset}, everywhere: true);
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['old-owner-phone'])).called(1);
+        await switchAccount(tester);
+        device.complete(const LocalDeletionResult(deletedIds: ['old-owner-phone'], remainingIds: []));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SnackBar), findsNothing);
+        expect(scope.read(multiSelectProvider).selectedAssets, {asset});
+      });
+
+      testWidgets('old Gallery Trash undo cannot issue Restore under a different account', (tester) async {
+        final asset = owned();
+        await pumpDelete(tester, {asset});
+        await tester.pumpAndSettle();
+        expect(find.text('Undo'), findsOneWidget);
+        await switchAccount(tester);
+        await tester.tap(find.text('Undo'));
+        await tester.pumpAndSettle();
+
+        verifyNever(() => assetService.restoreTrash(any()));
       });
     });
 

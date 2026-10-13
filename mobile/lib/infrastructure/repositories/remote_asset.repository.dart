@@ -221,6 +221,9 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
 
   Future<List<String>> getDeletionLocalIds(List<String> ids) => _db.syncStreamRepository.getDeletionLocalIds(ids);
 
+  Future<List<String>> getPendingDeviceDeletionAssetIds(String ownerId) =>
+      _db.syncStreamRepository.getPendingDeviceDeletionAssetIds(ownerId);
+
   Future<void> deleteAssets(List<String> ids) {
     return _db.transaction(() async {
       await _db.syncStreamRepository.clearRetainedTrash(ids: ids);

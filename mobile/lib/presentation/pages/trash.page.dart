@@ -48,7 +48,7 @@ class TrashPage extends StatelessWidget {
           pinned: true,
           centerTitle: true,
           elevation: 0,
-          actions: const [_TrashKebabMenu()],
+          actions: const [TrashActionsMenu()],
         ),
         topSliverWidget: Consumer(
           builder: (context, ref, child) {
@@ -76,8 +76,49 @@ class TrashPage extends StatelessWidget {
   }
 }
 
-class _TrashKebabMenu extends ConsumerWidget {
-  const _TrashKebabMenu();
+class TrashActionsMenu extends ConsumerWidget {
+  const TrashActionsMenu({super.key});
+
+  Future<void> _retryDeviceDeletion(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: context.t.device_deletion_retry,
+        content: context.t.device_deletion_retry_confirmation,
+        ok: context.t.delete_from_device,
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final owner = ref.read(currentUserProvider)?.id;
+    if (owner == null) return;
+    try {
+      final service = ref.read(assetServiceProvider);
+      // Only completed, owner-scoped server receipts can offer this retry.
+      // Current checksum matching excludes media IDs reused for another file.
+      final ids = await service.getPendingDeviceDeletionAssetIds(owner);
+      final localIds = ids.isEmpty ? <String>[] : await service.getDeletionLocalIds(ids);
+      if (!context.mounted || ref.read(currentUserProvider)?.id != owner) return;
+      if (localIds.isEmpty) {
+        ImmichToast.show(context: context, msg: context.t.device_deletion_retry_none);
+        return;
+      }
+      // This is an explicit OS-only operation. Do not create another server
+      // deletion intent, restore cloud records, or retry incomplete receipts.
+      final local = await ref.read(cleanupServiceProvider).deleteLocalAssetsDetailed(localIds, trash: false);
+      if (!context.mounted) return;
+      ImmichToast.show(
+        context: context,
+        msg: context.t.device_deletion_result(
+          removed: local.deletedIds.length,
+          remaining: local.remainingIds.length,
+          names: local.remainingIds.take(25).join(', '),
+        ),
+        toastType: local.remainingIds.isEmpty ? ToastType.success : ToastType.error,
+      );
+    } catch (error, stack) {
+      handleError(error, stack: stack, description: 'Failed to retry confirmed device copy deletion');
+    }
+  }
 
   Future<void> _emptyTrash(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
@@ -101,9 +142,10 @@ class _TrashKebabMenu extends ConsumerWidget {
       // rows based on a count-only response or delete newly arriving assets.
       final ids = await service.getTrashIds(user.id);
       final results = await service.deleteWithResults(ids);
+      if (!context.mounted || ref.read(currentUserProvider)?.id != user.id) return;
       final completed = results.where((result) => result.complete).map((result) => result.id).toList();
       final localIds = await service.getDeletionLocalIds(completed);
-      if (!context.mounted) {
+      if (!context.mounted || ref.read(currentUserProvider)?.id != user.id) {
         return;
       }
       final local = await ref.read(cleanupServiceProvider).deleteLocalAssetsDetailed(localIds, trash: false);
@@ -185,6 +227,12 @@ class _TrashKebabMenu extends ConsumerWidget {
           label: context.t.empty_trash,
           iconData: Icons.delete_forever_outlined,
           onPressed: () => _emptyTrash(context, ref),
+          menuItem: true,
+        ),
+        BaseActionButton(
+          label: context.t.device_deletion_retry,
+          iconData: Icons.no_cell_outlined,
+          onPressed: () => _retryDeviceDeletion(context, ref),
           menuItem: true,
         ),
         if (ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion)))

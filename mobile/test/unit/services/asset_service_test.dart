@@ -44,6 +44,7 @@ void main() {
     apiRepository = mocks.assetApi.api;
     remoteRepository = mocks.remoteAsset.repo;
     exifRepository = mocks.remoteExif.repo;
+    when(() => mocks.trashedAsset.deleteAssets(any())).thenAnswer((_) async {});
 
     sut = AssetService(
       remoteRepository: remoteRepository,
@@ -158,6 +159,7 @@ void main() {
       expect(result, ids.length);
       verify(() => mocks.assetMedia.api.deleteAll(ids, trash: false)).called(1);
       verify(() => mocks.localAsset.repo.deleteAssets(ids)).called(1);
+      verify(() => mocks.trashedAsset.deleteAssets(ids)).called(1);
       verifyNever(() => mocks.trashedAsset.applyTrashedAssets(any()));
     });
   });

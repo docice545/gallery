@@ -8,6 +8,7 @@ import 'package:immich_mobile/data/db/main/table/local/trashed_asset.dart';
 import 'package:immich_mobile/data/db/main/table/local/trashed_asset.drift.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.drift.dart';
 
 typedef TrashedAsset = ({String albumId, LocalAsset asset});
@@ -175,6 +176,14 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
     });
   }
 
+  /// Remove only platform-confirmed permanent deletions from the local Trash
+  /// cache. Permission-denied and interrupted deletions remain retryable.
+  Future<void> deleteAssets(List<String> ids) async {
+    for (final slice in ids.slices(kDriftMaxChunk)) {
+      await (_db.delete(_db.trashedLocalAssetEntity)..where((row) => row.id.isIn(slice))).go();
+    }
+  }
+
   Future<void> applyRestoredAssets(List<String> idList) async {
     if (idList.isEmpty) {
       return Future.value();
@@ -284,11 +293,18 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
               ),
             ])..where(
               _db.localAlbumEntity.backupSelection.equalsValue(BackupSelection.selected) &
-                  _db.remoteAssetEntity.deletedAt.isNotNull(),
+                  _db.remoteAssetEntity.deletedAt.isNotNull() &
+                  _db.remoteAssetEntity.isIndexTombstone.equals(false),
             ))
             .get();
 
+    final eligible = (await SyncStreamRepository(
+      _db,
+    ).getDeviceTrashSyncIds(rows.map((row) => row.readTable(_db.remoteAssetEntity).id).toList())).toSet();
     for (final row in rows) {
+      if (!eligible.contains(row.readTable(_db.remoteAssetEntity).id)) {
+        continue;
+      }
       final albumId = row.readTable(_db.localAlbumAssetEntity).albumId;
       final asset = row.readTable(_db.localAssetEntity).toDto();
       (result[albumId] ??= <LocalAsset>[]).add(asset);

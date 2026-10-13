@@ -61,7 +61,8 @@ class BackupRepository extends DatabaseAccessor<Drift> with $BackupRepositoryMix
         AND NOT EXISTS (SELECT 1 FROM settings retained
           WHERE retained.key LIKE 'sync.trash-reset.%'
           AND JSON_EXTRACT(retained.value, '\$.ownerId') = ?1
-          AND (JSON_EXTRACT(retained.value, '\$.checksum') = lae.checksum OR EXISTS (SELECT 1 FROM JSON_EACH(retained.value, '\$.localIds') WHERE value = lae.id))
+          AND (JSON_EXTRACT(retained.value, '\$.checksum') = lae.checksum
+            OR (lae.checksum IS NULL AND EXISTS (SELECT 1 FROM JSON_EACH(retained.value, '\$.localIds') WHERE value = lae.id)))
           AND JSON_EXTRACT(retained.value, '\$.endpoint') = COALESCE((SELECT string_value FROM store_entity WHERE id = 12), ''));
       ''';
 
@@ -139,8 +140,15 @@ class BackupRepository extends DatabaseAccessor<Drift> with $BackupRepositoryMix
         suppressedLocalIds.addAll((state['localIds'] as List? ?? []).cast<String>());
       }
     }
+    // OS identifiers can be reused or the file can be edited. A verified new
+    // checksum is a different byte identity and must remain backup eligible.
+    // Keep the captured ID blocked only while its checksum is still unknown.
     return rows
-        .where((asset) => !suppressed.contains(asset.checksum) && !suppressedLocalIds.contains(asset.id))
+        .where(
+          (asset) =>
+              !suppressed.contains(asset.checksum) &&
+              (asset.checksum != null || !suppressedLocalIds.contains(asset.id)),
+        )
         .toList();
   }
 }

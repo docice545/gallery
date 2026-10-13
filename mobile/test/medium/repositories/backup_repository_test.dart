@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:immich_mobile/data/db/main/table/local/asset.drift.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/backup.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
@@ -244,22 +243,46 @@ void main() {
       expect(result.first.id, asset.id);
     });
   });
-  test('OS-denied copy stays excluded after metadata changes its checksum and server row disappears', () async {
-    final user = await ctx.newUser();
-    await ctx.newAuthUser(id: user.id);
-    final remote = await ctx.newRemoteAsset(ownerId: user.id);
-    final local = await ctx.newLocalAsset(checksum: remote.checksum);
-    final album = await ctx.newLocalAlbum(backupSelection: BackupSelection.selected);
-    await ctx.newLocalAlbumAsset(albumId: album.id, assetId: local.id);
-    final repository = RemoteAssetRepository(ctx.db);
-    await repository.trash([remote.id]);
-    final snapshots = await repository.beginPermanentDeletion([remote.id]);
-    await ctx.db.syncStreamRepository.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
-    await (ctx.db.localAssetEntity.update()..where((row) => row.id.equals(local.id))).write(
-      const LocalAssetEntityCompanion(checksum: Value('changed-by-device-metadata')),
-    );
-    final restarted = BackupRepository(ctx.db);
-    expect((await restarted.getAllCounts(user.id)).remainder, 0);
-    expect(await repository.getDeletionLocalIds([remote.id]), [local.id]);
-  });
+  test(
+    'verified new bytes under a reused OS ID remain backup eligible and are never deleted by an old receipt',
+    () async {
+      final user = await ctx.newUser();
+      await ctx.newAuthUser(id: user.id);
+      final remote = await ctx.newRemoteAsset(ownerId: user.id);
+      final local = await ctx.newLocalAsset(checksum: remote.checksum);
+      final album = await ctx.newLocalAlbum(backupSelection: BackupSelection.selected);
+      await ctx.newLocalAlbumAsset(albumId: album.id, assetId: local.id);
+      final repository = RemoteAssetRepository(ctx.db);
+      await repository.trash([remote.id]);
+      final snapshots = await repository.beginPermanentDeletion([remote.id]);
+      await ctx.db.syncStreamRepository.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
+      await ctx.db.localAlbumAssetEntity.deleteWhere((row) => row.assetId.equals(local.id));
+      await ctx.db.localAssetEntity.deleteWhere((row) => row.id.equals(local.id));
+      await ctx.newLocalAsset(id: local.id, checksum: 'verified-new-photo-bytes');
+      await ctx.newLocalAlbumAsset(albumId: album.id, assetId: local.id);
+      final restarted = BackupRepository(ctx.db);
+      expect((await restarted.getAllCounts(user.id)).remainder, 1);
+      expect((await restarted.getCandidates(user.id)).single.id, local.id);
+      expect(await repository.getDeletionLocalIds([remote.id]), isEmpty);
+    },
+  );
+  test(
+    'OS-denied unchanged bytes stay backup-suppressed after the server row disappears and repository restart',
+    () async {
+      final user = await ctx.newUser();
+      await ctx.newAuthUser(id: user.id);
+      final remote = await ctx.newRemoteAsset(ownerId: user.id);
+      final local = await ctx.newLocalAsset(checksum: remote.checksum);
+      final album = await ctx.newLocalAlbum(backupSelection: BackupSelection.selected);
+      await ctx.newLocalAlbumAsset(albumId: album.id, assetId: local.id);
+      final repository = RemoteAssetRepository(ctx.db);
+      await repository.trash([remote.id]);
+      final snapshots = await repository.beginPermanentDeletion([remote.id]);
+      await ctx.db.syncStreamRepository.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
+      final restarted = BackupRepository(ctx.db);
+      expect(await restarted.getAllCounts(user.id), (total: 0, remainder: 0, processing: 0));
+      expect(await restarted.getCandidates(user.id), isEmpty);
+      expect(await repository.getDeletionLocalIds([remote.id]), [local.id]);
+    },
+  );
 }

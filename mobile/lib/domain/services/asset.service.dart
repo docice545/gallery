@@ -257,6 +257,9 @@ class AssetService {
 
   Future<List<String>> getDeletionLocalIds(List<String> ids) => _remoteRepository.getDeletionLocalIds(ids);
 
+  Future<List<String>> getPendingDeviceDeletionAssetIds(String ownerId) =>
+      _remoteRepository.getPendingDeviceDeletionAssetIds(ownerId);
+
   Future<void> applyEdits(String remoteId, List<AssetEdit> edits) async {
     if (edits.isEmpty) {
       await _apiRepository.removeEdits(remoteId);
@@ -279,6 +282,7 @@ class AssetService {
       await _trashedLocalRepository.applyTrashedAssets(deletedIds);
     } else {
       await _localRepository.deleteAssets(deletedIds);
+      if (!trash) await _trashedLocalRepository.deleteAssets(deletedIds);
     }
     return deletedIds.length;
   }

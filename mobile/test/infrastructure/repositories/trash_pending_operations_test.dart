@@ -505,4 +505,41 @@ void main() {
     await remote.restoreTrash(['asset']);
     expect(jsonDecode((await marker('asset'))!)['permanentComplete'], isTrue);
   });
+
+  test('Empty Trash captures a device copy discovered after the initial Trash sync', () async {
+    final before = (await remote.get('asset'))!;
+    await remote.trash(['asset']);
+    expect(await remote.getDeletionLocalIds(['asset']), isEmpty);
+    final local = await ctx.newLocalAsset(checksum: before.checksum);
+    final snapshots = await remote.beginPermanentDeletion(['asset']);
+    await sync.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
+    expect(await remote.get('asset'), isNull);
+    expect(await remote.getDeletionLocalIds(['asset']), [local.id]);
+  });
+
+  test('permanent deletion merges existing and newly scanned copies without duplicate OS identities', () async {
+    final before = (await remote.get('asset'))!;
+    final initial = await ctx.newLocalAsset(checksum: before.checksum);
+    await remote.trash(['asset']);
+    final later = await ctx.newLocalAsset(checksum: before.checksum);
+    final snapshots = await RemoteAssetRepository(ctx.db).beginPermanentDeletion(['asset']);
+    final reloaded = SyncStreamRepository(ctx.db);
+    await reloaded.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
+    expect(await reloaded.getDeletionLocalIds(['asset']), unorderedEquals([initial.id, later.id]));
+    expect((await reloaded.getDeletionLocalIds(['asset'])).toSet(), hasLength(2));
+    // A delayed Restore acknowledgement cannot erase the completed receipt or
+    // the local cleanup identities retained through repository recreation.
+    await remote.restoreTrash(['asset']);
+    expect(await reloaded.getDeletionLocalIds(['asset']), unorderedEquals([initial.id, later.id]));
+  });
+
+  test('Empty Trash enrichment never makes another owner local cleanup eligible', () async {
+    await ctx.newUser(id: 'other-owner');
+    final other = await ctx.newRemoteAsset(id: 'other-asset', ownerId: 'other-owner');
+    await remote.trash(['other-asset']);
+    await ctx.newLocalAsset(checksum: other.checksum);
+    final snapshots = await remote.beginPermanentDeletion(['other-asset']);
+    await sync.resolvePermanentDeletion(snapshots.single, accepted: true, complete: true);
+    expect(await remote.getDeletionLocalIds(['other-asset']), isEmpty);
+  });
 }

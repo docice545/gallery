@@ -637,10 +637,16 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         });
   }
 
-  /// Only called after a successful explicit Restore/Delete API operation.
-  /// Works during reset before the corresponding asset row is re-delivered.
+  /// Only called for completed, owner-scoped server deletion receipts.
+  /// A stale cached active row still supplies its identity when the completion
+  /// event arrives before the corresponding Trash event. Known dates survive.
   Future<void> retainPermanentDeletion(List<String> ids) async {
-    final snapshots = await updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true);
+    final snapshots = await updateRetainedTrash(
+      ids,
+      DateTime.now(),
+      preserveExistingDates: true,
+      captureActiveIdentity: true,
+    );
     for (final snapshot in snapshots) {
       final state = jsonDecode(snapshot.retainedValue!) as Map<String, dynamic>;
       state['permanent'] = true;
@@ -671,26 +677,98 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     });
   }
 
-  Future<List<String>> getDeletionLocalIds(List<String> ids) async {
+  /// Device cleanup is owned by the explicit local action when Trash originated
+  /// on this phone. A later server echo/reset must not turn Gallery-only into
+  /// Delete Everywhere or retry a denied OS action without another user action.
+  Future<List<String>> getDeviceTrashSyncIds(List<String> ids) async {
+    final owners = await _db.authUserEntity.select().map((row) => row.id).get();
+    final rows =
+        await (_db.remoteAssetEntity.select()..where(
+              (row) =>
+                  row.id.isIn(ids) &
+                  row.ownerId.isIn(owners) &
+                  row.deletedAt.isNotNull() &
+                  row.isIndexTombstone.equals(false),
+            ))
+            .get();
+    final retained = await _retainedTrash({for (final row in rows) row.id: row.ownerId});
+    return [
+      for (final row in rows)
+        if (_pendingState(retained[row.id])?['deviceTrashActionOnly'] != true) row.id,
+    ];
+  }
+
+  Future<List<Map<String, dynamic>>> _ownedDeletionMarkers({List<String>? ids, String? ownerId}) async {
     final prefix = await _trashResetPrefix();
     final owners = await _db.authUserEntity.select().map((row) => row.id).get();
     final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
-    return {
+    return [
       for (final row in rows)
         if (row.value != null)
-          if (jsonDecode(row.value!) case {
-            'id': final String id,
-            'ownerId': final String ownerId,
-            'localIds': final List localIds,
-          })
-            if (ids.contains(id) && owners.contains(ownerId)) ...localIds.cast<String>(),
-    }.toList();
+          if (jsonDecode(row.value!) case final Map<String, dynamic> state)
+            if (owners.contains(state['ownerId']) &&
+                (ownerId == null || state['ownerId'] == ownerId) &&
+                (ids == null || ids.contains(state['id'])) &&
+                row.key == '$prefix${state['ownerId']}/${state['id']}')
+              state,
+    ];
+  }
+
+  Future<Map<String, Set<String>>> _deviceIdsByChecksum(Set<String> checksums) async {
+    final result = <String, Set<String>>{};
+    if (checksums.isEmpty) {
+      return result;
+    }
+    final localById = <String, String?>{};
+    for (final slice in checksums.toList().slices(500)) {
+      final local = await (_db.localAssetEntity.select()..where((row) => row.checksum.isIn(slice))).get();
+      for (final row in local) {
+        localById[row.id] = row.checksum;
+        (result[row.checksum!] ??= {}).add(row.id);
+      }
+      final trashed = await (_db.trashedLocalAssetEntity.select()..where((row) => row.checksum.isIn(slice))).get();
+      // A current local row supersedes a cached device-Trash identity. An OS
+      // identifier reused for unrelated bytes must never be deleted by receipt.
+      final current = await (_db.localAssetEntity.select()..where((row) => row.id.isIn(trashed.map((row) => row.id))))
+          .get();
+      for (final row in current) {
+        localById[row.id] = row.checksum;
+      }
+      for (final row in trashed) {
+        if (!localById.containsKey(row.id) || localById[row.id] == row.checksum) {
+          (result[row.checksum!] ??= {}).add(row.id);
+        }
+      }
+    }
+    return result;
+  }
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) async {
+    final markers = await _ownedDeletionMarkers(ids: ids);
+    final localIds = await _deviceIdsByChecksum({for (final marker in markers) marker['checksum'] as String});
+    return {for (final marker in markers) ...?localIds[marker['checksum']]}.toList();
+  }
+
+  /// A completed owner-scoped receipt permits an explicit OS-only retry after
+  /// permission denial. Uncertain/blocked operations and other accounts do not.
+  Future<List<String>> getPendingDeviceDeletionAssetIds(String ownerId) async {
+    final markers = (await _ownedDeletionMarkers(
+      ownerId: ownerId,
+    )).where((state) => state['permanent'] == true && state['permanentComplete'] == true).toList();
+    final localIds = await _deviceIdsByChecksum({for (final marker in markers) marker['checksum'] as String});
+    return [
+      for (final marker in markers)
+        if (localIds[marker['checksum']]?.isNotEmpty == true) marker['id'] as String,
+    ];
   }
 
   Future<List<AssetTrashSnapshot>> updateRetainedTrash(
     Iterable<String> ids,
     DateTime deletedAt, {
     bool preserveExistingDates = false,
+    // Definitive completed deletion receipts can precede cached Trash state.
+    // Other preservation/reconciliation calls must never adopt active rows.
+    bool captureActiveIdentity = false,
     String? operation,
   }) async {
     final endpoint = await _trashEndpoint();
@@ -722,7 +800,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     for (final row in existing) {
       previousDates[row.id] = row.deletedAt;
       previousIndexStates[row.id] = row.isIndexTombstone;
-      if (!preserveExistingDates || row.deletedAt != null) {
+      if (!preserveExistingDates || row.deletedAt != null || captureActiveIdentity) {
         identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
       }
       if (row.deletedAt != null) {
@@ -749,7 +827,14 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         final value = jsonEncode({
           if (previous?['permanent'] == true) 'permanent': true,
           if (previous?['permanentComplete'] == true) 'permanentComplete': true,
-          'localIds': previous?['localIds'] ?? localIdsByChecksum[entry.value.checksum] ?? <String>[],
+          if (operation == 'trash' || previous?['deviceTrashActionOnly'] == true) 'deviceTrashActionOnly': true,
+          // A Trash event can arrive before the local media scan. Keep the OS
+          // identities already journaled (including copies in device Trash),
+          // and capture newly discovered copies before the server row is gone.
+          'localIds': {
+            ...?(previous?['localIds'] as List?)?.cast<String>(),
+            ...?localIdsByChecksum[entry.value.checksum],
+          }.toList(),
           'endpoint': endpoint,
           'id': entry.key,
           'ownerId': entry.value.ownerId,

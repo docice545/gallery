@@ -60,27 +60,30 @@ class SyncStreamService {
 
   bool get isCancelled => _cancellation?.isCompleted ?? false;
 
-  Future<void> _retainPermanentDeletions(List<String> ids) async {
+  Future<List<String>> _retainPermanentDeletions(List<String> ids) async {
     if (_authorizedDeletion == false) {
-      return;
+      return ids; // Preserve the older server's explicitly enabled local-sync behavior.
     }
+    final verified = <String>[];
     for (var start = 0; start < ids.length; start += 200) {
       if (isCancelled) {
-        return;
+        return [];
       }
       final end = start + 200 < ids.length ? start + 200 : ids.length;
       try {
         final completed = await AssetApiRepository(_api).completedDeletions(ids.sublist(start, end));
         if (isCancelled) {
-          return;
+          return [];
         }
         await _syncStreamRepository.retainPermanentDeletion(completed.toList());
+        verified.addAll(completed);
       } catch (_) {
         // Do not acknowledge a deletion sync on unknown network outcome: retry the same sync checkpoint.
         // An older backend does not implement this candidate's durable deletion contract.
         rethrow;
       }
     }
+    return verified;
   }
 
   Future<bool> sync() async {
@@ -376,24 +379,34 @@ class SyncStreamService {
         final remoteSyncAssets = data.cast<SyncAssetV1>();
         await _syncStreamRepository.updateAssetsV1(remoteSyncAssets);
         if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
-          await _syncAssetTrashStatus(remoteSyncAssets.where((e) => e.deletedAt != null).map((e) => e.id).toList());
+          await _syncAssetTrashStatus(
+            remoteSyncAssets
+                .where((e) => e.deletedAt != null && e.isTrashed.orElse(false) == true)
+                .map((e) => e.id)
+                .toList(),
+          );
         }
         return;
       case SyncEntityType.assetV2:
         final remoteSyncAssets = data.cast<SyncAssetV2>();
         await _syncStreamRepository.updateAssetsV2(remoteSyncAssets);
         if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
-          await _syncAssetTrashStatus(remoteSyncAssets.where((e) => e.deletedAt != null).map((e) => e.id).toList());
+          await _syncAssetTrashStatus(
+            remoteSyncAssets
+                .where((e) => e.deletedAt != null && e.isTrashed.orElse(false) == true)
+                .map((e) => e.id)
+                .toList(),
+          );
         }
         return;
       case SyncEntityType.assetDeleteV1:
         final remoteSyncAssets = data.cast<SyncAssetDeleteV1>().toList();
-        await _retainPermanentDeletions(remoteSyncAssets.map((item) => item.assetId).toList());
+        final completedIds = await _retainPermanentDeletions(remoteSyncAssets.map((item) => item.assetId).toList());
         if (isCancelled) {
           return;
         }
         if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
-          await _syncAssetDeletion(remoteSyncAssets.map((e) => e.assetId).toList());
+          await _syncAssetDeletion(completedIds);
         }
         return _syncStreamRepository.deleteAssetsV1(remoteSyncAssets);
       case SyncEntityType.assetExifV1:
@@ -802,7 +815,8 @@ class SyncStreamService {
       return;
     }
 
-    await _handleRemoteDeleted(remoteIds);
+    final eligible = await _syncStreamRepository.getDeviceTrashSyncIds(remoteIds);
+    await _handleRemoteDeleted(eligible);
     // Server Restore changes server state only. Device restore requires an explicit OS/user action.
   }
 
@@ -812,6 +826,27 @@ class SyncStreamService {
       return;
     }
 
-    await _handleRemoteDeleted(remoteIds);
+    if (remoteIds.isEmpty) {
+      return;
+    }
+    if (_authorizedDeletion == false) {
+      // Legacy assetDelete events do not prove permanent original deletion.
+      // Preserve the upstream opt-in behavior: move matching device copies to
+      // recoverable device Trash; never promote them to permanent OS removal.
+      await _handleRemoteDeleted(remoteIds);
+      return;
+    }
+    final assets = await _localAssetRepository.getAssetsFromBackupAlbums(remoteIds);
+    final retained = await _syncStreamRepository.getDeletionLocalIds(remoteIds);
+    final ids = {...retained, for (final group in assets.values) ...group.map((asset) => asset.id)}.toList();
+    if (ids.isEmpty) {
+      return;
+    }
+    // A completed server receipt is permanent deletion, not device Trash.
+    // Record only OS-confirmed IDs; permission denial leaves the journal intact
+    // for the owner's explicit retry and never recreates a local file.
+    final removed = (await _assetMediaRepository.deleteAll(ids, trash: false)).where(ids.contains).toSet().toList();
+    await _localAssetRepository.deleteAssets(removed);
+    await _trashedLocalAssetRepository.deleteAssets(removed);
   }
 }
