@@ -313,6 +313,48 @@ class DeletionQueueEvidence(unittest.TestCase):
                 release.queue_safety()
 
 
+class CompletedFreshInstall(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        self.directory=Path(temporary.name)/'install';self.directory.mkdir(mode=0o700)
+        self.addCleanup(patch.stopall)
+        patch.object(release,'DIRECTORY',self.directory).start()
+        config={}
+        for name in ('.env','docker-compose.yml','image-only.override.json'):
+            path=self.directory/name;path.write_text('synthetic '+name);path.chmod(0o600);config[name]=release.sha(path)
+        self.plan={'sourceCommit':CANDIDATE_SOURCE,'candidateImage':CANDIDATE,'packageSHA256':'a'*64,
+                   'directoryIdentity':{'device':self.directory.stat().st_dev,'inode':self.directory.stat().st_ino},
+                   'configFiles':config}
+        release.save(self.directory/'fresh-install-plan.json',self.plan)
+        self.completed={'contract':'verified-fresh-install-v1','sourceCommit':CANDIDATE_SOURCE,
+                        'candidateImage':CANDIDATE,'containerId':'installed-container','packageSHA256':'a'*64,
+                        'installPlanSHA256':release.sha(self.directory/'fresh-install-plan.json')}
+        release.save(self.directory/'fresh-install-completed.json',self.completed)
+
+    def verify(self):
+        return release.completed_fresh_install(release.sha(self.directory/'fresh-install-completed.json'),
+                    CANDIDATE_SOURCE,CANDIDATE,'installed-container')
+
+    def test_real_completed_install_receipt_is_bound_to_exact_config_plan_directory_and_container(self):
+        self.assertEqual(self.verify(),self.completed)
+
+    def test_changed_config_source_image_container_or_contract_is_rejected(self):
+        for field,value in [('sourceCommit','f'*40),('candidateImage',PREVIOUS),('containerId','foreign'),
+                            ('contract','fabricated'),('installPlanSHA256','f'*64),('packageSHA256','f'*64)]:
+            changed=dict(self.completed);changed[field]=value
+            (self.directory/'fresh-install-completed.json').write_text(json.dumps(changed))
+            with self.subTest(field=field),self.assertRaisesRegex(release.Stop,'VERIFIED_FRESH_INSTALL_RECEIPT'):self.verify()
+        (self.directory/'fresh-install-completed.json').write_text(json.dumps(self.completed))
+        (self.directory/'.env').write_text('different')
+        with self.assertRaisesRegex(release.Stop,'VERIFIED_FRESH_INSTALL_RECEIPT'):self.verify()
+
+    def test_unpinned_digest_or_public_directory_cannot_authorize_already_installed_mode(self):
+        with self.assertRaisesRegex(release.Stop,'VERIFIED_FRESH_INSTALL_RECEIPT'):
+            release.completed_fresh_install('f'*64,CANDIDATE_SOURCE,CANDIDATE,'installed-container')
+        self.directory.chmod(0o755)
+        with self.assertRaisesRegex(release.Stop,'VERIFIED_FRESH_INSTALL_RECEIPT'):self.verify()
+
+
 class OperatorFixture(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -441,6 +483,13 @@ class OperatorFixture(unittest.TestCase):
 
 
 class ComposeAndPlanning(OperatorFixture):
+    def test_already_running_target_remains_rejected_without_internal_fresh_install_receipt(self):
+        self.args.expected_current_image=CANDIDATE
+        current=self.container(CANDIDATE,'installed-container',CANDIDATE_HASH,CANDIDATE_SOURCE)
+        with self.runtime(current) as mocks,self.assertRaisesRegex(release.Stop,'TARGET_ALREADY_RUNNING'):
+            release.plan(self.args)
+        self.assertFalse(list(self.state.iterdir()))
+
     def test_unmodified_build9_rollback_guard_refuses_plan_before_state_write(self):
         with self.runtime() as mocks:
             mocks['probe_image'].side_effect = [proof(CANDIDATE_SOURCE, (5, 7, 2)),
@@ -993,6 +1042,13 @@ class ExecutionFailures(OperatorFixture):
                 release.execute(self.args, rollback=True)
             mocks['run'].assert_not_called()
         self.assertFalse((self.state / 'rollback-attempt.json').exists())
+
+    def test_fabricated_completed_install_marker_cannot_replace_a_real_update_attempt(self):
+        self.receipt['completedInstallReceiptSHA256']='a'*64
+        (self.state/'image-plan.json').write_text(json.dumps(self.receipt))
+        with self.runtime() as mocks,self.assertRaisesRegex(release.Stop,'VERIFIED_FRESH_INSTALL_RECEIPT|PRIVATE_REGULAR_0600_RECEIPT_REQUIRED'):
+            release.execute(self.args,rollback=True)
+        mocks['run'].assert_not_called()
 
     def test_failed_apply_before_recreation_rolls_back_without_recreating_previous_image(self):
         release.save(self.state / 'apply-attempt.json', {'targetImage': CANDIDATE})

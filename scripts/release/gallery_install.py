@@ -7,13 +7,93 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import socket
+import stat
+import tempfile
+from types import SimpleNamespace
 
 import build11_artifacts as artifacts
 from build11_operator import artifact_image
 from gallery_entry import verify_package
 import image_release as core
+
+
+INITIALIZATION = 'fresh-install-initialization.json'
+
+
+def publish_initialization_file(directory, name, data):
+    """Publish one journal-owned immutable file; interrupted full staging is reusable."""
+    target, pending = directory / name, directory / (name + '.pending')
+    expected = hashlib.sha256(data).hexdigest()
+    def verify(path):
+        info = path.lstat()
+        core.need(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid() and
+                  stat.S_IMODE(info.st_mode) == 0o600 and artifacts.digest(path) == expected,
+                  'INTERRUPTED_INSTALL_INITIALIZATION_CHANGED')
+    if target.exists() or target.is_symlink():
+        verify(target)
+    else:
+        if pending.exists() or pending.is_symlink():
+            verify(pending)
+        else:
+            with os.fdopen(os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as file:
+                file.write(data); file.flush(); os.fsync(file.fileno())
+        os.link(pending, target)  # Never overwrite a concurrent/unreviewed entry.
+        sync_install_directory(directory)
+    if pending.exists() or pending.is_symlink():
+        verify(pending)
+        core.need(pending.stat().st_dev == target.stat().st_dev and pending.stat().st_ino == target.stat().st_ino,
+                  'INTERRUPTED_INSTALL_INITIALIZATION_CHANGED')
+        pending.unlink()
+        sync_install_directory(directory)
+
+
+def sync_install_directory(directory):
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+
+
+def initialize_configuration(directory, context, files):
+    """Only this exact private initialization journal may authorize config resume."""
+    journal = json.dumps(context, indent=2).encode() + b'\n'
+    names = {INITIALIZATION, INITIALIZATION + '.pending', 'media', 'postgres'}
+    names |= set(files) | {name + '.pending' for name in files}
+    core.need({path.name for path in directory.iterdir()} <= names,
+              'UNREVIEWED_INSTALL_INITIALIZATION_ENTRY')
+    # Journal is durably published BEFORE any configuration/data directory.
+    publish_initialization_file(directory, INITIALIZATION, journal)
+    for name in ('media', 'postgres'):
+        path = directory / name
+        if not path.exists() and not path.is_symlink():
+            path.mkdir(mode=0o700); sync_install_directory(directory)
+        info = path.lstat()
+        core.need(stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and
+                  stat.S_IMODE(info.st_mode) == 0o700 and not any(path.iterdir()),
+                  'UNREVIEWED_INSTALL_INITIALIZATION_DIRECTORY')
+    for name, data in files.items():
+        publish_initialization_file(directory, name, data)
+
+
+def verify_server_configuration(item, base, resolved, candidate):
+    """Check the actual server, not its image/PID or a successful prior command alone."""
+    expected_hash = core.config_hash(base)
+    labels = item.get('Config', {}).get('Labels', {})
+    core.need(labels.get('com.docker.compose.config-hash') == expected_hash and
+              core.environment(item) == core.merged_environment(resolved, core.image(candidate)),
+              'FRESH_INSTALL_EFFECTIVE_SERVER_CONFIGURATION_CHANGED')
+    service = resolved['services'][core.SERVICE]
+    expected_mounts = []
+    for mount in service.get('volumes', []):
+        core.need(mount.get('type') == 'bind', 'FRESH_INSTALL_UNREVIEWED_SERVER_VOLUME_TYPE')
+        expected_mounts.append((mount['type'], mount['source'], mount['target'], not mount.get('read_only', False)))
+    actual_mounts = [(mount.get('Type'), mount.get('Source'), mount.get('Destination'), mount.get('RW'))
+                     for mount in item.get('Mounts', [])]
+    core.need(sorted(actual_mounts) == sorted(expected_mounts), 'FRESH_INSTALL_SERVER_MOUNTS_CHANGED')
+    network_names = {resolved['networks'][name]['name'] for name in service.get('networks', {})}
+    core.need(set(item.get('NetworkSettings', {}).get('Networks', {})) == network_names,
+              'FRESH_INSTALL_SERVER_NETWORKS_CHANGED')
+    return expected_hash
 
 
 def nas_storage(path):
@@ -73,7 +153,9 @@ def install(args):
               'NEW_EMPTY_OWNED_PRIVATE_INSTALL_DIRECTORY_REQUIRED')
     plan_path = directory / 'fresh-install-plan.json'
     resuming = plan_path.exists()
-    core.need(resuming or not any(directory.iterdir()), 'NEW_EMPTY_OWNED_PRIVATE_INSTALL_DIRECTORY_REQUIRED')
+    initializing = any((directory / name).exists() or (directory / name).is_symlink()
+                       for name in (INITIALIZATION, INITIALIZATION + '.pending'))
+    core.need(resuming or initializing or not any(directory.iterdir()), 'NEW_EMPTY_OWNED_PRIVATE_INSTALL_DIRECTORY_REQUIRED')
     core.need(args.environment.is_file() and not args.environment.is_symlink() and
               args.environment.stat().st_mode & 0o777 == 0o600 and args.environment.stat().st_uid == os.getuid(),
               'PRIVATE_OWNER_ENV_FILE_REQUIRED')
@@ -105,6 +187,7 @@ def install(args):
         for name, expected in plan['configFiles'].items():
             core.need(artifacts.digest(directory / name) == expected, 'INTERRUPTED_INSTALL_CONFIGURATION_CHANGED')
     ids = core.docker('ps', '-aq', '--filter', 'label=com.docker.compose.project=immich').split()
+    rows = []
     if ids:
         core.need(resuming, 'EXISTING_IMMICH_PROJECT_USE_UPGRADE')
         rows = json.loads(core.docker('inspect', *ids))
@@ -160,26 +243,35 @@ def install(args):
     if not resuming:
         managed = next((row for row in nas['mounts'] if row['destination'] == '/data'), None)
         core.need(not managed or not any(Path(managed['source']).iterdir()), 'CLEAN_INSTALL_REQUIRES_EMPTY_MANAGED_NAS_ROOT')
-        (directory / 'media').mkdir(mode=0o700); (directory / 'postgres').mkdir(mode=0o700)
         media = managed['source'] if managed else str(directory / 'media')
         env_data = '\n'.join(key + '=' + value for key, value in values.items()) + '\nUPLOAD_LOCATION=' + media + '\nDB_DATA_LOCATION=' + str(directory / 'postgres') + '\n'
-        with os.fdopen(os.open(directory / '.env', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'w') as file:
-            file.write(env_data)
-            file.flush(); os.fsync(file.fileno())
-        shutil.copyfile(package / 'config/docker-compose.yml', directory / 'docker-compose.yml')
         server_config = {'image': candidate}
         if nas['mounts']:
             server_config['volumes'] = [{'type': 'bind', 'source': row['source'], 'target': row['destination'],
                                         'read_only': row['readOnly'], 'bind': {'create_host_path': False}}
                                        for row in nas['mounts']]
-        core.save(directory / 'image-only.override.json', {'services': {core.SERVICE: server_config,
-                  'immich-machine-learning': {'image': machine_learning_image}}})
+        override = {'services': {core.SERVICE: server_config,
+                                'immich-machine-learning': {'image': machine_learning_image}}}
+        files = {'.env': env_data.encode(),
+                 'docker-compose.yml': (package / 'config/docker-compose.yml').read_bytes(),
+                 'image-only.override.json': json.dumps(override, indent=2).encode() + b'\n'}
+        context = {'schemaVersion': 1, 'sourceCommit': profile['sourceCommit'],
+                   'packageSHA256': artifacts.digest(package / 'SHA256SUMS'),
+                   'environmentSHA256': hashlib.sha256(raw_env).hexdigest(), 'nasStorage': nas,
+                   'directoryIdentity': {'device': directory.stat().st_dev, 'inode': directory.stat().st_ino},
+                   'serviceImages': {core.SERVICE: candidate, 'immich-machine-learning': machine_learning_image,
+                                     'database': dependency_images[0], 'redis': dependency_images[1]},
+                   'configFiles': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}
+        initialize_configuration(directory, context, files)
     base = [*core.DOCKER, 'compose', '--project-directory', str(directory), '-p', 'immich',
             '-f', str(directory / 'docker-compose.yml'), '-f', str(directory / 'image-only.override.json')]
     resolved = core.effective(base)
     core.need(set(resolved.get('services', {})) == {core.SERVICE, 'immich-machine-learning', 'redis', 'database'},
               'EXACT_OFFICIAL_SERVICE_SET_REQUIRED')
     core.workers(core.merged_environment(resolved, core.image(candidate)))
+    existing_server = next((row for row in rows if row.get('Name') == '/' + core.SERVER), None)
+    if existing_server is not None:
+        verify_server_configuration(existing_server, base, resolved, candidate)
     service_images = {core.SERVICE: candidate, 'immich-machine-learning': machine_learning_image,
                       'database': dependency_images[0], 'redis': dependency_images[1]}
     if not resuming:
@@ -200,29 +292,134 @@ def install(args):
         completed = core.private_json(directory / 'fresh-install-completed.json')
         core.need(completed['sourceCommit'] == profile['sourceCommit'] and completed['candidateImage'] == candidate,
                   'INSTALL_COMPLETION_RECEIPT_CHANGED')
-        core.health('http://127.0.0.1:2283/api', candidate, profile['sourceCommit'],
-                    {'major': 5, 'minor': 7, 'patch': 3, 'prerelease': None})
+        current = core.health('http://127.0.0.1:2283/api', candidate, profile['sourceCommit'],
+                              {'major': 5, 'minor': 7, 'patch': 3, 'prerelease': None})
+        core.need(current['Id'] == completed.get('containerId') and
+                  verify_server_configuration(current, base, resolved, candidate) == completed.get('composeConfigHash'),
+                  'FRESH_INSTALLED_CONTAINER_CHANGED_REVIEW_REQUIRED')
         print('PASS existing exact Build11 fresh installation verified; no service operation repeated')
         return
     # This fresh-only path deliberately does not exist in the HP upgrade workflow.
     core.need(nas_storage(getattr(args, 'nas_storage_config', None)) == nas,
               'NAS_MOUNT_CHANGED_BEFORE_INSTALLATION')
     core.run([*base, 'up', '-d', '--no-build', '--pull', 'never'], timeout=180)
-    core.health('http://127.0.0.1:2283/api', candidate, profile['sourceCommit'],
-                {'major': 5, 'minor': 7, 'patch': 3, 'prerelease': None})
+    current = core.health('http://127.0.0.1:2283/api', candidate, profile['sourceCommit'],
+                          {'major': 5, 'minor': 7, 'patch': 3, 'prerelease': None})
+    current_hash = verify_server_configuration(current, base, resolved, candidate)
     core.save(directory / 'fresh-install-completed.json', {'sourceCommit': profile['sourceCommit'],
-              'candidateImage': candidate, 'completedAt': datetime.now(timezone.utc).isoformat()})
+              'contract': 'verified-fresh-install-v1', 'candidateImage': candidate, 'containerId': current['Id'],
+              'composeConfigHash': current_hash,
+              'installPlanSHA256': artifacts.digest(plan_path), 'packageSHA256': artifacts.digest(package / 'SHA256SUMS'),
+              'completedAt': datetime.now(timezone.utc).isoformat()})
+    sync_install_directory(directory)
     print('PASS fresh Build11 server healthy; original official services and new local data directories')
     print('NOT_TESTED device installation, backups, NAS writable scopes and thumbnail/preview acceptance')
+
+
+def fresh_deletion_queue_check():
+    """Read the same bounded atomic inventory; ordinary jobs are neither drained nor changed."""
+    import trash_release as legacy
+    import trash_predeploy as pre
+    program = legacy.NODE_BASE + pre.QUEUE_BODY.replace('__LUA__', json.dumps(pre.COUNTS_LUA))
+    row = json.loads(core.run([*core.DOCKER, 'exec', '-i', core.SERVER, 'node', '--input-type=module'], input=program))
+    states = set(legacy.STATES)
+    core.need(isinstance(row, dict) and not row.get('error') and row.get('atomic') is True and
+              row.get('inventoryComplete') is True and type(row.get('unresolvedDeletionHashes')) is int and
+              row['unresolvedDeletionHashes'] == 0 and
+              set(row.get('deletionNames', {})) == {'AssetDelete', 'FileDelete'} and
+              all(type(n) is int and n == 0 for n in row['deletionNames'].values()) and
+              row.get('deletionNames') == {'AssetDelete': 0, 'FileDelete': 0} and
+              all(set(row.get(field, {})) == states and all(type(n) is int and n >= 0 for n in row[field].values())
+                  for field in ('before', 'counts')),
+              'FRESH_ROLLBACK_DELETION_JOBS_PENDING_OR_INCOMPLETE')
+    print('PASS read-only fresh rollback deletion inventory; ordinary queued jobs unchanged')
+
+
+def rollback_fresh(args):
+    core.need(args.execute_approved and os.environ.get('GALLERY_DEPLOYMENT_APPROVED') == 'YES',
+              'EXPLICIT_FRESH_ROLLBACK_APPROVAL_REQUIRED')
+    core.DOCKER = ['sudo', '-n', 'docker', '--host=unix:///var/run/docker.sock']
+    config = verify_package(args.package)
+    profile = artifacts.load(args.package / 'candidate-profile.json', config['profileSHA256'])
+    directory = args.directory.absolute()
+    core.need(directory.is_dir() and not directory.is_symlink() and directory.resolve() == directory and
+              directory.stat().st_uid == os.getuid() and directory.stat().st_mode & 0o777 == 0o700,
+              'OWNED_PRIVATE_FRESH_INSTALL_DIRECTORY_REQUIRED')
+    core.DIRECTORY = directory
+    plan = core.private_json(directory / 'fresh-install-plan.json')
+    completed = core.private_json(directory / 'fresh-install-completed.json')
+    receipt_sha = artifacts.digest(directory / 'fresh-install-completed.json')
+    core.completed_fresh_install(receipt_sha, profile['sourceCommit'], plan['candidateImage'], completed['containerId'])
+    core.need(plan['packageSHA256'] == artifacts.digest(args.package / 'SHA256SUMS') and
+              set(plan['serviceImages']) == {core.SERVICE, 'immich-machine-learning', 'database', 'redis'},
+              'FRESH_ROLLBACK_PACKAGE_OR_SERVICE_SET_CHANGED')
+    if plan['nasStorage']['mounts']:
+        # Reuse the exact NFS validator with private local input, never remount
+        # or rely solely on unchanged host-path strings in Docker inspect.
+        mappings = [{key: row[key] for key in ('source', 'destination', 'nfsSource', 'readOnly')}
+                    for row in plan['nasStorage']['mounts']]
+        with tempfile.TemporaryDirectory(prefix='.rollback-nas-', dir=directory) as temporary:
+            path = Path(temporary) / 'nas.json'
+            core.save(path, {'schemaVersion': 1, 'mounts': mappings})
+            core.need(nas_storage(path)['mounts'] == plan['nasStorage']['mounts'], 'FRESH_ROLLBACK_NAS_MOUNT_CHANGED')
+    candidate = artifact_image(args.package / 'backend', profile['sourceCommit'], artifacts.VERSION,
+                               profile['backend'], allow_load=True)
+    core.need(candidate == plan['candidateImage'], 'FRESH_INSTALLED_IMAGE_IDENTITY_CHANGED')
+    metadata = json.loads((args.package / 'rollback/manifest.json').read_text())
+    rollback = artifact_image(args.package / 'rollback', metadata['sourceCommit'], metadata['serverVersion'],
+                              metadata, allow_load=True)
+    compatibility = artifacts.pinned_json(args.package / 'reviewed-compatibility.json', config['compatibilitySHA256'])
+    core.need(compatibility['candidateSource'] == profile['sourceCommit'] and
+              compatibility['candidateImage'] == profile['backend']['imageId'] and
+              compatibility['rollbackSource'] == metadata['sourceCommit'] and
+              compatibility['rollbackImage'] == metadata['imageId'], 'PINNED_FRESH_ROLLBACK_ARTIFACT_REQUIRED')
+    compatibility = {**compatibility, 'candidateImage': candidate, 'rollbackImage': rollback}
+    state = directory / 'fresh-rollback-state'
+    if not state.exists(): state.mkdir(mode=0o700); sync_install_directory(directory)
+    core.need(not state.is_symlink() and state.stat().st_uid == os.getuid() and state.stat().st_mode & 0o777 == 0o700,
+              'OWNED_PRIVATE_FRESH_ROLLBACK_STATE_REQUIRED')
+    if not (state / 'image-plan.json').exists():
+        core.need(not any(state.iterdir()), 'PARTIAL_FRESH_ROLLBACK_PLAN_REQUIRES_REVIEW_NO_REPLAY')
+        current = core.inspect(core.SERVER); core.identity(current)
+        core.need(current['Image'] == candidate and current['Id'] == completed['containerId'],
+                  'FRESH_INSTALLED_CONTAINER_CHANGED')
+        fresh_deletion_queue_check()
+        compatibility_path = directory / 'fresh-rollback-compatibility.json'
+        if compatibility_path.exists():
+            core.need(core.private_json(compatibility_path) == compatibility, 'FRESH_ROLLBACK_COMPATIBILITY_CHANGED')
+        else:
+            core.save(compatibility_path, compatibility); sync_install_directory(directory)
+        core.plan(SimpleNamespace(state=state, image=candidate, expected_current_image=candidate,
+                    source_commit=profile['sourceCommit'], server_version=(5, 7, 3), api='http://127.0.0.1:2283/api',
+                    rollback_image=rollback, rollback_source_commit=metadata['sourceCommit'],
+                    rollback_server_version=core.version(metadata['serverVersion']),
+                    compatibility_receipt=compatibility_path, compatibility_sha256=artifacts.digest(compatibility_path),
+                    completed_install_receipt_sha256=receipt_sha))
+    if (state / 'rolled-back.json').exists():
+        receipt, current = core.prerequisites(state, rollback=True)
+        core.health(receipt['api'], rollback, metadata['sourceCommit'], receipt['rollbackVersion'], timeout=0)
+        print('PASS existing exact fresh-install rollback verified; no service operation repeated')
+        return
+    core.need(not (state / 'rollback-attempt.json').exists(), 'INTERRUPTED_FRESH_ROLLBACK_REQUIRES_REVIEW_NO_REPLAY')
+    fresh_deletion_queue_check()
+    core.execute(SimpleNamespace(state=state, execute_approved=True, approve_migration=False), rollback=True)
+    print('PASS fresh-install image-only rollback; database, media, migrations and other services preserved')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('package', type=Path); parser.add_argument('directory', type=Path)
-    parser.add_argument('environment', type=Path); parser.add_argument('machine_learning_image')
+    parser.add_argument('environment', type=Path, nargs='?'); parser.add_argument('machine_learning_image', nargs='?')
     parser.add_argument('--execute-approved', action='store_true')
+    parser.add_argument('--rollback-fresh', action='store_true')
     parser.add_argument('--nas-storage-config', type=Path, help='Private exact already-mounted NFS mappings; no mounts or permissions are changed')
-    try: install(parser.parse_args())
+    try:
+        args = parser.parse_args()
+        if args.rollback_fresh: rollback_fresh(args)
+        else:
+            if args.environment is None or args.machine_learning_image is None:
+                parser.error('fresh install requires PRIVATE_ENV_FILE and VERIFIED_ML_IMAGE_ID')
+            install(args)
     except Exception as error:
         code = str(error) if isinstance(error, core.Stop) else 'FRESH_INSTALL_FAILED_PRIVATE_DETAILS_OMITTED'
         print('STOP ' + code); raise SystemExit(1) from None

@@ -394,6 +394,28 @@ def health(api_base, target, source, version, timeout=90):
             time.sleep(2)
 
 
+def completed_fresh_install(expected, source, target, container):
+    """Internal installed-candidate proof; never a public TARGET_ALREADY_RUNNING bypass."""
+    path, plan_path = DIRECTORY / 'fresh-install-completed.json', DIRECTORY / 'fresh-install-plan.json'
+    need(isinstance(expected, str) and re.fullmatch('[0-9a-f]{64}', expected) and
+         DIRECTORY.is_dir() and not DIRECTORY.is_symlink() and DIRECTORY.resolve() == DIRECTORY and
+         DIRECTORY.stat().st_uid == os.getuid() and DIRECTORY.stat().st_mode & 0o777 == 0o700,
+         'VERIFIED_FRESH_INSTALL_RECEIPT_REQUIRED')
+    receipt, plan = private_json(path), private_json(plan_path)
+    need(path.stat().st_uid == os.getuid() and plan_path.stat().st_uid == os.getuid() and
+         sha(path) == expected and receipt.get('contract') == 'verified-fresh-install-v1' and
+         receipt.get('sourceCommit') == plan.get('sourceCommit') == source and
+         receipt.get('candidateImage') == plan.get('candidateImage') == target and
+         receipt.get('containerId') == container and receipt.get('installPlanSHA256') == sha(plan_path) and
+         receipt.get('packageSHA256') == plan.get('packageSHA256') and
+         plan.get('directoryIdentity') == {'device': DIRECTORY.stat().st_dev, 'inode': DIRECTORY.stat().st_ino} and
+         all(Path(name).name == name and sha(DIRECTORY / name) == digest
+             for name, digest in plan.get('configFiles', {}).items()) and
+         set(plan.get('configFiles', {})) == {'.env', 'docker-compose.yml', 'image-only.override.json'},
+         'VERIFIED_FRESH_INSTALL_RECEIPT_REQUIRED')
+    return receipt
+
+
 def plan(args):
     state = args.state
     need(not any(state.iterdir()), 'NEW_EMPTY_PRIVATE_STATE_REQUIRED')
@@ -401,7 +423,12 @@ def plan(args):
     base, files = compose_base(old)
     need(old['Image'] == args.expected_current_image, 'CURRENT_IMAGE_CHANGED')
     previous, target = image(old['Image']), image(args.image)
-    need(old['Image'] != args.image, 'TARGET_ALREADY_RUNNING')
+    installed_receipt = getattr(args, 'completed_install_receipt_sha256', None)
+    if old['Image'] == args.image:
+        need(installed_receipt is not None, 'TARGET_ALREADY_RUNNING')
+        completed_fresh_install(installed_receipt, args.source_commit, args.image, old['Id'])
+    else:
+        need(installed_receipt is None, 'VERIFIED_FRESH_INSTALL_RECEIPT_REQUIRED')
     need(environment(target).get('IMMICH_SOURCE_COMMIT') == args.source_commit, 'TARGET_SOURCE_MISMATCH')
     before = effective(base)
     need(json.loads(docker('image', 'inspect', before['services'][SERVICE]['image']))[0]['Id'] == old['Image'],
@@ -470,6 +497,8 @@ def plan(args):
     if compatibility:
         save(state / 'reviewed-compatibility.json', compatibility)
         receipt['reviewedCompatibilitySHA256'] = sha(state / 'reviewed-compatibility.json')
+    if installed_receipt:
+        receipt['completedInstallReceiptSHA256'] = installed_receipt
     need(inspect(SERVER)['Id'] == old['Id'] and inventory() == receipt['otherContainers'],
          'CONTAINERS_CHANGED_DURING_PLAN')
     save(state / 'image-plan.json', receipt)
@@ -478,6 +507,9 @@ def plan(args):
 
 def prerequisites(state, rollback=False):
     receipt = private_json(state / 'image-plan.json')
+    if receipt.get('completedInstallReceiptSHA256'):
+        completed_fresh_install(receipt['completedInstallReceiptSHA256'], receipt['sourceCommit'],
+                                receipt['candidateImage'], receipt['previousContainer'])
     need(receipt.get('configHashMode') == CONFIG_HASH_MODE, 'NEW_RESOLVED_COMPOSE_PLAN_REQUIRED')
     need(receipt.get('schemaVersion') == 1 and receipt['base'][:2] == DOCKER[:2] and
          receipt['base'] == [*DOCKER, 'compose', '--project-directory', str(DIRECTORY), '-p', PROJECT,
@@ -547,7 +579,8 @@ def execute(args, rollback=False):
          'EXISTING_ATTEMPT_RETAINED_DO_NOT_REPEAT')
     receipt, item = prerequisites(state, rollback)
     if rollback:
-        need((state / 'apply-attempt.json').exists(), 'UPDATE_ATTEMPT_REQUIRED_FOR_ROLLBACK')
+        need((state / 'apply-attempt.json').exists() or receipt.get('completedInstallReceiptSHA256'),
+             'UPDATE_ATTEMPT_REQUIRED_FOR_ROLLBACK')
     if not args.execute_approved:
         if not rollback:
             queue_safety()

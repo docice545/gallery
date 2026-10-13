@@ -337,6 +337,36 @@ NAS snapshots/backup. Если health check не прошёл, сохранит�
 repair. Clean install не имеет предыдущего production image: при ошибке его
 данные сохраняются, installer не очищает новые volume/каталоги.
 
+Для завершённой **чистой установки** используется отдельный штатный маршрут,
+который не требует HP bridge и его legacy очередей. Он проверяет сохранённый
+private installation receipt, фактический container/config, неизменность storage
+и отсутствие destructive jobs, затем меняет только server image на упакованный
+совместимый hardened fallback. PostgreSQL и media не откатываются и не очищаются:
+
+```bash
+set -euo pipefail
+umask 077
+: "${PACKAGE:?Укажите тот же проверенный Build11 package}"
+: "${NEW_ROOT:?Укажите сохранённый installation root}"
+sudo -v
+tmux new-session -s gallery-build11-fresh-rollback bash -c '
+  set -uo pipefail; umask 077
+  journal=$(mktemp "$2/fresh-rollback-XXXXXXXX.log")
+  GALLERY_DEPLOYMENT_APPROVED=YES bash "$1/tools/gallery-rollback.sh" \
+    --fresh-install "$1" "$2" --execute-approved 2>&1 | tee "$journal"
+  result=$?
+  printf "RESULT exit=%s journal=%s\n" "$result" "$journal"
+  exec bash
+' _ "$PACKAGE" "$NEW_ROOT"
+```
+
+Такой откат также требует отдельного разрешения. Повторный запуск завершённого
+rollback проверяет receipt и actual state, не пересоздаёт server повторно.
+Неизвестная попытка/изменённый контейнер или очередь destructive jobs дают STOP,
+а не обход проверки. Прерванная initial configuration восстанавливается только
+по своему private initialization journal и точным checksums; чужие файлы не
+принимаются как состояние установщика.
+
 ## Приёмка и состояние очереди
 
 Только disposable-фото и короткие видео с известными SHA-256: один/несколько,

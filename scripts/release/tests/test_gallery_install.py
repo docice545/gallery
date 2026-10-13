@@ -43,9 +43,12 @@ class FreshInstall(unittest.TestCase):
         self.stack.enter_context(patch.object(m.core, 'docker', side_effect=self.docker))
         self.stack.enter_context(patch.object(m.core, 'image', return_value={'Config':{'Env':[]}}))
         self.run = self.stack.enter_context(patch.object(m.core, 'run', side_effect=lambda command, **kw:self.called.append(command) or ''))
-        self.health = self.stack.enter_context(patch.object(m.core, 'health', return_value={}))
+        self.health = self.stack.enter_context(patch.object(m.core, 'health', return_value={'Id':'server-fixture',
+                    'Config':{'Env':[],'Labels':{'com.docker.compose.config-hash':'a'*64}},
+                    'Mounts':[],'NetworkSettings':{'Networks':{}}}))
+        self.stack.enter_context(patch.object(m.core, 'config_hash', return_value='a'*64))
         self.stack.enter_context(patch.object(m.core, 'effective', return_value={'services': {
-            m.core.SERVICE:{}, 'immich-machine-learning':{}, 'database':{}, 'redis':{}}}))
+            m.core.SERVICE:{}, 'immich-machine-learning':{}, 'database':{}, 'redis':{}},'networks':{}}))
         self.stack.enter_context(patch.object(m.socket, 'socket'))
 
     def docker(self, *args):
@@ -63,8 +66,10 @@ class FreshInstall(unittest.TestCase):
 
     def seed_containers(self):
         self.rows = [dict(Id='server-fixture', Name='/immich_server', Image=CANDIDATE,
-                         Config={'Labels':{'com.docker.compose.project.working_dir':str(self.directory),
-                                           'com.docker.compose.service':m.core.SERVICE}})]
+                         Config={'Env':[],'Labels':{'com.docker.compose.project.working_dir':str(self.directory),
+                                           'com.docker.compose.service':m.core.SERVICE,
+                                           'com.docker.compose.config-hash':'a'*64}},
+                         Mounts=[],NetworkSettings={'Networks':{}})]
 
     def test_clean_install_initializes_db_defaults_and_completed_repeat_does_not_start_services(self):
         self.invoke()
@@ -83,6 +88,66 @@ class FreshInstall(unittest.TestCase):
         self.assertEqual((self.directory/'media/synthetic-photo').read_bytes(),b'must survive')
         self.assertTrue((self.directory/'fresh-install-completed.json').exists())
 
+    def test_interruption_before_plan_write_resumes_exact_initialized_configuration(self):
+        original_save=m.core.save
+        def interrupted(path,value):
+            if path.name=='fresh-install-plan.json':
+                raise OSError('synthetic interruption before plan publication')
+            return original_save(path,value)
+        with patch.object(m.core,'save',side_effect=interrupted),self.assertRaises(OSError):self.invoke()
+        self.assertTrue((self.directory/m.INITIALIZATION).is_file())
+        self.assertFalse((self.directory/'fresh-install-plan.json').exists())
+        hashes={name:m.artifacts.digest(self.directory/name) for name in
+                ('.env','docker-compose.yml','image-only.override.json',m.INITIALIZATION)}
+        self.assertFalse(self.called)
+        self.invoke()
+        self.assertEqual({name:m.artifacts.digest(self.directory/name) for name in hashes},hashes)
+        self.assertTrue((self.directory/'fresh-install-completed.json').is_file())
+
+    def test_interruption_before_config_publication_reuses_only_exact_private_staging(self):
+        original_link=m.os.link
+        def interrupted(source,target):
+            if Path(target).name=='.env':
+                raise OSError('synthetic interruption before config publication')
+            return original_link(source,target)
+        with patch.object(m.os,'link',side_effect=interrupted),self.assertRaises(OSError):self.invoke()
+        staged=self.directory/'.env.pending'
+        expected=m.artifacts.digest(staged)
+        self.assertEqual(staged.stat().st_mode&0o777,0o600)
+        self.assertFalse((self.directory/'.env').exists());self.assertFalse(self.called)
+        self.invoke()
+        self.assertEqual(m.artifacts.digest(self.directory/'.env'),expected)
+        self.assertFalse(staged.exists())
+
+    def test_initialization_resume_rejects_unlisted_file_changed_config_or_symlink(self):
+        original_save=m.core.save
+        def interrupted(path,value):
+            if path.name=='fresh-install-plan.json':raise OSError('synthetic interruption')
+            return original_save(path,value)
+        with patch.object(m.core,'save',side_effect=interrupted),self.assertRaises(OSError):self.invoke()
+        extra=self.directory/'unreviewed';extra.write_text('foreign')
+        with self.assertRaisesRegex(m.core.Stop,'UNREVIEWED_INSTALL_INITIALIZATION_ENTRY'):self.invoke()
+        extra.unlink()
+        env=self.directory/'.env';original=env.read_bytes();env.write_bytes(b'changed')
+        with self.assertRaisesRegex(m.core.Stop,'INITIALIZATION_CHANGED'):self.invoke()
+        env.write_bytes(original);env.unlink();env.symlink_to(self.env)
+        with self.assertRaisesRegex(m.core.Stop,'INITIALIZATION_CHANGED'):self.invoke()
+        self.assertFalse(self.called)
+
+    def test_initialization_receipt_cannot_adopt_changed_context_or_nonempty_data(self):
+        original_save=m.core.save
+        def interrupted(path,value):
+            if path.name=='fresh-install-plan.json':raise OSError('synthetic interruption')
+            return original_save(path,value)
+        with patch.object(m.core,'save',side_effect=interrupted),self.assertRaises(OSError):self.invoke()
+        self.env.write_text('DB_PASSWORD=different-fixture-password\n')
+        with self.assertRaisesRegex(m.core.Stop,'INITIALIZATION_CHANGED'):self.invoke()
+        self.env.write_text('DB_PASSWORD=synthetic-fixture-password\n')
+        (self.directory/'media/foreign').write_bytes(b'preserve')
+        with self.assertRaisesRegex(m.core.Stop,'UNREVIEWED_INSTALL_INITIALIZATION_DIRECTORY'):self.invoke()
+        self.assertEqual((self.directory/'media/foreign').read_bytes(),b'preserve')
+        self.assertFalse(self.called)
+
     def test_changed_private_environment_or_compose_fails_before_service_operation(self):
         self.invoke(); self.seed_containers(); self.called.clear()
         self.env.write_text('DB_PASSWORD=different-fixture-password\n')
@@ -99,6 +164,24 @@ class FreshInstall(unittest.TestCase):
         with self.assertRaisesRegex(m.core.Stop,'UNREVIEWED_EXISTING'): self.invoke()
         self.assertFalse(self.called)
 
+    def test_same_image_drift_in_hash_environment_mount_or_network_stops_repeat_before_service_operation(self):
+        self.invoke();self.seed_containers();self.called.clear()
+        changes=[('hash',lambda row:row['Config']['Labels'].update({'com.docker.compose.config-hash':'f'*64})),
+                 ('environment',lambda row:row['Config'].update({'Env':['UNREVIEWED=value']})),
+                 ('mount',lambda row:row.update({'Mounts':[{'Type':'bind','Source':'/foreign','Destination':'/data','RW':True}]})),
+                 ('network',lambda row:row.update({'NetworkSettings':{'Networks':{'unrelated':{}}}}))]
+        for name,change in changes:
+            self.seed_containers();change(self.rows[0])
+            with self.subTest(name=name),self.assertRaisesRegex(m.core.Stop,'FRESH_INSTALL_.*CHANGED'):self.invoke()
+            self.assertFalse(self.called)
+
+    def test_same_image_recreated_server_with_same_configuration_requires_review(self):
+        self.invoke();self.seed_containers();self.called.clear()
+        self.rows[0]['Id']='foreign-container'
+        self.health.return_value['Id']='foreign-container'
+        with self.assertRaisesRegex(m.core.Stop,'FRESH_INSTALLED_CONTAINER_CHANGED_REVIEW_REQUIRED'):self.invoke()
+        self.assertFalse(self.called)
+
     def test_duplicate_env_keys_and_worker_options_fail_without_changes(self):
         for text in ('DB_PASSWORD=first\nDB_PASSWORD=second\n','DB_PASSWORD=synthetic\nIMMICH_WORKERS_INCLUDE=api\n'):
             self.env.write_text(text)
@@ -109,6 +192,93 @@ class FreshInstall(unittest.TestCase):
         self.stack.enter_context(patch.object(m.core,'image',side_effect=m.core.Stop('not cached')))
         with self.assertRaisesRegex(m.core.Stop,'PINNED_MACHINE_LEARNING'): self.invoke()
         self.assertFalse(self.called)
+
+    def rollback_setup(self):
+        self.invoke()
+        self.profile['backend']['imageId']=CANDIDATE
+        fallback='sha256:'+'f'*64
+        metadata={'sourceCommit':'f'*40,'serverVersion':'5.7.3','imageId':fallback}
+        rollback=self.package/'rollback';rollback.mkdir();(rollback/'manifest.json').write_text(json.dumps(metadata))
+        self.config['compatibilitySHA256']='a'*64
+        compatibility={'candidateSource':SOURCE,'candidateImage':CANDIDATE,
+                       'rollbackSource':metadata['sourceCommit'],'rollbackImage':fallback}
+        self.stack.enter_context(patch.object(m.artifacts,'pinned_json',return_value=compatibility))
+        self.stack.enter_context(patch.object(m,'artifact_image',side_effect=lambda backend,*a,**kw:
+                                              fallback if backend.name=='rollback' else CANDIDATE))
+        current=dict(Id='server-fixture',Name='/immich_server',Image=CANDIDATE,
+                     State={'Running':True},Config={'Labels':{'com.docker.compose.project':'immich',
+                     'com.docker.compose.project.working_dir':str(self.directory),
+                     'com.docker.compose.service':m.core.SERVICE}})
+        self.stack.enter_context(patch.object(m.core,'inspect',return_value=current))
+        self.queue=self.stack.enter_context(patch.object(m,'fresh_deletion_queue_check'))
+        self.plan=self.stack.enter_context(patch.object(m.core,'plan',side_effect=lambda args:
+                         m.core.save(args.state/'image-plan.json',{'fixturePlan':True})))
+        self.execute=self.stack.enter_context(patch.object(m.core,'execute',side_effect=lambda args,**kw:
+                         m.core.save(args.state/'rolled-back.json',{'image':fallback})))
+        self.stack.enter_context(patch.object(m.core,'prerequisites',return_value=(
+            {'api':'http://127.0.0.1:2283/api','rollbackVersion':{'major':5,'minor':7,'patch':3,'prerelease':None}},current)))
+        self.stack.enter_context(patch.dict(os.environ,{'GALLERY_DEPLOYMENT_APPROVED':'YES'}))
+
+    def test_fresh_rollback_uses_exact_package_and_truthful_completed_install_without_hp_bridge(self):
+        self.rollback_setup()
+        with redirect_stdout(io.StringIO()):m.rollback_fresh(self.args)
+        self.plan.assert_called_once()
+        passed=self.plan.call_args.args[0]
+        self.assertEqual(passed.completed_install_receipt_sha256,
+                         m.artifacts.digest(self.directory/'fresh-install-completed.json'))
+        self.execute.assert_called_once();self.assertTrue(self.execute.call_args.kwargs['rollback'])
+        self.assertFalse((self.directory/'fresh-rollback-state/apply-attempt.json').exists())
+        with redirect_stdout(io.StringIO()):m.rollback_fresh(self.args)
+        self.execute.assert_called_once();self.plan.assert_called_once()
+
+    def test_fresh_rollback_missing_approval_or_changed_configuration_cannot_call_deployment(self):
+        self.rollback_setup()
+        with patch.dict(os.environ,{'GALLERY_DEPLOYMENT_APPROVED':'NO'}),self.assertRaisesRegex(m.core.Stop,'APPROVAL'):
+            m.rollback_fresh(self.args)
+        (self.directory/'.env').write_text('changed')
+        with self.assertRaisesRegex(m.core.Stop,'VERIFIED_FRESH_INSTALL_RECEIPT'):
+            m.rollback_fresh(self.args)
+        self.plan.assert_not_called();self.execute.assert_not_called()
+
+    def test_fresh_rollback_interrupted_attempt_is_not_replayed(self):
+        self.rollback_setup()
+        state=self.directory/'fresh-rollback-state';state.mkdir(mode=0o700)
+        m.core.save(state/'image-plan.json',{'fixturePlan':True})
+        m.core.save(state/'rollback-attempt.json',{'fixtureAttempt':True})
+        with self.assertRaisesRegex(m.core.Stop,'INTERRUPTED_FRESH_ROLLBACK'):
+            m.rollback_fresh(self.args)
+        self.execute.assert_not_called()
+
+    def test_fresh_rollback_changed_installed_container_is_rejected(self):
+        self.rollback_setup()
+        m.core.inspect.return_value['Id']='foreign-container'
+        with self.assertRaisesRegex(m.core.Stop,'FRESH_INSTALLED_CONTAINER_CHANGED'):
+            m.rollback_fresh(self.args)
+        self.execute.assert_not_called();self.plan.assert_not_called()
+
+
+class FreshDeletionQueue(unittest.TestCase):
+    def inventory(self):
+        from trash_release import STATES
+        return dict(atomic=True,inventoryComplete=True,unresolvedDeletionHashes=0,
+                    deletionNames={'AssetDelete':0,'FileDelete':0},
+                    before={name:21 if name=='paused' else 0 for name in STATES},
+                    counts={name:21 if name=='paused' else 0 for name in STATES})
+
+    def test_other_paused_jobs_are_not_required_to_be_deleted_or_resumed(self):
+        with patch.object(m.core,'run',return_value=json.dumps(self.inventory())) as run,redirect_stdout(io.StringIO()):
+            m.fresh_deletion_queue_check()
+        self.assertEqual(run.call_count,1)
+        self.assertNotIn('resume',run.call_args.kwargs['input'])
+
+    def test_pending_deletion_incomplete_inventory_or_nonatomic_report_is_rejected(self):
+        for field,value in [('atomic',False),('inventoryComplete',False),('unresolvedDeletionHashes',1),
+                            ('deletionNames',{'AssetDelete':0,'FileDelete':1}),
+                            ('deletionNames',{'AssetDelete':False,'FileDelete':False})]:
+            row=self.inventory();row[field]=value
+            with self.subTest(field=field,value=value),patch.object(m.core,'run',return_value=json.dumps(row)),\
+                 self.assertRaisesRegex(m.core.Stop,'DELETION_JOBS_PENDING_OR_INCOMPLETE'):
+                m.fresh_deletion_queue_check()
 
 class NasConfiguration(unittest.TestCase):
     """Mock NFS inventory only; does not claim real NFS execution."""
