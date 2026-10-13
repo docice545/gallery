@@ -65,7 +65,7 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
   ProviderContainer? _ref;
   final DataController _dataController;
   final BackgroundWorkerBgHostApi _backgroundHostApi;
-  final _cancellationToken = Completer<void>();
+  final Completer<void> _cancellationToken;
   final Logger _logger = Logger('BackgroundWorkerBgService');
   late LocalSyncService _localSyncService;
   late SyncStreamService _remoteSyncService;
@@ -74,9 +74,11 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
   bool _isCleanedUp = false;
   late final BackgroundWorkLifecycle _lifecycle;
   BackgroundUploadService? _backgroundUploadService;
+  Future<void> Function()? _backupForTesting;
 
   BackgroundWorkerBgService({required this._dataController, required ApiService apiService})
-    : _backgroundHostApi = BackgroundWorkerBgHostApi() {
+    : _backgroundHostApi = BackgroundWorkerBgHostApi(),
+      _cancellationToken = Completer<void>() {
     final ref = ProviderContainer(
       overrides: Store.overrideWith(dataController: _dataController, apiService: apiService),
     );
@@ -111,15 +113,7 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
         cancellation: _cancellationToken,
         rethrowErrors: true,
       );
-      _lifecycle = BackgroundWorkLifecycle(
-        cancellation: _cancellationToken,
-        cancelNativeWork: () async {
-          _backgroundUploadService?.stopAcceptingWork();
-          await Future.wait([_localSyncService.cancelNativeWork(), _hashService.cancelNativeWork()]);
-        },
-        drainCallbacks: () async => _backgroundUploadService?.stopAndDrain(),
-        closeResources: _handleCleanup,
-      );
+      _lifecycle = _createLifecycle(_handleCleanup);
       BackgroundWorkerFlutterApi.setUp(this);
     } catch (_) {
       ref.dispose();
@@ -127,6 +121,34 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
       rethrow;
     }
   }
+
+  @visibleForTesting
+  BackgroundWorkerBgService.forTesting({
+    required this._dataController,
+    required LocalSyncService localSyncService,
+    required SyncStreamService remoteSyncService,
+    required HashService hashService,
+    required Future<void> Function() handleBackup,
+    required Future<void> Function() closeResources,
+    required Completer<void> cancellation,
+  }) : _backgroundHostApi = BackgroundWorkerBgHostApi(),
+       _cancellationToken = cancellation {
+    _localSyncService = localSyncService;
+    _remoteSyncService = remoteSyncService;
+    _hashService = hashService;
+    _backupForTesting = handleBackup;
+    _lifecycle = _createLifecycle(closeResources);
+  }
+
+  BackgroundWorkLifecycle _createLifecycle(Future<void> Function() closeResources) => BackgroundWorkLifecycle(
+    cancellation: _cancellationToken,
+    cancelNativeWork: () async {
+      _backgroundUploadService?.stopAcceptingWork();
+      await Future.wait([_localSyncService.cancelNativeWork(), _hashService.cancelNativeWork()]);
+    },
+    drainCallbacks: () async => _backgroundUploadService?.stopAndDrain(),
+    closeResources: closeResources,
+  );
 
   bool get _isBackupEnabled => SettingsRepository.instance.appConfig.backup.enabled;
 
@@ -200,18 +222,14 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
       if (!_lifecycle.acceptsWork) {
         return;
       }
-      // Future.wait drains all phases even if one fails. No timeout future may
-      // outlive its owner and continue accessing sqlite after teardown.
-      await Future.wait<void>([
-        _localSyncService.sync(),
-        _remoteSyncService.sync().then((success) {
-          if (!success) {
-            throw StateError('Background remote sync failed');
-          }
-        }),
-        _hashService.hashAssets(),
-        _handleBackup(),
-      ]);
+      // The candidate query runs once per wake. Discovery, server deletion
+      // reconciliation and hashing must finish first; otherwise a new photo
+      // can be missed until another wake, or uploaded before its Trash state
+      // arrives. The lifecycle still drains each phase before teardown.
+      if (!await _syncAssets()) {
+        throw StateError('Background synchronization did not complete');
+      }
+      await _handleBackup();
     }, budget: budget);
     sw.stop();
     _logger.info('iOS background upload drained in ${sw.elapsed.inSeconds}s, success: $success');
@@ -300,7 +318,13 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
   }
 
   Future<void> _handleBackup() async {
-    if (!_lifecycle.acceptsWork || !_isBackupEnabled) {
+    if (!_lifecycle.acceptsWork) {
+      return;
+    }
+    if (_backupForTesting != null) {
+      return _backupForTesting!();
+    }
+    if (!_isBackupEnabled) {
       return;
     }
     final currentUser = _ref?.read(currentUserProvider);
@@ -321,13 +345,13 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
 
   Future<bool> _syncAssets({Duration? hashTimeout}) async {
     await _localSyncService.sync();
-    if (_isCleanedUp) {
+    if (!_lifecycle.acceptsWork || _isCleanedUp) {
       return false;
     }
 
     final isSuccess = await _remoteSyncService.sync();
-    if (_isCleanedUp) {
-      return isSuccess;
+    if (!isSuccess || !_lifecycle.acceptsWork || _isCleanedUp) {
+      return false;
     }
 
     var hashFuture = _lifecycle.track(_hashService.hashAssets);
@@ -341,7 +365,7 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
     }
 
     await hashFuture;
-    return isSuccess;
+    return _lifecycle.acceptsWork;
   }
 }
 
