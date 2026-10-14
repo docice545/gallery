@@ -13,13 +13,30 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
 Последний implementation HEAD `ec9a67ab8df18d0509bd61e4642efd69d6b48c86` опубликован.
-Final sealing retry **38553886139 IN_PROGRESS**:
+**FINAL PROOF38553886139 SUCCESS — distribution опубликован**:
 https://github.com/docice545/gallery/actions/runs/38553886139.
-Use gh run watch этого run; не запускать duplicate/rebuild. Следующий результат
-определит final distribution: `gallery-build11-distribution-38553886139`.
-По состоянию checkpoint artifact ЕЩЁ НЕ опубликован. Если retryFAIL, читать
-только actual failed step/code; сохранять предыдущие31 actual PASS отдельно.
-Root working tree clean после checkpoint; source894 и три builds неизменны.
+Artifact `gallery-build11-distribution-38553886139`, ID11889198511, 1292067659 bytes.
+Download: https://github.com/docice545/gallery/actions/runs/38553886139/artifacts/11889198511.
+Inner tar `gallery-build11-5.7.3-build11.tar.gz` SHA256:
+`c222d155d68ec84abd8e62337e00b666032f162ac07989b1e3e9ab32af6bfa81`.
+Final SHA256SUMS file SHA256:
+`5b7a580b4174e47be059abec24a6a20640adf9ca9b1a98c3b308621687429c83`.
+Artifact ZIP SHA256 (different from tar):
+`3e4270aa7c2255d9a066979fce618ff672090158e50e3ca65dc799b2a70952d3`.
+All31 actual required install/upgrade/lifecycle/rollback checks and strict
+finalization PASS, cleanupErrors=[] required; upstream structural report PASS.
+CI log confirms genuine reports sealed and preserved explicit operator gates.
+Report artifact ID11889158469; its download to Cloud was network-denied,
+so no repeated downloads. Successful CI log and strict finalizer are evidence;
+previous385515 complete small JSON confirms all31+extra check. Large distribution
+was not downloaded again. Public receipt cached
+/workspace/gallery-build11-cloud-artifacts/final-distribution-receipt-38553886139.json.
+No further CI/build required for unchanged inputs. **Cloud package verified;
+production verdict BLOCKED_OPERATOR_ACCEPTANCE**. Actual HP fresh restore/NFS,
+six legacy cleanup+21 jobs, HP Android signing, SideStore signing and physical
+S23/iPhone acceptance NOT TESTED. No deployment, signing, merge or production change.
+Use docs/BUILD11-RELEASE-HANDOFF.md for exact download/checksum procedure and gates.
+
 Run **38551567325 FAILURE при sealing**, но actual installation lab **PASS**:
 https://github.com/docice545/gallery/actions/runs/38551567325.
 Все31 REQUIRED checks + дополнительный representative27PausedJobsCreated TRUE;
@@ -33,7 +50,7 @@ Report artifact `gallery-build11-verification-report-38551567325` ID11887353007
 Lab report SHA256 `832a8968e0e17a3416623570202866ecabe93e106d9ff44b77e394f90fcc36ff`.
 Tested provisional checksum manifest SHA256
 `00c0131fddd16faf971d925ad8d14a3c585d34e08afa9ae5714a4016a48a9bfb`.
-Distribution отсутствует: finalizer verify_package отклонил extra unmanifested
+Исторический отказ385515 (устранён ec9, latest385538 SUCCESS): finalizer отклонил extra unmanifested
 files: ALL_EXECUTABLE_TOOLS_AND_ARTIFACTS_MUST_BE_CHECKSUMMED. Причина — lab
 запущен без -B и importlib/transitive imports пишут tools/__pycache__. Проверка
 manifest остаётся строгой; исправление запрещает запись bytecode на время lab,
@@ -42,7 +59,7 @@ imports synthetic package: run() держит sys.dont_write_bytecode=True ве�
 восстанавливает previous flag в finally. **48 harness +16 finalizer tests PASS**;
 6 новых regressions покрывают reproduction, deferred imports, flag restoration,
 strict successful sealing и rejection/retention rogue files. Python syntax/diff PASS.
-Следующий шаг — commit/push и только final proof. Три app workflows не повторять.
+Final proof385538 теперь SUCCESS. Три app workflows не повторять.
 
 Предыдущий38547396269 FAILURE был подтверждён tooling fixture defect:
 database_snapshot() читал album.ownerId, удалённый upstream migration1776848612954.
@@ -131,8 +148,8 @@ Run38523289687 снова завершился на selected Valkey lookup; ра
 успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
 без availability metadata не установлена. Прогретый cache не используется для
 скрытия этого отказа. Run38540870600 уже FAIL с verified missing content.
-Следующий шаг: validated no-bytecode lab fix и final proof; previous385515 уже
-подтвердил all31 actual checks. Final distribution ещё не опубликован.
+Следующий шаг: operator review/download и HP/device gates. Latest385538 SUCCESS;
+не повторять завершённые builds/tests. Distribution опубликован.
 Не повторять component builds, full Flutter/PG suites или source audits.
 
 Verified **inner binary** checksums (Checks receipt38520267120, все source894):

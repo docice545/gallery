@@ -10,6 +10,29 @@ Immutable build ref: `build/gallery-build11-89447178`.
 **SUPERSEDED**: они не содержат новые runtime-исправления и не являются финальными
 артефактами этого candidate.
 
+## Итоговый CI: SUCCESS, production acceptance отдельно
+
+[Run38553886139](https://github.com/docice545/gallery/actions/runs/38553886139)
+на tooling `ec9a67ab8df18d0509bd61e4642efd69d6b48c86` завершился **SUCCESS**.
+Все31 required actual isolated checks, clean teardown и strict checksum sealing
+прошли. Compiled distribution опубликован: `gallery-build11-distribution-38553886139`.
+Actual lab проверяет clean install/resume/repeat, Build10 upgrade/migration,
+asset/user/album/sharing и27paused preservation, thumbnails/previews, disposable
+managed/external physical deletion, mixed scopes, rescan tombstones, fresh upgraded
+backup restore и hardened rollback после injected failure. Это synthetic Linux
+fixtures, а не HP/NFS или физические устройства.
+
+Сохранённые ниже отказы — история исправлений, не current CI status. Cloud logs
+подтвердили PASS lab/finalizer и exact source/inner binary hashes; strict finalizer
+требует все31 проверки и false для production/device gates. Последний report
+artifact опубликован, его скачивание в Cloud было network-denied; повторных
+large artifact downloads не выполнялось. Previous385515 small actual lab report
+полностью прочитан:32true (31required +fixture), cleanupErrors=[].
+
+Полная production готовность остаётся **BLOCKED_OPERATOR_ACCEPTANCE**: HP fresh
+restore/NFS/legacy six+21 и physical S23/iPhone, HP signing и SideStore signing
+не выполнялись. [Final handoff](BUILD11-RELEASE-HANDOFF.md) содержит hashes и links.
+
 ## Текущие release-tooling проверки
 
 - Explicit platform authority + bounded missing-content refill + immutable
@@ -51,11 +74,11 @@ Immutable build ref: `build/gallery-build11-89447178`.
   mixed scopes, isolated upgraded backup restore и rollback/repeat.
   Finalizer затем отклонил unmanifested Python bytecode внутри package:
   **ALL_EXECUTABLE_TOOLS_AND_ARTIFACTS_MUST_BE_CHECKSUMMED**. Distribution ещё
-  не опубликован. Tooling fix запрещает запись bytecode, checksum guard остаётся
+  не был опубликован в385515. Tooling fix запрещает запись bytecode, checksum guard остаётся
   строгим. Exact исходный отказ воспроизведён; 6 новых regressions проверили
   read-only direct/deferred imports, восстановление interpreter policy после
   сбоя, strict sealing и rejection/retention посторонних файлов. **48 harness
-  +16 finalizer PASS**; final proof повторяется после изменения harness.
+  +16 finalizer PASS**; последующий final proof385538 SUCCESS.
 
 ## Завершённые application gates
 
