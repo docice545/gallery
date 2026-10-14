@@ -12,9 +12,9 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Tooling HEAD `c96c92a7f14e15408d6e223316f377dbe5014f1e` опубликован.
+Tooling HEAD `e89479819496511b31f125ffe5db597313c8d237` опубликован.
 Current proof **IN_PROGRESS**:
-https://github.com/docice545/gallery/actions/runs/38544077473.
+https://github.com/docice545/gallery/actions/runs/38547396269.
 Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
 rollback38288841511. Все compiled application inputs остаются source89447178.
 Три app workflows не повторялись, production и HP changes не трогались.
@@ -63,6 +63,24 @@ rollback38288841511. Все compiled application inputs остаются source8
   platform и all31 installation gates неизменны. Только disposable CI engine,
   никакого обновления DockerHP или приложения. Signed selector/transition
   suite **21 PASS**; `/tmp/build11-docker29-signed-bootstrap-tests.log`.
+- Run38544077473: Docker29.9 прошёл прежний Valkey/content blocker. Actual
+  report подтверждает **6 gates PASS**: cleanInstallation,
+  configurationInterruptionResume, serviceStartInterruptionResume,
+  idempotentCompletedInstall, freshInstallRollbackWithPackagedWrapper,
+  idempotentFreshRollback; cleanupErrors=[]. Отказ произошёл ПОСЛЕ rollback,
+  при synthetic paused queue seed. Report скачан один раз (15KB):
+  `/tmp/build11-proof-38544077473-report/build11-installation-lab.json`.
+- `e894798194…`: подтвердил fixture defect: optional
+  `config.storage.mediaLocation` undefined при штатном auto-detection `/data`.
+  Shared CI helper использует действительный compiled
+  `StorageService.detectMediaLocation()`; wrong/ambiguous/absent root и S3
+  отклоняются. Runtime env не меняется. Queue fixture перед Node exec проверяет
+  private owned installation, Compose labels и точный local RW `/data` bind.
+  Новый stage — representative paused queue fixture creation. Backend source
+  НЕ менялся. **81 PASS**: 39 artifact-smoke (включая6 actual compiled detector)
+  +42 installation-boundary tests; Node/Python syntax, source freeze PASS.
+  `/tmp/build11-actual-storage-detector-tests.log`,
+  `/tmp/build11-queue-fixture-storage-tests.log`.
 
 Current focused **66 PASS**: 52 installer +7 package +7 Docker platform;
 `/tmp/build11-bounded-selected-content-refill-tests.log`. Linked PostgreSQL guard
@@ -78,7 +96,7 @@ Run38523289687 снова завершился на selected Valkey lookup; ра
 успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
 без availability metadata не установлена. Прогретый cache не используется для
 скрытия этого отказа. Run38540870600 уже FAIL с verified missing content.
-Следующий шаг: дождаться38544077473, читать actual stage/code, все31
+Следующий шаг: дождаться38547396269, читать actual stage/code, все31
 installation gates и artifact receipt.
 Не повторять component builds, full Flutter/PG suites или source audits.
 

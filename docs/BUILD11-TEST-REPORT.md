@@ -15,7 +15,9 @@ Immutable build ref: `build/gallery-build11-89447178`.
 - Explicit platform authority + bounded missing-content refill + immutable
   Valkey child package: **66 PASS** (52 installer,7 package,7 Docker platform).
 - Linked PostgreSQL predeployment identity guards: **45 PASS,4 opt-in SKIP**.
-- Bounded installation diagnostics: **40 PASS**.
+- Installation boundaries/diagnostics: **42 PASS**.
+- Actual compiled storage resolver / artifact-smoke helpers: **39 PASS**;
+  включает6 actual detector cases. Эти два module suites вместе **81 PASS**.
 - Disposable Docker transition/probe-cache regressions: **21 PASS**.
 - Source894 и upstream Compose byte-identical; application builds сохраняются.
 - Actual clean-install/upgrade/rollback CI ещё требует PASS; предыдущие
@@ -30,7 +32,12 @@ Immutable build ref: `build/gallery-build11-89447178`.
   Run38542645355 снова FAIL на Docker28.4 metadata-only cache. Новый CI-only
   pin official Docker29.9 не меняет ни одного artifact/dependency identity.
   Signed bootstrap/transition suite29.9: **21 PASS**.
-  https://github.com/docice545/gallery/actions/runs/38544077473 **IN_PROGRESS**;
+  Run38544077473 на Docker29.9 прошёл actual clean-install/resume/repeat и
+  fresh-install rollback/repeat (**6 checks true**, cleanupErrors=[]).
+  Он остановился уже при создании queue fixture: env mediaLocation optional,
+  actual backend успешно использует auto-detection `/data`. Tooling-only
+  e894798194 повторно использует настоящий resolver без изменения runtime env.
+  https://github.com/docice545/gallery/actions/runs/38547396269 **IN_PROGRESS**;
   mobile/backend workflows не повторяются.
 
 ## Завершённые application gates
