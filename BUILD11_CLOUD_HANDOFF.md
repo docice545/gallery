@@ -12,7 +12,14 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Последний implementation HEAD `3a736a88e31d7ec9238b0396eb4f3ab7790452e6` опубликован.
+Последний implementation HEAD `ec9a67ab8df18d0509bd61e4642efd69d6b48c86` опубликован.
+Final sealing retry **38553886139 IN_PROGRESS**:
+https://github.com/docice545/gallery/actions/runs/38553886139.
+Use gh run watch этого run; не запускать duplicate/rebuild. Следующий результат
+определит final distribution: `gallery-build11-distribution-38553886139`.
+По состоянию checkpoint artifact ЕЩЁ НЕ опубликован. Если retryFAIL, читать
+только actual failed step/code; сохранять предыдущие31 actual PASS отдельно.
+Root working tree clean после checkpoint; source894 и три builds неизменны.
 Run **38551567325 FAILURE при sealing**, но actual installation lab **PASS**:
 https://github.com/docice545/gallery/actions/runs/38551567325.
 Все31 REQUIRED checks + дополнительный representative27PausedJobsCreated TRUE;
