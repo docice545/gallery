@@ -110,6 +110,13 @@ ZIP SHA256 `8992b4d5b26d435481ce1b0923a9c0fb824740228c71fe30006333279b1dcfc0`.
 Signed APT pin сохраняет standard socket/systemctl и Compose plugin;
 API/flag readiness проверяется до fixture startup, classic→containerd сохранён.
 `docker/setup-docker-action` проверен и не подходит: создаёт другой daemon/socket.
+Следующий proof `38514544036` на tooling814ec5142a FAILED **до** artifact download:
+`PINNED_OFFICIAL_DOCKER_PACKAGE_UNAVAILABLE`. Global runner repository selection
+не подтверждает наличие exact official package. Поправка использует отдельный
+job-local HTTPS Docker APT source и штатный официальный runner key
+`/usr/share/keyrings/docker.gpg`, не меняя global sources или package version.
+Новые bounded Checks notices показывают exact version/repository availability,
+без credentials или personal metadata. Embedded selector tests: **5 PASS**.
 Не пересобирать components при tooling-only correction. Old failed
 proof38424787561 не был install PASS. New diagnostics доступны через Checks API
 даже когда redirected blob log запрещён Cloud policy. Записывать реальные

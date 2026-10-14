@@ -71,13 +71,34 @@ jobs:
           # standard daemon/socket/Compose plugin and signed official APT repo.
           # No unauthenticated packages, custom daemon or identity fallback.
           docker_package_version='5:28.4.0-1~ubuntu.24.04~noble'
-          sudo apt-get update
+          # Use the runner image's official Docker key with a job-local source
+          # list. Global runner repository ordering/mirrors cannot substitute
+          # for the signed Docker repository, and global APT sources stay intact.
+          test -s /usr/share/keyrings/docker.gpg \
+            || { echo '::error::RUNNER_OFFICIAL_DOCKER_KEY_REQUIRED'; exit 1; }
+          printf '%s\n' 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable' \
+            > "$RUNNER_TEMP/build11-docker.list"
+          apt_sources=(-o "Dir::Etc::sourcelist=$RUNNER_TEMP/build11-docker.list" -o 'Dir::Etc::sourceparts=-')
+          sudo apt-get "${apt_sources[@]}" update
           for package in docker-ce docker-ce-cli; do
-            apt-cache madison "$package" | awk -v version="$docker_package_version" \
-              '$3 == version && $5 == "https://download.docker.com/linux/ubuntu" { found = 1 } END { exit !found }' \
-              || { echo '::error::PINNED_OFFICIAL_DOCKER_PACKAGE_UNAVAILABLE'; exit 1; }
+            apt-cache "${apt_sources[@]}" madison "$package" > "$RUNNER_TEMP/build11-$package-versions.txt"
+            python3 - "$package" "$docker_package_version" "$RUNNER_TEMP/build11-$package-versions.txt" <<'PY'
+          import json, re, sys
+          from pathlib import Path
+          package, expected, path = sys.argv[1:]
+          rows = [tuple(part.strip() for part in line.split('|')) for line in Path(path).read_text().splitlines()]
+          official = [version for name, version, source in rows if name == package and
+                      source.split()[0].rstrip('/') == 'https://download.docker.com/linux/ubuntu']
+          present = expected in official
+          safe = {'package': package, 'expectedVersionPresent': present, 'officialRepositoryPresent': bool(official),
+                  'availableOfficialVersions': [v for v in official if re.fullmatch(r'[A-Za-z0-9:~.+-]{1,100}', v)][:8]}
+          print('::notice title=Build11 signed Docker repository::' + json.dumps(safe, sort_keys=True))
+          if not present:
+              print('::error::PINNED_OFFICIAL_DOCKER_PACKAGE_UNAVAILABLE')
+              raise SystemExit(1)
+          PY
           done
-          sudo apt-get install -y --no-install-recommends --allow-downgrades \
+          sudo apt-get "${apt_sources[@]}" install -y --no-install-recommends --allow-downgrades \
             "docker-ce=$docker_package_version" "docker-ce-cli=$docker_package_version"
           sudo systemctl restart docker
           hash -r
