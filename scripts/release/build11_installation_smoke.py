@@ -56,6 +56,7 @@ OPERATIONS = frozenset({
 ERROR_CATEGORIES = frozenset({
     'DOCKER_API_VERSION_UNSUPPORTED', 'DOCKER_PLATFORM_FLAG_UNSUPPORTED',
     'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE', 'DOCKER_IMAGE_UNAVAILABLE',
+    'DOCKER_IMAGE_CONTENT_UNAVAILABLE',
     'SUDO_NONINTERACTIVE_AUTHORIZATION_REQUIRED', 'PERMISSION_DENIED',
     'DOCKER_LOCAL_DAEMON_UNAVAILABLE', 'COMPOSE_CONFIGURATION_INVALID',
     'DOCKER_RESOURCE_CONFLICT', 'REGISTRY_ACCESS_DENIED', 'COMMAND_TIMEOUT',
@@ -100,7 +101,8 @@ def error_category(stderr):
     cases = (
         ('DOCKER_API_VERSION_UNSUPPORTED', r'requires? api version|client is newer than server|client version .* is too (?:new|old)|minimum supported api version'),
         ('DOCKER_PLATFORM_FLAG_UNSUPPORTED', r'unknown flag: --platform|flag provided but not defined: -platform'),
-        ('DOCKER_REQUESTED_PLATFORM_UNAVAILABLE', r'no matching manifest for|platform .*not (?:found|available)|does not match the specified platform'),
+        ('DOCKER_REQUESTED_PLATFORM_UNAVAILABLE', r'no matching manifest for|platform .*not (?:found|available)|does not match the specified platform|was found but does not provide the specified platform'),
+        ('DOCKER_IMAGE_CONTENT_UNAVAILABLE', r'content digest sha256:[0-9a-f]{64}.*not found|failed to get (?:image )?config|failed to read.*(?:manifest|config|blob)|failed to calculate.*size'),
         ('DOCKER_IMAGE_UNAVAILABLE', r'no such image|image .*not found|manifest unknown'),
         ('SUDO_NONINTERACTIVE_AUTHORIZATION_REQUIRED', r'sudo:.*(?:password is required|terminal is required|not allowed)'),
         ('DOCKER_LOCAL_DAEMON_UNAVAILABLE', r'cannot connect to the docker daemon|error during connect|is the docker daemon running'),
@@ -123,6 +125,8 @@ def validated_diagnostic(value):
             (type(code) is not int or not -128 <= code <= 255):
         return None
     result = {key: value[key] for key in ('operation', 'returnCode', 'errorCategory')}
+    if value.get('publicDependency') in ('POSTGRES_PINNED', 'VALKEY_PINNED'):
+        result['publicDependency'] = value['publicDependency']
     for name in ('clientApiVersion', 'serverApiVersion'):
         version = value.get(name)
         if isinstance(version, str) and re.fullmatch(r'[0-9]{1,2}\.[0-9]{1,3}', version):
@@ -256,6 +260,7 @@ sys.path.append(str(Path(sys.argv[6]).parent))
 import build11_installation_smoke as diagnostics
 previous_process=installer.core.subprocess.run
 last_failure=None
+public_dependencies=dict(zip(installer.PUBLIC_DEPENDENCIES,('POSTGRES_PINNED','VALKEY_PINNED')))
 def observed_process(command,*args,**kwargs):
   global last_failure
   last_failure=None
@@ -266,6 +271,8 @@ def observed_process(command,*args,**kwargs):
   if result.returncode != 0:
     last_failure={'operation':diagnostics.docker_operation(command),'returnCode':result.returncode,
                   'errorCategory':diagnostics.error_category(result.stderr)}
+    if command and command[-1] in public_dependencies:
+      last_failure['publicDependency']=public_dependencies[command[-1]]
   return result
 installer.core.subprocess.run=observed_process
 fault=sys.argv[5]

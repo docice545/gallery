@@ -90,6 +90,9 @@ class SanitizedDiagnostics(unittest.TestCase):
         cases = [('--platform requires API version 1.49 private-token', 'DOCKER_API_VERSION_UNSUPPORTED'),
                  ('unknown flag: --platform /private-name', 'DOCKER_PLATFORM_FLAG_UNSUPPORTED'),
                  ('no matching manifest for linux/arm64 secret-token', 'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE'),
+                 ('image with reference private was found but does not provide the specified platform (linux/amd64)',
+                  'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE'),
+                 ('content digest sha256:'+'a'*64+': not found /private/blob', 'DOCKER_IMAGE_CONTENT_UNAVAILABLE'),
                  ('no such image private-path', 'DOCKER_IMAGE_UNAVAILABLE'),
                  ('sudo: a password is required SECRET_PASSWORD', 'SUDO_NONINTERACTIVE_AUTHORIZATION_REQUIRED'),
                  ('Cannot connect to the Docker daemon /private-socket', 'DOCKER_LOCAL_DAEMON_UNAVAILABLE'),
@@ -141,6 +144,16 @@ class SanitizedDiagnostics(unittest.TestCase):
             with self.subTest(key=key,value=value):self.assertIsNone(lab.validated_diagnostic({**base,key:value}))
         self.assertIsNone(lab.public_failure({'result':'PASS'}))
         self.assertEqual(lab.public_failure({'result':'FAIL','failedStage':[]})['failedStage'],'UNKNOWN_STAGE')
+
+    def test_only_fixed_public_dependency_names_can_cross_diagnostic_boundary(self):
+        base={'operation':'DOCKER_IMAGE_INSPECT_PLATFORM','returnCode':1,
+              'errorCategory':'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE'}
+        for value in ('POSTGRES_PINNED','VALKEY_PINNED'):
+            self.assertEqual(lab.validated_diagnostic({**base,'publicDependency':value}),
+                             {**base,'publicDependency':value})
+        for value in ('/private/file','SECRET_TOKEN',None,{},['POSTGRES_PINNED']):
+            with self.subTest(value=value):
+                self.assertEqual(lab.validated_diagnostic({**base,'publicDependency':value}),base)
 
     def test_unknown_stdout_error_marker_cannot_publish_arbitrary_uppercase_secret(self):
         result=subprocess.CompletedProcess([],1,'STOP PRIVATE_SECRET_TOKEN\n','/personal/photo.jpg')
@@ -373,6 +386,7 @@ class GenuineFaultInjection(unittest.TestCase):
             fixture = tools / 'gallery_install.py'
             prefix=("from types import SimpleNamespace\nimport subprocess\n"
                     "class Stop(Exception): pass\n"
+                    "PUBLIC_DEPENDENCIES={}\n"
                     "core=SimpleNamespace(save=lambda *a:None,health=lambda *a:None,subprocess=subprocess,Stop=Stop,DOCKER=['docker'])\n")
             fixture.write_text(prefix+
                                "def install(args): raise RuntimeError('REAL_SETUP_FAILURE')\n")
@@ -395,6 +409,7 @@ class GenuineFaultInjection(unittest.TestCase):
             (tools/'gallery_install.py').write_text("""from types import SimpleNamespace
 import subprocess,json
 class Stop(Exception):pass
+PUBLIC_DEPENDENCIES={}
 def process(command,*args,**kwargs):
   if 'version' in command:
     return subprocess.CompletedProcess(command,0,json.dumps({'Client':{'ApiVersion':'1.50'},'Server':{'ApiVersion':'1.48'},'private':'SECRET'}),'')
