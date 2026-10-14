@@ -71,12 +71,18 @@ jobs:
           # standard daemon/socket/Compose plugin and signed official APT repo.
           # No unauthenticated packages, custom daemon or identity fallback.
           docker_package_version='5:28.4.0-1~ubuntu.24.04~noble'
-          # Use the runner image's official Docker key with a job-local source
-          # list. Global runner repository ordering/mirrors cannot substitute
-          # for the signed Docker repository, and global APT sources stay intact.
-          test -s /usr/share/keyrings/docker.gpg \
-            || { echo '::error::RUNNER_OFFICIAL_DOCKER_KEY_REQUIRED'; exit 1; }
-          printf '%s\n' 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable' \
+          # Runner images may omit the Docker key/repository after preinstalling
+          # their old binaries. Bootstrap the PUBLIC vendor key over verified
+          # HTTPS into a new job-owned directory; never alter existing keyrings.
+          docker_key_directory=$(mktemp -d /tmp/gallery-build11-docker-key-XXXXXXXX)
+          chmod 0755 "$docker_key_directory"
+          mkdir -m 0700 "$docker_key_directory/gnupg"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            https://download.docker.com/linux/ubuntu/gpg --output "$docker_key_directory/docker.asc"
+          chmod 0644 "$docker_key_directory/docker.asc"
+          gpg --batch --no-options --homedir "$docker_key_directory/gnupg" \
+            --show-keys "$docker_key_directory/docker.asc" >/dev/null
+          printf 'deb [arch=amd64 signed-by=%s/docker.asc] https://download.docker.com/linux/ubuntu noble stable\n' "$docker_key_directory" \
             > "$RUNNER_TEMP/build11-docker.list"
           apt_sources=(-o "Dir::Etc::sourcelist=$RUNNER_TEMP/build11-docker.list" -o 'Dir::Etc::sourceparts=-')
           sudo apt-get "${apt_sources[@]}" update

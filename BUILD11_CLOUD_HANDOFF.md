@@ -117,6 +117,12 @@ job-local HTTPS Docker APT source и штатный официальный runne
 `/usr/share/keyrings/docker.gpg`, не меняя global sources или package version.
 Новые bounded Checks notices показывают exact version/repository availability,
 без credentials или personal metadata. Embedded selector tests: **5 PASS**.
+Proof `38516103681` FAILED до artifact download: `RUNNER_OFFICIAL_DOCKER_KEY_REQUIRED`.
+Runner действительно не содержит штатный Docker key. Bootstrap теперь получает
+**публичный** vendor GPG key через verified HTTPS в новый job-owned temp directory,
+проверяет OpenPGP format и использует его только через Signed-By в job-local APT
+source. Global keyrings/sources не изменяются, signatures/TLS не отключаются.
+Это CI-only correction; app artifacts по-прежнему valid source89447178.
 Не пересобирать components при tooling-only correction. Old failed
 proof38424787561 не был install PASS. New diagnostics доступны через Checks API
 даже когда redirected blob log запрещён Cloud policy. Записывать реальные
