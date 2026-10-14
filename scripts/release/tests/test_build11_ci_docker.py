@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[3] / '.github/workflows/gallery-trash-release-proof.yml'
-EXPECTED = '5:28.4.0-1~ubuntu.24.04~noble'
+EXPECTED = '5:29.9.0-1~ubuntu.24.04~noble'
 SOURCE = 'https://download.docker.com/linux/ubuntu'
 TRANSITION = WORKFLOW.parents[2] / 'scripts/release/build11_ci_docker.sh'
 

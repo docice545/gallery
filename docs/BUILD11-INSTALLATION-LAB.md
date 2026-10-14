@@ -5,7 +5,7 @@
 тест запускать нельзя. Он не использует production PostgreSQL, фотографии,
 NAS mounts, ключи подписи APK или recovery evidence владельцев.
 
-CI закрепляет Docker CE и CLI 28.4.0 из существующего подписанного официального
+CI закрепляет Docker CE и CLI 29.9.0 из существующего подписанного официального
 APT repository Ubuntu 24.04. До любых fixture containers проверяются точная
 версия обоих компонентов, стандартный `/var/run/docker.sock`, API 1.49+ и
 наличие `image inspect --platform`. Затем выполняются настоящие classic и
@@ -53,6 +53,14 @@ inspect остаётся STOP. Успешный cached lookup не требуе�
 её отсутствие. Это сохраняет холодный cache actual installer. Переключения
 store сбрасывают только systemd start counter на пустом disposable CI runner;
 ошибка восстановления classic store не скрывает первичный отказ.
+
+Run38542645355 на Docker28.4/API1.51 снова получил недоступный Valkey content
+при initial configuration, несмотря на успешный самостоятельный probe и
+ограниченный refill. Следующая CI проверка использует Docker29.9.0, наличие
+которого подтверждено **подписанным official APT inventory** предыдущего run.
+Точные manifest/config/digest и selected-platform требования не меняются;
+проверка фактической доступности и все installation gates остаются обязательными.
+Это обновляет только disposable CI runner, не Docker на HP и не приложение.
 
 После сборки и проверки backend/APK/IPA, реального rollback HTTP smoke и
 создания предварительного пакета workflow выполняет:

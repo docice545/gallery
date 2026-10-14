@@ -70,7 +70,7 @@ jobs:
           # inspect the actual platform of a multiarch index. Preserve the
           # standard daemon/socket/Compose plugin and signed official APT repo.
           # No unauthenticated packages, custom daemon or identity fallback.
-          docker_package_version='5:28.4.0-1~ubuntu.24.04~noble'
+          docker_package_version='5:29.9.0-1~ubuntu.24.04~noble'
           # Runner images may omit the Docker key/repository after preinstalling
           # their old binaries. Bootstrap the PUBLIC vendor key over verified
           # HTTPS into a new job-owned directory; never alter existing keyrings.
@@ -114,10 +114,10 @@ jobs:
           import gallery_install as installer
           installer.core.DOCKER = ['docker', '--host=unix:///var/run/docker.sock']
           row = json.loads(installer.core.docker('version', '--format', '{{json .}}'))
-          installer.core.need(all(row[side]['Version'] == '28.4.0' for side in ('Client', 'Server')),
+          installer.core.need(all(row[side]['Version'] == '29.9.0' for side in ('Client', 'Server')),
                               'EXACT_PINNED_DOCKER_CLI_AND_ENGINE_REQUIRED')
           installer.require_platform_inspection()
-          print('PASS Docker CLI/Engine 28.4.0, standard local socket, API>=1.49 and platform inspection')
+          print('PASS Docker CLI/Engine 29.9.0, standard local socket, API>=1.49 and platform inspection')
           PY
       - name: Authenticate read-only GHCR disposable fixtures
         if: inputs.build11

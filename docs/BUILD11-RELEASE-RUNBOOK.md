@@ -37,7 +37,7 @@ receipts нет. Остальные 21 задания сохраняются pau
 обычном `sudo -v`. Скрипты не получают права сами и не устанавливают пакеты.
 Публичные зависимости clean install загружаются только по неизменяемым digest.
 Для clean install требуется Docker Engine/CLI с API 1.49+ и поддержкой
-`docker image inspect --platform` (рекомендуется 28.4.0): platform-specific
+`docker image inspect --platform` (CI закрепляет 29.9.0): platform-specific
 inspect проверяет именно `linux/amd64` child manifest закреплённого multi-platform
 index. Одного index ID без OS/architecture недостаточно. Проверяются точные
 index/manifest/config digests PostgreSQL/Valkey; произвольная замена tag/digest
