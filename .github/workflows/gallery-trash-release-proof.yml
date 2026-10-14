@@ -54,6 +54,44 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Pin supported Docker CLI and Engine on disposable Build11 VM
+        if: inputs.build11
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_OS" = Linux
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          test "$(dpkg --print-architecture)" = amd64
+          unset DOCKER_HOST DOCKER_CONTEXT DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH DOCKER_API_VERSION
+          test -z "$(docker --host=unix:///var/run/docker.sock ps -aq)"
+          # Ubuntu Actions images previously supplied API 1.48, which cannot
+          # inspect the actual platform of a multiarch index. Preserve the
+          # standard daemon/socket/Compose plugin and signed official APT repo.
+          # No unauthenticated packages, custom daemon or identity fallback.
+          docker_package_version='5:28.4.0-1~ubuntu.24.04~noble'
+          sudo apt-get update
+          for package in docker-ce docker-ce-cli; do
+            apt-cache madison "$package" | awk -v version="$docker_package_version" \
+              '$3 == version && $5 == "https://download.docker.com/linux/ubuntu" { found = 1 } END { exit !found }' \
+              || { echo '::error::PINNED_OFFICIAL_DOCKER_PACKAGE_UNAVAILABLE'; exit 1; }
+          done
+          sudo apt-get install -y --no-install-recommends --allow-downgrades \
+            "docker-ce=$docker_package_version" "docker-ce-cli=$docker_package_version"
+          sudo systemctl restart docker
+          hash -r
+          python3 - <<'PY'
+          import json, sys
+          sys.path.insert(0, 'scripts/release')
+          import gallery_install as installer
+          installer.core.DOCKER = ['docker', '--host=unix:///var/run/docker.sock']
+          row = json.loads(installer.core.docker('version', '--format', '{{json .}}'))
+          installer.core.need(all(row[side]['Version'] == '28.4.0' for side in ('Client', 'Server')),
+                              'EXACT_PINNED_DOCKER_CLI_AND_ENGINE_REQUIRED')
+          installer.require_platform_inspection()
+          print('PASS Docker CLI/Engine 28.4.0, standard local socket, API>=1.49 and platform inspection')
+          PY
       - name: Authenticate read-only GHCR disposable fixtures
         if: inputs.build11
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

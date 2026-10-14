@@ -37,6 +37,24 @@ PUBLIC_DEPENDENCIES = {
 }
 
 
+def require_platform_inspection():
+    """Read-only capability gate before any clean-install image import or pull."""
+    code = 'DOCKER_PLATFORM_INSPECTION_API_1_49_REQUIRED'
+    try:
+        row = json.loads(core.docker('version', '--format', '{{json .}}'))
+        versions = [row[side]['ApiVersion'] for side in ('Client', 'Server')]
+        core.need(all(isinstance(value, str) and re.fullmatch(r'[0-9]{1,2}\.[0-9]{1,3}', value) and
+                      tuple(map(int, value.split('.'))) >= (1, 49) for value in versions), code)
+    except (KeyError, TypeError, ValueError, core.Stop):
+        raise core.Stop('DOCKER_PLATFORM_INSPECTION_API_1_49_REQUIRED') from None
+    try:
+        help_text = core.docker('image', 'inspect', '--help')
+    except core.Stop:
+        raise core.Stop('DOCKER_PLATFORM_INSPECTION_CLI_REQUIRED') from None
+    core.need(re.search(r'^\s+--platform(?:\s|$)', help_text, re.MULTILINE),
+              'DOCKER_PLATFORM_INSPECTION_CLI_REQUIRED')
+
+
 def pinned_public_dependency(reference):
     """Resolve one exact dependency without mistaking an index for a platform."""
     expected = PUBLIC_DEPENDENCIES.get(reference)
@@ -198,6 +216,7 @@ def install(args):
     core.DOCKER = ['sudo', '-n', 'docker', '--host=unix:///var/run/docker.sock']
     package = args.package; config = verify_package(package)
     profile = artifacts.load(package / 'candidate-profile.json', config['profileSHA256'])
+    require_platform_inspection()
     directory = args.directory.absolute()
     core.need(directory.is_dir() and not directory.is_symlink() and directory.resolve() == directory and
               not any(char in str(directory) for char in ('\n', '\r', '$')) and

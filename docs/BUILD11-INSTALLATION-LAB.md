@@ -5,6 +5,18 @@
 тест запускать нельзя. Он не использует production PostgreSQL, фотографии,
 NAS mounts, ключи подписи APK или recovery evidence владельцев.
 
+CI закрепляет Docker CE и CLI 28.4.0 из существующего подписанного официального
+APT repository Ubuntu 24.04. До любых fixture containers проверяются точная
+версия обоих компонентов, стандартный `/var/run/docker.sock`, API 1.49+ и
+наличие `image inspect --platform`. Затем выполняются настоящие classic и
+containerd проверки. Custom daemon/context не используется. Это изменение
+касается disposable CI VM: Docker на HP не обновляется этим workflow.
+
+Run `38509927962` выявил прежнюю причину отказа: CLI/daemon API 1.48,
+`DOCKER_PLATFORM_FLAG_UNSUPPORTED`. Новый prerequisite gate отклоняет такой
+runtime до загрузки образов/создания конфигурации вместо непрозрачного STOP.
+Проверки pinned index, amd64 manifest и config не заменяются fallback.
+
 После сборки и проверки backend/APK/IPA, реального rollback HTTP smoke и
 создания предварительного пакета workflow выполняет:
 

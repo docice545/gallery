@@ -140,6 +140,10 @@ class FreshInstall(unittest.TestCase):
         self.stack.enter_context(patch.object(m.socket, 'socket'))
 
     def docker(self, *args):
+        if args == ('version', '--format', '{{json .}}'):
+            return json.dumps({'Client': {'ApiVersion': '1.51'}, 'Server': {'ApiVersion': '1.51'}})
+        if args == ('image', 'inspect', '--help'):
+            return '      --platform string   Inspect an actual image platform\n'
         if args[:2] == ('ps','-aq'):
             if 'label=com.docker.compose.project=immich' in args: return ' '.join(row['Id'] for row in self.rows)
             return ' '.join(row['Id'] for row in self.rows if row['Name']=='/'+args[-1][7:-1])
