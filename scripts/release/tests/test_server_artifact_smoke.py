@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -134,6 +135,62 @@ class ArtifactIdentity(SmokeFixture):
         self.assertEqual(run.call_args.args[0], ['docker', '--host=unix:///var/run/docker.sock', 'inspect', 'fixture'])
         for name in variables:
             self.assertNotIn(name, run.call_args.kwargs['env'])
+
+
+class ActualCompiledStorageDetection(unittest.TestCase):
+    """Actual compiled upstream detector with synthetic existence observations."""
+    def setUp(self):
+        self.node = shutil.which('node')
+        compiled = ROOT / 'server/dist/services/storage.service.js'
+        if self.node is None or not compiled.is_file():
+            self.skipTest('Node and compiled server required for actual storage detector')
+
+    def detect(self, configured, existing, backend='disk'):
+        program = smoke.NODE_LAB_STORAGE.replace('/usr/src/app/server/package.json',
+                                                 str(ROOT / 'server/package.json')).replace(
+            'file:///usr/src/app/server/dist/', 'file://' + str(ROOT / 'server/dist') + '/')
+        # These tests exercise the application's real detector without reading
+        # or creating /data, and without invoking any filesystem mutation.
+        program = program.replace('const location=StorageService.prototype.detectMediaLocation.call',
+            'storageRepository.existsSync=path=>' + json.dumps(existing) + '.includes(path);\n' +
+            'const location=StorageService.prototype.detectMediaLocation.call')
+        env = dict(os.environ)
+        env.pop('IMMICH_MEDIA_LOCATION', None)
+        env['IMMICH_STORAGE_BACKEND'] = backend
+        if configured is not None:
+            env['IMMICH_MEDIA_LOCATION'] = configured
+        return subprocess.run([self.node, '--input-type=module', '-e', program],
+                              capture_output=True, text=True, timeout=30, env=env)
+
+    def test_official_unset_location_uses_actual_unique_data_detection(self):
+        result = self.detect(None, ['/data'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_explicit_data_uses_actual_configured_location(self):
+        result = self.detect('/data', ['/data', '/usr/src/app/upload'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_explicit_other_root_fails_before_fixture_operations(self):
+        result = self.detect('/different-synthetic-root', ['/data'])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('DISPOSABLE_STORAGE_REQUIRED', result.stderr)
+
+    def test_ambiguous_candidates_preserve_actual_legacy_fallback_and_fail_closed(self):
+        result = self.detect(None, ['/data', '/usr/src/app/upload'])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('DISPOSABLE_STORAGE_REQUIRED', result.stderr)
+
+    def test_no_existing_candidate_or_legacy_only_does_not_assume_data(self):
+        for existing in ([], ['/usr/src/app/upload']):
+            with self.subTest(existing=existing):
+                result = self.detect(None, existing)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn('DISPOSABLE_STORAGE_REQUIRED', result.stderr)
+
+    def test_s3_backend_cannot_use_disposable_disk_fixture(self):
+        result = self.detect('/data', ['/data'], backend='s3')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('DISPOSABLE_STORAGE_REQUIRED', result.stderr)
 
 
 class SignedLabContract(SmokeFixture):

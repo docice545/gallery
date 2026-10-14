@@ -285,6 +285,42 @@ class PublicDependencyAvailability(unittest.TestCase):
 
 
 class PausedQueue(unittest.TestCase):
+    def fixture_container(self, directory):
+        installation = Path(directory) / 'installation'
+        installation.mkdir(mode=0o700)
+        (installation / 'media').mkdir(mode=0o700)
+        return {'Name': '/immich_server', 'Config': {'Labels': {
+            'com.docker.compose.project': 'immich', 'com.docker.compose.service': 'immich-server',
+            'com.docker.compose.project.working_dir': str(installation)}}, 'Mounts': [
+                {'Destination': '/data', 'Source': str(installation / 'media'), 'Type': 'bind', 'RW': True}]}
+
+    def test_queue_read_requires_actual_owned_local_bind_and_reuses_compiled_storage_detection(self):
+        with tempfile.TemporaryDirectory(prefix='gallery-build11-install-lab-') as directory:
+            row = self.fixture_container(directory)
+            with patch.dict(os.environ, CI), patch.object(lab, 'inspect', return_value=row) as inspect, \
+                    patch.object(lab, 'docker', return_value=json.dumps(queue())) as docker:
+                self.assertEqual(lab.queue_snapshot(UUID), queue())
+            inspect.assert_called_once_with('immich_server')
+            self.assertTrue(docker.call_args.args[-1].startswith(lab.media.NODE_LAB_STORAGE))
+            self.assertFalse('--env' in docker.call_args.args)
+
+    def test_changed_missing_duplicate_or_readonly_queue_fixture_bind_cannot_exec_node(self):
+        with tempfile.TemporaryDirectory(prefix='gallery-build11-install-lab-') as directory:
+            original = self.fixture_container(directory)
+            cases = []
+            row = copy.deepcopy(original); row['Mounts'] = []; cases.append(row)
+            row = copy.deepcopy(original); row['Mounts'] *= 2; cases.append(row)
+            row = copy.deepcopy(original); row['Mounts'][0]['RW'] = False; cases.append(row)
+            row = copy.deepcopy(original); row['Mounts'][0]['Source'] = '/unrelated'; cases.append(row)
+            row = copy.deepcopy(original); row['Mounts'][0]['Type'] = 'volume'; cases.append(row)
+            row = copy.deepcopy(original); row['Config']['Labels']['com.docker.compose.project'] = 'unrelated'; cases.append(row)
+            for row in cases:
+                with self.subTest(row=row), patch.dict(os.environ, CI), \
+                        patch.object(lab, 'inspect', return_value=row), patch.object(lab, 'docker') as docker:
+                    with self.assertRaisesRegex(lab.LabFailure, 'QUEUE_FIXTURE'):
+                        lab.queue_snapshot(UUID)
+                    docker.assert_not_called()
+
     def test_exact_all_27_hashes_order_and_six_originals_pass(self):
         lab.unchanged_queue(queue(), copy.deepcopy(queue()))
 

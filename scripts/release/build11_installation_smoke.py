@@ -42,6 +42,7 @@ STAGES = frozenset({
     'configuration resume and real service-start interruption',
     'actual clean-install resume', 'actual completed-install repeat',
     'actual packaged fresh-install rollback and repeat',
+    'representative paused queue fixture creation',
     'compiled Build10 runtime representative state',
     'real image-only upgrade plan and dry-run',
     'real migration and simulated post-upgrade health interruption',
@@ -483,13 +484,9 @@ def database_snapshot():
       'membership',(SELECT coalesce(json_agg(json_build_object('album',"albumId",'asset',"assetId") ORDER BY "albumId","assetId"),'[]'::json) FROM album_asset));'''))
 
 
-NODE_QUEUE = r'''
-import {createRequire} from 'node:module';import crypto from 'node:crypto';import fs from 'node:fs/promises';
-const require=createRequire('/usr/src/app/server/package.json');require('reflect-metadata');
+NODE_QUEUE = media.NODE_LAB_STORAGE + r'''
+import crypto from 'node:crypto';import fs from 'node:fs/promises';
 const {Queue}=require('bullmq');
-const {ConfigRepository}=await import('file:///usr/src/app/server/dist/repositories/config.repository.js');
-const config=new ConfigRepository().getEnv();
-if(config.storage.mediaLocation!=='/data')throw new Error('NOT_DISPOSABLE_STORAGE');
 let input='';for await(const chunk of process.stdin)input+=chunk;const data=JSON.parse(input);
 if(!['seed','read'].includes(data.action)||!/^\w{8}-\w{4}-\w{4}-\w{4}-\w{12}$/.test(data.owner))throw new Error('BAD_LAB_ACTION');
 const queue=new Queue('backgroundTask',{...config.bull.config,skipMetasUpdate:true});
@@ -521,6 +518,21 @@ try{
 
 def queue_snapshot(owner, action='read'):
     need(re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', owner), 'LAB_OWNER_UUID_REQUIRED')
+    ci_environment()
+    server = inspect('immich_server')
+    labels = server.get('Config', {}).get('Labels', {})
+    installation = Path(labels.get('com.docker.compose.project.working_dir', ''))
+    need(server.get('Name') == '/immich_server' and labels.get('com.docker.compose.project') == PROJECT and
+         labels.get('com.docker.compose.service') == 'immich-server' and installation.is_absolute() and
+         installation.name == 'installation' and installation.parent.name.startswith('gallery-build11-install-lab-') and
+         installation.is_dir() and installation.resolve() == installation and
+         installation.parent.stat().st_uid == os.getuid() and installation.parent.stat().st_mode & 0o777 == 0o700,
+         'OWNED_QUEUE_FIXTURE_INSTALLATION_REQUIRED')
+    managed = [row for row in server.get('Mounts', []) if row.get('Destination') == '/data']
+    source = installation / 'media'
+    need(len(managed) == 1 and managed[0].get('Type') == 'bind' and managed[0].get('RW') is True and
+         managed[0].get('Source') == str(source) and source.is_dir() and source.resolve() == source,
+         'EXACT_QUEUE_FIXTURE_LOCAL_MANAGED_BIND_REQUIRED')
     row = json.loads(docker('exec', '-i', 'immich_server', 'node', '--input-type=module', '-e', NODE_QUEUE,
                             input=json.dumps({'action': action, 'owner': owner})))
     validate_queue(row)
@@ -926,6 +938,7 @@ def run(package, output):
         need(api('/assets/' + kept + '/original', raw=True) == media.synthetic_png(44) and
              physical_hash(offline_path) == offline_hash, 'FRESH_ROLLBACK_CHANGED_ORIGINALS')
         report['checks'].update(freshInstallRollbackWithPackagedWrapper=True, idempotentFreshRollback=True)
+        stage = 'representative paused queue fixture creation'
         snapshot = queue_snapshot(owner, 'seed')
         report['checks']['representative27PausedJobsCreated'] = True
         engine = load_packaged_tools(package)

@@ -37,17 +37,31 @@ process.stdout.write(JSON.stringify({
   publicKey: publicKey.export({type:'spki',format:'pem'})
 }));
 '''
-NODE_LAB_ROOTS = r'''
-import fs from 'node:fs/promises';
-const {ConfigRepository} = await import('file:///usr/src/app/server/dist/repositories/config.repository.js');
+NODE_LAB_STORAGE = r'''
+import {createRequire} from 'node:module';
+const require=createRequire('/usr/src/app/server/package.json');
+require('reflect-metadata');
+const {ConfigRepository}=await import('file:///usr/src/app/server/dist/repositories/config.repository.js');
+const {StorageRepository}=await import('file:///usr/src/app/server/dist/repositories/storage.repository.js');
+const {LoggingRepository}=await import('file:///usr/src/app/server/dist/repositories/logging.repository.js');
+const {StorageService}=await import('file:///usr/src/app/server/dist/services/storage.service.js');
+const configRepository=new ConfigRepository(),config=configRepository.getEnv();
+const storageRepository=new StorageRepository(LoggingRepository.create());
+if(typeof StorageService.prototype.detectMediaLocation!=='function'||config.storage.backend!=='disk')
+  throw new Error('DISPOSABLE_STORAGE_REQUIRED');
+// Use the application's actual auto-detection; the official clean installer
+// intentionally leaves IMMICH_MEDIA_LOCATION unset. Never overwrite its env.
+const location=StorageService.prototype.detectMediaLocation.call({configRepository,storageRepository});
+if(location!=='/data')throw new Error('DISPOSABLE_STORAGE_REQUIRED');
 const {StorageCore} = await import('file:///usr/src/app/server/dist/cores/storage.core.js');
+StorageCore.setMediaLocation(location);
+'''
+NODE_LAB_ROOTS = NODE_LAB_STORAGE + r'''
+import fs from 'node:fs/promises';
 const {StorageFolder} = await import('file:///usr/src/app/server/dist/enum.js');
 const {collectRootIdentities} = await import('file:///usr/src/app/server/dist/utils/authorized-deletion.js');
 let input = ''; for await (const part of process.stdin) input += part;
 const user = JSON.parse(input);
-const location = new ConfigRepository().getEnv().storage.mediaLocation;
-if(location !== '/data') throw new Error('Disposable lab storage required');
-StorageCore.setMediaLocation(location);
 const allowed = [StorageCore.getFolderLocation(StorageFolder.Upload, user.id), StorageCore.getLibraryFolder(user)];
 const roots = [];
 for(const root of new Set(allowed)) {
@@ -358,17 +372,12 @@ def load_rollback(directory, candidate_image=None):
     return proof['loadedImageId'], manifest
 
 
-NODE_STORAGE_FIXTURE = r'''
+NODE_STORAGE_FIXTURE = NODE_LAB_STORAGE + r'''
 import fs from 'node:fs/promises';
-import {createRequire} from 'node:module';
-const require=createRequire('/usr/src/app/server/package.json');
-require('reflect-metadata');
 const {Kysely,sql}=require('kysely');
-const {ConfigRepository}=await import('file:///usr/src/app/server/dist/repositories/config.repository.js');
 const {getKyselyConfig}=await import('file:///usr/src/app/server/dist/utils/database.js');
 let input='';for await(const part of process.stdin)input+=part;
-const data=JSON.parse(input),config=new ConfigRepository().getEnv();
-if(config.storage.mediaLocation!=='/data')throw new Error('DISPOSABLE_STORAGE_REQUIRED');
+const data=JSON.parse(input);
 // Upstream intentionally rejects external libraries nested inside /data.
 // This separate anonymous fixture volume never binds any host/NAS originals.
 const root='/external/build11-external-ci',file=root+'/synthetic.png';
