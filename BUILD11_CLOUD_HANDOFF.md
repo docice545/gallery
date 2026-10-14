@@ -128,6 +128,31 @@ proof38424787561 не был install PASS. New diagnostics доступны че
 даже когда redirected blob log запрещён Cloud policy. Записывать реальные
 artifact IDs/checksums из manifest, не подставлять ZIP hash вместо binary hash.
 
+Последний proof `38516670951` на tooling `1a5158240a` FAILED уже после
+успешного Docker28.4/API1.51 bootstrap. Checks diagnostic: image inspect
+`--platform linux/amd64`, returnCode1, `PRIVATE_ERROR_OMITTED`, первая stage
+`interrupted configuration creation`. То есть прежняя API1.48 причина исправлена,
+но actual 31 installation gates пока не прошли.
+
+Read-only registry audit подтверждает SHA256 обеих OCI indexes, их точные
+linux/amd64 child manifests и config blobs: PostgreSQL b1d33572…→178719ae…,
+Valkey67878c70…→c439a6b7…. Ни descriptors, ни configs не содержат AMD64 variant.
+Не подменять platform на предположенный variant и не ослаблять identity checks.
+Tooling commit `d2d02b346c81d2c84d3004fa3c9f357ef9caf4ab` добавляет fixed
+POSTGRES_PINNED/VALKEY_PINNED diagnostic и authoritative Moby platform-not-found /
+content-missing classifications, без публикации stderr, argv, credentials или
+private paths. **32 affected harness tests PASS**, Python compile/diff check PASS.
+Application inputs по-прежнему byte-identical source89447178; no rebuild.
+
+Текущий повтор только release-proof:
+https://github.com/docice545/gallery/actions/runs/38519250044,
+HEAD `d2d02b346c81d2c84d3004fa3c9f357ef9caf4ab`, component runs прежние.
+На checkpoint Docker bootstrap, source seal и tamper fixtures PASS;
+classic actual image/rollback proof выполняется. Дождаться результата, прочитать
+Checks annotations; не дублировать run. Distribution всё ещё NOT READY до actual
+31-gate PASS и published compiled package. Следующий шаг — точный classified
+platform failure (если повторится), минимальное tooling correction и only proof rerun.
+
 Физические S23/iPhone, актуальная restored HP DB upgrade/rollback, реальные NFS
 и current6+21 queue receipts остаются NOT TESTED/operator gates. Source review или
 синтетические tests не превращают их в PASS. Production/signing/deployment нет.
