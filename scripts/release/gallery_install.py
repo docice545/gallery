@@ -59,19 +59,49 @@ def pinned_public_dependency(reference):
     """Resolve one exact dependency without mistaking an index for a platform."""
     expected = PUBLIC_DEPENDENCIES.get(reference)
     core.need(expected is not None, 'PINNED_PUBLIC_DEPENDENCY_REFERENCE_REQUIRED')
+    code = 'PINNED_PUBLIC_DEPENDENCY_IDENTITY_REQUIRED'
+    digest = reference.split('@', 1)[1]
+    repo_digests = {repository + '@' + digest for repository in expected['repositories']}
+
+    def verified_parent(values):
+        core.need(isinstance(values, list) and len(values) == 1 and isinstance(values[0], dict), code)
+        image = values[0]
+        core.need(isinstance(image.get('RepoDigests'), list) and
+                  bool(repo_digests.intersection(image['RepoDigests'])) and
+                  image.get('Id') in (expected['config'], digest), code)
+        descriptor = image.get('Descriptor')
+        if descriptor is None:
+            core.need(image.get('Id') == expected['config'], code)
+        else:
+            core.need(isinstance(descriptor, dict) and descriptor.get('digest') == digest and
+                      image.get('Id') == digest, code)
+        incomplete = image.get('Architecture') in (None, '') and image.get('Os') in (None, '')
+        # Moby's containerd store can inspect a trusted index with no locally
+        # usable child. This is not proof of a platform, nor permission to
+        # repair an unrelated index or an image for a different OS/architecture.
+        core.need((incomplete and image.get('Id') == digest and isinstance(descriptor, dict)) or
+                  (image.get('Architecture') == 'amd64' and image.get('Os') == 'linux'), code)
+        return image, incomplete
+
+    pulled = False
     try:
         images = json.loads(core.docker('image', 'inspect', reference))
     except core.Stop:
         core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
+        pulled = True
         images = json.loads(core.docker('image', 'inspect', reference))
+    image, incomplete = verified_parent(images)
+    if incomplete and not pulled:
+        # Fetch only this immutable, already-verified index once. Never fall
+        # back to unqualified inspection if selected-platform inspection fails.
+        core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
+        image, incomplete = verified_parent(json.loads(core.docker('image', 'inspect', reference)))
+    core.need(not incomplete, 'PINNED_PUBLIC_DEPENDENCY_PLATFORM_CONTENT_REQUIRED')
     # API 1.49+ selects an actual platform. Unsupported daemons fail closed;
     # do not infer platform from an index or accept another architecture.
     selected = json.loads(core.docker('image', 'inspect', '--platform', 'linux/amd64', reference))
-    code = 'PINNED_PUBLIC_DEPENDENCY_IDENTITY_REQUIRED'
-    core.need(len(images) == len(selected) == 1, code)
-    image, platform = images[0], selected[0]
-    digest = reference.split('@', 1)[1]
-    repo_digests = {repository + '@' + digest for repository in expected['repositories']}
+    core.need(isinstance(selected, list) and len(selected) == 1 and isinstance(selected[0], dict), code)
+    platform = selected[0]
     for item in (image, platform):
         core.need(isinstance(item.get('RepoDigests'), list) and
                   bool(repo_digests.intersection(item['RepoDigests'])), code)
