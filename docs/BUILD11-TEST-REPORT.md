@@ -105,16 +105,32 @@ SHA-256 финальных локальных логов:
 ## Сборки нового source
 
 - [Backend CI 38484089051](https://github.com/docice545/gallery/actions/runs/38484089051):
-  запущен для текущего application source; итог и artifact SHA ещё не подтверждены.
+  **PASS**, `gallery-trash-server-linux-amd64`, artifact ID `11858938573`.
+  Реальный disposable PostgreSQL HTTP Trash/Restore и hardened rollback runtime
+  smoke прошли вместе со сборкой backend/web.
 - [Unsigned iOS CI 38484090958](https://github.com/docice545/gallery/actions/runs/38484090958):
-  запущен для текущего source; итог и IPA/archive SHA ещё не подтверждены.
-- Android запускается после iOS, чтобы общий concurrency group не отменил IPA.
-  До опубликованного результата новый APK — **NOT TESTED / NOT BUILT**.
+  **PASS**, `ios-unsigned-ipa` ID `11860071853`, `ios-unsigned-archive`
+  ID `11859008510`. IPA unsigned и требует существующей SideStore подписи.
+- [Android CI 38486187028](https://github.com/docice545/gallery/actions/runs/38486187028):
+  **PASS**, `android-media-pilot-validation-apk` ID `11861136880`, native tests
+  ID `11861351523`. Native Kotlin и emulator playback, Flutter checks и
+  release-mode APK packaging выполнены. Сертификат CI, не HP update identity.
 - Compiled installation/distribution proof выполняется только с новыми
   backend/Android/iOS артефактами; старый f26 пакет не закрывает этот gate.
 
-CI RUNNING не считается PASS. Актуальные завершённые результаты, точные immutable
-checksums и artifact URLs записываются в canonical handoff после проверки.
+Все три run имеют application SHA, указанный в начале документа. Точные GitHub
+ZIP checksums записаны в handoff; внутренние APK/IPA/Docker archive checksums
+подтверждает отдельный sealer. ZIP digest не выдаётся за checksum бинарного файла.
+Installation CI RUNNING не считается PASS, физический Android/iPhone не проверен.
+
+После application gates исправлены только release tools: корректная pinned
+PostgreSQL index identity и штатное обновление recovery evidence после 24 часов.
+Build11 Python suite: **122 PASS, 1 SKIP, 0 FAIL**; PostgreSQL/predeploy guards:
+**45 PASS, 4 opt-in Docker SKIP, 0 FAIL**. Bash syntax, Python compile,
+formatting и unchanged application-input comparison — PASS.
+Новый real upgraded-database fresh-backup/restore gate является обязательным в
+installation CI; его unit fixtures не объявляются настоящим restore PASS.
+SHA256 tooling log: `6a4d1f817b98409aaa691bfa08657a9d1efb757d66412370955c0e5cfc841c97`.
 
 ## Границы доказательств
 

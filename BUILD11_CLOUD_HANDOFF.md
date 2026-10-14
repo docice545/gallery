@@ -1,4 +1,4 @@
-# Gallery Build 11: Android sync / backup завершение 2026-10-13
+# Gallery Build 11: Android sync / backup и release checkpoint 2026-10-14
 
 ## Точная текущая точка продолжения (имеет приоритет над историей ниже)
 
@@ -26,6 +26,13 @@ Production/`work` не изменяются, merge в HP branch не выпол�
   вместо гонки четырёх параллельных этапов; budget/cancellation/drain сохранены.
 - `89447178806ccc509ff0b52358b7491842041047`: strict analysis cleanup,
   без изменения поведения/constructor arguments; 42 affected tests PASS.
+- Tooling-only: `b2f46d2f83dafcf3f74da0b633e213d08b756823` закрепляет точную
+  pinned PostgreSQL index/amd64 identity для containerd; classic guard сохранён.
+- Tooling-only: `541f6f3b8e` добавляет штатный `refresh-recovery`: новый backup,
+  настоящий isolated restore, неизменные старые receipts и append-only activation.
+  Read-only status работает после 24h; apply/rollback сохраняют строгую freshness.
+- Tooling-only: `6eb9f52fa3` добавляет обязательный actual CI restore уже
+  обновлённой DB с сохранением всех policy fields, ledger и storage grants.
 
 Final validation после всех runtime fixes:
 
@@ -43,23 +50,43 @@ Final validation после всех runtime fixes:
   PG14 3370 PASS+12skip сохранены; новые controller7/PG HTTP lifecycle17 PASS.
 - Build11 Python88 PASS+1 opt-in Docker SKIP. Signed recovery-proof не ослаблен;
   новых миграций эти продолжения не вводят. Existing additive179405 остаётся.
+- Актуальный полный Build11 tooling suite: **122 PASS, 1 SKIP, 0 FAIL**.
+  `/tmp/build11-final-release-tooling-tests.log`, SHA256
+  `6a4d1f817b98409aaa691bfa08657a9d1efb757d66412370955c0e5cfc841c97`.
+  Включает 21 recovery-refresh, 13 transition, 31 installation-harness tests.
+  Эти unit fixtures не означают actual installation PASS.
+- PostgreSQL identity/predeploy: **45 PASS, 4 opt-in Docker SKIP**,
+  `/tmp/build11-pg-containerd-preflight-tests.log`, SHA256
+  `b9370fade7ca68da79e545981908b93e4b2ce78020fe2b7f7c8a8591ff40f67a`.
+  Bash syntax, Python compile, whitespace и docs formatting PASS.
 
 Уже запущенные **новые** builds (не дублировать):
 
 - Backend/web: https://github.com/docice545/gallery/actions/runs/38484089051
+  **SUCCESS**, artifact `gallery-trash-server-linux-amd64`, ID11858938573,
+  605061147 bytes. GitHub ZIP SHA256
+  `6e19132928f9747f9248ce792a1d58ac0141c3929d6350dad2b0db8d4a7609b3`.
+  Это checksum ZIP artifact, не внутреннего Docker archive/image identity.
+  Actual disposable PG HTTP lifecycle и hardened rollback smoke PASS.
 - Unsigned iOS: https://github.com/docice545/gallery/actions/runs/38484090958
+  **SUCCESS**, `ios-unsigned-ipa` ID11860071853, ZIP SHA256
+  `45b54927254d844e2ccf1126269f1d59822f0dc2b3b910aee668364914493ab4`;
+  `ios-unsigned-archive` ID11859008510, ZIP SHA256
+  `9455b28ee6e47bc233aa4f6087d8c6b2caaa74365c8df3f709f26e5370e0b06e`.
+- Android: https://github.com/docice545/gallery/actions/runs/38486187028
+  **SUCCESS**, `android-media-pilot-validation-apk` ID11861136880,
+  ZIP SHA256 `2aed72b139ffe8a945b2de0f67454932b0fbbde07548964bc53ddbbae367c5f7`;
+  native reports ID11861351523, ZIP SHA256
+  `b0347b1255527d29b60955d5997aab09b3ea233109999cd14f7c83ea3e646e14`.
 
-Оба exact source89447178, пока IN_PROGRESS, НЕ утверждать build PASS.
+Все три exact source89447178 и SUCCESS. Не пересобирать их из-за tooling-only fixes.
 Backend использует existing reviewed rollback run38288841511/sourcec4c2d199…;
 iOS existing workflow development + empty version (никаких Store/TestFlight).
-Android dispatch подготовлен `/tmp/build11-final-android-dispatch.json`, но ещё
-НЕ выполнен: сначала дождаться результата iOS, чтобы shared concurrency не отменил
-его. После successful iOS запустить только existing Android media pilot на том же
-immutable ref; не использовать HP keys, не считать debug APK production update.
+Android выполнен после iOS: shared concurrency не отменил IPA. APK использует
+CI debug certificate, не HP update. Unsigned IPA требует прежней SideStore подписи.
 
-Следующий шаг: проверить завершение этих двух runs один раз; при настоящем failure
-прочитать доступную ошибку и исправить только причину. После Android собрать
-actual distribution proof с новым source/three exact successful run IDs; old failed
+Следующий шаг: actual distribution proof на HEAD Cloud candidate с тремя
+успешными run IDs выше и прежним hardened rollback38288841511; old failed
 proof38424787561 не был install PASS. New diagnostics доступны через Checks API
 даже когда redirected blob log запрещён Cloud policy. Записывать реальные
 artifact IDs/checksums из manifest, не подставлять ZIP hash вместо binary hash.
