@@ -37,8 +37,12 @@ Immutable build ref: `build/gallery-build11-89447178`.
   Он остановился уже при создании queue fixture: env mediaLocation optional,
   actual backend успешно использует auto-detection `/data`. Tooling-only
   e894798194 повторно использует настоящий resolver без изменения runtime env.
-  https://github.com/docice545/gallery/actions/runs/38547396269 **IN_PROGRESS**;
-  mobile/backend workflows не повторяются.
+  https://github.com/docice545/gallery/actions/runs/38547396269 **FAILURE**:
+  snapshot fixture обращался к удалённому upstream album.ownerId. Исправлен
+  join album_user role=owner, добавлено сохранение всех sharing roles.
+  **4 actual PostgreSQL14 regression PASS**, включая воспроизведение SQLSTATE42703;
+  existing installation-boundary suite42 PASS. Application inputs не менялись,
+  mobile/backend workflows не повторяются; final proof требуется повторить.
 
 ## Завершённые application gates
 

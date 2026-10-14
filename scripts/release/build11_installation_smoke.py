@@ -44,6 +44,7 @@ STAGES = frozenset({
     'actual packaged fresh-install rollback and repeat',
     'representative paused queue fixture creation',
     'compiled Build10 runtime representative state',
+    'representative upstream database snapshot',
     'real image-only upgrade plan and dry-run',
     'real migration and simulated post-upgrade health interruption',
     'actual HTTP synthetic Trash/Restore/managed permanent delete',
@@ -474,14 +475,21 @@ def sql(query, *, write=False):
     return docker(*args, timeout=60)
 
 
-def database_snapshot():
-    # Capture stable upstream identities/ownership/metadata, not noisy job dates.
-    return json.loads(sql('''SELECT json_build_object(
+DATABASE_SNAPSHOT_SQL = '''SELECT json_build_object(
       'users',(SELECT coalesce(json_agg(json_build_object('id',id,'email',email,'status',status) ORDER BY id),'[]'::json) FROM public."user"),
       'assets',(SELECT coalesce(json_agg(json_build_object('id',id,'owner',"ownerId",'library',"libraryId",'status',status,
            'deletedAt',"deletedAt",'offline',"isOffline",'created',"fileCreatedAt",'localDate',"localDateTime") ORDER BY id),'[]'::json) FROM asset),
-      'albums',(SELECT coalesce(json_agg(json_build_object('id',id,'owner',"ownerId",'name',"albumName") ORDER BY id),'[]'::json) FROM album),
-      'membership',(SELECT coalesce(json_agg(json_build_object('album',"albumId",'asset',"assetId") ORDER BY "albumId","assetId"),'[]'::json) FROM album_asset));'''))
+      'albums',(SELECT coalesce(json_agg(json_build_object('id',a.id,'owner',au."userId",'name',a."albumName") ORDER BY a.id),'[]'::json)
+           FROM album a LEFT JOIN album_user au ON au."albumId"=a.id AND au.role='owner'),
+      'albumUsers',(SELECT coalesce(json_agg(json_build_object('album',"albumId",'user',"userId",'role',role)
+           ORDER BY "albumId","userId"),'[]'::json) FROM album_user),
+      'membership',(SELECT coalesce(json_agg(json_build_object('album',"albumId",'asset',"assetId") ORDER BY "albumId","assetId"),'[]'::json) FROM album_asset));'''
+
+
+def database_snapshot():
+    # Upstream migrated album ownership to album_user (1776848612954). Capture
+    # stable identities and all sharing roles; do not assume the removed column.
+    return json.loads(sql(DATABASE_SNAPSHOT_SQL))
 
 
 NODE_QUEUE = media.NODE_LAB_STORAGE + r'''
@@ -990,6 +998,7 @@ def run(package, output):
             'ALTER TABLE asset_deletion_policy DROP COLUMN "authorizationMode"; '
             "DELETE FROM kysely_migrations WHERE name='" + MIGRATION + "'; COMMIT;", write=True)
         need(MIGRATION not in engine.live_migrations(), 'BUILD10_FIXTURE_LEDGER_NOT_ESTABLISHED')
+        stage = 'representative upstream database snapshot'
         stable_database = database_snapshot()
         preserved_services = storage_and_service_snapshot(installation)
         sentinel = 'gallery-build11-unrelated-' + secrets.token_hex(6)

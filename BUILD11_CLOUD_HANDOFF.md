@@ -12,9 +12,17 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Tooling HEAD `e89479819496511b31f125ffe5db597313c8d237` опубликован.
-Current proof **IN_PROGRESS**:
+Последний опубликованный checkpoint `8577a722aa7311b965e7cf88f463f374caf6c693`.
+Proof **38547396269 FAILURE**:
 https://github.com/docice545/gallery/actions/runs/38547396269.
+Подтверждён tooling fixture defect: database_snapshot() читал album.ownerId,
+удалённый upstream migration1776848612954. Runtime/schema не повреждены.
+Исправление использует album_user role=owner и сохраняет все sharing roles.
+**4 actual isolated PostgreSQL14 regression PASS**, включая воспроизведение
+старой ошибки SQLSTATE42703; existing installation-boundary suite42 PASS.
+Log: /tmp/build11-actual-upstream-snapshot-pg14-tests.log. Контейнер без сети,
+портов и host mounts удалён вместе со своим anonymous volume.
+Следующий шаг — повторить только final release proof с этими tooling fixes.
 Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
 rollback38288841511. Все compiled application inputs остаются source89447178.
 Три app workflows не повторялись, production и HP changes не трогались.
@@ -96,8 +104,8 @@ Run38523289687 снова завершился на selected Valkey lookup; ра
 успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
 без availability metadata не установлена. Прогретый cache не используется для
 скрытия этого отказа. Run38540870600 уже FAIL с verified missing content.
-Следующий шаг: дождаться38547396269, читать actual stage/code, все31
-installation gates и artifact receipt.
+Следующий шаг: повторить final proof после snapshot fixture fix, читать actual
+stage/code, все31 installation gates и artifact receipt.
 Не повторять component builds, full Flutter/PG suites или source audits.
 
 Verified **inner binary** checksums (Checks receipt38520267120, все source894):
