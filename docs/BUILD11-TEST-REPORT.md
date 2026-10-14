@@ -12,8 +12,8 @@ Immutable build ref: `build/gallery-build11-89447178`.
 
 ## Текущие release-tooling проверки
 
-- Explicit platform authority + immutable Valkey child package: **59 PASS**
-  (45 installer,7 package,7 Docker platform).
+- Explicit platform authority + bounded missing-content refill + immutable
+  Valkey child package: **66 PASS** (52 installer,7 package,7 Docker platform).
 - Linked PostgreSQL predeployment identity guards: **45 PASS,4 opt-in SKIP**.
 - Bounded installation diagnostics: **40 PASS**.
 - Disposable Docker transition/probe-cache regressions: **21 PASS**.
@@ -24,7 +24,10 @@ Immutable build ref: `build/gallery-build11-89447178`.
 - Run38526321706: exact Valkey digest/config/platform/availability PASS, затем
   failed Docker classic-store restoration. Tooling-only e4152b7d4a исправляет
   deliberate restart rate counter и fail-closed probe cleanup. Новый proof
-  https://github.com/docice545/gallery/actions/runs/38540870600 **IN_PROGRESS**;
+  Run38540870600 подтвердил исправление transitions/cleanup, но остановился
+  на actual Valkey metadata-only cache (`Available=false`). Tooling-only
+  d7da5131eb добавляет один exact-digest refill с полной повторной проверкой.
+  https://github.com/docice545/gallery/actions/runs/38542645355 **IN_PROGRESS**;
   mobile/backend workflows не повторяются.
 
 ## Завершённые application gates

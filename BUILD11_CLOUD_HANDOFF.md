@@ -12,9 +12,9 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Tooling HEAD `e4152b7d4a2ac277e56adb5c6a953351d23d82e7` опубликован.
+Tooling HEAD `d7da5131eb14c262d2db0b73cb5a1e03cdc51392` опубликован.
 Current proof **IN_PROGRESS**:
-https://github.com/docice545/gallery/actions/runs/38540870600.
+https://github.com/docice545/gallery/actions/runs/38542645355.
 Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
 rollback38288841511. Все compiled application inputs остаются source89447178.
 Три app workflows не повторялись, production и HP changes не трогались.
@@ -43,9 +43,20 @@ rollback38288841511. Все compiled application inputs остаются source8
   installation сохраняет холодный cache и исходный порядок dependency pulls.
   **21 PASS**, включая foreign-container/remote-options/cleanup/restore failures.
   `/tmp/build11-ci-docker-transition-root-tests.log`.
+- Run38540870600: guarded transitions/probe cleanup/classic rollback PASS;
+  actual installer остановился на Valkey selected platform. Bounded diagnostic
+  впервые подтвердил actual metadata-only cache: immutable root/manifest
+  identity matches, `Available=false`, expected platform content unavailable.
+- `d7da5131eb…`: после реального selected-command failure и verified parent
+  выполняется API/CLI gate, один exact digest pull и полная повторная проверка
+  parent/target stability и selected platform. Cached success остаётся offline,
+  cold initial pull не повторяется. Integrity/JSON/custom gate failures не
+  разрешают refill, неуспешный pull или selected lookup остаётся STOP.
+  **66 PASS**: 52 installer +7 package +7 platform;
+  `/tmp/build11-bounded-selected-content-refill-tests.log`.
 
-Current focused **59 PASS**: 45 installer +7 package +7 Docker platform;
-`/tmp/build11-explicit-platform-authority-tests.log`. Linked PostgreSQL guard
+Current focused **66 PASS**: 52 installer +7 package +7 Docker platform;
+`/tmp/build11-bounded-selected-content-refill-tests.log`. Linked PostgreSQL guard
 **45 PASS,4 opt-in Docker SKIP**: `/tmp/build11-valkey-linked-pg-predeploy-tests.log`.
 Compile, Bash/YAML/embedded-Python syntax, docs formatting, whitespace и
 byte-identical source/official Compose checks PASS.
@@ -57,8 +68,9 @@ runs НЕ доказывают absence actual requested child и НЕ являю
 Run38523289687 снова завершился на selected Valkey lookup; ранний38526321706
 успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
 без availability metadata не установлена. Прогретый cache не используется для
-скрытия этого отказа. Следующий шаг: дождаться38540870600, читать actual
-stage/code, все31 installation gates и artifact receipt.
+скрытия этого отказа. Run38540870600 уже FAIL с verified missing content.
+Следующий шаг: дождаться38542645355, читать actual stage/code, все31
+installation gates и artifact receipt.
 Не повторять component builds, full Flutter/PG suites или source audits.
 
 Verified **inner binary** checksums (Checks receipt38520267120, все source894):
