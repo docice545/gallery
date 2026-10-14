@@ -82,7 +82,7 @@ def verify_package(package):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'check', 'apply', 'upgrade', 'status', 'rollback', 'install'))
+    parser.add_argument('action', choices=('prepare', 'refresh-recovery', 'check', 'apply', 'upgrade', 'status', 'rollback', 'install'))
     parser.add_argument('package', type=Path); parser.add_argument('state', type=Path)
     parser.add_argument('previous_run_root', type=Path); parser.add_argument('nas_evidence', type=Path)
     parser.add_argument('--execute-approved', action='store_true'); parser.add_argument('--approve-migration', action='store_true')

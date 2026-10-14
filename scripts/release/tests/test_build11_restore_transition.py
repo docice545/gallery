@@ -109,6 +109,58 @@ class RestoreTransition(unittest.TestCase):
                                                   self.state, self.backup, 'gallery-server:latest', ROLLBACK)
         docker.assert_not_called()
 
+    def upgraded_responses(self):
+        self.before = dict(self.after)
+        responses = self.responses.copy()
+        responses.insert(2, json.dumps({'recovery': 1, 'storage': 1}))
+        responses[-1] = json.dumps({'recovery': 1, 'storage': 1})
+        return responses
+
+    def test_already_upgraded_backup_retains_ledger_and_all_authorization_fields(self):
+        report, docker = self.execute(self.upgraded_responses())
+        self.assertTrue(report['baseAlreadyBuild11'])
+        self.assertEqual(report['baseMigrations'], report['targetMigrations'])
+        self.assertEqual(report['existingStoragePolicyCount'], 1)
+        self.assertEqual(report['legacyPolicyCount'], 1)
+        self.assertEqual(report['implicitStoragePolicies'], 0)
+        self.assertTrue(report['policiesPreserved'])
+        for call in docker.call_args_list:
+            if call.args[0] == 'exec' and any('fingerprint_rows' in str(arg) for arg in call.args):
+                self.assertNotIn("to_jsonb(t)-'authorizationMode'", ' '.join(call.args))
+        self.assertFalse(report['oldRuntimeStartsOnUpgradedSchema'])
+        self.assertFalse(report['productionChanged'])
+
+    def test_already_upgraded_policy_field_change_is_not_hidden_by_equal_counts(self):
+        responses = self.upgraded_responses()
+        responses[5] = json.dumps({**self.fingerprints, 'asset_deletion_policy': {'count': 2, 'sha256': 'e' * 64}})
+        with self.assertRaisesRegex(RuntimeError, 'CHANGED_EXISTING_ROWS'):
+            self.execute(responses)
+        self.assertFalse((self.state / 'build11-restored-database-verified.json').exists())
+
+    def test_already_upgraded_policy_modes_cannot_be_reset_or_convert_between_scopes(self):
+        responses = self.upgraded_responses()
+        responses[-1] = json.dumps({'recovery': 2, 'storage': 0})
+        with self.assertRaisesRegex(RuntimeError, 'IMPLICIT_STORAGE_GRANT'):
+            self.execute(responses)
+        self.assertFalse((self.state / 'build11-restored-database-verified.json').exists())
+
+    def test_already_upgraded_unknown_or_noninteger_policy_modes_fail_closed(self):
+        responses = self.upgraded_responses()
+        for value in ({'recovery': 1, 'storage': 0}, {'recovery': True, 'storage': 1},
+                      {'recovery': 1, 'storage': 1, 'unknown': 0}):
+            changed = responses.copy()
+            changed[2] = json.dumps(value)
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'POLICY_MODES_INVALID'):
+                self.execute(changed)
+        self.assertFalse((self.state / 'build11-restored-database-verified.json').exists())
+
+    def test_already_upgraded_additional_migration_still_blocks_refresh(self):
+        responses = self.upgraded_responses()
+        responses[4] = json.dumps({**self.after, 'migrationNames': [*self.after['migrationNames'], 'unexpected']})
+        with self.assertRaisesRegex(RuntimeError, 'CHANGED_DATABASE'):
+            self.execute(responses)
+        self.assertFalse((self.state / 'build11-restored-database-verified.json').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

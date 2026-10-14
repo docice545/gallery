@@ -16,13 +16,13 @@ def need(value, message):
         raise RuntimeError(message)
 
 
-def fingerprint_sql():
+def fingerprint_sql(include_authorization=False):
     rows = []
     for table in TABLES:
-        # Policy's sole new column is excluded; every existing field, timestamp,
-        # path, receipt, metadata and association must stay identical. Private
-        # row values never leave PostgreSQL, only counts and aggregate SHA-256.
-        row = "to_jsonb(t)-'authorizationMode'" if table == 'asset_deletion_policy' else 'to_jsonb(t)'
+        # Exclude only the not-yet-present column for Build10 -> Build11. A
+        # post-upgrade refresh includes every policy field, including owner mode.
+        # Private rows never leave PostgreSQL, only counts and aggregate SHA-256.
+        row = "to_jsonb(t)-'authorizationMode'" if table == 'asset_deletion_policy' and not include_authorization else 'to_jsonb(t)'
         rows.append("'%s', (SELECT json_build_object('count', count(*), 'sha256', "
                     "encode(sha256(convert_to(coalesce(string_agg(hash, '' ORDER BY hash), ''), 'UTF8')), 'hex')) "
                     "FROM (SELECT encode(sha256(convert_to((%s)::text, 'UTF8')), 'hex') AS hash "
@@ -55,16 +55,26 @@ def build11_restore_transition(tool, docker, container, query, before, state, ba
         need(re.fullmatch('sha256:[0-9a-f]{64}', image), 'IMMUTABLE_IMAGE_ID_REQUIRED')
     isolated_fixture(tool.inspect(container), container)
     summary_valid(before)
-    need(MIGRATION not in before['migrationNames'], 'BUILD11_ALREADY_PRESENT_IN_BASE_BACKUP')
+    already_upgraded = MIGRATION in before['migrationNames']
     candidate = json.loads(docker('image', 'inspect', candidate_image))[0]
     env = dict(value.split('=', 1) for value in candidate.get('Config', {}).get('Env', []) if '=' in value)
     need(candidate.get('Id') == candidate_image and env.get('IMMICH_SOURCE_COMMIT') == source,
          'BUILD11_IMAGE_SOURCE_MISMATCH')
-    fingerprints = json.loads(docker(*read_query(query, fingerprint_sql())))
+    fingerprint = fingerprint_sql(include_authorization=already_upgraded)
+    fingerprints = json.loads(docker(*read_query(query, fingerprint)))
     need(set(fingerprints) == set(TABLES) and all(type(value.get('count')) is int and value['count'] >= 0 and
          re.fullmatch('[0-9a-f]{64}', value.get('sha256', '')) for value in fingerprints.values()),
          'PRIVATE_RESTORED_FINGERPRINT_INVALID')
-    expected = {**comparable(before), 'migrationNames': sorted([*before['migrationNames'], MIGRATION])}
+    modes_sql = ('SELECT json_build_object(\'recovery\', count(*) FILTER (WHERE "authorizationMode"=\'recovery\'), '
+                 '\'storage\', count(*) FILTER (WHERE "authorizationMode"=\'storage\')) FROM asset_deletion_policy;')
+    expected_modes = {'recovery': fingerprints['asset_deletion_policy']['count'], 'storage': 0}
+    if already_upgraded:
+        expected_modes = json.loads(docker(*read_query(query, modes_sql)))
+        need(set(expected_modes) == {'recovery', 'storage'} and
+             all(type(value) is int and value >= 0 for value in expected_modes.values()) and
+             sum(expected_modes.values()) == fingerprints['asset_deletion_policy']['count'],
+             'RESTORED_EXISTING_POLICY_MODES_INVALID')
+    expected = {**comparable(before), 'migrationNames': sorted(set(before['migrationNames']) | {MIGRATION})}
     for image, phase in ((candidate_image, 'upgrade'), (rollback_image, 'rollback-migration-startup')):
         # Network namespace belongs exclusively to the fresh network-none PG;
         # no bind mounts, ports, API processes, queue workers or media exist.
@@ -76,12 +86,10 @@ def build11_restore_transition(tool, docker, container, query, before, state, ba
         summary = json.loads(docker(*query))
         summary_valid(summary)
         need(comparable(summary) == expected, 'ISOLATED_' + phase.upper().replace('-', '_') + '_CHANGED_DATABASE')
-        after = json.loads(docker(*read_query(query, fingerprint_sql())))
+        after = json.loads(docker(*read_query(query, fingerprint)))
         need(after == fingerprints, 'ISOLATED_' + phase.upper().replace('-', '_') + '_CHANGED_EXISTING_ROWS')
-    modes = json.loads(docker(*read_query(query,
-        'SELECT json_build_object(\'recovery\', count(*) FILTER (WHERE "authorizationMode"=\'recovery\'), '
-        '\'storage\', count(*) FILTER (WHERE "authorizationMode"=\'storage\')) FROM asset_deletion_policy;')))
-    need(modes == {'recovery': fingerprints['asset_deletion_policy']['count'], 'storage': 0},
+    modes = json.loads(docker(*read_query(query, modes_sql)))
+    need(modes == expected_modes,
          'LEGACY_DELETION_POLICIES_CHANGED_OR_IMPLICIT_STORAGE_GRANT')
     report = {'schemaVersion': 1, 'sourceCommit': source, 'imageId': candidate_image,
               'rollbackImageId': rollback_image, 'backupSHA256': sha(backup),
@@ -89,7 +97,8 @@ def build11_restore_transition(tool, docker, container, query, before, state, ba
               'beforeAssetCount': before['assetCount'], 'afterAssetCount': expected['assetCount'],
               'baseMigrations': before['migrationNames'], 'targetMigrations': expected['migrationNames'],
               'rowFingerprints': fingerprints, 'policiesPreserved': True,
-              'legacyPolicyCount': modes['recovery'], 'implicitStoragePolicies': 0,
+              'legacyPolicyCount': modes['recovery'], 'existingStoragePolicyCount': expected_modes['storage'],
+              'baseAlreadyBuild11': already_upgraded, 'implicitStoragePolicies': 0,
               'rollbackMigrationsAccepted': True,
               # Migration acceptance alone cannot certify real API/worker
               # startup, legacy storage-policy rejection or Trash/Restore.

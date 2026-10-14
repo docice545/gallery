@@ -127,6 +127,64 @@ tmux-сессия уже существует, сначала подключит
 каталог для check/apply/verify/rollback данного запуска. Нельзя менять receipt
 или очищать state ради повторной попытки.
 
+## Статус и обновление доказательств восстановления
+
+`gallery-verify.sh PACKAGE STATE OLD_RUN NAS_EVIDENCE` проверяет неизменность
+пакета, сохранённых evidence, image/source/API, конфигурации и paused jobs.
+Истечение 24 часов не мешает этой read-only проверке здорового server: вывод
+отдельно сообщает, что `apply`/rollback **STOP** до `refresh-recovery`. Успешный
+`status` не является подтверждением свежего backup или разрешением deployment.
+Изменённые backup bytes, receipts или NAS evidence по-прежнему дают STOP.
+
+Для rollback или отложенного apply старше 24 часов выполните следующий блок.
+Он создаёт новый SQL/gzip backup и восстанавливает **именно его** в disposable
+PostgreSQL без production volumes/ports/network. Проверяются существующие rows,
+ownership, policy fields/modes и migration ledger при migration-only запуске
+candidate и hardened fallback на восстановленной копии. Уже установленный
+Build 11 не получает повторную миграцию или сброс owner consent.
+
+Нужна настоящая NAS evidence не старше 24 часов. Если она устарела, сначала
+оператор выполняет реальную ранее описанную snapshot export/content verification
+и указывает новый private каталог; менять `verifiedAt` или подписывать старую
+квитанцию заново без проверки запрещено.
+
+```bash
+set -euo pipefail
+umask 077
+test "$(id -un)" = doctoriceadm
+: "${PACKAGE:?Укажите тот же проверенный Build11 package}"
+: "${STATE:?Укажите существующий private state этого deployment}"
+: "${OLD_RUN:?Укажите сохранённый Build10 RUN_ROOT}"
+: "${BUILD11_NAS_EVIDENCE:?Нужна настоящая свежая NAS evidence}"
+: "${BUILD11_SHA256SUMS_SHA256:?Нужен опубликованный checksum}"
+printf '%s  %s\n' "$BUILD11_SHA256SUMS_SHA256" "$PACKAGE/SHA256SUMS" | sha256sum -c --strict -
+(cd "$PACKAGE" && sha256sum -c --strict SHA256SUMS)
+sudo -v
+tmux new-session -s gallery-build11-refresh-recovery bash -c '
+  set -uo pipefail; umask 077
+  sudo -v || { printf "STOP SUDO_AUTHORIZATION_REQUIRED\n"; exec bash; }
+  journal=$(mktemp "$2/recovery-refresh-XXXXXXXX.log") || { printf "STOP PRIVATE_JOURNAL_REQUIRED\n"; exec bash; }
+  bash "$1/tools/gallery-upgrade.sh" refresh-recovery "$1" "$2" "$3" "$4" 2>&1 | tee "$journal"
+  result=$?
+  printf "RESULT exit=%s journal=%s\n" "$result" "$journal"
+  exec bash
+' _ "$PACKAGE" "$STATE" "$OLD_RUN" "$BUILD11_NAS_EVIDENCE"
+```
+
+Успех — `RESULT exit=0` и `PASS fresh recovery generation activated`. Старые
+backup/evidence/plan остаются неизменными; новый private child generation
+активируется append-only receipt только после завершённых проверок. Отказ или
+прерывание до activation оставляет private файлы для разбора, не заменяет старую
+квитанцию. Повторный запуск создаёт новый backup, а не подправляет timestamp.
+Конкурирующий refresh отклоняется. Отдельное разрешение deployment/rollback всё
+равно требуется; refresh не меняет server image, workers, queues или originals.
+
+Старый state без hash-binding metadata можно прочитать в `status`, но он помечен
+`HISTORIC_RECOVERY_METADATA_UNPINNED_RUN_REFRESH` и не принимается для изменения
+server. Штатный refresh подтверждает новые байты вместо автоматического доверия
+старой квитанции. Реальный HP restore/refresh остаётся operator acceptance gate;
+unit fixtures не считаются успешным восстановлением production backup.
+
 ## HP: одна команда обновления после отдельного разрешения
 
 Перед запуском владелец сервера должен одобрить конкретный Build 11, additive
@@ -335,6 +393,8 @@ LocalDevVPN/pairing/refresh маршрут и обновляйте сущест�
 report. Нельзя подставить старый image с неизвестным source. Forward-only
 additive migration и tombstones сохраняются: не удаляйте столбцы и записи.
 Old runtime отказывает новым storage grants и должен работать с Trash/Restore.
+Если backup/NAS evidence старше 24 часов, сначала выполните `refresh-recovery`
+выше с тем же state. Rollback не ослабляет freshness или restore-проверки.
 
 ```bash
 set -euo pipefail
@@ -417,18 +477,21 @@ queued retries и derivative cleanup на HP **BLOCKED**, пока владел�
 
 ## Точные STOP и действия
 
-| Код                                                               | Что делать                                                                                                                                     |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RELEASE_PACKAGE_FILE_CHANGED` / `PINNED_*`                       | Не запускать. Снова скачать официальный пакет по immutable URL и сравнить опубликованный checksum; исходный state сохранить.                   |
-| `COMPLETE_BUILD10_BRIDGE_FIRST`                                   | Использовать отдельно одобренный exact-six bridge через общий `upgrade --complete-confirmed-cleanup`; не выдумывать completion receipt.        |
-| `SIX_CONFIRMED_CLEANUP_COMPLETION_RECEIPT_REQUIRED_NO_REPLAY`     | Завершение не доказано. Передать сохранённый private report владельцу; не удалять jobs и не повторять files вручную.                           |
-| `NAS_RECOVERY_VERIFICATION_EXPIRED_NO_TIMESTAMP_REFRESH`          | Выполнить настоящий snapshot export/content verification существующим NAS recovery инструментом. Не менять timestamp.                          |
-| `INTERRUPTED_INSTALL_CONTEXT_CHANGED` / `*_CONFIGURATION_CHANGED` | Вернуть тот же подписанный пакет и неизменный private config; существующий state не редактировать. Другую конфигурацию installer не применяет. |
-| `EXACT_NAS_NFS_SOURCE_AND_TARGET_REQUIRED`                        | Сверить настройки нового сервера с действительным DSM export; production mounts не менять и не обходить проверку.                              |
-| `NFS_WRITE_MODE_MUST_ALREADY_BE_EXPLICITLY_CONFIGURED`            | Read-only mount не поддерживает writable режим. Оставить библиотеку read-only либо отдельно получить narrow NAS export authorization.          |
-| `API_AND_MICROSERVICES_REQUIRED`                                  | Текущая конфигурация API-only небезопасна. Сначала отдельное согласованное исправление effective Compose; release guard не отключать.          |
-| `EXISTING_APPLY_ATTEMPT_*` / health failure                       | Не повторять apply автоматически. Использовать проверенный rollback выше с тем же state.                                                       |
-| `PINNED_MACHINE_LEARNING_DEPENDENCY_REQUIRED`                     | Нужен настоящий immutable upstream ML reference в пакете; mutable latest или произвольный локальный image не допускаются.                      |
+| Код                                                                                 | Что делать                                                                                                                                     |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RELEASE_PACKAGE_FILE_CHANGED` / `PINNED_*`                                         | Не запускать. Снова скачать официальный пакет по immutable URL и сравнить опубликованный checksum; исходный state сохранить.                   |
+| `COMPLETE_BUILD10_BRIDGE_FIRST`                                                     | Использовать отдельно одобренный exact-six bridge через общий `upgrade --complete-confirmed-cleanup`; не выдумывать completion receipt.        |
+| `SIX_CONFIRMED_CLEANUP_COMPLETION_RECEIPT_REQUIRED_NO_REPLAY`                       | Завершение не доказано. Передать сохранённый private report владельцу; не удалять jobs и не повторять files вручную.                           |
+| `NAS_RECOVERY_VERIFICATION_EXPIRED_NO_TIMESTAMP_REFRESH`                            | Выполнить настоящий snapshot export/content verification существующим NAS recovery инструментом. Не менять timestamp.                          |
+| `INTERRUPTED_INSTALL_CONTEXT_CHANGED` / `*_CONFIGURATION_CHANGED`                   | Вернуть тот же подписанный пакет и неизменный private config; существующий state не редактировать. Другую конфигурацию installer не применяет. |
+| `EXACT_NAS_NFS_SOURCE_AND_TARGET_REQUIRED`                                          | Сверить настройки нового сервера с действительным DSM export; production mounts не менять и не обходить проверку.                              |
+| `NFS_WRITE_MODE_MUST_ALREADY_BE_EXPLICITLY_CONFIGURED`                              | Read-only mount не поддерживает writable режим. Оставить библиотеку read-only либо отдельно получить narrow NAS export authorization.          |
+| `API_AND_MICROSERVICES_REQUIRED`                                                    | Текущая конфигурация API-only небезопасна. Сначала отдельное согласованное исправление effective Compose; release guard не отключать.          |
+| `FRESH_RESTORED_BACKUP_EXPIRED` / `HISTORIC_RECOVERY_METADATA_UNPINNED_RUN_REFRESH` | Выполнить `refresh-recovery` с тем же state и настоящей свежей NAS evidence. Старые receipts/backups сохранить, timestamps не исправлять.      |
+| `RECOVERY_RECEIPT_METADATA_CHANGED_RUN_REFRESH` / `RECOVERY_GENERATION_*`           | Сохранить private state и журнал: metadata/chain повреждены или изменены. Не удалять activation receipts и не подменять proof ради PASS.       |
+| `RECOVERY_REFRESH_ALREADY_IN_PROGRESS`                                              | Подключиться к `tmux attach -t gallery-build11-refresh-recovery`; не запускать параллельный backup/restore.                                    |
+| `EXISTING_APPLY_ATTEMPT_*` / health failure                                         | Не повторять apply автоматически. Использовать проверенный rollback выше с тем же state.                                                       |
+| `PINNED_MACHINE_LEARNING_DEPENDENCY_REQUIRED`                                       | Нужен настоящий immutable upstream ML reference в пакете; mutable latest или произвольный локальный image не допускаются.                      |
 
 Private logs могут содержать topology/recovery metadata, поэтому не публикуйте
 их целиком. Публичный report содержит только PASS/STOP, source/image hashes,

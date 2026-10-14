@@ -2,11 +2,14 @@
 """Build11 thin operator wrapper over existing image-only and recovery tooling."""
 import argparse
 from datetime import datetime, timezone
+import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import stat
+import tempfile
 from types import SimpleNamespace
 
 import build11_artifacts as artifacts
@@ -15,6 +18,9 @@ import trash_image_identity as identity
 import trash_predeploy as pre
 import trash_release as legacy
 from hp_build10_queued_delete import Runner, IDS
+
+RECOVERY_RECEIPTS = ('fresh-backup.json', 'fresh-restore-verified.json', 'backup-verified.json',
+                     'build11-restored-database-verified.json')
 
 
 def cleanup_completed(runner):
@@ -107,16 +113,139 @@ def artifact_image(backend, source, version, expected, cache=None, allow_load=Fa
     return proof['loadedImageId']
 
 
-def recovered_backup(state):
-    context = core.private_json(state / 'build11-preflight.json')
-    backup, restored = core.private_json(state / 'fresh-backup.json'), core.private_json(state / 'fresh-restore-verified.json')
-    pre.age_ok(backup['createdAt'], 86400, 'FRESH_RESTORED_BACKUP_EXPIRED')
+def recovery_generation(state):
+    """Use only a contiguous, immutable activation chain bound to this plan."""
+    previous = artifacts.digest(state / 'build11-preflight.json')
+    selected = state
+    receipts = sorted(state.glob('recovery-generation-*.json'))
+    core.need(len(receipts) <= 999999, 'RECOVERY_GENERATION_LIMIT')
+    for number, path in enumerate(receipts, 1):
+        core.need(path.name == f'recovery-generation-{number:06d}.json', 'RECOVERY_GENERATION_CHAIN_REQUIRED')
+        row = core.private_json(path)
+        name = row.get('directory', '')
+        core.need(re.fullmatch(r'generation-[A-Za-z0-9_]{8}', name) and
+                  type(row.get('schemaVersion')) is int and row['schemaVersion'] == 1 and
+                  type(row.get('sequence')) is int and row['sequence'] == number and
+                  row.get('productionChanged') is False and
+                  row.get('previousReceiptSHA256') == previous and
+                  row.get('planSHA256') == artifacts.digest(state / 'image-state/image-plan.json'),
+                  'RECOVERY_GENERATION_BINDING_CHANGED')
+        parent = state / 'recovery-generations'
+        selected = parent / name
+        for directory in (parent, selected):
+            core.need(directory.is_dir() and not directory.is_symlink() and
+                      directory.stat().st_mode & 0o777 == 0o700 and directory.stat().st_uid == os.getuid(),
+                      'OWNED_PRIVATE_RECOVERY_GENERATION_REQUIRED')
+        core.need(row.get('evidenceSHA256') == {
+            file: artifacts.digest(selected / file) for file in
+            ('build11-preflight.json', 'fresh-backup.json', 'fresh-restore-verified.json',
+             'backup-verified.json', 'build11-restored-database-verified.json')},
+            'RECOVERY_GENERATION_EVIDENCE_CHANGED')
+        plan = core.private_json(state / 'image-state/image-plan.json')
+        core.need((row.get('sourceCommit'), row.get('candidateImage'), row.get('rollbackImage')) ==
+                  (plan['sourceCommit'], plan['candidateImage'], plan['rollbackImage']),
+                  'RECOVERY_GENERATION_IMAGE_OR_SOURCE_CHANGED')
+        previous = artifacts.digest(path)
+    return selected, len(receipts), previous
+
+
+def recovered_backup(state, require_fresh=True):
+    generation, _, _ = recovery_generation(state)
+    context = core.private_json(generation / 'build11-preflight.json')
+    backup = core.private_json(generation / 'fresh-backup.json')
+    restored = core.private_json(generation / 'fresh-restore-verified.json')
     core.need(context['backupSHA256'] == backup['backupSHA256'] == restored['backupSHA256'] ==
-              artifacts.digest(state / 'fresh-immich.sql.gz') and restored['restore'] == 'PASS_EXACT_DUMP_SNAPSHOT',
+              artifacts.digest(generation / 'fresh-immich.sql.gz') and
+              restored['restore'] == 'PASS_EXACT_DUMP_SNAPSHOT' and context.get('productionChanged') is False,
               'FRESH_BACKUP_AND_EXACT_RESTORE_REQUIRED')
     for path, digest in context['nasEvidenceHashes'].items():
         core.need(artifacts.digest(Path(path)) == digest, 'NAS_RECOVERY_EVIDENCE_CHANGED')
-    return context
+    nas_receipts = [Path(path) for path in context['nasEvidenceHashes'] if Path(path).name == 'nas-verified.json']
+    core.need(len(nas_receipts) == 1, 'REAL_NAS_RECOVERY_EVIDENCE_REQUIRED')
+    expected = context.get('recoveryEvidenceSHA256')
+    if expected is None and not require_fresh:
+        return {**context, 'recoveryFreshness': 'HISTORIC_RECOVERY_METADATA_UNPINNED_RUN_REFRESH'}
+    core.need(expected == {name: artifacts.digest(generation / name) for name in RECOVERY_RECEIPTS},
+              'RECOVERY_RECEIPT_METADATA_CHANGED_RUN_REFRESH')
+    try:
+        pre.age_ok(backup['createdAt'], 86400, 'FRESH_RESTORED_BACKUP_EXPIRED')
+        pre.age_ok(pre.private_json(nas_receipts[0])['verifiedAt'], 86400,
+                   'NAS_RECOVERY_VERIFICATION_EXPIRED_NO_TIMESTAMP_REFRESH')
+    except pre.Stop as error:
+        if require_fresh:
+            raise
+        return {**context, 'recoveryFreshness': str(error)}
+    return {**context, 'recoveryFreshness': 'FRESH_BACKUP_AND_NAS_WITHIN_24H'}
+
+
+def refresh_recovery(args, source, candidate, rollback):
+    """Append new tested bytes; never rewrite any previous backup or receipt."""
+    row, before = core.prerequisites(args.state / 'image-state', rollback=True)
+    core.need((row['sourceCommit'], row['candidateImage'], row['rollbackImage']) == (source, candidate, rollback),
+              'REFRESH_PLAN_IMAGE_OR_SOURCE_CHANGED')
+    fd = os.open(args.state / '.recovery-refresh.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as lock:
+        info = os.fstat(lock.fileno())
+        core.need(stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600 and info.st_uid == os.getuid(),
+                  'PRIVATE_RECOVERY_REFRESH_LOCK_REQUIRED')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise core.Stop('RECOVERY_REFRESH_ALREADY_IN_PROGRESS') from None
+        _, number, previous = recovery_generation(args.state)
+        core.need(number < 999999, 'RECOVERY_GENERATION_LIMIT')
+        core.queue_safety()
+        parent = args.state / 'recovery-generations'
+        if not parent.exists():
+            parent.mkdir(mode=0o700)
+        core.need(parent.is_dir() and not parent.is_symlink() and parent.stat().st_mode & 0o777 == 0o700 and
+                  parent.stat().st_uid == os.getuid(), 'OWNED_PRIVATE_RECOVERY_GENERATION_REQUIRED')
+        generation = Path(tempfile.mkdtemp(prefix='generation-', dir=parent))
+        # A failed attempt stays private and inactive. Retrying creates new bytes.
+        prepare_backup(generation, source, candidate, rollback, args.nas_evidence)
+        context = recovered_backup(generation)
+        core.need(context['sourceCommit'] == source, 'PREFLIGHT_SOURCE_CHANGED')
+        migration = core.private_json(generation / 'build11-restored-database-verified.json')
+        core.need(migration.get('sourceCommit') == source and migration.get('imageId') == candidate and
+                  migration.get('rollbackImageId') == rollback and migration.get('backupSHA256') == context['backupSHA256'] and
+                  migration.get('validation') == 'PASS_ISOLATED_BUILD11_MIGRATION_AND_EXISTING_ROW_PRESERVATION' and
+                  migration.get('policiesPreserved') is True and migration.get('rollbackMigrationsAccepted') is True and
+                  migration.get('productionChanged') is False,
+                  'EXACT_REFRESH_MIGRATION_RESTORE_REQUIRED')
+        current_row, after = core.prerequisites(args.state / 'image-state', rollback=True)
+        core.need(current_row == row and after['Id'] == before['Id'], 'SERVER_CHANGED_DURING_RECOVERY_REFRESH')
+        core.queue_safety()
+        activation = generation / 'activation-receipt.json'
+        core.save(activation, {
+            'schemaVersion': 1, 'sequence': number + 1, 'directory': generation.name,
+            'previousReceiptSHA256': previous, 'planSHA256': artifacts.digest(args.state / 'image-state/image-plan.json'),
+            'sourceCommit': source, 'candidateImage': candidate, 'rollbackImage': rollback,
+            'evidenceSHA256': {file: artifacts.digest(generation / file) for file in
+                              ('build11-preflight.json', 'fresh-backup.json', 'fresh-restore-verified.json',
+                               'backup-verified.json', 'build11-restored-database-verified.json')},
+            'activatedAt': datetime.now(timezone.utc).isoformat(), 'productionChanged': False})
+        # Publish a completely flushed receipt atomically; a crash before this
+        # hard link leaves only an inactive generation, never a partial pointer.
+        for path in generation.iterdir():
+            if path.is_file() and not path.is_symlink():
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        for directory in (generation, parent):
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        os.link(activation, args.state / f'recovery-generation-{number + 1:06d}.json', follow_symlinks=False)
+        descriptor = os.open(args.state, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    print('PASS fresh recovery generation activated; previous backups/evidence retained; deployment not executed')
 
 
 def prepare_backup(state, source, candidate, rollback, nas):
@@ -150,6 +279,7 @@ def prepare_backup(state, source, candidate, rollback, nas):
         return build11_restore_transition(tool, docker, container, query, restored, directory, original, candidate, rollback)
     pre.restore_exact(legacy, backup, state, summary, transition=transition)
     core.save(state / 'build11-preflight.json', {'sourceCommit': source, 'backupSHA256': artifacts.digest(backup),
+              'recoveryEvidenceSHA256': {name: artifacts.digest(state / name) for name in RECOVERY_RECEIPTS},
               'nasEvidenceHashes': {str(nas / file): artifacts.digest(nas / file) for file in
                                    ('nas-verified.json', 'nas-proof.json', 'nas-recovery-report.txt')},
               'preparedAt': datetime.now(timezone.utc).isoformat(), 'productionChanged': False})
@@ -200,7 +330,11 @@ def operate(args):
         core.plan(plan_args)
         print('PASS BUILD11_PREPARED_NOT_DEPLOYED; separate explicit approval required')
         return
-    context = recovered_backup(args.state)
+    core.queue_safety = cleanups(args.previous_run_root, candidate, rollback)
+    if args.action == 'refresh-recovery':
+        refresh_recovery(args, profile['sourceCommit'], candidate, rollback)
+        return
+    context = recovered_backup(args.state, require_fresh=args.action != 'status')
     core.need(context['sourceCommit'] == profile['sourceCommit'], 'PREFLIGHT_SOURCE_CHANGED')
     core.queue_safety = cleanups(args.previous_run_root, candidate, rollback)
     execute_args = SimpleNamespace(state=args.state / 'image-state', execute_approved=args.execute_approved,
@@ -219,11 +353,13 @@ def operate(args):
         version = row['serverVersion'] if target == row['candidateImage'] else row['rollbackVersion']
         core.health(args.api, target, source, version, timeout=0); core.queue_safety()
         print('PASS exact running image/source, healthy APIs, API+microservices and preserved paused jobs')
+        if context['recoveryFreshness'] != 'FRESH_BACKUP_AND_NAS_WITHIN_24H':
+            print('STOP rollback/apply recovery freshness: ' + context['recoveryFreshness'] + '; run refresh-recovery before changes')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'check', 'apply', 'upgrade', 'rollback', 'status'))
+    parser.add_argument('action', choices=('prepare', 'refresh-recovery', 'check', 'apply', 'upgrade', 'rollback', 'status'))
     for name in ('profile', 'artifacts', 'rollback-artifacts', 'compatibility-receipt', 'state', 'previous-run-root'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--profile-sha256', required=True); parser.add_argument('--compatibility-sha256', required=True)
