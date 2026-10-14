@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import build11_installation_smoke as lab
+import gallery_install as installer
 
 CI = {'GITHUB_ACTIONS': 'true', 'GALLERY_ISOLATED_CI': '1'}
 UUID = '11111111-2222-3333-4444-555555555555'
@@ -160,6 +161,127 @@ class SanitizedDiagnostics(unittest.TestCase):
         with patch.dict(os.environ,CI),patch.object(lab.subprocess,'run',return_value=result):
             with self.assertRaisesRegex(lab.LabFailure,'^LAB_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED$'):
                 lab.command(['private-command'])
+
+
+class PublicDependencyAvailability(unittest.TestCase):
+    def setUp(self):
+        self.reference=installer.VALKEY_AMD64_REFERENCE
+        self.expected=installer.PUBLIC_DEPENDENCIES[self.reference]
+        digest=self.reference.split('@',1)[1]
+        self.row={'Id':digest,'Descriptor':{'digest':digest},
+                  'RepoDigests':['valkey/valkey@'+digest],
+                  'Config':{'Env':['SECRET_PRIVATE_CREDENTIAL']},
+                  'Manifests':[{'ID':self.expected['manifest'],'Descriptor':{'digest':self.expected['manifest']},
+                                'Available':True,'Kind':'image',
+                                'ImageData':{'Platform':{'os':'linux','architecture':'amd64'},
+                                             'Containers':['private-container-name']}}]}
+
+    def probe(self,row=None,status=200,raw=None):
+        data=json.dumps(self.row if row is None else row).encode() if raw is None else raw
+        response=SimpleNamespace(status=status,read=Mock(return_value=data))
+        connection_socket=Mock()
+        requests=[]
+        def request(connection,method,path):
+            requests.append((method,path));connection.connect()
+        with patch.dict(os.environ,CI,clear=True),\
+             patch.object(lab.socket,'socket',return_value=connection_socket) as sockets,\
+             patch.object(lab.http.client.HTTPConnection,'request',request),\
+             patch.object(lab.http.client.HTTPConnection,'getresponse',return_value=response):
+            result=lab.public_dependency_availability(self.reference,'1.51')
+        sockets.assert_called_once_with(lab.socket.AF_UNIX,lab.socket.SOCK_STREAM)
+        connection_socket.connect.assert_called_once_with('/var/run/docker.sock')
+        connection_socket.settimeout.assert_called_once_with(10)
+        connection_socket.close.assert_called_once()
+        self.assertEqual(requests,[('GET','/v1.51/images/'+lab.urllib.parse.quote(self.reference,safe='')+'/json?manifests=true')])
+        if status==200:response.read.assert_called_once_with(1024*1024+1)
+        else:response.read.assert_not_called()
+        return result
+
+    def test_absent_ci_guards_unreviewed_references_and_invalid_api_never_connect(self):
+        for env in ({},{'GITHUB_ACTIONS':'true'},{'GALLERY_ISOLATED_CI':'1'}):
+            with self.subTest(env=env),patch.dict(os.environ,env,clear=True),\
+                 patch.object(lab.socket,'socket') as sockets:
+                self.assertIsNone(lab.public_dependency_availability(self.reference,'1.51'))
+                sockets.assert_not_called()
+        for reference,version in [('tcp://production.invalid/private','1.51'),
+                                  (installer.VALKEY_UPSTREAM_REFERENCE,'1.51'),
+                                  (self.reference,'1.48'),(self.reference,'1.51\nPRIVATE'),
+                                  (self.reference,True),(None,'1.51')]:
+            with self.subTest(reference=reference,version=version),patch.dict(os.environ,CI,clear=True),\
+                 patch.object(lab.socket,'socket') as sockets:
+                self.assertIsNone(lab.public_dependency_availability(reference,version))
+                sockets.assert_not_called()
+
+    def test_fixed_unix_read_only_request_returns_only_expected_public_metadata(self):
+        result=self.probe()
+        self.assertEqual(set(result),lab.AVAILABILITY_BOOLEANS|lab.AVAILABILITY_COUNTS)
+        self.assertTrue(all(result[key] for key in lab.AVAILABILITY_BOOLEANS))
+        self.assertEqual(result['expectedManifestCount'],1)
+        self.assertFalse(any(value in json.dumps(result) for value in
+                             ('SECRET','private','Config','Env','sha256','valkey','/var/run')))
+
+    def test_available_false_true_and_absent_are_distinct_without_guessing(self):
+        for available in (False,True,None):
+            row=copy.deepcopy(self.row)
+            if available is None:row['Manifests'][0].pop('Available')
+            else:row['Manifests'][0]['Available']=available
+            with self.subTest(available=available):result=self.probe(row)
+            self.assertTrue(result['expectedManifestPresent'])
+            self.assertEqual(result['expectedManifestAvailabilityPresent'],available is not None)
+            self.assertEqual(result['expectedManifestAvailable'],available is True)
+
+    def test_missing_or_duplicate_known_summary_never_claims_usable_image(self):
+        for summaries in (None,[],[{**self.row['Manifests'][0],'ID':'unrelated-private-digest'}],
+                          [self.row['Manifests'][0]]*2):
+            row=copy.deepcopy(self.row);row['Manifests']=summaries
+            with self.subTest(summaries=summaries):result=self.probe(row)
+            self.assertFalse(result['expectedManifestAvailable'])
+            self.assertEqual(result['expectedManifestCount'],2 if summaries and len(summaries)==2 else 0)
+            self.assertEqual(result['manifestSummariesPresent'],summaries is not None)
+
+    def test_wrong_platform_root_digest_kind_and_descriptor_report_only_false_flags(self):
+        row=copy.deepcopy(self.row)
+        row['Id']='PRIVATE_UNKNOWN';row['RepoDigests']=['private.invalid/SECRET']
+        row['Descriptor']['digest']='PRIVATE_ROOT'
+        row['Manifests'][0].update(Kind='attestation',Descriptor={'digest':'PRIVATE_MANIFEST'})
+        row['Manifests'][0]['ImageData']['Platform']['architecture']='arm64'
+        result=self.probe(row)
+        for field in ('rootIdMatches','rootDescriptorMatches','rootRepositoryDigestMatches',
+                      'expectedManifestDescriptorMatches','expectedManifestKindImage','expectedManifestPlatformMatches'):
+            self.assertFalse(result[field])
+        self.assertNotIn('PRIVATE',json.dumps(result))
+
+    def test_failed_oversized_invalid_or_unbounded_api_result_returns_no_diagnostic(self):
+        self.assertIsNone(self.probe(status=500))
+        self.assertIsNone(self.probe(raw=b'PRIVATE_NOT_JSON'))
+        self.assertIsNone(self.probe(raw=b'X'*(1024*1024+1)))
+        for row in ([],{'Manifests':'PRIVATE'}, {'Manifests':[{}]*33},
+                    {**self.row,'Manifests':[dict(self.row['Manifests'][0],Available='true')]},
+                    {**self.row,'Manifests':[dict(self.row['Manifests'][0],Kind='PRIVATE')]}):
+            with self.subTest(row=row):self.assertIsNone(self.probe(row))
+
+    def test_nested_public_sanitizer_rejects_types_private_fields_and_unbounded_counts(self):
+        good=self.probe()
+        base={'operation':'DOCKER_IMAGE_INSPECT_PLATFORM','returnCode':1,
+              'errorCategory':'DOCKER_REQUESTED_PLATFORM_UNAVAILABLE','publicDependency':'VALKEY_PINNED'}
+        self.assertEqual(lab.validated_diagnostic({**base,'publicDependencyAvailability':good}),
+                         {**base,'publicDependencyAvailability':good})
+        invalid=[{**good,'privatePath':'/family/photo'}, {**good,'rootIdMatches':1},
+                 {**good,'manifestSummaryCount':True},{**good,'manifestSummaryCount':33},
+                 {**good,'expectedManifestCount':-1},{**good,'expectedManifestCount':2},
+                 {**good,'expectedManifestPresent':False}]
+        for value in invalid:
+            with self.subTest(value=value):
+                self.assertIsNone(lab.validated_availability(value))
+                self.assertEqual(lab.validated_diagnostic({**base,'publicDependencyAvailability':value}),base)
+        self.assertEqual(lab.validated_diagnostic({**base,'publicDependency':'SECRET',
+                                                  'publicDependencyAvailability':good}),
+                         {key:value for key,value in base.items() if key!='publicDependency'})
+
+    def test_socket_failure_is_optional_and_does_not_publish_its_private_error(self):
+        with patch.dict(os.environ,CI,clear=True),\
+             patch.object(lab.socket,'socket',side_effect=OSError('PRIVATE_DAEMON_SECRET')):
+            self.assertIsNone(lab.public_dependency_availability(self.reference,'1.51'))
 
 
 class PausedQueue(unittest.TestCase):

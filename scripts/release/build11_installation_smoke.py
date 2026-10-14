@@ -10,12 +10,14 @@ import argparse
 import ast
 from datetime import datetime, timezone
 import hashlib
+import http.client
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,7 @@ import time
 import traceback
 from types import SimpleNamespace
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from gallery_entry import verify_package
@@ -62,6 +65,13 @@ ERROR_CATEGORIES = frozenset({
     'DOCKER_RESOURCE_CONFLICT', 'REGISTRY_ACCESS_DENIED', 'COMMAND_TIMEOUT',
     'PRIVATE_ERROR_OMITTED',
 })
+AVAILABILITY_BOOLEANS = frozenset({
+    'rootIdMatches', 'rootDescriptorMatches', 'rootRepositoryDigestMatches',
+    'manifestSummariesPresent', 'expectedManifestPresent', 'expectedManifestDescriptorMatches',
+    'expectedManifestAvailabilityPresent', 'expectedManifestAvailable',
+    'expectedManifestKindImage', 'expectedManifestPlatformMatches',
+})
+AVAILABILITY_COUNTS = frozenset({'manifestSummaryCount', 'expectedManifestCount'})
 
 
 class LabFailure(Exception):
@@ -114,6 +124,94 @@ def error_category(stderr):
     return next((category for category, pattern in cases if re.search(pattern, text)), 'PRIVATE_ERROR_OMITTED')
 
 
+def validated_availability(value):
+    """Only fixed booleans and bounded counts may leave the read-only API probe."""
+    if not isinstance(value, dict) or set(value) != AVAILABILITY_BOOLEANS | AVAILABILITY_COUNTS or \
+            any(type(value[key]) is not bool for key in AVAILABILITY_BOOLEANS) or \
+            any(type(value[key]) is not int or not 0 <= value[key] <= 32 for key in AVAILABILITY_COUNTS) or \
+            value['expectedManifestCount'] > value['manifestSummaryCount'] or \
+            value['expectedManifestPresent'] != (value['expectedManifestCount'] > 0):
+        return None
+    return {key: value[key] for key in sorted(value)}
+
+
+def public_dependency_availability(reference, server_api_version):
+    """CI-only immutable-image summaries; never a fallback to installer validation.
+
+    Moby v28.4.0 api/types/image/manifest.go defines ID, Descriptor, Available,
+    Kind and ImageData.Platform. No environment/configuration, command arguments,
+    registry credentials or raw daemon payload can leave this function.
+    """
+    connection = None
+    try:
+        ci_environment()  # Reject production/remote use before creating a socket.
+        from gallery_install import PUBLIC_DEPENDENCIES
+        expected = PUBLIC_DEPENDENCIES.get(reference) if isinstance(reference, str) else None
+        if expected is None or not isinstance(server_api_version, str) or \
+                not re.fullmatch(r'[0-9]{1,2}\.[0-9]{1,3}', server_api_version) or \
+                tuple(map(int, server_api_version.split('.'))) < (1, 49):
+            return None
+
+        class UnixDockerConnection(http.client.HTTPConnection):
+            def connect(self):
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.settimeout(self.timeout)
+                self.sock.connect('/var/run/docker.sock')
+
+        connection = UnixDockerConnection('localhost', timeout=10)
+        target = '/v' + server_api_version + '/images/' + urllib.parse.quote(reference, safe='') + '/json?manifests=true'
+        connection.request('GET', target)
+        response = connection.getresponse()
+        if response.status != 200:
+            return None
+        raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            return None
+        row = json.loads(raw)
+        if not isinstance(row, dict):
+            return None
+        summaries_present = row.get('Manifests') is not None
+        summaries = row.get('Manifests') if summaries_present else []
+        if not isinstance(summaries, list) or len(summaries) > 32 or \
+                any(not isinstance(item, dict) for item in summaries):
+            return None
+        matches = [item for item in summaries if item.get('ID') == expected['manifest']]
+        manifest = matches[0] if len(matches) == 1 else {}
+        if manifest and (('Available' in manifest and type(manifest['Available']) is not bool) or
+                         manifest.get('Kind') not in ('image', 'attestation', 'unknown')):
+            return None
+        descriptor = row.get('Descriptor')
+        manifest_descriptor = manifest.get('Descriptor')
+        image_data = manifest.get('ImageData')
+        platform = image_data.get('Platform') if isinstance(image_data, dict) else None
+        digest = reference.split('@', 1)[1]
+        repositories = {repository + '@' + digest for repository in expected['repositories']}
+        repo_digests = row.get('RepoDigests')
+        return validated_availability({
+            'rootIdMatches': row.get('Id') in (digest, expected['config']),
+            'rootDescriptorMatches': isinstance(descriptor, dict) and descriptor.get('digest') == digest,
+            'rootRepositoryDigestMatches': isinstance(repo_digests, list) and
+                any(type(value) is str and value in repositories for value in repo_digests),
+            'manifestSummariesPresent': summaries_present,
+            'manifestSummaryCount': len(summaries), 'expectedManifestCount': len(matches),
+            'expectedManifestPresent': bool(matches),
+            'expectedManifestDescriptorMatches': isinstance(manifest_descriptor, dict) and
+                manifest_descriptor.get('digest') == expected['manifest'],
+            'expectedManifestAvailabilityPresent': 'Available' in manifest,
+            'expectedManifestAvailable': manifest.get('Available') is True,
+            'expectedManifestKindImage': manifest.get('Kind') == 'image',
+            'expectedManifestPlatformMatches': isinstance(platform, dict) and
+                platform.get('os') == 'linux' and platform.get('architecture') == 'amd64' and
+                platform.get('variant') in (None, ''),
+        })
+    except Exception:
+        return None  # Diagnostics never replace the original failed operation.
+    finally:
+        if connection is not None:
+            try: connection.close()
+            except Exception: pass
+
+
 def validated_diagnostic(value):
     """An allowlist crosses both the child-process and public Checks API boundary."""
     if not isinstance(value, dict) or not isinstance(value.get('operation'), str) or \
@@ -127,6 +225,9 @@ def validated_diagnostic(value):
     result = {key: value[key] for key in ('operation', 'returnCode', 'errorCategory')}
     if value.get('publicDependency') in ('POSTGRES_PINNED', 'VALKEY_PINNED'):
         result['publicDependency'] = value['publicDependency']
+        availability = validated_availability(value.get('publicDependencyAvailability'))
+        if availability is not None:
+            result['publicDependencyAvailability'] = availability
     for name in ('clientApiVersion', 'serverApiVersion'):
         version = value.get(name)
         if isinstance(version, str) and re.fullmatch(r'[0-9]{1,2}\.[0-9]{1,3}', version):
@@ -260,10 +361,12 @@ sys.path.append(str(Path(sys.argv[6]).parent))
 import build11_installation_smoke as diagnostics
 previous_process=installer.core.subprocess.run
 last_failure=None
+last_public_dependency=None
 public_dependencies=dict(zip(installer.PUBLIC_DEPENDENCIES,('POSTGRES_PINNED','VALKEY_PINNED')))
 def observed_process(command,*args,**kwargs):
-  global last_failure
+  global last_failure,last_public_dependency
   last_failure=None
+  last_public_dependency=None
   try: result=previous_process(command,*args,**kwargs)
   except installer.core.subprocess.TimeoutExpired:
     last_failure={'operation':diagnostics.docker_operation(command),'returnCode':None,'errorCategory':'COMMAND_TIMEOUT'}
@@ -273,6 +376,7 @@ def observed_process(command,*args,**kwargs):
                   'errorCategory':diagnostics.error_category(result.stderr)}
     if command and command[-1] in public_dependencies:
       last_failure['publicDependency']=public_dependencies[command[-1]]
+      last_public_dependency=command[-1]
   return result
 installer.core.subprocess.run=observed_process
 fault=sys.argv[5]
@@ -304,6 +408,9 @@ except Exception as error:
         for side,name in [('Client','clientApiVersion'),('Server','serverApiVersion')]:
           last_failure[name]=row.get(side,{}).get('ApiVersion')
     except Exception: pass
+    if last_failure.get('operation')=='DOCKER_IMAGE_INSPECT_PLATFORM' and last_public_dependency is not None:
+      availability=diagnostics.public_dependency_availability(last_public_dependency,last_failure.get('serverApiVersion'))
+      if availability is not None: last_failure['publicDependencyAvailability']=availability
     safe=diagnostics.validated_diagnostic(last_failure)
     if safe is not None: print('INSTALL_COMMAND_DIAGNOSTIC '+json.dumps(safe,sort_keys=True))
   code=diagnostics.verified_failure_code(str(error)) if isinstance(error,installer.core.Stop) else None

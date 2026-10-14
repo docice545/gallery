@@ -142,6 +142,61 @@ jobs:
             --rollback-run "$ROLLBACK_RUN" --rollback-source "$ROLLBACK_SOURCE"
           git merge-base --is-ancestor "$APP_SOURCE" HEAD
           git diff --exit-code "$APP_SOURCE" HEAD -- server mobile web packages i18n branding package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs patches .dockerignore
+      - name: Check immutable Valkey platform before large artifact downloads
+        if: inputs.build11
+        env:
+          GALLERY_ISOLATED_CI: '1'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_OS" = Linux
+          unset DOCKER_HOST DOCKER_CONTEXT DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH DOCKER_API_VERSION
+          test -z "$(docker --host=unix:///var/run/docker.sock ps -aq)"
+          if [[ -f /etc/docker/daemon.json ]]; then
+            sudo cp /etc/docker/daemon.json "$RUNNER_TEMP/dependency-probe-original-daemon.json"
+          else
+            printf '{}\n' > "$RUNNER_TEMP/dependency-probe-original-daemon.json"
+          fi
+          restore_classic_store() {
+            test -z "$(docker --host=unix:///var/run/docker.sock ps -aq)"
+            jq '.features["containerd-snapshotter"] = false' "$RUNNER_TEMP/dependency-probe-original-daemon.json" \
+              > "$RUNNER_TEMP/dependency-probe-classic-daemon.json"
+            sudo cp "$RUNNER_TEMP/dependency-probe-classic-daemon.json" /etc/docker/daemon.json
+            sudo systemctl restart docker
+          }
+          trap restore_classic_store EXIT
+          jq '.features["containerd-snapshotter"] = true' "$RUNNER_TEMP/dependency-probe-original-daemon.json" \
+            > "$RUNNER_TEMP/dependency-probe-containerd-daemon.json"
+          sudo cp "$RUNNER_TEMP/dependency-probe-containerd-daemon.json" /etc/docker/daemon.json
+          sudo systemctl restart docker
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts/release')
+          import gallery_install as installer
+          from build11_installation_smoke import public_dependency_availability
+          installer.core.DOCKER = ['sudo', '-n', 'docker', '--host=unix:///var/run/docker.sock']
+          versions = json.loads(installer.core.docker('version', '--format', '{{json .}}'))
+          api = versions['Server']['ApiVersion']
+          driver = json.loads(installer.core.docker('info', '--format', '{{json .DriverStatus}}'))
+          store = isinstance(driver, list) and ['driver-type', 'io.containerd.snapshotter.v1'] in driver
+          installer.core.need(store, 'DISPOSABLE_CONTAINERD_STORE_REQUIRED')
+          reference = installer.VALKEY_AMD64_REFERENCE
+          passed = False
+          try:
+              installer.pinned_public_dependency(reference)
+              passed = True
+          except installer.core.Stop:
+              pass  # Primary failure stays FAIL; only public boolean metadata is emitted.
+          report = {'publicDependency': 'VALKEY_PINNED', 'result': 'PASS' if passed else 'FAIL',
+                    'containerdStoreVerified': store,
+                    'dependencyAvailability': public_dependency_availability(reference, api)}
+          (Path(os.environ['RUNNER_TEMP']) / 'build11-public-dependency-probe.json').write_text(json.dumps(report, indent=2) + '\n')
+          print('::notice title=Build11 public dependency platform probe::' + json.dumps(report, sort_keys=True))
+          if not passed:
+              print('::error::PINNED_VALKEY_AMD64_PLATFORM_PROBE_FAILED')
+              raise SystemExit(1)
+          PY
       - name: Enforce exact application inputs and complete build provenance
         if: '!inputs.build11'
         env:
@@ -378,6 +433,7 @@ jobs:
             ${{ runner.temp }}/reviewed-compatibility.json
             ${{ runner.temp }}/build11-upstream-compatibility.json
             ${{ runner.temp }}/build11-installation-lab.json
+            ${{ runner.temp }}/build11-public-dependency-probe.json
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
