@@ -55,6 +55,14 @@ class Finalization(unittest.TestCase):
             with self.subTest(value=value),self.assertRaisesRegex(ValueError,'ALL_REQUIRED'):m.finalize(self.args)
             self.assertFalse((self.output/'validation').exists())
 
+    def test_already_upgraded_fresh_restore_is_mandatory_and_cannot_use_a_missing_or_integer_pass(self):
+        for value in (None, False, 1):
+            self.report['checks']['alreadyUpgradedFreshBackupRestore'] = value
+            self.report_path.write_text(json.dumps(self.report))
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'ALL_REQUIRED'):
+                m.finalize(self.args)
+            self.assertFalse((self.output / 'validation').exists())
+
     def test_wrong_source_initial_package_failure_and_cleanup_error_block_publication(self):
         for key,value in [('sourceCommit','c'*40),('packageSHA256','c'*64),('result','FAIL'),
                           ('cleanupErrors',['failed']),('productionChanged',True)]:

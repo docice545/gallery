@@ -27,7 +27,8 @@ CHECKS = ('cleanInstallation', 'configurationInterruptionResume', 'serviceStartI
           'managedOriginalsPhysicallyRemoved', 'thumbnailPreviewActualFilesAndHttp',
           'externalDefaultReadOnlyProtected', 'explicitOwnerWritableExternalPhysicalDelete',
           'externalRescanTombstoneGate', 'mixedScopePreflightNoPartialDeletion', 'emptyTrashMixedScopesPhysicalDeletion',
-          'freshInstallRollbackWithPackagedWrapper', 'idempotentFreshRollback', 'apiAndMicroservicesPreserved')
+          'freshInstallRollbackWithPackagedWrapper', 'idempotentFreshRollback', 'apiAndMicroservicesPreserved',
+          'alreadyUpgradedFreshBackupRestore')
 GATES = ('hpRecoveryEvidenceVerified', 'productionNfsVerified', 'physicalAndroidIosVerified', 'hpSixLegacyCleanupExecuted')
 
 

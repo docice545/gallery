@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -227,6 +229,139 @@ class ResourcePreservation(unittest.TestCase):
                 with self.subTest(path=path), self.assertRaisesRegex(lab.LabFailure, 'ORIGINAL_PATH_REQUIRED'):
                     lab.physical_state(path)
             docker.assert_not_called()
+
+
+class AlreadyUpgradedRecovery(unittest.TestCase):
+    """Unit boundaries only; fixture receipts cannot prove an actual restore."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.parent = Path(self.temporary.name)
+        self.parent.chmod(0o700)
+        self.state = self.parent / 'new-recovery'
+        self.source = 'a' * 40
+        self.candidate, self.fallback = ('sha256:' + value * 64 for value in ('b', 'c'))
+        self.summary = {'assetCount': 2, 'libraryCount': 1, 'statusCounts': {'active': 2},
+                        'migrationNames': [lab.MIGRATION], 'orphans': 0}
+        self.timestamp = datetime.now(timezone.utc).isoformat()
+        self.changes = {}
+        self.before_ledger = None
+        self.transition = Mock()
+        self.spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
+        self.transition_module = SimpleNamespace(build11_restore_transition=self.transition)
+        legacy = SimpleNamespace(SERVER='immich_server', POSTGRES='immich_postgres',
+                                 OTHER=('immich_postgres', 'immich_redis', 'immich_machine_learning'),
+                                 inspect=Mock(side_effect=lambda name: {'Image': self.candidate,
+                                     'Config': {'Env': ['IMMICH_SOURCE_COMMIT=' + self.source]}}))
+        pre = SimpleNamespace(postgres_identity=Mock(), fresh_backup=Mock(side_effect=self.fresh),
+                              restore_exact=Mock(side_effect=self.restore),
+                              private_json=lambda path: json.loads(path.read_text()), age_ok=Mock())
+        self.operator = SimpleNamespace(legacy=legacy, pre=pre,
+            core=SimpleNamespace(DOCKER=['sudo', '-n', 'docker', '--host=' + lab.SOCKET]),
+            __file__=str(self.parent / 'tools/build11_operator.py'))
+
+    def fresh(self, tool, state):
+        backup = state / 'fresh-immich.sql.gz'
+        backup.write_bytes(b'UNIT_FIXTURE_NOT_AN_ACTUAL_POSTGRES_BACKUP')
+        backup.chmod(0o600)
+        summary = copy.deepcopy(self.summary)
+        if self.before_ledger is not None:
+            summary['migrationNames'] = self.before_ledger
+        (state / 'fresh-backup.json').write_text(json.dumps({
+            'source': self.source, 'backupSHA256': lab.digest(backup), 'createdAt': self.timestamp}))
+        return backup, summary
+
+    def restore(self, tool, backup, state, summary, transition):
+        transition(tool, Mock(), 'gallery-restore-check-' + '1' * 16, [], summary, state, backup)
+        checksum = lab.digest(backup)
+        receipts = {
+            'fresh-restore-verified.json': {'backupSHA256': checksum, 'summary': summary,
+                                           'restore': 'PASS_EXACT_DUMP_SNAPSHOT'},
+            'backup-verified.json': {'backupSHA256': checksum, 'backupPath': str(backup.resolve()),
+                                     'restore': 'PASS_ISOLATED_SQL_TRANSACTION', 'productionChanged': False,
+                                     'checkedAt': self.timestamp},
+            'build11-restored-database-verified.json': {
+                'backupSHA256': checksum, 'sourceCommit': self.source, 'imageId': self.candidate,
+                'rollbackImageId': self.fallback, 'productionChanged': False, 'isolatedDatabase': True,
+                'baseAlreadyBuild11': True, 'policiesPreserved': True, 'rollbackMigrationsAccepted': True,
+                'baseMigrations': summary['migrationNames'], 'targetMigrations': summary['migrationNames'],
+                'existingStoragePolicyCount': 2, 'implicitStoragePolicies': 0,
+                'mediaFilesMounted': False, 'destructiveTestsPerformed': False, 'testedAt': self.timestamp,
+                'validation': 'PASS_ISOLATED_BUILD11_MIGRATION_AND_EXISTING_ROW_PRESERVATION'},
+        }
+        for name, row in receipts.items():
+            row.update(self.changes.get(name, {}))
+            path = state / name
+            path.write_text(json.dumps(row))
+            path.chmod(0o600)
+
+    def invoke(self):
+        with patch.dict(os.environ, CI), \
+                patch.object(lab.importlib.util, 'spec_from_file_location', return_value=self.spec), \
+                patch.object(lab.importlib.util, 'module_from_spec', return_value=self.transition_module):
+            return lab.upgraded_backup_restore(self.operator, self.state, self.source, self.candidate, self.fallback)
+
+    def test_fresh_hook_requires_already_upgraded_ledger_and_passes_exact_images_to_callback(self):
+        result = self.invoke()
+        self.assertTrue(result['migrationLedgerUnchanged'])
+        self.assertEqual(result['existingStoragePolicyCount'], 2)
+        self.assertFalse(result['mediaFilesMounted'])
+        self.assertEqual(self.transition.call_args.args[-2:], (self.candidate, self.fallback))
+        self.operator.pre.postgres_identity.assert_called_once()
+        self.assertEqual(len(self.operator.pre.age_ok.call_args_list), 3)
+        self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
+
+    def test_literal_restore_and_freshness_guards_are_public_but_private_errors_stay_omitted(self):
+        for code in ('POSTGRES_IMAGE_REFERENCE_CHANGED', 'RESTORED_EXISTING_POLICY_MODES_INVALID',
+                     'FRESH_RESTORE_COUNTS_OR_MIGRATIONS_DIFFER_FROM_DUMP_SNAPSHOT',
+                     'ALREADY_UPGRADED_RECOVERY_RECEIPT_EXPIRED'):
+            with self.subTest(code=code):
+                self.assertEqual(lab.verified_failure_code(code), code)
+                self.assertEqual(lab.verified_failure_code('PACKAGED_INSTALLER_' + code), 'PACKAGED_INSTALLER_' + code)
+        for error in ('PRIVATE_SECRET_TOKEN', '/family/media.jpg', 'ERROR password=private', 'READ_RECOVERY_PROOF_aabb'):
+            with self.subTest(error=error):
+                self.assertIsNone(lab.verified_failure_code(error))
+
+    def test_missing_or_changed_current_storage_policy_receipt_cannot_yield_completion(self):
+        for key, value in [('baseAlreadyBuild11', False), ('policiesPreserved', False),
+                           ('existingStoragePolicyCount', 0), ('existingStoragePolicyCount', True),
+                           ('rollbackMigrationsAccepted', False), ('sourceCommit', 'd' * 40),
+                           ('imageId', self.fallback), ('backupSHA256', 'e' * 64),
+                           ('targetMigrations', []), ('productionChanged', True), ('mediaFilesMounted', True),
+                           ('destructiveTestsPerformed', True)]:
+            self.state = self.parent / ('new-' + key)
+            if self.state.exists():
+                self.state = self.parent / ('new-' + key + '-second')
+            self.changes = {'build11-restored-database-verified.json': {key: value}}
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(lab.LabFailure, 'ACTUAL_ALREADY_UPGRADED'):
+                self.invoke()
+
+    def test_old_backup_receipt_or_changed_backup_path_cannot_be_reused(self):
+        self.changes = {'backup-verified.json': {'backupPath': '/old/private-copy.sql.gz'}}
+        with self.assertRaisesRegex(lab.LabFailure, 'ACTUAL_ALREADY_UPGRADED'):
+            self.invoke()
+        self.operator.pre.restore_exact.assert_called_once()
+
+    def test_stale_actual_receipt_is_not_accepted_or_refreshed(self):
+        self.operator.pre.age_ok.side_effect = RuntimeError('ALREADY_UPGRADED_RECOVERY_RECEIPT_EXPIRED')
+        with self.assertRaisesRegex(RuntimeError, 'RECEIPT_EXPIRED'):
+            self.invoke()
+        self.assertEqual(json.loads((self.state / 'fresh-backup.json').read_text())['createdAt'], self.timestamp)
+
+    def test_preupgrade_snapshot_cannot_stand_in_for_already_upgraded_path(self):
+        self.before_ledger = ['old-migration']
+        with self.assertRaisesRegex(lab.LabFailure, 'ALREADY_UPGRADED_FRESH_BACKUP_REQUIRED'):
+            self.invoke()
+        self.operator.pre.restore_exact.assert_not_called()
+
+    def test_existing_state_or_missing_ci_approval_never_starts_a_backup(self):
+        self.state.mkdir(mode=0o700)
+        with self.assertRaisesRegex(lab.LabFailure, 'NEW_PRIVATE'):
+            self.invoke()
+        self.operator.pre.fresh_backup.assert_not_called()
+        with patch.dict(os.environ, CI | {'GALLERY_ISOLATED_CI': '0'}), self.assertRaisesRegex(lab.LabFailure, 'EXPLICIT_ISOLATED'):
+            lab.upgraded_backup_restore(self.operator, self.parent / 'another', self.source, self.candidate, self.fallback)
+        self.operator.pre.fresh_backup.assert_not_called()
 
 
 class GenuineFaultInjection(unittest.TestCase):

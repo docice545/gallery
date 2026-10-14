@@ -43,6 +43,7 @@ STAGES = frozenset({
     'real image-only upgrade plan and dry-run',
     'real migration and simulated post-upgrade health interruption',
     'actual HTTP synthetic Trash/Restore/managed permanent delete',
+    'fresh already-upgraded backup and isolated restore',
     'real hardened rollback after interrupted upgrade',
     'idempotent interrupted attempt refusal',
 })
@@ -139,10 +140,11 @@ def verified_failure_code(value):
     codes = {'LAB_COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED', 'LAB_FAILED_PRIVATE_DETAILS_OMITTED',
              'INSTALLATION_LAB_FAILED_PRIVATE_DETAILS_OMITTED', 'STOP_PRIVATE_DETAILS_OMITTED'}
     for name in ('build11_installation_smoke.py', 'gallery_install.py', 'image_release.py',
-                 'gallery_entry.py', 'build11_operator.py'):
+                 'gallery_entry.py', 'build11_operator.py', 'trash_predeploy.py',
+                 'build11_restore_transition.py'):
         for node in ast.walk(ast.parse((Path(__file__).parent / name).read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute)) and \
-                    (node.func.id if isinstance(node.func, ast.Name) else node.func.attr) in ('need', 'Stop', 'LabFailure'):
+                    (node.func.id if isinstance(node.func, ast.Name) else node.func.attr) in ('need', 'Stop', 'LabFailure', 'age_ok'):
                 codes.update(arg.value for arg in node.args if isinstance(arg, ast.Constant) and
                              isinstance(arg.value, str) and re.fullmatch('[A-Z][A-Z0-9_]{0,150}', arg.value))
     return value if value in codes or value.startswith('PACKAGED_INSTALLER_') and \
@@ -459,6 +461,70 @@ def load_packaged_tools(package):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def upgraded_backup_restore(operator, state, source, candidate, fallback):
+    """Exercise the packaged fresh-backup hook against the real upgraded lab DB.
+
+    No previous recovery receipt, NAS proof or production root is supplied. The
+    backup comes from the lab-owned PostgreSQL; restore_check creates its own
+    network-none PostgreSQL with anonymous volumes, then removes only that DB.
+    """
+    ci_environment()
+    need(state.is_absolute() and not state.exists() and not state.is_symlink() and
+         state.parent.is_dir() and not state.parent.is_symlink() and
+         state.parent.stat().st_mode & 0o777 == 0o700 and state.parent.stat().st_uid == os.getuid(),
+         'NEW_PRIVATE_UPGRADED_RESTORE_STATE_REQUIRED')
+    need(re.fullmatch('[0-9a-f]{40}', source) and all(re.fullmatch('sha256:[0-9a-f]{64}', image)
+         for image in (candidate, fallback)), 'EXACT_LAB_RECOVERY_SOURCE_AND_IMAGES_REQUIRED')
+    tool = operator.legacy
+    need(tool.SERVER == 'immich_server' and tool.POSTGRES == 'immich_postgres' and
+         tuple(tool.OTHER) == ('immich_postgres', 'immich_redis', 'immich_machine_learning'),
+         'EXACT_LAB_RECOVERY_CONTAINERS_REQUIRED')
+    tool.DOCKER = operator.core.DOCKER
+    tool.SOURCE = tool.BUILD11_SOURCE = source
+    server = tool.inspect(tool.SERVER)
+    need(server['Image'] == candidate and dict(value.split('=', 1) for value in
+         server['Config'].get('Env', []) if '=' in value).get('IMMICH_SOURCE_COMMIT') == source,
+         'ALREADY_UPGRADED_LAB_SERVER_REQUIRED')
+    operator.pre.postgres_identity(tool, tool.inspect(tool.POSTGRES))
+    state.mkdir(mode=0o700)
+    backup, summary = operator.pre.fresh_backup(tool, state)
+    need(MIGRATION in summary['migrationNames'], 'ALREADY_UPGRADED_FRESH_BACKUP_REQUIRED')
+    path = Path(operator.__file__).with_name('build11_restore_transition.py')
+    spec = importlib.util.spec_from_file_location('actual_packaged_upgraded_restore_transition', path)
+    transition_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(transition_module)
+    def transition(tool, docker, container, query, before, directory, original):
+        return transition_module.build11_restore_transition(
+            tool, docker, container, query, before, directory, original, candidate, fallback)
+    operator.pre.restore_exact(tool, backup, state, summary, transition=transition)
+    metadata = operator.pre.private_json(state / 'fresh-backup.json')
+    restored = operator.pre.private_json(state / 'fresh-restore-verified.json')
+    receipt = operator.pre.private_json(state / 'backup-verified.json')
+    verified = operator.pre.private_json(state / 'build11-restored-database-verified.json')
+    checksum = digest(backup)
+    need(metadata.get('backupSHA256') == restored.get('backupSHA256') == receipt.get('backupSHA256') ==
+         verified.get('backupSHA256') == checksum and metadata.get('source') == source and
+         restored.get('restore') == 'PASS_EXACT_DUMP_SNAPSHOT' and receipt.get('backupPath') == str(backup.resolve()) and
+         receipt.get('restore') == 'PASS_ISOLATED_SQL_TRANSACTION' and receipt.get('productionChanged') is False and
+         restored.get('summary') == summary and
+         verified.get('validation') == 'PASS_ISOLATED_BUILD11_MIGRATION_AND_EXISTING_ROW_PRESERVATION' and
+         verified.get('sourceCommit') == source and verified.get('imageId') == candidate and
+         verified.get('rollbackImageId') == fallback and verified.get('productionChanged') is False and
+         verified.get('isolatedDatabase') is True and verified.get('baseAlreadyBuild11') is True and
+         verified.get('policiesPreserved') is True and verified.get('rollbackMigrationsAccepted') is True and
+         verified.get('baseMigrations') == verified.get('targetMigrations') == summary['migrationNames'] and
+         type(verified.get('existingStoragePolicyCount')) is int and verified['existingStoragePolicyCount'] >= 2 and
+         verified.get('implicitStoragePolicies') == 0 and
+         verified.get('mediaFilesMounted') is False and verified.get('destructiveTestsPerformed') is False,
+         'ACTUAL_ALREADY_UPGRADED_FRESH_RESTORE_AND_STORAGE_POLICIES_REQUIRED')
+    for timestamp in (metadata['createdAt'], receipt['checkedAt'], verified['testedAt']):
+        operator.pre.age_ok(timestamp, 86400, 'ALREADY_UPGRADED_RECOVERY_RECEIPT_EXPIRED')
+    return {'backupSHA256': checksum, 'restore': restored['restore'], 'baseAlreadyBuild11': True,
+            'existingStoragePolicyCount': verified['existingStoragePolicyCount'], 'policiesPreserved': True,
+            'migrationLedgerUnchanged': True, 'candidateAndRollbackMigrationsAccepted': True,
+            'mediaFilesMounted': False, 'destructiveTestsPerformed': False}
 
 
 def synthetic_thumbnail(api, asset):
@@ -851,6 +917,17 @@ def run(package, output):
         report['checks'].update(external_lifecycle(api, owner))
         report['checks']['apiAndMicroservicesPreserved'] = True
         need(physical_hash(offline_path) == offline_hash, 'OFFLINE_EXTERNAL_ORIGINAL_CHANGED')
+        stage = 'fresh already-upgraded backup and isolated restore'
+        database_before_recovery = database_snapshot()
+        services_before_recovery = storage_and_service_snapshot(installation)
+        report['alreadyUpgradedRecovery'] = upgraded_backup_restore(
+            operator, directory / 'already-upgraded-recovery', profile['sourceCommit'], candidate, fallback)
+        need(database_snapshot() == database_before_recovery, 'FRESH_RECOVERY_CHANGED_LAB_DATABASE')
+        exact_namespace_preserved(services_before_recovery, storage_and_service_snapshot(installation))
+        unchanged_queue(snapshot, queue_snapshot(owner))
+        need(inspect(sentinel)['Id'] == sentinel_id and physical_hash(offline_path) == offline_hash,
+             'FRESH_RECOVERY_CHANGED_UNRELATED_CONTAINER_OR_ORIGINAL')
+        report['checks']['alreadyUpgradedFreshBackupRestore'] = True
         rollback_asset = media.upload_synthetic(api, media.synthetic_png(65))
         api('/assets', 'DELETE', {'ids': [rollback_asset], 'force': False})
         stage = 'real hardened rollback after interrupted upgrade'

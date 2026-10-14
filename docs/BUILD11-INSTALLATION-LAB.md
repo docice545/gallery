@@ -52,6 +52,20 @@ rollback receipt. Используются настоящие исполняем
    отказ до первого удаления и Empty Trash после согласия.
 8. Сохранность upstream идентификаторов, ownership, альбомов, offline index
    tombstone, томов, сетей, environment и отдельного постороннего контейнера.
+9. После появления реальных owner storage policies в уже обновлённой
+   синтетической базе: новый SQL/gzip backup через packaged
+   `trash_predeploy.fresh_backup`, восстановление **именно этих байтов** через
+   `restore_exact` в отдельный PostgreSQL `--network none`, anonymous volumes,
+   без NAS mounts и внешних подключений. Compiled candidate и hardened fallback
+   запускают только миграции на восстановленной копии. Проверяются полный
+   ledger, fingerprints строк, включая `authorizationMode`, и сохранность
+   managed/external storage policies. Ни один worker, файл оригинала или
+   production recovery-proof при этом не используется. Очередь, контейнеры,
+   mounts и синтетические originals работающего lab остаются неизменными.
+
+Финальный пакет требует отдельный результат
+`alreadyUpgradedFreshBackupRestore=true`; отсутствие этой проверки, отказ
+restore или попытка использовать старую квитанцию блокируют публикацию.
 
 Для представительного upgrade используется общий production image-only
 engine с **настоящей read-only проверкой очереди fixture**. Это не проверка
