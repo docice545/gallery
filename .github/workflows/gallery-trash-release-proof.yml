@@ -205,6 +205,23 @@ jobs:
           set -euo pipefail
           python3 scripts/release/build11_artifacts.py "$RUNNER_TEMP/frozen" "$APP_SOURCE" \
             "$BACKEND_RUN" "$ANDROID_RUN" "$IOS_RUN" "$RUNNER_TEMP/candidate-profile.json"
+          # Component checksums remain available even if a later installer gate
+          # fails. This is a verified component receipt, never release readiness.
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts/release')
+          import build11_artifacts as artifacts
+          path = Path(os.environ['RUNNER_TEMP']) / 'candidate-profile.json'
+          profile = artifacts.load(path, artifacts.digest(path))
+          receipt = {'sourceCommit': profile['sourceCommit'], 'version': profile['mobileVersion'],
+                     'build': profile['mobileBuild'], 'backendImage': profile['backend']['imageId'],
+                     'backendArchiveSHA256': profile['backend']['archiveSHA256'],
+                     'androidAPK_SHA256': profile['android']['sha256'],
+                     'androidCertificateSHA256': profile['android']['certificateSHA256'],
+                     'iosIPA_SHA256': profile['ios']['sha256'], 'installationVerification': 'PENDING'}
+          print('::notice title=Build11 verified component receipt::' + json.dumps(receipt, sort_keys=True))
+          PY
       - name: Seal build-9 profile using verified run/artifact identities
         if: env.IS_CANDIDATE == 'true'
         env:
