@@ -17,6 +17,25 @@ Run `38509927962` выявил прежнюю причину отказа: CLI/d
 runtime до загрузки образов/создания конфигурации вместо непрозрачного STOP.
 Проверки pinned index, amd64 manifest и config не заменяются fallback.
 
+Установочный пакет предназначен для **linux/amd64**. Его сгенерированный
+Compose закрепляет Valkey9 непосредственно на уже проверенном AMD64 manifest
+`sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e`,
+с config `sha256:c439a6b7b7dfe74b25d78f9e5d27fbaeb761f676de82eb1a154c5b719a8cfb3e`.
+Это выбранный child upstream index
+`sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d`:
+SHA256 index, manifest и config проверены по реальным registry bytes.
+Source `docker/docker-compose.yml` сохраняет upstream index; изменяется одна
+точная image line в generated package, её provenance записывается в sealed
+`release-operator.json`. Existing HP upgrade сохраняет текущий Redis container.
+PostgreSQL reference и проверки index/config/selected platform сохраняются.
+
+Proof38520267120 показал, что Docker28.4/containerd возвращает Valkey index
+без доступного child даже после exact platform pull. Installer остановился
+`PINNED_PUBLIC_DEPENDENCY_PLATFORM_CONTENT_REQUIRED`, до service start.
+Прямой immutable pin той же AMD64 платформы проходит обычные RepoDigest,
+Descriptor, config/manifest, OS/architecture и `--platform` проверки.
+Фактический installation PASS можно заявлять только после нового CI результата.
+
 После сборки и проверки backend/APK/IPA, реального rollback HTTP smoke и
 создания предварительного пакета workflow выполняет:
 

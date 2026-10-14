@@ -54,6 +54,39 @@ class PublicDependencies(unittest.TestCase):
             with self.subTest(reference=reference):
                 self.assertEqual(self.resolve(reference,*self.metadata(reference,True)),reference.split('@',1)[1])
 
+    def test_valkey_uses_same_verified_amd64_leaf_and_config_in_both_stores(self):
+        self.assertEqual(m.VALKEY_AMD64_REFERENCE,
+                         'docker.io/valkey/valkey:9@sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e')
+        self.assertEqual(m.PUBLIC_DEPENDENCIES[m.VALKEY_AMD64_REFERENCE]['config'],
+                         'sha256:c439a6b7b7dfe74b25d78f9e5d27fbaeb761f676de82eb1a154c5b719a8cfb3e')
+        self.assertNotIn(m.VALKEY_UPSTREAM_REFERENCE,m.PUBLIC_DEPENDENCIES)
+        for containerd in (False,True):
+            with self.subTest(containerd=containerd):
+                original,selected=self.metadata(m.VALKEY_AMD64_REFERENCE,containerd)
+                self.assertEqual(self.resolve(m.VALKEY_AMD64_REFERENCE,original,selected),
+                                 m.VALKEY_AMD64_MANIFEST if containerd else m.VALKEY_AMD64_CONFIG)
+
+    def test_valkey_old_index_unverified_leaf_or_tag_cannot_inspect_or_pull(self):
+        for reference in (m.VALKEY_UPSTREAM_REFERENCE,
+                          'docker.io/valkey/valkey:9@sha256:'+'f'*64,
+                          m.VALKEY_AMD64_REFERENCE.replace(':9@',':latest@')):
+            with self.subTest(reference=reference),patch.object(m.core,'docker') as docker,\
+                 patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,'DEPENDENCY_REFERENCE'):
+                m.pinned_public_dependency(reference)
+            docker.assert_not_called();run.assert_not_called()
+
+    def test_valkey_leaf_rejects_wrong_config_index_or_selected_leaf_without_pull(self):
+        reference=m.VALKEY_AMD64_REFERENCE
+        for containerd,side,wrong in ((False,'parent','sha256:'+'f'*64),
+                                     (True,'parent',m.VALKEY_UPSTREAM_INDEX),
+                                     (True,'selected',m.VALKEY_UPSTREAM_INDEX),
+                                     (True,'selected','sha256:'+'f'*64)):
+            original,selected=self.metadata(reference,containerd)
+            (original if side=='parent' else selected)['Id']=wrong
+            with self.subTest(containerd=containerd,side=side,wrong=wrong),\
+                 self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):
+                self.resolve(reference,original,selected)
+
     def test_wrong_or_absent_platform_never_accepted_from_index(self):
         reference=next(iter(m.PUBLIC_DEPENDENCIES))
         for field,value in [('Architecture','arm64'),('Architecture',None),('Os','windows'),('Os',None)]:

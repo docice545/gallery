@@ -21,17 +21,25 @@ import image_release as core
 INITIALIZATION = 'fresh-install-initialization.json'
 
 # Verified registry index -> linux/amd64 manifest -> image-config chains.
-# Keep the actual container identity (config in the classic store, index in
-# containerd) separate from --platform inspect's selected manifest identity.
+# The amd64-only distribution pins Valkey directly to that same child; it
+# changes no image bits and avoids adopting an incomplete cached index.
+VALKEY_UPSTREAM_INDEX = 'sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d'
+VALKEY_AMD64_MANIFEST = 'sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e'
+VALKEY_AMD64_CONFIG = 'sha256:c439a6b7b7dfe74b25d78f9e5d27fbaeb761f676de82eb1a154c5b719a8cfb3e'
+VALKEY_UPSTREAM_REFERENCE = 'docker.io/valkey/valkey:9@' + VALKEY_UPSTREAM_INDEX
+VALKEY_AMD64_REFERENCE = 'docker.io/valkey/valkey:9@' + VALKEY_AMD64_MANIFEST
+
+# Keep the actual container identity (config in the classic store, manifest or
+# index in containerd) separate from --platform inspect's platform identity.
 PUBLIC_DEPENDENCIES = {
     'ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23': {
         'config': 'sha256:178719aeb38df6f0ce8edc1d8320008379fcf04eb3444e76419cc98d9861e331',
         'manifest': 'sha256:b1d33572a9a0634aa6d344077467ad32847812a37fa3859f702952cba22a2f55',
         'repositories': ('ghcr.io/immich-app/postgres',),
     },
-    'docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d': {
-        'config': 'sha256:c439a6b7b7dfe74b25d78f9e5d27fbaeb761f676de82eb1a154c5b719a8cfb3e',
-        'manifest': 'sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e',
+    VALKEY_AMD64_REFERENCE: {
+        'config': VALKEY_AMD64_CONFIG,
+        'manifest': VALKEY_AMD64_MANIFEST,
         'repositories': ('valkey/valkey', 'docker.io/valkey/valkey'),
     },
 }
@@ -116,8 +124,8 @@ def pinned_public_dependency(reference):
         else:
             core.need(isinstance(descriptor, dict) and descriptor.get('digest') == descriptor_digest and
                       item.get('Id') == descriptor_digest, code)
-    # Containerd creates containers with the original index ID, not the
-    # --platform inspection's child manifest ID (Moby ImageService.GetImage).
+    # Containerd creates containers with the original target ID (the PG index
+    # or directly pinned Valkey manifest), not an arbitrary selected alias.
     return image['Id']
 
 

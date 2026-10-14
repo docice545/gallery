@@ -7,6 +7,7 @@ import re
 import shutil
 
 import build11_artifacts as artifacts
+import gallery_install as installer
 
 TOOLS = ('gallery_entry.py', 'gallery_install.py', 'gallery-install.sh', 'gallery-upgrade.sh',
          'gallery-verify.sh', 'gallery-rollback.sh', 'build11_operator.py', 'build11_artifacts.py',
@@ -19,12 +20,25 @@ DOCS = ('BUILD11-RELEASE-RUNBOOK.md', 'BUILD11-UPSTREAM-COMPATIBILITY.md', 'BUIL
         'BUILD11-TEST-REPORT.md', 'BUILD11-ACCEPTANCE.md')
 
 
+def fresh_install_compose(path):
+    """Pin only the verified redis child in the packaged amd64 template."""
+    data = path.read_bytes()
+    old, new = installer.VALKEY_UPSTREAM_REFERENCE.encode(), installer.VALKEY_AMD64_REFERENCE.encode()
+    exact_service = b'  redis:\n    container_name: immich_redis\n    image: ' + old + b'\n'
+    artifacts.need(data.count(old) == 1 and data.count(exact_service) == 1 and new not in data,
+                   'EXACT_UPSTREAM_REDIS_PIN_IN_FRESH_COMPOSE_REQUIRED')
+    # Do not edit the upstream source template or alter any other service,
+    # environment, volume, network, health check or YAML byte in the package.
+    return data.replace(old, new, 1)
+
+
 def assemble(args):
     profile = artifacts.load(args.profile, args.profile_sha256)
     compatibility = artifacts.pinned_json(args.compatibility, args.compatibility_sha256)
     artifacts.need(compatibility['candidateSource'] == profile['sourceCommit'] and
                    compatibility['candidateImage'] == profile['backend']['imageId'], 'SAME_CANDIDATE_COMPATIBILITY_REQUIRED')
     artifacts.need(not args.output.exists() and not args.output.is_symlink(), 'NEW_PACKAGE_OUTPUT_REQUIRED')
+    compose = fresh_install_compose(artifacts.ROOT / 'docker/docker-compose.yml')
     paths = {'backend/gallery-server-linux-amd64.tar.gz': profile['backend']['archiveSHA256'],
              'android/app-release.apk': profile['android']['sha256'], 'ios/Photos-unsigned.ipa': profile['ios']['sha256']}
     for name, expected in paths.items():
@@ -82,12 +96,19 @@ def assemble(args):
     (args.output / 'docs').mkdir()
     for name in DOCS: shutil.copyfile(artifacts.ROOT / 'docs' / name, args.output / 'docs' / name)
     (args.output / 'config').mkdir()
-    shutil.copyfile(artifacts.ROOT / 'docker/docker-compose.yml', args.output / 'config/docker-compose.yml')
+    (args.output / 'config/docker-compose.yml').write_bytes(compose)
     config = {'schemaVersion': 1, 'sourceCommit': profile['sourceCommit'], 'version': artifacts.VERSION, 'build': artifacts.BUILD,
               'profileSHA256': artifacts.digest(args.output / 'candidate-profile.json'),
               'compatibilitySHA256': artifacts.digest(args.output / 'reviewed-compatibility.json'),
               'machineLearningImage': args.machine_learning_image,
               'machineLearningReference': getattr(args, 'machine_learning_reference', None),
+              'publicDependencyProvenance': {'redis': {
+                  'upstreamReference': installer.VALKEY_UPSTREAM_REFERENCE,
+                  'selectedReference': installer.VALKEY_AMD64_REFERENCE,
+                  'indexDigest': installer.VALKEY_UPSTREAM_INDEX,
+                  'manifestDigest': installer.VALKEY_AMD64_MANIFEST,
+                  'configDigest': installer.VALKEY_AMD64_CONFIG,
+                  'platform': 'linux/amd64'}},
               'signing': {'android': 'CI_DEBUG_OPERATOR_HP_SIGNING_REQUIRED', 'ios': 'UNSIGNED_SIDESTORE_REQUIRED'},
               'productionDeployment': 'NOT_EXECUTED', 'physicalAcceptance': 'NOT_TESTED'}
     (args.output / 'release-operator.json').write_text(json.dumps(config, indent=2) + '\n')

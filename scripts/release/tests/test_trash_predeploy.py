@@ -236,9 +236,15 @@ class PostgresIdentity(unittest.TestCase):
 
     def test_containerd_verified_children_match_installer_pins_without_runtime_import_dependency(self):
         tree = ast.parse((ROOT / 'scripts/release/gallery_install.py').read_text())
-        pins = next(ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign) and
+        pins = next(node.value for node in tree.body if isinstance(node, ast.Assign) and
                     any(isinstance(target, ast.Name) and target.id == 'PUBLIC_DEPENDENCIES' for target in node.targets))
-        expected = pins[p.PG_PINNED_REF]
+        self.assertIsInstance(pins, ast.Dict)
+        # Evaluate only the literal PostgreSQL entry under test; the separate
+        # Valkey child pin is now shared through explicit immutable constants.
+        matches = [value for key, value in zip(pins.keys, pins.values)
+                   if isinstance(key, ast.Constant) and key.value == p.PG_PINNED_REF]
+        self.assertEqual(len(matches), 1)
+        expected = ast.literal_eval(matches[0])
         self.assertEqual(p.PG_AMD64_MANIFEST, expected['manifest'])
         self.assertEqual(p.PG_AMD64_CONFIG, expected['config'])
 

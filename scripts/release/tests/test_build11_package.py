@@ -54,6 +54,47 @@ class Assembly(unittest.TestCase):
             result=subprocess.run([sys.executable,'-B',str(self.args.output/'tools'/name),'--help'],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,name+' dependency missing')
 
+    def test_packaged_compose_changes_only_redis_to_same_verified_amd64_child_without_editing_source(self):
+        source=m.artifacts.ROOT/'docker/docker-compose.yml'
+        original=source.read_bytes()
+        m.assemble(self.args)
+        self.assertEqual(source.read_bytes(),original)
+        self.assertEqual((self.args.output/'config/docker-compose.yml').read_bytes(),
+                         original.replace(m.installer.VALKEY_UPSTREAM_REFERENCE.encode(),
+                                          m.installer.VALKEY_AMD64_REFERENCE.encode(),1))
+        config=entry.verify_package(self.args.output)
+        self.assertEqual(config['publicDependencyProvenance'],{'redis':{
+            'upstreamReference':m.installer.VALKEY_UPSTREAM_REFERENCE,
+            'selectedReference':m.installer.VALKEY_AMD64_REFERENCE,
+            'indexDigest':m.installer.VALKEY_UPSTREAM_INDEX,
+            'manifestDigest':m.installer.VALKEY_AMD64_MANIFEST,
+            'configDigest':m.installer.VALKEY_AMD64_CONFIG,'platform':'linux/amd64'}})
+        config['publicDependencyProvenance']['redis']['indexDigest']='sha256:'+'a'*64
+        (self.args.output/'release-operator.json').write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError,'RELEASE_PACKAGE_FILE_CHANGED'):
+            entry.verify_package(self.args.output)
+
+    def test_missing_duplicate_commented_or_reassigned_upstream_redis_pin_is_rejected_before_output(self):
+        original=(m.artifacts.ROOT/'docker/docker-compose.yml').read_bytes()
+        old=m.installer.VALKEY_UPSTREAM_REFERENCE.encode()
+        new=m.installer.VALKEY_AMD64_REFERENCE.encode()
+        fixtures=[original.replace(old,b'valkey/valkey:9'),
+                  original+b'\n# duplicate '+old+b'\n',
+                  original.replace(b'    image: '+old,b'    # image: '+old),
+                  original.replace(b'  redis:\n',b'  unreviewed-service:\n'),
+                  original+b'\n    image: '+old+b'\n',
+                  original+b'\n# already selected '+new+b'\n']
+        fixture_root=self.root/'source-fixture'
+        (fixture_root/'docker').mkdir(parents=True)
+        source=fixture_root/'docker/docker-compose.yml'
+        for index,data in enumerate(fixtures):
+            source.write_bytes(data)
+            with self.subTest(index=index),patch.object(m.artifacts,'ROOT',fixture_root),\
+                 self.assertRaisesRegex(ValueError,'EXACT_UPSTREAM_REDIS_PIN'):
+                m.assemble(self.args)
+            self.assertEqual(source.read_bytes(),data)
+            self.assertFalse(self.args.output.exists())
+
     def test_changed_or_synthetic_acceptance_flags_cannot_create_package(self):
         for field,value in [('productionChanged',True),('oldRuntimeStartsOnUpgradedSchema',False),
                             ('sourceCommit','b'*40),('rollbackImageId','sha256:'+'a'*64)]:

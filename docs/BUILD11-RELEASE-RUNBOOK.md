@@ -247,7 +247,11 @@ registry `ghcr.io/open-noodle/gallery-ml@sha256:711baa1712989ed52b8f3d02955d9764
 config `sha256:adb5169bfdaa615c8ebd0e38530e10f17cc64202aeb5adf63335e95bad55f31b`.
 Скрипт принимает только этот опубликованный immutable ML input из пакета,
 проверяет platform и точное происхождение manifest/config ID. PostgreSQL и
-Valkey также закреплены digest из официального Compose. Mutable `latest` не нужен.
+Valkey закреплены по проверенной цепочке official index → AMD64 manifest →
+config. Для чистой установки x86_64 пакет выбирает тот же Valkey9 AMD64 manifest
+`sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e`;
+upstream source Compose сохраняется, provenance входит в checksummed package.
+Image-only HP upgrade сохраняет действующий Redis. Mutable `latest` не нужен.
 
 Для NAS сначала предоставьте действующие exports на **новом** сервере. Installer
 не меняет NFS permissions, не делает remount и не открывает общий RW-доступ.
