@@ -1,6 +1,7 @@
 """Lab boundary/unit contracts; these tests do NOT claim an installation passed."""
 from contextlib import redirect_stdout
 import copy
+import importlib.util
 import io
 import json
 import os
@@ -25,6 +26,120 @@ def queue():
     return {'paused': True, 'ids': list(lab.JOB_IDS), 'active': [],
             'hashes': [{'id': value, 'hash': 'a' * 64} for value in lab.JOB_IDS],
             'originals': ['b' * 64] * 6}
+
+
+class ReadOnlyPackagedImports(unittest.TestCase):
+    """Actual Python imports of checksum-sealed synthetic binary packages."""
+    def setUp(self):
+        # Reuse the complete package fixture; payloads are tiny synthetic bytes,
+        # and no Docker, API, signing or application build is performed.
+        from test_build11_package import Assembly
+        fixture = Assembly('test_complete_package_can_be_checked_and_all_tool_entrypoints_import_without_source_checkout')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with redirect_stdout(io.StringIO()):
+            from build11_package import assemble
+            assemble(fixture.args)
+        self.package = fixture.args.output
+        self.assertIsInstance(lab.verify_package(self.package), dict)
+
+    def package_bytes(self):
+        return {path.relative_to(self.package).as_posix(): path.read_bytes()
+                for path in self.package.rglob('*') if path.is_file()}
+
+    def test_original_dynamic_import_writes_unsealed_bytecode_and_verifier_rejects_it(self):
+        with patch.object(sys, 'dont_write_bytecode', False):
+            lab.load_packaged_tools(self.package)
+        self.assertTrue(list((self.package / 'tools/__pycache__').glob('image_release*.pyc')))
+        with self.assertRaisesRegex(ValueError, 'ALL_EXECUTABLE_TOOLS_AND_ARTIFACTS_MUST_BE_CHECKSUMMED'):
+            lab.verify_package(self.package)
+
+    def test_entire_lab_covers_direct_and_deferred_imports_without_mutating_package(self):
+        helper = self.package / 'tools/build11_test_deferred_helper.py'
+        helper.write_text('VALUE = "synthetic deferred import"\n')
+        # The fixture helper is sealed before validation, never ignored later.
+        with (self.package / 'SHA256SUMS').open('a') as manifest:
+            manifest.write(lab.digest(helper) + '  tools/' + helper.name + '\n')
+        lab.verify_package(self.package)
+        before = self.package_bytes()
+
+        def actual_imports(package, output):
+            self.assertTrue(sys.dont_write_bytecode)
+            engine = lab.load_packaged_tools(package)
+            self.assertEqual(engine.SERVICE, 'immich-server')
+            # A later import runs after the engine has loaded, just like the
+            # recovery hooks. The whole lab must remain read-only throughout.
+            module = importlib.import_module('build11_test_deferred_helper')
+            self.assertEqual(module.VALUE, 'synthetic deferred import')
+            return 0
+
+        with patch.object(sys, 'dont_write_bytecode', False), \
+                patch.object(sys, 'path', [str(self.package / 'tools'), *sys.path]), \
+                patch.dict(sys.modules), patch.object(lab, 'run_lab', side_effect=actual_imports):
+            self.assertEqual(lab.run(self.package, self.package.parent / 'report.json'), 0)
+            self.assertFalse(sys.dont_write_bytecode)
+        self.assertEqual(self.package_bytes(), before)
+        self.assertFalse(list(self.package.rglob('*.pyc')))
+        lab.verify_package(self.package)
+
+    def test_failure_restores_interpreter_flag_and_preserves_sealed_bytes(self):
+        before = self.package_bytes()
+        def interrupted(package, output):
+            lab.load_packaged_tools(package)
+            raise RuntimeError('SYNTHETIC_IMPORT_INTERRUPTION')
+        with patch.object(sys, 'dont_write_bytecode', False), \
+                patch.object(lab, 'run_lab', side_effect=interrupted):
+            with self.assertRaisesRegex(RuntimeError, 'SYNTHETIC_IMPORT_INTERRUPTION'):
+                lab.run(self.package, self.package.parent / 'report.json')
+            self.assertFalse(sys.dont_write_bytecode)
+        self.assertEqual(self.package_bytes(), before)
+        lab.verify_package(self.package)
+
+    def test_existing_no_bytecode_policy_is_preserved(self):
+        with patch.object(sys, 'dont_write_bytecode', True), \
+                patch.object(lab, 'run_lab', return_value=0):
+            self.assertEqual(lab.run(self.package, self.package.parent / 'report.json'), 0)
+            self.assertTrue(sys.dont_write_bytecode)
+
+    def test_finalization_accepts_unchanged_package_after_actual_tool_import(self):
+        import build11_distribution_finalize as finalizer
+        config = lab.verify_package(self.package)
+        with patch.object(lab, 'run_lab', side_effect=lambda package, output: lab.load_packaged_tools(package)):
+            lab.run(self.package, self.package.parent / 'unused.json')
+        # Unit-contract report only. Real Docker acceptance is supplied by CI;
+        # these synthetic payloads cannot be shipped as a release artifact.
+        report = self.package.parent / 'synthetic-unit-report.json'
+        report.write_text(json.dumps({'schemaVersion': 1, 'marker': finalizer.MARKER, 'result': 'PASS',
+            'sourceCommit': config['sourceCommit'], 'packageSHA256': lab.digest(self.package / 'SHA256SUMS'),
+            'cleanupErrors': [], 'syntheticMediaOnly': True, 'productionChanged': False,
+            **{gate: False for gate in finalizer.GATES}, 'checks': {check: True for check in finalizer.CHECKS},
+            'installationEngine': 'PACKAGED_GALLERY_INSTALL',
+            'upgradeEngine': 'PACKAGED_IMAGE_RELEASE_WITH_REAL_READ_ONLY_LAB_QUEUE_GATE',
+            'hpWrapper': 'NOT_TESTED_HP_RECOVERY_AND_OLD_SIX_REQUIRED'}))
+        upstream = self.package.parent / 'synthetic-upstream-report.json'
+        upstream.write_text(json.dumps({'status': 'PASS', 'upstreamURL': 'https://github.com/open-noodle/gallery',
+            'upstreamBase': finalizer.UPSTREAM, 'api': {'status': 'PASS'}, 'migrations': {'status': 'PASS'},
+            'workingTreeDirty': False, 'candidateHead': config['sourceCommit']}))
+        notes = self.package.parent / 'synthetic-release-notes.md'
+        notes.write_text('Synthetic fixture, not real installation acceptance.\n')
+        args = SimpleNamespace(package=self.package, installation_report=report,
+                               upstream_report=upstream, release_notes=notes)
+        with patch.dict(os.environ, CI), redirect_stdout(io.StringIO()):
+            finalizer.finalize(args)
+        self.assertFalse(list(self.package.rglob('*.pyc')))
+        sealed = lab.verify_package(self.package)
+        self.assertEqual(sealed['installationValidation']['status'],
+                         'ACTUAL_ISOLATED_PASS_HP_AND_DEVICES_NOT_TESTED')
+        self.assertEqual(sealed['physicalAcceptance'], 'NOT_TESTED')
+        self.assertEqual(sealed['productionDeployment'], 'NOT_EXECUTED')
+
+    def test_existing_unsealed_files_are_never_removed_or_tolerated(self):
+        extra = self.package / 'tools/unsealed.py'
+        extra.write_text('raise RuntimeError("must never run")\n')
+        with patch.object(lab, 'run_lab', side_effect=lambda package, output: lab.verify_package(package)):
+            with self.assertRaisesRegex(ValueError, 'ALL_EXECUTABLE_TOOLS_AND_ARTIFACTS_MUST_BE_CHECKSUMMED'):
+                lab.run(self.package, self.package.parent / 'report.json')
+        self.assertEqual(extra.read_text(), 'raise RuntimeError("must never run")\n')
 
 
 class Boundary(unittest.TestCase):

@@ -8,6 +8,7 @@ they do not replace Docker, PostgreSQL, HTTP, migration or queue assertions.
 """
 import argparse
 import ast
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import http.client
@@ -587,6 +588,19 @@ def exact_namespace_preserved(before, after):
     need(before == after, 'MOUNTS_ENV_NETWORKS_OR_UNRELATED_SERVICES_CHANGED')
 
 
+@contextmanager
+def read_only_package_imports():
+    # Dynamic imports of the checksum-sealed package must not add __pycache__
+    # files. Keep this active through deferred imports during actual operations,
+    # not just exec_module; production entrypoint subprocesses already use -B.
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        yield
+    finally:
+        sys.dont_write_bytecode = previous
+
+
 def load_packaged_tools(package):
     # Existing entrypoint already checked every executable byte and artifact.
     # The engine imported here is copied from those exact verified bytes.
@@ -866,6 +880,11 @@ def cleanup_owned(directory, sentinel):
 
 
 def run(package, output):
+    with read_only_package_imports():
+        return run_lab(package, output)
+
+
+def run_lab(package, output):
     need(output.is_absolute() and not output.exists() and not output.is_symlink(), 'NEW_INSTALLATION_LAB_REPORT_REQUIRED')
     config = verify_package(package)
     need(config['version'] == '5.7.3' and config['build'] == 11, 'EXACT_BUILD11_COMPILED_PACKAGE_REQUIRED')

@@ -12,20 +12,40 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Последний опубликованный checkpoint `8577a722aa7311b965e7cf88f463f374caf6c693`.
-Proof **38547396269 FAILURE**:
-https://github.com/docice545/gallery/actions/runs/38547396269.
-Подтверждён tooling fixture defect: database_snapshot() читал album.ownerId,
-удалённый upstream migration1776848612954. Runtime/schema не повреждены.
-Исправление использует album_user role=owner и сохраняет все sharing roles.
+Последний implementation HEAD `3a736a88e31d7ec9238b0396eb4f3ab7790452e6` опубликован.
+Run **38551567325 FAILURE при sealing**, но actual installation lab **PASS**:
+https://github.com/docice545/gallery/actions/runs/38551567325.
+Все31 REQUIRED checks + дополнительный representative27PausedJobsCreated TRUE;
+cleanupErrors=[], productionChanged=false, syntheticMediaOnly=true. PASS включает
+clean install/resume/repeat, Build10 additive migration, data/album sharing/27paused
+preservation, managed/external disposable physical delete, mixed scopes,
+thumbnail+preview actual files/HTTP, fresh upgraded backup restore и hardened
+rollback после injected failure. Production/device gates остаются false.
+Report artifact `gallery-build11-verification-report-38551567325` ID11887353007
+(15KB), скачан один раз; local `/tmp/build11-proof-38551567325-report`.
+Lab report SHA256 `832a8968e0e17a3416623570202866ecabe93e106d9ff44b77e394f90fcc36ff`.
+Tested provisional checksum manifest SHA256
+`00c0131fddd16faf971d925ad8d14a3c585d34e08afa9ae5714a4016a48a9bfb`.
+Distribution отсутствует: finalizer verify_package отклонил extra unmanifested
+files: ALL_EXECUTABLE_TOOLS_AND_ARTIFACTS_MUST_BE_CHECKSUMMED. Причина — lab
+запущен без -B и importlib/transitive imports пишут tools/__pycache__. Проверка
+manifest остаётся строгой; исправление запрещает запись bytecode на время lab,
+не игнорирует и не удаляет unknown files. Исправление воспроизведено на actual
+imports synthetic package: run() держит sys.dont_write_bytecode=True весь lab,
+восстанавливает previous flag в finally. **48 harness +16 finalizer tests PASS**;
+6 новых regressions покрывают reproduction, deferred imports, flag restoration,
+strict successful sealing и rejection/retention rogue files. Python syntax/diff PASS.
+Следующий шаг — commit/push и только final proof. Три app workflows не повторять.
+
+Предыдущий38547396269 FAILURE был подтверждён tooling fixture defect:
+database_snapshot() читал album.ownerId, удалённый upstream migration1776848612954.
+Commit3a736a88e использует album_user role=owner и сохраняет все sharing roles.
 **4 actual isolated PostgreSQL14 regression PASS**, включая воспроизведение
 старой ошибки SQLSTATE42703; existing installation-boundary suite42 PASS.
 Log: /tmp/build11-actual-upstream-snapshot-pg14-tests.log. Контейнер без сети,
 портов и host mounts удалён вместе со своим anonymous volume.
-Следующий шаг — повторить только final release proof с этими tooling fixes.
-Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
-rollback38288841511. Все compiled application inputs остаются source89447178.
-Три app workflows не повторялись, production и HP changes не трогались.
+Все compiled application inputs source89447178, backend38484089051 /
+Android38486187028 / iOS38484090958 / rollback38288841511. HP untouched.
 
 - `d2d02b346c…`: 32 diagnostic tests PASS; fixed labels без raw stderr/argv.
 - `b7eb7ba594…`: speculative empty-index repair. Его PLATFORM_CONTENT guard
@@ -104,8 +124,8 @@ Run38523289687 снова завершился на selected Valkey lookup; ра
 успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
 без availability metadata не установлена. Прогретый cache не используется для
 скрытия этого отказа. Run38540870600 уже FAIL с verified missing content.
-Следующий шаг: повторить final proof после snapshot fixture fix, читать actual
-stage/code, все31 installation gates и artifact receipt.
+Следующий шаг: validated no-bytecode lab fix и final proof; previous385515 уже
+подтвердил all31 actual checks. Final distribution ещё не опубликован.
 Не повторять component builds, full Flutter/PG suites или source audits.
 
 Verified **inner binary** checksums (Checks receipt38520267120, все source894):

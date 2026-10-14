@@ -15,7 +15,8 @@ Immutable build ref: `build/gallery-build11-89447178`.
 - Explicit platform authority + bounded missing-content refill + immutable
   Valkey child package: **66 PASS** (52 installer,7 package,7 Docker platform).
 - Linked PostgreSQL predeployment identity guards: **45 PASS,4 opt-in SKIP**.
-- Installation boundaries/diagnostics: **42 PASS**.
+- Installation boundaries/diagnostics/read-only imports: **48 PASS**.
+- Strict distribution finalizer: **16 PASS**.
 - Actual compiled storage resolver / artifact-smoke helpers: **39 PASS**;
   включает6 actual detector cases. Эти два module suites вместе **81 PASS**.
 - Disposable Docker transition/probe-cache regressions: **21 PASS**.
@@ -42,7 +43,19 @@ Immutable build ref: `build/gallery-build11-89447178`.
   join album_user role=owner, добавлено сохранение всех sharing roles.
   **4 actual PostgreSQL14 regression PASS**, включая воспроизведение SQLSTATE42703;
   existing installation-boundary suite42 PASS. Application inputs не менялись,
-  mobile/backend workflows не повторяются; final proof требуется повторить.
+  mobile/backend workflows не повторяются.
+- Run38551567325: actual installation lab **PASS**, все31 required checks +
+  representative27PausedJobsCreated, cleanupErrors=[]. Прошли clean install,
+  resume/repeat, Build10 upgrade/migration, data+sharing+27paused preservation,
+  thumbnail/preview jobs, managed/external disposable physical deletion,
+  mixed scopes, isolated upgraded backup restore и rollback/repeat.
+  Finalizer затем отклонил unmanifested Python bytecode внутри package:
+  **ALL_EXECUTABLE_TOOLS_AND_ARTIFACTS_MUST_BE_CHECKSUMMED**. Distribution ещё
+  не опубликован. Tooling fix запрещает запись bytecode, checksum guard остаётся
+  строгим. Exact исходный отказ воспроизведён; 6 новых regressions проверили
+  read-only direct/deferred imports, восстановление interpreter policy после
+  сбоя, strict sealing и rejection/retention посторонних файлов. **48 harness
+  +16 finalizer PASS**; final proof повторяется после изменения harness.
 
 ## Завершённые application gates
 
