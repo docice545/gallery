@@ -153,6 +153,29 @@ Checks annotations; не дублировать run. Distribution всё ещё 
 31-gate PASS и published compiled package. Следующий шаг — точный classified
 platform failure (если повторится), минимальное tooling correction и only proof rerun.
 
+Proof `38519250044` завершился FAIL за6m13s: теперь точная диагностика
+`DOCKER_REQUESTED_PLATFORM_UNAVAILABLE`, **VALKEY_PINNED**, API1.51, returnCode1.
+PostgreSQL inspection прошёл; API1.48/bootstrap проблема не повторилась.
+Source seal, image tamper guards и actual classic rollback proof PASS.
+Distribution не опубликован; small report ID11873496454, ZIP SHA256
+`c785314467a253f7f4bc22465ece086b8a2c5b216d075ee860fa537b8f1aebde`.
+
+Tooling correction `b7eb7ba594ddd19a34e60dd8f43fc4321dafbd23` исправляет
+подтверждённый source-level blind spot Moby/containerd: unqualified inspect
+может вернуть доверенный index с отсутствующим локальным child. Только exact
+index+descriptor+RepoDigest с пустыми Os/Architecture допускает один exact
+pinned linux/amd64 pull; затем повторяются parent/child/OS/arch checks.
+Wrong digest, descriptor, registry, OS/arch отклоняются до repair; unsupported
+platform не заменяется fallback. **49 installer/Docker tests PASS**, включая
+6 новых regressions; compile/whitespace PASS. Real CI resolution ещё не PASS.
+
+Workflow tooling `bf9d3edef69ab887d4f8ca21247dcfc7f94c71e6` дополнительно
+публикует typed verified **component** inner SHA256 receipt после sealer,
+до installation gates. Это не final readiness receipt. YAML/Bash/embedded
+Python syntax PASS. Application source89447178 остаётся неизменным.
+Текущий единственный proof https://github.com/docice545/gallery/actions/runs/38520267120
+на HEADbf9d3edef69…: **IN_PROGRESS**. Не дублировать, дождаться результатов.
+
 Физические S23/iPhone, актуальная restored HP DB upgrade/rollback, реальные NFS
 и current6+21 queue receipts остаются NOT TESTED/operator gates. Source review или
 синтетические tests не превращают их в PASS. Production/signing/deployment нет.
