@@ -10,6 +10,17 @@ Immutable build ref: `build/gallery-build11-89447178`.
 **SUPERSEDED**: они не содержат новые runtime-исправления и не являются финальными
 артефактами этого candidate.
 
+## Текущие release-tooling проверки
+
+- Explicit platform authority + immutable Valkey child package: **59 PASS**
+  (45 installer,7 package,7 Docker platform).
+- Linked PostgreSQL predeployment identity guards: **45 PASS,4 opt-in SKIP**.
+- Bounded installation diagnostics: **32 PASS**.
+- Source894 и upstream Compose byte-identical; application builds сохраняются.
+- Actual clean-install/upgrade/rollback CI ещё требует PASS; предыдущие
+  `38520267120`/`38521936065` остановились на исправленном overstrict index guard
+  до конфигурации. Unit fixtures не означают actual installation PASS.
+
 ## Завершённые application gates
 
 | Проверка                                           |  PASS | Ожидаемые / пропущенные              |         FAIL |

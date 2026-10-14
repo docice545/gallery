@@ -10,6 +10,52 @@ Cloud branch: `candidate/gallery-5.7.3-build11-upstream`.
 HP-исправления неизвестны и **НЕ интегрированы**; доказательства ниже Cloud-only.
 Production/`work` не изменяются, merge в HP branch не выполняется.
 
+## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
+
+Tooling HEAD `d21948271dac14efa6b6a13ba48e223c08dbb95a` опубликован.
+Current proof **IN_PROGRESS**:
+https://github.com/docice545/gallery/actions/runs/38523289687.
+Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
+rollback38288841511. Все compiled application inputs остаются source89447178.
+Три app workflows не повторялись, production и HP changes не трогались.
+
+- `d2d02b346c…`: 32 diagnostic tests PASS; fixed labels без raw stderr/argv.
+- `b7eb7ba594…`: speculative empty-index repair. Его PLATFORM_CONTENT guard
+  **SUPERSEDED**: пустые unqualified fields не доказывают absence requested child.
+- `bf9d3edef6…`: verified component inner checksum notice до installation gates.
+- `aa9fd9c0d2…`: generated AMD64 package выбирает тот же verified Valkey child
+  67878c70… (configc439a6b7…) из upstream indexc123e371…; sourceCompose неизменен,
+  точная single-image substitution и provenance checksum защищены.
+- `d21948271d…`: исправляет overstrict root-platform assumption. Root identity,
+  Descriptor и RepoDigest проверяются отдельно; обязательный explicit selected
+  linux/amd64 manifest/config проверяется всегда. Нет fallback или pull на
+  selected-inspection failure, нет повторных speculative pulls.
+
+Current focused **59 PASS**: 45 installer +7 package +7 Docker platform;
+`/tmp/build11-explicit-platform-authority-tests.log`. Linked PostgreSQL guard
+**45 PASS,4 opt-in Docker SKIP**: `/tmp/build11-valkey-linked-pg-predeploy-tests.log`.
+Compile, Bash/YAML/embedded-Python syntax, docs formatting, whitespace и
+byte-identical source/official Compose checks PASS.
+
+Actual failed proof chain: 38519250044 confirmed selected **VALKEY_PINNED**
+platform lookup unavailable, API1.51. Next38520267120/38521936065 hit the now
+removed overstrict PLATFORM_CONTENT guard before config creation; эти failed
+runs НЕ доказывают absence actual requested child и НЕ являются install PASS.
+Следующий шаг: дождаться38523289687, читать actual stage/code и artifact receipt.
+Не повторять component builds, full Flutter/PG suites или source audits.
+
+Verified **inner binary** checksums (Checks receipt38520267120, все source894):
+
+- Backend archive: `4a764b110ba0ffc2603b0219234811c1873c55b981cc59eed1cca30cc0e28d8d`.
+- Backend config image ID: `sha256:bd078fdd96f29950d77ee28977e4cd9592d5cd8f5a2ee5afd07fa0c4e5a45044`.
+- APK: `5453796e99c11d8bd2110f7b60726f02c8d2c9dac0ffbbbcfdb4b5a136200934`.
+- APK CI certificate: `f02566bc4479f9a4668baf829fe909ca06acaa44d723f1360b0e5db7d311e0f3`.
+- Unsigned IPA: `69882d5de38ec46e11217a350bb49af5adcfb67aeaead20220c637e60e678652`.
+
+Source receipt cached `/workspace/gallery-build11-cloud-artifacts/component-receipt-89447178.json`.
+Это compiled-components proof, **не distribution/install readiness**.
+Production HP restore/NFS/six+21/device acceptance и HP signing остаются gates.
+
 Завершённые опубликованные commits:
 
 - `0753a3eb4cbe074a972ac876d8211209f3a6860b`: настоящий старый HTTP Empty Trash
