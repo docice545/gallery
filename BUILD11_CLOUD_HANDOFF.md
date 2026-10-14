@@ -12,9 +12,9 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Tooling HEAD `d7da5131eb14c262d2db0b73cb5a1e03cdc51392` опубликован.
+Tooling HEAD `c96c92a7f14e15408d6e223316f377dbe5014f1e` опубликован.
 Current proof **IN_PROGRESS**:
-https://github.com/docice545/gallery/actions/runs/38542645355.
+https://github.com/docice545/gallery/actions/runs/38544077473.
 Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
 rollback38288841511. Все compiled application inputs остаются source89447178.
 Три app workflows не повторялись, production и HP changes не трогались.
@@ -54,6 +54,15 @@ rollback38288841511. Все compiled application inputs остаются source8
   разрешают refill, неуспешный pull или selected lookup остаётся STOP.
   **66 PASS**: 52 installer +7 package +7 platform;
   `/tmp/build11-bounded-selected-content-refill-tests.log`.
+- Run38542645355 FAIL: Docker28.4/API1.51 всё ещё сообщает expected Valkey
+  `Available=false` в actual installation. Нельзя утверждать, что refill
+  уже доказан actual CI; unit tests PASS этого не заменяют. Где именно Docker
+  теряет content (shared layers/GC/store switches), по bounded metadata не доказано.
+- `c96c92a7f1…`: CI закрепляет Docker CE/CLI29.9.0, подтверждённый signed
+  official APT inventory предыдущего run. Immutable dependency digest/config,
+  platform и all31 installation gates неизменны. Только disposable CI engine,
+  никакого обновления DockerHP или приложения. Signed selector/transition
+  suite **21 PASS**; `/tmp/build11-docker29-signed-bootstrap-tests.log`.
 
 Current focused **66 PASS**: 52 installer +7 package +7 Docker platform;
 `/tmp/build11-bounded-selected-content-refill-tests.log`. Linked PostgreSQL guard
@@ -69,7 +78,7 @@ Run38523289687 снова завершился на selected Valkey lookup; ра
 успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
 без availability metadata не установлена. Прогретый cache не используется для
 скрытия этого отказа. Run38540870600 уже FAIL с verified missing content.
-Следующий шаг: дождаться38542645355, читать actual stage/code, все31
+Следующий шаг: дождаться38544077473, читать actual stage/code, все31
 installation gates и artifact receipt.
 Не повторять component builds, full Flutter/PG suites или source audits.
 

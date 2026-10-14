@@ -27,7 +27,10 @@ Immutable build ref: `build/gallery-build11-89447178`.
   Run38540870600 подтвердил исправление transitions/cleanup, но остановился
   на actual Valkey metadata-only cache (`Available=false`). Tooling-only
   d7da5131eb добавляет один exact-digest refill с полной повторной проверкой.
-  https://github.com/docice545/gallery/actions/runs/38542645355 **IN_PROGRESS**;
+  Run38542645355 снова FAIL на Docker28.4 metadata-only cache. Новый CI-only
+  pin official Docker29.9 не меняет ни одного artifact/dependency identity.
+  Signed bootstrap/transition suite29.9: **21 PASS**.
+  https://github.com/docice545/gallery/actions/runs/38544077473 **IN_PROGRESS**;
   mobile/backend workflows не повторяются.
 
 ## Завершённые application gates
