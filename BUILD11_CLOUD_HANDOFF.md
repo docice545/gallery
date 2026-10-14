@@ -12,9 +12,9 @@ Production/`work` не изменяются, merge в HP branch не выпол�
 
 ## Последний release checkpoint — имеет приоритет над предыдущими CI заметками
 
-Tooling HEAD `d21948271dac14efa6b6a13ba48e223c08dbb95a` опубликован.
+Tooling HEAD `e4152b7d4a2ac277e56adb5c6a953351d23d82e7` опубликован.
 Current proof **IN_PROGRESS**:
-https://github.com/docice545/gallery/actions/runs/38523289687.
+https://github.com/docice545/gallery/actions/runs/38540870600.
 Он использует backend38484089051 / Android38486187028 / iOS38484090958 и
 rollback38288841511. Все compiled application inputs остаются source89447178.
 Три app workflows не повторялись, production и HP changes не трогались.
@@ -30,6 +30,19 @@ rollback38288841511. Все compiled application inputs остаются source8
   Descriptor и RepoDigest проверяются отдельно; обязательный explicit selected
   linux/amd64 manifest/config проверяется всегда. Нет fallback или pull на
   selected-inspection failure, нет повторных speculative pulls.
+- `3d8df8366b…`: ранний bounded public dependency probe и 40 diagnostic tests
+  PASS. Run38526321706 подтвердил Valkey digest/config/platform/availability
+  **PASS**, но завершился FAIL при возврате Docker в classic store; это не
+  installation PASS. Failed logs доступны через `gh run view --log-failed`.
+- `e4152b7d4a…`: guarded CI-only Docker transition; официальный unit Docker28.4
+  ограничивает starts до3/60s. `reset-failed docker.service` перед намеренным
+  restart устраняет счётчик только на пустом disposable CI runner, не меняет
+  daemon unit или release identity checks. EXIT trap сохраняет первичный отказ.
+  Probe допускает только отсутствующий точный immutable Valkey reference,
+  удаляет только его после PASS без force/prune и проверяет отсутствие; actual
+  installation сохраняет холодный cache и исходный порядок dependency pulls.
+  **21 PASS**, включая foreign-container/remote-options/cleanup/restore failures.
+  `/tmp/build11-ci-docker-transition-root-tests.log`.
 
 Current focused **59 PASS**: 45 installer +7 package +7 Docker platform;
 `/tmp/build11-explicit-platform-authority-tests.log`. Linked PostgreSQL guard
@@ -41,7 +54,11 @@ Actual failed proof chain: 38519250044 confirmed selected **VALKEY_PINNED**
 platform lookup unavailable, API1.51. Next38520267120/38521936065 hit the now
 removed overstrict PLATFORM_CONTENT guard before config creation; эти failed
 runs НЕ доказывают absence actual requested child и НЕ являются install PASS.
-Следующий шаг: дождаться38523289687, читать actual stage/code и artifact receipt.
+Run38523289687 снова завершился на selected Valkey lookup; ранний38526321706
+успешно выполнил тот же lookup на fresh containerd. Причина старого отказа
+без availability metadata не установлена. Прогретый cache не используется для
+скрытия этого отказа. Следующий шаг: дождаться38540870600, читать actual
+stage/code, все31 installation gates и artifact receipt.
 Не повторять component builds, full Flutter/PG suites или source audits.
 
 Verified **inner binary** checksums (Checks receipt38520267120, все source894):

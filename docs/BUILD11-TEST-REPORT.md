@@ -15,11 +15,17 @@ Immutable build ref: `build/gallery-build11-89447178`.
 - Explicit platform authority + immutable Valkey child package: **59 PASS**
   (45 installer,7 package,7 Docker platform).
 - Linked PostgreSQL predeployment identity guards: **45 PASS,4 opt-in SKIP**.
-- Bounded installation diagnostics: **32 PASS**.
+- Bounded installation diagnostics: **40 PASS**.
+- Disposable Docker transition/probe-cache regressions: **21 PASS**.
 - Source894 и upstream Compose byte-identical; application builds сохраняются.
 - Actual clean-install/upgrade/rollback CI ещё требует PASS; предыдущие
   `38520267120`/`38521936065` остановились на исправленном overstrict index guard
   до конфигурации. Unit fixtures не означают actual installation PASS.
+- Run38526321706: exact Valkey digest/config/platform/availability PASS, затем
+  failed Docker classic-store restoration. Tooling-only e4152b7d4a исправляет
+  deliberate restart rate counter и fail-closed probe cleanup. Новый proof
+  https://github.com/docice545/gallery/actions/runs/38540870600 **IN_PROGRESS**;
+  mobile/backend workflows не повторяются.
 
 ## Завершённые application gates
 
