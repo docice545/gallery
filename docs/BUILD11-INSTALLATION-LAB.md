@@ -39,6 +39,21 @@ identity и RepoDigest; обязательную linux/amd64 платформу 
 Valkey сохраняет выбранные bytes и все selected-platform checks.
 Фактический installation PASS можно заявлять только после нового CI результата.
 
+Run38540870600 подтвердил другой случай: cached descriptor и RepoDigest
+совпадают, но containerd сообщает `Available=false` для выбранного manifest.
+Installer теперь при реальном отказе selected inspection повторно проверяет
+поддержку API/CLI и один раз загружает **тот же точный immutable digest**.
+Затем заново проверяет parent identity, её неизменность и реальный linux/amd64
+manifest/config. Ошибки identity не разрешают загрузку; отказ pull или повторного
+inspect остаётся STOP. Успешный cached lookup не требует сети. Пустые root поля
+по-прежнему сами по себе не запускают pull.
+
+Ранний CI probe допускает только отсутствующий immutable Valkey reference,
+после проверки удаляет только созданную им ссылку без force/prune и подтверждает
+её отсутствие. Это сохраняет холодный cache actual installer. Переключения
+store сбрасывают только systemd start counter на пустом disposable CI runner;
+ошибка восстановления classic store не скрывает первичный отказ.
+
 После сборки и проверки backend/APK/IPA, реального rollback HTTP smoke и
 создания предварительного пакета workflow выполняет:
 

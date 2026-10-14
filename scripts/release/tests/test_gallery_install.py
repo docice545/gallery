@@ -226,6 +226,95 @@ class PublicDependencies(unittest.TestCase):
         self.assertEqual(docker.call_count,1)
         run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
 
+    def test_verified_metadata_only_cache_is_refilled_once_then_actual_platform_reverified(self):
+        for reference in m.PUBLIC_DEPENDENCIES:
+            original,selected=self.metadata(reference,True)
+            original.update(Architecture='',Os='')
+            with self.subTest(reference=reference),\
+                 patch.object(m.core,'docker',side_effect=[json.dumps([original]),
+                    m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'),json.dumps([original]),json.dumps([selected])]) as docker,\
+                 patch.object(m,'require_platform_inspection') as gate,patch.object(m.core,'run') as run:
+                self.assertEqual(m.pinned_public_dependency(reference),original['Id'])
+            gate.assert_called_once_with()
+            run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+            self.assertEqual([call.args for call in docker.call_args_list],
+                             [('image','inspect',reference),('image','inspect','--platform','linux/amd64',reference),
+                              ('image','inspect',reference),('image','inspect','--platform','linux/amd64',reference)])
+
+    def test_actual_platform_api_gate_failure_blocks_cached_content_refill(self):
+        reference=m.VALKEY_AMD64_REFERENCE
+        original,_=self.metadata(reference,True)
+        with patch.object(m.core,'docker',side_effect=[json.dumps([original]),
+                         m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')]) as docker,\
+             patch.object(m,'require_platform_inspection',side_effect=m.core.Stop('DOCKER_PLATFORM_INSPECTION_API_1_49_REQUIRED')) as gate,\
+             patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,'API_1_49_REQUIRED'):
+            m.pinned_public_dependency(reference)
+        self.assertEqual(docker.call_count,2);gate.assert_called_once_with();run.assert_not_called()
+
+    def test_refill_pull_failure_and_still_missing_selected_child_fail_without_another_attempt(self):
+        reference=m.VALKEY_AMD64_REFERENCE;original,_=self.metadata(reference,True)
+        original.update(Architecture='',Os='')
+        for pull_fails in (False,True):
+            responses=[json.dumps([original]),m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'),
+                       json.dumps([original]),m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')]
+            with self.subTest(pull_fails=pull_fails),patch.object(m.core,'docker',side_effect=responses) as docker,\
+                 patch.object(m,'require_platform_inspection') as gate,\
+                 patch.object(m.core,'run',side_effect=m.core.Stop('EXACT_PULL_FAILED') if pull_fails else None) as run,\
+                 self.assertRaisesRegex(m.core.Stop,'EXACT_PULL_FAILED' if pull_fails else 'COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'):
+                m.pinned_public_dependency(reference)
+            gate.assert_called_once_with()
+            self.assertEqual(docker.call_count,2 if pull_fails else 4)
+            run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+
+    def test_cold_pull_then_missing_selected_platform_never_refills_again(self):
+        reference=m.VALKEY_AMD64_REFERENCE;original,_=self.metadata(reference,True)
+        with patch.object(m.core,'docker',side_effect=[m.core.Stop('absent'),json.dumps([original]),
+                         m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED')]) as docker,\
+             patch.object(m,'require_platform_inspection') as gate,patch.object(m.core,'run') as run,\
+             self.assertRaisesRegex(m.core.Stop,'COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'):
+            m.pinned_public_dependency(reference)
+        self.assertEqual(docker.call_count,3);gate.assert_not_called()
+        run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+
+    def test_refill_cannot_adopt_a_different_parent_target_or_store_identity(self):
+        reference=m.VALKEY_AMD64_REFERENCE;original,_=self.metadata(reference,True)
+        classic,_=self.metadata(reference)
+        with patch.object(m.core,'docker',side_effect=[json.dumps([original]),
+                         m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'),json.dumps([classic])]) as docker,\
+             patch.object(m,'require_platform_inspection'),patch.object(m.core,'run') as run,\
+             self.assertRaisesRegex(m.core.Stop,'TARGET_CHANGED_DURING_PULL'):
+            m.pinned_public_dependency(reference)
+        self.assertEqual(docker.call_count,3)
+        run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+
+    def test_parent_and_child_integrity_are_rechecked_after_one_content_refill(self):
+        reference=m.VALKEY_AMD64_REFERENCE;original,selected=self.metadata(reference,True)
+        for side,field,value in [('parent','Id','sha256:'+'f'*64),
+                                 ('parent','Descriptor',{'digest':'sha256:'+'f'*64}),
+                                 ('parent','RepoDigests',[]),('parent','Architecture','arm64'),
+                                 ('selected','Id','sha256:'+'f'*64),
+                                 ('selected','Descriptor',{'digest':'sha256:'+'f'*64}),
+                                 ('selected','RepoDigests',[]),('selected','Architecture','arm64')]:
+            parent=dict(original);platform=dict(selected)
+            (parent if side=='parent' else platform)[field]=value
+            with self.subTest(side=side,field=field),patch.object(m.core,'docker',side_effect=[json.dumps([original]),
+                 m.core.Stop('COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED'),json.dumps([parent]),json.dumps([platform])]) as docker,\
+                 patch.object(m,'require_platform_inspection'),patch.object(m.core,'run') as run,\
+                 self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):
+                m.pinned_public_dependency(reference)
+            self.assertEqual(docker.call_count,3 if side=='parent' else 4)
+            run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+
+    def test_selected_identity_and_json_failures_never_authorize_network_repair(self):
+        reference=m.VALKEY_AMD64_REFERENCE;original,selected=self.metadata(reference,True)
+        bad_selected={**selected,'Id':'sha256:'+'f'*64}
+        for response,exception in ((json.dumps([bad_selected]),m.core.Stop),('not-json',json.JSONDecodeError)):
+            with self.subTest(response=response),patch.object(m.core,'docker',side_effect=[json.dumps([original]),response]) as docker,\
+                 patch.object(m,'require_platform_inspection') as gate,patch.object(m.core,'run') as run,\
+                 self.assertRaises(exception):
+                m.pinned_public_dependency(reference)
+            self.assertEqual(docker.call_count,2);gate.assert_not_called();run.assert_not_called()
+
 class FreshInstall(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)

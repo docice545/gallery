@@ -252,6 +252,10 @@ config. Для чистой установки x86_64 пакет выбирае�
 `sha256:67878c70fc179bb928b1a9b510860aff1c475ff245e91d98d4b2133326bf8e3e`;
 upstream source Compose сохраняется, provenance входит в checksummed package.
 Image-only HP upgrade сохраняет действующий Redis. Mutable `latest` не нужен.
+Если Docker содержит только проверенную metadata dependency без доступного
+platform content, installer один раз загружает тот же закреплённый digest и
+повторно проверяет неизменность identity и `linux/amd64`. Неуспешная загрузка
+или несовпадение после неё прекращают установку; проверки не обходятся.
 
 Для NAS сначала предоставьте действующие exports на **новом** сервере. Installer
 не меняет NFS permissions, не делает remount и не открывает общий RW-доступ.

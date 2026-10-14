@@ -91,15 +91,31 @@ def pinned_public_dependency(reference):
                   (image.get('Architecture') == 'amd64' and image.get('Os') == 'linux'), code)
         return image
 
+    pulled = False
     try:
         images = json.loads(core.docker('image', 'inspect', reference))
     except core.Stop:
         core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
+        pulled = True
         images = json.loads(core.docker('image', 'inspect', reference))
     image = verified_parent(images)
     # API 1.49+ selects an actual platform. Unsupported daemons fail closed;
     # do not infer platform from an index or accept another architecture.
-    selected = json.loads(core.docker('image', 'inspect', '--platform', 'linux/amd64', reference))
+    try:
+        selected = json.loads(core.docker('image', 'inspect', '--platform', 'linux/amd64', reference))
+    except core.Stop as error:
+        if pulled or str(error) != 'COMMAND_FAILED_PRIVATE_OUTPUT_OMITTED':
+            raise
+        # A trusted cached descriptor can lack its config/layers after a store
+        # transition. Only an actual selected-inspection command failure may
+        # fetch this exact immutable dependency once; metadata/integrity errors
+        # never authorize a repair or an unqualified platform fallback.
+        require_platform_inspection()
+        original_id = image['Id']
+        core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
+        image = verified_parent(json.loads(core.docker('image', 'inspect', reference)))
+        core.need(image['Id'] == original_id, 'PINNED_PUBLIC_DEPENDENCY_TARGET_CHANGED_DURING_PULL')
+        selected = json.loads(core.docker('image', 'inspect', '--platform', 'linux/amd64', reference))
     core.need(isinstance(selected, list) and len(selected) == 1 and isinstance(selected[0], dict), code)
     platform = selected[0]
     for item in (image, platform):
