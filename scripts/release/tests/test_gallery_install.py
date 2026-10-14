@@ -141,22 +141,20 @@ class PublicDependencies(unittest.TestCase):
             m.pinned_public_dependency(reference)
         self.assertEqual(docker.call_count,2);run.assert_not_called()
 
-    def test_verified_empty_containerd_index_fetches_exact_platform_once_for_both_dependencies(self):
+    def test_verified_unqualified_descriptor_without_platform_uses_explicit_child_read_only(self):
         for reference in m.PUBLIC_DEPENDENCIES:
             original,selected=self.metadata(reference,True)
             for empty in (None,''):
-                incomplete={**original,'Architecture':empty,'Os':empty}
+                parent={**original,'Architecture':empty,'Os':empty}
                 with self.subTest(reference=reference,empty=empty),\
-                     patch.object(m.core,'docker',side_effect=[json.dumps([incomplete]),json.dumps([original]),
-                                                              json.dumps([selected])]) as docker,\
+                     patch.object(m.core,'docker',side_effect=[json.dumps([parent]),json.dumps([selected])]) as docker,\
                      patch.object(m.core,'run') as run:
                     self.assertEqual(m.pinned_public_dependency(reference),original['Id'])
-                    run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+                    run.assert_not_called()
                     self.assertEqual([call.args for call in docker.call_args_list],
-                                     [('image','inspect',reference),('image','inspect',reference),
-                                      ('image','inspect','--platform','linux/amd64',reference)])
+                                     [('image','inspect',reference),('image','inspect','--platform','linux/amd64',reference)])
 
-    def test_untrusted_or_wrong_platform_parent_never_triggers_cache_repair(self):
+    def test_untrusted_or_wrong_platform_parent_never_triggers_selected_inspection_or_pull(self):
         reference=next(iter(m.PUBLIC_DEPENDENCIES));original,_=self.metadata(reference,True)
         incomplete={**original,'Architecture':'','Os':''}
         changes=[('Id','sha256:'+'f'*64),('Descriptor',{'digest':'sha256:'+'f'*64}),
@@ -175,30 +173,31 @@ class PublicDependencies(unittest.TestCase):
             m.pinned_public_dependency(reference)
         self.assertEqual(docker.call_count,1);run.assert_not_called()
 
-    def test_incomplete_index_after_exact_pull_is_rejected_without_repeat_pull(self):
-        reference=next(iter(m.PUBLIC_DEPENDENCIES));original,_=self.metadata(reference,True)
-        original.update(Architecture='',Os='')
-        for initially_missing in (False,True):
-            initial=m.core.Stop('absent') if initially_missing else json.dumps([original])
-            with self.subTest(initially_missing=initially_missing),\
-                 patch.object(m.core,'docker',side_effect=[initial,json.dumps([original])]) as docker,\
-                 patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_PLATFORM_CONTENT'):
-                m.pinned_public_dependency(reference)
-            self.assertEqual(docker.call_count,2)
+    def test_cold_missing_image_pulls_exactly_once_then_checks_explicit_child_despite_blank_parent_fields(self):
+        for reference in m.PUBLIC_DEPENDENCIES:
+            original,selected=self.metadata(reference,True)
+            original.update(Architecture='',Os='')
+            with self.subTest(reference=reference),\
+                 patch.object(m.core,'docker',side_effect=[m.core.Stop('absent'),json.dumps([original]),
+                                                          json.dumps([selected])]) as docker,\
+                 patch.object(m.core,'run') as run:
+                self.assertEqual(m.pinned_public_dependency(reference),original['Id'])
+            self.assertEqual(docker.call_count,3)
             run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
 
-    def test_repaired_index_still_requires_selected_platform_inspection(self):
+    def test_blank_parent_still_requires_selected_platform_without_pull_or_fallback(self):
         reference=next(iter(m.PUBLIC_DEPENDENCIES));original,_=self.metadata(reference,True)
         incomplete={**original,'Architecture':'','Os':''}
-        with patch.object(m.core,'docker',side_effect=[json.dumps([incomplete]),json.dumps([original]),
-                                                       m.core.Stop('API_PLATFORM_UNSUPPORTED')]) as docker,\
-             patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,'API_PLATFORM_UNSUPPORTED'):
-            m.pinned_public_dependency(reference)
-        self.assertEqual(docker.call_count,3)
-        self.assertEqual(docker.call_args_list[-1].args,('image','inspect','--platform','linux/amd64',reference))
-        run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+        for code in ('API_PLATFORM_UNSUPPORTED','REQUESTED_CHILD_MISSING'):
+            with self.subTest(code=code),\
+                 patch.object(m.core,'docker',side_effect=[json.dumps([incomplete]),m.core.Stop(code)]) as docker,\
+                 patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,code):
+                m.pinned_public_dependency(reference)
+            self.assertEqual(docker.call_count,2)
+            self.assertEqual(docker.call_args_list[-1].args,('image','inspect','--platform','linux/amd64',reference))
+            run.assert_not_called()
 
-    def test_parent_and_selected_identity_are_revalidated_after_cache_repair(self):
+    def test_blank_parent_and_explicit_child_identity_are_both_required_without_pull(self):
         reference=next(iter(m.PUBLIC_DEPENDENCIES));original,selected=self.metadata(reference,True)
         incomplete={**original,'Architecture':'','Os':''}
         for side,field,value in [('parent','Id','sha256:'+'f'*64),
@@ -207,20 +206,20 @@ class PublicDependencies(unittest.TestCase):
                                  ('parent','Os','windows'),('selected','Id','sha256:'+'f'*64),
                                  ('selected','Descriptor',{'digest':'sha256:'+'f'*64}),
                                  ('selected','RepoDigests',[]),('selected','Architecture','arm64')]:
-            parent=dict(original);platform=dict(selected)
+            parent=dict(incomplete);platform=dict(selected)
             (parent if side=='parent' else platform)[field]=value
-            responses=[json.dumps([incomplete]),json.dumps([parent]),json.dumps([platform])]
+            responses=[json.dumps([parent]),json.dumps([platform])]
             with self.subTest(side=side,field=field),\
                  patch.object(m.core,'docker',side_effect=responses) as docker,\
                  patch.object(m.core,'run') as run,self.assertRaisesRegex(m.core.Stop,'PUBLIC_DEPENDENCY_IDENTITY'):
                 m.pinned_public_dependency(reference)
-            self.assertEqual(docker.call_count,2 if side=='parent' else 3)
-            run.assert_called_once_with([*m.core.DOCKER,'image','pull','--platform','linux/amd64',reference],timeout=900)
+            self.assertEqual(docker.call_count,1 if side=='parent' else 2)
+            run.assert_not_called()
 
-    def test_exact_cache_repair_pull_failure_is_not_ignored(self):
+    def test_exact_cold_image_pull_failure_is_not_ignored(self):
         reference=next(iter(m.PUBLIC_DEPENDENCIES));original,_=self.metadata(reference,True)
         original.update(Architecture='',Os='')
-        with patch.object(m.core,'docker',return_value=json.dumps([original])) as docker,\
+        with patch.object(m.core,'docker',side_effect=m.core.Stop('absent')) as docker,\
              patch.object(m.core,'run',side_effect=m.core.Stop('EXACT_PULL_FAILED')) as run,\
              self.assertRaisesRegex(m.core.Stop,'EXACT_PULL_FAILED'):
             m.pinned_public_dependency(reference)

@@ -29,11 +29,14 @@ Source `docker/docker-compose.yml` сохраняет upstream index; измен
 `release-operator.json`. Existing HP upgrade сохраняет текущий Redis container.
 PostgreSQL reference и проверки index/config/selected platform сохраняются.
 
-Proof38520267120 показал, что Docker28.4/containerd возвращает Valkey index
-без доступного child даже после exact platform pull. Installer остановился
-`PINNED_PUBLIC_DEPENDENCY_PLATFORM_CONTENT_REQUIRED`, до service start.
-Прямой immutable pin той же AMD64 платформы проходит обычные RepoDigest,
-Descriptor, config/manifest, OS/architecture и `--platform` проверки.
+Proof38519250044 подтвердил отказ явного platform lookup для Valkey index.
+В следующих proof38520267120/38521936065 добавленное условие ошибочно приняло
+пустые Os/Architecture root descriptor за отсутствие платформы и остановило
+installer до config creation. У корневого descriptor проверяются immutable
+identity и RepoDigest; обязательную linux/amd64 платформу доказывает отдельный
+`inspect --platform` с точным manifest/config. Пустые root поля не заменяют эту
+проверку и сами по себе не доказывают отсутствие child. Прямой immutable pin
+Valkey сохраняет выбранные bytes и все selected-platform checks.
 Фактический installation PASS можно заявлять только после нового CI результата.
 
 После сборки и проверки backend/APK/IPA, реального rollback HTTP smoke и

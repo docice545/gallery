@@ -83,28 +83,20 @@ def pinned_public_dependency(reference):
         else:
             core.need(isinstance(descriptor, dict) and descriptor.get('digest') == digest and
                       image.get('Id') == digest, code)
-        incomplete = image.get('Architecture') in (None, '') and image.get('Os') in (None, '')
-        # Moby's containerd store can inspect a trusted index with no locally
-        # usable child. This is not proof of a platform, nor permission to
-        # repair an unrelated index or an image for a different OS/architecture.
-        core.need((incomplete and image.get('Id') == digest and isinstance(descriptor, dict)) or
+        no_platform = image.get('Architecture') in (None, '') and image.get('Os') in (None, '')
+        # Unqualified descriptor inspection may omit platform/config fields.
+        # It proves only the immutable target; the explicit selected-platform
+        # inspection below must independently prove its usable linux/amd64 child.
+        core.need((no_platform and image.get('Id') == digest and isinstance(descriptor, dict)) or
                   (image.get('Architecture') == 'amd64' and image.get('Os') == 'linux'), code)
-        return image, incomplete
+        return image
 
-    pulled = False
     try:
         images = json.loads(core.docker('image', 'inspect', reference))
     except core.Stop:
         core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
-        pulled = True
         images = json.loads(core.docker('image', 'inspect', reference))
-    image, incomplete = verified_parent(images)
-    if incomplete and not pulled:
-        # Fetch only this immutable, already-verified index once. Never fall
-        # back to unqualified inspection if selected-platform inspection fails.
-        core.run([*core.DOCKER, 'image', 'pull', '--platform', 'linux/amd64', reference], timeout=900)
-        image, incomplete = verified_parent(json.loads(core.docker('image', 'inspect', reference)))
-    core.need(not incomplete, 'PINNED_PUBLIC_DEPENDENCY_PLATFORM_CONTENT_REQUIRED')
+    image = verified_parent(images)
     # API 1.49+ selects an actual platform. Unsupported daemons fail closed;
     # do not infer platform from an index or accept another architecture.
     selected = json.loads(core.docker('image', 'inspect', '--platform', 'linux/amd64', reference))
