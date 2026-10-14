@@ -85,8 +85,15 @@ iOS existing workflow development + empty version (никаких Store/TestFlig
 Android выполнен после iOS: shared concurrency не отменил IPA. APK использует
 CI debug certificate, не HP update. Unsigned IPA требует прежней SideStore подписи.
 
-Следующий шаг: actual distribution proof на HEAD Cloud candidate с тремя
-успешными run IDs выше и прежним hardened rollback38288841511; old failed
+Actual distribution proof **уже запущен**, не дублировать:
+https://github.com/docice545/gallery/actions/runs/38509927962,
+workflow HEAD `038afbe7c8bfa04c44417b03c4c73288d80a26c2`, application89447178.
+Использует три успешных run IDs выше и прежний hardened rollback38288841511.
+Итог пока IN_PROGRESS: проверка всех 31 actual installation/upgrade/rollback
+gates, включая fresh restore уже обновлённой DB, ещё не подтверждена.
+Следующий шаг — проверить результат этого run; при FAIL использовать sanitized
+Checks API diagnostics, исправлять реальную причину и rerun только proof.
+Не пересобирать components при tooling-only correction. Old failed
 proof38424787561 не был install PASS. New diagnostics доступны через Checks API
 даже когда redirected blob log запрещён Cloud policy. Записывать реальные
 artifact IDs/checksums из manifest, не подставлять ZIP hash вместо binary hash.
