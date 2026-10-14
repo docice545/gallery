@@ -33,6 +33,9 @@ Production/`work` не изменяются, merge в HP branch не выпол�
   Read-only status работает после 24h; apply/rollback сохраняют строгую freshness.
 - Tooling-only: `6eb9f52fa3` добавляет обязательный actual CI restore уже
   обновлённой DB с сохранением всех policy fields, ledger и storage grants.
+- Tooling-only: `2434b5795fc94374a929fbbef9b3387b5021d3d9` исправляет точную
+  причину failed installation: Docker CE/CLI 28.4.0 в disposable CI VM и ранний
+  API>=1.49/CLI `--platform` preflight. Identity checks не ослаблены.
 
 Final validation после всех runtime fixes:
 
@@ -59,6 +62,12 @@ Final validation после всех runtime fixes:
   `/tmp/build11-pg-containerd-preflight-tests.log`, SHA256
   `b9370fade7ca68da79e545981908b93e4b2ce78020fe2b7f7c8a8591ff40f67a`.
   Bash syntax, Python compile, whitespace и docs formatting PASS.
+- После Docker correction: полный Build11 tooling **129 PASS, 1 SKIP**,
+  `/tmp/build11-final-docker-corrected-tooling.log`; Docker/install focused
+  **43 PASS**, `/tmp/build11-docker-platform-fix-tests.log`, SHA256
+  `c6766e2812bc68fc567c51d890819d9da94e5a7d919d4eb86188ff19cc580c07`.
+  Actual Cloud Docker28.4.0/API1.51 readonly capability check PASS. Никаких
+  containers/daemon изменений в Cloud; actual new CI readiness ещё не заявляется.
 
 Уже запущенные **новые** builds (не дублировать):
 
@@ -85,14 +94,22 @@ iOS existing workflow development + empty version (никаких Store/TestFlig
 Android выполнен после iOS: shared concurrency не отменил IPA. APK использует
 CI debug certificate, не HP update. Unsigned IPA требует прежней SideStore подписи.
 
-Actual distribution proof **уже запущен**, не дублировать:
+Actual distribution proof **FAILED**, ошибка теперь точно установлена:
 https://github.com/docice545/gallery/actions/runs/38509927962,
 workflow HEAD `038afbe7c8bfa04c44417b03c4c73288d80a26c2`, application89447178.
 Использует три успешных run IDs выше и прежний hardened rollback38288841511.
-Итог пока IN_PROGRESS: проверка всех 31 actual installation/upgrade/rollback
-gates, включая fresh restore уже обновлённой DB, ещё не подтверждена.
-Следующий шаг — проверить результат этого run; при FAIL использовать sanitized
-Checks API diagnostics, исправлять реальную причину и rerun только proof.
+Checks API: `DOCKER_PLATFORM_FLAG_UNSUPPORTED`, operation
+`DOCKER_IMAGE_INSPECT_PLATFORM`, client/server API **1.48**, returnCode125,
+stage `interrupted configuration creation`. Требуется CLI+daemon API>=1.49.
+Это CI toolchain blocker, не application defect. Same-source seal и classic
+proof PASS; все 31 installation/upgrade/rollback gates пока НЕ PASS.
+Small report `gallery-build11-verification-report-38509927962`, ID11868764505,
+ZIP SHA256 `8992b4d5b26d435481ce1b0923a9c0fb824740228c71fe30006333279b1dcfc0`.
+Исправление сохранено в `2434b5795f…`; следующий шаг — rerun только release-proof
+на опубликованном tooling HEAD с прежними successful component run IDs.
+Signed APT pin сохраняет standard socket/systemctl и Compose plugin;
+API/flag readiness проверяется до fixture startup, classic→containerd сохранён.
+`docker/setup-docker-action` проверен и не подходит: создаёт другой daemon/socket.
 Не пересобирать components при tooling-only correction. Old failed
 proof38424787561 не был install PASS. New diagnostics доступны через Checks API
 даже когда redirected blob log запрещён Cloud policy. Записывать реальные
