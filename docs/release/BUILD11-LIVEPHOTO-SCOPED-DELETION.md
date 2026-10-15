@@ -153,6 +153,22 @@ git diff --check
 `git apply --reverse --check "$PATCH"` и `git apply --reverse "$PATCH"`.
 Такой source rollback не восстанавливает физически удалённые файлы.
 
+## Важный gate уже созданных intents
+
+Штатный recovery sweep уже умеет повторять pending/failed receipts. Поэтому
+запуск исправленного сервера при включённом consent может продолжить ранее
+заявленные реальные удаления без нового нажатия на кнопку. Этот patch не
+активирует очередь и не создаёт такого нового sweep, но снимает прежний отказ.
+Перед будущим production rollout оператору нужно отдельно согласовать отзыв
+consent затронутых семейных scopes и отсутствие in-flight destructive операций,
+сохранить private inventory существующих intents/jobs. Не стирать их и не
+менять SQL. Это **не выполнено** в разработке и требует отдельного разрешения.
+
+Acceptance проводить в отдельном тестовом аккаунте без настоящих originals и
+старых pending receipts. Возврат consent реальным владельцам — отдельное явное
+решение после review всех их pending/failed intents, а не автоматический шаг
+deployment или smoke test. Не отключать microservices ради этого gate.
+
 ## Развёртывание после отдельного разрешения
 
 1. Согласовать exact patch source/image, текущий immutable production image и
@@ -197,7 +213,8 @@ Rollback image не восстанавливает уже удалённые ori
 
 ## Acceptance одной искусственной Live Photo после deployment approval
 
-1. Создать новую синтетическую/несекретную пару штатным upload/processing.
+1. В отдельном тестовом аккаунте без реальных originals и старых pending
+   receipts создать новую синтетическую пару штатным upload/processing.
    Убедиться через приватную read-only проверку: единственная Image→Video связь,
    owner/library совпадают, JPG в upload-owner/NFS, MP4 по canonical generated
    owner path на SSD. Сохранить оба SHA256 и sizes. Не трогать старые семейные LP.

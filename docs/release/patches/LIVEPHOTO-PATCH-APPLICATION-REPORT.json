@@ -1,0 +1,56 @@
+[
+  {
+    "file": "gallery-5.7.3-livephoto-server.patch",
+    "base": "accb078c1bfce1f1fbfbba0f84fe904bf196e108",
+    "sourceCommit": "2a998b447a8eeb1d8fb1aa8c3a2ca85af434cefe",
+    "sha256": "3ccdf005dcaf8a0b2ee3e062189d63048753f56499aa9bd5518847cb33642563",
+    "bytes": 75017,
+    "changedPaths": [
+      "server/src/repositories/asset.repository.ts",
+      "server/src/services/asset.service.ts",
+      "server/src/utils/live-photo-deletion.filesystem.spec.ts",
+      "server/src/utils/live-photo-deletion.spec.ts",
+      "server/src/utils/live-photo-deletion.ts",
+      "server/test/medium/specs/services/livephoto-scoped-deletion.spec.ts",
+      "server/test/medium/specs/services/livephoto-trash-projection.spec.ts"
+    ],
+    "preimagesFile": "gallery-5.7.3-livephoto-server.preimages.sha256",
+    "preimagesSHA256": "bc8c982c0c65ed2b47c9994f229168c855460d218c3e85d1804d44112c5dfa9c",
+    "applyCheck": "PASS",
+    "actualApplyExactPostimages": "PASS",
+    "reverseCheckAndRestore": "PASS",
+    "independentIndexServerTreeMatchesSource": "PASS",
+    "serverTree": "3d3d5060555c77b5827e310429dd3381f2246f27",
+    "productionChanged": false
+  },
+  {
+    "file": "gallery-5.7.3-livephoto-with-nfs-recovery.patch",
+    "base": "92af234687caeca9307aa7d4ea2a51553eecf9cf",
+    "sourceCommit": "2a998b447a8eeb1d8fb1aa8c3a2ca85af434cefe",
+    "sha256": "8f90d11acbc54fe8a2ce9fbba845dcea680a633bc16dc9ed60e75cb5218ab6db",
+    "bytes": 128787,
+    "changedPaths": [
+      "server/src/repositories/asset.repository.ts",
+      "server/src/schema/tables/asset-deletion.table.ts",
+      "server/src/services/asset.service.ts",
+      "server/src/utils/authorized-deletion.ts",
+      "server/src/utils/live-photo-deletion.filesystem.spec.ts",
+      "server/src/utils/live-photo-deletion.spec.ts",
+      "server/src/utils/live-photo-deletion.ts",
+      "server/test/medium/globalSetup.ts",
+      "server/test/medium/quarantine-crash.config.mjs",
+      "server/test/medium/quarantine-crash.worker.ts",
+      "server/test/medium/specs/services/livephoto-scoped-deletion.spec.ts",
+      "server/test/medium/specs/services/livephoto-trash-projection.spec.ts",
+      "server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts"
+    ],
+    "preimagesFile": "gallery-5.7.3-livephoto-with-nfs-recovery.preimages.sha256",
+    "preimagesSHA256": "b7cd152fb8a97f03ea8881aaeb1c82b0d6431740bedf0bd5a95b7ed723038429",
+    "applyCheck": "PASS",
+    "actualApplyExactPostimages": "PASS",
+    "reverseCheckAndRestore": "PASS",
+    "independentIndexServerTreeMatchesSource": "PASS",
+    "serverTree": "3d3d5060555c77b5827e310429dd3381f2246f27",
+    "productionChanged": false
+  }
+]

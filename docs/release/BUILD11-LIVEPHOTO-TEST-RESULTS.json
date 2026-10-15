@@ -66,5 +66,11 @@
     "production deployment/rollback",
     "real family originals"
   ],
-  "developmentFailures": "Initial full-service tests exposed the pre-unlink service boundary and receipt binding issues; corrected without weakening existing specs. A projection fixture needed explicit media location. Temporary debug logging was removed. Three new-test style findings were corrected. Existing 96 +17 spec/helper bytes unchanged."
+  "developmentFailures": "Initial full-service tests exposed the pre-unlink service boundary and receipt binding issues; corrected without weakening existing specs. A projection fixture needed explicit media location. Temporary debug logging was removed. Three new-test style findings were corrected. Existing 96 +17 spec/helper bytes unchanged.",
+  "sourceCommit": "2a998b447a8eeb1d8fb1aa8c3a2ca85af434cefe",
+  "operatorGates": [
+    "Actual Synology/device fixture acceptance",
+    "Explicit rollout authorization and exact backend image/rollback validation",
+    "Consent/queued-intent review before enabling real owner retries"
+  ]
 }

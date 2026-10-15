@@ -27,6 +27,17 @@ server Trash/sync projection Hidden companion без отдельного delete
 к accb078 и совместный server patch к HPsnapshot92af234; выбрать только один
 по точным preimagehashes, не применять прошлыйZIP повторно.
 
+Implementation source: `2a998b447a8eeb1d8fb1aa8c3a2ca85af434cefe`.
+Оба server-only patch в `docs/release/patches/` реально применены/отменены на
+своих bases; exact server subtree совпал с implementation commit. Минимальный
+patchSHA256 `3ccdf005dcaf8a0b2ee3e062189d63048753f56499aa9bd5518847cb33642563`;
+cumulative92af patchSHA256 `8f90d11acbc54fe8a2ce9fbba845dcea680a633bc16dc9ed60e75cb5218ab6db`.
+Прежний NFSZIP не применять дополнительно к cumulative patch.
+Важно: existing recovery sweep может автоматически продолжить failed intents
+после исправления. До будущего rollout нужен отдельно approved owner-consent
+hold и review pendingintents; smoke только отдельным synthetic test account,
+не включать семейный scope ради одной пробы. Microservices не отключать.
+
 Следующий operator gate: source review → isolated actualNFS fixture → отдельно
 approved backend-only build/deploy → одна синтетическая LivePhoto acceptance.
 Не чистить существующие receipts/queues, не расширять mounts/roots и не

@@ -1,0 +1,1589 @@
+diff --git a/server/src/repositories/asset.repository.ts b/server/src/repositories/asset.repository.ts
+index b73ba98a1dcfdd99006269b6bcd4ef0d0b13eb8b..12f58fccef063cc4d0a26fcb5069f408d5758f8d 100644
+--- a/server/src/repositories/asset.repository.ts
++++ b/server/src/repositories/asset.repository.ts
+@@ -81,6 +81,7 @@ import {
+   withTags,
+ } from 'src/utils/database.js';
+ import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
++import { assertExclusiveLivePhoto, managedMotionRootPath } from 'src/utils/live-photo-deletion.js';
+ import { globToPostgresRegex } from 'src/utils/misc.js';
+ import {
+   type TimelineHiddenScope,
+@@ -1547,14 +1548,38 @@ export class AssetRepository {
+     const value = omitBy(asset, isUndefined);
+     delete value.id;
+     if (!isEmpty(value)) {
+-      return this.db
+-        .with('asset', (qb) => qb.updateTable('asset').set(asset).where('id', '=', asUuid(asset.id)).returningAll())
+-        .selectFrom('asset')
+-        .selectAll('asset')
+-        .$call(withExif)
+-        .$call((qb) => qb.select(withFaces))
+-        .$call((qb) => qb.select(withEdits))
+-        .executeTakeFirst();
++      const update = (database: Kysely<DB> | Transaction<DB>) =>
++        database
++          .with('asset', (qb) => qb.updateTable('asset').set(asset).where('id', '=', asUuid(asset.id)).returningAll())
++          .selectFrom('asset')
++          .selectAll('asset')
++          .$call(withExif)
++          .$call((qb) => qb.select(withFaces))
++          .$call((qb) => qb.select(withEdits))
++          .executeTakeFirst();
++      if (!asset.livePhotoVideoId) return update(this.db);
++      // A link checked by the API before deletion may be written much later.
++      // Serialize the actual structural write with permanent deletion, then
++      // recheck the child under a row lock. Never link an irreversible resource.
++      return this.db.transaction().execute(async (tx) => {
++        const parent = await tx.selectFrom('asset').select('ownerId').where('id', '=', asset.id).executeTakeFirst();
++        if (!parent) return;
++        await sql`select pg_advisory_xact_lock(hashtextextended(${parent.ownerId}, 731))`.execute(tx);
++        const child = await tx
++          .selectFrom('asset')
++          .select(['ownerId', 'type', 'status'])
++          .where('id', '=', asset.livePhotoVideoId!)
++          .forShare()
++          .executeTakeFirst();
++        if (
++          !child ||
++          child.ownerId !== parent.ownerId ||
++          child.type !== AssetType.Video ||
++          child.status === AssetStatus.Deleted
++        )
++          throw new DeletionError('MOTION_SCOPE_MISMATCH');
++        return update(tx);
++      });
+     }
+ 
+     return this.getById(asset.id, { exifInfo: true, faces: {}, edits: true });
+@@ -1946,18 +1971,14 @@ export class AssetRepository {
+     receipt: { assetId: string; operationId: string; ownerId: string; libraryId: string | null; originalPath: string },
+   ): Promise<DeletionRootIdentity | undefined> {
+     if (receipt.assetId === receipt.operationId) return;
+-    // Motion originals already inside an authorized library root use the ordinary
+-    // policy. Only the dedicated encoded-video location needs extra authority.
+-    const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
+-    if (!receipt.originalPath.startsWith(`${encodedRoot}/`)) return;
+     const parent = await tx
+       .selectFrom('asset')
+-      .select(['id', 'ownerId', 'libraryId', 'livePhotoVideoId'])
++      .select(['id', 'ownerId', 'libraryId', 'type', 'livePhotoVideoId'])
+       .where('id', '=', receipt.operationId)
+       .executeTakeFirst();
+     const child = await tx
+       .selectFrom('asset')
+-      .select(['id', 'ownerId', 'libraryId', 'originalPath'])
++      .select(['id', 'ownerId', 'libraryId', 'originalPath', 'type'])
+       .where('id', '=', receipt.assetId)
+       .executeTakeFirst();
+     const references = await tx
+@@ -1965,26 +1986,25 @@ export class AssetRepository {
+       .select('id')
+       .where('livePhotoVideoId', '=', receipt.assetId)
+       .execute();
+-    const expected = StorageCore.getAndroidMotionPath(
+-      { id: receipt.assetId, ownerId: receipt.ownerId },
++    if (!parent || !child || child.originalPath !== receipt.originalPath)
++      throw new DeletionError('MOTION_SCOPE_MISMATCH');
++    assertExclusiveLivePhoto(
++      parent,
++      child,
++      references.map(({ id }) => id),
++      receipt.ownerId,
++      receipt.libraryId,
++    );
++    // Recheck the relationship even for a companion inside ordinary policy
++    // roots. Only the dedicated managed encoded location needs extra authority.
++    const encodedRoot = managedMotionRootPath(
++      receipt.ownerId,
++      receipt.libraryId,
++      receipt.originalPath,
+       receipt.assetId,
+     );
+-    if (
+-      !parent ||
+-      !child ||
+-      parent.ownerId !== receipt.ownerId ||
+-      child.ownerId !== receipt.ownerId ||
+-      parent.libraryId !== receipt.libraryId ||
+-      child.libraryId !== receipt.libraryId ||
+-      parent.livePhotoVideoId !== receipt.assetId ||
+-      references.length !== 1 ||
+-      references[0].id !== parent.id ||
+-      receipt.originalPath !== expected ||
+-      child.originalPath !== expected
+-    )
+-      throw new DeletionError('MOTION_SCOPE_MISMATCH');
+-    const root = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
+-    const identities = await collectRootIdentities([root]);
++    if (!encodedRoot) return;
++    const identities = await collectRootIdentities([encodedRoot]);
+     return identities[0];
+   }
+ 
+@@ -2049,27 +2069,28 @@ export class AssetRepository {
+           .select('id')
+           .where('livePhotoVideoId', '=', asset.livePhotoVideoId)
+           .execute();
+-        if (parents.length === 1) {
+-          const motion = await tx
+-            .selectFrom('asset')
+-            .selectAll()
+-            .where('id', '=', asset.livePhotoVideoId)
+-            .forUpdate()
+-            .executeTakeFirst();
+-          if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
+-            throw new DeletionError('MOTION_SCOPE_MISMATCH');
+-          }
+-          // An encoded Android motion original must be the exact, owner-scoped
+-          // linked asset path. This does not authorize the encoded-video root.
+-          const encodedVideoRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId);
+-          if (
+-            motion.originalPath.startsWith(`${encodedVideoRoot}/`) &&
+-            motion.originalPath !== StorageCore.getAndroidMotionPath(motion, motion.id)
+-          ) {
+-            throw new DeletionError('MOTION_SCOPE_MISMATCH');
+-          }
+-          targets.push(motion);
++        if (parents.length !== 1 || parents[0].id !== asset.id)
++          throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
++        const motion = await tx
++          .selectFrom('asset')
++          .selectAll()
++          .where('id', '=', asset.livePhotoVideoId)
++          .forUpdate()
++          .executeTakeFirst();
++        if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
++          throw new DeletionError('MOTION_SCOPE_MISMATCH');
+         }
++        assertExclusiveLivePhoto(
++          asset,
++          motion,
++          parents.map(({ id }) => id),
++          ownerId,
++          asset.libraryId,
++        );
++        // An encoded Android motion original must be the exact, owner-scoped
++        // linked asset path. This does not authorize the encoded-video root.
++        managedMotionRootPath(ownerId, asset.libraryId, motion.originalPath, motion.id);
++        targets.push(motion);
+       }
+       const targetIds = targets.map((target) => target.id);
+       const sidecars = await tx
+@@ -2116,15 +2137,19 @@ export class AssetRepository {
+           })
+           .execute();
+       }
+-      await tx
+-        .updateTable('asset')
+-        .set({ status: AssetStatus.Deleted, deletedAt: asset.deletedAt ?? new Date() })
+-        .where(
+-          'id',
+-          'in',
+-          targets.map((target) => target.id),
+-        )
+-        .execute();
++      for (const target of targets) {
++        // A hidden motion resource is part of this one logical Trash item, not
++        // a second user-visible card. Mobile Trash intentionally includes all
++        // visibilities with deletedAt, so do not give the companion a Trash
++        // timestamp when the irreversible pair intent is committed.
++        const hiddenCompanion =
++          target.id !== id && target.type === AssetType.Video && target.visibility === AssetVisibility.Hidden;
++        await tx
++          .updateTable('asset')
++          .set({ status: AssetStatus.Deleted, deletedAt: hiddenCompanion ? null : (target.deletedAt ?? new Date()) })
++          .where('id', '=', target.id)
++          .execute();
++      }
+     });
+     try {
+       return await this.db.transaction().execute(async (tx) => {
+@@ -2170,6 +2195,40 @@ export class AssetRepository {
+           ) {
+             throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+           }
++          if (
++            target.assetId !== target.operationId &&
++            current.type === AssetType.Video &&
++            current.visibility === AssetVisibility.Hidden &&
++            current.deletedAt
++          ) {
++            // Older failed pair attempts assigned the still's Trash timestamp
++            // to its hidden motion row. Repair only a uniquely linked, same-
++            // owner/library component of this already irreversible operation.
++            // No status, receipt, authorization or original is changed here.
++            const logicalParent = await tx
++              .selectFrom('asset')
++              .select(['id', 'ownerId', 'libraryId', 'status', 'type', 'livePhotoVideoId'])
++              .where('id', '=', target.operationId)
++              .forShare()
++              .executeTakeFirst();
++            const references = await tx
++              .selectFrom('asset')
++              .select('id')
++              .where('livePhotoVideoId', '=', current.id)
++              .execute();
++            if (
++              logicalParent?.status === AssetStatus.Deleted &&
++              logicalParent.type === AssetType.Image &&
++              logicalParent.ownerId === ownerId &&
++              logicalParent.libraryId === current.libraryId &&
++              current.libraryId === target.libraryId &&
++              logicalParent.livePhotoVideoId === current.id &&
++              references.length === 1 &&
++              references[0].id === logicalParent.id
++            ) {
++              await tx.updateTable('asset').set({ deletedAt: null }).where('id', '=', current.id).execute();
++            }
++          }
+           const sidecars = await tx
+             .selectFrom('asset_file')
+             .select('path')
+@@ -2238,6 +2297,18 @@ export class AssetRepository {
+         if (receipt.state === 'complete' || receipt.state === 'files-removed') {
+           return true;
+         }
++        if (receipt.operationId === id) {
++          // Queue ordering is not execution ordering. Do not remove the still
++          // while a companion original has not reached its durable receipt.
++          const pendingCompanion = await tx
++            .selectFrom('asset_deletion_tombstone')
++            .select('assetId')
++            .where('operationId', '=', id)
++            .where('assetId', '!=', id)
++            .where('state', 'not in', ['files-removed', 'complete'])
++            .executeTakeFirst();
++          if (pendingCompanion) return false;
++        }
+         if (receipt.files.length === 0) {
+           throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+         }
+@@ -2288,9 +2359,9 @@ export class AssetRepository {
+         for (const file of receipt.files) {
+           await unlink(file, async () => {
+             await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+-            if (motionRoot && file.path === receipt.originalPath) {
++            if (receipt.assetId !== receipt.operationId && file.path === receipt.originalPath) {
+               const currentMotionRoot = await this.linkedMotionRoot(tx, receipt);
+-              if (!currentMotionRoot || !sameRootIdentity(file.rootIdentity, currentMotionRoot))
++              if (motionRoot && (!currentMotionRoot || !sameRootIdentity(file.rootIdentity, currentMotionRoot)))
+                 throw new DeletionError('MOTION_SCOPE_MISMATCH');
+             }
+           });
+@@ -2313,6 +2384,68 @@ export class AssetRepository {
+     }
+   }
+ 
++  /** Reuse only a server-committed binding, never an on-disk EEXIST entry. */
++  private async recordedMotionQuarantine(
++    tx: Transaction<DB>,
++    receipt: { assetId: string; ownerId: string; scope: string },
++    root: DeletionRootIdentity,
++    fileRoot: DeletionRootIdentity,
++    storageMode: boolean,
++  ): Promise<DeletionRootIdentity> {
++    const records = await tx
++      .selectFrom('asset_deletion_tombstone')
++      .select(['assetId', 'operationId', 'originalPath', 'files'])
++      .where('ownerId', '=', receipt.ownerId)
++      .where('scope', '=', 'managed')
++      .where('libraryId', 'is', null)
++      .where('originalPath', 'like', `${escapeLikePattern(root.path)}/%`)
++      .execute();
++    let selected: DeletionRootIdentity | undefined;
++    for (const record of records) {
++      if (
++        record.assetId === record.operationId ||
++        record.originalPath !==
++          StorageCore.getAndroidMotionPath({ id: record.assetId, ownerId: receipt.ownerId }, record.assetId)
++      )
++        continue;
++      for (const file of record.files) {
++        const stored = file.rootIdentity;
++        if (
++          file.path !== record.originalPath ||
++          stored.path !== root.path ||
++          (!stored.quarantineIdentity && !stored.quarantineIntent)
++        )
++          continue;
++        if (!samePhysicalRootIdentity(stored, root)) throw new DeletionError('DELETION_ROOT_CHANGED');
++        // An unfinished initializer belongs to its original operation. Recover
++        // that receipt first; another asset cannot take over its journal.
++        if (stored.quarantineIntent && record.assetId !== receipt.assetId)
++          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++        let candidate = stored;
++        if (storageMode && stored.quarantineIdentity) {
++          const refreshed = await refreshStorageRootIdentities([stored]);
++          candidate = refreshed[0];
++        }
++        if (!sameRootIdentity(candidate, root)) throw new DeletionError('DELETION_ROOT_CHANGED');
++        if (
++          selected &&
++          (!sameQuarantineIdentity(selected.quarantineIdentity, candidate.quarantineIdentity) ||
++            selected.quarantineIntent ||
++            candidate.quarantineIntent)
++        )
++          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++        selected = candidate;
++      }
++    }
++    if (fileRoot.quarantineIntent && selected?.quarantineIdentity)
++      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++    return {
++      ...root,
++      ...(selected?.quarantineIdentity && { quarantineIdentity: selected.quarantineIdentity }),
++      ...(selected?.quarantineIntent && { quarantineIntent: selected.quarantineIntent }),
++    };
++  }
++
+   private async bindOriginalQuarantines(id: string): Promise<void> {
+     const intent = await this.db
+       .selectFrom('asset_deletion_tombstone')
+@@ -2381,13 +2514,13 @@ export class AssetRepository {
+               throw new DeletionError('DELETION_ROOT_CHANGED');
+             const root =
+               index === -1
+-                ? {
+-                    ...motionRoot!,
+-                    ...(file.rootIdentity.quarantineIdentity && {
+-                      quarantineIdentity: file.rootIdentity.quarantineIdentity,
+-                    }),
+-                    ...(file.rootIdentity.quarantineIntent && { quarantineIntent: file.rootIdentity.quarantineIntent }),
+-                  }
++                ? await this.recordedMotionQuarantine(
++                    tx,
++                    receipt,
++                    motionRoot!,
++                    file.rootIdentity,
++                    policy.authorizationMode === 'storage',
++                  )
+                 : policy.rootIdentities[index];
+             const recorded = file.rootIdentity.quarantineIdentity;
+             if (
+diff --git a/server/src/services/asset.service.ts b/server/src/services/asset.service.ts
+index bea2cffbf9aa6afd577395dfba9db1d8d80a34aa..56b61bdf779174dd6495dad7c62c91571f7a1f41 100644
+--- a/server/src/services/asset.service.ts
++++ b/server/src/services/asset.service.ts
+@@ -75,6 +75,7 @@ import {
+ import { isDeadlockError, retryOnDeadlock, updateLockedColumns } from 'src/utils/database.js';
+ import { asDateTimeString, extractTimeZone } from 'src/utils/date.js';
+ import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
++import { managedMotionRootPath } from 'src/utils/live-photo-deletion.js';
+ import { findOrFail } from 'src/utils/misc.js';
+ import { applyResolvedIdentityMetadata } from 'src/utils/person-identity.js';
+ import { transformOcrBoundingBox } from 'src/utils/transform.js';
+@@ -689,6 +690,10 @@ export class AssetService extends BaseService {
+             [file.root],
+             [file.rootIdentity],
+             asset.libraryId ?? 'managed',
++            // recheck above has already verified the current unique linked
++            // companion and the receipt. This is a per-file exception, never
++            // an addition to the user's permanent deletion policy roots.
++            file.path === asset.originalPath ? { assetId: asset.id, path: file.path } : undefined,
+           );
+         }),
+       ))
+@@ -1171,7 +1176,9 @@ export class AssetService extends BaseService {
+     roots: string[],
+     bound: DeletionRootIdentity[],
+     scope: string,
++    linkedOriginal?: { assetId: string; path: string },
+   ) {
++    let motionRoot: string | undefined;
+     if (scope === 'managed') {
+       const user = await this.userRepository.get(owner, {});
+       if (!user) throw new DeletionError('ASSET_NOT_OWNED');
+@@ -1179,6 +1186,10 @@ export class AssetService extends BaseService {
+         StorageCore.getFolderLocation(StorageFolder.Upload, owner),
+         StorageCore.getLibraryFolder(user),
+       ]);
++      if (linkedOriginal) {
++        motionRoot = managedMotionRootPath(owner, null, linkedOriginal.path, linkedOriginal.assetId);
++        if (motionRoot && roots.length === 1 && roots[0] === motionRoot) allowed.add(motionRoot);
++      }
+       if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+     } else {
+       const library = await this.libraryRepository.get(scope);
+@@ -1192,6 +1203,7 @@ export class AssetService extends BaseService {
+       ...others.users.flatMap((other) => [
+         StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
+         StorageCore.getLibraryFolder(other),
++        ...(motionRoot ? [StorageCore.getFolderLocation(StorageFolder.EncodedVideo, other.id)] : []),
+       ]),
+     ];
+     const current = await this.storageRepository.validateDeletionRoots(roots, otherRoots);
+diff --git a/server/src/utils/live-photo-deletion.filesystem.spec.ts b/server/src/utils/live-photo-deletion.filesystem.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..55daf3774ded9932433cef42b678e93a06370e4c
+--- /dev/null
++++ b/server/src/utils/live-photo-deletion.filesystem.spec.ts
+@@ -0,0 +1,232 @@
++import fs, { type FileHandle, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { dirname, join } from 'node:path';
++import { StorageCore } from 'src/cores/storage.core.js';
++import { AssetType, StorageFolder } from 'src/enum.js';
++import {
++  DeletionError,
++  bindQuarantine,
++  collectRootIdentities,
++  snapshotOriginal,
++  unlinkOriginal,
++} from 'src/utils/authorized-deletion.js';
++import { assertExclusiveLivePhoto, managedMotionRootPath } from 'src/utils/live-photo-deletion.js';
++
++const ownerId = '11111111-1111-4111-8111-111111111111';
++const otherOwnerId = '22222222-2222-4222-8222-222222222222';
++const parentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
++const motionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
++let directory: string;
++let motionPath: string;
++let encodedRoot: string;
++
++beforeEach(async () => {
++  directory = await mkdtemp(join(tmpdir(), 'gallery-live-photo-filesystem-'));
++  StorageCore.setMediaLocation(directory);
++  motionPath = StorageCore.getAndroidMotionPath({ id: motionId, ownerId }, motionId);
++  encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId);
++  await mkdir(dirname(motionPath), { recursive: true });
++  await writeFile(motionPath, 'synthetic motion original');
++});
++
++afterEach(async () => {
++  vi.restoreAllMocks();
++  await rm(directory, { recursive: true, force: true });
++});
++
++const rootForMotion = () => {
++  assertExclusiveLivePhoto(
++    { id: parentId, ownerId, libraryId: null, type: AssetType.Image, livePhotoVideoId: motionId },
++    { id: motionId, ownerId, libraryId: null, type: AssetType.Video, originalPath: motionPath },
++    [parentId],
++    ownerId,
++    null,
++  );
++  const root = managedMotionRootPath(ownerId, null, motionPath, motionId);
++  if (!root) throw new Error('test generated path must have a strict managed motion root');
++  return root;
++};
++
++const preparedMotion = async () => {
++  const [identity] = await collectRootIdentities([rootForMotion()]);
++  const bound = await bindQuarantine(identity);
++  return snapshotOriginal(motionPath, [bound]);
++};
++
++const onQuarantineOpen = (callback: (handle: FileHandle) => void) => {
++  const openActual = fs.open;
++  vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
++    const handle = await openActual(path, flags, mode);
++    if (String(path).endsWith('/.gallery-deletion-quarantine')) callback(handle);
++    return handle;
++  });
++};
++
++describe('synthetic Live Photo originals through real descriptor-relative filesystem operations', () => {
++  it('removes the linked image and motion original from separate bounded roots without granting their parent', async () => {
++    const imageRoot = join(directory, 'upload', ownerId);
++    const imagePath = join(imageRoot, 'synthetic.jpg');
++    await mkdir(imageRoot, { recursive: true });
++    await writeFile(imagePath, 'synthetic image original');
++    const [imageIdentity] = await collectRootIdentities([imageRoot]);
++    const imageProof = await snapshotOriginal(imagePath, [await bindQuarantine(imageIdentity)]);
++    const motionProof = await preparedMotion();
++    await unlinkOriginal(imageProof);
++    await unlinkOriginal(motionProof);
++    await expect(readFile(imagePath)).rejects.toHaveProperty('code', 'ENOENT');
++    await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
++    expect(motionProof.root).toBe(encodedRoot);
++    expect(imageProof.root).toBe(imageRoot);
++  });
++
++  it('does not authorize another owner physical original under the motion root', async () => {
++    const other = StorageCore.getAndroidMotionPath({ id: motionId, ownerId: otherOwnerId }, motionId);
++    await mkdir(dirname(other), { recursive: true });
++    await writeFile(other, 'other owner must survive');
++    await expect(snapshotOriginal(other, await collectRootIdentities([rootForMotion()]))).rejects.toMatchObject({
++      code: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT',
++    });
++    expect(await readFile(other, 'utf8')).toBe('other owner must survive');
++  });
++
++  it('rejects a symlink in the motion original path without touching its target', async () => {
++    const outside = join(directory, 'outside.mp4');
++    await writeFile(outside, 'outside original');
++    await rm(motionPath);
++    await symlink(outside, motionPath);
++    await expect(snapshotOriginal(motionPath, await collectRootIdentities([rootForMotion()]))).rejects.toBeDefined();
++    expect(await readFile(outside, 'utf8')).toBe('outside original');
++  });
++
++  it('rejects ancestor symlink substitution before creating an SSD proof', async () => {
++    const identities = await collectRootIdentities([rootForMotion()]);
++    const encodedParent = dirname(encodedRoot);
++    const saved = encodedParent + '.saved';
++    await fs.rename(encodedParent, saved);
++    await mkdir(join(directory, 'outside', ownerId), { recursive: true });
++    await symlink(join(directory, 'outside'), encodedParent);
++    await expect(snapshotOriginal(motionPath, identities)).rejects.toMatchObject({ code: 'DELETION_ROOT_CHANGED' });
++    expect(
++      await readFile(
++        motionPath.replace(encodedParent, () => saved),
++        'utf8',
++      ),
++    ).toBe('synthetic motion original');
++  });
++
++  it('rejects a replaced root after snapshot and preserves both original and replacement', async () => {
++    const proof = await preparedMotion();
++    await fs.rename(encodedRoot, encodedRoot + '.saved');
++    await mkdir(dirname(motionPath), { recursive: true });
++    await writeFile(motionPath, 'replacement must survive');
++    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'DELETION_ROOT_CHANGED' });
++    expect(await readFile(motionPath, 'utf8')).toBe('replacement must survive');
++    expect(
++      await readFile(
++        motionPath.replace(encodedRoot, () => encodedRoot + '.saved'),
++        'utf8',
++      ),
++    ).toBe('synthetic motion original');
++  });
++
++  it('rejects an inode replacement after snapshot', async () => {
++    const proof = await preparedMotion();
++    await fs.rename(motionPath, motionPath + '.saved');
++    await writeFile(motionPath, 'replacement must survive');
++    await expect(unlinkOriginal(proof)).rejects.toMatchObject({ code: 'ORIGINAL_IDENTITY_CHANGED' });
++    expect(await readFile(motionPath, 'utf8')).toBe('replacement must survive');
++    expect(await readFile(motionPath + '.saved', 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('blocks traversal before any original is moved', async () => {
++    expect(() => managedMotionRootPath(ownerId, null, motionPath + '/../unrelated.mp4', motionId)).toThrow();
++    await expect(
++      snapshotOriginal(`${encodedRoot}/../${otherOwnerId}/photo`, await collectRootIdentities([encodedRoot])),
++    ).rejects.toBeDefined();
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('rejects a changed filesystem mount identity', async () => {
++    const [identity] = await collectRootIdentities([rootForMotion()]);
++    await expect(snapshotOriginal(motionPath, [{ ...identity, mountId: 'different-mount' }])).rejects.toMatchObject({
++      code: 'DELETION_ROOT_CHANGED',
++    });
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('does not adopt an unregistered existing SSD quarantine', async () => {
++    await mkdir(join(encodedRoot, '.gallery-deletion-quarantine'), { mode: 0o700 });
++    const [identity] = await collectRootIdentities([rootForMotion()]);
++    await expect(bindQuarantine(identity)).rejects.toMatchObject({ code: 'DELETION_QUARANTINE_CONFLICT' });
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('preserves the original when descriptor chmod fails', async () => {
++    onQuarantineOpen((handle) => {
++      vi.spyOn(handle, 'chmod').mockRejectedValue(
++        Object.assign(new Error('synthetic chmod failure'), { code: 'EPERM' }),
++      );
++    });
++    const [identity] = await collectRootIdentities([rootForMotion()]);
++    await expect(bindQuarantine(identity)).rejects.toHaveProperty('code', 'EPERM');
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('preserves the original when quarantine fsync fails', async () => {
++    onQuarantineOpen((handle) => {
++      vi.spyOn(handle, 'sync').mockRejectedValue(Object.assign(new Error('synthetic fsync failure'), { code: 'EIO' }));
++    });
++    const [identity] = await collectRootIdentities([rootForMotion()]);
++    await expect(bindQuarantine(identity)).rejects.toHaveProperty('code', 'EIO');
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('checks owner consent again before moving a motion original', async () => {
++    const proof = await preparedMotion();
++    await expect(
++      unlinkOriginal(proof, () => Promise.reject(new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED'))),
++    ).rejects.toMatchObject({ code: 'LIBRARY_DELETION_NOT_AUTHORIZED' });
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++    expect(await fs.readdir(join(encodedRoot, '.gallery-deletion-quarantine'))).toEqual([]);
++  });
++
++  it('retains the exact journal-named original after interruption and resumes without guessing', async () => {
++    const proof = await preparedMotion();
++    let checks = 0;
++    await expect(
++      unlinkOriginal(proof, () => {
++        if (++checks === 2) return Promise.reject(new DeletionError('SIMULATED_OWNER_CHECK_INTERRUPTION'));
++        return Promise.resolve();
++      }),
++    ).rejects.toMatchObject({ code: 'SIMULATED_OWNER_CHECK_INTERRUPTION' });
++    const captured = join(encodedRoot, '.gallery-deletion-quarantine', proof.quarantineName);
++    expect(await readFile(captured, 'utf8')).toBe('synthetic motion original');
++    await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
++    await unlinkOriginal(JSON.parse(JSON.stringify(proof)));
++    await expect(readFile(captured)).rejects.toHaveProperty('code', 'ENOENT');
++  });
++
++  it('captures a last-moment replacement but never destroys it', async () => {
++    const proof = await preparedMotion();
++    let checks = 0;
++    await expect(
++      unlinkOriginal(proof, async () => {
++        if (checks++ !== 0) return;
++        await fs.rename(motionPath, motionPath + '.saved');
++        await writeFile(motionPath, 'raced replacement must survive');
++      }),
++    ).rejects.toMatchObject({ code: 'ORIGINAL_IDENTITY_CHANGED' });
++    expect(await readFile(motionPath, 'utf8')).toBe('raced replacement must survive');
++    expect(await readFile(motionPath + '.saved', 'utf8')).toBe('synthetic motion original');
++  });
++
++  it('refuses a hard-linked motion original while preserving all shared bytes', async () => {
++    const alias = join(directory, 'another-owner-reference.mp4');
++    await fs.link(motionPath, alias);
++    await expect(snapshotOriginal(motionPath, await collectRootIdentities([rootForMotion()]))).rejects.toMatchObject({
++      code: 'ORIGINAL_NOT_EXCLUSIVE_REGULAR_FILE',
++    });
++    expect(await readFile(motionPath, 'utf8')).toBe('synthetic motion original');
++    expect(await readFile(alias, 'utf8')).toBe('synthetic motion original');
++  });
++});
+diff --git a/server/src/utils/live-photo-deletion.spec.ts b/server/src/utils/live-photo-deletion.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..becc3f4e36b1c62254a231d2da52ba1d5ccbedf6
+--- /dev/null
++++ b/server/src/utils/live-photo-deletion.spec.ts
+@@ -0,0 +1,106 @@
++import { join } from 'node:path';
++import { StorageCore } from 'src/cores/storage.core.js';
++import { AssetType, StorageFolder } from 'src/enum.js';
++import { assertExclusiveLivePhoto, managedMotionRootPath } from 'src/utils/live-photo-deletion.js';
++
++const ownerId = '11111111-1111-4111-8111-111111111111';
++const otherOwnerId = '22222222-2222-4222-8222-222222222222';
++const parentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
++const motionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
++const libraryId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
++
++const parent = () => ({ id: parentId, ownerId, libraryId: null, type: AssetType.Image, livePhotoVideoId: motionId });
++const child = () => ({
++  id: motionId,
++  ownerId,
++  libraryId: null,
++  type: AssetType.Video,
++  originalPath: StorageCore.getAndroidMotionPath({ id: motionId, ownerId }, motionId),
++});
++
++beforeEach(() => {
++  StorageCore.setMediaLocation('/synthetic-gallery');
++});
++
++describe('Live Photo pair authorization', () => {
++  it('accepts the exclusively linked managed motion asset', () => {
++    expect(() => assertExclusiveLivePhoto(parent(), child(), [parentId], ownerId, null)).not.toThrow();
++  });
++
++  it('accepts an exclusive pair in the same external library without granting a managed root', () => {
++    const image = { ...parent(), libraryId };
++    const video = { ...child(), libraryId };
++    expect(() => assertExclusiveLivePhoto(image, video, [parentId], ownerId, libraryId)).not.toThrow();
++  });
++
++  it.each([
++    ['motion owner', () => [parent(), { ...child(), ownerId: otherOwnerId }, ownerId, null] as const],
++    ['image owner', () => [{ ...parent(), ownerId: otherOwnerId }, child(), ownerId, null] as const],
++    ['request owner', () => [parent(), child(), otherOwnerId, null] as const],
++    ['motion library', () => [parent(), { ...child(), libraryId }, ownerId, null] as const],
++    ['image library', () => [{ ...parent(), libraryId }, child(), ownerId, null] as const],
++    ['request library', () => [parent(), child(), ownerId, libraryId] as const],
++    ['motion type', () => [parent(), { ...child(), type: AssetType.Image }, ownerId, null] as const],
++    ['link target', () => [{ ...parent(), livePhotoVideoId: parentId }, child(), ownerId, null] as const],
++    [
++      'self-referencing motion',
++      () => [{ ...parent(), livePhotoVideoId: parentId }, { ...child(), id: parentId }, ownerId, null] as const,
++    ],
++  ])('rejects a mismatched %s', (_label, make) => {
++    const [image, video, requestOwner, requestLibrary] = make();
++    expect(() => assertExclusiveLivePhoto(image, video, [parentId], requestOwner, requestLibrary)).toThrowError(
++      'MOTION_SCOPE_MISMATCH',
++    );
++  });
++
++  it.each([
++    ['missing', []],
++    ['another parent', [motionId]],
++    ['two parents', [parentId, motionId]],
++    ['duplicated reference', [parentId, parentId]],
++  ])('rejects %s live-photo references', (_label, references) => {
++    expect(() => assertExclusiveLivePhoto(parent(), child(), references, ownerId, null)).toThrowError(
++      'ORIGINAL_SHARED_WITH_OTHER_ASSET',
++    );
++  });
++});
++
++describe('strict managed motion storage mapping', () => {
++  it('returns only the exact encoded-video owner directory for the canonical generated asset path', () => {
++    expect(managedMotionRootPath(ownerId, null, child().originalPath, motionId)).toBe(
++      StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId),
++    );
++  });
++
++  it('leaves an ordinary managed original under the existing policy', () => {
++    expect(
++      managedMotionRootPath(ownerId, null, `/synthetic-gallery/upload/${ownerId}/video.mp4`, motionId),
++    ).toBeUndefined();
++  });
++
++  it('does not grant another owner encoded-video directory', () => {
++    const other = StorageCore.getAndroidMotionPath({ id: motionId, ownerId: otherOwnerId }, motionId);
++    expect(managedMotionRootPath(ownerId, null, other, motionId)).toBeUndefined();
++  });
++
++  it('does not grant a prefix sibling of the encoded-video owner directory', () => {
++    const sibling = `${StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId)}-sibling/video.mp4`;
++    expect(managedMotionRootPath(ownerId, null, sibling, motionId)).toBeUndefined();
++  });
++
++  it('never extends an external library policy to managed encoded storage', () => {
++    expect(() => managedMotionRootPath(ownerId, libraryId, child().originalPath, motionId)).toThrow();
++  });
++
++  it.each([
++    [
++      'ordinary mp4 filename',
++      () => join(StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId), 'video.mp4'),
++    ],
++    ['different asset id', () => child().originalPath.replace(motionId + '-MP', () => parentId + '-MP')],
++    ['path traversal', () => child().originalPath + '/../unrelated.mp4'],
++    ['noncanonical separators', () => child().originalPath.replace('/encoded-video/', '/encoded-video//')],
++  ])('rejects %s rather than authorizing by directory or extension alone', (_label, makePath) => {
++    expect(() => managedMotionRootPath(ownerId, null, makePath(), motionId)).toThrow();
++  });
++});
+diff --git a/server/src/utils/live-photo-deletion.ts b/server/src/utils/live-photo-deletion.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ed994e4a789135ee7496c386fcbbd2994e7f188
+--- /dev/null
++++ b/server/src/utils/live-photo-deletion.ts
+@@ -0,0 +1,51 @@
++import { isAbsolute, resolve } from 'node:path';
++import { StorageCore } from 'src/cores/storage.core.js';
++import { AssetType, StorageFolder } from 'src/enum.js';
++import { DeletionError } from 'src/utils/authorized-deletion.js';
++
++type Parent = {
++  id: string;
++  ownerId: string;
++  libraryId: string | null;
++  type: AssetType;
++  livePhotoVideoId: string | null;
++};
++type Motion = { id: string; ownerId: string; libraryId: string | null; type: AssetType; originalPath: string };
++
++/** The relationship, not a filename or a directory prefix, authorizes a companion. */
++export function assertExclusiveLivePhoto(
++  parent: Parent,
++  child: Motion,
++  referenceIds: string[],
++  ownerId: string,
++  libraryId: string | null,
++): void {
++  if (
++    parent.type !== AssetType.Image ||
++    parent.ownerId !== ownerId ||
++    child.ownerId !== ownerId ||
++    parent.libraryId !== libraryId ||
++    child.libraryId !== libraryId ||
++    parent.livePhotoVideoId !== child.id ||
++    child.id === parent.id ||
++    child.type !== AssetType.Video
++  )
++    throw new DeletionError('MOTION_SCOPE_MISMATCH');
++  if (referenceIds.length !== 1 || referenceIds[0] !== parent.id)
++    throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
++}
++
++/** This exception cannot extend an external library's explicitly authorized roots. */
++export function managedMotionRootPath(
++  ownerId: string,
++  libraryId: string | null,
++  path: string,
++  assetId: string,
++): string | undefined {
++  if (!isAbsolute(path) || resolve(path) !== path) throw new DeletionError('MOTION_SCOPE_MISMATCH');
++  const root = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId);
++  if (!path.startsWith(`${root}/`)) return;
++  if (libraryId !== null || path !== StorageCore.getAndroidMotionPath({ id: assetId, ownerId }, assetId))
++    throw new DeletionError('MOTION_SCOPE_MISMATCH');
++  return root;
++}
+diff --git a/server/test/medium/specs/services/livephoto-scoped-deletion.spec.ts b/server/test/medium/specs/services/livephoto-scoped-deletion.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..105aea891659b96e0c7a040708f73c4d496e93d6
+--- /dev/null
++++ b/server/test/medium/specs/services/livephoto-scoped-deletion.spec.ts
+@@ -0,0 +1,573 @@
++import { Kysely } from 'kysely';
++import { randomUUID } from 'node:crypto';
++import fs from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { dirname, join } from 'node:path';
++import { StorageCore } from 'src/cores/storage.core.js';
++import { AssetFileType, AssetStatus, AssetType, AssetVisibility, JobStatus, StorageFolder } from 'src/enum.js';
++import { AccessRepository } from 'src/repositories/access.repository.js';
++import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
++import { AssetRepository } from 'src/repositories/asset.repository.js';
++import { LibraryRepository } from 'src/repositories/library.repository.js';
++import { LoggingRepository } from 'src/repositories/logging.repository.js';
++import { StorageRepository } from 'src/repositories/storage.repository.js';
++import { UserRepository } from 'src/repositories/user.repository.js';
++import { DB } from 'src/schema/index.js';
++import { AssetService } from 'src/services/asset.service.js';
++import {
++  DeletionError,
++  collectRootIdentities,
++  snapshotOriginal,
++  unlinkOriginal,
++} from 'src/utils/authorized-deletion.js';
++import { authStub } from 'test/fixtures/auth.stub.js';
++import { newMediumService } from 'test/medium.factory.js';
++import { emulateNfsRootSquash } from 'test/nfs-quarantine.js';
++import { createTestRecoveryEvidenceStore } from 'test/recovery-evidence.js';
++import { getKyselyDB, newTestService } from 'test/utils.js';
++
++let db: Kysely<DB>;
++let base: string;
++let evidence: Awaited<ReturnType<typeof createTestRecoveryEvidenceStore>>;
++beforeAll(async () => {
++  db = await getKyselyDB();
++});
++afterAll(async () => {
++  await db.destroy();
++});
++beforeEach(async () => {
++  base = await fs.mkdtemp(join(tmpdir(), 'gallery-livephoto-scoped-'));
++  evidence = await createTestRecoveryEvidenceStore();
++});
++afterEach(async () => {
++  vi.restoreAllMocks();
++  await evidence.cleanup();
++  await fs.rm(base, { recursive: true, force: true });
++});
++
++// The two stores are distinct disposable directories. The NFS helper injects
++// only server metadata/mkdir behavior; hashing, chmod, fsync, rename and unlink
++// operate on real files. These fixtures do not claim actual NFS server testing.
++const fixture = async (external = false) => {
++  const { ctx } = newMediumService(AssetService, { database: db, real: [AssetRepository], mock: [LoggingRepository] });
++  const { user } = await ctx.newUser();
++  const upload = join(base, 'upload', user.id);
++  const encodedBase = join(base, 'encoded-video');
++  await fs.mkdir(upload, { recursive: true });
++  await fs.mkdir(join(encodedBase, user.id), { recursive: true });
++  const getBase = StorageCore.getBaseFolder;
++  const getFolder = StorageCore.getFolderLocation;
++  const getLibrary = StorageCore.getLibraryFolder;
++  vi.spyOn(StorageCore, 'getBaseFolder').mockImplementation((folder) =>
++    folder === StorageFolder.EncodedVideo ? encodedBase : getBase(folder),
++  );
++  vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
++    folder === StorageFolder.Upload && owner === user.id ? upload : getFolder(folder, owner),
++  );
++  vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
++    owner.id === user.id ? upload : getLibrary(owner),
++  );
++  const { library } = external ? await ctx.newLibrary({ ownerId: user.id }) : { library: undefined };
++  if (library) await new LibraryRepository(db).update(library.id, { importPaths: [upload] });
++  const scope = library?.id ?? 'managed';
++  const repo = new AssetRepository(db);
++  const storage = new StorageRepository(ctx.getMock(LoggingRepository));
++  const test = newTestService(AssetService, {
++    asset: repo,
++    access: new AccessRepository(db),
++    assetJob: new AssetJobRepository(db),
++    storage,
++  });
++  test.mocks.user.get.mockImplementation((id, options) => new UserRepository(db).get(id, options));
++  const libraries = new LibraryRepository(db);
++  test.mocks.library.get.mockImplementation((id, deleted) => libraries.get(id, deleted));
++  test.mocks.library.getAll.mockImplementation(() => libraries.getAll());
++  test.mocks.sharedSpace.getSpacePersonsForAsset.mockResolvedValue([]);
++  test.mocks.event.emit.mockResolvedValue();
++  test.mocks.user.updateUsage.mockResolvedValue();
++  test.mocks.job.queue.mockResolvedValue();
++  const auth = { ...authStub.user1, user: { ...authStub.user1.user, id: user.id } };
++  const authorize = async () => {
++    const identities = await collectRootIdentities([upload]);
++    const proof = await evidence.install(user.id, scope, identities);
++    await repo.setDeletionPolicy(user.id, scope, {
++      enabled: true,
++      roots: [upload],
++      rootIdentities: identities,
++      recoveryExpiresAt: new Date(proof.expiresAt),
++      recoveryProof: proof.digest,
++      authorizedBy: user.id,
++    });
++  };
++  const pair = async () => {
++    const jpgPath = join(upload, randomUUID() + '.jpg');
++    await fs.writeFile(jpgPath, 'synthetic still ' + jpgPath);
++    const { asset: jpg } = await ctx.newAsset({
++      ownerId: user.id,
++      libraryId: library?.id ?? null,
++      isExternal: external,
++      originalPath: jpgPath,
++      type: AssetType.Image,
++      visibility: AssetVisibility.Timeline,
++      status: AssetStatus.Trashed,
++      deletedAt: new Date(),
++    });
++    const { asset: mp4 } = await ctx.newAsset({
++      ownerId: user.id,
++      libraryId: library?.id ?? null,
++      isExternal: external,
++      originalPath: join(upload, 'unused-' + randomUUID() + '.mp4'),
++      type: AssetType.Video,
++      visibility: AssetVisibility.Hidden,
++    });
++    const motionPath = StorageCore.getAndroidMotionPath(mp4, mp4.id);
++    await fs.mkdir(dirname(motionPath), { recursive: true });
++    await fs.writeFile(motionPath, 'synthetic motion ' + mp4.id);
++    await db.updateTable('asset').set({ originalPath: motionPath }).where('id', '=', mp4.id).execute();
++    await db.updateTable('asset').set({ livePhotoVideoId: mp4.id }).where('id', '=', jpg.id).execute();
++    return { jpg: { ...jpg, livePhotoVideoId: mp4.id }, mp4: { ...mp4, originalPath: motionPath } };
++  };
++  return { ctx, user, upload, encodedBase, repo, storage, auth, authorize, pair, scope, ...test };
++};
++type Fixture = Awaited<ReturnType<typeof fixture>>;
++type Pair = Awaited<ReturnType<Fixture['pair']>>;
++const receipts = (pair: Pair) =>
++  db
++    .selectFrom('asset_deletion_tombstone')
++    .selectAll()
++    .where('operationId', '=', pair.jpg.id)
++    .orderBy('assetId')
++    .execute();
++const intact = async (pair: Pair) => {
++  expect(await fs.readFile(pair.jpg.originalPath, 'utf8')).toContain('synthetic still');
++  expect(await fs.readFile(pair.mp4.originalPath, 'utf8')).toContain('synthetic motion');
++};
++const complete = async (f: Fixture, pair: Pair) => {
++  const result = await f.sut.permanentlyDelete(f.auth, [pair.jpg.id]);
++  expect(result, JSON.stringify(result)).toEqual([{ id: pair.jpg.id, scope: f.scope, state: 'complete' }]);
++  await expect(fs.readFile(pair.jpg.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++  await expect(fs.readFile(pair.mp4.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++  expect(await db.selectFrom('asset').select('id').where('id', 'in', [pair.jpg.id, pair.mp4.id]).execute()).toEqual([]);
++  const stored = await receipts(pair);
++  expect(stored.map(({ state }) => state)).toEqual(['complete', 'complete']);
++};
++
++describe('owner-scoped Live Photo originals across upload and encoded-video stores', () => {
++  it('completes ordinary JPG deletion without authorizing the encoded-video root', async () => {
++    const f = await fixture();
++    await emulateNfsRootSquash(f.upload);
++    await f.authorize();
++    const originalPath = join(f.upload, 'ordinary.jpg');
++    await fs.writeFile(originalPath, 'disposable ordinary photo');
++    const { asset } = await f.ctx.newAsset({
++      ownerId: f.user.id,
++      originalPath,
++      status: AssetStatus.Trashed,
++      deletedAt: new Date(),
++    });
++    expect(await f.sut.permanentlyDelete(f.auth, [asset.id])).toEqual([
++      { id: asset.id, scope: 'managed', state: 'complete' },
++    ]);
++    await expect(fs.readFile(originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
++    expect(policy?.roots).toEqual([f.upload]);
++  });
++
++  it('deletes both originals with upload-only authorization, preserving exact child proof and narrow policy', async () => {
++    const f = await fixture();
++    await emulateNfsRootSquash(f.upload);
++    await f.authorize();
++    const pair = await f.pair();
++    await complete(f, pair);
++    const stored = await receipts(pair);
++    const child = stored.find(({ assetId }) => assetId === pair.mp4.id)!;
++    expect(child.files).toHaveLength(1);
++    expect(child.files[0].path).toBe(StorageCore.getAndroidMotionPath(pair.mp4, pair.mp4.id));
++    expect(child.files[0].root).toBe(join(f.encodedBase, f.user.id));
++    expect(child.files[0].rootIdentity.quarantineIdentity).toBeDefined();
++    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
++    expect(policy?.roots).toEqual([f.upload]);
++    expect(policy?.rootIdentities.map(({ path }) => path)).toEqual([f.upload]);
++  });
++
++  it('reuses only a previously committed encoded quarantine for a second different Live Photo', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const first = await f.pair();
++    const second = await f.pair();
++    await complete(f, first);
++    await complete(f, second);
++    const firstReceipts = await receipts(first);
++    const secondReceipts = await receipts(second);
++    const firstChild = firstReceipts.find(({ assetId }) => assetId === first.mp4.id)!;
++    const secondChild = secondReceipts.find(({ assetId }) => assetId === second.mp4.id)!;
++    expect(secondChild.files[0].rootIdentity.quarantineIdentity).toEqual(
++      firstChild.files[0].rootIdentity.quarantineIdentity,
++    );
++  });
++
++  it('retries the deployed files-empty failed tombstones without direct journal edits', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
++    await expect(
++      // Reproduce the old runtime's actual upload-only snapshot call, not a
++      // fabricated error. The new runtime retries these unchanged receipts.
++      f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, (path) => snapshotOriginal(path, policy!.rootIdentities)),
++    ).rejects.toMatchObject({ code: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT' });
++    const failed = await receipts(pair);
++    expect(failed).toHaveLength(2);
++    expect(failed.map(({ state, files, errorCode }) => ({ state, files, errorCode }))).toEqual([
++      { state: 'failed', files: [], errorCode: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT' },
++      { state: 'failed', files: [], errorCode: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT' },
++    ]);
++    await intact(pair);
++    await complete(f, pair);
++  });
++
++  it.each(['owner', 'library'] as const)(
++    'rejects a child with another %s before either original changes',
++    async (field) => {
++      const f = await fixture();
++      await f.authorize();
++      const pair = await f.pair();
++      const { user: another } = await f.ctx.newUser();
++      const { library: anotherLibrary } = await f.ctx.newLibrary({ ownerId: f.user.id });
++      const values = field === 'owner' ? { ownerId: another.id } : { libraryId: anotherLibrary.id };
++      await db.updateTable('asset').set(values).where('id', '=', pair.mp4.id).execute();
++      await expect(f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
++        code: 'MOTION_SCOPE_MISMATCH',
++      });
++      await intact(pair);
++      expect(await receipts(pair)).toEqual([]);
++    },
++  );
++
++  it('rejects a motion asset linked by another still without deleting the selected JPG', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await f.ctx.newAsset({ ownerId: f.user.id, livePhotoVideoId: pair.mp4.id });
++    await expect(f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal)).rejects.toBeDefined();
++    await intact(pair);
++    expect(await receipts(pair)).toEqual([]);
++  });
++
++  it.each(['asset', 'sidecar'] as const)('rejects a motion original shared as another %s', async (reference) => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    const { asset: other } = await f.ctx.newAsset({
++      ownerId: f.user.id,
++      originalPath: reference === 'asset' ? pair.mp4.originalPath : join(f.upload, 'other.jpg'),
++    });
++    if (reference === 'sidecar')
++      await db
++        .insertInto('asset_file')
++        .values({ assetId: other.id, type: AssetFileType.Sidecar, path: pair.mp4.originalPath })
++        .execute();
++    await expect(f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
++      code: 'ORIGINAL_SHARED_WITH_OTHER_ASSET',
++    });
++    await intact(pair);
++  });
++
++  it.each(['different-name', 'other-owner-root', 'outside-stores', 'traversal'] as const)(
++    'rejects a linked MP4 at %s instead of the exact owner motion path',
++    async (kind) => {
++      const f = await fixture();
++      await f.authorize();
++      const pair = await f.pair();
++      const original = pair.mp4.originalPath;
++      const path =
++        kind === 'different-name'
++          ? join(dirname(original), 'guessed.mp4')
++          : kind === 'other-owner-root'
++            ? join(f.encodedBase, randomUUID(), 'foreign-MP.mp4')
++            : kind === 'outside-stores'
++              ? join(base, 'unrelated.mp4')
++              : dirname(original) + '/nested/../' + original.split('/').at(-1);
++      if (kind !== 'traversal') {
++        await fs.mkdir(dirname(path), { recursive: true });
++        await fs.rename(original, path);
++      }
++      await db.updateTable('asset').set({ originalPath: path }).where('id', '=', pair.mp4.id).execute();
++      const result = await f.sut.permanentlyDelete(f.auth, [pair.jpg.id]);
++      expect(result[0].state).not.toBe('complete');
++      expect(await fs.readFile(pair.jpg.originalPath, 'utf8')).toContain('synthetic still');
++      expect(await fs.readFile(kind === 'traversal' ? original : path, 'utf8')).toContain('synthetic motion');
++    },
++  );
++
++  it('does not extend external-library authorization to managed encoded-video storage', async () => {
++    const f = await fixture(true);
++    await f.authorize();
++    const pair = await f.pair();
++    const result = await f.sut.permanentlyDelete(f.auth, [pair.jpg.id]);
++    expect(result[0].state).not.toBe('complete');
++    await intact(pair);
++  });
++
++  it('rejects an encoded-root ancestor symlink while preserving its outside target', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    const moved = f.encodedBase + '.saved';
++    await fs.rename(f.encodedBase, moved);
++    await fs.symlink(moved, f.encodedBase);
++    const result = await f.sut.permanentlyDelete(f.auth, [pair.jpg.id]);
++    expect(result[0].state).not.toBe('complete');
++    await intact(pair);
++  });
++
++  it('rejects a changed encoded-root inode after the snapshot without removing either original', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    const ownerRoot = join(f.encodedBase, f.user.id);
++    await fs.rename(ownerRoot, ownerRoot + '.saved');
++    await fs.mkdir(ownerRoot);
++    await expect(f.repo.removeAuthorizedOriginals(pair.mp4.id, unlinkOriginal)).rejects.toBeDefined();
++    expect(await fs.readFile(pair.jpg.originalPath, 'utf8')).toContain('synthetic still');
++    expect(await fs.readFile(ownerRoot + '.saved' + pair.mp4.originalPath.slice(ownerRoot.length), 'utf8')).toContain(
++      'synthetic motion',
++    );
++  });
++
++  it('retries after temporary upload/NFS unavailability without authorizing another root', async () => {
++    const f = await fixture();
++    await emulateNfsRootSquash(f.upload);
++    await f.authorize();
++    const pair = await f.pair();
++    const openActual = vi.mocked(fs.open).getMockImplementation()!;
++    const open = vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
++      if (String(path).endsWith('/upload'))
++        throw Object.assign(new Error('Synthetic NFS timeout'), { code: 'ETIMEDOUT' });
++      return openActual(path, flags, mode);
++    });
++    const result = await f.sut.permanentlyDelete(f.auth, [pair.jpg.id]);
++    expect(result[0].state).not.toBe('complete');
++    await intact(pair);
++    open.mockImplementation(openActual);
++    await complete(f, pair);
++  });
++
++  it('resumes after child row/file completion and a subsequent still unlink failure', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    const unlink = f.storage.unlinkOriginal.bind(f.storage);
++    let fail = true;
++    vi.spyOn(f.storage, 'unlinkOriginal').mockImplementation(async (file, recheck) => {
++      if (fail && file.path === pair.jpg.originalPath) throw new DeletionError('SYNTHETIC_STILL_IO_FAILURE');
++      return unlink(file, recheck);
++    });
++    const result = await f.sut.permanentlyDelete(f.auth, [pair.jpg.id]);
++    expect(result[0].state).toBe('failed');
++    expect(await fs.readFile(pair.jpg.originalPath, 'utf8')).toContain('synthetic still');
++    await expect(fs.readFile(pair.mp4.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++    expect(await db.selectFrom('asset').select('id').where('id', '=', pair.mp4.id).executeTakeFirst()).toBeUndefined();
++    fail = false;
++    await complete(f, pair);
++  });
++
++  it('rejects a non-video asset even when its original has the exact motion pathname', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await db.updateTable('asset').set({ type: AssetType.Image }).where('id', '=', pair.mp4.id).execute();
++    await expect(f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
++      code: 'MOTION_SCOPE_MISMATCH',
++    });
++    await intact(pair);
++  });
++
++  it('rejects a replaced motion inode after preparation and preserves the replacement and original', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    await fs.rename(pair.mp4.originalPath, pair.mp4.originalPath + '.saved');
++    await fs.writeFile(pair.mp4.originalPath, 'synthetic replacement must survive');
++    await expect(f.repo.removeAuthorizedOriginals(pair.mp4.id, unlinkOriginal)).rejects.toMatchObject({
++      code: 'ORIGINAL_IDENTITY_CHANGED',
++    });
++    expect(await fs.readFile(pair.jpg.originalPath, 'utf8')).toContain('synthetic still');
++    expect(await fs.readFile(pair.mp4.originalPath, 'utf8')).toBe('synthetic replacement must survive');
++    expect(await fs.readFile(pair.mp4.originalPath + '.saved', 'utf8')).toContain('synthetic motion');
++  });
++
++  it.each([false, true])(
++    'rejects a second still linked after preparation before any child capture (encoded=%s)',
++    async (encoded) => {
++      const f = await fixture();
++      await f.authorize();
++      const pair = await f.pair();
++      if (!encoded) {
++        const inside = join(f.upload, 'ordinary-live-video.mov');
++        await fs.writeFile(inside, 'synthetic motion inside policy');
++        await db.updateTable('asset').set({ originalPath: inside }).where('id', '=', pair.mp4.id).execute();
++        pair.mp4.originalPath = inside;
++      }
++      await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++      await f.ctx.newAsset({ ownerId: f.user.id, livePhotoVideoId: pair.mp4.id });
++      await expect(f.repo.removeAuthorizedOriginals(pair.mp4.id, unlinkOriginal)).rejects.toMatchObject({
++        code: 'ORIGINAL_SHARED_WITH_OTHER_ASSET',
++      });
++      await intact(pair);
++    },
++  );
++
++  it('retains normal linking but refuses to link a resource after irreversible deletion was claimed', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    // Reaffirming a live relationship still follows the existing update API.
++    expect(await f.repo.update({ id: pair.jpg.id, livePhotoVideoId: pair.mp4.id })).toBeDefined();
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    const { asset: later } = await f.ctx.newAsset({ ownerId: f.user.id });
++    await expect(f.repo.update({ id: later.id, livePhotoVideoId: pair.mp4.id })).rejects.toMatchObject({
++      code: 'MOTION_SCOPE_MISMATCH',
++    });
++    await intact(pair);
++    await complete(f, pair);
++  });
++
++  it('a link started during physical deletion cannot commit a new reference after files are removed', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    const { asset: later } = await f.ctx.newAsset({ ownerId: f.user.id });
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    let linking: Promise<unknown> | undefined;
++    await f.repo.removeAuthorizedOriginals(pair.mp4.id, (proof, recheck) =>
++      unlinkOriginal(proof, async () => {
++        await recheck();
++        linking ??= f.repo
++          .update({ id: later.id, livePhotoVideoId: pair.mp4.id })
++          .then(() => 'unexpected successful link')
++          .catch((error: unknown) => error);
++      }),
++    );
++    expect(await linking).toMatchObject({ code: 'MOTION_SCOPE_MISMATCH' });
++    expect(
++      await db.selectFrom('asset').select('livePhotoVideoId').where('id', '=', later.id).executeTakeFirst(),
++    ).toEqual({
++      livePhotoVideoId: null,
++    });
++    await complete(f, pair);
++  });
++
++  it('refuses a substituted previously registered SSD quarantine for a different Live Photo', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const first = await f.pair();
++    await complete(f, first);
++    const second = await f.pair();
++    const quarantine = join(f.encodedBase, f.user.id, '.gallery-deletion-quarantine');
++    await fs.rename(quarantine, quarantine + '.forensic');
++    await fs.mkdir(quarantine, { mode: 0o700 });
++    await f.repo.preparePermanentDeletion(second.jpg.id, f.user.id, snapshotOriginal);
++    await expect(f.repo.removeAuthorizedOriginals(second.mp4.id, unlinkOriginal)).rejects.toMatchObject({
++      code: 'DELETION_QUARANTINE_CONFLICT',
++    });
++    await intact(second);
++  });
++
++  it('concurrent different Live Photos reuse one trusted SSD quarantine without duplicate capture', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const first = await f.pair();
++    const second = await f.pair();
++    await Promise.all([complete(f, first), complete(f, second)]);
++    const firstReceipts = await receipts(first);
++    const secondReceipts = await receipts(second);
++    const a = firstReceipts.find(({ assetId }) => assetId === first.mp4.id)!;
++    const b = secondReceipts.find(({ assetId }) => assetId === second.mp4.id)!;
++    expect(a.files[0].rootIdentity.quarantineIdentity).toEqual(b.files[0].rootIdentity.quarantineIdentity);
++  });
++
++  it('never adopts an unregistered encoded quarantine merely because it is private and owner-matching', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    const quarantine = join(f.encodedBase, f.user.id, '.gallery-deletion-quarantine');
++    await fs.mkdir(quarantine, { mode: 0o700 });
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    await expect(f.repo.removeAuthorizedOriginals(pair.mp4.id, unlinkOriginal)).rejects.toMatchObject({
++      code: 'DELETION_QUARANTINE_CONFLICT',
++    });
++    await intact(pair);
++    expect(await fs.readdir(quarantine)).toEqual([]);
++  });
++
++  it('enforces owner revocation for the linked SSD original as well as the NFS still', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    await f.sut.setManagedDeletionConsent(f.auth, false);
++    await expect(f.repo.removeAuthorizedOriginals(pair.mp4.id, unlinkOriginal)).rejects.toMatchObject({
++      code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
++    });
++    await intact(pair);
++  });
++
++  it('defers an out-of-order parent worker while the motion receipt is still pending', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    expect(await f.sut.handleAssetDeletion({ id: pair.jpg.id, deleteOnDisk: true, deletionId: pair.jpg.id })).toBe(
++      JobStatus.Skipped,
++    );
++    await intact(pair);
++    expect(await db.selectFrom('asset').select('id').where('id', '=', pair.jpg.id).executeTakeFirst()).toBeDefined();
++    await complete(f, pair);
++  });
++
++  it('recovers an interrupted SSD capture through the durable receipt before finishing the JPG', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, snapshotOriginal);
++    let checks = 0;
++    await expect(
++      f.repo.removeAuthorizedOriginals(pair.mp4.id, (proof, recheck) =>
++        unlinkOriginal(proof, async () => {
++          await recheck();
++          if (++checks === 2) throw new DeletionError('SYNTHETIC_INTERRUPT_AFTER_CAPTURE');
++        }),
++      ),
++    ).rejects.toMatchObject({ code: 'SYNTHETIC_INTERRUPT_AFTER_CAPTURE' });
++    const pending = await receipts(pair);
++    const child = pending.find(({ assetId }) => assetId === pair.mp4.id)!;
++    expect(child.state).toBe('failed');
++    expect(await fs.readFile(pair.jpg.originalPath, 'utf8')).toContain('synthetic still');
++    const captured = join(child.files[0].root, '.gallery-deletion-quarantine', child.files[0].quarantineName);
++    expect(await fs.readFile(captured, 'utf8')).toContain('synthetic motion');
++    await complete(f, pair);
++    await expect(fs.readFile(captured)).rejects.toHaveProperty('code', 'ENOENT');
++  });
++
++  it('failed pair projects only the still in owner Trash and never a second gray motion tile', async () => {
++    const f = await fixture();
++    await f.authorize();
++    const pair = await f.pair();
++    await expect(
++      f.repo.preparePermanentDeletion(pair.jpg.id, f.user.id, (path, roots) => {
++        if (path === pair.mp4.originalPath) throw new DeletionError('ORIGINAL_OUTSIDE_AUTHORIZED_ROOT');
++        return snapshotOriginal(path, roots);
++      }),
++    ).rejects.toBeDefined();
++    const trash = await f.repo.getOwnerTrash(f.user.id);
++    expect(trash.map(({ id }) => id)).toEqual([pair.jpg.id]);
++    expect(await f.repo.getTimeBuckets({ ownerId: f.user.id, isTrashed: true }, f.auth)).toEqual([
++      expect.objectContaining({ count: 1 }),
++    ]);
++    expect(await f.repo.getTimeBuckets({ ownerId: f.user.id }, f.auth)).toEqual([]);
++    await intact(pair);
++  });
++});
+diff --git a/server/test/medium/specs/services/livephoto-trash-projection.spec.ts b/server/test/medium/specs/services/livephoto-trash-projection.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..12f03fd866f4705fefc54798b59ee7f1ef9cb642
+--- /dev/null
++++ b/server/test/medium/specs/services/livephoto-trash-projection.spec.ts
+@@ -0,0 +1,181 @@
++import { Kysely } from 'kysely';
++import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { StorageCore } from 'src/cores/storage.core.js';
++import { AssetStatus, AssetType, AssetVisibility, StorageFolder } from 'src/enum.js';
++import { AssetRepository } from 'src/repositories/asset.repository.js';
++import { LibraryRepository } from 'src/repositories/library.repository.js';
++import { LoggingRepository } from 'src/repositories/logging.repository.js';
++import { SyncRepository } from 'src/repositories/sync.repository.js';
++import { DB } from 'src/schema/index.js';
++import { AssetService } from 'src/services/asset.service.js';
++import {
++  DeletionError,
++  collectRootIdentities,
++  snapshotOriginal,
++  unlinkOriginal,
++} from 'src/utils/authorized-deletion.js';
++import { newMediumService } from 'test/medium.factory.js';
++import { createTestRecoveryEvidenceStore } from 'test/recovery-evidence.js';
++import { getKyselyDB } from 'test/utils.js';
++
++let db: Kysely<DB>;
++let root: string;
++let evidence: Awaited<ReturnType<typeof createTestRecoveryEvidenceStore>>;
++
++beforeAll(async () => {
++  db = await getKyselyDB();
++});
++afterAll(async () => {
++  await db.destroy();
++});
++beforeEach(async () => {
++  root = await mkdtemp(join(tmpdir(), 'gallery-livephoto-projection-'));
++  StorageCore.setMediaLocation(root);
++  evidence = await createTestRecoveryEvidenceStore();
++});
++afterEach(async () => {
++  vi.restoreAllMocks();
++  await evidence.cleanup();
++  await rm(root, { recursive: true, force: true });
++});
++
++async function fixture(external: boolean) {
++  const { ctx } = newMediumService(AssetService, { database: db, real: [AssetRepository], mock: [LoggingRepository] });
++  const { user } = await ctx.newUser();
++  const actualFolder = StorageCore.getFolderLocation;
++  const actualLibrary = StorageCore.getLibraryFolder;
++  vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
++    folder === StorageFolder.Upload && owner === user.id ? root : actualFolder(folder, owner),
++  );
++  vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
++    owner.id === user.id ? root : actualLibrary(owner),
++  );
++  const { library } = external ? await ctx.newLibrary({ ownerId: user.id }) : { library: undefined };
++  if (library) await new LibraryRepository(db).update(library.id, { importPaths: [root] });
++  const scope = library?.id ?? 'managed';
++  const stillPath = join(root, 'synthetic-still.jpg');
++  const motionPath = join(root, 'synthetic-motion.mov');
++  await writeFile(stillPath, 'disposable live photo still');
++  await writeFile(motionPath, 'disposable live photo motion');
++  const { asset: motion } = await ctx.newAsset({
++    ownerId: user.id,
++    libraryId: library?.id ?? null,
++    isExternal: external,
++    originalPath: motionPath,
++    type: AssetType.Video,
++    visibility: AssetVisibility.Hidden,
++  });
++  const trashedAt = new Date('2026-10-02T12:00:00Z');
++  const { asset: still } = await ctx.newAsset({
++    ownerId: user.id,
++    libraryId: library?.id ?? null,
++    isExternal: external,
++    originalPath: stillPath,
++    livePhotoVideoId: motion.id,
++    status: AssetStatus.Trashed,
++    deletedAt: trashedAt,
++  });
++  const repo = new AssetRepository(db);
++  const identities = await collectRootIdentities([root]);
++  const proof = await evidence.install(user.id, scope, identities);
++  await repo.setDeletionPolicy(user.id, scope, {
++    enabled: true,
++    roots: [root],
++    rootIdentities: identities,
++    authorizedBy: user.id,
++    recoveryExpiresAt: new Date(proof.expiresAt),
++    recoveryProof: proof.digest,
++  });
++  return { ctx, user, repo, still, motion, trashedAt };
++}
++
++async function syncRows(ownerId: string) {
++  return Array.fromAsync(
++    new SyncRepository(db).asset.getUpserts({ userId: ownerId, nowId: 'ffffffff-ffff-7fff-bfff-ffffffffffff' }),
++  );
++}
++
++describe.each([false, true])('Live Photo projects one logical Trash card (external=%s)', (external) => {
++  it('keeps the hidden motion out of Trash after a failed permanent-deletion preparation', async () => {
++    const f = await fixture(external);
++    const initial = await syncRows(f.user.id);
++    expect(initial.find((row) => row.id === f.motion.id)).toMatchObject({
++      visibility: AssetVisibility.Hidden,
++      deletedAt: null,
++    });
++    await expect(
++      f.repo.preparePermanentDeletion(f.still.id, f.user.id, () =>
++        Promise.reject(new DeletionError('ORIGINAL_OUTSIDE_AUTHORIZED_ROOT')),
++      ),
++    ).rejects.toMatchObject({ code: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT' });
++
++    expect(await f.repo.getOwnerTrash(f.user.id)).toEqual([{ id: f.still.id, libraryId: f.still.libraryId }]);
++    const synced = await syncRows(f.user.id);
++    expect(synced.find((row) => row.id === f.still.id)).toMatchObject({
++      deletedAt: f.trashedAt,
++      livePhotoVideoId: f.motion.id,
++    });
++    expect(synced.find((row) => row.id === f.motion.id)).toMatchObject({
++      visibility: AssetVisibility.Hidden,
++      deletedAt: null,
++    });
++    expect(await db.selectFrom('asset').select(['id', 'status']).where('ownerId', '=', f.user.id).execute()).toEqual(
++      expect.arrayContaining([
++        { id: f.still.id, status: AssetStatus.Deleted },
++        { id: f.motion.id, status: AssetStatus.Deleted },
++      ]),
++    );
++    const receipts = await db
++      .selectFrom('asset_deletion_tombstone')
++      .select(['operationId', 'state', 'errorCode'])
++      .where('operationId', '=', f.still.id)
++      .execute();
++    expect(receipts).toHaveLength(2);
++    for (const receipt of receipts)
++      expect(receipt).toEqual({
++        operationId: f.still.id,
++        state: 'failed',
++        errorCode: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT',
++      });
++    expect(await readFile(f.still.originalPath, 'utf8')).toBe('disposable live photo still');
++    expect(await readFile(f.motion.originalPath, 'utf8')).toBe('disposable live photo motion');
++  });
++
++  it('repairs the old failed companion timestamp through ordinary retry and completes both originals', async () => {
++    const f = await fixture(external);
++    await expect(
++      f.repo.preparePermanentDeletion(f.still.id, f.user.id, () =>
++        Promise.reject(new DeletionError('ORIGINAL_OUTSIDE_AUTHORIZED_ROOT')),
++      ),
++    ).rejects.toBeDefined();
++    // Disposable fixture reproduces the previously committed pair-wide timestamp.
++    await db.updateTable('asset').set({ deletedAt: f.trashedAt }).where('id', '=', f.motion.id).execute();
++    const { asset: unrelated } = await f.ctx.newAsset({
++      ownerId: f.user.id,
++      type: AssetType.Video,
++      visibility: AssetVisibility.Hidden,
++      status: AssetStatus.Trashed,
++      deletedAt: f.trashedAt,
++    });
++    await f.repo.preparePermanentDeletion(f.still.id, f.user.id, snapshotOriginal);
++    const synced = await syncRows(f.user.id);
++    expect(synced.find((row) => row.id === f.motion.id)).toMatchObject({
++      visibility: AssetVisibility.Hidden,
++      deletedAt: null,
++    });
++    expect(synced.find((row) => row.id === unrelated.id)).toMatchObject({ deletedAt: f.trashedAt });
++    const trash = await f.repo.getOwnerTrash(f.user.id);
++    expect(trash.map(({ id }) => id).sort()).toEqual([f.still.id, unrelated.id].sort());
++    for (const target of [f.motion, f.still]) {
++      expect(await f.repo.removeAuthorizedOriginals(target.id, unlinkOriginal)).toBe(true);
++      expect(await f.repo.removeForDeletion(target)).toBe(true);
++      await expect(readFile(target.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++    }
++    const after = await syncRows(f.user.id);
++    expect(after.some((row) => row.id === f.still.id || row.id === f.motion.id)).toBe(false);
++    expect(await f.repo.getDeletionReceipt(f.user.id, f.still.id)).toMatchObject({ state: 'complete' });
++    expect(await f.repo.getDeletionReceipt(f.user.id, f.motion.id)).toMatchObject({ state: 'complete' });
++  });
++});
