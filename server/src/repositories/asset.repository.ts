@@ -1949,8 +1949,28 @@ export class AssetRepository {
     trashedBefore?: Date,
     allowActive = false,
   ) {
+    const failPreparation = async (error: unknown): Promise<never> => {
+      // Recovery jobs also start at a companion asset ID. Resolve the logical
+      // operation through its owned receipt instead of assuming id is the JPG.
+      const receipt = await this.db
+        .selectFrom('asset_deletion_tombstone')
+        .select('operationId')
+        .where('assetId', '=', id)
+        .where('ownerId', '=', ownerId)
+        .executeTakeFirst();
+      if (receipt) {
+        await this.db
+          .updateTable('asset_deletion_tombstone')
+          .set({ state: 'failed', errorCode: deletionCode(error) })
+          .where('operationId', '=', receipt.operationId)
+          .where('ownerId', '=', ownerId)
+          .where('state', 'not in', ['complete', 'files-removed'])
+          .execute();
+      }
+      throw new DeletionError(deletionCode(error));
+    };
     // Commit intent before hashing large video. A timeout/restart can then query the actual server receipt.
-    await this.db.transaction().execute(async (tx) => {
+    const preparation = this.db.transaction().execute(async (tx) => {
       await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
       const existing = await tx
         .selectFrom('asset_deletion_tombstone')
@@ -2070,6 +2090,7 @@ export class AssetRepository {
         )
         .execute();
     });
+    await preparation.catch(failPreparation);
     try {
       return await this.db.transaction().execute(async (tx) => {
         await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
@@ -2077,11 +2098,13 @@ export class AssetRepository {
           .selectFrom('asset_deletion_tombstone')
           .selectAll()
           .where('assetId', '=', id)
+          .where('ownerId', '=', ownerId)
           .executeTakeFirstOrThrow();
         const targets = await tx
           .selectFrom('asset_deletion_tombstone')
           .selectAll()
           .where('operationId', '=', parent.operationId)
+          .where('ownerId', '=', ownerId)
           .orderBy('assetId')
           .forUpdate()
           .execute();
@@ -2140,13 +2163,7 @@ export class AssetRepository {
           .executeTakeFirstOrThrow();
       });
     } catch (error) {
-      await this.db
-        .updateTable('asset_deletion_tombstone')
-        .set({ state: 'failed', errorCode: deletionCode(error) })
-        .where('operationId', '=', id)
-        .where('state', 'not in', ['complete', 'files-removed'])
-        .execute();
-      throw new DeletionError(deletionCode(error));
+      return failPreparation(error);
     }
   }
 
