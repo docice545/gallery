@@ -1,0 +1,88 @@
+{
+  "passed": 113,
+  "failed": 0,
+  "skipped": 0,
+  "retainedBaselinePassed": 96,
+  "newFaultInjectionPassed": 17,
+  "exitCode": 0,
+  "durationSeconds": 44.73,
+  "versions": {
+    "node": "24.21.0",
+    "pnpm": "11.24.0",
+    "vitest": "4.1.11",
+    "dockerClient": "28.4.0",
+    "dockerServer": "28.4.0",
+    "postgresMajor": 14
+  },
+  "config": "test/vitest.config.medium.mjs",
+  "durabilityFlag": "GALLERY_TEST_DURABLE_POSTGRES=1",
+  "effectivePostgresSettings": {
+    "fsync": "on",
+    "full_page_writes": "on",
+    "synchronous_commit": "on"
+  },
+  "settingsVerifiedBeforeMigrations": true,
+  "postgresImage": "ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67",
+  "productionConnections": false,
+  "logSHA256": "e5c97d9ef0369012e253c600803090ee24c6215c9d83a86a9786b517ada91fe1",
+  "testedFilesSHA256": {
+    "server/src/repositories/asset.repository.ts": "6b363e71039b136bcf8ea5e0d241daf6c0e0b620165e35d7c6a311605d6e4283",
+    "server/src/utils/authorized-deletion.ts": "984a27e536f9f4b1e26e37c0b505a70c37f42d22f0304e5ef1e28f86594d0b1d",
+    "server/src/schema/tables/asset-deletion.table.ts": "ed5b74349b5f80313da1eb86961e4184726f3d7dd26141d0425352b3735e6313",
+    "server/test/medium/globalSetup.ts": "0283ad3729624a2cbd7435909d1769cc39c291988a87a48bf47439c79e838683",
+    "server/test/medium/specs/services/authorized-deletion.spec.ts": "ca496b6d067e2b112cb6f1cf36aadb96a355743dc60f573fd1defbe23f745bff",
+    "server/test/medium/specs/services/build11-storage-deletion-lifecycle.spec.ts": "4f2907a1fedec38f8692117c5c89ccb1871817fd1d8bba8e721b060ba0ae4b6e",
+    "server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts": "29566c4e66f2af8adc8d7e6e537d5a73a149e0690a5c5caad0e304a35fb1d61d",
+    "server/test/nfs-quarantine.ts": "ebf4187fc726ebfd4cade85de5bc67472584ee6fe4b3ac1e399d552c21aa2e09",
+    "server/test/medium/quarantine-crash.worker.ts": "0735cec0bbd871adfb1f126fa6cd0b767b5b671c2ded09cbf456408c97576f91",
+    "server/test/medium/quarantine-crash.config.mjs": "17a82431efcc313d08e446fcbe563295699cee7a88319284e78d0ae33ebabaaf"
+  },
+  "task": "Gallery Build 11 NFS Quarantine Crash Recovery",
+  "baselineCommit": "92af234687caeca9307aa7d4ea2a51553eecf9cf",
+  "cloudBaseCommit": "72e668597b1a43a29778397048c622a81a386b71",
+  "baseline": {
+    "passed": 96,
+    "failed": 0,
+    "skipped": 0,
+    "logSHA256": "90e5537456448f3dae05f41306211d4423482bd89e3e1d1d600644efb94a8ffe",
+    "requestedCount": 99,
+    "discrepancy": "Attached two unchanged spec files execute 96 tests; no tests removed or assertions weakened."
+  },
+  "unit": {
+    "passed": 165,
+    "failed": 0,
+    "skipped": 0,
+    "files": ["src/utils/authorized-deletion.spec.ts", "src/utils/deletion-recovery.spec.ts"],
+    "exitCode": 0,
+    "logSHA256": "5c9437803b7db31fedb446c6fa61a2d3c043be4dc45a9158ff67d95c17db2a15"
+  },
+  "checks": {
+    "typescript": {
+      "exitCode": 0
+    },
+    "scopedESLint": {
+      "exitCode": 0
+    },
+    "prettier": {
+      "exitCode": 0
+    },
+    "mjsSyntax": {
+      "exitCode": 0
+    },
+    "diffWhitespace": {
+      "exitCode": 0
+    }
+  },
+  "notTested": [
+    "real Synology NFSv3",
+    "PostgreSQL/NAS power-loss durability",
+    "physical Android/iOS",
+    "production deployment",
+    "different Live Photos sharing a previously bound SSD motion root across distinct receipts"
+  ],
+  "newMigrations": false,
+  "productionChanged": false,
+  "releaseArtifactsRebuilt": false,
+  "harnessHistory": "An earlier pg_terminate_backend harness produced postgres.js reserved-connection errors and was rejected; the final harness uses actual SIGKILL of an owned child process group. Earlier development failures are not counted as successful validation.",
+  "mediumExpectedErrorOutput": "Injected filesystem/transaction errors and expected PostgreSQL lock-timeout diagnostics appear in the medium log; the final Vitest exit code is 0 with 113 executed tests."
+}

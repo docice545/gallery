@@ -22,6 +22,15 @@ export interface DeletionRootIdentity {
   mountRoot: string;
   mountTarget: string;
   quarantineIdentity?: DeletionQuarantineIdentity;
+  quarantineIntent?: DeletionQuarantineIntent;
+}
+
+// A reserved intent alone never proves ownership of an EEXIST directory.
+export interface DeletionQuarantineIntent {
+  id: string;
+  state: 'reserved' | 'observed' | 'failed';
+  identity?: DeletionQuarantineIdentity;
+  mode?: string;
 }
 
 export interface DeletionQuarantineIdentity {

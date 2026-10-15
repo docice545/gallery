@@ -18,6 +18,7 @@ import {
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { isEmpty, isUndefined, omitBy } from 'lodash-es';
 import { InjectKysely } from 'nestjs-kysely';
+import { randomUUID } from 'node:crypto';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
 import { StorageCore } from 'src/cores/storage.core.js';
@@ -46,10 +47,12 @@ import {
   bindQuarantine,
   collectRootIdentities,
   deletionCode,
+  isQuarantineAbsent,
   refreshStorageRootIdentities,
   samePhysicalRootIdentity,
   sameQuarantineIdentity,
   sameRootIdentity,
+  validQuarantineIntent,
 } from 'src/utils/authorized-deletion.js';
 import {
   anyUuid,
@@ -1800,8 +1803,12 @@ export class AssetRepository {
             ? samePhysicalRootIdentity(root, bound)
             : sameRootIdentity(root, bound),
         );
-        const { quarantineIdentity: _untrusted, ...identity } = root;
-        return stored?.quarantineIdentity ? { ...identity, quarantineIdentity: stored.quarantineIdentity } : identity;
+        const { quarantineIdentity: _untrusted, quarantineIntent: _untrustedIntent, ...identity } = root;
+        return {
+          ...identity,
+          ...(stored?.quarantineIdentity && { quarantineIdentity: stored.quarantineIdentity }),
+          ...(stored?.quarantineIntent && { quarantineIntent: stored.quarantineIntent }),
+        };
       });
       const prepared = {
         authorizationMode: 'recovery' as const,
@@ -1943,17 +1950,38 @@ export class AssetRepository {
     // policy. Only the dedicated encoded-video location needs extra authority.
     const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
     if (!receipt.originalPath.startsWith(`${encodedRoot}/`)) return;
-    const parent = await tx.selectFrom('asset').select(['id', 'ownerId', 'libraryId', 'livePhotoVideoId'])
-      .where('id', '=', receipt.operationId).executeTakeFirst();
-    const child = await tx.selectFrom('asset').select(['id', 'ownerId', 'libraryId', 'originalPath'])
-      .where('id', '=', receipt.assetId).executeTakeFirst();
-    const references = await tx.selectFrom('asset').select('id')
-      .where('livePhotoVideoId', '=', receipt.assetId).execute();
-    const expected = StorageCore.getAndroidMotionPath({ id: receipt.assetId, ownerId: receipt.ownerId }, receipt.assetId);
-    if (!parent || !child || parent.ownerId !== receipt.ownerId || child.ownerId !== receipt.ownerId ||
-        parent.libraryId !== receipt.libraryId || child.libraryId !== receipt.libraryId ||
-        parent.livePhotoVideoId !== receipt.assetId || references.length !== 1 ||
-        references[0].id !== parent.id || receipt.originalPath !== expected || child.originalPath !== expected)
+    const parent = await tx
+      .selectFrom('asset')
+      .select(['id', 'ownerId', 'libraryId', 'livePhotoVideoId'])
+      .where('id', '=', receipt.operationId)
+      .executeTakeFirst();
+    const child = await tx
+      .selectFrom('asset')
+      .select(['id', 'ownerId', 'libraryId', 'originalPath'])
+      .where('id', '=', receipt.assetId)
+      .executeTakeFirst();
+    const references = await tx
+      .selectFrom('asset')
+      .select('id')
+      .where('livePhotoVideoId', '=', receipt.assetId)
+      .execute();
+    const expected = StorageCore.getAndroidMotionPath(
+      { id: receipt.assetId, ownerId: receipt.ownerId },
+      receipt.assetId,
+    );
+    if (
+      !parent ||
+      !child ||
+      parent.ownerId !== receipt.ownerId ||
+      child.ownerId !== receipt.ownerId ||
+      parent.libraryId !== receipt.libraryId ||
+      child.libraryId !== receipt.libraryId ||
+      parent.livePhotoVideoId !== receipt.assetId ||
+      references.length !== 1 ||
+      references[0].id !== parent.id ||
+      receipt.originalPath !== expected ||
+      child.originalPath !== expected
+    )
       throw new DeletionError('MOTION_SCOPE_MISMATCH');
     const root = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
     const identities = await collectRootIdentities([root]);
@@ -2153,8 +2181,10 @@ export class AssetRepository {
           const motionRoot = await this.linkedMotionRoot(tx, target);
           const files = [];
           for (const path of paths) {
-            const roots = motionRoot && path === target.originalPath
-              ? [...policy!.rootIdentities, motionRoot] : policy!.rootIdentities;
+            const roots =
+              motionRoot && path === target.originalPath
+                ? [...policy!.rootIdentities, motionRoot]
+                : policy!.rootIdentities;
             files.push(await snapshot(path, roots));
           }
           await tx
@@ -2231,11 +2261,16 @@ export class AssetRepository {
         await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
         const motionRoot = await this.linkedMotionRoot(tx, receipt);
         for (const file of receipt.files) {
-          const inPolicy = policy!.rootIdentities.some((root) =>
-            sameRootIdentity(file.rootIdentity, root) &&
-            sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity));
-          const isLinkedMotion = !!motionRoot && file.path === receipt.originalPath &&
-            sameRootIdentity(file.rootIdentity, motionRoot) && !!file.rootIdentity.quarantineIdentity;
+          const inPolicy = policy!.rootIdentities.some(
+            (root) =>
+              sameRootIdentity(file.rootIdentity, root) &&
+              sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity),
+          );
+          const isLinkedMotion =
+            !!motionRoot &&
+            file.path === receipt.originalPath &&
+            sameRootIdentity(file.rootIdentity, motionRoot) &&
+            !!file.rootIdentity.quarantineIdentity;
           if (!inPolicy && !isLinkedMotion) throw new DeletionError('DELETION_ROOT_CHANGED');
         }
         // Recheck references at execution; even an old queued job cannot delete a newly shared original.
@@ -2279,71 +2314,215 @@ export class AssetRepository {
   }
 
   private async bindOriginalQuarantines(id: string): Promise<void> {
-    await this.db.transaction().execute(async (tx) => {
-      const intent = await tx
-        .selectFrom('asset_deletion_tombstone')
-        .select('ownerId')
-        .where('assetId', '=', id)
-        .executeTakeFirst();
-      if (!intent) return;
-      await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
-      const receipt = await tx
-        .selectFrom('asset_deletion_tombstone')
-        .selectAll()
-        .where('assetId', '=', id)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      if (receipt.state === 'complete' || receipt.state === 'files-removed') return;
-      if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
-        throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
-      const policy = await tx
-        .selectFrom('asset_deletion_policy')
-        .selectAll()
-        .where('ownerId', '=', receipt.ownerId)
-        .where('scope', '=', receipt.scope)
-        .forUpdate()
-        .executeTakeFirst();
-      await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
-      const roots = [...policy!.rootIdentities];
-      const files: DeletionFile[] = [];
-      for (const file of receipt.files) {
-        const index = roots.findIndex((root) =>
-          policy!.authorizationMode === 'storage'
-            ? samePhysicalRootIdentity(file.rootIdentity, root)
-            : sameRootIdentity(file.rootIdentity, root),
-        );
-        const motionRoot = index === -1 ? await this.linkedMotionRoot(tx, receipt) : undefined;
-        if (index === -1 && (!motionRoot || file.path !== receipt.originalPath ||
-            !samePhysicalRootIdentity(file.rootIdentity, motionRoot)))
-          throw new DeletionError('DELETION_ROOT_CHANGED');
-        if (motionRoot) {
-          const bound = await bindQuarantine({ ...motionRoot, quarantineIdentity: file.rootIdentity.quarantineIdentity });
-          files.push({ ...file, rootIdentity: bound });
-          continue;
-        }
-        const recorded = file.rootIdentity.quarantineIdentity;
-        if (
-          recorded &&
-          (recorded.mountId !== file.rootIdentity.mountId ||
-            recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
-            (policy!.authorizationMode === 'storage'
-              ? !roots[index].quarantineIdentity ||
-                (['device', 'inode', 'uid', 'gid'] as const).some(
-                  (key) => recorded[key] !== roots[index].quarantineIdentity![key],
+    const intent = await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('ownerId')
+      .where('assetId', '=', id)
+      .executeTakeFirst();
+    if (!intent) return;
+    // Session locks span the independent journal commits. The global lock also
+    // covers roots shared by different owners and aliases of the same mount.
+    await this.db.connection().execute(async (connection) => {
+      await sql`select pg_advisory_lock(hashtextextended('gallery-quarantine-binding-v1', 733))`.execute(connection);
+      const durableTransaction = <T>(work: (tx: Transaction<DB>) => Promise<T>) =>
+        connection.transaction().execute(async (tx) => {
+          // A journal checkpoint is a durability boundary, even when the
+          // surrounding application session uses asynchronous commits.
+          await sql`set local synchronous_commit = 'on'`.execute(tx);
+          return work(tx);
+        });
+      let ownerLocked = false;
+      try {
+        await sql`select pg_advisory_lock(hashtextextended(${intent.ownerId}, 731))`.execute(connection);
+        ownerLocked = true;
+        const paths = await durableTransaction(async (tx) => {
+          const receipt = await tx
+            .selectFrom('asset_deletion_tombstone')
+            .selectAll()
+            .where('assetId', '=', id)
+            .forUpdate()
+            .executeTakeFirst();
+          if (!receipt || receipt.state === 'complete' || receipt.state === 'files-removed') return [];
+          if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
+            throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+          return receipt.files.map((file) => file.path);
+        });
+        for (const path of paths) {
+          const context = async (tx: Transaction<DB>, verify = true) => {
+            const receipt = await tx
+              .selectFrom('asset_deletion_tombstone')
+              .selectAll()
+              .where('assetId', '=', id)
+              .forUpdate()
+              .executeTakeFirstOrThrow();
+            const file = receipt.files.find((file) => file.path === path);
+            if (!file?.rootIdentity || !file.quarantineName) throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+            const policy = await tx
+              .selectFrom('asset_deletion_policy')
+              .selectAll()
+              .where('ownerId', '=', receipt.ownerId)
+              .where('scope', '=', receipt.scope)
+              .forUpdate()
+              .executeTakeFirst();
+            if (!policy) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+            if (verify) await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+            const index = policy.rootIdentities.findIndex((root) =>
+              policy.authorizationMode === 'storage'
+                ? samePhysicalRootIdentity(file.rootIdentity, root)
+                : sameRootIdentity(file.rootIdentity, root),
+            );
+            const motionRoot = index === -1 ? await this.linkedMotionRoot(tx, receipt) : undefined;
+            if (
+              index === -1 &&
+              (!motionRoot ||
+                file.path !== receipt.originalPath ||
+                !samePhysicalRootIdentity(file.rootIdentity, motionRoot))
+            )
+              throw new DeletionError('DELETION_ROOT_CHANGED');
+            const root =
+              index === -1
+                ? {
+                    ...motionRoot!,
+                    ...(file.rootIdentity.quarantineIdentity && {
+                      quarantineIdentity: file.rootIdentity.quarantineIdentity,
+                    }),
+                    ...(file.rootIdentity.quarantineIntent && { quarantineIntent: file.rootIdentity.quarantineIntent }),
+                  }
+                : policy.rootIdentities[index];
+            const recorded = file.rootIdentity.quarantineIdentity;
+            if (
+              recorded &&
+              index !== -1 &&
+              (recorded.mountId !== file.rootIdentity.mountId ||
+                recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
+                (policy.authorizationMode === 'storage'
+                  ? !root.quarantineIdentity ||
+                    (['device', 'inode', 'uid', 'gid'] as const).some(
+                      (key) => recorded[key] !== root.quarantineIdentity![key],
+                    )
+                  : !sameQuarantineIdentity(recorded, root.quarantineIdentity)))
+            )
+              throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+            if (
+              file.rootIdentity.quarantineIntent &&
+              root.quarantineIntent &&
+              (file.rootIdentity.quarantineIntent.id !== root.quarantineIntent.id ||
+                file.rootIdentity.quarantineIntent.state !== root.quarantineIntent.state ||
+                file.rootIdentity.quarantineIntent.mode !== root.quarantineIntent.mode ||
+                (file.rootIdentity.quarantineIntent.identity || root.quarantineIntent.identity
+                  ? !sameQuarantineIdentity(file.rootIdentity.quarantineIntent.identity, root.quarantineIntent.identity)
+                  : false))
+            )
+              throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+            const persist = async (bound: DeletionRootIdentity) => {
+              if (index !== -1) {
+                const roots = [...policy.rootIdentities];
+                roots[index] = bound;
+                // Journal progress never changes the owner's consent revision.
+                await tx
+                  .updateTable('asset_deletion_policy')
+                  .set({ rootIdentities: roots })
+                  .where('ownerId', '=', receipt.ownerId)
+                  .where('scope', '=', receipt.scope)
+                  .execute();
+              }
+              const files = receipt.files.map((original) =>
+                samePhysicalRootIdentity(original.rootIdentity, bound)
+                  ? { ...original, rootIdentity: bound }
+                  : original,
+              );
+              await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
+            };
+            return { root, persist };
+          };
+          // This commit MUST finish before the utility can mkdir.
+          const planned = await durableTransaction(async (tx) => {
+            const { root, persist } = await context(tx);
+            if (root.quarantineIdentity) return root;
+            if (
+              root.quarantineIntent &&
+              !(
+                validQuarantineIntent(root.quarantineIntent) &&
+                root.quarantineIntent.state === 'failed' &&
+                (await isQuarantineAbsent(root))
+              )
+            )
+              return root;
+            // A terminal initializer may start a NEW intent only after the
+            // old entry is absent. Never remove, repair or adopt it here. An
+            // entry racing this read is still rejected by exclusive mkdir.
+            const reserved: DeletionRootIdentity = {
+              ...root,
+              quarantineIntent: { id: randomUUID(), state: 'reserved' },
+            };
+            await persist(reserved);
+            return reserved;
+          });
+          try {
+            const bound = await bindQuarantine(planned, async (identity, mode) => {
+              // Persist the fd-observed identity BEFORE chmod or fsync. A bare
+              // reserved UUID never authorizes adoption of an EEXIST directory.
+              await durableTransaction(async (tx) => {
+                const current = await context(tx);
+                if (
+                  !sameRootIdentity(current.root, planned) ||
+                  current.root.quarantineIdentity ||
+                  current.root.quarantineIntent?.id !== planned.quarantineIntent?.id ||
+                  current.root.quarantineIntent?.state !== 'reserved'
                 )
-              : !sameQuarantineIdentity(recorded, roots[index].quarantineIdentity)))
-        )
-          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-        roots[index] = await bindQuarantine(roots[index]);
-        files.push({ ...file, rootIdentity: roots[index] });
+                  throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+                await current.persist({
+                  ...current.root,
+                  quarantineIntent: { id: planned.quarantineIntent!.id, state: 'observed', identity, mode },
+                });
+              });
+            });
+            await durableTransaction(async (tx) => {
+              const current = await context(tx);
+              if (
+                !sameRootIdentity(current.root, planned) ||
+                current.root.quarantineIntent?.id !== planned.quarantineIntent?.id
+              )
+                throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+              const { quarantineIntent: _completed, ...completed } = bound;
+              await current.persist(completed);
+            });
+          } catch (error) {
+            // A caught chmod/fsync failure is not a crash and cannot turn into
+            // a later repair of a directory explicitly rejected as unsafe.
+            if (planned.quarantineIntent) {
+              try {
+                await durableTransaction(async (tx) => {
+                  const current = await context(tx, false);
+                  if (
+                    sameRootIdentity(current.root, planned) &&
+                    current.root.quarantineIntent?.id === planned.quarantineIntent!.id &&
+                    !current.root.quarantineIdentity
+                  ) {
+                    await current.persist({
+                      ...current.root,
+                      quarantineIntent: { ...current.root.quarantineIntent, state: 'failed' },
+                    });
+                  }
+                });
+              } catch {
+                // Keep the original failure. A dead session cannot change a
+                // committed checkpoint and no original has moved in this phase.
+              }
+            }
+            throw error;
+          }
+        }
+      } finally {
+        try {
+          if (ownerLocked)
+            await sql`select pg_advisory_unlock(hashtextextended(${intent.ownerId}, 731))`.execute(connection);
+        } finally {
+          await sql`select pg_advisory_unlock(hashtextextended('gallery-quarantine-binding-v1', 733))`.execute(
+            connection,
+          );
+        }
       }
-      await tx
-        .updateTable('asset_deletion_policy')
-        .set({ rootIdentities: roots })
-        .where('ownerId', '=', receipt.ownerId)
-        .where('scope', '=', receipt.scope)
-        .execute();
-      await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
     });
   }
 

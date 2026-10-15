@@ -126,7 +126,7 @@ export async function refreshStorageRootIdentities(bound: DeletionRootIdentity[]
     const previous = bound.find((stored) => samePhysicalRootIdentity(root, stored));
     if (!previous) throw new DeletionError('DELETION_ROOT_CHANGED');
     if (!previous.quarantineIdentity) {
-      result.push(root);
+      result.push({ ...root, ...(previous.quarantineIntent && { quarantineIntent: previous.quarantineIntent }) });
       continue;
     }
     const directory = await openRoot(root);
@@ -412,6 +412,31 @@ export function validQuarantineIdentity(value: unknown): value is DeletionQuaran
 export const sameQuarantineIdentity = (a: unknown, b: unknown) =>
   validQuarantineIdentity(a) && validQuarantineIdentity(b) && QUARANTINE_KEYS.every((key) => a[key] === b[key]);
 
+// These fields come only from the committed server-side policy/receipt journal.
+// An intent UUID alone never authenticates an existing directory.
+export function validQuarantineIntent(value: unknown): value is NonNullable<DeletionRootIdentity['quarantineIntent']> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  if (
+    typeof entry.id !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.id) ||
+    !['reserved', 'observed', 'failed'].includes(String(entry.state))
+  )
+    return false;
+  const keys = Object.keys(entry).sort().join(',');
+  if (keys === 'id,state') return entry.state !== 'observed';
+  if (
+    keys !== 'id,identity,mode,state' ||
+    entry.state === 'reserved' ||
+    !validQuarantineIdentity(entry.identity) ||
+    typeof entry.mode !== 'string' ||
+    !/^[1-9]\d{0,4}$/.test(entry.mode)
+  )
+    return false;
+  const mode = Number(entry.mode);
+  return mode <= 0xff_ff && (mode & constants.S_IFMT) === constants.S_IFDIR;
+}
+
 async function quarantineIdentity(handle: FileHandle, root: DeletionRootIdentity): Promise<DeletionQuarantineIdentity> {
   const stat = await handle.stat({ bigint: true });
   if (!stat.isDirectory()) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
@@ -462,23 +487,53 @@ async function verifyCurrentQuarantine(
   }
 }
 
-// The caller commits the returned binding in the policy and receipt BEFORE
-// calling unlinkOriginal. Never adopt an unregistered EEXIST directory.
-export async function bindQuarantine(bound: DeletionRootIdentity): Promise<DeletionRootIdentity> {
+// This is only an absence proof, never an EEXIST ownership proof. It allows a
+// failed initialization to reserve a NEW attempt after an operator has retained
+// the suspect directory outside the active name. mkdir still rejects any race.
+export async function isQuarantineAbsent(bound: DeletionRootIdentity): Promise<boolean> {
+  if (bound.quarantineIdentity) return false;
+  const root = await openRoot(bound);
+  try {
+    try {
+      await fs.lstat(anchored(root.fd, quarantine));
+      return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const current = await openRoot(bound);
+    await current.close();
+    return true;
+  } finally {
+    await root.close();
+  }
+}
+
+// Repository callers commit RESERVED before mkdir, then persist the observed
+// fd identity through checkpoint BEFORE chmod. Crash recovery can only resume
+// that exact observed directory. RESERVED + EEXIST is deliberately ambiguous.
+// Standalone callers without a journal retain the original fail-closed contract.
+export async function bindQuarantine(
+  bound: DeletionRootIdentity,
+  checkpoint?: (identity: DeletionQuarantineIdentity, mode: string) => Promise<void>,
+): Promise<DeletionRootIdentity> {
   const root = await openRoot(bound);
   let q: FileHandle | undefined;
   try {
     const qpath = anchored(root.fd, quarantine);
     const existing = bound.quarantineIdentity;
-    if (!existing) {
+    const intent = bound.quarantineIntent;
+    if (intent && (!validQuarantineIntent(intent) || !checkpoint || intent.state === 'failed' || existing))
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    if (existing !== undefined && !validQuarantineIdentity(existing))
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    const observed = intent?.state === 'observed' ? intent : undefined;
+    if (!existing && !observed) {
       try {
         await fs.mkdir(qpath, { mode: 0o700 });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
         throw error;
       }
-    } else if (!validQuarantineIdentity(existing)) {
-      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     }
     const entry = await fs.lstat(qpath, { bigint: true });
     q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
@@ -494,6 +549,12 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
     )
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     const captured = await quarantineIdentity(q, bound);
+    if (
+      observed &&
+      (!sameQuarantineIdentity(observed.identity, captured) ||
+        (stat.mode !== BigInt(observed.mode!) && stat.mode !== BigInt(constants.S_IFDIR | 0o700)))
+    )
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     if (existing) {
       if (!sameQuarantineIdentity(existing, captured) || (stat.mode & 0o7777n) !== 0o700n)
         throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
@@ -507,6 +568,11 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
     if ((!isNfs(bound) && Number(stat.uid) !== process.getuid?.()) || entries.length > 0)
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     await verifyCurrentQuarantine(bound, captured, stat.mode);
+    if (!observed && checkpoint) await checkpoint(captured, String(stat.mode));
+    // A DB checkpoint is not a filesystem durability receipt. Repeat chmod and
+    // BOTH directory syncs on observed-crash recovery, and recheck namespace
+    // after every asynchronous boundary before originals can be captured.
+    await verifyCurrentQuarantine(bound, captured, stat.mode);
     await q.chmod(0o700);
     if (!sameQuarantineIdentity(await quarantineIdentity(q, bound), captured))
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
@@ -514,8 +580,11 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
     const securedEntries = await fs.readdir('/proc/self/fd/' + q.fd);
     if (securedEntries.length > 0) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     await q.sync();
+    await verifyCurrentQuarantine(bound, captured, BigInt(constants.S_IFDIR | 0o700));
     await root.sync();
-    return { ...bound, quarantineIdentity: captured };
+    await verifyCurrentQuarantine(bound, captured, BigInt(constants.S_IFDIR | 0o700));
+    const { quarantineIntent: _completed, ...secured } = bound;
+    return { ...secured, quarantineIdentity: captured };
   } finally {
     await q?.close();
     await root.close();

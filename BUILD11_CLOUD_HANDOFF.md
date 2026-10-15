@@ -1,3 +1,51 @@
+# NFS Quarantine Crash Recovery — актуальный checkpoint 2026-10-15
+
+Текущая отдельная ветка: `fix/build11-nfs-quarantine-crash-recovery`.
+Задача из `gallery-build11-CODEX-WEB-TASK.zip`: исправление аварийного окна
+NFS quarantine; новые APK/IPA/backend builds и production deploy не запрошены.
+Предыдущая успешная Cloud distribution ниже остаётся исторической и **не содержит**
+этого исправления. `work` и HP production не изменены.
+
+Исходный Cloud HEAD `72e668597b1a43a29778397048c622a81a386b71`.
+Baseline `92af234687caeca9307aa7d4ea2a51553eecf9cf` сохраняет две отличающиеся
+версии из приложенного HP snapshot (Live Photo NAS/JPG + SSD/MP4). Patch строится
+после него, не добавляет заново HP fix и не переписывает неизвестные HP changes.
+
+Реализовано: journal в существующих JSONB, durable RESERVED до mkdir, отдельный
+OBSERVED commit до chmod, затем BOUND после identity checks и обоих fsync.
+Session global/owner locks охватывают commits; consent/receipt checks сохранены.
+Незарегистрированный EEXIST не принимается. Ошибки chmod/fsync остаются failed;
+новый UUID допустим только при проверенном отсутствии каталога. Backend сам
+не удаляет/не переносит orphan. Миграций нет.
+
+Финальный выполненный прогон: **113 medium PASS / 0 FAIL / 0 SKIP**, включая
+96 неизменённых тестов архива и 17 новых fault tests с настоящим SIGKILL worker.
+Заявленные в task 99 не обнаружены: отдельно исходный baseline дал 96/96.
+**165 utility unit PASS**, TypeScript/ESLint/Prettier PASS. PostgreSQL14 disposable
+с SQL-проверенными fsync/full_page_writes/synchronous_commit=on. Node24.21.0,
+pnpm11.24.0, Vitest4.1.11, Docker28.4.0. Testcontainers очищены штатно.
+Никаких production connections. Проверки не повторять без изменения кода.
+
+Точные команды, security model, ручное recovery и ограничения:
+`docs/release/BUILD11-NFS-QUARANTINE-RECOVERY.md`. Test source/log SHA256:
+`docs/release/BUILD11-NFS-RECOVERY-TEST-RESULTS.json`. Preimage checksums:
+`docs/release/BUILD11-NFS-RECOVERY-BASELINE.sha256`.
+
+Неустранимое mkdir→OBSERVED commit окно намеренно fail-closed. Pending journal
+не rebind-ится при смене mount namespace. Нужен direct PostgreSQL session,
+transaction-pooling proxy не поддержан. Реальный Synology/power loss/devices
+NOT TESTED. Изолированная NFS-проверка и production approval остаются gates.
+Дополнительное **прежнее** ограничение LP: motion-root identity принадлежит
+конкретному child receipt; другая LP с новым receipt на том же SSD-root может
+получить EEXIST. Выявлено чтением baseline, не воспроизведено/не исправлено
+здесь. Два существующих LP split-root regression cases сохранены и проходят.
+
+Следующий шаг после получения patch: проверить его SHA/preimage и
+`git apply --check`, выполнить только изолированный HP/NFS fixture acceptance.
+Не применять к running production и не принимать orphan без identity.
+
+---
+
 # Gallery Build 11: Android sync / backup и release checkpoint 2026-10-14
 
 ## Точная текущая точка продолжения (имеет приоритет над историей ниже)

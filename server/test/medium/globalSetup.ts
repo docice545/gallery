@@ -1,4 +1,4 @@
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import { GenericContainer, Wait } from 'testcontainers';
 import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { DatabaseRepository } from 'src/repositories/database.repository.js';
@@ -8,6 +8,9 @@ import { getKyselyConfig } from 'src/utils/database.js';
 
 const globalSetup = async () => {
   const templateName = 'mich';
+  // Crash-recovery validation opts into real WAL/fsync durability. Existing
+  // unrelated medium suites retain their established performance defaults.
+  const durable = process.env.GALLERY_TEST_DURABLE_POSTGRES === '1';
   const postgresContainer = await new GenericContainer(
     'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67',
   )
@@ -26,11 +29,11 @@ const globalSetup = async () => {
       '-c',
       'shared_buffers=512MB',
       '-c',
-      'fsync=off',
+      durable ? 'fsync=on' : 'fsync=off',
       '-c',
-      'full_page_writes=off',
+      durable ? 'full_page_writes=on' : 'full_page_writes=off',
       '-c',
-      'synchronous_commit=off',
+      durable ? 'synchronous_commit=on' : 'synchronous_commit=off',
       // Each medium spec opens its own pool of up to 10 connections via getKyselyDB(), and most
       // never destroy it, so pools accumulate for the lifetime of a file. At the image default of
       // 100 (97 usable after superuser_reserved_connections) the suite sits close enough to the
@@ -50,6 +53,19 @@ const globalSetup = async () => {
   process.env.IMMICH_TEST_POSTGRES_URL = postgresUrl;
 
   const db = new Kysely<DB>(getKyselyConfig({ connectionType: 'url', url: postgresUrl }));
+
+  if (durable) {
+    const settings = await sql<{ fsync: string; full_page_writes: string; synchronous_commit: string }>`
+      SELECT current_setting('fsync') AS fsync,
+             current_setting('full_page_writes') AS full_page_writes,
+             current_setting('synchronous_commit') AS synchronous_commit
+    `.execute(db);
+    if (settings.rows.length !== 1 || Object.values(settings.rows[0]).some((value) => value !== 'on')) {
+      await db.destroy();
+      throw new Error('DISPOSABLE_POSTGRES_DURABILITY_SETTINGS_NOT_ON');
+    }
+    console.log('DISPOSABLE_POSTGRES_DURABILITY: fsync=on full_page_writes=on synchronous_commit=on');
+  }
 
   const configRepository = new ConfigRepository();
   const logger = LoggingRepository.create();
