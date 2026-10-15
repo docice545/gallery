@@ -36,7 +36,7 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-const fixture = async () => {
+const fixture = async ({ seedFailure = true }: { seedFailure?: boolean } = {}) => {
   const { ctx } = newMediumService(AssetService, { database: db, real: [AssetRepository], mock: [LoggingRepository] });
   const { user } = await ctx.newUser();
   const upload = join(directory, 'upload', user.id);
@@ -86,30 +86,38 @@ const fixture = async () => {
     authorizedBy: user.id,
   });
 
-  // Reproduce the old upload-only snapshot behavior, not a manufactured success:
-  // the intent transaction commits both components; hashing the MP4 then fails,
-  // and the hashing transaction rolls back all partially prepared file proofs.
-  await expect(
-    repo.preparePermanentDeletion(still.id, user.id, (path) => snapshotOriginal(path, identities)),
-  ).rejects.toMatchObject({ code: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT' });
-  const legacy = await db
+  let legacy = await db
     .selectFrom('asset_deletion_tombstone')
     .selectAll()
     .where('ownerId', '=', user.id)
     .where('operationId', '=', still.id)
     .orderBy('assetId')
     .execute();
-  expect(legacy).toHaveLength(2);
-  for (const receipt of legacy) {
-    expect(receipt).toMatchObject({
-      ownerId: user.id,
-      operationId: still.id,
-      scope: 'managed',
-      state: 'failed',
-      errorCode: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT',
-      files: [],
-      authorization: { mode: 'storage', recoveryProof: '' },
-    });
+  if (seedFailure) {
+    // Seed the historical failed/empty receipt shape produced by the old
+    // upload-only worker, which passed only the persisted policy roots.
+    await expect(
+      repo.preparePermanentDeletion(still.id, user.id, (path) => snapshotOriginal(path, identities)),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT' });
+    legacy = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('ownerId', '=', user.id)
+      .where('operationId', '=', still.id)
+      .orderBy('assetId')
+      .execute();
+    expect(legacy).toHaveLength(2);
+    for (const receipt of legacy) {
+      expect(receipt).toMatchObject({
+        ownerId: user.id,
+        operationId: still.id,
+        scope: 'managed',
+        state: 'failed',
+        errorCode: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT',
+        files: [],
+        authorization: { mode: 'storage', recoveryProof: '' },
+      });
+    }
   }
 
   const storage = new StorageRepository(ctx.getMock(LoggingRepository));
@@ -146,6 +154,27 @@ const expectOriginals = async (f: Awaited<ReturnType<typeof fixture>>) => {
 };
 
 describe('CLI failed empty Live Photo receipts', () => {
+  it('captures the JPG and MP4 under separate roots without broadening the managed policy', async () => {
+    const f = await fixture({ seedFailure: false });
+    const rootsByPath = new Map<string, string[]>();
+    await f.repo.preparePermanentDeletion(f.still.id, f.user.id, (path, roots) => {
+      rootsByPath.set(
+        path,
+        roots.map(({ path: root }) => root),
+      );
+      return snapshotOriginal(path, roots);
+    });
+    expect(rootsByPath.get(f.still.originalPath)).toEqual([f.upload]);
+    expect(rootsByPath.get(f.motion.originalPath)).toEqual([f.upload, f.encoded]);
+    const result = await receipts(f.user.id, f.still.id);
+    expect(result).toHaveLength(2);
+    expect(result.every(({ state, files }) => state === 'pending' && files.length === 1)).toBe(true);
+    expect(result.find(({ assetId }) => assetId === f.motion.id)?.files[0].root).toBe(f.encoded);
+    const policy = await f.repo.getDeletionPolicy(f.user.id, 'managed');
+    expect(policy?.roots).toEqual([f.upload]);
+    await expectOriginals(f);
+  });
+
   it.each(['still', 'motion'] as const)(
     'persists the current failed preparation error for the whole operation when retry starts at %s',
     async (component) => {
@@ -292,5 +321,18 @@ describe('CLI failed empty Live Photo receipts', () => {
     ]);
     const complete = await receipts(f.user.id, f.still.id);
     expect(complete.every(({ state }) => state === 'complete')).toBe(true);
+  });
+
+  it('rejects a motion path outside the owner encoded-video root without touching either original', async () => {
+    const f = await fixture({ seedFailure: false });
+    const outside = join(directory, 'outside-motion.mp4');
+    await writeFile(outside, 'must survive');
+    await db.updateTable('asset').set({ originalPath: outside }).where('id', '=', f.motion.id).execute();
+    await expect(f.repo.preparePermanentDeletion(f.still.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT',
+    });
+    expect(await readFile(f.still.originalPath, 'utf8')).toBe('synthetic Live Photo JPG');
+    expect(await readFile(f.motion.originalPath, 'utf8')).toBe('synthetic exclusive Live Photo MP4');
+    expect(await readFile(outside, 'utf8')).toBe('must survive');
   });
 });
