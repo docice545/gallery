@@ -29,6 +29,7 @@ DOCKER = ['docker', '--host=unix:///var/run/docker.sock']
 ID = r'sha256:[0-9a-f]{64}'
 CAPABILITY = 'bound-root-quarantine-signed-recovery-v1'
 OWNER_STORAGE_CAPABILITY = 'bound-root-quarantine-owner-storage-v2'
+SAME_CAPABILITY_V2_CONTRACT = 'build11-reviewed-same-capability-v2-v2'
 CONFIG_HASH_MODE = 'resolved-environment-compose-escaped-v1'
 BOUND_MIGRATION = '1793700000000-BindDeletionRecovery'
 # Upstream ships a .ts.ts source, hence a .ts.js compiled file and this exact
@@ -139,10 +140,24 @@ def rollback_compatibility(candidate, rollback, reviewed=None):
         need(candidate['migrations'] == rollback['migrations'], 'HARDENED_ROLLBACK_MIGRATIONS_MUST_MATCH')
         need(candidate['guardFiles'] == rollback['guardFiles'], 'HARDENED_ROLLBACK_GUARD_FILES_MUST_MATCH')
         return
-    need(reviewed.get('schemaVersion') == 1 and reviewed.get('contract') == 'build11-reviewed-additive-upgrade-v1',
+    need(reviewed.get('schemaVersion') == 1 and
+         reviewed.get('contract') in ('build11-reviewed-additive-upgrade-v1', SAME_CAPABILITY_V2_CONTRACT),
          'REVIEWED_COMPATIBILITY_CONTRACT_REQUIRED')
     for field, actual in (('candidateProofSHA256', candidate), ('rollbackProofSHA256', rollback)):
         need(reviewed.get(field) == proof_digest(actual), 'REVIEWED_PACKAGED_PROOF_MISMATCH')
+    if reviewed.get('contract') == SAME_CAPABILITY_V2_CONTRACT:
+        need(candidate['capability'] == OWNER_STORAGE_CAPABILITY and
+             rollback['capability'] == OWNER_STORAGE_CAPABILITY,
+             'REVIEWED_SAME_CAPABILITY_V2_REQUIRED')
+        need(candidate['migrations'] == rollback['migrations'],
+             'REVIEWED_SAME_CAPABILITY_MIGRATIONS_MUST_MATCH')
+        checks = {'isolatedDatabase': True, 'sameCapabilityRollback': True,
+                  'trashRestoreAfterRollback': True, 'syntheticMediaOnly': True,
+                  'productionChanged': False}
+        need(reviewed.get('rollbackTest') == checks and
+             re.fullmatch('[0-9a-f]{64}', reviewed.get('testReportSHA256', '')),
+             'REAL_ISOLATED_ROLLBACK_TEST_REPORT_REQUIRED')
+        return
     need(candidate['capability'] == OWNER_STORAGE_CAPABILITY and rollback['capability'] == CAPABILITY,
          'REVIEWED_STORAGE_AND_RECOVERY_GUARDS_REQUIRED')
     old = {r['name']: r['sha256'] for r in rollback['migrations']}

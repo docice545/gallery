@@ -131,6 +131,56 @@ class ActualImageProof(unittest.TestCase):
         self.assertNotIn(release.SERVER, command)
 
 
+class SameCapabilityRollback(unittest.TestCase):
+    def test_reviewed_v2_to_v2_rollback_accepts_equal_proofs_and_migrations(self):
+        candidate = proof(CANDIDATE_SOURCE, (5, 7, 3))
+        rollback = proof(PREVIOUS_SOURCE, (5, 7, 3))
+        candidate['capability'] = rollback['capability'] = release.OWNER_STORAGE_CAPABILITY
+        reviewed = {
+            'schemaVersion': 1,
+            'contract': release.SAME_CAPABILITY_V2_CONTRACT,
+            'candidateProofSHA256': release.proof_digest(candidate),
+            'rollbackProofSHA256': release.proof_digest(rollback),
+            'rollbackTest': {
+                'isolatedDatabase': True,
+                'sameCapabilityRollback': True,
+                'trashRestoreAfterRollback': True,
+                'syntheticMediaOnly': True,
+                'productionChanged': False,
+            },
+            'testReportSHA256': 'f' * 64,
+        }
+        release.rollback_compatibility(candidate, rollback, reviewed)
+
+    def test_reviewed_v2_to_v2_rejects_changed_migrations_or_capability(self):
+        candidate = proof(CANDIDATE_SOURCE, (5, 7, 3))
+        rollback = proof(PREVIOUS_SOURCE, (5, 7, 3))
+        candidate['capability'] = rollback['capability'] = release.OWNER_STORAGE_CAPABILITY
+        reviewed = {
+            'schemaVersion': 1,
+            'contract': release.SAME_CAPABILITY_V2_CONTRACT,
+            'candidateProofSHA256': release.proof_digest(candidate),
+            'rollbackProofSHA256': release.proof_digest(rollback),
+            'rollbackTest': {
+                'isolatedDatabase': True,
+                'sameCapabilityRollback': True,
+                'trashRestoreAfterRollback': True,
+                'syntheticMediaOnly': True,
+                'productionChanged': False,
+            },
+            'testReportSHA256': 'f' * 64,
+        }
+        rollback['migrations'][0]['sha256'] = 'e' * 64
+        with self.assertRaisesRegex(release.Stop, 'REVIEWED_PACKAGED_PROOF_MISMATCH|REVIEWED_SAME_CAPABILITY_MIGRATIONS_MUST_MATCH'):
+            release.rollback_compatibility(candidate, rollback, reviewed)
+
+        rollback = proof(PREVIOUS_SOURCE, (5, 7, 3))
+        rollback['capability'] = release.CAPABILITY
+        reviewed['rollbackProofSHA256'] = release.proof_digest(rollback)
+        with self.assertRaisesRegex(release.Stop, 'REVIEWED_SAME_CAPABILITY_V2_REQUIRED'):
+            release.rollback_compatibility(candidate, rollback, reviewed)
+
+
 class DatabaseEvidence(unittest.TestCase):
     def postgres(self, env=None):
         return {'Name': '/' + release.POSTGRES, 'State': {'Running': True}, 'Config': {
