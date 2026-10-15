@@ -1,6 +1,14 @@
 import { createZodDto } from 'nestjs-zod';
 import z from 'zod';
 
+// A proof is an opaque, server-verifiable recovery receipt.  Keeping the
+// envelope check in the DTO rejects the old arbitrary 64-hex input before it
+// reaches filesystem work; the service still verifies its contents and files.
+const recoveryProof = z
+  .string()
+  .max(64 * 1024)
+  .regex(/^gallery-recovery-v1\.[A-Za-z0-9_-]+\.[a-f0-9]{64}$/);
+
 export class PermanentDeletionDto extends createZodDto(
   z
     .object({
@@ -22,7 +30,7 @@ export class DeletionPolicyDto extends createZodDto(
         ),
       enabled: z.boolean(),
       roots: z.array(z.string().min(1)).min(1).max(128),
-      recoveryProof: z.string().regex(/^[a-f0-9]{64}$/),
+      recoveryProof,
       verifiedExclusiveRoots: z.literal(true),
     })
     .meta({ id: 'DeletionPolicyDto' }),
@@ -53,7 +61,7 @@ export class ManagedDeletionStatusDto extends createZodDto(
 
 export class PrepareManagedDeletionDto extends createZodDto(
   z
-    .object({ recoveryProof: z.string().regex(/^[a-f0-9]{64}$/), verifiedExclusiveRoots: z.literal(true) })
+    .object({ recoveryProof, verifiedExclusiveRoots: z.literal(true) })
     .meta({ id: 'PrepareManagedDeletionDto' }),
 ) {}
 

@@ -39,8 +39,8 @@ def authorize(args):
              'PRIVATE_EXISTING_ADMIN_KEY_FILE_REQUIRED')
     tool = pre.load_tool(args.pinned_tool,profile)
     pre.journal_image(tool,args.state)
-    pre.need(tool.inspect(tool.SERVER)['Image']==tool.IMAGE and tool.api_only(tool.inspect(tool.SERVER)),
-             'EXACT_CANDIDATE_API_ONLY_REQUIRED')
+    pre.need(tool.inspect(tool.SERVER)['Image']==tool.IMAGE and tool.workers_enabled(tool.inspect(tool.SERVER)),
+             'EXACT_CANDIDATE_BOTH_WORKERS_REQUIRED')
     tool.health(args.api,tool.SOURCE)
     tool.queue_empty(require_paused=True)
     # Server rechecks real owner, exact current library roots, filesystem permissions,

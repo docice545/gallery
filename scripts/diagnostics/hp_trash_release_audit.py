@@ -319,7 +319,14 @@ def collect(docker):
                 env = dict(x.split('=', 1) for x in item.get('Config', {}).get('Env', []) if '=' in x)
                 source = env.get('IMMICH_SOURCE_COMMIT', '')
                 public['sourceCommit'] = source if re.fullmatch('[0-9a-fA-F]{40}', source) else 'unknown'
-                public['workerMode'] = 'API_ONLY' if env.get('IMMICH_WORKERS_EXCLUDE') == 'microservices' else 'DEFAULT_OR_CUSTOM_NOT_PROVEN'
+                include = {part.strip() for part in env.get('IMMICH_WORKERS_INCLUDE', '').split(',') if part.strip()}
+                exclude = {part.strip() for part in env.get('IMMICH_WORKERS_EXCLUDE', '').split(',') if part.strip()}
+                if {'api', 'microservices'} & exclude or (include and not {'api', 'microservices'} <= include):
+                    public['workerMode'] = 'UNSAFE_API_ONLY_OR_PARTIAL'
+                elif not include or {'api', 'microservices'} <= include:
+                    public['workerMode'] = 'API_AND_MICROSERVICES'
+                else:
+                    public['workerMode'] = 'DEFAULT_OR_CUSTOM_NOT_PROVEN'
                 public['externalMounts'] = []
                 for mount in item.get('Mounts', []):
                     if mount.get('Type') != 'bind':

@@ -689,6 +689,7 @@ export class AssetService extends BaseService {
             [file.root],
             [file.rootIdentity],
             asset.libraryId ?? 'managed',
+            true,
           );
         }),
       ))
@@ -934,6 +935,7 @@ export class AssetService extends BaseService {
       ...others.users.flatMap((other) => [
         StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
         StorageCore.getLibraryFolder(other),
+        StorageCore.getFolderLocation(StorageFolder.EncodedVideo, other.id),
       ]),
     ];
     try {
@@ -1171,27 +1173,34 @@ export class AssetService extends BaseService {
     roots: string[],
     bound: DeletionRootIdentity[],
     scope: string,
+    allowMotionRoot = false,
   ) {
+    let allowed: Set<string>;
     if (scope === 'managed') {
       const user = await this.userRepository.get(owner, {});
       if (!user) throw new DeletionError('ASSET_NOT_OWNED');
-      const allowed = new Set([
+      allowed = new Set([
         StorageCore.getFolderLocation(StorageFolder.Upload, owner),
         StorageCore.getLibraryFolder(user),
+        ...(allowMotionRoot ? [StorageCore.getFolderLocation(StorageFolder.EncodedVideo, owner)] : []),
       ]);
-      if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
     } else {
       const library = await this.libraryRepository.get(scope);
       if (!library || library.ownerId !== owner || library.deletedAt)
         throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
-      if (roots.some((root) => !library.importPaths.includes(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+      allowed = new Set([
+        ...library.importPaths,
+        ...(allowMotionRoot ? [StorageCore.getFolderLocation(StorageFolder.EncodedVideo, owner)] : []),
+      ]);
     }
+    if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
     const others = await this.assetRepository.getDeletionRootsForOtherOwners(owner);
     const otherRoots = [
       ...others.external,
       ...others.users.flatMap((other) => [
         StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
         StorageCore.getLibraryFolder(other),
+        StorageCore.getFolderLocation(StorageFolder.EncodedVideo, other.id),
       ]),
     ];
     const current = await this.storageRepository.validateDeletionRoots(roots, otherRoots);

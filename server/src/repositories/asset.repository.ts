@@ -43,6 +43,7 @@ import { AssetMetadataTable } from 'src/schema/tables/asset-metadata.table.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 import {
   DeletionError,
+  below,
   bindQuarantine,
   collectRootIdentities,
   deletionCode,
@@ -50,6 +51,7 @@ import {
   samePhysicalRootIdentity,
   sameQuarantineIdentity,
   sameRootIdentity,
+  validQuarantineIdentity,
 } from 'src/utils/authorized-deletion.js';
 import {
   anyUuid,
@@ -1994,18 +1996,17 @@ export class AssetRepository {
           .select('id')
           .where('livePhotoVideoId', '=', asset.livePhotoVideoId)
           .execute();
-        if (parents.length === 1) {
-          const motion = await tx
-            .selectFrom('asset')
-            .selectAll()
-            .where('id', '=', asset.livePhotoVideoId)
-            .forUpdate()
-            .executeTakeFirst();
-          if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
-            throw new DeletionError('MOTION_SCOPE_MISMATCH');
-          }
-          targets.push(motion);
+        if (parents.length !== 1) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+        const motion = await tx
+          .selectFrom('asset')
+          .selectAll()
+          .where('id', '=', asset.livePhotoVideoId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
+          throw new DeletionError('MOTION_SCOPE_MISMATCH');
         }
+        targets.push(motion);
       }
       const targetIds = targets.map((target) => target.id);
       const sidecars = await tx
@@ -2114,9 +2115,10 @@ export class AssetRepository {
             .execute();
           const paths = [target.originalPath, ...sidecars.map(({ path }) => path)];
           await this.assertExclusiveOriginals(tx, ids, paths);
+          const roots = await this.deletionRootsForTarget(tx, current, policy!.rootIdentities, ids);
           const files = [];
           for (const path of paths) {
-            files.push(await snapshot(path, policy!.rootIdentities));
+            files.push(await snapshot(path, roots));
           }
           await tx
             .updateTable('asset_deletion_tombstone')
@@ -2190,15 +2192,32 @@ export class AssetRepository {
           .forShare()
           .executeTakeFirst();
         await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+        const operationTargets = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('assetId')
+          .where('operationId', '=', receipt.operationId)
+          .execute();
+        const allowedRoots = await this.deletionRootsForTarget(
+          tx,
+          current,
+          policy!.rootIdentities,
+          operationTargets.map(({ assetId }) => assetId),
+        );
         if (
           receipt.files.some(
             (file) =>
               !file.rootIdentity ||
-              policy!.rootIdentities.every(
-                (root) =>
-                  !sameRootIdentity(file.rootIdentity, root) ||
-                  !sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity),
-              ),
+              allowedRoots.every((root) => {
+                const physical =
+                  policy!.authorizationMode === 'storage'
+                    ? samePhysicalRootIdentity(file.rootIdentity, root)
+                    : sameRootIdentity(file.rootIdentity, root);
+                if (!physical) return true;
+                const persisted = policy!.rootIdentities.some((bound) => bound.path === root.path);
+                return persisted
+                  ? !sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity)
+                  : !validQuarantineIdentity(file.rootIdentity.quarantineIdentity);
+              }),
           )
         ) {
           throw new DeletionError('DELETION_ROOT_CHANGED');
@@ -2262,7 +2281,21 @@ export class AssetRepository {
         .forUpdate()
         .executeTakeFirst();
       await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
-      const roots = [...policy!.rootIdentities];
+      const operationTargets = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('assetId')
+        .where('operationId', '=', receipt.operationId)
+        .execute();
+      const target = await tx.selectFrom('asset').selectAll().where('id', '=', id).executeTakeFirst();
+      if (!target) throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+      const policyRoots = [...policy!.rootIdentities];
+      const roots = await this.deletionRootsForTarget(
+        tx,
+        target,
+        policyRoots,
+        operationTargets.map(({ assetId }) => assetId),
+      );
+      const boundPolicyRoots = [...policyRoots];
       const files: DeletionFile[] = [];
       for (const file of receipt.files) {
         const index = roots.findIndex((root) =>
@@ -2272,24 +2305,30 @@ export class AssetRepository {
         );
         if (index === -1) throw new DeletionError('DELETION_ROOT_CHANGED');
         const recorded = file.rootIdentity.quarantineIdentity;
+        const candidate =
+          recorded && !roots[index].quarantineIdentity
+            ? { ...roots[index], quarantineIdentity: recorded }
+            : roots[index];
         if (
           recorded &&
           (recorded.mountId !== file.rootIdentity.mountId ||
             recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
             (policy!.authorizationMode === 'storage'
-              ? !roots[index].quarantineIdentity ||
+              ? !candidate.quarantineIdentity ||
                 (['device', 'inode', 'uid', 'gid'] as const).some(
-                  (key) => recorded[key] !== roots[index].quarantineIdentity![key],
+                  (key) => recorded[key] !== candidate.quarantineIdentity![key],
                 )
-              : !sameQuarantineIdentity(recorded, roots[index].quarantineIdentity)))
+              : !sameQuarantineIdentity(recorded, candidate.quarantineIdentity)))
         )
           throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-        roots[index] = await bindQuarantine(roots[index]);
+        roots[index] = await bindQuarantine(candidate);
+        const policyIndex = policyRoots.findIndex((root) => root.path === roots[index].path);
+        if (policyIndex !== -1) boundPolicyRoots[policyIndex] = roots[index];
         files.push({ ...file, rootIdentity: roots[index] });
       }
       await tx
         .updateTable('asset_deletion_policy')
-        .set({ rootIdentities: roots })
+        .set({ rootIdentities: boundPolicyRoots })
         .where('ownerId', '=', receipt.ownerId)
         .where('scope', '=', receipt.scope)
         .execute();
@@ -2366,6 +2405,43 @@ export class AssetRepository {
       .where('path', 'in', paths)
       .executeTakeFirst();
     if (reference || fileReference) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+  }
+
+  /**
+   * A Live Photo motion original is generated below the owner's encoded-video
+   * directory. That directory is a separate managed root from the upload/NFS
+   * root and is admitted only when the database proves the exact companion
+   * relationship. It is never added to the owner's configured deletion roots.
+   */
+  private async deletionRootsForTarget(
+    tx: Transaction<DB>,
+    target: Selectable<AssetTable>,
+    policyRoots: DeletionRootIdentity[],
+    operationIds: string[],
+  ): Promise<DeletionRootIdentity[]> {
+    const roots = [...policyRoots];
+    if (target.type !== AssetType.Video) return roots;
+
+    const parents = await tx
+      .selectFrom('asset')
+      .select(['id', 'ownerId', 'libraryId'])
+      .where('livePhotoVideoId', '=', target.id)
+      .execute();
+    if (parents.length === 0) return roots;
+    if (parents.length !== 1 || !operationIds.includes(parents[0].id)) {
+      throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+    }
+    if (parents[0].ownerId !== target.ownerId || parents[0].libraryId !== target.libraryId) {
+      throw new DeletionError('MOTION_SCOPE_MISMATCH');
+    }
+
+    const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, target.ownerId);
+    if (!below(encodedRoot, target.originalPath)) {
+      throw new DeletionError('MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT');
+    }
+    if (roots.some((root) => root.path === encodedRoot)) return roots;
+    const identity = await collectRootIdentities([encodedRoot]);
+    return [...roots, identity[0]];
   }
 
   async getPermanentDeletionTargets(id: string) {

@@ -363,6 +363,7 @@ describe('isolated original files, real repositories and real file deletion work
   for (const kind of ['photo', 'video', 'Apple Live', 'Samsung Motion', 'external photo', 'offline external video']) {
     it(`${kind}: Trash/Restore and legacy retries preserve originals; permanent deletion has explicit scope`, async () => {
       const root = await mkdtemp(join(tmpdir(), 'gallery-trash-fixture-'));
+      const encodedRoot = await mkdtemp(join(tmpdir(), 'gallery-trash-encoded-'));
       const evidence = await createTestRecoveryEvidenceStore();
       try {
         const { sut, ctx } = setup();
@@ -370,11 +371,16 @@ describe('isolated original files, real repositories and real file deletion work
         const actualFolder = StorageCore.getFolderLocation;
         const actualLibrary = StorageCore.getLibraryFolder;
         vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
-          owner === user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
+          owner === user.id && folder === StorageFolder.Upload
+            ? root
+            : owner === user.id && folder === StorageFolder.EncodedVideo
+              ? join(encodedRoot, owner)
+              : actualFolder(folder, owner),
         );
         vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
           owner.id === user.id ? root : actualLibrary(owner),
         );
+        await mkdir(join(encodedRoot, user.id), { recursive: true });
         const { library } = await ctx.newLibrary({ ownerId: user.id });
         await new LibraryRepository(database).update(library.id, { importPaths: [root] });
         const original = join(root, kind.includes('video') ? 'original.mp4' : 'original.jpg');
@@ -384,7 +390,7 @@ describe('isolated original files, real repositories and real file deletion work
         await writeFile(untouched, 'must survive every mode');
         let motionId: string | null = null;
         if (kind.includes('Live') || kind.includes('Motion')) {
-          const motionPath = join(root, 'paired.mov');
+          const motionPath = join(StorageCore.getFolderLocation(StorageFolder.EncodedVideo, user.id), 'paired.mov');
           await writeFile(motionPath, 'synthetic paired resource');
           const { asset: motion } = await ctx.newAsset({
             ownerId: user.id,
@@ -450,7 +456,9 @@ describe('isolated original files, real repositories and real file deletion work
         expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe(JobStatus.Skipped);
         await expect(readFile(original)).rejects.toMatchObject({ code: 'ENOENT' });
         if (motionId) {
-          await expect(readFile(join(root, 'paired.mov'))).rejects.toMatchObject({ code: 'ENOENT' });
+          await expect(
+            readFile(join(StorageCore.getFolderLocation(StorageFolder.EncodedVideo, user.id), 'paired.mov')),
+          ).rejects.toMatchObject({ code: 'ENOENT' });
           expect(await new AssetRepository(database).getById(motionId)).toBeUndefined();
         }
         expect(await readFile(untouched, 'utf8')).toBe('must survive every mode');
@@ -458,6 +466,7 @@ describe('isolated original files, real repositories and real file deletion work
         vi.restoreAllMocks();
         await evidence.cleanup();
         await rm(root, { recursive: true, force: true });
+        await rm(encodedRoot, { recursive: true, force: true });
       }
     });
   }

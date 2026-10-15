@@ -411,7 +411,7 @@ describe('private quarantine initialization on Synology-like filesystems', () =>
     expect(descriptorChmod).toHaveBeenCalledTimes(1);
   });
 
-  it.each([0o777, 0o755, 0o1700, 0o2700])('never repairs an existing directory with mode %o', async (mode) => {
+  it.each([0o777, 0o755, 0o1700, 0o1770])('never repairs an existing directory with mode %o', async (mode) => {
     const file = join(root, 'photo');
     await writeFile(file, 'original must survive');
     const proof = await snapshotOriginal(file, await collectRootIdentities([root]));
@@ -937,6 +937,16 @@ describe('existing Gallery worker original-file guards on disposable files', () 
     await expect(validateDeletionRoots([root], [child])).rejects.toMatchObject({ code: 'OVERLAPPING_OWNER_ROOTS' });
     await expect(validateDeletionRoots([root], [root])).rejects.toBeDefined();
   });
+
+  it('allows disjoint sibling roots that share filesystem ancestors', async () => {
+    const first = join(root, 'owner-one');
+    const second = join(root, 'owner-two');
+    await mkdir(first);
+    await mkdir(second);
+
+    await expect(validateDeletionRoots([first], [second])).resolves.toHaveLength(1);
+  });
+
   it('allows disposable cache only inside a canonical root and rejects symlink ancestors', async () => {
     const cache = join(root, 'cache');
     const other = join(root, 'originals');

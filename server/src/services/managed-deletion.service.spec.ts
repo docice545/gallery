@@ -8,6 +8,13 @@ import { authStub } from 'test/fixtures/auth.stub.js';
 import { userStub } from 'test/fixtures/user.stub.js';
 import { newTestService } from 'test/utils.js';
 
+// Recovery-proof cryptographic and filesystem validation has its own focused suite. These
+// service tests isolate authorization and consent routing, so the verifier is a valid-proof
+// boundary here rather than a second copy of the evidence fixture.
+vi.mock('src/utils/recovery-evidence.js', () => ({
+  verifyRecoveryProof: vi.fn().mockResolvedValue(undefined),
+}));
+
 const proof = 'a'.repeat(64);
 const roots = ['/test/upload/owner'];
 const rootIdentities = roots.map((path) => ({

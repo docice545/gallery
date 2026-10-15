@@ -257,7 +257,9 @@ export const getMemoryTitle = (
   }
 
   const title = (memory.data as Record<string, unknown>).title;
-  if (typeof title === 'string' && title.trim()) return title;
+  if (typeof title === 'string' && title.trim()) {
+    return title;
+  }
 
   if (memory.type === MemoryType.OnThisDay) {
     const year = (memory.data as Record<string, unknown>).year;
@@ -275,7 +277,9 @@ export const getMemorySubtitle = (memory: MemoryResponseDto, translate: MessageF
   }
 
   const subtitle = (memory.data as Record<string, unknown>).subtitle;
-  if (typeof subtitle === 'string' && subtitle.trim()) return subtitle;
+  if (typeof subtitle === 'string' && subtitle.trim()) {
+    return subtitle;
+  }
 
   return build(memory, SUBTITLE_BUILDERS, translate, locale) ?? '';
 };

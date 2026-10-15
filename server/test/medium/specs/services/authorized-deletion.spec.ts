@@ -34,6 +34,7 @@ import { getKyselyDB, newTestService } from 'test/utils.js';
 
 let db: Kysely<DB>;
 let root: string;
+let encodedRoot: string;
 let evidence: Awaited<ReturnType<typeof createTestRecoveryEvidenceStore>>;
 beforeAll(async () => {
   db = await getKyselyDB();
@@ -43,12 +44,14 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'gallery-delete-pg-'));
+  encodedRoot = await mkdtemp(join(tmpdir(), 'gallery-delete-encoded-'));
   evidence = await createTestRecoveryEvidenceStore();
 });
 afterEach(async () => {
   vi.restoreAllMocks();
   await evidence.cleanup();
   await rm(root, { recursive: true, force: true });
+  await rm(encodedRoot, { recursive: true, force: true });
 });
 const fixture = async (external = false) => {
   const { ctx } = newMediumService(AssetService, { database: db, real: [AssetRepository], mock: [LoggingRepository] });
@@ -56,8 +59,13 @@ const fixture = async (external = false) => {
   const actualFolder = StorageCore.getFolderLocation;
   const actualLibrary = StorageCore.getLibraryFolder;
   vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
-    owner === user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
+    owner === user.id && folder === StorageFolder.Upload
+      ? root
+      : owner === user.id && folder === StorageFolder.EncodedVideo
+        ? join(encodedRoot, owner)
+        : actualFolder(folder, owner),
   );
+  await mkdir(join(encodedRoot, user.id), { recursive: true });
   vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
     owner.id === user.id ? root : actualLibrary(owner),
   );
@@ -481,7 +489,7 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     async (external) => {
       const f = await fixture(external);
       await authorize(f);
-      const motionPath = join(root, 'motion.mov');
+      const motionPath = join(StorageCore.getFolderLocation(StorageFolder.EncodedVideo, f.user.id), 'motion.mov');
       await writeFile(motionPath, 'synthetic paired video');
       const { asset: motion } = await f.ctx.newAsset({
         ownerId: f.user.id,
@@ -495,9 +503,9 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
       const { sut, storage } = service(f);
       const unlink = new StorageRepository(f.ctx.getMock(LoggingRepository)).unlinkOriginal;
       let fail = true;
-      vi.spyOn(storage, 'unlinkOriginal').mockImplementation(async (proof) => {
+      vi.spyOn(storage, 'unlinkOriginal').mockImplementation(async (proof, beforeUnlink) => {
         if (fail && proof.path === motionPath) throw new Error('fixture failure');
-        await unlink(proof);
+        await unlink(proof, beforeUnlink);
       });
       const failed = await sut.permanentlyDelete(authFor(f), [f.asset.id]);
       expect(failed[0].state).toBe('failed');
@@ -510,6 +518,65 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
       expect(await db.selectFrom('asset').select('id').where('id', '=', motion.id).executeTakeFirst()).toBeUndefined();
     },
   );
+
+  it('refuses a Live Photo motion original outside the owner encoded-video root', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const motionPath = join(root, 'motion-outside.mp4');
+    await writeFile(motionPath, 'motion outside managed root');
+    const { asset: motion } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      type: AssetType.Video,
+      visibility: AssetVisibility.Hidden,
+      originalPath: motionPath,
+    });
+    await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
+
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT',
+    });
+    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
+    expect(await readFile(motionPath, 'utf8')).toContain('outside');
+  });
+
+  it('refuses a motion original owned by another user or library', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const { user: other } = await f.ctx.newUser();
+    const foreignPath = join(root, 'foreign-motion.mp4');
+    await writeFile(foreignPath, 'foreign motion');
+    const { asset: foreignMotion } = await f.ctx.newAsset({
+      ownerId: other.id,
+      type: AssetType.Video,
+      originalPath: foreignPath,
+      visibility: AssetVisibility.Hidden,
+    });
+    await db.updateTable('asset').set({ livePhotoVideoId: foreignMotion.id }).where('id', '=', f.asset.id).execute();
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'MOTION_SCOPE_MISMATCH',
+    });
+    expect(await readFile(foreignPath, 'utf8')).toContain('foreign');
+  });
+
+  it('refuses a motion original referenced by multiple still assets', async () => {
+    const f = await fixture();
+    await authorize(f);
+    const motionPath = join(StorageCore.getFolderLocation(StorageFolder.EncodedVideo, f.user.id), 'shared-motion.mp4');
+    await writeFile(motionPath, 'shared motion');
+    const { asset: motion } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      type: AssetType.Video,
+      visibility: AssetVisibility.Hidden,
+      originalPath: motionPath,
+    });
+    await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
+    await f.ctx.newAsset({ ownerId: f.user.id, livePhotoVideoId: motion.id });
+
+    await expect(f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal)).rejects.toMatchObject({
+      code: 'ORIGINAL_SHARED_WITH_OTHER_ASSET',
+    });
+    expect(await readFile(motionPath, 'utf8')).toContain('shared');
+  });
 
   it('suppresses renamed/recreated-library byte-identical imports without changing path checksums', async () => {
     const f = await fixture(true);
