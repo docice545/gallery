@@ -519,6 +519,47 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     },
   );
 
+  it('rebinds an encoded-video quarantine after a restart changes only mount identity', async () => {
+    const f = await fixture(true);
+    await externalConsent(f);
+    const motionPath = join(StorageCore.getFolderLocation(StorageFolder.EncodedVideo, f.user.id), 'restart-motion.mov');
+    await writeFile(motionPath, 'synthetic restart motion');
+    const { asset: motion } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      type: AssetType.Video,
+      visibility: AssetVisibility.Hidden,
+      originalPath: motionPath,
+      libraryId: f.asset.libraryId,
+      isExternal: true,
+    });
+    await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+
+    await expect(
+      f.repo.removeAuthorizedOriginals(motion.id, () => Promise.reject(new Error('synthetic restart'))),
+    ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
+
+    const receipt = await db
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', motion.id)
+      .executeTakeFirstOrThrow();
+    for (const file of receipt.files) {
+      file.rootIdentity.mountId = 'old-container-id';
+      file.rootIdentity.mountNamespace = 'mnt:[old-container]';
+      file.rootIdentity.quarantineIdentity!.mountId = 'old-container-id';
+      file.rootIdentity.quarantineIdentity!.mountNamespace = 'mnt:[old-container]';
+    }
+    await db
+      .updateTable('asset_deletion_tombstone')
+      .set({ files: receipt.files })
+      .where('assetId', '=', motion.id)
+      .execute();
+
+    expect(await f.repo.removeAuthorizedOriginals(motion.id, unlinkOriginal)).toBe(true);
+    await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
+  });
+
   it('refuses a Live Photo motion original outside the owner encoded-video root', async () => {
     const f = await fixture();
     await authorize(f);

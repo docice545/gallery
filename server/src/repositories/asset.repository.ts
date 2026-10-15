@@ -2305,10 +2305,27 @@ export class AssetRepository {
         );
         if (index === -1) throw new DeletionError('DELETION_ROOT_CHANGED');
         const recorded = file.rootIdentity.quarantineIdentity;
+        const current = roots[index];
+        // A process restart can allocate a new mount namespace/id while the
+        // encoded-video SSD is still the same physical root. Rebind only the
+        // ephemeral mount coordinates; bindQuarantine still verifies the
+        // actual quarantine dev/inode/owner before accepting the receipt.
         const candidate =
-          recorded && !roots[index].quarantineIdentity
-            ? { ...roots[index], quarantineIdentity: recorded }
-            : roots[index];
+          recorded &&
+          policy!.authorizationMode === 'storage' &&
+          !sameRootIdentity(file.rootIdentity, current) &&
+          samePhysicalRootIdentity(file.rootIdentity, current)
+            ? {
+                ...current,
+                quarantineIdentity: {
+                  ...recorded,
+                  mountId: current.mountId,
+                  mountNamespace: current.mountNamespace,
+                },
+              }
+            : recorded && !current.quarantineIdentity
+              ? { ...current, quarantineIdentity: recorded }
+              : current;
         if (
           recorded &&
           (recorded.mountId !== file.rootIdentity.mountId ||

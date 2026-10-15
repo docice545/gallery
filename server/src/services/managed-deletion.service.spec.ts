@@ -72,6 +72,11 @@ describe('managed deletion authorization', () => {
       PrepareManagedDeletionDto.schema.safeParse({ recoveryProof: 'invented', verifiedExclusiveRoots: true }).success,
     ).toBe(false);
   });
+  it('accepts the signed-envelope digest emitted by release authorization tooling', () => {
+    expect(
+      PrepareManagedDeletionDto.schema.safeParse({ recoveryProof: proof, verifiedExclusiveRoots: true }).success,
+    ).toBe(true);
+  });
   it('reports ordinary managed deletion ready without administrator preparation', async () => {
     mocks.asset.getDeletionPolicy.mockResolvedValue(undefined);
     expect(await sut.managedDeletionStatus(authStub.user1)).toEqual({
