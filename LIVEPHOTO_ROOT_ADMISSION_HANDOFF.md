@@ -1,6 +1,6 @@
 # Live Photo root admission — 2026-10-15
 
-## Status: BLOCKED, no speculative deletion patch
+## Status: production cause confirmed; corrected backend not deployed
 
 Application base: `4e554f355755382990e12586b339d262d679bbf1`.
 Branch: `fix/livephoto-original-root-admission-4e554f355`.
@@ -43,10 +43,79 @@ cover wrong type, owner, library, shared companion, another owner's encoded
 directory, symlink and a JPG identity-path mismatch. This source does not
 reproduce the reported failure under all supplied valid inputs.
 
-Therefore the exact production cause is **not established**. A runtime change
-that merely widens roots would be unjustified. The missing evidence is the
-per-component root result and code identity of the installed image, not another
-mount/permissions/existence audit.
+## Finding from the supplied HP report
+
+The owner's `gallery-livephoto-roots-MVpzGAT0.txt` identifies running image
+`sha256:52e08a50b507ddddf591706eed8df70c1904b47fca53d5e913146853df2a2b8b`.
+The compiled repository has no `deletionRootsForTarget()` method and its
+preparation method does not call that helper. Its source metadata does not match
+the expected application commit. The report reconfirms the correct IMAGE/VIDEO
+types, ownership, relationship and enabled upload-root policy.
+
+Most significantly, the compiled preparation method's SHA-256 is:
+
+`2c529dac2d226718ad9ce3788ce6ce954eeaf4a921ccc0b72a78fbcee4bf4226`.
+
+Static TypeScript 6.0.3 transpilation of the Git source at
+`f26b46059726ca3c55c63c3ce1edde7e45d8404f` produces **that exact method hash**.
+The method calls, at its source line 2119:
+
+```ts
+files.push(await snapshot(path, policy!.rootIdentities));
+```
+
+Thus the installed method passes only the upload/NFS identity to both components.
+For the supplied MP4 under the owner's encoded-video/SSD directory,
+`snapshotOriginal()` finds no containing root and throws before opening media.
+The hashing transaction rolls back, explaining why both receipts retain empty
+`files` even if the JPG was hashed before the MP4 failure.
+
+This identifies the actual old **method**, not the whole image's source commit.
+Do not label the image as `f26b460597` based on one method. The report's original
+`DIAGNOSTIC_STAGE_FAILED` means the collector tried to call the absent helper;
+it is not an additional media deletion failure. The updated collector reports
+`COMPILED_DYNAMIC_ROOTS_HELPER_MISSING` explicitly and exposes only a validated
+40-hex actual source revision for subsequent provenance review.
+
+The server correction already exists in
+`a0301e2197e15760b0c8e4051e0c16f99422646b`: dynamic roots are used in preparation,
+quarantine binding and execution, not just one snapshot call. Preserve its
+descendants `e2aecb46bc554f6492d0b6e1b18d22c05c8d69b8` (SSD restart retry),
+`c9ad4cd602bf30a2e4896a80b83552db9d2f7522` (quarantine intent) and
+`4e554f355755382990e12586b339d262d679bbf1` (operation error updates).
+No new weakening runtime patch or manual policy expansion is required.
+
+The fresh committed-tree build path excludes ignored `dist` and tsbuildinfo
+through `.dockerignore`, uses `git archive` in `server_build.sh`, and compiles the
+server in the Dockerfile. The HP report does not reveal which build invocation
+or image-selection step installed the old method. Stale local build output is
+not proven to be the production build cause.
+
+Reproducible static analysis, without executing server code or building images,
+is retained in the Cloud workspace:
+
+- `production-fingerprint.mjs`, SHA-256
+  `7c1f740b8f1c869e0962268f004916e893089d342685aca249fa64ce2230e44d`;
+- `production-fingerprint.txt`, SHA-256
+  `4b8bc8b11aef17eb20169a8ef3b5218a846fed7c5c77d01a986e0fb0afdd34ed`.
+
+Both are under `/workspace/gallery-livephoto-root-results-4e554f355/`.
+
+## Preventing another export of stale compiled deletion code
+
+The existing `server_build.sh` now derives `livePhotoDynamicDeletionRoots` from
+the exact selected Git source. A half-present source implementation fails with
+`SOURCE_INCOMPLETE`. If that source includes the fix, the existing isolated,
+read-only, network-disabled packaged Node check requires the actual helper,
+its use by preparation, and root forwarding by the snapshot/API/worker paths.
+An old compiled method is rejected before `docker save`, even if its source ENV
+claims the correct commit. Reviewed old source without this feature can still
+build, preserving rollback build compatibility. The check never invokes deletion
+methods and does not change deployment or rollback behavior.
+
+This guard protects the normal build/export path. It does not attest or repair
+an already installed image, and it is not a substitute for the disposable media
+acceptance test or existing source/image/migration/rollback verification.
 
 ## Targeted HP collector
 
@@ -70,18 +139,20 @@ It never patches filesystem APIs or hashes/opens media. Root identity collection
 opens directories read-only. Only the new process's StorageCore location is set;
 the running API/microservices are unchanged. No Redis connection is created.
 
-The report contains roles, safe error codes, booleans and compiled-code hashes.
+The report contains roles, safe error codes, booleans, compiled-code hashes and
+the actual source revision only when it is a valid public 40-hex Git commit.
 It omits original paths, filenames, user/asset IDs, credentials and raw errors.
 An exit code of zero means the diagnostic completed, **not** that deletion passed.
 Even `PATH_PREDICATES_PASS` does not prove filesystem deletion or production
 readiness; it is the containment/canonical-path analysis of the reported inputs.
 
-Run only the checksum-pinned command from the accompanying handoff. It fetches
-tooling into Git objects without checkout/reset, writes a new private script and
+Run only the checksum-pinned command from the accompanying handoff. It downloads
+the pinned tooling without checkout/reset, writes a new private script and
 TXT report under `/home/doctoriceadm/`, checks syntax, and executes the collector.
 No existing uncommitted files or `BUILD11_*.log` files are touched. Supply the two
 asset IDs, owner ID and expected application commit from the task, not fabricated
-values. Return that sanitized report before attempting a runtime correction.
+values. The existing HP report already establishes the old-method mismatch;
+repeating the inventory or testing deletion on the current image is unnecessary.
 
 ## Validation and limits
 
@@ -89,7 +160,13 @@ values. Return that sanitized report before attempting a runtime correction.
 - Collector integration against actual isolated PostgreSQL: 3 PASS, 0 FAIL/SKIP.
   It works with nonexistent media paths, preserves receipts byte-for-byte, and
   rejects a read-write session before reading operation data.
-- Collector Node tests: 17 PASS, 0 FAIL/SKIP.
+- Collector Node tests: 19 PASS, 0 FAIL/SKIP, including explicit missing-helper
+  handling and source metadata redaction/validation.
+- Existing backend build-tool suite: 27 PASS, 0 FAIL/SKIP, including 7 new tests.
+  They exercise the real embedded packaged check using synthetic ESM classes:
+  correct classes pass, old method/missing helper/policy-only snapshot/broken
+  HTTP or worker forwarding fail, and reviewed older source remains supported.
+- Bash syntax and `git diff --check`: PASS. No Docker build was run.
 - TypeScript, scoped ESLint, formatting, Node syntax: PASS.
 - Previous 409 unit / 89 medium results on unchanged application source are
   retained, not rerun. See `CLI_LIVEPHOTO_RETRY_FIX.md`.
@@ -124,14 +201,25 @@ pnpm --config.verify-deps-before-run=false exec eslint \
 
 ## Future deployment and one-Live-Photo acceptance gate
 
-No deployment is needed for this diagnostic checkpoint. After the actual failure
-is identified, require a separate minimal runtime commit, a failing-before /
-passing-after regression, a source-pinned backend build and explicit deployment
-approval. Preserve the previous image, backups, existing mounts and all unrelated
+No deployment is performed by this checkpoint. The required server fix is already
+in the validated CLI source. After build approval, use the existing
+`scripts/release/server_build.sh EXPECTED_FULL_SHA NEW_OUTPUT_DIRECTORY` from a
+clean dedicated source checkout, using its exact committed HEAD. It archives
+tracked files and cannot import ignored local `dist` or HP `.env` files.
+Do not build from an unknown dirty HP checkout or reuse the currently running
+image as the corrected artifact. Record source, image ID, archive checksum and
+the compiled preparation method/helper. Source ENV alone is insufficient: verify
+the compiled method has the dynamic-root call and rerun the focused disposable
+Live Photo scenario against the new artifact before deployment approval.
+Preserve the previous image, backups, existing mounts and all unrelated
 services. Verify migration compatibility; never reset receipts or broaden policy
 roots manually. Keep API and microservices enabled. Review previously authorized
 pending intents before starting a new server because the normal recovery sweep
-can retry them.
+can retry them. Starting a corrected image can therefore resume physical deletion
+of existing authorized intents; deployment approval must explicitly cover how
+those intents and retention are gated. Do not silently pause, clear or replay
+queues, disable microservices, or promise a one-pair-only production test without
+that review.
 
 After separate approval, test one newly created disposable Live Photo: verify
 Trash preserves JPG/MP4, restore preserves IDs/chronology, then explicitly confirm

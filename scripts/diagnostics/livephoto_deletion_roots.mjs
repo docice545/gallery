@@ -5,6 +5,17 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+export function describeSource(source, expectedSource) {
+  // Public Git provenance only; never return arbitrary environment contents.
+  const actualCommit = /^[0-9a-f]{40}$/.test(source ?? "") ? source : null;
+  return {
+    present: actualCommit !== null,
+    actualCommit,
+    expectedMatches: actualCommit !== null && actualCommit === expectedSource,
+  };
+}
+
 export function analyzePath(file, roots, policyRoots = roots) {
   const below = (root) => {
     const part = relative(root, file);
@@ -196,6 +207,10 @@ export async function collectDatabaseDiagnostics(
               policy.rootIdentities.some((identity) => identity.path === root),
             ),
         };
+        if (typeof repo.deletionRootsForTarget !== "function") {
+          item.rootStage = "COMPILED_DYNAMIC_ROOTS_HELPER_MISSING";
+          continue;
+        }
         let roots;
         try {
           roots = await repo.deletionRootsForTarget(
@@ -347,11 +362,10 @@ export async function runDiagnostic(args) {
           : { present: false },
       ]),
     );
-    const source = process.env.IMMICH_SOURCE_COMMIT;
-    result.source = {
-      present: /^[0-9a-f]{40}$/.test(source ?? ""),
-      expectedMatches: source === expectedSource,
-    };
+    result.source = describeSource(
+      process.env.IMMICH_SOURCE_COMMIT,
+      expectedSource,
+    );
     const configRepository = new ConfigRepository();
     const config = configRepository.getEnv();
     // These methods only read configuration and directory existence. Never bootstrap a service.

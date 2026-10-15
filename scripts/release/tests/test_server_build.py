@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -37,6 +38,7 @@ class CommittedBuildMetadata(unittest.TestCase):
         self.git('init', '--quiet')
         self.git('remote', 'add', 'origin', 'https://github.com/docice545/gallery.git')
         self.write('mobile/pubspec.yaml', 'name: fixture\nversion: 5.7.1+7\n')
+        self.write('server/src/repositories/asset.repository.ts', 'export class AssetRepository {}\n')
         self.write('server/src/schema/migrations/' + BASE_MIGRATION + '.ts', 'export const existing = true;\n')
         self.baseline = self.commit()
 
@@ -105,6 +107,43 @@ class CommittedBuildMetadata(unittest.TestCase):
         self.assertEqual(metadata['migrationsAdded'], [])
         self.assertEqual(metadata['migrationFilesAdded'], [])
         self.assertEqual(metadata['schemaDelta'], 'NONE_FROM_MIGRATION_BASE')
+        self.assertFalse(metadata['livePhotoDynamicDeletionRoots'])
+
+    def test_dynamic_root_requirement_is_derived_from_exact_committed_repository(self):
+        self.write('server/src/repositories/asset.repository.ts', '''export class AssetRepository {
+  async preparePermanentDeletion(snapshot) {
+    const roots = await this.deletionRootsForTarget();
+    return snapshot(path, roots);
+  }
+  async removeAuthorizedOriginals() {}
+  private async deletionRootsForTarget() {}
+}
+''')
+        source = self.commit()
+        result = self.check(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)['livePhotoDynamicDeletionRoots'])
+
+    def test_partial_dynamic_root_source_is_rejected_without_docker(self):
+        for helper, call, snapshot in (
+                ('private async deletionRootsForTarget() {}', '', 'snapshot(path, roots)'),
+                ('', 'this.deletionRootsForTarget()', 'snapshot(path, roots)'),
+                ('private async deletionRootsForTarget() {}', 'this.deletionRootsForTarget()',
+                 'snapshot(path, policy.rootIdentities)')):
+            with self.subTest(helper=bool(helper), call=bool(call), snapshot=snapshot):
+                self.write('server/src/repositories/asset.repository.ts', f'''export class AssetRepository {{
+  async preparePermanentDeletion(snapshot) {{
+    const roots = {call or '[]'};
+    return {snapshot};
+  }}
+  async removeAuthorizedOriginals() {{}}
+  {helper}
+}}
+''')
+                source = self.commit()
+                result = self.check(source)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('SOURCE_INCOMPLETE', result.stderr)
 
     def test_tooling_only_descendant_keeps_selected_application_source_metadata(self):
         source = self.next_release()
@@ -252,6 +291,85 @@ class CommittedBuildMetadata(unittest.TestCase):
         self.assertIn('JSON.parse(metadata).migrationFilesAdded', script)
         self.assertIn('if(!fs.existsSync(compiled)) process.exit(1)', script)
         subprocess.run(['bash', '-n', str(SCRIPT)], check=True, capture_output=True)
+
+
+class PackagedLivePhotoAdmission(unittest.TestCase):
+    """Execute the actual embedded packaged check with synthetic ESM, no Docker."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.write('server/package.json', json.dumps({'type': 'module', 'version': '5.7.3'}))
+        self.write('server/dist/main.js', '')
+        match = re.search(r'docker run[^\n]+ -e \'([\s\S]*?)\' "\$release_version" "\$source_metadata"',
+                          SCRIPT.read_text())
+        self.assertIsNotNone(match, 'packaged verification script missing')
+        self.check_code = match.group(1)
+        self.repository = '''export class AssetRepository {
+  async preparePermanentDeletion(snapshot) {
+    const roots = await this.deletionRootsForTarget();
+    return snapshot(path, roots);
+  }
+  async deletionRootsForTarget() { throw new Error("must not invoke filesystem admission"); }
+}
+'''
+        self.service = '''export class AssetService {
+  async permanentlyDelete(path, roots) { return this.storageRepository.snapshotOriginal(path, roots); }
+  async handleAssetDeletion(path, roots) { return this.storageRepository.snapshotOriginal(path, roots); }
+}
+'''
+
+    def write(self, path, content):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+
+    def check(self, repository=None, service=None, expected=True):
+        self.write('server/dist/repositories/asset.repository.js', repository or self.repository)
+        self.write('server/dist/services/asset.service.js', service or self.service)
+        metadata = {'migrationFilesAdded': [], 'livePhotoDynamicDeletionRoots': expected}
+        env = os.environ.copy()
+        # A correctly labelled image can still contain the wrong compiled code.
+        env['IMMICH_SOURCE_COMMIT'] = '4e554f355755382990e12586b339d262d679bbf1'
+        return subprocess.run(['node', '-e', self.check_code, '5.7.3', json.dumps(metadata)], cwd=self.root,
+                              env=env, text=True, capture_output=True, timeout=30)
+
+    def test_current_compiled_classes_pass_without_invoking_methods(self):
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('PASS packaged Live Photo dynamic roots and API/worker forwarding', result.stdout)
+
+    def test_old_compiled_prepare_fails_even_with_correct_source_environment(self):
+        old = '''export class AssetRepository {
+  async preparePermanentDeletion(snapshot) { return snapshot(path, policy.rootIdentities); }
+}
+'''
+        result = self.check(repository=old)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('PACKAGED_LIVEPHOTO_ROOT_ADMISSION_MISMATCH', result.stderr)
+
+    def test_helper_presence_alone_cannot_hide_policy_only_snapshot(self):
+        result = self.check(repository=self.repository.replace('snapshot(path, roots)',
+                                                              'snapshot(path, policy.rootIdentities)'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('PACKAGED_LIVEPHOTO_ROOT_ADMISSION_MISMATCH', result.stderr)
+
+    def test_each_api_and_worker_callback_must_forward_dynamic_roots(self):
+        for method in ('permanentlyDelete', 'handleAssetDeletion'):
+            with self.subTest(method=method):
+                broken = self.service.replace(
+                    f'async {method}(path, roots) {{ return this.storageRepository.snapshotOriginal(path, roots); }}',
+                    f'async {method}(path, roots) {{ return this.storageRepository.snapshotOriginal(path, []); }}')
+                result = self.check(service=broken)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('PACKAGED_LIVEPHOTO_ROOT_ADMISSION_MISMATCH', result.stderr)
+
+    def test_reviewed_source_without_feature_does_not_require_new_runtime_methods(self):
+        result = self.check(repository='export class AssetRepository {}', service='export class AssetService {}',
+                            expected=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('PASS packaged Live Photo dynamic roots', result.stdout)
 
 
 if __name__ == '__main__':
