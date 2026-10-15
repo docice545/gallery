@@ -476,6 +476,45 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     ).toHaveLength(4);
   });
 
+  it('regression: managed Android Live Photo spans upload and owner encoded-video root', async () => {
+    const f = await fixture(false);
+    await authorize(f);
+    const encodedBase = join(root, '..', 'disposable-encoded-' + randomUUID());
+    const getBase = StorageCore.getBaseFolder;
+    vi.spyOn(StorageCore, 'getBaseFolder').mockImplementation((folder) =>
+      folder === StorageFolder.EncodedVideo ? encodedBase : getBase(folder),
+    );
+    const { asset: motion } = await f.ctx.newAsset({
+      ownerId: f.user.id,
+      type: AssetType.Video,
+      visibility: AssetVisibility.Hidden,
+      originalPath: join(root, 'unused-motion-path.mp4'),
+      libraryId: null,
+    });
+    const motionPath = StorageCore.getAndroidMotionPath(f.asset, motion.id);
+    await mkdir(join(encodedBase, f.user.id, motion.id.slice(0, 2), motion.id.slice(2, 4)), { recursive: true });
+    await writeFile(motionPath, 'synthetic owner motion bytes');
+    await db.updateTable('asset').set({ originalPath: motionPath }).where('id', '=', motion.id).execute();
+    await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
+    try {
+      // Baseline Build 11 fails ORIGINAL_OUTSIDE_AUTHORIZED_ROOT here.
+      // Fixed code must authorize ONLY the linked, exact owner-scoped -MP.mp4.
+      await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+      const motionReceipt = await db
+        .selectFrom('asset_deletion_tombstone')
+        .select('files')
+        .where('assetId', '=', motion.id)
+        .executeTakeFirstOrThrow();
+      expect(motionReceipt.files).toHaveLength(1);
+      expect(await f.repo.removeAuthorizedOriginals(motion.id, unlinkOriginal)).toBe(true);
+      expect(await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+      await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
+      await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+    } finally {
+      await rm(encodedBase, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])(
     'deletes the exclusive Live/Motion video first and retains the still for retry (external=%s)',
     async (external) => {
