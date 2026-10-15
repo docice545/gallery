@@ -1,16 +1,20 @@
-# Build 11 final audit: `a0301e219`
+# Build 11 final audit: `c9ad4cd60` (includes `e2aecb46b`, `a0301e219`)
 
 Дата аудита: 2026-10-15. Проверка выполнена только на синтетических данных; production,
 Docker production, PostgreSQL/NAS/VPN/Redis и реальные media не использовались.
 
 ## Итог
 
-**PASS после отдельного исправления `e2aecb46b`.** Коммит `a0301e219` оставлял
+**PASS после отдельных исправлений `e2aecb46b` и `c9ad4cd60`.** Коммит `a0301e219` оставлял
 несовместимость в wire contract: DTO принимал только токен `gallery-recovery-v1...`,
 тогда как действующие release/authorization-инструменты передают SHA-256 digest
 подписанного Ed25519 envelope. Это блокировало легитимную подготовку удаления ответом 400.
-Отдельный коммит перевёл DTO на тот же digest contract, который проверяет production
+Коммит `e2aecb46b` перевёл DTO на тот же digest contract, который проверяет production
 `verifyRecoveryEvidence`, и добавил регрессионную проверку.
+
+Коммит `c9ad4cd60` добавил durable intent для имени quarantine-каталога: UUID сохраняется
+до filesystem `mkdir`, повтор после сбоя использует то же имя, а чужой или непустой каталог
+отклоняется.
 
 ## Аудит удаления
 
@@ -42,8 +46,8 @@ production verifier находится в `server/src/utils/deletion-recovery.ts
 
 ## Проверки
 
-- `cd server && pnpm test --run src/services/managed-deletion.service.spec.ts src/utils/authorized-deletion.spec.ts src/utils/recovery-evidence.spec.ts` — **133/133 PASS**.
-- `server/test/medium/specs/services/authorized-deletion.spec.ts` — **82/82 PASS** ранее записано в validation log, включая NFS-like quarantine, Live Photo scope, TOCTOU, restart и mount-identity regression.
+- `cd server && pnpm test --run src/services/managed-deletion.service.spec.ts src/utils/authorized-deletion.spec.ts src/utils/recovery-evidence.spec.ts` — **135/135 PASS** (повторено на текущем `HEAD`).
+- `server/test/medium/specs/services/authorized-deletion.spec.ts` — **82/82 PASS** в изолированном validation log (`gallery-auto/20261015-074821-2480017/round-1.log`), включая NFS-like quarantine, Live Photo scope, TOCTOU, restart и mount-identity regression.
 - `python3 -m unittest scripts.release.tests.test_release_candidate scripts.release.tests.test_server_artifact_smoke scripts.release.tests.test_trash_predeploy scripts.release.tests.test_trash_recovery_inputs` — **113 PASS, 6 skipped**.
 - Полный Python release suite — **146 PASS, 10 skipped** (`BUILD11_python_release_tests_rerun.log`).
 - Server type-check, production build/postbuild migration sync и `git diff --check` — **PASS** по validation logs.
@@ -55,7 +59,7 @@ production verifier находится в `server/src/utils/deletion-recovery.ts
 3. Recovery proof зависит от защищённого read-only trust store и корректного Ed25519 key provisioning; deployment этого хранилища в рамках аудита не проверялся.
 4. Синтетические тесты не являются доказательством поведения конкретного NAS при нестандартных `rename`, `fsync` или server-side ACL semantics.
 
-Деплой не выполнялся. Исправление находится в отдельном коммите `e2aecb46b`.
+Деплой не выполнялся. Исправления находятся в отдельных коммитах `e2aecb46b` и `c9ad4cd60`.
 
 ## Финальный аудит NFS intent, 2026-10-15
 
@@ -73,8 +77,9 @@ production verifier находится в `server/src/utils/deletion-recovery.ts
 из внешнего индекса. Добавлены unit-регрессии crash-after-mkdir и malformed/non-empty
 intent; medium fixture теперь моделирует UUID-каталог.
 
-Актуальные проверки: unit authorized-deletion **111/111 PASS**; medium
-`authorized-deletion.spec.ts` **82/82 PASS**; `pnpm exec tsc --noEmit` **PASS**;
+Актуальные проверки: unit authorized-deletion **111/111 PASS**; объединённый server unit-набор
+**135/135 PASS**; medium `authorized-deletion.spec.ts` **82/82 PASS**;
+`pnpm exec tsc --noEmit` **PASS**;
 Prettier, ESLint и `git diff --check` **PASS**. Medium suite включает Live Photo JPG
 на NFS-like root и MP4 в owner encoded-video root, quarantine, повтор после сбоя,
 смену mount ID/namespace, подмену quarantine и сохранение чужих файлов.
