@@ -43,6 +43,17 @@ need(match is not None, 'committed mobile semantic version and positive build re
 version, build = match.group(1), int(match.group(2))
 need(build <= 2100000000, 'committed mobile build exceeds Android version code limit')
 
+# Source labels alone cannot prove that the packaged dist/ contains this fix.
+# Derive the required capability from the selected commit, not local dist/ or ENV.
+repository = git('show', source + ':server/src/repositories/asset.repository.ts').decode()
+helper = re.search(r'\b(?:private\s+)?async\s+deletionRootsForTarget\s*\(', repository) is not None
+prepare = re.search(r'\basync preparePermanentDeletion\([\s\S]*?(?=\n  async removeAuthorizedOriginals\()', repository)
+calls_helper = prepare is not None and re.search(r'\bthis\.deletionRootsForTarget\s*\(', prepare.group()) is not None
+need(helper == calls_helper, 'SOURCE_INCOMPLETE live photo deletion root admission')
+if helper:
+    need(re.search(r'\bsnapshot\(path,\s*roots\)', prepare.group()) is not None,
+         'SOURCE_INCOMPLETE live photo snapshot root forwarding')
+
 roots = ('server/src/schema/migrations', 'server/src/schema/migrations-gallery')
 # Preserve the upstream filename/ledger identity; never rename a migration that
 # existing databases have applied. This is the sole nonstandard source name and
@@ -78,6 +89,7 @@ need(all(before[name]['sha256'] == after[name]['sha256'] for name in before),
 added = sorted(after.keys() - before.keys())
 print(json.dumps({'sourceCommit': source, 'serverVersion': version, 'mobileVersion': version,
                   'mobileBuild': build, 'migrationBase': baseline,
+                  'livePhotoDynamicDeletionRoots': helper,
                   'schemaDelta': 'MIGRATION_FILES_ADDED' if added else 'NONE_FROM_MIGRATION_BASE',
                   'migrationsAdded': added, 'migrationFilesAdded': [after[name] for name in added]}))
 PY_SOURCE_METADATA
@@ -124,6 +136,23 @@ const fs=require("fs"); if(!fs.existsSync("./server/dist/main.js")) process.exit
 for(const migration of JSON.parse(metadata).migrationFilesAdded) {
   const compiled = "./" + migration.path.replace("/src/", "/dist/").replace(/\.ts$/, ".js");
   if(!fs.existsSync(compiled)) process.exit(1);
+}
+if (JSON.parse(metadata).livePhotoDynamicDeletionRoots) {
+  Promise.all([
+    import("./server/dist/repositories/asset.repository.js"),
+    import("./server/dist/services/asset.service.js"),
+  ]).then(([{AssetRepository}, {AssetService}]) => {
+    const repo = AssetRepository?.prototype, service = AssetService?.prototype;
+    const method = (object, name) => typeof object?.[name] === "function" ? object[name].toString() : "";
+    if (typeof repo?.deletionRootsForTarget !== "function" ||
+        !/\bthis\.deletionRootsForTarget\s*\(/.test(method(repo, "preparePermanentDeletion")) ||
+        !/\bsnapshot\(path,\s*roots\)/.test(method(repo, "preparePermanentDeletion")) ||
+        !/\bsnapshotOriginal\(path,\s*roots\)/.test(method(service, "permanentlyDelete")) ||
+        !/\bsnapshotOriginal\(path,\s*roots\)/.test(method(service, "handleAssetDeletion"))) {
+      throw new Error("PACKAGED_LIVEPHOTO_ROOT_ADMISSION_MISMATCH");
+    }
+    console.log("PASS packaged Live Photo dynamic roots and API/worker forwarding");
+  }).catch(() => { console.error("FAIL PACKAGED_LIVEPHOTO_ROOT_ADMISSION_MISMATCH"); process.exit(1); });
 }
 console.log("PASS packaged server version " + version + ", compiled entrypoint and source migration additions");' "$release_version" "$source_metadata"
 docker save "$image" | gzip -n > "$output/gallery-server-linux-amd64.tar.gz"

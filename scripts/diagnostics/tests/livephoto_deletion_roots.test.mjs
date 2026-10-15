@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   analyzePath,
   collectDatabaseDiagnostics,
+  describeSource,
   runDiagnostic,
 } from "../livephoto_deletion_roots.mjs";
 
@@ -18,6 +19,33 @@ const jpg = `${upload}/94/c5/44444444-4444-4444-8444-444444444444.jpg`;
 const mp4 = `${encoded}/17/f4/${motion}-MP.mp4`;
 const roots = [{ path: upload }, { path: encoded }];
 const policy = [roots[0]];
+
+test("source provenance reports only a validated public Git commit", () => {
+  const expected = "a".repeat(40);
+  assert.deepEqual(describeSource(expected, expected), {
+    present: true,
+    actualCommit: expected,
+    expectedMatches: true,
+  });
+  assert.deepEqual(describeSource("b".repeat(40), expected), {
+    present: true,
+    actualCommit: "b".repeat(40),
+    expectedMatches: false,
+  });
+  for (const invalid of [
+    undefined,
+    "",
+    "a".repeat(39),
+    "a".repeat(41),
+    "private-value-not-a-commit",
+  ]) {
+    assert.deepEqual(describeSource(invalid, expected), {
+      present: false,
+      actualCommit: null,
+      expectedMatches: false,
+    });
+  }
+});
 
 test("exact supplied canonical shapes pass both path predicates with separate admitted roots", () => {
   for (const file of [jpg, mp4]) {
@@ -253,6 +281,29 @@ test("collector uses one explicit repeatable-read read-only transaction and only
   for (const secret of [owner, still, motion, jpg, mp4, upload, encoded])
     assert.ok(!text.includes(secret));
 });
+test("old compiled repository is identified without invoking a missing helper or inventing roots", async () => {
+  const f = mockDatabase();
+  f.dependencies.AssetRepository = class {};
+  const report = await collectDatabaseDiagnostics(f.database, f.dependencies, [
+    still,
+    motion,
+    owner,
+  ]);
+  assert.equal(report.transactionReadOnly, true);
+  assert.equal(report.roles.length, 2);
+  for (const role of report.roles) {
+    assert.equal(role.rootStage, "COMPILED_DYNAMIC_ROOTS_HELPER_MISSING");
+    assert.equal(role.paths, undefined);
+  }
+  assert.equal(f.calls.filter(([name]) => name === "rootMethod").length, 0);
+  assert.equal(
+    f.calls.filter(
+      ([name, table]) => name === "selectFrom" && table === "asset_file",
+    ).length,
+    0,
+  );
+});
+
 test("collector identifies missing motion type admission without accepting the MP4 by its extension", async () => {
   const f = mockDatabase({ motionType: "OTHER" });
   const report = await collectDatabaseDiagnostics(f.database, f.dependencies, [
