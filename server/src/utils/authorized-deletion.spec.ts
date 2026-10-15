@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs, { type FileHandle, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -117,6 +117,31 @@ describe('persistent storage grants across container namespaces', () => {
         .join('\n');
     });
     await expect(assertWritableDeletionRoots([bound])).rejects.toMatchObject({ code: 'LIBRARY_STORAGE_READ_ONLY' });
+  });
+});
+
+describe('durable quarantine directory intents', () => {
+  it('resumes a crash after mkdir using the same committed directory name', async () => {
+    const [rootIdentity] = await collectRootIdentities([root]);
+    const quarantineDirectory = `.gallery-deletion-quarantine-${randomUUID()}`;
+    await mkdir(join(root, quarantineDirectory), { mode: 0o700 });
+    const bound = await bindQuarantine({ ...rootIdentity, quarantineDirectory });
+    expect(bound.quarantineIdentity).toBeDefined();
+    expect(await fs.readdir(join(root, quarantineDirectory))).toEqual([]);
+    expect(await bindQuarantine(bound)).toEqual(bound);
+  });
+
+  it('rejects a nonempty or malformed durable intent', async () => {
+    const [rootIdentity] = await collectRootIdentities([root]);
+    const quarantineDirectory = `.gallery-deletion-quarantine-${randomUUID()}`;
+    await mkdir(join(root, quarantineDirectory), { mode: 0o700 });
+    await writeFile(join(root, quarantineDirectory, 'foreign'), 'foreign');
+    await expect(bindQuarantine({ ...rootIdentity, quarantineDirectory })).rejects.toMatchObject({
+      code: 'DELETION_QUARANTINE_CONFLICT',
+    });
+    await expect(bindQuarantine({ ...rootIdentity, quarantineDirectory: '../foreign' })).rejects.toMatchObject({
+      code: 'DELETION_QUARANTINE_CONFLICT',
+    });
   });
 });
 

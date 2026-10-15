@@ -36,6 +36,13 @@ let db: Kysely<DB>;
 let root: string;
 let encodedRoot: string;
 let evidence: Awaited<ReturnType<typeof createTestRecoveryEvidenceStore>>;
+const quarantineName = (identity?: { quarantineDirectory?: string }) =>
+  identity?.quarantineDirectory ?? '.gallery-deletion-quarantine';
+const quarantinePath = (identity?: { quarantineDirectory?: string }) => join(root, quarantineName(identity));
+const isQuarantinePath = (path: unknown) =>
+  /\/\.gallery-deletion-quarantine(?:-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})?$/.test(
+    String(path),
+  );
 beforeAll(async () => {
   db = await getKyselyDB();
 });
@@ -292,7 +299,7 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
       .executeTakeFirstOrThrow();
     expect(receipt).toMatchObject({ state: 'failed', errorCode: 'DELETION_RECOVERY_EXPIRED' });
     expect(
-      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+      await readFile(quarantinePath(receipt.files[0].rootIdentity) + '/' + receipt.files[0].quarantineName, 'utf8'),
     ).toContain('synthetic');
     await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal);
     expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
@@ -704,7 +711,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       const chmod = vi.fn();
       vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
         const handle = await openActual(path, flags, mode);
-        if (String(path).endsWith('/.gallery-deletion-quarantine')) {
+        if (isQuarantinePath(path)) {
           const actual = handle.chmod.bind(handle);
           vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
             chmod(mode);
@@ -726,7 +733,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
           .executeTakeFirstOrThrow();
         expect(policy?.rootIdentities[0].quarantineIdentity).toMatchObject({ uid: '1024', gid: '100' });
         expect(receipt.files[0].rootIdentity.quarantineIdentity).toEqual(policy!.rootIdentities[0].quarantineIdentity);
-        const stat = await fs.stat(join(root, '.gallery-deletion-quarantine'));
+        const stat = await fs.stat(quarantinePath(receipt.files[0].rootIdentity));
         expect(stat.mode & 0o7777).toBe(0o700);
         await renameActual(source, target);
       });
@@ -751,7 +758,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         expect(await f.repo.getById(asset.id)).toBeUndefined();
       }
       expect(await readFile(controlPath, 'utf8')).toBe('unselected original must survive');
-      const stat = await fs.stat(join(root, '.gallery-deletion-quarantine'));
+      const policyAfterDeletion = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+      const stat = await fs.stat(quarantinePath(policyAfterDeletion?.rootIdentities[0]));
       expect(stat.mode & 0o7777).toBe(0o700);
     },
   );
@@ -781,13 +789,13 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     const policy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
     expect(policy?.rootIdentities[0].quarantineIdentity).toEqual(binding);
     expect(
-      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+      await readFile(quarantinePath(receipt.files[0].rootIdentity) + '/' + receipt.files[0].quarantineName, 'utf8'),
     ).toContain('synthetic');
     const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
     const chmod = vi.fn();
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       const handle = await openActual(path, flags, mode);
-      if (String(path).endsWith('/.gallery-deletion-quarantine')) vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+      if (isQuarantinePath(path)) vi.spyOn(handle, 'chmod').mockImplementation(chmod);
       return handle;
     });
     const restarted = new AssetRepository(db);
@@ -834,7 +842,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
     });
     expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
-    expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    const revokedPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+    expect(await fs.readdir(quarantinePath(revokedPolicy?.rootIdentities[0]))).toEqual([]);
     await sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
     expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
       { id: f.asset.id, scope: f.scope, state: 'complete' },
@@ -881,17 +890,10 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     await f.repo.setDeletionPolicy(f.user.id, f.scope, values);
     await service(f).sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
     await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
-    for (const repository of [f.repo, new AssetRepository(db)]) {
-      await expect(repository.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
-        code: 'DELETION_QUARANTINE_CONFLICT',
-      });
-    }
-    expect((await f.repo.getDeletionPolicy(f.user.id, f.scope))!.rootIdentities[0].quarantineIdentity).toBeUndefined();
-    expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
-    expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({
-      state: 'failed',
-      errorCode: 'DELETION_QUARANTINE_CONFLICT',
-    });
+    expect(await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
+    expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
   });
 
   it('failure of initialization fsync leaves an unbound private directory and no moved original', async () => {
@@ -902,7 +904,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
     const openSpy = vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       const handle = await openActual(path, flags, mode);
-      if (String(path).endsWith('/.gallery-deletion-quarantine'))
+      if (isQuarantinePath(path))
         vi.spyOn(handle, 'sync').mockRejectedValue(Object.assign(new Error('init fsync'), { code: 'EINVAL' }));
       return handle;
     });
@@ -914,7 +916,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       code: 'DELETION_QUARANTINE_CONFLICT',
     });
     expect((await f.repo.getDeletionPolicy(f.user.id, f.scope))!.rootIdentities[0].quarantineIdentity).toBeUndefined();
-    expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+    const unboundPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+    expect(await fs.readdir(quarantinePath(unboundPolicy?.rootIdentities[0]))).toEqual([]);
     expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
   });
 
@@ -928,7 +931,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         Promise.reject(Object.assign(new Error('before capture'), { code: 'ESTALE' })),
       ),
     ).rejects.toMatchObject({ code: 'ORIGINAL_DELETE_FAILED' });
-    const quarantine = join(root, '.gallery-deletion-quarantine');
+    const persistedPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+    const quarantine = quarantinePath(persistedPolicy?.rootIdentities[0]);
     await rename(quarantine, quarantine + '.saved');
     await mkdir(quarantine);
     await fs.chmod(quarantine, 0o700);
@@ -968,7 +972,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         },
       );
       expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
-      expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+      expect(await fs.readdir(quarantinePath(receipt.files[0].rootIdentity))).toEqual([]);
     },
   );
 
@@ -1028,14 +1032,14 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       const chmodActual = fs.chmod;
       vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
         const result = await mkdirActual(path, options);
-        if (String(path).endsWith('/.gallery-deletion-quarantine')) await chmodActual(path, 0o777);
+        if (isQuarantinePath(path)) await chmodActual(path, 0o777);
         return result;
       });
       const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
       const chmod = vi.fn().mockRejectedValue(Object.assign(new Error('injected chmod failure'), { code: 'EACCES' }));
       vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
         const handle = await openActual(path, flags, mode);
-        if (String(path).endsWith('/.gallery-deletion-quarantine')) vi.spyOn(handle, 'chmod').mockImplementation(chmod);
+        if (isQuarantinePath(path)) vi.spyOn(handle, 'chmod').mockImplementation(chmod);
         return handle;
       });
       expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
@@ -1056,7 +1060,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       });
       expect(await f.repo.getById(f.asset.id)).toBeDefined();
       expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
-      expect(await fs.readdir(join(root, '.gallery-deletion-quarantine'))).toEqual([]);
+      const failedPolicy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
+      expect(await fs.readdir(quarantinePath(failedPolicy?.rootIdentities[0]))).toEqual([]);
     },
   );
 
@@ -1273,7 +1278,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       .executeTakeFirstOrThrow();
     expect(receipt.state).toBe('failed');
     expect(
-      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+      await readFile(quarantinePath(receipt.files[0].rootIdentity) + '/' + receipt.files[0].quarantineName, 'utf8'),
     ).toContain('synthetic');
     renameSpy.mockRestore();
     expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
@@ -1295,7 +1300,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
     const openSpy = vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
       const handle = await openActual(file, flags, mode);
-      if (String(file).endsWith('/.gallery-deletion-quarantine'))
+      if (isQuarantinePath(file))
         vi.spyOn(handle, 'sync').mockRejectedValue(Object.assign(new Error('injected NFS fsync'), { code: 'EINVAL' }));
       return handle;
     });
@@ -1313,7 +1318,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       .where('assetId', '=', f.asset.id)
       .executeTakeFirstOrThrow();
     expect(
-      await readFile(join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
+      await readFile(quarantinePath(receipt.files[0].rootIdentity) + '/' + receipt.files[0].quarantineName, 'utf8'),
     ).toContain('synthetic');
     openSpy.mockRestore();
     expect(await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
@@ -1336,12 +1341,12 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
       .selectAll()
       .where('assetId', '=', f.asset.id)
       .executeTakeFirstOrThrow();
-    const captured = join(root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName);
+    const captured = quarantinePath(receipt.files[0].rootIdentity) + '/' + receipt.files[0].quarantineName;
     const openActual = vi.isMockFunction(fs.open) ? vi.mocked(fs.open).getMockImplementation()! : fs.open;
     let mutated = false;
     vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
       const handle = await openActual(file, flags, mode);
-      if (String(file).endsWith('/.gallery-deletion-quarantine')) {
+      if (isQuarantinePath(file)) {
         const syncActual = handle.sync.bind(handle);
         vi.spyOn(handle, 'sync').mockImplementation(async () => {
           if (!mutated) {

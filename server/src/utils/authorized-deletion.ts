@@ -25,6 +25,15 @@ export const below = (root: string, file: string) => {
 
 const supported = new Set(['ext4', 'xfs', 'btrfs', 'nfs', 'nfs4', 'overlay', 'tmpfs']);
 const quarantine = '.gallery-deletion-quarantine';
+const quarantinePath = (root: DeletionRootIdentity) => {
+  const name = root.quarantineDirectory ?? quarantine;
+  if (
+    name !== quarantine &&
+    !/^\.gallery-deletion-quarantine-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(name)
+  )
+    throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+  return name;
+};
 const anchored = (fd: number, name: string) => '/proc/self/fd/' + fd + '/' + name;
 const decodeMount = (value: string) =>
   value.replaceAll(/\\([0-7]{3})/g, (_, octal: string) => String.fromCodePoint(Number.parseInt(octal, 8)));
@@ -126,13 +135,13 @@ export async function refreshStorageRootIdentities(bound: DeletionRootIdentity[]
     const previous = bound.find((stored) => samePhysicalRootIdentity(root, stored));
     if (!previous) throw new DeletionError('DELETION_ROOT_CHANGED');
     if (!previous.quarantineIdentity) {
-      result.push(root);
+      result.push({ ...root, quarantineDirectory: previous.quarantineDirectory });
       continue;
     }
     const directory = await openRoot(root);
     try {
       const handle = await fs.open(
-        anchored(directory.fd, quarantine),
+        anchored(directory.fd, quarantinePath(previous)),
         constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
       );
       try {
@@ -144,7 +153,7 @@ export async function refreshStorageRootIdentities(bound: DeletionRootIdentity[]
           (['device', 'inode', 'uid', 'gid'] as const).some((key) => actual[key] !== expected[key])
         )
           throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-        result.push({ ...root, quarantineIdentity: actual });
+        result.push({ ...root, quarantineDirectory: previous.quarantineDirectory, quarantineIdentity: actual });
       } finally {
         await handle.close();
       }
@@ -436,7 +445,7 @@ async function verifyCurrentQuarantine(
   const root = await openRoot(rootIdentity);
   try {
     const current = await fs.open(
-      anchored(root.fd, quarantine),
+      anchored(root.fd, quarantinePath(rootIdentity)),
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
     );
     try {
@@ -467,15 +476,19 @@ async function verifyCurrentQuarantine(
 export async function bindQuarantine(bound: DeletionRootIdentity): Promise<DeletionRootIdentity> {
   const root = await openRoot(bound);
   let q: FileHandle | undefined;
+  let reusedIntent = false;
   try {
-    const qpath = anchored(root.fd, quarantine);
+    const qpath = anchored(root.fd, quarantinePath(bound));
     const existing = bound.quarantineIdentity;
     if (!existing) {
       try {
         await fs.mkdir(qpath, { mode: 0o700 });
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-        throw error;
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        // A persisted UUID intent permits recovery only for its own empty directory.
+        // Legacy fixed-name EEXIST remains fail-closed.
+        if (!bound.quarantineDirectory) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        reusedIntent = true;
       }
     } else if (!validQuarantineIdentity(existing)) {
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
@@ -493,6 +506,7 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
       String(stat.dev) !== bound.device
     )
       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    if (reusedIntent && (stat.mode & 0o7777n) !== 0o700n) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
     const captured = await quarantineIdentity(q, bound);
     if (existing) {
       if (!sameQuarantineIdentity(existing, captured) || (stat.mode & 0o7777n) !== 0o700n)
@@ -540,7 +554,7 @@ export async function unlinkOriginal(
   let q: FileHandle | undefined;
   let parent: FileHandle | undefined;
   try {
-    const qpath = anchored(root.fd, quarantine);
+    const qpath = anchored(root.fd, quarantinePath(proof.rootIdentity));
     q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     const qs = await q.stat({ bigint: true });
     const qi = proof.rootIdentity.quarantineIdentity;

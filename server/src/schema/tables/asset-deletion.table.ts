@@ -21,6 +21,8 @@ export interface DeletionRootIdentity {
   mountSource: string;
   mountRoot: string;
   mountTarget: string;
+  /** Random name durably recorded before creating a new quarantine directory. */
+  quarantineDirectory?: string;
   quarantineIdentity?: DeletionQuarantineIdentity;
 }
 

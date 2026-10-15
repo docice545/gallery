@@ -2,7 +2,10 @@ import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import { vi } from 'vitest';
 
-const isQuarantine = (path: unknown) => String(path).endsWith('/.gallery-deletion-quarantine');
+const isQuarantine = (path: unknown) =>
+  /\/\.gallery-deletion-quarantine(?:-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})?$/.test(
+    String(path),
+  );
 
 // Only metadata and mkdir's mode are injected. Descriptor chmod, rename,
 // directory fsync, hashing and unlink still operate on real disposable files.

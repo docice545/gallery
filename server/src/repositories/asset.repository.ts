@@ -18,6 +18,7 @@ import {
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { isEmpty, isUndefined, omitBy } from 'lodash-es';
 import { InjectKysely } from 'nestjs-kysely';
+import { randomUUID } from 'node:crypto';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
 import { StorageCore } from 'src/cores/storage.core.js';
@@ -1802,8 +1803,14 @@ export class AssetRepository {
             ? samePhysicalRootIdentity(root, bound)
             : sameRootIdentity(root, bound),
         );
-        const { quarantineIdentity: _untrusted, ...identity } = root;
-        return stored?.quarantineIdentity ? { ...identity, quarantineIdentity: stored.quarantineIdentity } : identity;
+        const { quarantineIdentity: _untrusted, quarantineDirectory: _untrustedDirectory, ...identity } = root;
+        return stored
+          ? {
+              ...identity,
+              quarantineDirectory: stored.quarantineDirectory,
+              quarantineIdentity: stored.quarantineIdentity,
+            }
+          : identity;
       });
       const prepared = {
         authorizationMode: 'recovery' as const,
@@ -2150,6 +2157,7 @@ export class AssetRepository {
     try {
       // Separate committed phase: a crash during unlink must not roll back the
       // trusted directory identity while leaving a captured original on disk.
+      await this.prepareQuarantineDirectoryIntents(id);
       await this.bindOriginalQuarantines(id);
       return await this.db.transaction().execute(async (tx) => {
         const intent = await tx
@@ -2215,7 +2223,8 @@ export class AssetRepository {
                 if (!physical) return true;
                 const persisted = policy!.rootIdentities.some((bound) => bound.path === root.path);
                 return persisted
-                  ? !sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity)
+                  ? !sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity) ||
+                      file.rootIdentity.quarantineDirectory !== root.quarantineDirectory
                   : !validQuarantineIdentity(file.rootIdentity.quarantineIdentity);
               }),
           )
@@ -2253,6 +2262,92 @@ export class AssetRepository {
         .execute();
       throw new DeletionError(deletionCode(error));
     }
+  }
+
+  /** Commit a fresh directory name before any filesystem mkdir so a retry cannot adopt a different path. */
+  private async prepareQuarantineDirectoryIntents(id: string): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const intent = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('ownerId')
+        .where('assetId', '=', id)
+        .executeTakeFirst();
+      if (!intent) return;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
+      const receipt = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (receipt.state === 'complete' || receipt.state === 'files-removed') return;
+      if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
+        throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .forUpdate()
+        .executeTakeFirst();
+      await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+      const policyRoots = [...policy!.rootIdentities];
+      const operationTargets = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('assetId')
+        .where('operationId', '=', receipt.operationId)
+        .execute();
+      const target = await tx.selectFrom('asset').selectAll().where('id', '=', id).executeTakeFirst();
+      if (!target) throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+      const roots = await this.deletionRootsForTarget(
+        tx,
+        target,
+        policyRoots,
+        operationTargets.map(({ assetId }) => assetId),
+      );
+      const configuredRoots = roots.filter((root) => policyRoots.some((configured) => configured.path === root.path));
+      const motionRoot = roots.find((root) => configuredRoots.every((configured) => configured.path !== root.path));
+      const boundPolicyRoots = policyRoots.map((root) =>
+        root.quarantineIdentity || root.quarantineDirectory
+          ? root
+          : { ...root, quarantineDirectory: `.gallery-deletion-quarantine-${randomUUID()}` },
+      );
+      const files: DeletionFile[] = receipt.files.map((file) => {
+        const index = boundPolicyRoots.findIndex((root) =>
+          policy!.authorizationMode === 'storage'
+            ? samePhysicalRootIdentity(file.rootIdentity, root)
+            : sameRootIdentity(file.rootIdentity, root),
+        );
+        if (index !== -1) {
+          const directory = boundPolicyRoots[index].quarantineDirectory;
+          if (file.rootIdentity.quarantineDirectory && file.rootIdentity.quarantineDirectory !== directory)
+            throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+          return { ...file, rootIdentity: { ...file.rootIdentity, quarantineDirectory: directory } };
+        }
+        if (
+          !motionRoot ||
+          file.path !== receipt.originalPath ||
+          !samePhysicalRootIdentity(file.rootIdentity, motionRoot)
+        )
+          throw new DeletionError('DELETION_ROOT_CHANGED');
+        return {
+          ...file,
+          rootIdentity: {
+            ...file.rootIdentity,
+            quarantineDirectory:
+              file.rootIdentity.quarantineDirectory ??
+              (file.rootIdentity.quarantineIdentity ? undefined : `.gallery-deletion-quarantine-${randomUUID()}`),
+          },
+        };
+      });
+      await tx
+        .updateTable('asset_deletion_policy')
+        .set({ rootIdentities: boundPolicyRoots })
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .execute();
+      await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
+    });
   }
 
   private async bindOriginalQuarantines(id: string): Promise<void> {
@@ -2317,6 +2412,7 @@ export class AssetRepository {
           samePhysicalRootIdentity(file.rootIdentity, current)
             ? {
                 ...current,
+                quarantineDirectory: file.rootIdentity.quarantineDirectory ?? current.quarantineDirectory,
                 quarantineIdentity: {
                   ...recorded,
                   mountId: current.mountId,
@@ -2324,7 +2420,11 @@ export class AssetRepository {
                 },
               }
             : recorded && !current.quarantineIdentity
-              ? { ...current, quarantineIdentity: recorded }
+              ? {
+                  ...current,
+                  quarantineDirectory: file.rootIdentity.quarantineDirectory ?? current.quarantineDirectory,
+                  quarantineIdentity: recorded,
+                }
               : current;
         if (
           recorded &&
@@ -2338,8 +2438,12 @@ export class AssetRepository {
               : !sameQuarantineIdentity(recorded, candidate.quarantineIdentity)))
         )
           throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
-        roots[index] = await bindQuarantine(candidate);
         const policyIndex = policyRoots.findIndex((root) => root.path === roots[index].path);
+        if (policyIndex !== -1 && file.rootIdentity.quarantineDirectory !== roots[index].quarantineDirectory)
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        if (policyIndex === -1 && file.rootIdentity.quarantineDirectory)
+          candidate.quarantineDirectory = file.rootIdentity.quarantineDirectory;
+        roots[index] = await bindQuarantine(candidate);
         if (policyIndex !== -1) boundPolicyRoots[policyIndex] = roots[index];
         files.push({ ...file, rootIdentity: roots[index] });
       }
@@ -3118,7 +3222,11 @@ export class AssetRepository {
 
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.STRING]] })
   async filterNewExternalAssetPaths(libraryId: string, paths: string[]): Promise<string[]> {
-    paths = paths.filter((path) => !path.split('/').includes('.gallery-deletion-quarantine'));
+    paths = paths.filter((path) =>
+      path
+        .split('/')
+        .every((part) => part !== '.gallery-deletion-quarantine' && !part.startsWith('.gallery-deletion-quarantine-')),
+    );
     if (paths.length === 0) return [];
     const result = await this.db
       .selectFrom(unnest(paths).as('path'))
