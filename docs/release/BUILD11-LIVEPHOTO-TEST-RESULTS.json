@@ -1,0 +1,70 @@
+{
+  "task": "Gallery 5.7.3 scoped Live Photo original deletion",
+  "sourceBase": "accb078c1bfce1f1fbfbba0f84fe904bf196e108",
+  "hpSnapshotBase": "92af234687caeca9307aa7d4ea2a51553eecf9cf",
+  "medium": {
+    "passed": 148,
+    "failed": 0,
+    "skipped": 0,
+    "files": 5,
+    "retainedOriginal": 96,
+    "retainedNfsCrash": 17,
+    "newLivePhoto": 31,
+    "newProjection": 4,
+    "durationSeconds": 48.53,
+    "allPostgresDurabilitySettingsSQLVerifiedOn": true,
+    "latestSummaryComplete": true,
+    "latestShellExitCode": null,
+    "shellNote": "Final process log completed; exec transport reconnect prevented retrieving its shell session exit. Prior full 148-test run completed with observed exit 0 before formatting-only test changes."
+  },
+  "unitAndFilesystem": {
+    "passed": 433,
+    "failed": 0,
+    "skipped": 0,
+    "files": 6,
+    "newPureUnit": 24,
+    "newRealFilesystem": 15,
+    "durationSeconds": 14.05
+  },
+  "checks": {
+    "scopedESLint": "PASS",
+    "format": "PASS",
+    "typescript": "PASS",
+    "diffWhitespace": "PASS",
+    "typescriptExitCode": 0
+  },
+  "versions": {
+    "node": "24.21.0",
+    "pnpm": "11.24.0",
+    "vitest": "4.1.11",
+    "postgresMajor": 14
+  },
+  "postgresImage": "ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67",
+  "logsSHA256": {
+    "medium": "02ce1d99ccef61ab7dd9b53303ef57e19fc66ad66bdfcd6cfff807f83a7ca3f5",
+    "unit": "e6d37632dc72986693de0501a46e8c4fe47bf43be6282403464df298c79d305d",
+    "scopedESLint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "format": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+    "typescript": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "testedSourceSHA256": {
+    "server/src/repositories/asset.repository.ts": "8f4cf735591bb43bca7e6f8b865a1469532468ce0ab0ff3480f73732ba1552fb",
+    "server/src/services/asset.service.ts": "0d0b4a95919837c031c84e9fbfef46c4ba12d222f90adb29c2246136657e0a20",
+    "server/src/utils/live-photo-deletion.ts": "8465347dd942e3666881a6f79fa91476566cb8464252ef36a15bc21535cbddf4",
+    "server/src/utils/live-photo-deletion.spec.ts": "6c10bcfd3151e1b10b3a1a62561bee0123fff535b14f03afe0dcf60c3f8cac78",
+    "server/src/utils/live-photo-deletion.filesystem.spec.ts": "f3f34743c46b63c33e744920257ed3baf9743dedccab2a88be10bede374f2c3a",
+    "server/test/medium/specs/services/livephoto-scoped-deletion.spec.ts": "b93a6130eb5b530afc841b18c78651733c3d6406b6613467dfc31b12c8df9291",
+    "server/test/medium/specs/services/livephoto-trash-projection.spec.ts": "ba8df9d99f41cbf84b5b8933a218f95074da4dea9f4fe35a1353d70ff87d6c3d"
+  },
+  "newMigrations": false,
+  "productionChanged": false,
+  "mobileChanged": false,
+  "releaseArtifactsBuilt": false,
+  "notTested": [
+    "actual Synology NFSv3 and HP ext4",
+    "physical Android Build12 UI and existing cache",
+    "production deployment/rollback",
+    "real family originals"
+  ],
+  "developmentFailures": "Initial full-service tests exposed the pre-unlink service boundary and receipt binding issues; corrected without weakening existing specs. A projection fixture needed explicit media location. Temporary debug logging was removed. Three new-test style findings were corrected. Existing 96 +17 spec/helper bytes unchanged."
+}

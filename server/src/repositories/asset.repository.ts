@@ -81,6 +81,7 @@ import {
   withTags,
 } from 'src/utils/database.js';
 import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
+import { assertExclusiveLivePhoto, managedMotionRootPath } from 'src/utils/live-photo-deletion.js';
 import { globToPostgresRegex } from 'src/utils/misc.js';
 import {
   type TimelineHiddenScope,
@@ -1547,14 +1548,38 @@ export class AssetRepository {
     const value = omitBy(asset, isUndefined);
     delete value.id;
     if (!isEmpty(value)) {
-      return this.db
-        .with('asset', (qb) => qb.updateTable('asset').set(asset).where('id', '=', asUuid(asset.id)).returningAll())
-        .selectFrom('asset')
-        .selectAll('asset')
-        .$call(withExif)
-        .$call((qb) => qb.select(withFaces))
-        .$call((qb) => qb.select(withEdits))
-        .executeTakeFirst();
+      const update = (database: Kysely<DB> | Transaction<DB>) =>
+        database
+          .with('asset', (qb) => qb.updateTable('asset').set(asset).where('id', '=', asUuid(asset.id)).returningAll())
+          .selectFrom('asset')
+          .selectAll('asset')
+          .$call(withExif)
+          .$call((qb) => qb.select(withFaces))
+          .$call((qb) => qb.select(withEdits))
+          .executeTakeFirst();
+      if (!asset.livePhotoVideoId) return update(this.db);
+      // A link checked by the API before deletion may be written much later.
+      // Serialize the actual structural write with permanent deletion, then
+      // recheck the child under a row lock. Never link an irreversible resource.
+      return this.db.transaction().execute(async (tx) => {
+        const parent = await tx.selectFrom('asset').select('ownerId').where('id', '=', asset.id).executeTakeFirst();
+        if (!parent) return;
+        await sql`select pg_advisory_xact_lock(hashtextextended(${parent.ownerId}, 731))`.execute(tx);
+        const child = await tx
+          .selectFrom('asset')
+          .select(['ownerId', 'type', 'status'])
+          .where('id', '=', asset.livePhotoVideoId!)
+          .forShare()
+          .executeTakeFirst();
+        if (
+          !child ||
+          child.ownerId !== parent.ownerId ||
+          child.type !== AssetType.Video ||
+          child.status === AssetStatus.Deleted
+        )
+          throw new DeletionError('MOTION_SCOPE_MISMATCH');
+        return update(tx);
+      });
     }
 
     return this.getById(asset.id, { exifInfo: true, faces: {}, edits: true });
@@ -1946,18 +1971,14 @@ export class AssetRepository {
     receipt: { assetId: string; operationId: string; ownerId: string; libraryId: string | null; originalPath: string },
   ): Promise<DeletionRootIdentity | undefined> {
     if (receipt.assetId === receipt.operationId) return;
-    // Motion originals already inside an authorized library root use the ordinary
-    // policy. Only the dedicated encoded-video location needs extra authority.
-    const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
-    if (!receipt.originalPath.startsWith(`${encodedRoot}/`)) return;
     const parent = await tx
       .selectFrom('asset')
-      .select(['id', 'ownerId', 'libraryId', 'livePhotoVideoId'])
+      .select(['id', 'ownerId', 'libraryId', 'type', 'livePhotoVideoId'])
       .where('id', '=', receipt.operationId)
       .executeTakeFirst();
     const child = await tx
       .selectFrom('asset')
-      .select(['id', 'ownerId', 'libraryId', 'originalPath'])
+      .select(['id', 'ownerId', 'libraryId', 'originalPath', 'type'])
       .where('id', '=', receipt.assetId)
       .executeTakeFirst();
     const references = await tx
@@ -1965,26 +1986,25 @@ export class AssetRepository {
       .select('id')
       .where('livePhotoVideoId', '=', receipt.assetId)
       .execute();
-    const expected = StorageCore.getAndroidMotionPath(
-      { id: receipt.assetId, ownerId: receipt.ownerId },
+    if (!parent || !child || child.originalPath !== receipt.originalPath)
+      throw new DeletionError('MOTION_SCOPE_MISMATCH');
+    assertExclusiveLivePhoto(
+      parent,
+      child,
+      references.map(({ id }) => id),
+      receipt.ownerId,
+      receipt.libraryId,
+    );
+    // Recheck the relationship even for a companion inside ordinary policy
+    // roots. Only the dedicated managed encoded location needs extra authority.
+    const encodedRoot = managedMotionRootPath(
+      receipt.ownerId,
+      receipt.libraryId,
+      receipt.originalPath,
       receipt.assetId,
     );
-    if (
-      !parent ||
-      !child ||
-      parent.ownerId !== receipt.ownerId ||
-      child.ownerId !== receipt.ownerId ||
-      parent.libraryId !== receipt.libraryId ||
-      child.libraryId !== receipt.libraryId ||
-      parent.livePhotoVideoId !== receipt.assetId ||
-      references.length !== 1 ||
-      references[0].id !== parent.id ||
-      receipt.originalPath !== expected ||
-      child.originalPath !== expected
-    )
-      throw new DeletionError('MOTION_SCOPE_MISMATCH');
-    const root = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
-    const identities = await collectRootIdentities([root]);
+    if (!encodedRoot) return;
+    const identities = await collectRootIdentities([encodedRoot]);
     return identities[0];
   }
 
@@ -2049,27 +2069,28 @@ export class AssetRepository {
           .select('id')
           .where('livePhotoVideoId', '=', asset.livePhotoVideoId)
           .execute();
-        if (parents.length === 1) {
-          const motion = await tx
-            .selectFrom('asset')
-            .selectAll()
-            .where('id', '=', asset.livePhotoVideoId)
-            .forUpdate()
-            .executeTakeFirst();
-          if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
-            throw new DeletionError('MOTION_SCOPE_MISMATCH');
-          }
-          // An encoded Android motion original must be the exact, owner-scoped
-          // linked asset path. This does not authorize the encoded-video root.
-          const encodedVideoRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, ownerId);
-          if (
-            motion.originalPath.startsWith(`${encodedVideoRoot}/`) &&
-            motion.originalPath !== StorageCore.getAndroidMotionPath(motion, motion.id)
-          ) {
-            throw new DeletionError('MOTION_SCOPE_MISMATCH');
-          }
-          targets.push(motion);
+        if (parents.length !== 1 || parents[0].id !== asset.id)
+          throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+        const motion = await tx
+          .selectFrom('asset')
+          .selectAll()
+          .where('id', '=', asset.livePhotoVideoId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
+          throw new DeletionError('MOTION_SCOPE_MISMATCH');
         }
+        assertExclusiveLivePhoto(
+          asset,
+          motion,
+          parents.map(({ id }) => id),
+          ownerId,
+          asset.libraryId,
+        );
+        // An encoded Android motion original must be the exact, owner-scoped
+        // linked asset path. This does not authorize the encoded-video root.
+        managedMotionRootPath(ownerId, asset.libraryId, motion.originalPath, motion.id);
+        targets.push(motion);
       }
       const targetIds = targets.map((target) => target.id);
       const sidecars = await tx
@@ -2116,15 +2137,19 @@ export class AssetRepository {
           })
           .execute();
       }
-      await tx
-        .updateTable('asset')
-        .set({ status: AssetStatus.Deleted, deletedAt: asset.deletedAt ?? new Date() })
-        .where(
-          'id',
-          'in',
-          targets.map((target) => target.id),
-        )
-        .execute();
+      for (const target of targets) {
+        // A hidden motion resource is part of this one logical Trash item, not
+        // a second user-visible card. Mobile Trash intentionally includes all
+        // visibilities with deletedAt, so do not give the companion a Trash
+        // timestamp when the irreversible pair intent is committed.
+        const hiddenCompanion =
+          target.id !== id && target.type === AssetType.Video && target.visibility === AssetVisibility.Hidden;
+        await tx
+          .updateTable('asset')
+          .set({ status: AssetStatus.Deleted, deletedAt: hiddenCompanion ? null : (target.deletedAt ?? new Date()) })
+          .where('id', '=', target.id)
+          .execute();
+      }
     });
     try {
       return await this.db.transaction().execute(async (tx) => {
@@ -2169,6 +2194,40 @@ export class AssetRepository {
             current.ownerId !== ownerId
           ) {
             throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+          }
+          if (
+            target.assetId !== target.operationId &&
+            current.type === AssetType.Video &&
+            current.visibility === AssetVisibility.Hidden &&
+            current.deletedAt
+          ) {
+            // Older failed pair attempts assigned the still's Trash timestamp
+            // to its hidden motion row. Repair only a uniquely linked, same-
+            // owner/library component of this already irreversible operation.
+            // No status, receipt, authorization or original is changed here.
+            const logicalParent = await tx
+              .selectFrom('asset')
+              .select(['id', 'ownerId', 'libraryId', 'status', 'type', 'livePhotoVideoId'])
+              .where('id', '=', target.operationId)
+              .forShare()
+              .executeTakeFirst();
+            const references = await tx
+              .selectFrom('asset')
+              .select('id')
+              .where('livePhotoVideoId', '=', current.id)
+              .execute();
+            if (
+              logicalParent?.status === AssetStatus.Deleted &&
+              logicalParent.type === AssetType.Image &&
+              logicalParent.ownerId === ownerId &&
+              logicalParent.libraryId === current.libraryId &&
+              current.libraryId === target.libraryId &&
+              logicalParent.livePhotoVideoId === current.id &&
+              references.length === 1 &&
+              references[0].id === logicalParent.id
+            ) {
+              await tx.updateTable('asset').set({ deletedAt: null }).where('id', '=', current.id).execute();
+            }
           }
           const sidecars = await tx
             .selectFrom('asset_file')
@@ -2238,6 +2297,18 @@ export class AssetRepository {
         if (receipt.state === 'complete' || receipt.state === 'files-removed') {
           return true;
         }
+        if (receipt.operationId === id) {
+          // Queue ordering is not execution ordering. Do not remove the still
+          // while a companion original has not reached its durable receipt.
+          const pendingCompanion = await tx
+            .selectFrom('asset_deletion_tombstone')
+            .select('assetId')
+            .where('operationId', '=', id)
+            .where('assetId', '!=', id)
+            .where('state', 'not in', ['files-removed', 'complete'])
+            .executeTakeFirst();
+          if (pendingCompanion) return false;
+        }
         if (receipt.files.length === 0) {
           throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
         }
@@ -2288,9 +2359,9 @@ export class AssetRepository {
         for (const file of receipt.files) {
           await unlink(file, async () => {
             await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
-            if (motionRoot && file.path === receipt.originalPath) {
+            if (receipt.assetId !== receipt.operationId && file.path === receipt.originalPath) {
               const currentMotionRoot = await this.linkedMotionRoot(tx, receipt);
-              if (!currentMotionRoot || !sameRootIdentity(file.rootIdentity, currentMotionRoot))
+              if (motionRoot && (!currentMotionRoot || !sameRootIdentity(file.rootIdentity, currentMotionRoot)))
                 throw new DeletionError('MOTION_SCOPE_MISMATCH');
             }
           });
@@ -2311,6 +2382,68 @@ export class AssetRepository {
         .execute();
       throw new DeletionError(deletionCode(error));
     }
+  }
+
+  /** Reuse only a server-committed binding, never an on-disk EEXIST entry. */
+  private async recordedMotionQuarantine(
+    tx: Transaction<DB>,
+    receipt: { assetId: string; ownerId: string; scope: string },
+    root: DeletionRootIdentity,
+    fileRoot: DeletionRootIdentity,
+    storageMode: boolean,
+  ): Promise<DeletionRootIdentity> {
+    const records = await tx
+      .selectFrom('asset_deletion_tombstone')
+      .select(['assetId', 'operationId', 'originalPath', 'files'])
+      .where('ownerId', '=', receipt.ownerId)
+      .where('scope', '=', 'managed')
+      .where('libraryId', 'is', null)
+      .where('originalPath', 'like', `${escapeLikePattern(root.path)}/%`)
+      .execute();
+    let selected: DeletionRootIdentity | undefined;
+    for (const record of records) {
+      if (
+        record.assetId === record.operationId ||
+        record.originalPath !==
+          StorageCore.getAndroidMotionPath({ id: record.assetId, ownerId: receipt.ownerId }, record.assetId)
+      )
+        continue;
+      for (const file of record.files) {
+        const stored = file.rootIdentity;
+        if (
+          file.path !== record.originalPath ||
+          stored.path !== root.path ||
+          (!stored.quarantineIdentity && !stored.quarantineIntent)
+        )
+          continue;
+        if (!samePhysicalRootIdentity(stored, root)) throw new DeletionError('DELETION_ROOT_CHANGED');
+        // An unfinished initializer belongs to its original operation. Recover
+        // that receipt first; another asset cannot take over its journal.
+        if (stored.quarantineIntent && record.assetId !== receipt.assetId)
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        let candidate = stored;
+        if (storageMode && stored.quarantineIdentity) {
+          const refreshed = await refreshStorageRootIdentities([stored]);
+          candidate = refreshed[0];
+        }
+        if (!sameRootIdentity(candidate, root)) throw new DeletionError('DELETION_ROOT_CHANGED');
+        if (
+          selected &&
+          (!sameQuarantineIdentity(selected.quarantineIdentity, candidate.quarantineIdentity) ||
+            selected.quarantineIntent ||
+            candidate.quarantineIntent)
+        )
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        selected = candidate;
+      }
+    }
+    if (fileRoot.quarantineIntent && selected?.quarantineIdentity)
+      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+    return {
+      ...root,
+      ...(selected?.quarantineIdentity && { quarantineIdentity: selected.quarantineIdentity }),
+      ...(selected?.quarantineIntent && { quarantineIntent: selected.quarantineIntent }),
+    };
   }
 
   private async bindOriginalQuarantines(id: string): Promise<void> {
@@ -2381,13 +2514,13 @@ export class AssetRepository {
               throw new DeletionError('DELETION_ROOT_CHANGED');
             const root =
               index === -1
-                ? {
-                    ...motionRoot!,
-                    ...(file.rootIdentity.quarantineIdentity && {
-                      quarantineIdentity: file.rootIdentity.quarantineIdentity,
-                    }),
-                    ...(file.rootIdentity.quarantineIntent && { quarantineIntent: file.rootIdentity.quarantineIntent }),
-                  }
+                ? await this.recordedMotionQuarantine(
+                    tx,
+                    receipt,
+                    motionRoot!,
+                    file.rootIdentity,
+                    policy.authorizationMode === 'storage',
+                  )
                 : policy.rootIdentities[index];
             const recorded = file.rootIdentity.quarantineIdentity;
             if (

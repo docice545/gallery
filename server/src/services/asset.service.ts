@@ -75,6 +75,7 @@ import {
 import { isDeadlockError, retryOnDeadlock, updateLockedColumns } from 'src/utils/database.js';
 import { asDateTimeString, extractTimeZone } from 'src/utils/date.js';
 import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
+import { managedMotionRootPath } from 'src/utils/live-photo-deletion.js';
 import { findOrFail } from 'src/utils/misc.js';
 import { applyResolvedIdentityMetadata } from 'src/utils/person-identity.js';
 import { transformOcrBoundingBox } from 'src/utils/transform.js';
@@ -689,6 +690,10 @@ export class AssetService extends BaseService {
             [file.root],
             [file.rootIdentity],
             asset.libraryId ?? 'managed',
+            // recheck above has already verified the current unique linked
+            // companion and the receipt. This is a per-file exception, never
+            // an addition to the user's permanent deletion policy roots.
+            file.path === asset.originalPath ? { assetId: asset.id, path: file.path } : undefined,
           );
         }),
       ))
@@ -1171,7 +1176,9 @@ export class AssetService extends BaseService {
     roots: string[],
     bound: DeletionRootIdentity[],
     scope: string,
+    linkedOriginal?: { assetId: string; path: string },
   ) {
+    let motionRoot: string | undefined;
     if (scope === 'managed') {
       const user = await this.userRepository.get(owner, {});
       if (!user) throw new DeletionError('ASSET_NOT_OWNED');
@@ -1179,6 +1186,10 @@ export class AssetService extends BaseService {
         StorageCore.getFolderLocation(StorageFolder.Upload, owner),
         StorageCore.getLibraryFolder(user),
       ]);
+      if (linkedOriginal) {
+        motionRoot = managedMotionRootPath(owner, null, linkedOriginal.path, linkedOriginal.assetId);
+        if (motionRoot && roots.length === 1 && roots[0] === motionRoot) allowed.add(motionRoot);
+      }
       if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
     } else {
       const library = await this.libraryRepository.get(scope);
@@ -1192,6 +1203,7 @@ export class AssetService extends BaseService {
       ...others.users.flatMap((other) => [
         StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
         StorageCore.getLibraryFolder(other),
+        ...(motionRoot ? [StorageCore.getFolderLocation(StorageFolder.EncodedVideo, other.id)] : []),
       ]),
     ];
     const current = await this.storageRepository.validateDeletionRoots(roots, otherRoots);

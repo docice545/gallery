@@ -1,3 +1,39 @@
+# Актуальная задача: Gallery 5.7.3 Live Photo server deletion
+
+Ветка `fix/build11-livephoto-scoped-original-deletion`, база
+`accb078c1bfce1f1fbfbba0f84fe904bf196e108`. Только server patch;
+Android Build12, Gallery5.8, production и release artifacts НЕ изменялись.
+
+Исправлены полный service/repository допуск единственного owner-linked SSD MP4
+без расширения policy.roots; повторное использование только trusted persisted
+SSD quarantine bindings между разными receipts; shared-parent отказ; порядок
+physical parent/companion; owner-locked relation write после irreversible claim;
+server Trash/sync projection Hidden companion без отдельного deletedAt.
+
+Новых migrations нет. Старые failed files-empty receipts продолжаются штатно,
+без SQL-reset. NFS crash protocol и Ed25519/checksum/root/mount/consent guards
+сохранены. Pre-existing cross-receipt LP limitation из прошлой handoff ниже
+**устранена** новыми sequential/concurrent integration tests.
+
+Проверки:148 medium PASS (96 original+17 NFScrash+31LP+4projection),
+433 unit/filesystem PASS (включая24newpure+15newfilesystem), ESLint/format PASS.
+Итоговый TSC PASS (повторно подтверждён exit0); patch apply/reverse proof
+фиксируется в release reports.
+Последний exec transport разорвался после завершения финального148-тестового
+лога; предыдущий148 run имел observedexit0. Ни один тест не скрыт/отключён.
+
+Документы: `docs/release/BUILD11-LIVEPHOTO-SCOPED-DELETION.md`,
+`docs/release/BUILD11-LIVEPHOTO-TEST-RESULTS.json`. Подготовить minimal server patch
+к accb078 и совместный server patch к HPsnapshot92af234; выбрать только один
+по точным preimagehashes, не применять прошлыйZIP повторно.
+
+Следующий operator gate: source review → isolated actualNFS fixture → отдельно
+approved backend-only build/deploy → одна синтетическая LivePhoto acceptance.
+Не чистить существующие receipts/queues, не расширять mounts/roots и не
+устанавливать API-only worker configuration. Phone graytile требует devicecheck.
+
+---
+
 # NFS Quarantine Crash Recovery — актуальный checkpoint 2026-10-15
 
 Текущая отдельная ветка: `fix/build11-nfs-quarantine-crash-recovery`.
