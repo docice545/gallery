@@ -40,6 +40,17 @@ NOT TESTED. Изолированная NFS-проверка и production approv
 получить EEXIST. Выявлено чтением baseline, не воспроизведено/не исправлено
 здесь. Два существующих LP split-root regression cases сохранены и проходят.
 
+Implementation commit: `bb0dbbb2eb8a0ca82c54fb24421f661c6f98af67`.
+Готовый файл: `docs/release/gallery-build11-nfs-recovery-FINAL.patch`, SHA256:
+`4596c332ced65393c03bc3cdcd395b3f4b7a607cefe88e688103d9ed64016f88`.
+Patch исключает только progress-only `BUILD11_CLOUD_HANDOFF.md`; включает весь
+runtime/test/doc diff после HP snapshot baseline. Проверено на отдельной копии
+шести реальных приложенных файлов + остальных preimages baseline: apply --check,
+actual apply, полное сравнение postimages, reverse --check, actual reverse и
+восстановление preimages. Дополнительно независимый temporary Git index
+подтвердил exact expected tree. Original medium tests/helper не изменены.
+Подробности: `docs/release/gallery-build11-nfs-recovery-application-check.json`.
+
 Следующий шаг после получения patch: проверить его SHA/preimage и
 `git apply --check`, выполнить только изолированный HP/NFS fixture acceptance.
 Не применять к running production и не принимать orphan без identity.

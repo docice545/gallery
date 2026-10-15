@@ -1,0 +1,1508 @@
+diff --git a/docs/release/BUILD11-NFS-QUARANTINE-RECOVERY.md b/docs/release/BUILD11-NFS-QUARANTINE-RECOVERY.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d5824086e2524e1d1a1024de809dd2c95e1e59c1
+--- /dev/null
++++ b/docs/release/BUILD11-NFS-QUARANTINE-RECOVERY.md
+@@ -0,0 +1,224 @@
++# Build11: NFS Quarantine Crash Recovery — кандидат патча
++
++Production и оригиналы не использовались. APK/Docker/IPA не пересобирались.
++Старые release artifacts этого исправления не содержат. Развёртывание этим
++документом не разрешается.
++
++## База и границы изменения
++
++Cloud base: `72e668597b1a43a29778397048c622a81a386b71`.
++HP snapshot baseline: `92af234687caeca9307aa7d4ea2a51553eecf9cf`.
++Второй commit сохраняет **ровно две разницы из архива**: ранее незакоммиченный
++Live Photo fix и его тесты. Остальные четыре файла уже совпадали байт в байт.
++Финальный standalone patch строится ПОСЛЕ этого baseline и не добавляет Live
++Photo fix повторно. Его логика JPG/NAS + MP4/SSD сохраняется; возможны только
++форматные изменения прежних строк в repository.
++
++Шесть preimage SHA-256: `BUILD11-NFS-RECOVERY-BASELINE.sha256` рядом с этим файлом.
++Два исходных medium spec и NFS helper не изменены патчем. Его новые test helpers
++не зависят от путей Cloud checkout или секретов HP.
++
++## Протокол
++
++Имя `.gallery-deletion-quarantine` остаётся фиксированным. В существующем JSONB
++policy.rootIdentities и receipt.files.rootIdentity добавлено необязательное поле
++quarantineIntent: UUID, state, затем observed identity и исходный full stat mode.
++Новых таблиц/колонок/миграций нет. Намерение связано с проверенными root, owner,
++scope и receipt существующими серверными записями. Это доверенное состояние БД,
++а не клиентский recovery-proof. Входной journal от клиента отбрасывается;
++проверка Ed25519 recovery evidence и owner consent не ослабляется.
++
++```mermaid
++stateDiagram-v2
++    [*] --> Reserved: durable COMMIT до mkdir
++    Reserved --> Reserved: crash, directory ENOENT
++    Reserved --> Stop: EEXIST без observed identity
++    Reserved --> Observed: mkdir, fd identity, durable COMMIT
++    Observed --> Observed: crash, точная identity, безопасный повтор
++    Observed --> Bound: chmod0700, q.fsync, root.fsync, checks, COMMIT
++    Observed --> Failed: обработанная ошибка
++    Stop --> Failed: сохранить отказ, originals неизменны
++    Failed --> Failed: каталог существует
++    Failed --> Reserved: каталог отсутствует, новое проверенное намерение
++    Bound --> Unlink: прежние checksum, references, consent checks
++```
++
++На dedicated Kysely connection удерживаются session advisory locks:
++`hashtextextended('gallery-quarantine-binding-v1',733)`, затем owner lock731.
++Они охватывают отдельные COMMIT и сериализуют также разные owner/алиасы roots.
++Глобальная сериализация затрагивает binding phase, не заменяет существующие
++owner/path locks, проверки ссылок и receipt при unlink. Все journal-транзакции
++устанавливают `SET LOCAL synchronous_commit='on'`. PostgreSQL должен реально
++работать с fsync/full_page_writes=on и штатной надёжной storage/WAL.
++Transaction-pooling proxy между connection и PG session не поддерживается.
++
++Новый каталог открывается через fd-anchored path с O_DIRECTORY|O_NOFOLLOW.
++Observed inode/device/UID/GID/mount identity и mode фиксируются **до chmod**.
++На NFS учитываются реальные mapped 1024:100, а не process UID 0. Затем повторяются
++fd-chmod0700, проверки namespace/identity, пустоты, q.fsync и root.fsync.
++BOUND сохраняется одновременно в policy/receipt до capture любого оригинала.
++Motion SSD root не добавляется в полномочия всей внешней библиотеки: его intent
++сохраняется в том receipt, где уже проверены unique same-owner Live Photo child
++и точный owner-scoped MP4 path.
++
++Recovery OBSERVED требует точного inode/device/UID/GID/mount и исходного mode
++либо 0700. Состояние 0700 не считается доказательством прошедшего fsync: оба sync
++повторяются. Existing BOUND identities используют прежний путь, без повторного
++chmod. Захват UUID-файла, checksum, lost rename/unlink ACK и окончательные
++receipts/tombstones работают как раньше.
++
++## Crash windows и отказы
++
++| Момент                                          | Результат следующей попытки                                                      |
++| ----------------------------------------------- | -------------------------------------------------------------------------------- |
++| До COMMIT Reserved                              | Никаких FS изменений; новое намерение                                            |
++| После Reserved, до mkdir                        | ENOENT допускает создание под сохранённым intent                                 |
++| После mkdir, до COMMIT Observed                 | **STOP**; UUID/имя/UID/пустота не доказывают принадлежность                      |
++| После Observed, до/после chmod                  | Только exact identity retry; никаких originals до полного securing               |
++| После каждого directory fsync, до BOUND         | Повторить securing и оба sync, затем COMMIT                                      |
++| После BOUND, до/во время rename/unlink          | Прежний persisted receipt и проверяемый retry                                    |
++| Ошибка chmod/fsync                              | Failed, без автоматического ремонта существующего каталога                       |
++| Failed и qpath отсутствует                      | Новый UUID + durable Reserved; mkdir по-прежнему атомарно отвергает EEXIST       |
++| Любая подмена inode/UID/GID/mount/mode, symlink | Отказ; не принимать/не удалять подмену                                           |
++| Отзыв owner consent                             | Проверки до Reserved, Observed, BOUND и перед unlink запрещают destructive phase |
++
++Неустранимое окно mkdir→observed COMMIT оставлено fail-closed намеренно: Node/NFS
++не предоставляет атомарный DB+mkdir commit или аутентифицированный inode из
++предварительного UUID. Автоматическое усыновление orphan было бы обходом защиты.
++Рестарт процесса поддержан; remount/recreated container с изменённой незавершённой
++mount identity требует нового operator review, не молчаливого rebinding.
++
++## Воспроизводимые проверки
++
++В предоставленных двух исходных spec реально обнаружено **96**, не 99 тестов:
++baseline 96 PASS / 0 FAIL / 0 SKIP. Файлы не исправлялись ради результата. Утверждение
++99/99 по данному архиву не подтверждается. Новые реальные fault tests отдельно
++запускают worker, проверяют его process group и завершают SIGKILL. PostgreSQL
++commit проверяется из другого соединения и нового AssetRepository.
++
++Команды из server/, Node24.21.0, Vitest4.1.11; pinned disposable PostgreSQL14:
++`ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67`.
++Использовать только отдельный тестовый Docker daemon, не production PostgreSQL
++или NAS mounts. Medium globalSetup всегда создаёт новый контейнер и clone DB.
++Не задавать production credentials/URL. Ryuk очищает только свои test containers.
++
++```bash
++./node_modules/.bin/tsc --noEmit -p tsconfig.json
++./node_modules/.bin/eslint src/utils/authorized-deletion.ts \
++  src/repositories/asset.repository.ts src/schema/tables/asset-deletion.table.ts \
++  test/medium/globalSetup.ts test/medium/specs/services/nfs-quarantine-recovery.spec.ts \
++  test/medium/quarantine-crash.worker.ts --max-warnings 0
++GALLERY_TEST_DURABLE_POSTGRES=1 ./node_modules/.bin/vitest run \
++  --config test/vitest.config.medium.mjs \
++  test/medium/specs/services/authorized-deletion.spec.ts \
++  test/medium/specs/services/build11-storage-deletion-lifecycle.spec.ts \
++  test/medium/specs/services/nfs-quarantine-recovery.spec.ts --reporter=dot
++./node_modules/.bin/vitest run --config test/vitest.config.mjs \
++  src/utils/authorized-deletion.spec.ts src/utils/deletion-recovery.spec.ts --reporter=dot
++```
++
++Флаг durability включает и SQL-проверяет fsync/full_page_writes/synchronous_commit
++**on** до миграций; без флага прежние unrelated medium defaults не меняются.
++Это позволяет повторить проверку без временных Cloud configs. SQL миграции
++исполнялись исключительно на новой disposable PG. Итоговые counts и hashes
++логов прилагаются в report; тесты с реальным Synology NFS не выполнялись.
++NFS helper эмулирует metadata/root squash, но chmod/rename/fsync/hash/unlink
++выполняются на настоящих disposable файлах Linux.
++
++Ранний прототип fault harness с pg_terminate_backend не был принят: драйвер
++postgres.js выдавал uncaught ошибки при повторных запросах через оборванную
++reserved connection. Он заменён настоящим SIGKILL worker; этот прототип не
++входит в patch и не считается подтверждением application failure/PASS.
++
++## Применение только в тестовом HP worktree
++
++Оператор codex-gallery; Node в PATH как в приложенном task. Сохранить все
++существующие uncommitted изменения, ничего не reset/checkout поверх них.
++Из корня нужной тестовой копии:
++
++```bash
++set -euo pipefail
++PATCH=/absolute/path/gallery-build11-nfs-recovery-FINAL.patch
++# BASELINE — копия приложенного к патчу checksum-файла, доступная ДО применения.
++BASELINE=/absolute/path/BUILD11-NFS-RECOVERY-BASELINE.sha256
++sha256sum -c --strict "$BASELINE"
++git apply --check "$PATCH"
++git apply "$PATCH"
++git diff --check
++```
++
++При несовпадении любого preimage **STOP**: не применять force/3way/unsafe-paths,
++не заменять файл целиком и не терять Live Photo fix. Для другой базы требуется
++отдельная проверка diff. Это не команда обновления running container.
++
++После применения запустить команды выше на disposable DB/media. Smoke должен
++подтвердить NAS/JPG+SSD/MP4 pair, exact scope, receipt complete и отказ на foreign
++EEXIST. Не использовать реальные семейные фото. Патч и baseline-файл не требуют
++подписывающих ключей Android/iOS; API, authentication и deletion consent не меняются.
++
++## Ручное recovery неоднозначного orphan, только после отдельного разрешения
++
++1. Через штатный owner consent отключить permanent deletion затронутого scope;
++   дождаться подтверждённого отзыва и отсутствия выполняющейся операции этого
++   scope. Не активировать legacy jobs/retention и не останавливать чужие services.
++2. Сохранить private backup/evidence policy, receipt, root identity и snapshot
++   каталога. Сверить originals/checksums и отсутствие files-removed/complete.
++   Если каталог непустой, потеряны originals или есть конфликт receipts — STOP,
++   отдельное расследование/восстановление, не выполнять дальнейший обычный retry.
++3. После отдельного согласования filesystem maintenance сохранить проблемный
++   **пустой** каталог посредством rename в пределах той же файловой системы,
++   в forensic location вне всех library import roots, сохраняя inode/UID/GID/права.
++   Если подходящего места или прав нет — STOP. Не выполнять cross-filesystem
++   copy+delete; не удалять его и не делать chmod для усыновления.
++   На Synology использовать разрешённую оператору операцию NAS, без расширения
++   NFS exports/permissions. Патч сам эту операцию не выполняет.
++4. Убедиться в отсутствии активного fixed qpath и неизменности root identity.
++   Через обычный интерфейс владельца вновь дать consent с актуальными
++   prerequisites. Никаких SQL reset, фиктивной identity или обновления timestamps.
++5. Нормальный retry создаст новый UUID/Reserved, новый каталог и новое проверенное
++   binding. Если кто-либо создаст qpath в промежутке — снова EEXIST/STOP.
++   Сначала acceptance только на disposable media. Forensic evidence не удалять.
++
++Без этих условий оставлять fail-closed. Существующий зарегистрированный BOUND
++каталог нельзя сбрасывать по данной процедуре, даже если он исчез: нужна отдельная
++recovery проверка. Нельзя переносить непустой quarantine как способ забыть originals.
++
++## Откат
++
++В тестовой копии, сохранив новые изменения и результаты:
++
++```bash
++git apply --reverse --check "$PATCH"
++git apply --reverse "$PATCH"
++```
++
++Откатываются только изменения recovery patch; исходный HP Live Photo fix остаётся.
++Нельзя reverse применять поверх последующих изменений без проверки. Миграции
++не нужны, JSON journal не удалять/переписывать. Старый runtime не обеспечивает
++новое crash recovery; перед любым отдельным production rollback отключить
++permanent deletion через owner consent и сохранить согласованный backup/evidence.
++Code rollback не восстанавливает уже удалённые файлы и не откатывает FS/DB.
++Production upgrade/rollback, real NFS validation, очистка forensic evidence и
++удаление настоящих originals требуют отдельных решений владельца.
++
++## Итог проверки и оставшиеся границы
++
++Финальный совместный запуск: **113 PASS / 0 FAIL / 0 SKIP** = 96 исходных +
++17 новых medium tests. Два utility unit suites: **165 PASS / 0 FAIL / 0 SKIP**.
++TypeScript, scoped ESLint и Prettier прошли. Подробный отчёт и hashes:
++`BUILD11-NFS-RECOVERY-TEST-RESULTS.json` рядом с этим документом.
++
++Существующие Live Photo split-root regression cases прошли без изменений.
++При чтении HP baseline найдено отдельное существующее ограничение: binding
++SSD-root хранится в конкретном child receipt; другое Live Photo того же owner
++с новым receipt может получить unregistered EEXIST на том же encoded-video root.
++Эта последовательность **не воспроизводилась отдельным runtime-тестом** в этой
++задаче и этим recovery patch не исправляется. Не считать проверенные одиночные
++пары доказательством неограниченного повторного удаления разных Live Photos.
++
++Реальный Synology NFSv3, power loss PostgreSQL/NAS, physical Android/iOS и
++production deployment **NOT TESTED**. SIGKILL проверяет аварии приложения;
++включённые fsync/WAL не заменяют испытания отключения питания аппаратуры.
++Кандидат готов для проверки на изолированном HP/NFS fixture, но не объявляется
++полностью production-ready. Файловая система без требуемых chmod/fsync остаётся
++fail-closed; нельзя отключать проверки для получения PASS.
+diff --git a/docs/release/BUILD11-NFS-RECOVERY-BASELINE.sha256 b/docs/release/BUILD11-NFS-RECOVERY-BASELINE.sha256
+new file mode 100644
+index 0000000000000000000000000000000000000000..2a98537091a518551a503f85079c4ab4762fd8c9
+--- /dev/null
++++ b/docs/release/BUILD11-NFS-RECOVERY-BASELINE.sha256
+@@ -0,0 +1,6 @@
++edf2df74cd8389b03e2d4b4b037d51b9541675d63d37482dfee928818419a95e  server/src/repositories/asset.repository.ts
++9d9aabe303830ca55e915ecdc149c185ded367674d44860cb6c60774bf090a76  server/src/schema/tables/asset-deletion.table.ts
++77c8b477a4516f4937e505594a631789f4d3c7a3f865721f9db03b155f691960  server/src/utils/authorized-deletion.ts
++ca496b6d067e2b112cb6f1cf36aadb96a355743dc60f573fd1defbe23f745bff  server/test/medium/specs/services/authorized-deletion.spec.ts
++4f2907a1fedec38f8692117c5c89ccb1871817fd1d8bba8e721b060ba0ae4b6e  server/test/medium/specs/services/build11-storage-deletion-lifecycle.spec.ts
++ebf4187fc726ebfd4cade85de5bc67472584ee6fe4b3ac1e399d552c21aa2e09  server/test/nfs-quarantine.ts
+diff --git a/docs/release/BUILD11-NFS-RECOVERY-TEST-RESULTS.json b/docs/release/BUILD11-NFS-RECOVERY-TEST-RESULTS.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..19f85f6c9ead29a9eb81d9345cdbb33b43cb0759
+--- /dev/null
++++ b/docs/release/BUILD11-NFS-RECOVERY-TEST-RESULTS.json
+@@ -0,0 +1,88 @@
++{
++  "passed": 113,
++  "failed": 0,
++  "skipped": 0,
++  "retainedBaselinePassed": 96,
++  "newFaultInjectionPassed": 17,
++  "exitCode": 0,
++  "durationSeconds": 44.73,
++  "versions": {
++    "node": "24.21.0",
++    "pnpm": "11.24.0",
++    "vitest": "4.1.11",
++    "dockerClient": "28.4.0",
++    "dockerServer": "28.4.0",
++    "postgresMajor": 14
++  },
++  "config": "test/vitest.config.medium.mjs",
++  "durabilityFlag": "GALLERY_TEST_DURABLE_POSTGRES=1",
++  "effectivePostgresSettings": {
++    "fsync": "on",
++    "full_page_writes": "on",
++    "synchronous_commit": "on"
++  },
++  "settingsVerifiedBeforeMigrations": true,
++  "postgresImage": "ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67",
++  "productionConnections": false,
++  "logSHA256": "e5c97d9ef0369012e253c600803090ee24c6215c9d83a86a9786b517ada91fe1",
++  "testedFilesSHA256": {
++    "server/src/repositories/asset.repository.ts": "6b363e71039b136bcf8ea5e0d241daf6c0e0b620165e35d7c6a311605d6e4283",
++    "server/src/utils/authorized-deletion.ts": "984a27e536f9f4b1e26e37c0b505a70c37f42d22f0304e5ef1e28f86594d0b1d",
++    "server/src/schema/tables/asset-deletion.table.ts": "ed5b74349b5f80313da1eb86961e4184726f3d7dd26141d0425352b3735e6313",
++    "server/test/medium/globalSetup.ts": "0283ad3729624a2cbd7435909d1769cc39c291988a87a48bf47439c79e838683",
++    "server/test/medium/specs/services/authorized-deletion.spec.ts": "ca496b6d067e2b112cb6f1cf36aadb96a355743dc60f573fd1defbe23f745bff",
++    "server/test/medium/specs/services/build11-storage-deletion-lifecycle.spec.ts": "4f2907a1fedec38f8692117c5c89ccb1871817fd1d8bba8e721b060ba0ae4b6e",
++    "server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts": "29566c4e66f2af8adc8d7e6e537d5a73a149e0690a5c5caad0e304a35fb1d61d",
++    "server/test/nfs-quarantine.ts": "ebf4187fc726ebfd4cade85de5bc67472584ee6fe4b3ac1e399d552c21aa2e09",
++    "server/test/medium/quarantine-crash.worker.ts": "0735cec0bbd871adfb1f126fa6cd0b767b5b671c2ded09cbf456408c97576f91",
++    "server/test/medium/quarantine-crash.config.mjs": "17a82431efcc313d08e446fcbe563295699cee7a88319284e78d0ae33ebabaaf"
++  },
++  "task": "Gallery Build 11 NFS Quarantine Crash Recovery",
++  "baselineCommit": "92af234687caeca9307aa7d4ea2a51553eecf9cf",
++  "cloudBaseCommit": "72e668597b1a43a29778397048c622a81a386b71",
++  "baseline": {
++    "passed": 96,
++    "failed": 0,
++    "skipped": 0,
++    "logSHA256": "90e5537456448f3dae05f41306211d4423482bd89e3e1d1d600644efb94a8ffe",
++    "requestedCount": 99,
++    "discrepancy": "Attached two unchanged spec files execute 96 tests; no tests removed or assertions weakened."
++  },
++  "unit": {
++    "passed": 165,
++    "failed": 0,
++    "skipped": 0,
++    "files": ["src/utils/authorized-deletion.spec.ts", "src/utils/deletion-recovery.spec.ts"],
++    "exitCode": 0,
++    "logSHA256": "5c9437803b7db31fedb446c6fa61a2d3c043be4dc45a9158ff67d95c17db2a15"
++  },
++  "checks": {
++    "typescript": {
++      "exitCode": 0
++    },
++    "scopedESLint": {
++      "exitCode": 0
++    },
++    "prettier": {
++      "exitCode": 0
++    },
++    "mjsSyntax": {
++      "exitCode": 0
++    },
++    "diffWhitespace": {
++      "exitCode": 0
++    }
++  },
++  "notTested": [
++    "real Synology NFSv3",
++    "PostgreSQL/NAS power-loss durability",
++    "physical Android/iOS",
++    "production deployment",
++    "different Live Photos sharing a previously bound SSD motion root across distinct receipts"
++  ],
++  "newMigrations": false,
++  "productionChanged": false,
++  "releaseArtifactsRebuilt": false,
++  "harnessHistory": "An earlier pg_terminate_backend harness produced postgres.js reserved-connection errors and was rejected; the final harness uses actual SIGKILL of an owned child process group. Earlier development failures are not counted as successful validation.",
++  "mediumExpectedErrorOutput": "Injected filesystem/transaction errors and expected PostgreSQL lock-timeout diagnostics appear in the medium log; the final Vitest exit code is 0 with 113 executed tests."
++}
+diff --git a/server/src/repositories/asset.repository.ts b/server/src/repositories/asset.repository.ts
+index 1cb7c598f0af5d5586c8621385f48359aa6dcab1..b73ba98a1dcfdd99006269b6bcd4ef0d0b13eb8b 100644
+--- a/server/src/repositories/asset.repository.ts
++++ b/server/src/repositories/asset.repository.ts
+@@ -18,6 +18,7 @@ import {
+ import { jsonArrayFrom } from 'kysely/helpers/postgres';
+ import { isEmpty, isUndefined, omitBy } from 'lodash-es';
+ import { InjectKysely } from 'nestjs-kysely';
++import { randomUUID } from 'node:crypto';
+ import type { AuthDto } from 'src/dtos/auth.dto.js';
+ import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
+ import { StorageCore } from 'src/cores/storage.core.js';
+@@ -46,10 +47,12 @@ import {
+   bindQuarantine,
+   collectRootIdentities,
+   deletionCode,
++  isQuarantineAbsent,
+   refreshStorageRootIdentities,
+   samePhysicalRootIdentity,
+   sameQuarantineIdentity,
+   sameRootIdentity,
++  validQuarantineIntent,
+ } from 'src/utils/authorized-deletion.js';
+ import {
+   anyUuid,
+@@ -1800,8 +1803,12 @@ export class AssetRepository {
+             ? samePhysicalRootIdentity(root, bound)
+             : sameRootIdentity(root, bound),
+         );
+-        const { quarantineIdentity: _untrusted, ...identity } = root;
+-        return stored?.quarantineIdentity ? { ...identity, quarantineIdentity: stored.quarantineIdentity } : identity;
++        const { quarantineIdentity: _untrusted, quarantineIntent: _untrustedIntent, ...identity } = root;
++        return {
++          ...identity,
++          ...(stored?.quarantineIdentity && { quarantineIdentity: stored.quarantineIdentity }),
++          ...(stored?.quarantineIntent && { quarantineIntent: stored.quarantineIntent }),
++        };
+       });
+       const prepared = {
+         authorizationMode: 'recovery' as const,
+@@ -1943,17 +1950,38 @@ export class AssetRepository {
+     // policy. Only the dedicated encoded-video location needs extra authority.
+     const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
+     if (!receipt.originalPath.startsWith(`${encodedRoot}/`)) return;
+-    const parent = await tx.selectFrom('asset').select(['id', 'ownerId', 'libraryId', 'livePhotoVideoId'])
+-      .where('id', '=', receipt.operationId).executeTakeFirst();
+-    const child = await tx.selectFrom('asset').select(['id', 'ownerId', 'libraryId', 'originalPath'])
+-      .where('id', '=', receipt.assetId).executeTakeFirst();
+-    const references = await tx.selectFrom('asset').select('id')
+-      .where('livePhotoVideoId', '=', receipt.assetId).execute();
+-    const expected = StorageCore.getAndroidMotionPath({ id: receipt.assetId, ownerId: receipt.ownerId }, receipt.assetId);
+-    if (!parent || !child || parent.ownerId !== receipt.ownerId || child.ownerId !== receipt.ownerId ||
+-        parent.libraryId !== receipt.libraryId || child.libraryId !== receipt.libraryId ||
+-        parent.livePhotoVideoId !== receipt.assetId || references.length !== 1 ||
+-        references[0].id !== parent.id || receipt.originalPath !== expected || child.originalPath !== expected)
++    const parent = await tx
++      .selectFrom('asset')
++      .select(['id', 'ownerId', 'libraryId', 'livePhotoVideoId'])
++      .where('id', '=', receipt.operationId)
++      .executeTakeFirst();
++    const child = await tx
++      .selectFrom('asset')
++      .select(['id', 'ownerId', 'libraryId', 'originalPath'])
++      .where('id', '=', receipt.assetId)
++      .executeTakeFirst();
++    const references = await tx
++      .selectFrom('asset')
++      .select('id')
++      .where('livePhotoVideoId', '=', receipt.assetId)
++      .execute();
++    const expected = StorageCore.getAndroidMotionPath(
++      { id: receipt.assetId, ownerId: receipt.ownerId },
++      receipt.assetId,
++    );
++    if (
++      !parent ||
++      !child ||
++      parent.ownerId !== receipt.ownerId ||
++      child.ownerId !== receipt.ownerId ||
++      parent.libraryId !== receipt.libraryId ||
++      child.libraryId !== receipt.libraryId ||
++      parent.livePhotoVideoId !== receipt.assetId ||
++      references.length !== 1 ||
++      references[0].id !== parent.id ||
++      receipt.originalPath !== expected ||
++      child.originalPath !== expected
++    )
+       throw new DeletionError('MOTION_SCOPE_MISMATCH');
+     const root = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, receipt.ownerId);
+     const identities = await collectRootIdentities([root]);
+@@ -2153,8 +2181,10 @@ export class AssetRepository {
+           const motionRoot = await this.linkedMotionRoot(tx, target);
+           const files = [];
+           for (const path of paths) {
+-            const roots = motionRoot && path === target.originalPath
+-              ? [...policy!.rootIdentities, motionRoot] : policy!.rootIdentities;
++            const roots =
++              motionRoot && path === target.originalPath
++                ? [...policy!.rootIdentities, motionRoot]
++                : policy!.rootIdentities;
+             files.push(await snapshot(path, roots));
+           }
+           await tx
+@@ -2231,11 +2261,16 @@ export class AssetRepository {
+         await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+         const motionRoot = await this.linkedMotionRoot(tx, receipt);
+         for (const file of receipt.files) {
+-          const inPolicy = policy!.rootIdentities.some((root) =>
+-            sameRootIdentity(file.rootIdentity, root) &&
+-            sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity));
+-          const isLinkedMotion = !!motionRoot && file.path === receipt.originalPath &&
+-            sameRootIdentity(file.rootIdentity, motionRoot) && !!file.rootIdentity.quarantineIdentity;
++          const inPolicy = policy!.rootIdentities.some(
++            (root) =>
++              sameRootIdentity(file.rootIdentity, root) &&
++              sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity),
++          );
++          const isLinkedMotion =
++            !!motionRoot &&
++            file.path === receipt.originalPath &&
++            sameRootIdentity(file.rootIdentity, motionRoot) &&
++            !!file.rootIdentity.quarantineIdentity;
+           if (!inPolicy && !isLinkedMotion) throw new DeletionError('DELETION_ROOT_CHANGED');
+         }
+         // Recheck references at execution; even an old queued job cannot delete a newly shared original.
+@@ -2279,71 +2314,215 @@ export class AssetRepository {
+   }
+ 
+   private async bindOriginalQuarantines(id: string): Promise<void> {
+-    await this.db.transaction().execute(async (tx) => {
+-      const intent = await tx
+-        .selectFrom('asset_deletion_tombstone')
+-        .select('ownerId')
+-        .where('assetId', '=', id)
+-        .executeTakeFirst();
+-      if (!intent) return;
+-      await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
+-      const receipt = await tx
+-        .selectFrom('asset_deletion_tombstone')
+-        .selectAll()
+-        .where('assetId', '=', id)
+-        .forUpdate()
+-        .executeTakeFirstOrThrow();
+-      if (receipt.state === 'complete' || receipt.state === 'files-removed') return;
+-      if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
+-        throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+-      const policy = await tx
+-        .selectFrom('asset_deletion_policy')
+-        .selectAll()
+-        .where('ownerId', '=', receipt.ownerId)
+-        .where('scope', '=', receipt.scope)
+-        .forUpdate()
+-        .executeTakeFirst();
+-      await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+-      const roots = [...policy!.rootIdentities];
+-      const files: DeletionFile[] = [];
+-      for (const file of receipt.files) {
+-        const index = roots.findIndex((root) =>
+-          policy!.authorizationMode === 'storage'
+-            ? samePhysicalRootIdentity(file.rootIdentity, root)
+-            : sameRootIdentity(file.rootIdentity, root),
+-        );
+-        const motionRoot = index === -1 ? await this.linkedMotionRoot(tx, receipt) : undefined;
+-        if (index === -1 && (!motionRoot || file.path !== receipt.originalPath ||
+-            !samePhysicalRootIdentity(file.rootIdentity, motionRoot)))
+-          throw new DeletionError('DELETION_ROOT_CHANGED');
+-        if (motionRoot) {
+-          const bound = await bindQuarantine({ ...motionRoot, quarantineIdentity: file.rootIdentity.quarantineIdentity });
+-          files.push({ ...file, rootIdentity: bound });
+-          continue;
+-        }
+-        const recorded = file.rootIdentity.quarantineIdentity;
+-        if (
+-          recorded &&
+-          (recorded.mountId !== file.rootIdentity.mountId ||
+-            recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
+-            (policy!.authorizationMode === 'storage'
+-              ? !roots[index].quarantineIdentity ||
+-                (['device', 'inode', 'uid', 'gid'] as const).some(
+-                  (key) => recorded[key] !== roots[index].quarantineIdentity![key],
++    const intent = await this.db
++      .selectFrom('asset_deletion_tombstone')
++      .select('ownerId')
++      .where('assetId', '=', id)
++      .executeTakeFirst();
++    if (!intent) return;
++    // Session locks span the independent journal commits. The global lock also
++    // covers roots shared by different owners and aliases of the same mount.
++    await this.db.connection().execute(async (connection) => {
++      await sql`select pg_advisory_lock(hashtextextended('gallery-quarantine-binding-v1', 733))`.execute(connection);
++      const durableTransaction = <T>(work: (tx: Transaction<DB>) => Promise<T>) =>
++        connection.transaction().execute(async (tx) => {
++          // A journal checkpoint is a durability boundary, even when the
++          // surrounding application session uses asynchronous commits.
++          await sql`set local synchronous_commit = 'on'`.execute(tx);
++          return work(tx);
++        });
++      let ownerLocked = false;
++      try {
++        await sql`select pg_advisory_lock(hashtextextended(${intent.ownerId}, 731))`.execute(connection);
++        ownerLocked = true;
++        const paths = await durableTransaction(async (tx) => {
++          const receipt = await tx
++            .selectFrom('asset_deletion_tombstone')
++            .selectAll()
++            .where('assetId', '=', id)
++            .forUpdate()
++            .executeTakeFirst();
++          if (!receipt || receipt.state === 'complete' || receipt.state === 'files-removed') return [];
++          if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
++            throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
++          return receipt.files.map((file) => file.path);
++        });
++        for (const path of paths) {
++          const context = async (tx: Transaction<DB>, verify = true) => {
++            const receipt = await tx
++              .selectFrom('asset_deletion_tombstone')
++              .selectAll()
++              .where('assetId', '=', id)
++              .forUpdate()
++              .executeTakeFirstOrThrow();
++            const file = receipt.files.find((file) => file.path === path);
++            if (!file?.rootIdentity || !file.quarantineName) throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
++            const policy = await tx
++              .selectFrom('asset_deletion_policy')
++              .selectAll()
++              .where('ownerId', '=', receipt.ownerId)
++              .where('scope', '=', receipt.scope)
++              .forUpdate()
++              .executeTakeFirst();
++            if (!policy) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
++            if (verify) await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
++            const index = policy.rootIdentities.findIndex((root) =>
++              policy.authorizationMode === 'storage'
++                ? samePhysicalRootIdentity(file.rootIdentity, root)
++                : sameRootIdentity(file.rootIdentity, root),
++            );
++            const motionRoot = index === -1 ? await this.linkedMotionRoot(tx, receipt) : undefined;
++            if (
++              index === -1 &&
++              (!motionRoot ||
++                file.path !== receipt.originalPath ||
++                !samePhysicalRootIdentity(file.rootIdentity, motionRoot))
++            )
++              throw new DeletionError('DELETION_ROOT_CHANGED');
++            const root =
++              index === -1
++                ? {
++                    ...motionRoot!,
++                    ...(file.rootIdentity.quarantineIdentity && {
++                      quarantineIdentity: file.rootIdentity.quarantineIdentity,
++                    }),
++                    ...(file.rootIdentity.quarantineIntent && { quarantineIntent: file.rootIdentity.quarantineIntent }),
++                  }
++                : policy.rootIdentities[index];
++            const recorded = file.rootIdentity.quarantineIdentity;
++            if (
++              recorded &&
++              index !== -1 &&
++              (recorded.mountId !== file.rootIdentity.mountId ||
++                recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
++                (policy.authorizationMode === 'storage'
++                  ? !root.quarantineIdentity ||
++                    (['device', 'inode', 'uid', 'gid'] as const).some(
++                      (key) => recorded[key] !== root.quarantineIdentity![key],
++                    )
++                  : !sameQuarantineIdentity(recorded, root.quarantineIdentity)))
++            )
++              throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++            if (
++              file.rootIdentity.quarantineIntent &&
++              root.quarantineIntent &&
++              (file.rootIdentity.quarantineIntent.id !== root.quarantineIntent.id ||
++                file.rootIdentity.quarantineIntent.state !== root.quarantineIntent.state ||
++                file.rootIdentity.quarantineIntent.mode !== root.quarantineIntent.mode ||
++                (file.rootIdentity.quarantineIntent.identity || root.quarantineIntent.identity
++                  ? !sameQuarantineIdentity(file.rootIdentity.quarantineIntent.identity, root.quarantineIntent.identity)
++                  : false))
++            )
++              throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++            const persist = async (bound: DeletionRootIdentity) => {
++              if (index !== -1) {
++                const roots = [...policy.rootIdentities];
++                roots[index] = bound;
++                // Journal progress never changes the owner's consent revision.
++                await tx
++                  .updateTable('asset_deletion_policy')
++                  .set({ rootIdentities: roots })
++                  .where('ownerId', '=', receipt.ownerId)
++                  .where('scope', '=', receipt.scope)
++                  .execute();
++              }
++              const files = receipt.files.map((original) =>
++                samePhysicalRootIdentity(original.rootIdentity, bound)
++                  ? { ...original, rootIdentity: bound }
++                  : original,
++              );
++              await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
++            };
++            return { root, persist };
++          };
++          // This commit MUST finish before the utility can mkdir.
++          const planned = await durableTransaction(async (tx) => {
++            const { root, persist } = await context(tx);
++            if (root.quarantineIdentity) return root;
++            if (
++              root.quarantineIntent &&
++              !(
++                validQuarantineIntent(root.quarantineIntent) &&
++                root.quarantineIntent.state === 'failed' &&
++                (await isQuarantineAbsent(root))
++              )
++            )
++              return root;
++            // A terminal initializer may start a NEW intent only after the
++            // old entry is absent. Never remove, repair or adopt it here. An
++            // entry racing this read is still rejected by exclusive mkdir.
++            const reserved: DeletionRootIdentity = {
++              ...root,
++              quarantineIntent: { id: randomUUID(), state: 'reserved' },
++            };
++            await persist(reserved);
++            return reserved;
++          });
++          try {
++            const bound = await bindQuarantine(planned, async (identity, mode) => {
++              // Persist the fd-observed identity BEFORE chmod or fsync. A bare
++              // reserved UUID never authorizes adoption of an EEXIST directory.
++              await durableTransaction(async (tx) => {
++                const current = await context(tx);
++                if (
++                  !sameRootIdentity(current.root, planned) ||
++                  current.root.quarantineIdentity ||
++                  current.root.quarantineIntent?.id !== planned.quarantineIntent?.id ||
++                  current.root.quarantineIntent?.state !== 'reserved'
+                 )
+-              : !sameQuarantineIdentity(recorded, roots[index].quarantineIdentity)))
+-        )
+-          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+-        roots[index] = await bindQuarantine(roots[index]);
+-        files.push({ ...file, rootIdentity: roots[index] });
++                  throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++                await current.persist({
++                  ...current.root,
++                  quarantineIntent: { id: planned.quarantineIntent!.id, state: 'observed', identity, mode },
++                });
++              });
++            });
++            await durableTransaction(async (tx) => {
++              const current = await context(tx);
++              if (
++                !sameRootIdentity(current.root, planned) ||
++                current.root.quarantineIntent?.id !== planned.quarantineIntent?.id
++              )
++                throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++              const { quarantineIntent: _completed, ...completed } = bound;
++              await current.persist(completed);
++            });
++          } catch (error) {
++            // A caught chmod/fsync failure is not a crash and cannot turn into
++            // a later repair of a directory explicitly rejected as unsafe.
++            if (planned.quarantineIntent) {
++              try {
++                await durableTransaction(async (tx) => {
++                  const current = await context(tx, false);
++                  if (
++                    sameRootIdentity(current.root, planned) &&
++                    current.root.quarantineIntent?.id === planned.quarantineIntent!.id &&
++                    !current.root.quarantineIdentity
++                  ) {
++                    await current.persist({
++                      ...current.root,
++                      quarantineIntent: { ...current.root.quarantineIntent, state: 'failed' },
++                    });
++                  }
++                });
++              } catch {
++                // Keep the original failure. A dead session cannot change a
++                // committed checkpoint and no original has moved in this phase.
++              }
++            }
++            throw error;
++          }
++        }
++      } finally {
++        try {
++          if (ownerLocked)
++            await sql`select pg_advisory_unlock(hashtextextended(${intent.ownerId}, 731))`.execute(connection);
++        } finally {
++          await sql`select pg_advisory_unlock(hashtextextended('gallery-quarantine-binding-v1', 733))`.execute(
++            connection,
++          );
++        }
+       }
+-      await tx
+-        .updateTable('asset_deletion_policy')
+-        .set({ rootIdentities: roots })
+-        .where('ownerId', '=', receipt.ownerId)
+-        .where('scope', '=', receipt.scope)
+-        .execute();
+-      await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
+     });
+   }
+ 
+diff --git a/server/src/schema/tables/asset-deletion.table.ts b/server/src/schema/tables/asset-deletion.table.ts
+index f6962089d895ccaf127435c0fb497d5a4ac7ba2f..d36e6b876486388af5a3d06501537d08587cfbba 100644
+--- a/server/src/schema/tables/asset-deletion.table.ts
++++ b/server/src/schema/tables/asset-deletion.table.ts
+@@ -22,6 +22,15 @@ export interface DeletionRootIdentity {
+   mountRoot: string;
+   mountTarget: string;
+   quarantineIdentity?: DeletionQuarantineIdentity;
++  quarantineIntent?: DeletionQuarantineIntent;
++}
++
++// A reserved intent alone never proves ownership of an EEXIST directory.
++export interface DeletionQuarantineIntent {
++  id: string;
++  state: 'reserved' | 'observed' | 'failed';
++  identity?: DeletionQuarantineIdentity;
++  mode?: string;
+ }
+ 
+ export interface DeletionQuarantineIdentity {
+diff --git a/server/src/utils/authorized-deletion.ts b/server/src/utils/authorized-deletion.ts
+index 3c19aee32eee05cdd51e14d8870b330428907f69..1a68c413f7f5c2f4945fa7dffb8ee93d3f73e3e8 100644
+--- a/server/src/utils/authorized-deletion.ts
++++ b/server/src/utils/authorized-deletion.ts
+@@ -126,7 +126,7 @@ export async function refreshStorageRootIdentities(bound: DeletionRootIdentity[]
+     const previous = bound.find((stored) => samePhysicalRootIdentity(root, stored));
+     if (!previous) throw new DeletionError('DELETION_ROOT_CHANGED');
+     if (!previous.quarantineIdentity) {
+-      result.push(root);
++      result.push({ ...root, ...(previous.quarantineIntent && { quarantineIntent: previous.quarantineIntent }) });
+       continue;
+     }
+     const directory = await openRoot(root);
+@@ -412,6 +412,31 @@ export function validQuarantineIdentity(value: unknown): value is DeletionQuaran
+ export const sameQuarantineIdentity = (a: unknown, b: unknown) =>
+   validQuarantineIdentity(a) && validQuarantineIdentity(b) && QUARANTINE_KEYS.every((key) => a[key] === b[key]);
+ 
++// These fields come only from the committed server-side policy/receipt journal.
++// An intent UUID alone never authenticates an existing directory.
++export function validQuarantineIntent(value: unknown): value is NonNullable<DeletionRootIdentity['quarantineIntent']> {
++  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
++  const entry = value as Record<string, unknown>;
++  if (
++    typeof entry.id !== 'string' ||
++    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.id) ||
++    !['reserved', 'observed', 'failed'].includes(String(entry.state))
++  )
++    return false;
++  const keys = Object.keys(entry).sort().join(',');
++  if (keys === 'id,state') return entry.state !== 'observed';
++  if (
++    keys !== 'id,identity,mode,state' ||
++    entry.state === 'reserved' ||
++    !validQuarantineIdentity(entry.identity) ||
++    typeof entry.mode !== 'string' ||
++    !/^[1-9]\d{0,4}$/.test(entry.mode)
++  )
++    return false;
++  const mode = Number(entry.mode);
++  return mode <= 0xff_ff && (mode & constants.S_IFMT) === constants.S_IFDIR;
++}
++
+ async function quarantineIdentity(handle: FileHandle, root: DeletionRootIdentity): Promise<DeletionQuarantineIdentity> {
+   const stat = await handle.stat({ bigint: true });
+   if (!stat.isDirectory()) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+@@ -462,23 +487,53 @@ async function verifyCurrentQuarantine(
+   }
+ }
+ 
+-// The caller commits the returned binding in the policy and receipt BEFORE
+-// calling unlinkOriginal. Never adopt an unregistered EEXIST directory.
+-export async function bindQuarantine(bound: DeletionRootIdentity): Promise<DeletionRootIdentity> {
++// This is only an absence proof, never an EEXIST ownership proof. It allows a
++// failed initialization to reserve a NEW attempt after an operator has retained
++// the suspect directory outside the active name. mkdir still rejects any race.
++export async function isQuarantineAbsent(bound: DeletionRootIdentity): Promise<boolean> {
++  if (bound.quarantineIdentity) return false;
++  const root = await openRoot(bound);
++  try {
++    try {
++      await fs.lstat(anchored(root.fd, quarantine));
++      return false;
++    } catch (error) {
++      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
++    }
++    const current = await openRoot(bound);
++    await current.close();
++    return true;
++  } finally {
++    await root.close();
++  }
++}
++
++// Repository callers commit RESERVED before mkdir, then persist the observed
++// fd identity through checkpoint BEFORE chmod. Crash recovery can only resume
++// that exact observed directory. RESERVED + EEXIST is deliberately ambiguous.
++// Standalone callers without a journal retain the original fail-closed contract.
++export async function bindQuarantine(
++  bound: DeletionRootIdentity,
++  checkpoint?: (identity: DeletionQuarantineIdentity, mode: string) => Promise<void>,
++): Promise<DeletionRootIdentity> {
+   const root = await openRoot(bound);
+   let q: FileHandle | undefined;
+   try {
+     const qpath = anchored(root.fd, quarantine);
+     const existing = bound.quarantineIdentity;
+-    if (!existing) {
++    const intent = bound.quarantineIntent;
++    if (intent && (!validQuarantineIntent(intent) || !checkpoint || intent.state === 'failed' || existing))
++      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++    if (existing !== undefined && !validQuarantineIdentity(existing))
++      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
++    const observed = intent?.state === 'observed' ? intent : undefined;
++    if (!existing && !observed) {
+       try {
+         await fs.mkdir(qpath, { mode: 0o700 });
+       } catch (error) {
+         if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+         throw error;
+       }
+-    } else if (!validQuarantineIdentity(existing)) {
+-      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+     }
+     const entry = await fs.lstat(qpath, { bigint: true });
+     q = await fs.open(qpath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+@@ -494,6 +549,12 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
+     )
+       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+     const captured = await quarantineIdentity(q, bound);
++    if (
++      observed &&
++      (!sameQuarantineIdentity(observed.identity, captured) ||
++        (stat.mode !== BigInt(observed.mode!) && stat.mode !== BigInt(constants.S_IFDIR | 0o700)))
++    )
++      throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+     if (existing) {
+       if (!sameQuarantineIdentity(existing, captured) || (stat.mode & 0o7777n) !== 0o700n)
+         throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+@@ -507,6 +568,11 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
+     if ((!isNfs(bound) && Number(stat.uid) !== process.getuid?.()) || entries.length > 0)
+       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+     await verifyCurrentQuarantine(bound, captured, stat.mode);
++    if (!observed && checkpoint) await checkpoint(captured, String(stat.mode));
++    // A DB checkpoint is not a filesystem durability receipt. Repeat chmod and
++    // BOTH directory syncs on observed-crash recovery, and recheck namespace
++    // after every asynchronous boundary before originals can be captured.
++    await verifyCurrentQuarantine(bound, captured, stat.mode);
+     await q.chmod(0o700);
+     if (!sameQuarantineIdentity(await quarantineIdentity(q, bound), captured))
+       throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+@@ -514,8 +580,11 @@ export async function bindQuarantine(bound: DeletionRootIdentity): Promise<Delet
+     const securedEntries = await fs.readdir('/proc/self/fd/' + q.fd);
+     if (securedEntries.length > 0) throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+     await q.sync();
++    await verifyCurrentQuarantine(bound, captured, BigInt(constants.S_IFDIR | 0o700));
+     await root.sync();
+-    return { ...bound, quarantineIdentity: captured };
++    await verifyCurrentQuarantine(bound, captured, BigInt(constants.S_IFDIR | 0o700));
++    const { quarantineIntent: _completed, ...secured } = bound;
++    return { ...secured, quarantineIdentity: captured };
+   } finally {
+     await q?.close();
+     await root.close();
+diff --git a/server/test/medium/globalSetup.ts b/server/test/medium/globalSetup.ts
+index e8a6a3edc9f7da75ea1d302a93221b290b7706b8..f102604a88038d333e97c252b5b6c3d48f7943b5 100644
+--- a/server/test/medium/globalSetup.ts
++++ b/server/test/medium/globalSetup.ts
+@@ -1,4 +1,4 @@
+-import { Kysely } from 'kysely';
++import { Kysely, sql } from 'kysely';
+ import { GenericContainer, Wait } from 'testcontainers';
+ import { ConfigRepository } from 'src/repositories/config.repository.js';
+ import { DatabaseRepository } from 'src/repositories/database.repository.js';
+@@ -8,6 +8,9 @@ import { getKyselyConfig } from 'src/utils/database.js';
+ 
+ const globalSetup = async () => {
+   const templateName = 'mich';
++  // Crash-recovery validation opts into real WAL/fsync durability. Existing
++  // unrelated medium suites retain their established performance defaults.
++  const durable = process.env.GALLERY_TEST_DURABLE_POSTGRES === '1';
+   const postgresContainer = await new GenericContainer(
+     'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67',
+   )
+@@ -26,11 +29,11 @@ const globalSetup = async () => {
+       '-c',
+       'shared_buffers=512MB',
+       '-c',
+-      'fsync=off',
++      durable ? 'fsync=on' : 'fsync=off',
+       '-c',
+-      'full_page_writes=off',
++      durable ? 'full_page_writes=on' : 'full_page_writes=off',
+       '-c',
+-      'synchronous_commit=off',
++      durable ? 'synchronous_commit=on' : 'synchronous_commit=off',
+       // Each medium spec opens its own pool of up to 10 connections via getKyselyDB(), and most
+       // never destroy it, so pools accumulate for the lifetime of a file. At the image default of
+       // 100 (97 usable after superuser_reserved_connections) the suite sits close enough to the
+@@ -51,6 +54,19 @@ const globalSetup = async () => {
+ 
+   const db = new Kysely<DB>(getKyselyConfig({ connectionType: 'url', url: postgresUrl }));
+ 
++  if (durable) {
++    const settings = await sql<{ fsync: string; full_page_writes: string; synchronous_commit: string }>`
++      SELECT current_setting('fsync') AS fsync,
++             current_setting('full_page_writes') AS full_page_writes,
++             current_setting('synchronous_commit') AS synchronous_commit
++    `.execute(db);
++    if (settings.rows.length !== 1 || Object.values(settings.rows[0]).some((value) => value !== 'on')) {
++      await db.destroy();
++      throw new Error('DISPOSABLE_POSTGRES_DURABILITY_SETTINGS_NOT_ON');
++    }
++    console.log('DISPOSABLE_POSTGRES_DURABILITY: fsync=on full_page_writes=on synchronous_commit=on');
++  }
++
+   const configRepository = new ConfigRepository();
+   const logger = LoggingRepository.create();
+   await new DatabaseRepository(db, logger, configRepository).runMigrations();
+diff --git a/server/test/medium/quarantine-crash.config.mjs b/server/test/medium/quarantine-crash.config.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..800b56651d724dfee13cebd29ea8966aa836c33b
+--- /dev/null
++++ b/server/test/medium/quarantine-crash.config.mjs
+@@ -0,0 +1,14 @@
++import base from '../vitest.config.medium.mjs';
++
++// The parent medium suite owns the disposable PostgreSQL container and clone.
++// A worker must use that clone, never create another fixture or load a real DB.
++export default {
++  ...base,
++  test: {
++    ...base.test,
++    globalSetup: [],
++    include: ['test/medium/quarantine-crash.worker.ts'],
++    fileParallelism: false,
++    testTimeout: 30_000,
++  },
++};
+diff --git a/server/test/medium/quarantine-crash.worker.ts b/server/test/medium/quarantine-crash.worker.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8bfd20ca283c3774cb2780217bdc6fc1e000e942
+--- /dev/null
++++ b/server/test/medium/quarantine-crash.worker.ts
+@@ -0,0 +1,85 @@
++import { Kysely } from 'kysely';
++import { writeFileSync } from 'node:fs';
++import fs from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { dirname, join } from 'node:path';
++import { AssetRepository } from 'src/repositories/asset.repository.js';
++import { DB } from 'src/schema/index.js';
++import { unlinkOriginal } from 'src/utils/authorized-deletion.js';
++import { getKyselyConfig } from 'src/utils/database.js';
++import { emulateNfsRootSquash } from 'test/nfs-quarantine.js';
++
++// Run only through quarantine-crash.config.mjs. The parent checks the marker,
++// the actual abnormal process exit and independently committed PostgreSQL rows.
++// The parent SIGKILLs this worker's owned process group at the private barrier.
++it('terminates the synthetic worker at the requested filesystem checkpoint', async () => {
++  const input = JSON.parse(process.env.GALLERY_NFS_CRASH_INPUT!);
++  const databaseUrl = new URL(input.databaseUrl);
++  if (
++    !['localhost', '127.0.0.1'].includes(databaseUrl.hostname) ||
++    !/^\/immich_[a-z0-9_]+$/.test(databaseUrl.pathname) ||
++    !String(input.root).startsWith(join(tmpdir(), 'gallery-quarantine-crash-pg-'))
++  ) {
++    throw new Error('Refusing non-disposable crash fixture');
++  }
++  const db = new Kysely<DB>(getKyselyConfig({ connectionType: 'url', url: input.databaseUrl }));
++  await emulateNfsRootSquash(input.root);
++  // Only reproduce the existing test evidence helper's synthetic read-only
++  // mount boundary; signatures, timestamps and recovery contents remain real.
++  const store = process.env.GALLERY_DELETION_RECOVERY_DIR!;
++  const directory = dirname(store);
++  const accessActual = fs.access;
++  vi.spyOn(fs, 'access').mockImplementation(async (path, mode) => {
++    if ((String(path) === directory || String(path).startsWith(directory + '/')) && mode === 2) {
++      throw Object.assign(new Error('Synthetic read-only evidence mount'), { code: 'EROFS' });
++    }
++    await accessActual(path, mode);
++  });
++  let injected = false;
++  const crash = async () => {
++    injected = true;
++    writeFileSync(join(input.root, 'crash-checkpoint.json'), JSON.stringify({ stage: input.stage, pid: process.pid }), {
++      flag: 'wx',
++      mode: 0o600,
++    });
++    await new Promise<void>(() => {});
++    throw new Error('Crash barrier unexpectedly returned');
++  };
++  const isQuarantine = (path: unknown) => String(path).endsWith('/.gallery-deletion-quarantine');
++  const mkdirActual = vi.mocked(fs.mkdir).getMockImplementation()!;
++  vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
++    if (isQuarantine(path) && input.stage === 'before-mkdir') await crash();
++    const result = await mkdirActual(path, options);
++    if (isQuarantine(path) && input.stage === 'after-mkdir') await crash();
++    return result;
++  });
++  const rootStat = await fs.stat(input.root, { bigint: true });
++  const openActual = vi.mocked(fs.open).getMockImplementation()!;
++  vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
++    const handle = await openActual(path, flags, mode);
++    const stat = await handle.stat({ bigint: true });
++    const q = isQuarantine(path);
++    if (q) {
++      const chmodActual = handle.chmod.bind(handle);
++      vi.spyOn(handle, 'chmod').mockImplementation(async (mode) => {
++        if (input.stage === 'before-chmod') await crash();
++        await chmodActual(mode);
++        if (input.stage === 'after-chmod') await crash();
++      });
++    }
++    if (q || (stat.dev === rootStat.dev && stat.ino === rootStat.ino)) {
++      const syncActual = handle.sync.bind(handle);
++      vi.spyOn(handle, 'sync').mockImplementation(async () => {
++        await syncActual();
++        if ((q && input.stage === 'after-quarantine-sync') || (!q && input.stage === 'after-root-sync')) await crash();
++      });
++    }
++    return handle;
++  });
++  try {
++    await new AssetRepository(db).removeAuthorizedOriginals(input.assetId, unlinkOriginal);
++    expect(injected).toBe(true);
++  } finally {
++    await db.destroy();
++  }
++});
+diff --git a/server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts b/server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..442ff7436f63ef43afce75fd721ab776f390efa1
+--- /dev/null
++++ b/server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts
+@@ -0,0 +1,433 @@
++import { Kysely, sql } from 'kysely';
++import { spawn } from 'node:child_process';
++import { watch } from 'node:fs';
++import fs from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { dirname, join, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { StorageCore } from 'src/cores/storage.core.js';
++import { AssetStatus, ChecksumAlgorithm, StorageFolder } from 'src/enum.js';
++import { AssetRepository } from 'src/repositories/asset.repository.js';
++import { LibraryRepository } from 'src/repositories/library.repository.js';
++import { LoggingRepository } from 'src/repositories/logging.repository.js';
++import { DB } from 'src/schema/index.js';
++import { AssetService } from 'src/services/asset.service.js';
++import { collectRootIdentities, snapshotOriginal, unlinkOriginal } from 'src/utils/authorized-deletion.js';
++import { newMediumService } from 'test/medium.factory.js';
++import { emulateNfsRootSquash } from 'test/nfs-quarantine.js';
++import { createTestRecoveryEvidenceStore } from 'test/recovery-evidence.js';
++import { getKyselyDB } from 'test/utils.js';
++
++let db: Kysely<DB>;
++let root: string;
++let evidence: Awaited<ReturnType<typeof createTestRecoveryEvidenceStore>>;
++beforeAll(async () => {
++  db = await getKyselyDB();
++});
++afterAll(async () => {
++  await db.destroy();
++});
++beforeEach(async () => {
++  root = await fs.mkdtemp(join(tmpdir(), 'gallery-quarantine-crash-pg-'));
++  evidence = await createTestRecoveryEvidenceStore();
++});
++afterEach(async () => {
++  vi.restoreAllMocks();
++  await evidence.cleanup();
++  await fs.rm(root, { recursive: true, force: true });
++});
++
++const qpath = () => join(root, '.gallery-deletion-quarantine');
++const fixture = async (external = true) => {
++  const { ctx } = newMediumService(AssetService, { database: db, real: [AssetRepository], mock: [LoggingRepository] });
++  const { user } = await ctx.newUser();
++  const actualFolder = StorageCore.getFolderLocation;
++  const actualLibrary = StorageCore.getLibraryFolder;
++  vi.spyOn(StorageCore, 'getFolderLocation').mockImplementation((folder, owner) =>
++    owner === user.id && folder === StorageFolder.Upload ? root : actualFolder(folder, owner),
++  );
++  vi.spyOn(StorageCore, 'getLibraryFolder').mockImplementation((owner) =>
++    owner.id === user.id ? root : actualLibrary(owner),
++  );
++  const libraryFixture = external ? await ctx.newLibrary({ ownerId: user.id }) : undefined;
++  const library = libraryFixture?.library;
++  if (library) await new LibraryRepository(db).update(library.id, { importPaths: [root] });
++  const path = join(root, 'synthetic-photo.heic');
++  await fs.writeFile(path, 'disposable crash recovery original');
++  const { asset } = await ctx.newAsset({
++    ownerId: user.id,
++    originalPath: path,
++    libraryId: library?.id ?? null,
++    isExternal: external,
++    checksumAlgorithm: external ? ChecksumAlgorithm.sha1Path : ChecksumAlgorithm.sha1File,
++    status: AssetStatus.Trashed,
++    deletedAt: new Date(),
++  });
++  const nfs = await emulateNfsRootSquash(root);
++  const roots = await collectRootIdentities([root]);
++  const scope = library?.id ?? 'managed';
++  const proof = await evidence.install(user.id, scope, roots);
++  const repo = new AssetRepository(db);
++  await repo.setDeletionPolicy(user.id, scope, {
++    enabled: true,
++    roots: [root],
++    rootIdentities: roots,
++    recoveryExpiresAt: new Date(proof.expiresAt),
++    recoveryProof: proof.digest,
++    authorizedBy: user.id,
++  });
++  await repo.preparePermanentDeletion(asset.id, user.id, snapshotOriginal);
++  return { user, asset, scope, repo, nfs };
++};
++type Fixture = Awaited<ReturnType<typeof fixture>>;
++const policyRoot = async (f: Fixture) => {
++  const policy = await new AssetRepository(db).getDeletionPolicy(f.user.id, f.scope);
++  return policy!.rootIdentities[0];
++};
++const readReceipt = (f: Fixture) =>
++  db.selectFrom('asset_deletion_tombstone').selectAll().where('assetId', '=', f.asset.id).executeTakeFirstOrThrow();
++
++const failMkdirWithoutCreatingQuarantine = async (f: Fixture) => {
++  const mkdirActual = vi.mocked(fs.mkdir).getMockImplementation()!;
++  let injected = false;
++  let reservedId: string | undefined;
++  const mkdir = vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
++    if (String(path).endsWith('/.gallery-deletion-quarantine')) {
++      injected = true;
++      const reserved = await policyRoot(f);
++      expect(reserved.quarantineIntent?.state).toBe('reserved');
++      reservedId = reserved.quarantineIntent?.id;
++      throw Object.assign(new Error('Synthetic no space before directory creation'), { code: 'ENOSPC' });
++    }
++    return mkdirActual(path, options);
++  });
++  try {
++    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++  } finally {
++    mkdir.mockImplementation(mkdirActual);
++  }
++  expect(injected).toBe(true);
++  const failed = await policyRoot(f);
++  expect(failed.quarantineIntent).toMatchObject({ state: 'failed', id: reservedId });
++  await expect(fs.lstat(qpath())).rejects.toHaveProperty('code', 'ENOENT');
++  expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++  return reservedId;
++};
++
++// A separate Vitest process reaches a durable checkpoint, writes a private
++// barrier, then waits. The parent verifies its process group and SIGKILLs ONLY
++// the group it created. No application catch/finally executes after the crash.
++type CrashStage =
++  'before-mkdir' | 'after-mkdir' | 'before-chmod' | 'after-chmod' | 'after-quarantine-sync' | 'after-root-sync';
++const injectCrash = async (f: Fixture, stage: CrashStage) => {
++  const current = await sql<{ name: string }>`select current_database() as name`.execute(db);
++  const databaseUrl = new URL(process.env.IMMICH_TEST_POSTGRES_URL!);
++  databaseUrl.pathname = '/' + current.rows[0].name;
++  const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../');
++  let output = '';
++  let rejectMarker: (error: Error) => void;
++  let watcher: ReturnType<typeof watch>;
++  const marker = new Promise<{ stage: string; pid: number }>((resolve, reject) => {
++    rejectMarker = reject;
++    const readMarker = async () => {
++      try {
++        const value = JSON.parse(await fs.readFile(join(root, 'crash-checkpoint.json'), 'utf8'));
++        resolve(value);
++      } catch {
++        return;
++      }
++    };
++    watcher = watch(root, (_event, filename) => {
++      if (String(filename) === 'crash-checkpoint.json') void readMarker();
++    });
++  });
++  const child = spawn(
++    process.execPath,
++    [
++      join(serverRoot, 'node_modules/vitest/vitest.mjs'),
++      'run',
++      '--config',
++      'test/medium/quarantine-crash.config.mjs',
++      '--reporter=dot',
++    ],
++    {
++      cwd: serverRoot,
++      detached: true,
++      stdio: ['ignore', 'pipe', 'pipe'],
++      env: {
++        ...process.env,
++        GALLERY_NFS_CRASH_INPUT: JSON.stringify({ databaseUrl: databaseUrl.href, root, assetId: f.asset.id, stage }),
++      },
++    },
++  );
++  const exited = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
++    child.once('error', reject);
++    child.once('exit', (code, signal) => {
++      resolve({ code, signal });
++      if (signal !== 'SIGKILL')
++        rejectMarker(new Error('Synthetic worker exited before checkpoint: ' + output.slice(-6000)));
++    });
++  });
++  const collect = (chunk: Buffer) => {
++    output += chunk.toString();
++    if (output.length > 1024 * 1024) rejectMarker(new Error('Synthetic worker output exceeded limit'));
++  };
++  child.stdout.on('data', collect);
++  child.stderr.on('data', collect);
++  const timeout = setTimeout(
++    () => rejectMarker(new Error('Synthetic worker checkpoint timeout: ' + output.slice(-6000))),
++    25_000,
++  );
++  try {
++    const checkpoint = await marker;
++    expect(checkpoint.stage).toBe(stage);
++    expect(Number.isSafeInteger(checkpoint.pid) && checkpoint.pid > 0).toBe(true);
++    const stat = await fs.readFile('/proc/' + checkpoint.pid + '/stat', 'utf8');
++    const processGroup = stat.slice(stat.lastIndexOf(') ') + 2).split(' ', 3)[2];
++    expect(Number(processGroup)).toBe(child.pid);
++    process.kill(-child.pid!, 'SIGKILL');
++    expect(await exited).toEqual({ code: null, signal: 'SIGKILL' });
++  } finally {
++    clearTimeout(timeout);
++    watcher!.close();
++    if (child.exitCode === null && child.signalCode === null && child.pid) {
++      process.kill(-child.pid, 'SIGKILL');
++      await exited;
++    }
++  }
++  expect(await fs.readFile(f.asset.originalPath, 'utf8')).toBe('disposable crash recovery original');
++};
++
++describe('NFS quarantine durable-intent crash recovery with real PostgreSQL', { timeout: 30_000 }, () => {
++  it('a handled mkdir failure with verified absence permits only a newly committed reservation', async () => {
++    const f = await fixture();
++    const failedId = await failMkdirWithoutCreatingQuarantine(f);
++    const mkdirActual = vi.mocked(fs.mkdir).getMockImplementation()!;
++    let retriedId: string | undefined;
++    vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
++      if (String(path).endsWith('/.gallery-deletion-quarantine')) {
++        const reserved = await policyRoot(f);
++        expect(reserved.quarantineIntent?.state).toBe('reserved');
++        retriedId = reserved.quarantineIntent?.id;
++        expect(retriedId).not.toBe(failedId);
++      }
++      return mkdirActual(path, options);
++    });
++    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
++    expect(retriedId).toEqual(expect.any(String));
++    const bound = await policyRoot(f);
++    expect(bound.quarantineIntent).toBeUndefined();
++    expect(bound.quarantineIdentity).toMatchObject({ uid: '1024', gid: '100' });
++    await expect(fs.readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
++  });
++
++  it('a failed existing quarantine requires revocation and forensic retirement before fresh reservation', async () => {
++    const f = await fixture();
++    const openActual = vi.mocked(fs.open).getMockImplementation()!;
++    const chmod = vi.fn(() =>
++      Promise.reject(Object.assign(new Error('Synthetic NFS permission failure'), { code: 'EACCES' })),
++    );
++    const open = vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
++      const handle = await openActual(path, flags, mode);
++      if (String(path).endsWith('/.gallery-deletion-quarantine')) {
++        vi.spyOn(handle, 'chmod').mockImplementation(chmod);
++      }
++      return handle;
++    });
++    await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++    const failed = await policyRoot(f);
++    expect(failed.quarantineIntent?.state).toBe('failed');
++    const failedId = failed.quarantineIntent?.id;
++    const before = await fs.stat(qpath(), { bigint: true });
++    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++    expect(chmod).toHaveBeenCalledTimes(1);
++    expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++    expect(await fs.readdir(qpath())).toEqual([]);
++    await f.repo.setDeletionPolicy(f.user.id, f.scope, {
++      ...(await f.repo.getDeletionPolicy(f.user.id, f.scope))!,
++      enabled: false,
++    });
++    // Explicit operator recovery on this empty disposable fixture only. Keep
++    // the rejected inode for forensics; neither mutate it nor adopt it again.
++    const retained = qpath() + '.retained-forensics';
++    await fs.rename(qpath(), retained);
++    open.mockImplementation(openActual);
++    await f.repo.setDeletionPolicy(f.user.id, f.scope, {
++      ...(await f.repo.getDeletionPolicy(f.user.id, f.scope))!,
++      enabled: true,
++    });
++    const mkdirActual = vi.mocked(fs.mkdir).getMockImplementation()!;
++    vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
++      if (String(path).endsWith('/.gallery-deletion-quarantine')) {
++        const reserved = await policyRoot(f);
++        expect(reserved.quarantineIntent?.state).toBe('reserved');
++        expect(reserved.quarantineIntent?.id).not.toBe(failedId);
++      }
++      return mkdirActual(path, options);
++    });
++    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
++    const after = await fs.stat(retained, { bigint: true });
++    expect(after.dev).toBe(before.dev);
++    expect(after.ino).toBe(before.ino);
++    expect(after.mode).toBe(before.mode);
++    expect(await fs.readdir(retained)).toEqual([]);
++    await expect(fs.readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
++    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
++  });
++
++  it('a foreign directory created after verified absence cannot be adopted by a fresh reservation', async () => {
++    const f = await fixture();
++    const failedId = await failMkdirWithoutCreatingQuarantine(f);
++    const mkdirActual = vi.mocked(fs.mkdir).getMockImplementation()!;
++    let foreign: { ino: bigint; mode: bigint } | undefined;
++    vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
++      if (String(path).endsWith('/.gallery-deletion-quarantine')) {
++        const reserved = await policyRoot(f);
++        expect(reserved.quarantineIntent?.state).toBe('reserved');
++        expect(reserved.quarantineIntent?.id).not.toBe(failedId);
++        await mkdirActual(path, { mode: 0o700 });
++        await fs.chmod(path, 0o700);
++        foreign = await fs.stat(path, { bigint: true });
++      }
++      // The genuine mkdir now receives EEXIST from the adversary's entry.
++      return mkdirActual(path, options);
++    });
++    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++    expect(foreign).toBeDefined();
++    const after = await fs.stat(qpath(), { bigint: true });
++    expect(after.ino).toBe(foreign!.ino);
++    expect(after.mode).toBe(foreign!.mode);
++    const failed = await policyRoot(f);
++    expect(failed.quarantineIdentity).toBeUndefined();
++    expect(failed.quarantineIntent?.state).toBe('failed');
++    expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++  });
++
++  it('a failed durable-intent commit performs no filesystem action', async () => {
++    const f = await fixture();
++    await sql`create function fail_quarantine_intent_commit() returns trigger language plpgsql as $$
++      begin
++        if exists(select 1 from jsonb_array_elements(NEW."rootIdentities") root where root ? 'quarantineIntent') then
++          raise exception 'Synthetic intent commit failure';
++        end if;
++        return NEW;
++      end $$`.execute(db);
++    await sql`create constraint trigger fail_quarantine_intent_commit after update on asset_deletion_policy
++      deferrable initially deferred for each row execute function fail_quarantine_intent_commit()`.execute(db);
++    try {
++      await expect(f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++      const root = await policyRoot(f);
++      expect(root.quarantineIntent).toBeUndefined();
++      await expect(fs.lstat(qpath())).rejects.toHaveProperty('code', 'ENOENT');
++      expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++    } finally {
++      await sql`drop trigger fail_quarantine_intent_commit on asset_deletion_policy`.execute(db);
++      await sql`drop function fail_quarantine_intent_commit()`.execute(db);
++    }
++  });
++
++  it('a crash after intent commit but before mkdir resumes with no adopted entry', async () => {
++    const f = await fixture();
++    await injectCrash(f, 'before-mkdir');
++    const reserved = await policyRoot(f);
++    expect(reserved.quarantineIntent?.state).toBe('reserved');
++    await expect(fs.lstat(qpath())).rejects.toHaveProperty('code', 'ENOENT');
++    expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
++    const bound = await policyRoot(f);
++    expect(bound.quarantineIdentity).toMatchObject({ uid: '1024', gid: '100' });
++  });
++
++  it('a crash after mkdir before identity commit remains ambiguous and cannot adopt EEXIST', async () => {
++    const f = await fixture();
++    await injectCrash(f, 'after-mkdir');
++    const reserved = await policyRoot(f);
++    expect(reserved.quarantineIntent?.state).toBe('reserved');
++    const before = await fs.stat(qpath(), { bigint: true });
++    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++    const after = await fs.stat(qpath(), { bigint: true });
++    expect(after.ino).toBe(before.ino);
++    expect(after.mode).toBe(before.mode);
++    expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++  });
++
++  it.each<CrashStage>(['before-chmod', 'after-chmod', 'after-quarantine-sync', 'after-root-sync'])(
++    'a real worker crash %s resumes only the committed observed identity after restart',
++    async (stage) => {
++      const f = await fixture();
++      await injectCrash(f, stage);
++      const observedRoot = await policyRoot(f);
++      const observed = observedRoot.quarantineIntent;
++      expect(observed?.state).toBe('observed');
++      expect(observed?.identity).toMatchObject({ uid: '1024', gid: '100' });
++      expect(observed?.mode).toBe(String(0o4_0777));
++      const before = await fs.stat(qpath(), { bigint: true });
++      const inode = before.ino;
++      expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
++      const bound = await policyRoot(f);
++      expect(bound.quarantineIntent).toBeUndefined();
++      expect(bound.quarantineIdentity?.inode).toBe(String(inode));
++      const receipt = await readReceipt(f);
++      expect(receipt.files[0].rootIdentity.quarantineIdentity).toEqual(bound.quarantineIdentity);
++      expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
++      expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
++    },
++  );
++
++  it('concurrent restarted workers recover one observation and capture once', async () => {
++    const f = await fixture();
++    await injectCrash(f, 'after-chmod');
++    const rename = vi.spyOn(fs, 'rename');
++    expect(
++      await Promise.all(
++        [1, 2].map(() => new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)),
++      ),
++    ).toEqual([true, true]);
++    expect(rename).toHaveBeenCalledTimes(1);
++    expect(await f.repo.removeForDeletion(f.asset)).toBe(true);
++    expect(await new AssetRepository(db).removeForDeletion(f.asset)).toBe(false);
++  });
++
++  it.each(['inode', 'uid', 'gid', 'mountId', 'mountNamespace'] as const)(
++    'restart rejects a changed observed quarantine %s and preserves the original',
++    async (field) => {
++      const f = await fixture();
++      await injectCrash(f, 'after-chmod');
++      if (field === 'inode') {
++        await fs.rename(qpath(), qpath() + '.retained');
++        await fs.mkdir(qpath(), { mode: 0o700 });
++        await fs.chmod(qpath(), 0o700);
++      } else if (field === 'uid' || field === 'gid') {
++        f.nfs.setOwner(field === 'uid' ? 2048 : 1024, field === 'gid' ? 200 : 100);
++      } else {
++        const policy = await f.repo.getDeletionPolicy(f.user.id, f.scope);
++        policy!.rootIdentities[0].quarantineIntent!.identity![field] =
++          field === 'mountId' ? '999999999' : 'mnt:[999999999]';
++        await db
++          .updateTable('asset_deletion_policy')
++          .set({ rootIdentities: policy!.rootIdentities })
++          .where('ownerId', '=', f.user.id)
++          .where('scope', '=', f.scope)
++          .execute();
++      }
++      await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toBeDefined();
++      expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++      const receipt = await readReceipt(f);
++      expect(receipt.state).not.toBe('files-removed');
++    },
++  );
++
++  it('owner revocation after a crash denies resumed initialization and unlink', async () => {
++    const f = await fixture();
++    await injectCrash(f, 'after-chmod');
++    // Normal owner-consent repository mutation; no direct activation of policy.
++    await f.repo.setDeletionPolicy(f.user.id, f.scope, {
++      ...(await f.repo.getDeletionPolicy(f.user.id, f.scope))!,
++      enabled: false,
++    });
++    await expect(new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).rejects.toMatchObject({
++      code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
++    });
++    expect(await fs.readFile(f.asset.originalPath, 'utf8')).toContain('disposable');
++  });
++});

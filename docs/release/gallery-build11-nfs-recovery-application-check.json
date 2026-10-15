@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "baselineCommit": "92af234687caeca9307aa7d4ea2a51553eecf9cf",
+  "implementationCommit": "bb0dbbb2eb8a0ca82c54fb24421f661c6f98af67",
+  "patch": "gallery-build11-nfs-recovery-FINAL.patch",
+  "patchSHA256": "4596c332ced65393c03bc3cdcd395b3f4b7a607cefe88e688103d9ed64016f88",
+  "bytes": 82369,
+  "changedPaths": [
+    "docs/release/BUILD11-NFS-QUARANTINE-RECOVERY.md",
+    "docs/release/BUILD11-NFS-RECOVERY-BASELINE.sha256",
+    "docs/release/BUILD11-NFS-RECOVERY-TEST-RESULTS.json",
+    "server/src/repositories/asset.repository.ts",
+    "server/src/schema/tables/asset-deletion.table.ts",
+    "server/src/utils/authorized-deletion.ts",
+    "server/test/medium/globalSetup.ts",
+    "server/test/medium/quarantine-crash.config.mjs",
+    "server/test/medium/quarantine-crash.worker.ts",
+    "server/test/medium/specs/services/nfs-quarantine-recovery.spec.ts"
+  ],
+  "excludedProgressOnlyPath": "BUILD11_CLOUD_HANDOFF.md",
+  "fixture": "six actual supplied files plus remaining tracked preimages from the declared baseline",
+  "gitApplyCheck": true,
+  "gitApply": true,
+  "allPatchedFilesMatchImplementationCommit": true,
+  "originalMediumSpecsAndNfsHelperUnchanged": true,
+  "gitReverseCheck": true,
+  "gitReverseRestoredAllPreimages": true,
+  "independentTemporaryIndexApplyMatchesExpectedTree": true,
+  "appliedTree": "31498aabe1f39d1fa635aa281df48dad13f655e4",
+  "productionChanged": false
+}
