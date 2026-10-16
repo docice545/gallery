@@ -2,6 +2,7 @@ import request from 'supertest';
 import { TrashController } from 'src/controllers/trash.controller.js';
 import { AssetService } from 'src/services/asset.service.js';
 import { TrashService } from 'src/services/trash.service.js';
+import { authStub } from 'test/fixtures/auth.stub.js';
 import { factory } from 'test/small.factory.js';
 import { ControllerContext, controllerSetup, mockBaseService } from 'test/utils.js';
 
@@ -45,6 +46,20 @@ describe(TrashController.name, () => {
       expect(status).toBe(400);
       expect(body).toEqual(factory.responses.validationError([{ path: ['ids', 0], message: 'Invalid UUID' }]));
       expect(service.restoreAssets).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /trash/empty', () => {
+    it('preserves the original client response contract', async () => {
+      const response = { count: 3 };
+      assets.emptyAuthorizedTrash.mockResolvedValue(response);
+      ctx.authenticate.mockResolvedValue(authStub.user1);
+
+      const { status, body } = await request(ctx.getHttpServer()).post('/trash/empty');
+
+      expect(status).toBe(200);
+      expect(body).toEqual(response);
+      expect(assets.emptyAuthorizedTrash).toHaveBeenCalledExactlyOnceWith(authStub.user1);
     });
   });
 });

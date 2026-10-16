@@ -87,6 +87,13 @@ void main() {
     await expectLater(repository.restoreTrash(['expired']), throwsStateError);
   });
 
+  test('preserves the original Empty Trash endpoint response contract', () async {
+    when(() => trash.emptyTrash()).thenAnswer((_) async => TrashResponseDto(count: 3));
+
+    expect(await repository.emptyTrash(), 3);
+    verify(() => trash.emptyTrash()).called(1);
+  });
+
   test('only definite HTTP rejection triggers rollback; transport and server outcomes remain uncertain', () {
     for (final status in [400, 401, 403, 404, 405, 409, 413, 415, 422, 429]) {
       expect(AssetApiRepository.isDefiniteTrashRejection(ApiException(status, 'rejected')), isTrue);

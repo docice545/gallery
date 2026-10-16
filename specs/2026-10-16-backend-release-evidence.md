@@ -7,17 +7,18 @@ NAS mounts, and real photographs were not accessed.
 
 ## Checks
 
-| Check                                | Result  | Evidence                                                                                                                |
-| ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Targeted backend tests               | PASS    | `server`: 4 files, 287 tests; queue controller, controller registry, job repository, and asset service                  |
-| TypeScript check                     | PASS    | `cd server && pnpm check`                                                                                               |
-| Disposable batch matrix              | PASS    | `batch-matrix.jsonl`; 1/10/100 use the inline path, 1000 uses the bounded worker                                        |
-| Batch worker measurement             | PASS    | 1000 synthetic assets: 277170 ms, 3.608 assets/s, RSS delta -6381568 bytes                                              |
-| Historical-job audit/reconcile smoke | PASS    | Isolated image smoke: authenticated audit and reconcile both returned HTTP 201 with zero synthetic jobs changed         |
-| Web Trash/delete regression          | PASS    | Vitest: 4 files, 28 tests; queued completion, cancellation, partial acknowledgement, preflight and Trash-page semantics |
-| Mobile Trash/delete regression       | PASS    | Flutter: 3 files, 26 tests; aggregate polling, reconciliation, explicit cancel and selection preservation               |
-| Web Empty Trash bounded flow          | PASS    | Gallery web snapshots the single owner Trash timeline and routes Empty Trash through shared preflight/batch polling; 3 focused suites, 23 tests |
-| Real Synology/NFS validation         | BLOCKED | No separate disposable Synology test directory/export is available                                                      |
+| Check                                | Result  | Evidence                                                                                                                                        |
+| ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Targeted backend tests               | PASS    | `server`: 4 files, 287 tests; queue controller, controller registry, job repository, and asset service                                          |
+| TypeScript check                     | PASS    | `cd server && pnpm check`                                                                                                                       |
+| Disposable batch matrix              | PASS    | `batch-matrix.jsonl`; 1/10/100 use the inline path, 1000 uses the bounded worker                                                                |
+| Batch worker measurement             | PASS    | 1000 synthetic assets: 277170 ms, 3.608 assets/s, RSS delta -6381568 bytes                                                                      |
+| Historical-job audit/reconcile smoke | PASS    | Isolated image smoke: authenticated audit and reconcile both returned HTTP 201 with zero synthetic jobs changed                                 |
+| Web Trash/delete regression          | PASS    | Vitest: 4 files, 28 tests; queued completion, cancellation, partial acknowledgement, preflight and Trash-page semantics                         |
+| Mobile Trash/delete regression       | PASS    | Flutter: 3 files, 26 tests; aggregate polling, reconciliation, explicit cancel and selection preservation                                       |
+| Web Empty Trash bounded flow         | PASS    | Gallery web snapshots the single owner Trash timeline and routes Empty Trash through shared preflight/batch polling; 3 focused suites, 23 tests |
+| Original client Empty Trash contract | PASS    | Server controller returns HTTP 200 `{count}` for `POST /api/trash/empty`; mobile repository regression confirms generated client delegation     |
+| Real Synology/NFS validation         | BLOCKED | No separate disposable Synology test directory/export is available                                                                              |
 
 The 1/10/100 rows report `elapsedMs=0` for the batch worker because those requests
 remain intentionally inline and do not invoke the worker. They are correctness
@@ -65,6 +66,11 @@ was performed.
   no longer called by Gallery web; this preserves the upstream contract while
   preventing the web UI from treating a count-only acknowledgement as physical
   completion. An empty snapshot performs no mutation.
+- The original-client compatibility surface remains covered by contract tests:
+  the server still accepts `POST /api/trash/empty` and returns the unchanged
+  `TrashResponseDto { count }` shape with HTTP 200, while the generated mobile
+  client delegates to that endpoint. This is Android/iOS SDK contract evidence;
+  no original APK or IPA was executed in this environment.
 - This is contract/regression evidence, not real-client compatibility evidence.
   No upstream Android APK or iOS IPA was run against this server; no device
   upgrade, signed Build >=13, or iOS archive was produced in this stage.
