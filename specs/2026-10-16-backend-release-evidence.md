@@ -7,18 +7,21 @@ NAS mounts, and real photographs were not accessed.
 
 ## Checks
 
-| Check                                | Result  | Evidence                                                                                                                                        |
-| ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Targeted backend tests               | PASS    | `server`: 4 files, 287 tests; queue controller, controller registry, job repository, and asset service                                          |
-| TypeScript check                     | PASS    | `cd server && pnpm check`                                                                                                                       |
-| Disposable batch matrix              | PASS    | `batch-matrix.jsonl`; 1/10/100 use the inline path, 1000 uses the bounded worker                                                                |
-| Batch worker measurement             | PASS    | 1000 synthetic assets: 277170 ms, 3.608 assets/s, RSS delta -6381568 bytes                                                                      |
-| Historical-job audit/reconcile smoke | PASS    | Isolated image smoke: authenticated audit and reconcile both returned HTTP 201 with zero synthetic jobs changed                                 |
-| Web Trash/delete regression          | PASS    | Vitest: 4 files, 28 tests; queued completion, cancellation, partial acknowledgement, preflight and Trash-page semantics                         |
-| Mobile Trash/delete regression       | PASS    | Flutter: 3 files, 26 tests; aggregate polling, reconciliation, explicit cancel and selection preservation                                       |
-| Web Empty Trash bounded flow         | PASS    | Gallery web snapshots the single owner Trash timeline and routes Empty Trash through shared preflight/batch polling; 3 focused suites, 23 tests |
-| Original client Empty Trash contract | PASS    | Server controller returns HTTP 200 `{count}` for `POST /api/trash/empty`; mobile repository regression confirms generated client delegation     |
-| Real Synology/NFS validation         | BLOCKED | No separate disposable Synology test directory/export is available                                                                              |
+| Check                                | Result  | Evidence                                                                                                                                                                                                                                                                                          |
+| ------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Targeted backend tests               | PASS    | `server`: 4 files, 287 tests; queue controller, controller registry, job repository, and asset service                                                                                                                                                                                            |
+| TypeScript check                     | PASS    | `cd server && pnpm check`                                                                                                                                                                                                                                                                         |
+| Disposable batch matrix              | PASS    | `batch-matrix.jsonl`; 1/10/100 use the inline path, 1000 uses the bounded worker                                                                                                                                                                                                                  |
+| Batch worker measurement             | PASS    | 1000 synthetic assets: 277170 ms, 3.608 assets/s, RSS delta -6381568 bytes                                                                                                                                                                                                                        |
+| Historical-job audit/reconcile smoke | PASS    | Isolated image smoke: authenticated audit and reconcile both returned HTTP 201 with zero synthetic jobs changed                                                                                                                                                                                   |
+| Web Trash/delete regression          | PASS    | Vitest: 4 files, 28 tests; queued completion, cancellation, partial acknowledgement, preflight and Trash-page semantics                                                                                                                                                                           |
+| Mobile Trash/delete regression       | PASS    | Flutter: 3 files, 26 tests; aggregate polling, reconciliation, explicit cancel and selection preservation                                                                                                                                                                                         |
+| Web Empty Trash bounded flow         | PASS    | Gallery web snapshots the single owner Trash timeline and routes Empty Trash through shared preflight/batch polling; 3 focused suites, 23 tests                                                                                                                                                   |
+| Original client Empty Trash contract | PASS    | Server controller returns HTTP 200 `{count}` for `POST /api/trash/empty`; mobile repository regression confirms generated client delegation                                                                                                                                                       |
+| Upstream wire-contract retention     | PASS    | `python3 scripts/release/upstream_compatibility.py --report /tmp/gallery-upstream-compat-20261016.json`: 371 retained operations, 97 upstream migrations byte-identical, zero failures                                                                                                            |
+| Mobile version-warning regression    | PASS    | `flutter test test/modules/utils/version_compatibility_test.dart`: 7 tests passed; admin-only server-update warning and client/server incompatibility warning remain distinct                                                                                                                     |
+| Android artifact inspection          | PARTIAL | Existing local release APK is package `de.opennoodle.gallery`, version `5.7.3`, versionCode `11`, SHA-256 `0e294e9f5e77a29b856c37f8e9d71acb4736b6ec3439b16ba80dd06ea12d1286`, certificate `ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`; it cannot upgrade reported Build 12 |
+| Real Synology/NFS validation         | BLOCKED | No separate disposable Synology test directory/export is available                                                                                                                                                                                                                                |
 
 The 1/10/100 rows report `elapsedMs=0` for the batch worker because those requests
 remain intentionally inline and do not invoke the worker. They are correctness
@@ -71,6 +74,17 @@ was performed.
   `TrashResponseDto { count }` shape with HTTP 200, while the generated mobile
   client delegates to that endpoint. This is Android/iOS SDK contract evidence;
   no original APK or IPA was executed in this environment.
+- The read-only structural gate retained all 371 operations from the verified
+  upstream base (`da5480ae42b77db9cae729f2447ec9b3079ba4a7`) and all 97 upstream
+  migration files byte-for-byte. Its report is explicitly limited to wire
+  shape and migration-source retention; it does not certify authentication,
+  uploads, sync, albums, Live Photos, or runtime behavior of an original client.
+- The Android warning behavior required for Build 12 continuity is present in
+  the current history: server-version metadata stamping (`0e376fdf5`), hidden
+  stale/latest-version warnings (`855817514c4`, `e5156df4f1b9`), and the
+  account-scoped cloud admission recovery (`2348266a6`) are all ancestors of
+  this branch. The focused version-warning suite passed 7 tests, including
+  preserving real server-update and incompatible-client warnings.
 - This is contract/regression evidence, not real-client compatibility evidence.
   No upstream Android APK or iOS IPA was run against this server; no device
   upgrade, signed Build >=13, or iOS archive was produced in this stage.
