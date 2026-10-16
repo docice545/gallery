@@ -176,3 +176,18 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
   APK/IPA. A signed `foto` Android artifact with versionCode >=13 also remains
   **BLOCKED**. No APK was installed and no production, NAS, VPN, Redis, or
   real-media operation was performed.
+
+## Focused Vitest rerun stage (2026-10-16)
+
+- The earlier timed-out invocation used the wrong `pnpm test -- --run` form and
+  an unsupported Vitest 4 `--minWorkers` option. It did not provide a test result.
+- The server queue-controller regression passed with the supported isolated
+  invocation:
+  `cd server && pnpm exec vitest --config test/vitest.config.mjs --run src/controllers/queue.controller.spec.ts --pool=forks --maxWorkers=1 --no-file-parallelism --reporter=verbose`
+  — 1 file, 3 tests.
+- The web trash-authorization regression passed with:
+  `cd web && pnpm exec vitest --run src/lib/services/trash-authorization.spec.ts --pool=forks --maxWorkers=1 --no-file-parallelism --reporter=verbose`
+  — 1 file, 3 tests.
+- `git diff --check` passed and no Vitest processes remained after the runs.
+  These focused results do not change the real-NAS, original-client, or signed
+  Android release gates above.
