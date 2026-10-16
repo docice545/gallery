@@ -1,8 +1,10 @@
 # Build 11 Codex CLI delivery report
 
-Date: 2026-10-16  
-Source commit: `d12ebedd1e3cbc2d223fe5e63b898023e9a4d6f0`  
-Branch: `codex/nas-release-readiness-20261016`  
+Date: 2026-10-16
+
+Source commit: `d12ebedd1e3cbc2d223fe5e63b898023e9a4d6f0`
+
+Branch: `codex/nas-release-readiness-20261016`
 PR: https://github.com/docice545/gallery/pull/1 (open, draft)
 
 This report records the deliverables that were actually produced from the CLI
