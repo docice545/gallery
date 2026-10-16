@@ -10,6 +10,7 @@ import subprocess
 
 REQUIRED_TOOLS = ('gallery_entry.py', 'gallery_install.py', 'gallery-install.sh', 'gallery-upgrade.sh',
                   'gallery-verify.sh', 'gallery-rollback.sh', 'build11_operator.py', 'build11_artifacts.py',
+                  'build11_hp_preflight.py',
                   'build11_restore_transition.py', 'candidate_restore.py', 'release_candidate.py', 'image_release.py',
                   'trash_predeploy.py', 'trash_release.py', 'trash_image_identity.py', 'android_release.py',
                   'android_sign_package.py', 'SignExistingApk.java', 'hp_build10_queued_delete.py',

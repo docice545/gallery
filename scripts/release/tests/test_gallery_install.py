@@ -1,5 +1,6 @@
 """Installer repeat/resume safeguards; mocks only, not real clean-install acceptance."""
 from contextlib import ExitStack, redirect_stdout
+import hashlib
 import io
 import json
 import os
@@ -164,6 +165,38 @@ class Bridge(unittest.TestCase):
         with patch.object(operator,'Runner',return_value=runner),patch.object(operator,'cleanup_completed',return_value=True):
             operator.complete_bridge(Path('/synthetic'))
         runner.run.assert_not_called(); runner.gate.assert_called_once_with()
+
+
+class SealedIntentGate(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name); self.phase = self.root / 'queued-user-deletions'; self.phase.mkdir(mode=0o700)
+        self.files = [{'jobId': job, 'file': '/data/file-' + job, 'path': '/data/file-' + job,
+                       'root': '/data', 'jobHash': 'hash-' + job, 'kind': 'temporary-upload',
+                       'ownerId': 'owner'} for job in operator.IDS]
+        intent = {'contract': 'confirmed-native-cleanup-v1', 'files': self.files}
+        seal = hashlib.sha256(json.dumps(intent, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+        rows = {'cleanup-intent-v1.json': intent,
+                'cleanup-intent-seal-v1.json': {'sha256': seal},
+                'file-proofs.json': {'intentSeal': seal, 'proofs': self.files}}
+        for name, value in rows.items():
+            path = self.phase / name; path.write_text(json.dumps(value)); path.chmod(0o600)
+
+    def test_requires_all_six_scoped_jobs_and_checks_current_image_queue_read_only(self):
+        with patch.object(operator.core, 'inspect', return_value={'Image': operator.EXPECTED_PRODUCTION_IMAGE}), \
+             patch.object(operator.core, 'identity'), \
+             patch.object(operator.core, 'queue_safety', return_value={'inventoryComplete': True,
+                                                                        'unresolvedDeletionHashes': 0}) as queue:
+            result = operator.sealed_intent_queue_gate(self.root, 'candidate', 'rollback')
+        self.assertTrue(result['inventoryComplete']); queue.assert_called_once_with()
+
+    def test_partial_intent_scope_is_rejected_before_queue_probe(self):
+        path = self.phase / 'cleanup-intent-v1.json'; intent = json.loads(path.read_text())
+        intent['files'] = intent['files'][:-1]; path.write_text(json.dumps(intent)); path.chmod(0o600)
+        with patch.object(operator.core, 'queue_safety') as queue, self.assertRaisesRegex(
+                operator.core.Stop, 'SEALED_CLEANUP_INTENT_SCOPE_CHANGED'):
+            operator.sealed_intent_queue_gate(self.root, 'candidate', 'rollback')
+        queue.assert_not_called()
 
 if __name__=='__main__': unittest.main()
 

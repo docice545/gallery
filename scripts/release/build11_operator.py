@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,8 @@ import trash_image_identity as identity
 import trash_predeploy as pre
 import trash_release as legacy
 from hp_build10_queued_delete import Runner, IDS
+
+EXPECTED_PRODUCTION_IMAGE = 'sha256:52e08a50b507ddddf591706eed8df70c1904b47fca53d5e913146853df2a2b8b'
 
 
 def cleanup_completed(runner):
@@ -41,9 +44,56 @@ def complete_bridge(root):
         print('PASS existing six completed cleanup receipts reused; no destructive operations repeated')
 
 
+def sealed_intent_queue_gate(root, candidate, rollback):
+    """Read-only gate for an already sealed, empty queue.
+
+    The old six-job bridge is intentionally not replayed when the HP audit has
+    already proven that the queue is empty.  The intent and proof files remain
+    mandatory; their absence never becomes an implicit permission to continue.
+    """
+    phase = root / 'queued-user-deletions'
+    core.need(phase.is_dir() and not phase.is_symlink(), 'SEALED_CLEANUP_PHASE_REQUIRED')
+    required = ('cleanup-intent-v1.json', 'cleanup-intent-seal-v1.json', 'file-proofs.json')
+    for name in required:
+        path = phase / name
+        core.need(path.is_file() and not path.is_symlink() and path.stat().st_mode & 0o777 == 0o600,
+                  'SEALED_CLEANUP_FILES_REQUIRED')
+    intent = core.private_json(phase / 'cleanup-intent-v1.json')
+    seal = core.private_json(phase / 'cleanup-intent-seal-v1.json')
+    intent_hash = hashlib.sha256(json.dumps(intent, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+    expected = intent.get('files')
+    fields = ('jobId', 'file', 'path', 'root', 'jobHash', 'kind', 'ownerId')
+    core.need(intent.get('contract') == 'confirmed-native-cleanup-v1' and
+              isinstance(expected, list) and expected and
+              all(isinstance(row, dict) and all(isinstance(row.get(field), str) and row[field] for field in fields)
+                  for row in expected) and
+              {row['jobId'] for row in expected} == set(IDS),
+              'SEALED_CLEANUP_INTENT_SCOPE_CHANGED')
+    core.need(seal.get('sha256') == intent_hash, 'SEALED_CLEANUP_INTENT_CHANGED')
+    proofs = core.private_json(phase / 'file-proofs.json')
+    core.need(proofs.get('intentSeal') == seal.get('sha256') and isinstance(expected, list) and
+              len(expected) == len(IDS) and len({(row['jobId'], row['file']) for row in expected}) == len(expected) and
+              all(isinstance(row, dict) and all(isinstance(row.get(field), str) and row[field] for field in fields)
+                  for row in expected) and isinstance(proofs.get('proofs'), list) and
+              len(proofs['proofs']) == len(expected),
+              'SEALED_CLEANUP_PROOFS_CHANGED')
+    core.need(all(any(all(proof.get(field) == source.get(field) for field in fields) for proof in proofs['proofs'])
+                  for source in expected), 'SEALED_CLEANUP_PROOF_COVERAGE_REQUIRED')
+    current = core.inspect(core.SERVER)
+    core.identity(current)
+    core.need(current['Image'] == EXPECTED_PRODUCTION_IMAGE,
+              'EXPECTED_AUDITED_PRODUCTION_IMAGE_REQUIRED')
+    result = core.queue_safety()
+    core.need(result.get('inventoryComplete') is True and result.get('unresolvedDeletionHashes') == 0,
+              'DELETION_QUEUE_READ_INCOMPLETE')
+    print('PASS sealed intent/proof files and current empty deletion queue; no cleanup replay')
+    return result
+
+
 def cleanups(root, candidate, rollback):
     runner = Runner(root)
-    core.need(cleanup_completed(runner), 'SIX_CONFIRMED_CLEANUP_COMPLETION_RECEIPT_REQUIRED_NO_REPLAY')
+    if not cleanup_completed(runner):
+        return lambda: sealed_intent_queue_gate(root, candidate, rollback)
     values, intent = runner.values(), runner.intent_values()
     proofs = runner.core.private_json(runner.phase / 'file-proofs.json')
     expected = intent['intent']['files']
@@ -183,10 +233,16 @@ def operate(args):
         derived = {**compatibility, 'candidateImage': candidate, 'rollbackImage': rollback}
         derived_path = args.state / 'verified-store-compatibility.json'
         core.save(derived_path, derived)
+        bridge_complete = cleanup_completed(Runner(args.previous_run_root))
         core.queue_safety = cleanups(args.previous_run_root, candidate, rollback)
         core.queue_safety()
         current = core.inspect(core.SERVER)
-        core.need(current['Image'] in (Runner(args.previous_run_root).hp.TARGET, rollback), 'COMPLETE_BUILD10_BRIDGE_FIRST')
+        if bridge_complete:
+            core.need(current['Image'] in (Runner(args.previous_run_root).hp.TARGET, rollback),
+                      'COMPLETE_BUILD10_BRIDGE_FIRST')
+        else:
+            core.need(current['Image'] == EXPECTED_PRODUCTION_IMAGE,
+                      'EXPECTED_AUDITED_PRODUCTION_IMAGE_REQUIRED')
         prepare_backup(args.state, profile['sourceCommit'], candidate, rollback, args.nas_evidence)
         plan_args = SimpleNamespace(state=args.state, image=candidate, expected_current_image=current['Image'],
                                     source_commit=profile['sourceCommit'], server_version=(5, 7, 3), api=args.api,

@@ -1,9 +1,15 @@
 # Gallery 5.7.3 (11): установка, обновление HP и откат
 
-Этот документ относится к собранному пакету Build 11, а не к старому образу
-`ea51a8ac`. Точный source commit, URL пакета и SHA-256 публикуются в release handoff
-после успешных CI. Пока их нет, выпуск **не готов к установке**. Не подставляйте
-примерные хеши, source commit или результаты восстановления.
+Этот документ относится к собранному пакету Build 11. На 2026-10-16 read-only
+audit зафиксировал фактический production image
+`sha256:52e08a50b507ddddf591706eed8df70c1904b47fca53d5e913146853df2a2b8b` и
+кандидат `sha256:1b6ee28e2b868280a9787cef5533636736de1148a18d2915ca5ff42835362bef`
+(source `8af3a7a923c1391474dc9b7410e2f7833bc7771d`). Эти значения являются
+текущими входами для read-only plan; они не являются разрешением deployment.
+
+Не подставляйте старые image IDs, source commit или результаты восстановления.
+Пока не получен настоящий pinned reviewed-compatibility receipt, выпуск
+**не готов к установке**.
 
 Пакет содержит backend с web и API/microservices, APK, unsigned IPA,
 контрольные суммы, конфигурацию и четыре операторских скрипта. HP не должен
@@ -25,10 +31,11 @@ API-only конфигурация отклоняется. Запрещены `do
 
 Ожидается краткая недоступность Gallery во время запуска нового server; точное
 время определяется размером БД и health checks. Нельзя обещать нулевой downtime.
-Если предыдущие шесть FileDelete ещё не завершены, сначала выполняется отдельно
-подтверждённый существующий Build 10 bridge. Повторного удаления по завершённым
-receipts нет. Остальные 21 задания сохраняются paused с точными ID, payload hashes
-и порядком. Глобальное возобновление очереди не является частью обновления.
+Свежий audit сообщает 1389 объектов в корзине, 14 backup-файлов, пустые deletion
+queues в момент read-only снимка и `BackgroundTask paused=false`; это не доказывает
+безопасность переключения. Перед любым apply очередь нужно отдельно pause-нуть,
+дождаться `active=0`, повторно проверить все семь состояний и сохранить текущие
+deletion intents. Нельзя clean/drain/kill/retry jobs или автоматически resume.
 
 ## Необходимые условия
 
@@ -68,12 +75,204 @@ python3 -B "$PACKAGE/tools/gallery_entry.py" --help >/dev/null
 printf 'PASS пакет проверен; production не изменён\n'
 ```
 
+## Текущий HP gate и compatibility receipt
+
+Отчёт audit: `/home/doctoriceadm/gallery-trash-release-audit-20261016T041535554339Z-1aead3ec6751.txt`.
+Он read-only, его live/non-atomic снимок не резервирует пустую очередь; backup
+восстановлением не проверен. Поэтому этот этап имеет статус **BLOCKED**.
+
+В доступных материалах нет настоящего `reviewed-compatibility.json`. Найденный
+`build11-rollback-runtime.json` с SHA-256
+`3b67e35a7337493e3b3ea9fd47853390e8dfa5cff2fbcc8eaa53a15d79903d96` не является
+таким receipt и содержит `trashRestoreAfterRollback=false`. Image
+`sha256:893281ae193f03c371227f0d9b11ebf74805709f39b296f7d2ecc241c7d5f65b` нельзя
+считать rollback target до нового успешного runtime-теста и receipt. Нельзя
+создавать JSON вручную или подменять `false` на `true`.
+
+Receipt получают только существующим CI-инструментом
+`scripts/release/build11_compatibility_receipt.py` из reviewed CI checkout на
+disposable runner. Нужны четыре
+различных успешных same-source run/artifact: candidate backend, Android, iOS и
+отдельный rollback. Инструмент сам проверяет actual image probes, migration/guard
+bytes, rollback archive identity и isolated HTTP/Trash/Restore report; при
+`trashRestoreAfterRollback=false` он должен завершиться STOP. После получения
+receipt сохраните его append-only и передайте его SHA-256 в plan:
+
+```bash
+set -euo pipefail
+export GITHUB_ACTIONS=true GALLERY_DISPOSABLE_RELEASE_TESTS=1
+CI_ROOT=/path/to/reviewed-ci-checkout
+ARTIFACTS=/path/to/candidate-artifacts
+ROLLBACK_ARTIFACTS=/path/to/reviewed-rollback-artifacts
+PROFILE=/path/to/candidate-profile.json
+OUT=/path/to/new/reviewed-compatibility.json
+: "${CANDIDATE_PROFILE_SHA256:?SHA-256 candidate profile from handoff}"
+: "${ROLLBACK_SOURCE_SHA:?40-hex rollback source}"
+: "${ROLLBACK_RUN:?successful rollback CI run ID}"
+python3 -B "$CI_ROOT/scripts/release/build11_compatibility_receipt.py" build \
+  --artifacts "$ARTIFACTS" --rollback-artifacts "$ROLLBACK_ARTIFACTS" \
+  --profile "$PROFILE" --profile-sha256 "$CANDIDATE_PROFILE_SHA256" \
+  --rollback-source "$ROLLBACK_SOURCE_SHA" --rollback-run "$ROLLBACK_RUN" \
+  --output "$OUT"
+sha256sum "$OUT"
+```
+
+Это не выполняется на HP и не заменяет production backup/queue gate. Успешный
+receipt должен содержать candidate image
+`sha256:1b6ee28e2b868280a9787cef5533636736de1148a18d2915ca5ff42835362bef`; его
+rollback image и source берутся только из самого receipt/rollback manifest.
+
+## Единый безопасный HP preflight
+
+После появления проверенного пакета один скрипт выполняет все доступные проверки:
+sealed intents, свежий read-only audit, compatibility/image gate и существующий
+isolated backup/restore. Он не вызывает `apply` или `rollback` и сохраняет единый
+приватный JSON-отчёт в `STATE`. При отсутствии receipt или rootful Docker он
+останавливается с точным `BLOCKED` кодом; receipt не создаётся.
+
+```bash
+set -euo pipefail
+sudo -v
+python3 -B /opt/gallery-fork/scripts/release/build11_hp_preflight.py \
+  --package /mnt/hp-data/gallery-build11-package \
+  --state /home/doctoriceadm/gallery-build11-preflight-20261016 \
+  --previous-run-root /home/doctoriceadm/gallery-build10-release-TxDlXAuj \
+  --nas-evidence "$BUILD11_NAS_EVIDENCE"
+```
+
+Если владелец отдельно разрешил pause, к той же команде добавляются
+`GALLERY_QUEUE_PAUSE_APPROVED=YES` и `--pause-drain-key` с существующим файлом
+режима `0600`. Без этого флага очередь не меняется, а незапаузированная очередь
+оставляет итог `BLOCKED QUEUE_PAUSE_APPROVAL_REQUIRED`.
+
+## Безопасная проверка intent и pause/drain
+
+До apply оператор на HP должен read-only сверить сохранённые
+`cleanup-intent-v1.json`, `cleanup-intent-seal-v1.json`, `file-proofs.json` и
+завершённые `deletion-report-*.json` в существующем
+`/home/doctoriceadm/gallery-build10-release-TxDlXAuj/queued-user-deletions/`.
+Нельзя создавать новый intent, если старый отсутствует, и нельзя редактировать
+его seal. Команда только проверяет наличие/права и хеши локальных файлов:
+
+```bash
+set -euo pipefail
+RUN_ROOT=/home/doctoriceadm/gallery-build10-release-TxDlXAuj
+PHASE="$RUN_ROOT/queued-user-deletions"
+for file in cleanup-intent-v1.json cleanup-intent-seal-v1.json file-proofs.json; do
+  test -f "$PHASE/$file" -a ! -L "$PHASE/$file"
+  test "$(stat -c %a "$PHASE/$file")" = 600
+done
+sha256sum "$PHASE/cleanup-intent-v1.json" "$PHASE/cleanup-intent-seal-v1.json" "$PHASE/file-proofs.json"
+find "$PHASE" -maxdepth 1 -type f -name 'deletion-report-*.json' -print | sort
+```
+
+После отдельного approval закрыть новые deletion mutations и вызвать штатный
+admin API `PUT /api/jobs/backgroundTask` с `{"command":"pause"}`. Это единственная
+операция pause; не использовать `isPaused`, Redis keys, `clean`, `drain`,
+`obliterate`, `remove`, retry или kill. Пока очередь paused, ждать естественного
+завершения active jobs и повторять существующий read-only audit. Продолжать можно
+только при `paused=true`, `active=0`, `inventoryComplete=true`, нулевых
+`AssetDelete`/`FileDelete` и сохранённых неизменных intent; при timeout, любом
+UNKNOWN или новом job — STOP и оставить paused. Resume в этом этапе запрещён.
+
+Подготовленная команда pause/drain (не выполнялась этим этапом) требует отдельного
+approval и не печатает ключ:
+
+```bash
+set -euo pipefail
+test "${GALLERY_QUEUE_PAUSE_APPROVED:-}" = YES
+: "${ADMIN_API_KEY_FILE:?0600-файл существующего admin API key}"
+test "$(stat -c %a "$ADMIN_API_KEY_FILE")" = 600
+API=http://127.0.0.1:2283/api
+KEY=$(cat "$ADMIN_API_KEY_FILE")
+curl --fail --silent --show-error --noproxy '*' \
+  -H "x-api-key: $KEY" -H 'content-type: application/json' \
+  -X PUT "$API/jobs/backgroundTask" --data '{"command":"pause"}' >/dev/null
+unset KEY
+for attempt in $(seq 1 60); do
+  output=$(python3 /opt/gallery-fork/scripts/diagnostics/hp_trash_release_audit.py 2>&1)
+  report=$(printf '%s\n' "$output" | sed -n 's/^PASS private report created: //p')
+  test -n "$report" -a -f "$report" || { echo STOP_AUDIT_REPORT_NOT_CREATED >&2; exit 1; }
+  if python3 - "$report" <<'PY'
+import json, sys
+row = json.load(open(sys.argv[1]))
+queue = row.get('backendReadOnlyAudit', {}).get('queue', {})
+states = queue.get('states', {})
+jobs = row.get('backendReadOnlyAudit', {}).get('deletionJobs', {})
+if (queue.get('paused') is True and states.get('active') == 0 and
+    queue.get('truncated') is False and jobs.get('inventoryComplete') is True and
+    jobs.get('fileDelete') == 0 and jobs.get('legacyAssetDelete') == 0 and
+    not row.get('backendReadOnlyAudit', {}).get('errors')):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+  then
+    echo 'PASS paused/drained deletion queue; keep it paused'
+    break
+  fi
+  [ "$attempt" -lt 60 ] || { echo STOP_DELETION_QUEUE_DID_NOT_DRAIN >&2; exit 1; }
+  sleep 5
+done
+```
+
+Только после этих gates запускается `image_release.py plan`; production services,
+PostgreSQL, Redis, NAS и media этим разделом не меняются.
+
+## Текущий image-only plan (после всех gate)
+
+Receipt обязан сам предоставить rollback image/source. До его появления команды
+ниже намеренно останавливаются на обязательной переменной и ничего не меняют:
+
+```bash
+set -euo pipefail
+umask 077
+TOOL=/opt/gallery-fork/scripts/release/image_release.py
+STATE=$(mktemp -d /home/doctoriceadm/gallery-image-release-20261016-XXXXXXXX)
+: "${COMPATIBILITY_RECEIPT:?Путь к настоящему reviewed-compatibility.json}"
+: "${COMPATIBILITY_SHA256:?SHA-256 этого receipt}"
+: "${ROLLBACK_IMAGE:?rollbackImage из receipt}"
+: "${ROLLBACK_SOURCE:?rollbackSource из receipt}"
+: "${ROLLBACK_VERSION:?rollback server version из manifest}"
+test "$(sha256sum "$COMPATIBILITY_RECEIPT" | awk '{print $1}')" = "$COMPATIBILITY_SHA256"
+python3 -B "$TOOL" plan --sudo-docker --state "$STATE" \
+  --image sha256:1b6ee28e2b868280a9787cef5533636736de1148a18d2915ca5ff42835362bef \
+  --expected-current-image sha256:52e08a50b507ddddf591706eed8df70c1904b47fca53d5e913146853df2a2b8b \
+  --source-commit 8af3a7a923c1391474dc9b7410e2f7833bc7771d --server-version 5.7.3 \
+  --rollback-image "$ROLLBACK_IMAGE" --rollback-source-commit "$ROLLBACK_SOURCE" \
+  --rollback-server-version "$ROLLBACK_VERSION" \
+  --compatibility-receipt "$COMPATIBILITY_RECEIPT" --compatibility-sha256 "$COMPATIBILITY_SHA256"
+python3 -B "$TOOL" apply --sudo-docker --state "$STATE"
+```
+
+Обе команды read-only. Только после отдельного deployment и additive-migration
+approval, свежего paused/drained audit и успешного isolated backup/restore можно
+запустить apply:
+
+```bash
+GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_ADDITIVE_MIGRATION_APPROVED=YES \
+python3 -B "$TOOL" apply --sudo-docker --state "$STATE" \
+  --execute-approved --approve-migration
+```
+
+Точный rollback разрешается только с тем же `STATE` и receipt:
+
+```bash
+GALLERY_DEPLOYMENT_APPROVED=YES \
+python3 -B "$TOOL" rollback --sudo-docker --state "$STATE" --execute-approved
+```
+
+Если apply создал `apply-attempt.json` или health check не прошёл, повторный apply
+запрещён: сохранить state и выполнить только этот guarded rollback после pause и
+`active=0`. Команда не восстанавливает удалённые originals и не перезапускает
+PostgreSQL, Redis или ML.
+
 ## HP: подготовка до разрешения deployment
 
 Используйте существующий RUN_ROOT
 `/home/doctoriceadm/gallery-build10-release-TxDlXAuj`. Он содержит старые sealed
 intent, file proofs и hardened rollback; не создавайте вместо него пустую копию.
-Не предполагайте, что `ea51a8ac` уже установлен: проверяется фактический container.
+Не предполагайте текущий image по тегу: plan обязан проверить фактический
+`sha256:52e08a50b507ddddf591706eed8df70c1904b47fca53d5e913146853df2a2b8b`.
 
 Укажите реальный каталог свежей NAS evidence в `BUILD11_NAS_EVIDENCE`, затем
 выполните одну подготовительную команду. Это создаёт backup и isolated restore,
@@ -123,9 +322,10 @@ migration и, если ещё требуется, старый exact-six bridge.
 
 Задайте `STATE` из подготовки; если она остановилась до записи плана, после
 устранения внешнего prerequisite используйте новый private state, сохранив старый.
-В блоке ниже `--complete-confirmed-cleanup` требуется только для незавершённого
-Build 10 bridge. Переменная подтверждения cleanup не разрешает удаление других
-файлов или запуск остальных 21 jobs.
+В обычном upgrade-блоке ниже нет `--complete-confirmed-cleanup` и
+`GALLERY_USER_QUEUED_DELETION_APPROVED`: этот этап не доказывает exact-six receipt
+и не должен авторизовать удаление. Если `prepare` остановится с требованием
+sealed cleanup receipt, это остаётся STOP, а не повод обходить guard.
 
 ```bash
 set -euo pipefail
@@ -143,9 +343,8 @@ tmux new-session -s gallery-build11-upgrade bash -c '
   set -uo pipefail; umask 077
   journal=$(mktemp "$2/upgrade-XXXXXXXX.log")
   GALLERY_DEPLOYMENT_APPROVED=YES GALLERY_ADDITIVE_MIGRATION_APPROVED=YES \
-  GALLERY_USER_QUEUED_DELETION_APPROVED=YES \
     bash "$1/tools/gallery-upgrade.sh" upgrade "$1" "$2" "$3" "$4" \
-    --execute-approved --approve-migration --complete-confirmed-cleanup 2>&1 | tee "$journal"
+    --execute-approved --approve-migration 2>&1 | tee "$journal"
   result=$?
   printf "RESULT exit=%s journal=%s\n" "$result" "$journal"
   exec bash
@@ -348,26 +547,31 @@ RO external отказ, явно writable external удаление, cross-owner
 появиться, photo/video viewer — открыться. API и microservices должны работать.
 Backup, search, faces, sharing, Memories/ML проверяются без full-library анализа.
 
-Состояние production `backgroundTask` остаётся paused ради 21 сохранённых jobs.
-Inline permanent deletion работает отдельно; автоматический срок корзины,
-queued retries и derivative cleanup на HP **BLOCKED**, пока владелец отдельно не
-одобрит review/activation очереди. Clean install с активной upstream queue
-проверяется отдельно; установщик не имитирует production expiration PASS.
+По свежему audit production `backgroundTask` был `paused=false`; это не считается
+разрешением. После отдельного approval pause/drain gate очередь должна оставаться
+paused ради сохранённых jobs. Inline permanent deletion работает отдельно;
+автоматический срок корзины, queued retries и derivative cleanup на HP
+**BLOCKED**, пока владелец отдельно не одобрит review/activation очереди. Clean
+install с активной upstream queue проверяется отдельно; установщик не имитирует
+production expiration PASS.
 
 ## Точные STOP и действия
 
-| Код                                                               | Что делать                                                                                                                                     |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RELEASE_PACKAGE_FILE_CHANGED` / `PINNED_*`                       | Не запускать. Снова скачать официальный пакет по immutable URL и сравнить опубликованный checksum; исходный state сохранить.                   |
-| `COMPLETE_BUILD10_BRIDGE_FIRST`                                   | Использовать отдельно одобренный exact-six bridge через общий `upgrade --complete-confirmed-cleanup`; не выдумывать completion receipt.        |
-| `SIX_CONFIRMED_CLEANUP_COMPLETION_RECEIPT_REQUIRED_NO_REPLAY`     | Завершение не доказано. Передать сохранённый private report владельцу; не удалять jobs и не повторять files вручную.                           |
-| `NAS_RECOVERY_VERIFICATION_EXPIRED_NO_TIMESTAMP_REFRESH`          | Выполнить настоящий snapshot export/content verification существующим NAS recovery инструментом. Не менять timestamp.                          |
-| `INTERRUPTED_INSTALL_CONTEXT_CHANGED` / `*_CONFIGURATION_CHANGED` | Вернуть тот же подписанный пакет и неизменный private config; существующий state не редактировать. Другую конфигурацию installer не применяет. |
-| `EXACT_NAS_NFS_SOURCE_AND_TARGET_REQUIRED`                        | Сверить настройки нового сервера с действительным DSM export; production mounts не менять и не обходить проверку.                              |
-| `NFS_WRITE_MODE_MUST_ALREADY_BE_EXPLICITLY_CONFIGURED`            | Read-only mount не поддерживает writable режим. Оставить библиотеку read-only либо отдельно получить narrow NAS export authorization.          |
-| `API_AND_MICROSERVICES_REQUIRED`                                  | Текущая конфигурация API-only небезопасна. Сначала отдельное согласованное исправление effective Compose; release guard не отключать.          |
-| `EXISTING_APPLY_ATTEMPT_*` / health failure                       | Не повторять apply автоматически. Использовать проверенный rollback выше с тем же state.                                                       |
-| `PINNED_MACHINE_LEARNING_DEPENDENCY_REQUIRED`                     | Нужен настоящий immutable upstream ML reference в пакете; mutable latest или произвольный локальный image не допускаются.                      |
+| Код                                                                                        | Что делать                                                                                                                                     |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RELEASE_PACKAGE_FILE_CHANGED` / `PINNED_*`                                                | Не запускать. Снова скачать официальный пакет по immutable URL и сравнить опубликованный checksum; исходный state сохранить.                   |
+| `COMPLETE_BUILD10_BRIDGE_FIRST`                                                            | Использовать отдельно одобренный exact-six bridge через общий `upgrade --complete-confirmed-cleanup`; не выдумывать completion receipt.        |
+| `SIX_CONFIRMED_CLEANUP_COMPLETION_RECEIPT_REQUIRED_NO_REPLAY`                              | Завершение не доказано. Передать сохранённый private report владельцу; не удалять jobs и не повторять files вручную.                           |
+| `NAS_RECOVERY_VERIFICATION_EXPIRED_NO_TIMESTAMP_REFRESH`                                   | Выполнить настоящий snapshot export/content verification существующим NAS recovery инструментом. Не менять timestamp.                          |
+| `INTERRUPTED_INSTALL_CONTEXT_CHANGED` / `*_CONFIGURATION_CHANGED`                          | Вернуть тот же подписанный пакет и неизменный private config; существующий state не редактировать. Другую конфигурацию installer не применяет. |
+| `EXACT_NAS_NFS_SOURCE_AND_TARGET_REQUIRED`                                                 | Сверить настройки нового сервера с действительным DSM export; production mounts не менять и не обходить проверку.                              |
+| `NFS_WRITE_MODE_MUST_ALREADY_BE_EXPLICITLY_CONFIGURED`                                     | Read-only mount не поддерживает writable режим. Оставить библиотеку read-only либо отдельно получить narrow NAS export authorization.          |
+| `API_AND_MICROSERVICES_REQUIRED`                                                           | Текущая конфигурация API-only небезопасна. Сначала отдельное согласованное исправление effective Compose; release guard не отключать.          |
+| `EXISTING_APPLY_ATTEMPT_*` / health failure                                                | Не повторять apply автоматически. Использовать проверенный rollback выше с тем же state.                                                       |
+| `PINNED_MACHINE_LEARNING_DEPENDENCY_REQUIRED`                                              | Нужен настоящий immutable upstream ML reference в пакете; mutable latest или произвольный локальный image не допускаются.                      |
+| `REVIEWED_COMPATIBILITY_CONTRACT_REQUIRED` / `REAL_ISOLATED_ROLLBACK_TEST_REPORT_REQUIRED` | Receipt отсутствует или rollback HTTP/Trash/Restore не доказан. Не использовать `sha256:893281ae…`; получить новый receipt в disposable CI.    |
+| `DELETION_QUEUE_NOT_PAUSED` / `DELETION_QUEUE_NOT_EMPTY`                                   | Оставить queue как есть, выполнить только поддерживаемый pause и естественный drain; не clean/kill/retry/clear.                                |
+| `FRESH_BACKUP_AND_EXACT_RESTORE_REQUIRED`                                                  | Создать новый backup и проверить restore именно его байтов в изолированном PostgreSQL; старые 14 файлов недостаточны.                          |
 
 Private logs могут содержать topology/recovery metadata, поэтому не публикуйте
 их целиком. Публичный report содержит только PASS/STOP, source/image hashes,
