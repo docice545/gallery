@@ -191,3 +191,35 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 - `git diff --check` passed and no Vitest processes remained after the runs.
   These focused results do not change the real-NAS, original-client, or signed
   Android release gates above.
+
+## Disposable NFS preflight stage (2026-10-17)
+
+- Read-only host preflight confirmed Docker, `findmnt`, and `ss` are available;
+  `127.0.0.1:2295` is free and no `gallery_nfs_test_*` containers or
+  `gallery_nfs_test` network exist.
+- The exact disposable source is mounted at `/mnt/gallery-nfs-test` as
+  `10.10.10.95:/volume1/Gallery-Test`, but `findmnt` reports `ro`. The harness
+  therefore fails closed and was not started. No Compose container, database,
+  Redis queue, fixture, or NAS file was created or changed.
+- `bash -n deployment/gallery-nfs-test/scripts/preflight.sh deployment/gallery-nfs-test/scripts/run-live-photo-test.sh`
+  passed. The disposable NFS lifecycle remains **BLOCKED** pending an owner-side
+  RW remount of that exact export; production mounts and the Synology recycle
+  directory were not accessed.
+
+## AI and automatic-stack audit stage (2026-10-17)
+
+- Read-only source audit found no LiteLLM, `memories-vision`, Groq, or Cloudflare
+  vision client in Gallery. The external-memory audit states that Gallery does
+  not hold those credentials or perform provider calls; therefore Groq-primary
+  and Cloudflare-fallback behavior, preview sanitization, and cloud quota remain
+  **BLOCKED for runtime verification** and were not simulated with private media.
+- Gallery retains memory lifecycle, owner/deduplication, and candidate tests, but
+  the `gallery-ai-daily`/carousel scheduler is external infrastructure. No daily
+  generation, historical rerun, or production memory mutation was performed.
+- The stack compatibility suite covers native API mutations, owner boundaries,
+  suppression decisions, dissolution without asset deletion, and Motion Photo
+  preservation. The production design records the external hourly processor and
+  thresholds (0.90 similarity, 0.89 pairwise floor, 300 seconds, max 5) and
+  Anna's exclusion. The external processor itself was not run, so grouping,
+  Android position display, and scheduler survival remain **BLOCKED** for
+  runtime acceptance.
