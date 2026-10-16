@@ -1,54 +1,28 @@
-# Build 11 Codex CLI delivery report
+# Gallery release delivery record — 2026-10-16
 
-Date: 2026-10-16
-
-Source commit: `d12ebedd1e3cbc2d223fe5e63b898023e9a4d6f0`
-
+Source commit: `69249fcaca1c4ea6cbd7d145f26b935da1d06722`
 Branch: `codex/nas-release-readiness-20261016`
 PR: https://github.com/docice545/gallery/pull/1 (open, draft)
 
-This report records the deliverables that were actually produced from the CLI
-checkout. It does not authorize a merge, deployment, queue change, NAS access,
-or deletion of real media.
+This record covers local, isolated build evidence only. No production Compose,
+NAS, VPN, real user media, or production database was accessed or changed.
 
-## Deliverables
+| Deliverable | Result | Evidence |
+| --- | --- | --- |
+| Backend Docker image | **DONE locally** | `gallery-server:trash-69249fcaca1c`, image ID/digest `sha256:e763a66e91e809028cf92f7214620f23cbb7ee7690e97e725c587bfdea255ae0`, `linux/amd64` |
+| Backend export | **DONE locally** | `/mnt/hp-data/codex-work/gallery-auto/20261016-103548-3633719/backend-artifact-69249/gallery-server-linux-amd64.tar.gz`, SHA-256 `fa54a79d9bbdbb6cd6e50dc58ca7e172ef9da8d1ddf89b9ed79ac315b79ad123` |
+| Web frontend | **DONE locally** | `BUILD11_web_build.log` and `BUILD11_web_lint.log` |
+| Android APK | **DONE locally, debug only** | `/mnt/hp-data/codex-work/gallery-auto/20261016-092107-3580683/artifacts/gallery-debug.apk`, version `5.7.3-DEBUG`, code `11`, SHA-256 `9cca50c1b0b6975cdc53c351206327dce618ea2d4d805f0a8a23390290308d15` |
+| Registry/GitHub artifact publication | **BLOCKED** | CLI has no authenticated `gh`/registry credentials |
 
-| Deliverable                          | Result           | Evidence                                                                                                                                                                                                 |
-| ------------------------------------ | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend Docker image                 | **DONE locally** | `gallery-server:trash-d12ebedd1e3c`, image digest `sha256:68da3feb7da24cf0744ff21849f3510649c1e1de086c21d2b99e59f16b1448ab`, source commit above, `linux/amd64`                                          |
-| Backend export                       | **DONE locally** | `/mnt/hp-data/codex-work/gallery-auto/20261016-073302-3497099/backend-artifact-1792138825/gallery-server-linux-amd64.tar.gz`, SHA-256 `e13fdb84b60964c8383d8ad7667a0ea91f6aec5ff86c62de02273e9af7d73070` |
-| Web frontend                         | **DONE locally** | `BUILD11_web_build.log`; production build completed successfully; web lint passed in `BUILD11_web_lint.log`                                                                                              |
-| Android APK                          | **BLOCKED**      | Local Gradle reached `:app:compileDebugAidl` and then blocked on HTTPS Google/Android dependency resolution; no APK was created                                                                          |
-| Registry/GitHub artifact publication | **BLOCKED**      | No registry credentials or authenticated `gh` session are available in this CLI environment                                                                                                              |
+The backend build used `scripts/release/server_build.sh`, which builds from a
+clean archived commit, stamps server version `5.7.3`, verifies source provenance,
+checks compiled migrations, runs an isolated network-disabled container smoke,
+and exports the image. Release-smoke unit tests: 60 passed; install/android
+release tests: 53 passed. The Android repository, guard, and synthetic scale
+tests are recorded in `specs/testing/2026-10-16-codex-local-android-build.md`.
 
-The backend image was built from a clean detached worktree and inspected for
-architecture, source revision, packaged server version, `server/dist/main.js`,
-and both fork migration additions. Deployment is recorded as `NOT_DEPLOYED`.
-
-## Verification
-
-- `python3 -m unittest scripts/release/tests/test_gallery_install.py`: 18 passed.
-- `python3 -m unittest scripts/release/tests/test_android_release.py`: 35 passed.
-- `python3 -m py_compile` for release tooling: passed.
-- `git diff --check`: passed.
-- Backend build with the required heap increase: passed.
-- Web build and web lint: passed.
-- Flutter code generation and focused Live Photo test: passed (5/5).
-- Direct AIDL smoke compilation with Android Build Tools 36: passed.
-
-The full disposable 1/10/100/1000 performance matrix, real Synology/NFS
-validation, and complete storage integration/e2e suite were not run. Existing
-synthetic deletion evidence remains synthetic and is not evidence of a real NAS.
-
-## Android and CI blocker
-
-The repository contains a manual `Gallery Build Mobile` workflow with the
-`android_media_pilot` validation lane. GitHub API inspection found no run for
-this source commit and no current APK artifact. The local `gh` client reports
-that it is unauthenticated, so this checkout cannot dispatch or download that
-workflow. A future authorized CI run must use this exact commit and retain the
-validation APK, versionName/versionCode, and SHA-256 before Android can be
-marked complete.
-
-No production signing material was read or created, and no debug APK is being
-claimed.
+The complete 1/10/100/1000 deletion matrix, real Synology/NFS validation,
+full storage integration/e2e suite, release-signed APK, and registry upload
+remain pending. Existing synthetic tests do not establish real-NAS behavior.
+Deployment remains **NOT_DEPLOYED**.
