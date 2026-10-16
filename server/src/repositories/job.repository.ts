@@ -43,7 +43,12 @@ export type AssetDeleteBatchJob = {
   ownerId: string;
   ids: string[];
   allowActive: boolean;
+  cancelRequested?: boolean;
 };
+
+type AssetDeleteBatchCancellation = Pick<AssetDeleteBatchJob, 'ownerId' | 'ids' | 'allowActive'>;
+
+const ASSET_DELETE_BATCH_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Per-queue worker lock overrides. BullMQ defaults to a 30s lock + 30s stalled check + maxStalledCount
@@ -665,16 +670,23 @@ export class JobRepository {
   }
 
   async getAssetDeleteBatchJob(id: string): Promise<AssetDeleteBatchJob | undefined> {
-    const job = await this.getQueue(QueueName.BackgroundTask).getJob(id);
+    const queue = this.getQueue(QueueName.BackgroundTask);
+    const job = await queue.getJob(id);
+    const cancellation = await this.getAssetDeleteBatchCancellation(queue, id);
+    if (cancellation) {
+      // Acknowledging cancellation must not hide an in-flight destructive chunk.
+      const active = job?.name === JobName.AssetDeleteBatch && (await job.getState()) === 'active';
+      return { id, state: active ? 'active' : 'cancelled', ...cancellation, cancelRequested: true };
+    }
     if (!job || job.name !== JobName.AssetDeleteBatch) {
       return undefined;
     }
 
-    const data = job.data as { ownerId?: unknown; ids?: unknown; allowActive?: unknown };
+    const data = job.data as { ownerId?: unknown; ids?: unknown; allowActive?: unknown; cancelled?: unknown };
     if (
       typeof data.ownerId !== 'string' ||
       !Array.isArray(data.ids) ||
-      !data.ids.every((item) => typeof item === 'string')
+      data.ids.some((item) => typeof item !== 'string')
     ) {
       return undefined;
     }
@@ -683,12 +695,105 @@ export class JobRepository {
     const state: AssetDeleteBatchJob['state'] =
       bullState === 'active'
         ? 'active'
-        : bullState === 'completed'
-          ? 'complete'
-          : bullState === 'failed'
-            ? 'failed'
-            : 'pending';
-    return { id, state, ownerId: data.ownerId, ids: data.ids, allowActive: data.allowActive === true };
+        : data.cancelled === true
+          ? 'cancelled'
+          : bullState === 'completed'
+            ? 'complete'
+            : bullState === 'failed'
+              ? 'failed'
+              : 'pending';
+    return {
+      id,
+      state,
+      ownerId: data.ownerId,
+      ids: data.ids,
+      allowActive: data.allowActive === true,
+      ...(data.cancelled === true && { cancelRequested: true }),
+    };
+  }
+
+  async cancelAssetDeleteBatch(id: string, ownerId: string): Promise<void> {
+    const queue = this.getQueue(QueueName.BackgroundTask);
+    const job = await queue.getJob(id);
+    if (!job || job.name !== JobName.AssetDeleteBatch) {
+      throw new Error('Deletion batch is not available');
+    }
+
+    const data = job.data as { ownerId?: unknown; ids?: unknown; allowActive?: unknown };
+    if (
+      data.ownerId !== ownerId ||
+      !Array.isArray(data.ids) ||
+      data.ids.some((item) => typeof item !== 'string') ||
+      getAssetDeleteBatchJobId(ownerId, data.ids, data.allowActive === true) !== id
+    ) {
+      throw new Error('Deletion batch is not available');
+    }
+
+    if (['completed', 'failed'].includes(await job.getState())) {
+      return;
+    }
+    // Keep the stop flag in the durable job too. A paused/stalled job must not
+    // resume deletion if the seven-day status tombstone has already expired.
+    await job.updateData({ ...job.data, cancelled: true });
+    const cancellation: AssetDeleteBatchCancellation = {
+      ownerId,
+      ids: data.ids,
+      allowActive: data.allowActive === true,
+    };
+    const client = await queue.client;
+    const redis = client as unknown as Pick<Redis, 'set'>;
+    await redis.set(
+      this.getAssetDeleteBatchCancellationKey(queue, id),
+      JSON.stringify(cancellation),
+      'EX',
+      ASSET_DELETE_BATCH_RETENTION_SECONDS,
+    );
+
+    const state = await job.getState();
+    if (state !== 'active') {
+      try {
+        await job.remove({ removeChildren: false });
+      } catch (error) {
+        // A worker may have claimed the job between getState() and remove().
+        // Both durable stop flags make that race safe; surface unrelated failures.
+        if (!['active', 'completed', 'failed'].includes(await job.getState())) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  async isAssetDeleteBatchCancelled(id: string): Promise<boolean> {
+    const batch = await this.getAssetDeleteBatchJob(id);
+    return batch?.cancelRequested === true;
+  }
+
+  private async getAssetDeleteBatchCancellation(
+    queue: Queue,
+    id: string,
+  ): Promise<AssetDeleteBatchCancellation | undefined> {
+    const client = await queue.client;
+    const redis = client as unknown as Pick<Redis, 'get'>;
+    const value = await redis.get(this.getAssetDeleteBatchCancellationKey(queue, id));
+    if (!value) return undefined;
+    try {
+      const parsed = JSON.parse(value) as Partial<AssetDeleteBatchCancellation>;
+      if (
+        typeof parsed.ownerId !== 'string' ||
+        !Array.isArray(parsed.ids) ||
+        parsed.ids.some((item) => typeof item !== 'string') ||
+        getAssetDeleteBatchJobId(parsed.ownerId, parsed.ids, parsed.allowActive === true) !== id
+      ) {
+        return undefined;
+      }
+      return { ownerId: parsed.ownerId, ids: parsed.ids, allowActive: parsed.allowActive === true };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private getAssetDeleteBatchCancellationKey(queue: Queue, id: string): string {
+    return queue.toKey(`asset-delete-batch-cancelled/${id}`);
   }
 
   private getJobOptions(item: JobItem): JobsOptions | null {
@@ -697,8 +802,8 @@ export class JobRepository {
         const data = item.data as { ownerId: string; ids: string[]; allowActive?: boolean };
         return {
           jobId: getAssetDeleteBatchJobId(data.ownerId, data.ids, data.allowActive === true),
-          removeOnComplete: { age: 7 * 24 * 60 * 60 },
-          removeOnFail: { age: 7 * 24 * 60 * 60 },
+          removeOnComplete: { age: ASSET_DELETE_BATCH_RETENTION_SECONDS },
+          removeOnFail: { age: ASSET_DELETE_BATCH_RETENTION_SECONDS },
         };
       }
       case JobName.NotifyAlbumUpdate: {

@@ -21,8 +21,8 @@ import {
   DeletionPreflightResultDto,
   ManagedDeletionConsentDto,
   ManagedDeletionStatusDto,
-  PermanentDeletionDto,
   PermanentDeletionBatchStatusDto,
+  PermanentDeletionDto,
   PermanentDeletionResultDto,
   PrepareManagedDeletionDto,
   TrashDeletionScopeDto,
@@ -233,6 +233,21 @@ export class AssetController {
     @Query('batchId') batchId: string,
   ): Promise<PermanentDeletionBatchStatusDto> {
     return this.service.deletionBatchStatus(auth, batchId);
+  }
+
+  @Post('permanent-deletion/:batchId/cancel')
+  @Authenticated({ permission: Permission.AssetDelete })
+  @Endpoint({
+    summary: 'Cancel permanent deletion batch',
+    description:
+      'Stops before the next unstarted chunk. An active chunk and committed per-item retries may still finish; completed work is not undone. Poll status until the batch is no longer active.',
+    history: new HistoryBuilder().added('v2.8.0').alpha('v2.8.0'),
+  })
+  cancelDeletionBatch(
+    @Auth() auth: AuthDto,
+    @Param('batchId') batchId: string,
+  ): Promise<PermanentDeletionBatchStatusDto> {
+    return this.service.cancelDeletionBatch(auth, batchId);
   }
 
   @Get(':id/deletion-status')

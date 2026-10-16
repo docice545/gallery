@@ -54,8 +54,8 @@ import {
   QueueName,
   StorageFolder,
 } from 'src/enum.js';
-import { BaseService } from 'src/services/base.service.js';
 import { getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
+import { BaseService } from 'src/services/base.service.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
 import {
@@ -635,7 +635,12 @@ export class AssetService extends BaseService {
     // The queue item is the durable record of the user's explicit request. Disable
     // re-queuing here: each target has its own receipt and AssetDelete retry path.
     const results: PermanentDeletionResultDto[] = [];
+    const batchId = getAssetDeleteBatchJobId(job.ownerId, job.ids, job.allowActive === true);
     for (let start = 0; start < job.ids.length; start += AssetService.BATCH_CHUNK_SIZE) {
+      if (await this.jobRepository.isAssetDeleteBatchCancelled(batchId)) {
+        this.logger.log(`Stopping cancelled permanent deletion batch ${batchId} before chunk ${start}`);
+        return JobStatus.Success;
+      }
       results.push(
         ...(await this.permanentlyDelete(
           { user: user as AuthDto['user'] },
@@ -1304,23 +1309,55 @@ export class AssetService extends BaseService {
       throw new ForbiddenException('Deletion batch is not available for this user');
     }
 
-    const statuses = await Promise.all(batch.ids.map((id) => this.deletionStatus(auth, id)));
+    const statuses: PermanentDeletionResultDto[] = [];
+    for (let start = 0; start < batch.ids.length; start += AssetService.BATCH_CHUNK_SIZE) {
+      statuses.push(
+        ...(await Promise.all(
+          batch.ids.slice(start, start + AssetService.BATCH_CHUNK_SIZE).map((id) => this.deletionStatus(auth, id)),
+        )),
+      );
+    }
     const complete = statuses.filter((item) => item.state === 'complete').length;
     const failed = statuses.filter(
       (item) => item.state === 'failed' || (item.state === 'blocked' && ['complete', 'failed'].includes(batch.state)),
     ).length;
     const pending = statuses.length - complete - failed;
     const state =
-      batch.state === 'cancelled'
-        ? 'cancelled'
-        : failed > 0 && pending === 0
+      pending === 0
+        ? failed > 0
           ? 'failed'
-          : pending === 0
-            ? 'complete'
-            : batch.state === 'active'
-              ? 'active'
-              : 'pending';
-    return { id: batch.id, state, total: statuses.length, processed: complete + failed, complete, failed, pending };
+          : 'complete'
+        : batch.state === 'cancelled'
+          ? 'cancelled'
+          : batch.state === 'active'
+            ? 'active'
+            : 'pending';
+    return {
+      id: batch.id,
+      state,
+      total: statuses.length,
+      processed: complete + failed,
+      complete,
+      failed,
+      pending,
+      ...(batch.cancelRequested && { cancelRequested: true }),
+    };
+  }
+
+  async cancelDeletionBatch(auth: AuthDto, batchId: string): Promise<PermanentDeletionBatchStatusDto> {
+    const batch = await this.jobRepository.getAssetDeleteBatchJob(batchId);
+    if (
+      !batch ||
+      batch.ownerId !== auth.user.id ||
+      batch.id !== getAssetDeleteBatchJobId(batch.ownerId, batch.ids, batch.allowActive)
+    ) {
+      throw new ForbiddenException('Deletion batch is not available for this user');
+    }
+
+    if (batch.state === 'pending' || batch.state === 'active') {
+      await this.jobRepository.cancelAssetDeleteBatch(batchId, auth.user.id);
+    }
+    return this.deletionBatchStatus(auth, batchId);
   }
 
   async permanentlyDelete(

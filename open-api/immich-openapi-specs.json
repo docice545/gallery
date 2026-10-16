@@ -5584,6 +5584,7 @@
         "description": "Job name",
         "enum": [
           "AssetDelete",
+          "AssetDeleteBatch",
           "AssetDeleteCheck",
           "AssetDetectFacesQueueAll",
           "AssetDetectFaces",
@@ -8462,8 +8463,16 @@
         "required": ["id"],
         "type": "object"
       },
+      "PermanentDeletionBatchState": {
+        "enum": ["pending", "active", "complete", "failed", "cancelled"],
+        "type": "string"
+      },
       "PermanentDeletionBatchStatusDto": {
         "properties": {
+          "cancelRequested": {
+            "description": "Cancellation requested; an active chunk may still finish.",
+            "type": "boolean"
+          },
           "complete": {
             "maximum": 9007199254740991,
             "minimum": 0,
@@ -8489,8 +8498,7 @@
             "type": "integer"
           },
           "state": {
-            "enum": ["pending", "active", "complete", "failed", "cancelled"],
-            "type": "string"
+            "$ref": "#/components/schemas/PermanentDeletionBatchState"
           },
           "total": {
             "maximum": 9007199254740991,
@@ -24928,6 +24936,59 @@
           }
         ],
         "x-immich-permission": "asset.read",
+        "x-immich-state": "Alpha"
+      }
+    },
+    "/assets/permanent-deletion/{batchId}/cancel": {
+      "post": {
+        "description": "Stops before the next unstarted chunk. An active chunk and committed per-item retries may still finish; completed work is not undone. Poll status until the batch is no longer active.",
+        "operationId": "cancelDeletionBatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batchId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermanentDeletionBatchStatusDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Cancel permanent deletion batch",
+        "tags": ["Assets"],
+        "x-immich-history": [
+          {
+            "state": "Added",
+            "version": "v2.8.0"
+          },
+          {
+            "state": "Alpha",
+            "version": "v2.8.0"
+          }
+        ],
+        "x-immich-permission": "asset.delete",
         "x-immich-state": "Alpha"
       }
     },

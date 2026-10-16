@@ -4,6 +4,7 @@ import {
   deletionPreflight,
   deletionStatuses,
   permanentDeletion,
+  PermanentDeletionBatchState,
   State,
 } from '@immich/sdk';
 import { toastManager } from '@immich/ui';
@@ -60,7 +61,7 @@ describe('permanent deletion acknowledgements', () => {
     vi.mocked(deletionBatchStatus)
       .mockResolvedValueOnce({
         id: 'batch-1',
-        state: 'active',
+        state: PermanentDeletionBatchState.Active,
         total: 201,
         processed: 0,
         complete: 0,
@@ -69,7 +70,7 @@ describe('permanent deletion acknowledgements', () => {
       })
       .mockResolvedValueOnce({
         id: 'batch-1',
-        state: 'complete',
+        state: PermanentDeletionBatchState.Complete,
         total: 201,
         processed: 201,
         complete: 201,

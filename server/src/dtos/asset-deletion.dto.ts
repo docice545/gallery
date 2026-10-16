@@ -6,6 +6,10 @@ import z from 'zod';
 // store and verifies the envelope, owner/scope, roots, and freshness there.
 const recoveryProof = z.string().regex(/^[a-f0-9]{64}$/);
 
+const PermanentDeletionBatchStateSchema = z
+  .enum(['pending', 'active', 'complete', 'failed', 'cancelled'])
+  .meta({ id: 'PermanentDeletionBatchState' });
+
 export class PermanentDeletionDto extends createZodDto(
   z
     .object({
@@ -50,7 +54,8 @@ export class PermanentDeletionBatchStatusDto extends createZodDto(
   z
     .object({
       id: z.string().describe('Durable deletion batch job id.'),
-      state: z.enum(['pending', 'active', 'complete', 'failed', 'cancelled']),
+      state: PermanentDeletionBatchStateSchema,
+      cancelRequested: z.boolean().optional().describe('Cancellation requested; an active chunk may still finish.'),
       total: z.number().int().nonnegative(),
       processed: z.number().int().nonnegative(),
       complete: z.number().int().nonnegative(),

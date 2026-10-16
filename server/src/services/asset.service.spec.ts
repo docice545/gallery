@@ -14,8 +14,8 @@ import {
   JobStatus,
 } from 'src/enum.js';
 import { AssetStats } from 'src/repositories/asset.repository.js';
-import { AssetService } from 'src/services/asset.service.js';
 import { getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
+import { AssetService } from 'src/services/asset.service.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { AuthFactory } from 'test/factories/auth.factory.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
@@ -1559,6 +1559,74 @@ describe(AssetService.name, () => {
   });
 
   describe('large permanent deletion batches', () => {
+    it.each(['owner', 'fingerprint'])('rejects cancellation with a foreign %s', async (kind) => {
+      const ids = ['asset-1'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'pending',
+        ownerId: kind === 'owner' ? 'other-owner' : authStub.user1.user.id,
+        ids: kind === 'fingerprint' ? ['different-asset'] : ids,
+        allowActive: false,
+      });
+      await expect(sut.cancelDeletionBatch(authStub.user1, batchId)).rejects.toThrow('Deletion batch is not available');
+      expect(mocks.job.cancelAssetDeleteBatch).not.toHaveBeenCalled();
+    });
+
+    it('bounds aggregate receipt checks to 200 in flight', async () => {
+      const ids = Array.from({ length: 1000 }, (_, index) => `asset-${index}`);
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'active',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      let active = 0;
+      let maximum = 0;
+      vi.spyOn(sut, 'deletionStatus').mockImplementation(async (_auth, id) => {
+        maximum = Math.max(maximum, ++active);
+        await Promise.resolve();
+        active--;
+        return { id, state: 'pending' };
+      });
+      await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toMatchObject({
+        total: 1000,
+        pending: 1000,
+      });
+      expect(maximum).toBe(200);
+    });
+
+    it.each(['active', 'cancelled'] as const)(
+      'reports %s cancellation without treating untouched items as deleted',
+      async (state) => {
+        const ids = ['asset-1', 'asset-2'];
+        const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+        mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+          id: batchId,
+          state,
+          ownerId: authStub.user1.user.id,
+          ids,
+          allowActive: false,
+          cancelRequested: true,
+        });
+        vi.spyOn(sut, 'deletionStatus')
+          .mockResolvedValueOnce({ id: ids[0], state: 'complete' })
+          .mockResolvedValueOnce({ id: ids[1], state: 'blocked', code: 'NO_AUTHORIZED_DELETION' });
+        await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toEqual({
+          id: batchId,
+          state,
+          total: 2,
+          processed: 1,
+          complete: 1,
+          failed: 0,
+          pending: 1,
+          cancelRequested: true,
+        });
+      },
+    );
+
     it('queues an explicit bounded batch instead of holding the request open', async () => {
       const ids = Array.from({ length: 201 }, (_, index) => `asset-${index}`);
       vi.spyOn(sut, 'deletionPreflight').mockResolvedValue(
@@ -1603,6 +1671,56 @@ describe(AssetService.name, () => {
         failed: 1,
         pending: 2,
       });
+    });
+
+    it('cancels a pending batch through the owner-scoped durable job state', async () => {
+      const ids = ['asset-1', 'asset-2'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'pending',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      const status = {
+        id: batchId,
+        state: 'cancelled' as const,
+        total: ids.length,
+        processed: 0,
+        complete: 0,
+        failed: 0,
+        pending: ids.length,
+      };
+      vi.spyOn(sut, 'deletionBatchStatus').mockResolvedValue(status);
+
+      await expect(sut.cancelDeletionBatch(authStub.user1, batchId)).resolves.toEqual(status);
+      expect(mocks.job.cancelAssetDeleteBatch).toHaveBeenCalledWith(batchId, authStub.user1.user.id);
+    });
+
+    it('does not interrupt an already terminal batch', async () => {
+      const ids = ['asset-1'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'complete',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      const status = {
+        id: batchId,
+        state: 'complete' as const,
+        total: 1,
+        processed: 1,
+        complete: 1,
+        failed: 0,
+        pending: 0,
+      };
+      vi.spyOn(sut, 'deletionBatchStatus').mockResolvedValue(status);
+
+      await expect(sut.cancelDeletionBatch(authStub.user1, batchId)).resolves.toEqual(status);
+      expect(mocks.job.cancelAssetDeleteBatch).not.toHaveBeenCalled();
     });
   });
 
@@ -1650,6 +1768,32 @@ describe(AssetService.name, () => {
   });
 
   describe('handleAssetDeletionBatch', () => {
+    it('finishes the started chunk and stops before creating intents for the next chunk', async () => {
+      const ids = Array.from({ length: 401 }, (_, index) => `asset-${index}`);
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      mocks.job.isAssetDeleteBatchCancelled.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      const permanent = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([]);
+      await expect(sut.handleAssetDeletionBatch({ ownerId: authStub.user1.user.id, ids })).resolves.toBe(
+        JobStatus.Success,
+      );
+      expect(permanent).toHaveBeenCalledExactlyOnceWith({ user: authStub.user1.user }, ids.slice(0, 200), false, false);
+    });
+
+    it('stops before the next chunk when a durable cancellation marker is present', async () => {
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      mocks.job.isAssetDeleteBatchCancelled.mockResolvedValue(true);
+      const permanent = vi.spyOn(sut, 'permanentlyDelete');
+
+      await expect(
+        sut.handleAssetDeletionBatch({
+          ownerId: authStub.user1.user.id,
+          ids: Array.from({ length: 201 }, (_, index) => `asset-${index}`),
+        }),
+      ).resolves.toBe(JobStatus.Success);
+
+      expect(permanent).not.toHaveBeenCalled();
+    });
+
     it('runs the durable batch without recursively enqueueing another batch', async () => {
       mocks.user.get.mockResolvedValue(authStub.user1.user as any);
       const permanent = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([

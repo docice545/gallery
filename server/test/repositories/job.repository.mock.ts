@@ -15,6 +15,8 @@ export const newJobRepositoryMock = (): Mocked<RepositoryInterface<JobRepository
     resume: vitest.fn(),
     searchJobs: vitest.fn(),
     getAssetDeleteBatchJob: vitest.fn(),
+    cancelAssetDeleteBatch: vitest.fn(),
+    isAssetDeleteBatchCancelled: vitest.fn().mockResolvedValue(false),
     queue: vitest.fn().mockImplementation(() => Promise.resolve()),
     queueAll: vitest.fn().mockImplementation(() => Promise.resolve()),
     isActive: vitest.fn(),

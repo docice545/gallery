@@ -21,6 +21,31 @@ describe(AssetController.name, () => {
     service.resetAllMocks();
   });
 
+  it('routes encoded batch IDs to the additive owner-scoped cancellation endpoint', async () => {
+    const batchId = `asset-delete-batch/${'a'.repeat(64)}`;
+    const response = {
+      id: batchId,
+      state: 'active' as const,
+      cancelRequested: true,
+      total: 201,
+      processed: 0,
+      complete: 0,
+      failed: 0,
+      pending: 201,
+    };
+    service.cancelDeletionBatch.mockResolvedValue(response);
+    const { status, body } = await request(ctx.getHttpServer()).post(
+      `/assets/permanent-deletion/${encodeURIComponent(batchId)}/cancel`,
+    );
+    expect(status).toBe(201);
+    expect(body).toEqual(response);
+    expect(service.cancelDeletionBatch).toHaveBeenCalledExactlyOnceWith(undefined, batchId);
+    expect(getAuthenticatedOptions(new Reflector(), AssetController.prototype.cancelDeletionBatch)).toMatchObject({
+      permission: Permission.AssetDelete,
+      sharedLink: false,
+    });
+  });
+
   describe.each([
     ['managed', '/assets/admin/managed-deletion-preparation', 'prepareManagedDeletionForOwner'],
     [

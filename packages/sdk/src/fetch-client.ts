@@ -1550,20 +1550,12 @@ export type DeletionPolicyDto = {
   verifiedExclusiveRoots: true;
 };
 export type PermanentDeletionResultDto = {
+  /** Durable batch job id when deletion is queued. */
   batchId?: string;
   code?: string;
   id: string;
   scope?: string;
   state: State;
-};
-export type PermanentDeletionBatchStatusDto = {
-  complete: number;
-  failed: number;
-  id: string;
-  pending: number;
-  processed: number;
-  state: 'pending' | 'active' | 'complete' | 'failed' | 'cancelled';
-  total: number;
 };
 export type AssetJobsDto = {
   /** Asset IDs */
@@ -1634,6 +1626,18 @@ export type DeletionPreflightResultDto = {
   code?: string;
   id: string;
   scope?: string;
+};
+export type PermanentDeletionBatchStatusDto = {
+  /** Cancellation requested; an active chunk may still finish. */
+  cancelRequested?: boolean;
+  complete: number;
+  failed: number;
+  /** Durable deletion batch job id. */
+  id: string;
+  pending: number;
+  processed: number;
+  state: PermanentDeletionBatchState;
+  total: number;
 };
 export type ExifResponseDto = {
   /** City name */
@@ -7229,30 +7233,6 @@ export function deletionStatuses(
     ),
   );
 }
-export function deletionBatchStatus(
-  {
-    batchId,
-  }: {
-    batchId: string;
-  },
-  opts?: Oazapfts.RequestOpts,
-) {
-  return oazapfts.ok(
-    oazapfts.fetchJson<{
-      status: 200;
-      data: PermanentDeletionBatchStatusDto;
-    }>(
-      `/assets/permanent-deletion/status${QS.query(
-        QS.explode({
-          batchId,
-        }),
-      )}`,
-      {
-        ...opts,
-      },
-    ),
-  );
-}
 /**
  * Run an asset job
  */
@@ -7481,6 +7461,54 @@ export function deletionPreflight(
         body: bulkIdsDto,
       }),
     ),
+  );
+}
+/**
+ * Get permanent deletion batch status
+ */
+export function deletionBatchStatus(
+  {
+    batchId,
+  }: {
+    batchId: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: PermanentDeletionBatchStatusDto;
+    }>(
+      `/assets/permanent-deletion/status${QS.query(
+        QS.explode({
+          batchId,
+        }),
+      )}`,
+      {
+        ...opts,
+      },
+    ),
+  );
+}
+/**
+ * Cancel permanent deletion batch
+ */
+export function cancelDeletionBatch(
+  {
+    batchId,
+  }: {
+    batchId: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: PermanentDeletionBatchStatusDto;
+    }>(`/assets/permanent-deletion/${encodeURIComponent(batchId)}/cancel`, {
+      ...opts,
+      method: 'POST',
+    }),
   );
 }
 /**
@@ -10660,6 +10688,56 @@ export function getQueues(opts?: Oazapfts.RequestOpts) {
   );
 }
 /**
+ * Audit historical deletion jobs
+ */
+export function auditHistoricalDeletionJobs(
+  {
+    historicalDeletionJobsAuditDto,
+  }: {
+    historicalDeletionJobsAuditDto: HistoricalDeletionJobsAuditDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: object;
+    }>(
+      '/queues/deletion-jobs/audit',
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: historicalDeletionJobsAuditDto,
+      }),
+    ),
+  );
+}
+/**
+ * Remove obsolete deletion job metadata
+ */
+export function reconcileHistoricalDeletionJobs(
+  {
+    historicalDeletionJobsAuditDto,
+  }: {
+    historicalDeletionJobsAuditDto: HistoricalDeletionJobsAuditDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: object;
+    }>(
+      '/queues/deletion-jobs/reconcile',
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: historicalDeletionJobsAuditDto,
+      }),
+    ),
+  );
+}
+/**
  * Retrieve a queue
  */
 export function getQueue(
@@ -10756,56 +10834,6 @@ export function getQueueJobs(
       {
         ...opts,
       },
-    ),
-  );
-}
-/**
- * Audit historical deletion jobs
- */
-export function auditHistoricalDeletionJobs(
-  {
-    historicalDeletionJobsAuditDto,
-  }: {
-    historicalDeletionJobsAuditDto: HistoricalDeletionJobsAuditDto;
-  },
-  opts?: Oazapfts.RequestOpts,
-) {
-  return oazapfts.ok(
-    oazapfts.fetchJson<{
-      status: 201;
-      data: object;
-    }>(
-      '/queues/deletion-jobs/audit',
-      oazapfts.json({
-        ...opts,
-        method: 'POST',
-        body: historicalDeletionJobsAuditDto,
-      }),
-    ),
-  );
-}
-/**
- * Remove obsolete deletion job metadata
- */
-export function reconcileHistoricalDeletionJobs(
-  {
-    historicalDeletionJobsAuditDto,
-  }: {
-    historicalDeletionJobsAuditDto: HistoricalDeletionJobsAuditDto;
-  },
-  opts?: Oazapfts.RequestOpts,
-) {
-  return oazapfts.ok(
-    oazapfts.fetchJson<{
-      status: 201;
-      data: object;
-    }>(
-      '/queues/deletion-jobs/reconcile',
-      oazapfts.json({
-        ...opts,
-        method: 'POST',
-        body: historicalDeletionJobsAuditDto,
-      }),
     ),
   );
 }
@@ -15587,6 +15615,13 @@ export enum AssetJobName {
   RegenerateThumbnail = 'regenerate-thumbnail',
   TranscodeVideo = 'transcode-video',
 }
+export enum PermanentDeletionBatchState {
+  Pending = 'pending',
+  Active = 'active',
+  Complete = 'complete',
+  Failed = 'failed',
+  Cancelled = 'cancelled',
+}
 export enum Type {
   UserPerson = 'user-person',
   SpacePerson = 'space-person',
@@ -15726,6 +15761,7 @@ export enum WorkflowTrigger {
 }
 export enum JobName {
   AssetDelete = 'AssetDelete',
+  AssetDeleteBatch = 'AssetDeleteBatch',
   AssetDeleteCheck = 'AssetDeleteCheck',
   AssetDetectFacesQueueAll = 'AssetDetectFacesQueueAll',
   AssetDetectFaces = 'AssetDetectFaces',
