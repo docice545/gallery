@@ -51,4 +51,3 @@ results while keeping every statement below SQLite's host-parameter limit.
 The APK and SHA256 sidecar are stored in the task artifact directory, outside the repository:
 
 `/mnt/hp-data/codex-work/gallery-auto/20261016-092107-3580683/artifacts/gallery-debug.apk`
-
