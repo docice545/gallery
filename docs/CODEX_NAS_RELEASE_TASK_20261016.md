@@ -1,0 +1,67 @@
+# Codex Web task: Gallery release readiness (2026-10-16)
+
+**Target:** Finish the Gallery app's mobile/web UX and backend into an installable, tested release with correct, safe Synology NAS external-library behavior. Work on a feature branch and open a PR. **Do not deploy to the production HP server, merge automatically, or delete real family photos.**
+
+## Verified production evidence
+
+- Gallery 5.7.3 is healthy on HP Ubuntu/Docker. Current production image: `sha256:1b6ee28e2b868280a9787cef5533636736de1148a18d2915ca5ff42835362bef`, built from `8af3a7a923c1391474dc9b7410e2f7833bc7771d`. Previous image: `sha256:52e08a50b507ddddf591706eed8df70c1904b47fca53d5e913146853df2a2b8b`.
+- **SSD Live Photo permanent deletion PASS:** JPG ID `879970f2-b440-4afd-b320-55c8f542ed7b`, linked MP4 ID `850b7905-5297-4436-8640-57ff7210abbd`: after single-item "Delete permanently" from trash, SQL returned zero asset rows and both physical files were absent at `/data/upload/...` and `/data/encoded-video/...`. **Not a NAS test.**
+- **Fresh Galaxy S23 Live Photo `20261016_100303`:** JPG ID `01af05b5-68da-4169-86a5-1721277ba580` at `/data/upload/de9b2d19-cd6a-4b82-8230-33e17134a3bf/2f/c3/2fc3f68b-bf68-461b-b668-9742b7a4ded9.jpg`; linked MP4 ID `fab55391-e835-49e6-99f2-2e36310dbfbc` at `/data/encoded-video/de9b2d19-cd6a-4b82-8230-33e17134a3bf/fa/b5/fab55391-e835-49e6-99f2-2e36310dbfbc-MP.mp4`. `find /external` found neither filename. This does **not** prove no other copy exists on Synology; it proves Gallery's indexed copy is SSD-backed and no matching file was visible under the mounted `/external` tree at that time.
+- `20261015_073059.jpg` in trash also had `/data/upload` JPG and `/data/encoded-video` MP4. Not NAS-backed.
+- **Existing NAS/SSD split is real:** `/external/docice/MobileBackup/S23 пользователя Андрей/DCIM/Camera/2026/09/20260926_125932.jpg` paired with `/data/encoded-video/de9b2d19-cd6a-4b82-8230-33e17134a3bf/50/9f/509f0ead-4440-44af-934e-152a9cd60fdb-MP.mp4`. This is genuine family archive; NEVER delete for testing.
+- **NAS physical deletion is NOT TESTED.** ~1389 items already in trash, so never run global Empty Trash as a test. NFS unlink permissions, snapshots and backup restore are unverified.
+- Production Compose pinned the new image in `/opt/immich/docker-compose.yml` because `hp-data-apps.service` reverted a temporary Compose override. Backup `/opt/immich/backups/manual-20261016-064401/gallery.dump` passed `pg_restore --list` but has not been restore-tested. DB downgrade/rollback not validated.
+
+## Work items
+
+1. Audit repository implementation, architecture, UI, storage and Live Photo pairing; distinguish Gallery direct upload from Synology Photos MobileBackup and external library indexing. Determine why fresh phone uploads use `/data/upload`, document supported NAS workflow and user-facing expectations. Do not silently change all upload destinations or assume a Synology copy should exist.
+2. Implement **explicit safe external-library delete policy**. Default read-only/no physical NAS delete. Opt-in authorized source deletion with clear UI warnings; robust path containment, symlink/mount protections, permissions, NFS failure handling, idempotency, retries, job state, and auditability. Distinguish deleting from Gallery index vs physical Synology original. Correctly manage NAS JPG + SSD linked MP4, including trash/restore/permanent deletion/rescan and partial failures. Never delete unrelated media.
+3. Finish mobile/web UX and backend: intuitive storage/source information, trash and restore, safe single-item permanent deletion, clear progress/errors, Russian localization, accessibility, responsive UI. Preserve existing features.
+4. Add automated integration/e2e tests using **disposable data**: SSD/SSD; NAS JPG+SSD MP4; read-only or missing/unmounted NAS; partial failures, retries, concurrent rescan, duplicates, security/path traversal, restore and retention. Verify actual files and database state. Explicitly label mocked tests vs real NFS-mounted tests; do not claim real Synology tests without access.
+5. Prepare clean reproducible release: Docker image build/digest, Compose/example environment, install/update guide, migration/backup/restore instructions and limitations, CI tests/lint/security checks, release notes, test matrix and exact logs/results. Never promise downgrade compatibility without evidence.
+6. Create a PR with code, tests, documentation, blockers, and objective pass/fail acceptance evidence. No automatic merge/deploy.
+
+## Acceptance
+
+- With disposable fixtures, a Live Photo whose JPG physically resides on NFS-backed `/external` and linked MP4 on SSD `/data` can be trashed, restored and permanently deleted under an explicit authorized policy, with physical and DB checks; other files untouched.
+- External-library deletion is disabled by default, with clear UX and safe failure modes.
+- All claimed tests actually run and pass; installation artifact and complete docs are available.
+- If real Synology access is needed, state **pending real-NAS validation** rather than asserting success.
+
+## Mandatory additional scope: consolidate THREE trash bins and reconcile historical deletion jobs
+
+The owner reports **three separate trash bins** in the application and wants that duplication removed. First inspect the actual implementation and document what each trash view/storage/queue means (do not assume they are three independent physical stores). Design and implement **one coherent user-facing trash** with correct backend state and consistent semantics across mobile/web, accounts, external libraries, restore, retention, and permanent deletion. Preserve all existing items and user ownership; migrate safely with rollback plan and regression tests. Never silently empty any trash.
+
+**Historical pending/stuck delete requests are a release blocker.** Audit all database deletion states, asynchronous queues, scheduled jobs, failed/retrying/dead-letter jobs, soft-deleted records and orphaned physical files. Identify operations requested by users but not completed due to historical bugs. Build a **read-only dry-run audit and per-item reconciliation report** before any repair. Distinguish: pending; failed; already completed; user-restored/cancelled; conflicting; missing/unmounted NAS; partial JPG/MP4 deletion. Preserve provenance and timestamps and make actions idempotent, observable and resumable. Do **not** blindly replay old deletion requests or auto-delete originals: current user intent and data state may have changed. For destructive reconciliation, require explicit user authorization, especially for NAS originals; allow targeted per-item/batch review with previews, safe retries and audit logs. Include an admin-safe recovery command/UI, tests for stale jobs, duplicate job delivery, interrupted deletes, restore-after-delete request, NAS disconnect, and crash recovery.
+
+Acceptance requires: a single consistent trash experience; an audited count and categorized report of historical pending requests; demonstrated safe resolution path for each category; no silent deletions or unrelated media loss. If production data access is needed to quantify or remediate historical jobs, mark it **pending production audit/approval** rather than claim it completed.
+
+## Owner decision (2026-10-16): no per-item approvals for cleanup of legacy jobs
+
+The owner explicitly authorizes **full automatic cleanup of all stale historical deletion jobs and requests**, with **no per-item approvals**. Implement a one-shot, repeatable migration/maintenance routine that inventories old queue entries and deletion operations, classifies completed/failed/stuck/obsolete states, and drains/removes **obsolete job metadata and pending queue tasks** after preserving a diagnostic summary and rollback/backup evidence. Ensure queues do not re-enqueue the same stale tasks after reboot, and that active current jobs remain intact.
+
+**Critical semantic boundary:** authorization to purge stale *job records/requests* is not blanket authorization to physically erase photo/video originals or to execute old requests against NAS. Never replay historical destructive actions as a side effect of queue cleanup; instead cancel/mark obsolete unsafe stale operations. Retain trash assets and user data unless the user separately explicitly instructs to purge them. Provide counts before/after and automated tests. No additional per-item approvals needed for non-destructive cleanup of obsolete queue metadata.
+
+## Mandatory performance issue: bulk trash deletion appears to process photos one by one
+
+User observes that when permanently deleting items from trash, deletion starts very slowly and appears to advance one photo at a time. This is a **reported symptom, not a proven root cause**. Investigate front-end request pattern, per-item API calls, background job scheduling/concurrency, database transactions, Live Photo pairing, NFS latency, thumbnail cleanup, event emission and UI rerender/polling. Capture reproducible timing/profiling evidence with disposable fixtures.
+
+Implement efficient **bounded, resilient batch processing** for bulk permanent deletion where appropriate, with an asynchronous job ID, aggregate progress (processed/total, failures), cancellation semantics where feasible, retries/idempotency and clear partial-failure reporting. Avoid unbounded parallel NFS unlink operations or long database locks. Keep single-item permanent deletion functional and preserve default NAS safety policy. Ensure user does not need to keep UI open for a long-running job; prevent duplicate execution on refresh/restart.
+
+Add realistic load/performance tests for 1, 10, 100, and 1000 items, including mixed JPG/MP4 and NFS-backed disposable media, comparing baseline vs updated throughput, memory/CPU/IO load, correctness, and recovery after interruption. Establish evidence-based latency/throughput targets; do not claim specific speedups without measurements. Include results in release report.
+
+## Codex CLI delivery contract (2026-10-16)
+
+If Codex Web cloud execution is unavailable, continue this same task in Codex CLI from the existing repository and feature branch. First inspect local Git status, remote state, PR #1 and this entire specification. Preserve uncommitted work; do not assume the former cloud executor's uncommitted changes are accessible. Never discard or overwrite local changes, force-push, or silently create a replacement codebase. If necessary, clone into a separate directory only after confirming there is no existing worktree to preserve.
+
+**Required implementation and deliverables (not merely an audit):**
+
+- Finish and test backend, Android app and web UX according to every requirement above, without dropping existing features.
+- Produce a reproducible, versioned Docker backend image, with image identifier/digest, source commit, build command, and install/update/rollback documentation. Publish to an appropriate registry if credentials and permissions are already available; otherwise provide the local image/export path and explicitly mark publication blocked.
+- Build an installable Android APK from the updated Android source; report versionName/versionCode, build type, SHA-256, exact artifact location and commit. Use the existing release signing configuration only if securely available. Do not invent or rotate signing credentials. If unavailable, produce a debug APK and explicitly warn that it may not update the installed release app. If Android build tooling or source is missing, report the blocker instead of claiming completion.
+- Build and verify the web frontend and its integration with the backend.
+- Execute available automated tests, including disposable-fixture storage/delete scenarios and the 1/10/100/1000-item performance matrix; report actual commands, outcomes and measured results, distinguishing mocks from real NFS tests. Never invent test passes or speedups.
+- Commit source, tests, CI changes, migrations, and documentation to the existing feature branch and **push** to GitHub; update existing PR #1 (do not create a duplicate). Push is authorized, but **merge and production deployment are not**. Verify remote HEAD and PR after push. Do not commit signing keys, credentials, production secrets, database dumps, or family media.
+- Where permitted by available tooling and credentials, publish distributable APK and Docker artifacts using GitHub Releases/Actions artifacts and/or a container registry. Do not commit binary build artifacts to Git history by default. Provide working links and checksums; if publication is unavailable, clearly state what remains local and why.
+
+**Completion criteria:** provide PR and commit links, APK artifact and checksum, Docker image identifier/digest, web build result, actual test matrix, limitations, and safe upgrade/rollback instructions. Distinguish DONE, PARTIAL, and BLOCKED. Do not claim release READY when mandatory deliverables or safety tests are missing. No changes to production HP, VPN/DNS, Synology originals, or real user trash. The owner's permission to clean obsolete job metadata is not permission to erase physical media.
