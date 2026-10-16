@@ -89,8 +89,8 @@ class ActionNotifier extends Notifier<void> {
 
   Future<ActionResult> emptyTrash(String userId) async {
     try {
-      final count = await _service.emptyTrash(userId);
-      return ActionResult(count: count, success: true);
+      final result = await _service.emptyTrash(userId);
+      return ActionResult(count: result.completed, success: result.remaining == 0, failedCount: result.remaining);
     } catch (error, stack) {
       _logger.severe('Failed to empty trash', error, stack);
       return ActionResult(count: 0, success: false, error: error.toString());
