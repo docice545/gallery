@@ -135,3 +135,20 @@ was performed.
   The inspected Gallery Build 11 remains versionCode 11 and cannot prove an
   upgrade over the reported installed Build 12. No APK was installed and no
   production, NAS, VPN, Redis, or real-media operation was performed.
+
+## Final branch synchronization stage (2026-10-16)
+
+- `git fetch origin codex/nas-release-readiness-20261016` confirmed the remote
+  instruction tip `c9f8a3de647b1aee6f35dcf653f20bdbf345b9e8` is an ancestor of
+  the candidate branch. The complete candidate `0e282b7070182fb0a6aff771924a3b62d993c77a`
+  was pushed without reset, force-update, or working-tree cleanup; `git
+ls-remote` reports the same remote HEAD.
+- The artifact audit remains unchanged after synchronization: only Gallery
+  APKs were found in the checkout/task artifact directories, no upstream APK or
+  IPA is available, and no Android device, macOS/Xcode toolchain, or authorized
+  `foto` signing files are present. Real-client compatibility and signed
+  versionCode >=13 therefore remain BLOCKED rather than being inferred from
+  contract tests or the Gallery Build 11 inspection.
+- Existing untracked `BUILD*.log` files remain preserved outside Git. No APK was
+  installed and no production, NAS, VPN, Redis, or real-media operation was
+  performed.
