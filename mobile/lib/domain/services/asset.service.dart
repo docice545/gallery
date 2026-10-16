@@ -253,6 +253,12 @@ class AssetService {
     }
   }
 
+  /// Cancels a batch only when its durable id was explicitly provided by the
+  /// caller. A cancelled batch is never implicitly retried or resumed.
+  Future<PermanentDeletionBatchStatus> cancelDeletionBatch(String batchId) {
+    return _apiRepository.cancelDeletionBatch(batchId);
+  }
+
   Future<List<String>> getTrashIds(String ownerId) => _remoteRepository.getTrashIds(ownerId);
 
   Future<List<String>> getDeletionLocalIds(List<String> ids) => _remoteRepository.getDeletionLocalIds(ids);

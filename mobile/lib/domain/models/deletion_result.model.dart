@@ -8,6 +8,30 @@ class PermanentDeletionResult {
   bool get complete => state == 'complete';
 }
 
+class PermanentDeletionBatchStatus {
+  final String id;
+  final String state;
+  final int total;
+  final int processed;
+  final int complete;
+  final int failed;
+  final int pending;
+  final bool cancelRequested;
+
+  const PermanentDeletionBatchStatus({
+    required this.id,
+    required this.state,
+    required this.total,
+    required this.processed,
+    required this.complete,
+    required this.failed,
+    required this.pending,
+    required this.cancelRequested,
+  });
+
+  bool get cancelled => state == 'cancelled' || cancelRequested;
+}
+
 class LocalDeletionResult {
   final List<String> deletedIds;
   final List<String> remainingIds;

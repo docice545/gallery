@@ -28,6 +28,23 @@ class AssetApiRepository extends ApiRepository {
   StacksApi get _stacksApi => _apiService.stacksApi;
   TrashApi get _trashApi => _apiService.trashApi;
 
+  /// Requests cancellation of a known deletion batch. The server may finish
+  /// the active chunk; callers must keep the returned status and reconcile
+  /// item results before removing anything from local Trash.
+  Future<PermanentDeletionBatchStatus> cancelDeletionBatch(String batchId) => _serializeTrashRequest(() async {
+    final dto = await checkNull(_api.cancelDeletionBatch(batchId));
+    return PermanentDeletionBatchStatus(
+      id: dto.id,
+      state: dto.state.toString(),
+      total: dto.total,
+      processed: dto.processed,
+      complete: dto.complete,
+      failed: dto.failed,
+      pending: dto.pending,
+      cancelRequested: dto.cancelRequested.orElse(false) ?? false,
+    );
+  });
+
   // Order mutation requests independently of optimistic UI updates. Otherwise
   // a delayed Restore can reach the server after a subsequent Trash.
   Future<T> _serializeTrashRequest<T>(Future<T> Function() request) {

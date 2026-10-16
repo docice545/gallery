@@ -26,6 +26,7 @@ void main() {
     addTearDown(client.client.close);
     final service = _Service();
     when(() => service.apiClient).thenReturn(client);
+    when(() => service.assetsApi).thenReturn(AssetsApi(client));
     return AssetApiRepository(service);
   }
 
@@ -140,6 +141,36 @@ void main() {
     expect(results.take(5000).every((result) => result.complete), isTrue);
     expect(results.last.state, 'blocked');
     expect(results.last.code, 'REQUEST_NOT_SENT');
+  });
+
+  test('cancels an explicitly identified batch and preserves server status', () async {
+    late Request request;
+    final sut = repository((value) async {
+      request = value;
+      return Response(
+        jsonEncode({
+          'id': 'batch-1',
+          'state': 'active',
+          'total': 5000,
+          'processed': 200,
+          'complete': 199,
+          'failed': 1,
+          'pending': 4800,
+          'cancelRequested': true,
+        }),
+        200,
+      );
+    });
+
+    final status = await sut.cancelDeletionBatch('batch-1');
+
+    expect(request.method, 'POST');
+    expect(request.url.path, '/api/assets/permanent-deletion/batch-1/cancel');
+    expect(status.id, 'batch-1');
+    expect(status.state, 'active');
+    expect(status.cancelled, isTrue);
+    expect(status.processed, 200);
+    expect(status.pending, 4800);
   });
 
   test('definite rejection does not pretend a permanent intent exists', () async {
