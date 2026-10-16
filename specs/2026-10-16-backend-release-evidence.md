@@ -113,3 +113,25 @@ was performed.
   attempted.
 - Production audit, deployment, and any cleanup of production queue metadata
   require a separate explicit operational step.
+
+## Latest validation stage (2026-10-16)
+
+- Remote branch synchronization was read-only with respect to repository history:
+  `c9f8a3de647b1aee6f35dcf653f20bdbf345b9e8` was already an ancestor, and the
+  current candidate `8788ae89f5dd9aac64d30f9a13b232c0ceeee7ed` was pushed without
+  force-updating or discarding the working tree. Existing untracked `BUILD*.log`
+  files remain outside Git.
+- Structural compatibility was rerun with
+  `python3 scripts/release/upstream_compatibility.py`: 371 retained operations,
+  97 byte-identical upstream migrations, zero failures. This remains a wire
+  contract gate only; it does not claim original-client runtime compatibility.
+- Focused server checks passed: `pnpm check` and the trash/job controller suites
+  (2 files, 70 tests). Focused web checks passed: 3 Vitest suites (23 tests),
+  TypeScript check, and Svelte check with zero errors/warnings. Focused mobile
+  checks passed: 4 Flutter suites (32 tests) and Dart analysis with no issues.
+- The original Android/iOS gate is still BLOCKED. No upstream APK or IPA,
+  Android device runtime, macOS/Xcode toolchain, authorized `foto` signing
+  files, or separate disposable NFS export is available in this environment.
+  The inspected Gallery Build 11 remains versionCode 11 and cannot prove an
+  upgrade over the reported installed Build 12. No APK was installed and no
+  production, NAS, VPN, Redis, or real-media operation was performed.
