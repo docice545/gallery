@@ -1,9 +1,12 @@
-import { deletionScopes, emptyTrash } from '@immich/sdk';
+import { deletionScopes } from '@immich/sdk';
 import { modalManager, toastManager } from '@immich/ui';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { deleteAssets } from '$lib/utils/actions';
 import { handleEmptyTrash } from './trash.service';
 
-vi.mock('@immich/sdk', async (original) => ({ ...(await original()), deletionScopes: vi.fn(), emptyTrash: vi.fn() }));
+vi.mock('@immich/sdk', async (original) => ({ ...(await original()), deletionScopes: vi.fn() }));
+vi.mock('$lib/utils/actions', () => ({ deleteAssets: vi.fn() }));
+
 vi.mock('$lib/managers/feature-flags-manager.svelte', () => ({
   featureFlagsManager: { valueOrUndefined: { authorizedDeletion: true } },
 }));
@@ -19,14 +22,22 @@ describe('Empty Trash scope authorization', () => {
       { scope: 'managed', count: 12, authorized: true },
       { scope: 'external', count: 3, authorized: false },
     ]);
-    await handleEmptyTrash();
-    expect(emptyTrash).not.toHaveBeenCalled();
+    await handleEmptyTrash(async () => [{ id: 'asset-1' } as never], vi.fn());
+    expect(deleteAssets).not.toHaveBeenCalled();
     expect(toastManager.primary).toHaveBeenCalledWith(expect.stringContaining('external_deletion_blocked'));
   });
   it('permits managed-only Empty Trash after explicit authorization', async () => {
     vi.mocked(deletionScopes).mockResolvedValue([{ scope: 'managed', count: 12, authorized: true }]);
-    vi.mocked(emptyTrash).mockResolvedValue({ count: 12 });
-    await handleEmptyTrash();
-    expect(emptyTrash).toHaveBeenCalledTimes(1);
+    vi.mocked(deleteAssets).mockResolvedValue(true);
+    const remove = vi.fn();
+    await handleEmptyTrash(async () => [{ id: 'asset-1' } as never], remove);
+    expect(deleteAssets).toHaveBeenCalledWith(true, remove, [{ id: 'asset-1' }]);
+  });
+
+  it('does not submit a mutation for an empty owner-scoped snapshot', async () => {
+    vi.mocked(deletionScopes).mockResolvedValue([]);
+    await handleEmptyTrash(async () => [], vi.fn());
+    expect(deleteAssets).not.toHaveBeenCalled();
+    expect(toastManager.primary).toHaveBeenCalledWith(expect.stringContaining('assets_permanently_deleted_count'));
   });
 });

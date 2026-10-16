@@ -16,6 +16,7 @@ NAS mounts, and real photographs were not accessed.
 | Historical-job audit/reconcile smoke | PASS    | Isolated image smoke: authenticated audit and reconcile both returned HTTP 201 with zero synthetic jobs changed         |
 | Web Trash/delete regression          | PASS    | Vitest: 4 files, 28 tests; queued completion, cancellation, partial acknowledgement, preflight and Trash-page semantics |
 | Mobile Trash/delete regression       | PASS    | Flutter: 3 files, 26 tests; aggregate polling, reconciliation, explicit cancel and selection preservation               |
+| Web Empty Trash bounded flow          | PASS    | Gallery web snapshots the single owner Trash timeline and routes Empty Trash through shared preflight/batch polling; 3 focused suites, 23 tests |
 | Real Synology/NFS validation         | BLOCKED | No separate disposable Synology test directory/export is available                                                      |
 
 The 1/10/100 rows report `elapsedMs=0` for the batch worker because those requests
@@ -58,6 +59,12 @@ was performed.
   snapshot, shows aggregate progress, supports explicit cancellation after a
   `batchId`, and reconciles only confirmed `complete` receipts. A cancelled
   selection is not implicitly retried.
+- Gallery web Empty Trash now captures the loaded owner-scoped Trash timeline as
+  one bounded snapshot and calls that same deletion flow. The legacy
+  `POST /api/trash/empty` endpoint remains available for original clients but is
+  no longer called by Gallery web; this preserves the upstream contract while
+  preventing the web UI from treating a count-only acknowledgement as physical
+  completion. An empty snapshot performs no mutation.
 - This is contract/regression evidence, not real-client compatibility evidence.
   No upstream Android APK or iOS IPA was run against this server; no device
   upgrade, signed Build >=13, or iOS archive was produced in this stage.

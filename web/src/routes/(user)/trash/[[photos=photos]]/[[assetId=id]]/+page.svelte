@@ -76,7 +76,17 @@
     temporalAnchor = result.anchor;
   }
 
-  const { Empty, RestoreAll } = $derived(getTrashActions($t));
+  const getTrashSnapshot = async () => {
+    const assets = [];
+    for await (const asset of timelineManager.assetsIterator()) {
+      assets.push(asset);
+    }
+    return assets;
+  };
+
+  const { Empty, RestoreAll } = $derived(
+    getTrashActions($t, getTrashSnapshot, (assetIds) => timelineManager.removeAssets(assetIds)),
+  );
 </script>
 
 {#if featureFlagsManager.value.trash}
