@@ -40,7 +40,7 @@ const waitForDeletionBatch = async (batchId: string, ids: string[]) => {
       for (let start = 0; start < ids.length; start += 200) {
         results.push(...(await deletionStatuses({ bulkIdsDto: { ids: ids.slice(start, start + 200) } })));
       }
-      return results;
+      return { results, cancelled: status.state === 'cancelled' || status.cancelRequested === true };
     }
     await new Promise((resolve) => setTimeout(resolve, PERMANENT_DELETION_POLL_INTERVAL_MS));
   }
@@ -52,7 +52,7 @@ export const deleteAssets = async (
   onAssetDelete: OnDelete,
   assets: TimelineAsset[],
   onUndoDelete: OnUndoDelete | undefined = undefined,
-) => {
+): Promise<boolean> => {
   const $t = get(t);
   try {
     const ids = assets.map((a) => a.id);
@@ -80,7 +80,7 @@ export const deleteAssets = async (
               .map((r) => deletionMessage($t, r.code, r.scope))
               .join(' '),
         );
-        return;
+        return false;
       }
       const completed: string[] = [];
       const unresolved: string[] = [];
@@ -99,8 +99,11 @@ export const deleteAssets = async (
           throw new Error('Invalid permanent deletion batch acknowledgement');
         }
         const batchId = [...batchIds][0];
+        let cancelled = false;
         if (batchId) {
-          results = await waitForDeletionBatch(batchId, batch);
+          const status = await waitForDeletionBatch(batchId, batch);
+          results = status.results;
+          cancelled = status.cancelled;
         }
         if (
           results.length !== batch.length ||
@@ -120,6 +123,7 @@ export const deleteAssets = async (
         // never hides earlier confirmed results or removes unresolved rows.
         onAssetDelete(removed);
         if (
+          cancelled ||
           results.some(
             (r) => r.code === 'LIBRARY_DELETION_NOT_AUTHORIZED' || r.code === 'DELETION_BATCH_NOT_AUTHORIZED',
           )
@@ -139,7 +143,7 @@ export const deleteAssets = async (
           },
         }),
       );
-      return;
+      return completed.length === ids.length;
     }
     await deleteBulk({ assetBulkDeleteDto: { ids, force } });
     onAssetDelete(ids);
@@ -156,8 +160,10 @@ export const deleteAssets = async (
       },
       { timeout: 5000 },
     );
+    return true;
   } catch (error) {
     handleError(error, $t('errors.unable_to_delete_assets'));
+    return false;
   }
 };
 

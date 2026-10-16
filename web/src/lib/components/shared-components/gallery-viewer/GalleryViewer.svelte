@@ -258,21 +258,23 @@
     const forceOrNoTrash = force || !featureFlagsManager.value.trash;
     const selectedAssets = assetInteraction.assets;
 
-    if ($showDeleteModal && forceOrNoTrash) {
+    if ((featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal) && forceOrNoTrash) {
       const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: selectedAssets.length });
       if (!confirmed) {
         return;
       }
     }
 
-    await deleteAssets(
+    const completed = await deleteAssets(
       forceOrNoTrash,
       (assetIds) => (assets = assets.filter((asset) => !assetIds.includes(asset.id))),
       selectedAssets,
       onReload,
     );
 
-    assetInteraction.clear();
+    if (completed) {
+      assetInteraction.clear();
+    }
   };
 
   const toggleArchive = async () => {

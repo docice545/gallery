@@ -35,20 +35,22 @@
     const force = forceRequested || !featureFlagsManager.value.trash;
     const selectedAssets = assetInteraction.assets;
 
-    if ($showDeleteModal && force) {
+    if ((featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal) && force) {
       const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: selectedAssets.length });
       if (!confirmed) {
         return;
       }
     }
 
-    await deleteAssets(
+    const completed = await deleteAssets(
       force,
       (assetIds) => timelineManager.removeAssets(assetIds),
       selectedAssets,
       force ? undefined : (assets) => timelineManager.upsertAssets(assets),
     );
-    assetInteraction.clear();
+    if (completed) {
+      assetInteraction.clear();
+    }
   };
 
   const onDelete = () => {

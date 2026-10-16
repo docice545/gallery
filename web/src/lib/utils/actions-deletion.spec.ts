@@ -88,6 +88,33 @@ describe('permanent deletion acknowledgements', () => {
     expect(deletionStatuses).toHaveBeenCalledTimes(2);
     expect(remove).toHaveBeenCalledWith(ids);
   });
+  it.each([
+    [PermanentDeletionBatchState.Cancelled, false],
+    [PermanentDeletionBatchState.Complete, true],
+  ])('stops unsent work after cancellation (%s, cancelRequested=%s)', async (state, cancelRequested) => {
+    vi.mocked(permanentDeletion).mockResolvedValue(
+      assets(5000).map(({ id }) => ({ id, state: State.Pending, batchId: 'batch-1' })),
+    );
+    vi.mocked(deletionBatchStatus).mockResolvedValue({
+      id: 'batch-1',
+      state,
+      cancelRequested,
+      total: 5000,
+      processed: 1,
+      complete: 1,
+      failed: 0,
+      pending: 4999,
+    });
+    vi.mocked(deletionStatuses).mockImplementation(({ bulkIdsDto }) =>
+      Promise.resolve(bulkIdsDto.ids.map((id) => ({ id, state: id === 'asset-0' ? State.Complete : State.Pending }))),
+    );
+    const remove = vi.fn();
+
+    await expect(deleteAssets(true, remove, assets(5001))).resolves.toBe(false);
+
+    expect(permanentDeletion).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledWith(['asset-0']);
+  });
   it.each(['duplicate', 'missing', 'foreign'])('rejects %s acknowledgement without removing rows', async (kind) => {
     const result =
       kind === 'missing'

@@ -23,6 +23,9 @@
   let loading = $state(false);
 
   const onAction = async () => {
+    if (loading) {
+      return;
+    }
     const assets = assetMultiSelectManager.ownedAssets;
 
     if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal)) {
@@ -33,9 +36,14 @@
     }
 
     loading = true;
-    await deleteAssets(force, onAssetDelete, assets, onUndoDelete);
-    assetMultiSelectManager.clear();
-    loading = false;
+    try {
+      const completed = await deleteAssets(force, onAssetDelete, assets, onUndoDelete);
+      if (completed) {
+        assetMultiSelectManager.clear();
+      }
+    } finally {
+      loading = false;
+    }
   };
 </script>
 
