@@ -221,8 +221,18 @@ class AssetApiRepository extends ApiRepository {
         if (batchIds.length > 1 || (batchIds.length == 1 && results.any((result) => result.batchId == null))) {
           throw StateError('Invalid deletion batch acknowledgement');
         }
-        final settled = batchIds.isEmpty ? results : await _waitForDeletionBatch(batchIds.single, unique);
-        acknowledged.addAll(settled);
+        final settled = batchIds.isEmpty
+            ? (results: results, cancelled: false)
+            : await _waitForDeletionBatch(batchIds.single, unique);
+        acknowledged.addAll(settled.results);
+        if (settled.cancelled) {
+          acknowledged.addAll(
+            requested
+                .skip(start + _permanentDeletionRequestLimit)
+                .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT')),
+          );
+          break;
+        }
         if (results.any(
           (result) => const {'LIBRARY_DELETION_NOT_AUTHORIZED', 'DELETION_BATCH_NOT_AUTHORIZED'}.contains(result.code),
         )) {
@@ -255,7 +265,10 @@ class AssetApiRepository extends ApiRepository {
     return acknowledged;
   });
 
-  Future<List<PermanentDeletionResult>> _waitForDeletionBatch(String batchId, Set<String> ids) async {
+  Future<({List<PermanentDeletionResult> results, bool cancelled})> _waitForDeletionBatch(
+    String batchId,
+    Set<String> ids,
+  ) async {
     for (var attempt = 0; attempt < _permanentDeletionMaxPolls; attempt++) {
       final response = await _apiService.apiClient.invokeAPI(
         '/assets/permanent-deletion/status',
@@ -272,7 +285,10 @@ class AssetApiRepository extends ApiRepository {
       final status = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final state = status['state'] as String?;
       if (state != 'pending' && state != 'active') {
-        return _deletionStatuses(ids.toList());
+        return (
+          results: await _deletionStatuses(ids.toList()),
+          cancelled: state == 'cancelled' || status['cancelRequested'] == true,
+        );
       }
       await Future<void>.delayed(_permanentDeletionPollInterval);
     }

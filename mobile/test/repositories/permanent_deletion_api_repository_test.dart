@@ -103,6 +103,45 @@ void main() {
     expect(results.every((result) => result.complete), isTrue);
   });
 
+  test('stops unsent batches after a cancelled queued batch', () async {
+    var deletionRequests = 0;
+    final ids = List.generate(5001, (index) => 'fixture-$index');
+    final sut = repository((request) async {
+      if (request.url.path.endsWith('/permanent-deletion/status')) {
+        return Response(
+          jsonEncode({
+            'id': 'batch-1',
+            'state': 'cancelled',
+            'total': 5000,
+            'processed': 1,
+            'complete': 1,
+            'failed': 0,
+            'pending': 4999,
+          }),
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/deletion-status')) {
+        final requested = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        return Response(jsonEncode(requested.map((id) => {'id': id, 'state': 'complete'}).toList()), 200);
+      }
+      deletionRequests++;
+      final requested = (jsonDecode(request.body)['ids'] as List).cast<String>();
+      return Response(
+        jsonEncode(requested.map((id) => {'id': id, 'state': 'pending', 'batchId': 'batch-1'}).toList()),
+        201,
+      );
+    });
+
+    final results = await sut.permanentlyDelete(ids);
+
+    expect(deletionRequests, 1);
+    expect(results.length, ids.length);
+    expect(results.take(5000).every((result) => result.complete), isTrue);
+    expect(results.last.state, 'blocked');
+    expect(results.last.code, 'REQUEST_NOT_SENT');
+  });
+
   test('definite rejection does not pretend a permanent intent exists', () async {
     final sut = repository((_) async => Response('', 403));
     final result = (await sut.permanentlyDelete(['fixture'])).single;
