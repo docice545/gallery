@@ -110,11 +110,11 @@ class _TrashKebabMenu extends ConsumerWidget {
       if (ids.isEmpty) {
         return;
       }
-      final controller = _BatchDeletionController(service, ids)..start();
+      final controller = BatchDeletionController(service, ids)..start();
       final outcome = await showDialog<_BatchDeletionOutcome>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => _BatchDeletionDialog(controller: controller),
+        builder: (_) => BatchDeletionDialog(controller: controller),
       );
       if (outcome == null) {
         return;
@@ -250,14 +250,14 @@ class _BatchDeletionOutcome {
   const _BatchDeletionOutcome.failure(this.error, this.stackTrace) : results = null;
 }
 
-class _BatchDeletionController {
+class BatchDeletionController {
   final AssetService service;
   final List<String> ids;
   final status = ValueNotifier<PermanentDeletionBatchStatus?>(null);
   late final Future<List<PermanentDeletionResult>> operation;
   bool canceling = false;
 
-  _BatchDeletionController(this.service, this.ids);
+  BatchDeletionController(this.service, this.ids);
 
   void start() {
     operation = service.deleteWithResults(ids, onBatchStatus: (value) => status.value = value);
@@ -279,16 +279,16 @@ class _BatchDeletionController {
   void dispose() => status.dispose();
 }
 
-class _BatchDeletionDialog extends StatefulWidget {
-  final _BatchDeletionController controller;
+class BatchDeletionDialog extends StatefulWidget {
+  final BatchDeletionController controller;
 
-  const _BatchDeletionDialog({required this.controller});
+  const BatchDeletionDialog({super.key, required this.controller});
 
   @override
-  State<_BatchDeletionDialog> createState() => _BatchDeletionDialogState();
+  State<BatchDeletionDialog> createState() => _BatchDeletionDialogState();
 }
 
-class _BatchDeletionDialogState extends State<_BatchDeletionDialog> {
+class _BatchDeletionDialogState extends State<BatchDeletionDialog> {
   @override
   void initState() {
     super.initState();
