@@ -9,7 +9,8 @@ const recoveryProof = z.string().regex(/^[a-f0-9]{64}$/);
 export class PermanentDeletionDto extends createZodDto(
   z
     .object({
-      ids: z.array(z.uuid()).min(1).max(200),
+      // Requests above the inline limit are handled by the durable bounded worker.
+      ids: z.array(z.uuid()).min(1).max(5000),
       confirmed: z.literal(true),
     })
     .meta({ id: 'PermanentDeletionDto' }),
