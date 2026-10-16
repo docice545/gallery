@@ -67,6 +67,7 @@ void main() {
 
   test('polls a queued batch and reconciles its final per-item statuses', () async {
     var statusPolls = 0;
+    final statuses = <String>[];
     final ids = List.generate(5000, (index) => 'fixture-$index');
     final sut = repository((request) async {
       if (request.url.path.endsWith('/permanent-deletion/status')) {
@@ -97,9 +98,10 @@ void main() {
       );
     });
 
-    final results = await sut.permanentlyDelete(ids);
+    final results = await sut.permanentlyDelete(ids, onBatchStatus: (status) => statuses.add(status.state));
 
     expect(statusPolls, 2);
+    expect(statuses, ['active', 'complete']);
     expect(results.length, ids.length);
     expect(results.every((result) => result.complete), isTrue);
   });

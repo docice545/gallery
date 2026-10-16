@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
+import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
@@ -100,7 +104,25 @@ class _TrashKebabMenu extends ConsumerWidget {
       // Capture only this owner's synchronized Trash. Do not clear all cached
       // rows based on a count-only response or delete newly arriving assets.
       final ids = await service.getTrashIds(user.id);
-      final results = await service.deleteWithResults(ids);
+      if (!context.mounted) {
+        return;
+      }
+      if (ids.isEmpty) {
+        return;
+      }
+      final controller = _BatchDeletionController(service, ids)..start();
+      final outcome = await showDialog<_BatchDeletionOutcome>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _BatchDeletionDialog(controller: controller),
+      );
+      if (outcome == null) {
+        return;
+      }
+      if (outcome.error != null) {
+        Error.throwWithStackTrace(outcome.error!, outcome.stackTrace!);
+      }
+      final results = outcome.results!;
       final completed = results.where((result) => result.complete).map((result) => result.id).toList();
       final localIds = await service.getDeletionLocalIds(completed);
       if (!context.mounted) {
@@ -215,6 +237,117 @@ class _TrashKebabMenu extends ConsumerWidget {
           onPressed: () => controller.isOpen ? controller.close() : controller.open(),
         );
       },
+    );
+  }
+}
+
+class _BatchDeletionOutcome {
+  final List<PermanentDeletionResult>? results;
+  final Object? error;
+  final StackTrace? stackTrace;
+
+  const _BatchDeletionOutcome.success(this.results) : error = null, stackTrace = null;
+  const _BatchDeletionOutcome.failure(this.error, this.stackTrace) : results = null;
+}
+
+class _BatchDeletionController {
+  final AssetService service;
+  final List<String> ids;
+  final status = ValueNotifier<PermanentDeletionBatchStatus?>(null);
+  late final Future<List<PermanentDeletionResult>> operation;
+  bool canceling = false;
+
+  _BatchDeletionController(this.service, this.ids);
+
+  void start() {
+    operation = service.deleteWithResults(ids, onBatchStatus: (value) => status.value = value);
+  }
+
+  Future<void> cancel() async {
+    final batchId = status.value?.id;
+    if (batchId == null || canceling) {
+      return;
+    }
+    canceling = true;
+    try {
+      status.value = await service.cancelDeletionBatch(batchId);
+    } finally {
+      canceling = false;
+    }
+  }
+
+  void dispose() => status.dispose();
+}
+
+class _BatchDeletionDialog extends StatefulWidget {
+  final _BatchDeletionController controller;
+
+  const _BatchDeletionDialog({required this.controller});
+
+  @override
+  State<_BatchDeletionDialog> createState() => _BatchDeletionDialogState();
+}
+
+class _BatchDeletionDialogState extends State<_BatchDeletionDialog> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.status.addListener(_statusChanged);
+    unawaited(_finishWhenComplete());
+  }
+
+  void _statusChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _finishWhenComplete() async {
+    try {
+      final results = await widget.controller.operation;
+      if (mounted) {
+        Navigator.of(context).pop(_BatchDeletionOutcome.success(results));
+      }
+    } catch (error, stackTrace) {
+      if (mounted) {
+        Navigator.of(context).pop(_BatchDeletionOutcome.failure(error, stackTrace));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.status.removeListener(_statusChanged);
+    widget.controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = widget.controller.status.value;
+    final processed = status?.processed ?? 0;
+    final total = status?.total ?? widget.controller.ids.length;
+    final progress = total == 0 ? 0.0 : (processed / total).clamp(0.0, 1.0);
+    final canCancel = status != null && !status.cancelled && !widget.controller.canceling;
+
+    return AlertDialog(
+      title: Text(context.t.delete_permanently),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LinearProgressIndicator(value: progress),
+          const SizedBox(height: 16),
+          Text(context.t.upload_progress(processed: processed, total: total, remaining: total - processed)),
+          if (status?.cancelled ?? false) ...[const SizedBox(height: 8), Text(context.t.canceled)],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: canCancel ? widget.controller.cancel : null,
+          child: Text(widget.controller.canceling ? context.t.canceling : context.t.cancel),
+        ),
+      ],
     );
   }
 }

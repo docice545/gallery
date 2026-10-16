@@ -31,7 +31,10 @@ class AssetApiRepository extends ApiRepository {
   /// Requests cancellation of a known deletion batch. The server may finish
   /// the active chunk; callers must keep the returned status and reconcile
   /// item results before removing anything from local Trash.
-  Future<PermanentDeletionBatchStatus> cancelDeletionBatch(String batchId) => _serializeTrashRequest(() async {
+  ///
+  /// This deliberately bypasses the mutation queue: the batch is polling in
+  /// that queue, so enqueuing cancellation behind it could never stop work.
+  Future<PermanentDeletionBatchStatus> cancelDeletionBatch(String batchId) async {
     final dto = await checkNull(_api.cancelDeletionBatch(batchId));
     return PermanentDeletionBatchStatus(
       id: dto.id,
@@ -43,7 +46,7 @@ class AssetApiRepository extends ApiRepository {
       pending: dto.pending,
       cancelRequested: dto.cancelRequested.orElse(false) ?? false,
     );
-  });
+  }
 
   // Order mutation requests independently of optimistic UI updates. Otherwise
   // a delayed Restore can reach the server after a subsequent Trash.
@@ -175,7 +178,10 @@ class AssetApiRepository extends ApiRepository {
     return results;
   }
 
-  Future<List<PermanentDeletionResult>> permanentlyDelete(List<String> ids) => _serializeTrashRequest(() async {
+  Future<List<PermanentDeletionResult>> permanentlyDelete(
+    List<String> ids, {
+    void Function(PermanentDeletionBatchStatus status)? onBatchStatus,
+  }) => _serializeTrashRequest(() async {
     final requested = ids.toSet().toList();
     final acknowledged = <PermanentDeletionResult>[];
     // Check the ENTIRE selection before any mutation, including selections larger than 200.
@@ -240,7 +246,7 @@ class AssetApiRepository extends ApiRepository {
         }
         final settled = batchIds.isEmpty
             ? (results: results, cancelled: false)
-            : await _waitForDeletionBatch(batchIds.single, unique);
+            : await _waitForDeletionBatch(batchIds.single, unique, onBatchStatus);
         acknowledged.addAll(settled.results);
         if (settled.cancelled) {
           acknowledged.addAll(
@@ -285,6 +291,7 @@ class AssetApiRepository extends ApiRepository {
   Future<({List<PermanentDeletionResult> results, bool cancelled})> _waitForDeletionBatch(
     String batchId,
     Set<String> ids,
+    void Function(PermanentDeletionBatchStatus status)? onBatchStatus,
   ) async {
     for (var attempt = 0; attempt < _permanentDeletionMaxPolls; attempt++) {
       final response = await _apiService.apiClient.invokeAPI(
@@ -301,6 +308,18 @@ class AssetApiRepository extends ApiRepository {
       }
       final status = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final state = status['state'] as String?;
+      onBatchStatus?.call(
+        PermanentDeletionBatchStatus(
+          id: status['id'] as String? ?? batchId,
+          state: state ?? 'pending',
+          total: status['total'] as int? ?? ids.length,
+          processed: status['processed'] as int? ?? 0,
+          complete: status['complete'] as int? ?? 0,
+          failed: status['failed'] as int? ?? 0,
+          pending: status['pending'] as int? ?? ids.length,
+          cancelRequested: status['cancelRequested'] as bool? ?? false,
+        ),
+      );
       if (state != 'pending' && state != 'active') {
         return (
           results: await _deletionStatuses(ids.toList()),

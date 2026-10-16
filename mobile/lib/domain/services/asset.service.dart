@@ -227,13 +227,16 @@ class AssetService {
     }
   }
 
-  Future<List<PermanentDeletionResult>> deleteWithResults(List<String> remoteIds) async {
+  Future<List<PermanentDeletionResult>> deleteWithResults(
+    List<String> remoteIds, {
+    void Function(PermanentDeletionBatchStatus status)? onBatchStatus,
+  }) async {
     if (remoteIds.isEmpty) {
       return const [];
     }
     final snapshots = await _remoteRepository.beginPermanentDeletion(remoteIds);
     try {
-      final results = await _apiRepository.permanentlyDelete(remoteIds);
+      final results = await _apiRepository.permanentlyDelete(remoteIds, onBatchStatus: onBatchStatus);
       for (final result in results) {
         final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
         if (result.state == 'uncertain') {
