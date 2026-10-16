@@ -38,9 +38,9 @@ void main() {
       batches.add(ids);
       return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'complete'}).toList()), 201);
     });
-    final ids = List.generate(401, (index) => 'fixture-$index');
+    final ids = List.generate(5001, (index) => 'fixture-$index');
     final results = await sut.permanentlyDelete([...ids, ids.first]);
-    expect(batches.map((batch) => batch.length), [200, 200, 1]);
+    expect(batches.map((batch) => batch.length), [5000, 1]);
     expect(results.map((result) => result.id), ids);
     expect(results.every((result) => result.complete), isTrue);
   });
@@ -56,13 +56,52 @@ void main() {
         }
         return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'complete'}).toList()), 200);
       });
-      final results = await sut.permanentlyDelete(List.generate(401, (index) => 'fixture-$index'));
-      expect(results.take(200).every((result) => result.complete), isTrue);
-      expect(results.skip(200).take(200).every((result) => result.state == 'uncertain'), isTrue);
+      final results = await sut.permanentlyDelete(List.generate(10001, (index) => 'fixture-$index'));
+      expect(results.take(5000).every((result) => result.complete), isTrue);
+      expect(results.skip(5000).take(1).every((result) => result.state == 'uncertain'), isTrue);
       expect(results.last.code, 'REQUEST_NOT_SENT');
       expect(batch, 2);
     },
   );
+
+  test('polls a queued batch and reconciles its final per-item statuses', () async {
+    var statusPolls = 0;
+    final ids = List.generate(5000, (index) => 'fixture-$index');
+    final sut = repository((request) async {
+      if (request.url.path.endsWith('/permanent-deletion/status')) {
+        statusPolls++;
+        return Response(
+          jsonEncode({
+            'id': 'batch-1',
+            'state': statusPolls == 1 ? 'active' : 'complete',
+            'total': ids.length,
+            'processed': statusPolls == 1 ? 0 : ids.length,
+            'complete': statusPolls == 1 ? 0 : ids.length,
+            'failed': 0,
+            'pending': statusPolls == 1 ? ids.length : 0,
+          }),
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/deletion-status')) {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final requested = (body['ids'] as List).cast<String>();
+        return Response(jsonEncode(requested.map((id) => {'id': id, 'state': 'complete'}).toList()), 200);
+      }
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final requested = (body['ids'] as List).cast<String>();
+      return Response(
+        jsonEncode(requested.map((id) => {'id': id, 'state': 'pending', 'batchId': 'batch-1'}).toList()),
+        201,
+      );
+    });
+
+    final results = await sut.permanentlyDelete(ids);
+
+    expect(statusPolls, 2);
+    expect(results.length, ids.length);
+    expect(results.every((result) => result.complete), isTrue);
+  });
 
   test('definite rejection does not pretend a permanent intent exists', () async {
     final sut = repository((_) async => Response('', 403));
@@ -133,10 +172,10 @@ void main() {
         200,
       );
     });
-    final results = await sut.permanentlyDelete(List.generate(401, (i) => 'fixture-$i'));
+    final results = await sut.permanentlyDelete(List.generate(10001, (i) => 'fixture-$i'));
     expect(batch, 2);
-    expect(results.take(200).every((r) => r.complete), isTrue);
-    expect(results.skip(200).take(200).every((r) => r.state == 'blocked'), isTrue);
+    expect(results.take(5000).every((r) => r.complete), isTrue);
+    expect(results.skip(5000).take(1).every((r) => r.state == 'blocked'), isTrue);
     expect(results.last.code, 'REQUEST_NOT_SENT');
   });
 

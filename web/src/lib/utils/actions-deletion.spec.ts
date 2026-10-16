@@ -1,4 +1,11 @@
-import { deleteAssets as deleteBulk, deletionPreflight, permanentDeletion, State } from '@immich/sdk';
+import {
+  deleteAssets as deleteBulk,
+  deletionBatchStatus,
+  deletionPreflight,
+  deletionStatuses,
+  permanentDeletion,
+  State,
+} from '@immich/sdk';
 import { toastManager } from '@immich/ui';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
@@ -9,6 +16,8 @@ const flags = vi.hoisted(() => ({ authorizedDeletion: true }));
 vi.mock('@immich/sdk', async (original) => ({
   ...(await original()),
   deleteAssets: vi.fn(),
+  deletionBatchStatus: vi.fn(),
+  deletionStatuses: vi.fn(),
   permanentDeletion: vi.fn(),
   deletionPreflight: vi.fn(),
 }));
@@ -37,13 +46,46 @@ describe('permanent deletion acknowledgements', () => {
   });
   it('retains prior confirmed batch if a later request times out', async () => {
     vi.mocked(permanentDeletion)
-      .mockResolvedValueOnce(assets(200).map(({ id }) => ({ id, state: State.Complete })))
+      .mockResolvedValueOnce(assets(5000).map(({ id }) => ({ id, state: State.Complete })))
       .mockRejectedValueOnce(new Error('timeout'));
     const remove = vi.fn();
-    await deleteAssets(true, remove, assets(201));
+    await deleteAssets(true, remove, assets(5001));
     expect(remove).toHaveBeenCalledTimes(1);
-    expect(remove.mock.calls[0][0]).toHaveLength(200);
+    expect(remove.mock.calls[0][0]).toHaveLength(5000);
     expect(handleError).toHaveBeenCalled();
+  });
+  it('polls a durable batch before removing completed assets', async () => {
+    const ids = assets(201).map(({ id }) => id);
+    vi.mocked(permanentDeletion).mockResolvedValue(ids.map((id) => ({ id, state: State.Pending, batchId: 'batch-1' })));
+    vi.mocked(deletionBatchStatus)
+      .mockResolvedValueOnce({
+        id: 'batch-1',
+        state: 'active',
+        total: 201,
+        processed: 0,
+        complete: 0,
+        failed: 0,
+        pending: 201,
+      })
+      .mockResolvedValueOnce({
+        id: 'batch-1',
+        state: 'complete',
+        total: 201,
+        processed: 201,
+        complete: 201,
+        failed: 0,
+        pending: 0,
+      });
+    vi.mocked(deletionStatuses).mockImplementation(({ bulkIdsDto }) =>
+      Promise.resolve(bulkIdsDto.ids.map((id) => ({ id, state: State.Complete }))),
+    );
+
+    const remove = vi.fn();
+    await deleteAssets(true, remove, assets(201));
+
+    expect(deletionBatchStatus).toHaveBeenCalledTimes(2);
+    expect(deletionStatuses).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenCalledWith(ids);
   });
   it.each(['duplicate', 'missing', 'foreign'])('rejects %s acknowledgement without removing rows', async (kind) => {
     const result =
@@ -84,19 +126,19 @@ describe('permanent deletion acknowledgements', () => {
   });
   it('stops unsent batches if authorization is revoked after preflight', async () => {
     vi.mocked(permanentDeletion)
-      .mockResolvedValueOnce(assets(200).map(({ id }) => ({ id, state: State.Complete })))
+      .mockResolvedValueOnce(assets(5000).map(({ id }) => ({ id, state: State.Complete })))
       .mockResolvedValueOnce(
-        assets(200).map((_, i) => ({
-          id: `asset-${i + 200}`,
+        assets(1).map(() => ({
+          id: 'asset-5000',
           scope: 'managed',
           state: State.Blocked,
           code: 'LIBRARY_DELETION_NOT_AUTHORIZED',
         })),
       );
     const remove = vi.fn();
-    await deleteAssets(true, remove, assets(401));
+    await deleteAssets(true, remove, assets(5001));
     expect(permanentDeletion).toHaveBeenCalledTimes(2);
-    expect(remove.mock.calls[0][0]).toHaveLength(200);
+    expect(remove.mock.calls[0][0]).toHaveLength(5000);
     expect(remove.mock.calls[1][0]).toEqual([]);
   });
   it('ordinary Trash continues using the existing soft-delete API', async () => {

@@ -16,6 +16,9 @@ import 'package:openapi/api.dart' hide AssetVisibility;
 final assetApiRepositoryProvider = Provider((ref) => AssetApiRepository(ref.watch(apiServiceProvider)));
 
 class AssetApiRepository extends ApiRepository {
+  static const _permanentDeletionRequestLimit = 5000;
+  static const _permanentDeletionPollInterval = Duration(milliseconds: 250);
+  static const _permanentDeletionMaxPolls = 1200;
   final ApiService _apiService;
   Future<void> _trashRequestTail = Future<void>.value();
 
@@ -180,8 +183,8 @@ class AssetApiRepository extends ApiRepository {
           )
           .toList();
     }
-    for (var start = 0; start < requested.length; start += 200) {
-      final unique = requested.skip(start).take(200).toSet();
+    for (var start = 0; start < requested.length; start += _permanentDeletionRequestLimit) {
+      final unique = requested.skip(start).take(_permanentDeletionRequestLimit).toSet();
       try {
         final response = await _apiService.apiClient.invokeAPI(
           '/assets/permanent-deletion',
@@ -208,18 +211,24 @@ class AssetApiRepository extends ApiRepository {
             state: state,
             scope: value['scope'] as String?,
             code: value['code'] as String?,
+            batchId: value['batchId'] as String?,
           );
         }).toList();
         if (results.length != unique.length || results.map((item) => item.id).toSet().length != unique.length) {
           throw StateError('Incomplete deletion acknowledgement');
         }
-        acknowledged.addAll(results);
+        final batchIds = results.map((result) => result.batchId).whereType<String>().toSet();
+        if (batchIds.length > 1 || (batchIds.length == 1 && results.any((result) => result.batchId == null))) {
+          throw StateError('Invalid deletion batch acknowledgement');
+        }
+        final settled = batchIds.isEmpty ? results : await _waitForDeletionBatch(batchIds.single, unique);
+        acknowledged.addAll(settled);
         if (results.any(
           (result) => const {'LIBRARY_DELETION_NOT_AUTHORIZED', 'DELETION_BATCH_NOT_AUTHORIZED'}.contains(result.code),
         )) {
           acknowledged.addAll(
             requested
-                .skip(start + 200)
+                .skip(start + _permanentDeletionRequestLimit)
                 .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT')),
           );
           break;
@@ -237,7 +246,7 @@ class AssetApiRepository extends ApiRepository {
         );
         acknowledged.addAll(
           requested
-              .skip(start + 200)
+              .skip(start + _permanentDeletionRequestLimit)
               .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT')),
         );
         break;
@@ -245,6 +254,63 @@ class AssetApiRepository extends ApiRepository {
     }
     return acknowledged;
   });
+
+  Future<List<PermanentDeletionResult>> _waitForDeletionBatch(String batchId, Set<String> ids) async {
+    for (var attempt = 0; attempt < _permanentDeletionMaxPolls; attempt++) {
+      final response = await _apiService.apiClient.invokeAPI(
+        '/assets/permanent-deletion/status',
+        'GET',
+        [QueryParam('batchId', batchId)],
+        null,
+        <String, String>{},
+        <String, String>{},
+        null,
+      );
+      if (response.statusCode != 200) {
+        throw ApiException(response.statusCode, 'Permanent deletion batch status unavailable');
+      }
+      final status = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final state = status['state'] as String?;
+      if (state != 'pending' && state != 'active') {
+        return _deletionStatuses(ids.toList());
+      }
+      await Future<void>.delayed(_permanentDeletionPollInterval);
+    }
+    throw StateError('Permanent deletion batch did not finish in time');
+  }
+
+  Future<List<PermanentDeletionResult>> _deletionStatuses(List<String> ids) async {
+    final results = <PermanentDeletionResult>[];
+    for (var start = 0; start < ids.length; start += 200) {
+      final response = await _apiService.apiClient.invokeAPI(
+        '/assets/deletion-status',
+        'POST',
+        <QueryParam>[],
+        {'ids': ids.skip(start).take(200).toList()},
+        <String, String>{},
+        <String, String>{},
+        'application/json',
+      );
+      if (response.statusCode != 200) {
+        throw ApiException(response.statusCode, 'Deletion statuses unavailable');
+      }
+      final values = (jsonDecode(utf8.decode(response.bodyBytes)) as List).cast<Map<String, dynamic>>();
+      results.addAll(
+        values.map(
+          (value) => PermanentDeletionResult(
+            id: value['id'] as String,
+            state: value['state'] as String,
+            code: value['code'] as String?,
+            scope: value['scope'] as String?,
+          ),
+        ),
+      );
+    }
+    if (results.length != ids.toSet().length || results.map((result) => result.id).toSet().length != results.length) {
+      throw StateError('Incomplete deletion statuses');
+    }
+    return results;
+  }
 
   Future<Set<String>> completedDeletions(List<String> ids) async {
     final response = await _apiService.apiClient.invokeAPI(

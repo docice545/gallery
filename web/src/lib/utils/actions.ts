@@ -1,7 +1,9 @@
 import {
   AssetVisibility,
   deleteAssets as deleteBulk,
+  deletionBatchStatus,
   deletionPreflight,
+  deletionStatuses,
   permanentDeletion,
   restoreAssets,
 } from '@immich/sdk';
@@ -25,6 +27,25 @@ export type OnFavorite = (ids: string[], favorite: boolean) => void;
 export type OnStack = (result: StackResponse) => void;
 export type OnUnstack = (assets: TimelineAsset[]) => void;
 export type OnSetVisibility = (ids: string[]) => void;
+
+const PERMANENT_DELETION_REQUEST_LIMIT = 5000;
+const PERMANENT_DELETION_POLL_INTERVAL_MS = 250;
+const PERMANENT_DELETION_MAX_POLLS = 1200;
+
+const waitForDeletionBatch = async (batchId: string, ids: string[]) => {
+  for (let attempt = 0; attempt < PERMANENT_DELETION_MAX_POLLS; attempt++) {
+    const status = await deletionBatchStatus({ batchId });
+    if (status.state !== 'pending' && status.state !== 'active') {
+      const results = [];
+      for (let start = 0; start < ids.length; start += 200) {
+        results.push(...(await deletionStatuses({ bulkIdsDto: { ids: ids.slice(start, start + 200) } })));
+      }
+      return results;
+    }
+    await new Promise((resolve) => setTimeout(resolve, PERMANENT_DELETION_POLL_INTERVAL_MS));
+  }
+  throw new Error('Permanent deletion batch did not finish in time');
+};
 
 export const deleteAssets = async (
   force: boolean,
@@ -63,15 +84,30 @@ export const deleteAssets = async (
       }
       const completed: string[] = [];
       const unresolved: string[] = [];
-      for (let start = 0; start < ids.length; start += 200) {
-        const batch = ids.slice(start, start + 200);
-        const results = await permanentDeletion({ permanentDeletionDto: { ids: batch, confirmed: true } });
+      for (let start = 0; start < ids.length; start += PERMANENT_DELETION_REQUEST_LIMIT) {
+        const batch = ids.slice(start, start + PERMANENT_DELETION_REQUEST_LIMIT);
+        let results = await permanentDeletion({ permanentDeletionDto: { ids: batch, confirmed: true } });
         if (
           results.length !== batch.length ||
           results.some((item, index) => results.findIndex((other) => other.id === item.id) !== index) ||
           results.some((item) => !batch.includes(item.id))
         ) {
           throw new Error('Invalid permanent deletion acknowledgement');
+        }
+        const batchIds = new Set(results.map((result) => result.batchId).filter((id): id is string => Boolean(id)));
+        if (batchIds.size > 1 || (batchIds.size === 1 && results.some((result) => !result.batchId))) {
+          throw new Error('Invalid permanent deletion batch acknowledgement');
+        }
+        const batchId = [...batchIds][0];
+        if (batchId) {
+          results = await waitForDeletionBatch(batchId, batch);
+        }
+        if (
+          results.length !== batch.length ||
+          results.some((item, index) => results.findIndex((other) => other.id === item.id) !== index) ||
+          results.some((item) => !batch.includes(item.id))
+        ) {
+          throw new Error('Invalid permanent deletion status');
         }
         const removed = results.filter((result) => result.state === 'complete').map((result) => result.id);
         completed.push(...removed);
@@ -88,7 +124,9 @@ export const deleteAssets = async (
             (r) => r.code === 'LIBRARY_DELETION_NOT_AUTHORIZED' || r.code === 'DELETION_BATCH_NOT_AUTHORIZED',
           )
         ) {
-          unresolved.push(...ids.slice(start + 200).map(() => $t('deletion_batch_blocked')));
+          unresolved.push(
+            ...ids.slice(start + PERMANENT_DELETION_REQUEST_LIMIT).map(() => $t('deletion_batch_blocked')),
+          );
           break;
         }
       }

@@ -3,7 +3,8 @@ class PermanentDeletionResult {
   final String state;
   final String? code;
   final String? scope;
-  const PermanentDeletionResult({required this.id, required this.state, this.code, this.scope});
+  final String? batchId;
+  const PermanentDeletionResult({required this.id, required this.state, this.code, this.scope, this.batchId});
   bool get complete => state == 'complete';
 }
 
