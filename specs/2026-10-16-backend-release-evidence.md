@@ -152,3 +152,27 @@ ls-remote` reports the same remote HEAD.
 - Existing untracked `BUILD*.log` files remain preserved outside Git. No APK was
   installed and no production, NAS, VPN, Redis, or real-media operation was
   performed.
+
+## Compatibility and signing audit stage (2026-10-16)
+
+- The immutable structural gate was rerun at candidate HEAD
+  `4c6462e91b2ee25ae7f8e6d801b5f6105cf1d967`: 371 retained upstream operations,
+  97 byte-identical migrations, and zero failures. The report still limits its
+  claim to wire-contract/source retention.
+- `python3 -m unittest scripts.release.tests.test_upstream_compatibility
+scripts.release.tests.test_build11_artifacts` passed 27 tests, and
+  `python3 -m unittest discover -s mobile/scripts/tests -p
+'test_ios_build_only.py'` passed 33 tests. Focused runtime checks also passed:
+  server trash/job controllers (75 tests), web TypeScript, and mobile version/
+  original-trash contract tests (14 tests).
+- A read-only search across `/mnt/hp-data` found no original upstream Android
+  APK, iOS IPA, or AAB. Only Gallery APKs and the retained Gallery Build 11
+  artifact were present. No Android device/runtime, macOS/Xcode toolchain,
+  `adb`, `xcrun`, or `codesign` is available. No `mobile/android/key.jks`,
+  `key.properties`, or signing environment variables are present.
+- The mandatory original-client runtime matrix (auth/session, uploads,
+  albums/sync, Live Photo, and trash/restore) therefore remains **BLOCKED**;
+  contract and structural tests do not substitute for executing the original
+  APK/IPA. A signed `foto` Android artifact with versionCode >=13 also remains
+  **BLOCKED**. No APK was installed and no production, NAS, VPN, Redis, or
+  real-media operation was performed.
