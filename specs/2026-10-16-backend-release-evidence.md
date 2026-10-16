@@ -42,7 +42,11 @@ was performed.
 
 - Real Synology/NFS validation remains pending until an explicitly separate test
   export is available.
-- Aggregate batch status/progress/cancellation endpoints are not part of this
-  change; per-asset durable receipts remain the result source.
+- Aggregate batch status/progress is implemented in this stage: large deletion
+  responses include a deterministic owner-scoped `batchId`, and
+  `GET /api/assets/permanent-deletion/status?batchId=...` reports aggregate
+  complete/failed/pending counts from BullMQ plus durable receipts. Completed
+  and failed batch metadata is retained for seven days for refresh/recovery.
+  Cancellation remains unavailable until a safe durable cancel state is added.
 - Production audit, deployment, and any cleanup of production queue metadata
   require a separate explicit operational step.

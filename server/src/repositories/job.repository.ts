@@ -30,6 +30,21 @@ const WORKER_WATCH_INTERVAL_MS = 30_000;
 
 const FORCE_FACIAL_RECOGNITION_QUEUE_ALL_JOB_ID = `${JobName.FacialRecognitionQueueAll}/force`;
 
+export const getAssetDeleteBatchJobId = (ownerId: string, ids: string[], allowActive = false) => {
+  const fingerprint = createHash('sha256')
+    .update(`${ownerId}:${allowActive}:${[...ids].sort().join(',')}`)
+    .digest('hex');
+  return `asset-delete-batch/${fingerprint}`;
+};
+
+export type AssetDeleteBatchJob = {
+  id: string;
+  state: 'pending' | 'active' | 'complete' | 'failed' | 'cancelled';
+  ownerId: string;
+  ids: string[];
+  allowActive: boolean;
+};
+
 /**
  * Per-queue worker lock overrides. BullMQ defaults to a 30s lock + 30s stalled check + maxStalledCount
  * 1, which is fine for short handlers but dangerous for queues whose handlers can legitimately run for
@@ -649,17 +664,41 @@ export class JobRepository {
     });
   }
 
+  async getAssetDeleteBatchJob(id: string): Promise<AssetDeleteBatchJob | undefined> {
+    const job = await this.getQueue(QueueName.BackgroundTask).getJob(id);
+    if (!job || job.name !== JobName.AssetDeleteBatch) {
+      return undefined;
+    }
+
+    const data = job.data as { ownerId?: unknown; ids?: unknown; allowActive?: unknown };
+    if (
+      typeof data.ownerId !== 'string' ||
+      !Array.isArray(data.ids) ||
+      !data.ids.every((item) => typeof item === 'string')
+    ) {
+      return undefined;
+    }
+
+    const bullState = await job.getState();
+    const state: AssetDeleteBatchJob['state'] =
+      bullState === 'active'
+        ? 'active'
+        : bullState === 'completed'
+          ? 'complete'
+          : bullState === 'failed'
+            ? 'failed'
+            : 'pending';
+    return { id, state, ownerId: data.ownerId, ids: data.ids, allowActive: data.allowActive === true };
+  }
+
   private getJobOptions(item: JobItem): JobsOptions | null {
     switch (item.name) {
       case JobName.AssetDeleteBatch: {
         const data = item.data as { ownerId: string; ids: string[]; allowActive?: boolean };
-        const fingerprint = createHash('sha256')
-          .update(`${data.ownerId}:${data.allowActive === true}:${[...data.ids].sort().join(',')}`)
-          .digest('hex');
         return {
-          jobId: `asset-delete-batch/${fingerprint}`,
-          removeOnComplete: true,
-          removeOnFail: true,
+          jobId: getAssetDeleteBatchJobId(data.ownerId, data.ids, data.allowActive === true),
+          removeOnComplete: { age: 7 * 24 * 60 * 60 },
+          removeOnFail: { age: 7 * 24 * 60 * 60 },
         };
       }
       case JobName.NotifyAlbumUpdate: {

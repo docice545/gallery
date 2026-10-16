@@ -8462,6 +8462,53 @@
         "required": ["id"],
         "type": "object"
       },
+      "PermanentDeletionBatchStatusDto": {
+        "properties": {
+          "complete": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "failed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Durable deletion batch job id.",
+            "type": "string"
+          },
+          "pending": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "processed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "enum": ["pending", "active", "complete", "failed", "cancelled"],
+            "type": "string"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "complete",
+          "failed",
+          "id",
+          "pending",
+          "processed",
+          "state",
+          "total"
+        ],
+        "type": "object"
+      },
       "PermanentDeletionDto": {
         "properties": {
           "confirmed": {
@@ -8484,6 +8531,10 @@
       },
       "PermanentDeletionResultDto": {
         "properties": {
+          "batchId": {
+            "description": "Durable batch job id when deletion is queued.",
+            "type": "string"
+          },
           "code": {
             "type": "string"
           },
@@ -24825,6 +24876,59 @@
         ],
         "tags": ["Assets"],
         "x-immich-permission": "asset.delete"
+      }
+    },
+    "/assets/permanent-deletion/status": {
+      "get": {
+        "description": "Returns durable aggregate progress for an authorized permanent deletion batch.",
+        "operationId": "deletionBatchStatus",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "batchId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermanentDeletionBatchStatusDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Get permanent deletion batch status",
+        "tags": ["Assets"],
+        "x-immich-history": [
+          {
+            "state": "Added",
+            "version": "v2.8.0"
+          },
+          {
+            "state": "Alpha",
+            "version": "v2.8.0"
+          }
+        ],
+        "x-immich-permission": "asset.read",
+        "x-immich-state": "Alpha"
       }
     },
     "/assets/statistics": {

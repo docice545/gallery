@@ -14,6 +14,7 @@ import {
   DeletionPolicyDto,
   DeletionPreflightResultDto,
   ManagedDeletionStatusDto,
+  PermanentDeletionBatchStatusDto,
   PermanentDeletionResultDto,
   PrepareManagedDeletionDto,
   TrashDeletionScopeDto,
@@ -54,6 +55,7 @@ import {
   StorageFolder,
 } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
+import { getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
 import {
@@ -1292,6 +1294,35 @@ export class AssetService extends BaseService {
     return { id, state: states.every((item) => item?.state === 'complete') ? 'complete' : 'pending' };
   }
 
+  async deletionBatchStatus(auth: AuthDto, batchId: string): Promise<PermanentDeletionBatchStatusDto> {
+    const batch = await this.jobRepository.getAssetDeleteBatchJob(batchId);
+    if (
+      !batch ||
+      batch.ownerId !== auth.user.id ||
+      batch.id !== getAssetDeleteBatchJobId(batch.ownerId, batch.ids, batch.allowActive)
+    ) {
+      throw new ForbiddenException('Deletion batch is not available for this user');
+    }
+
+    const statuses = await Promise.all(batch.ids.map((id) => this.deletionStatus(auth, id)));
+    const complete = statuses.filter((item) => item.state === 'complete').length;
+    const failed = statuses.filter(
+      (item) => item.state === 'failed' || (item.state === 'blocked' && ['complete', 'failed'].includes(batch.state)),
+    ).length;
+    const pending = statuses.length - complete - failed;
+    const state =
+      batch.state === 'cancelled'
+        ? 'cancelled'
+        : failed > 0 && pending === 0
+          ? 'failed'
+          : pending === 0
+            ? 'complete'
+            : batch.state === 'active'
+              ? 'active'
+              : 'pending';
+    return { id: batch.id, state, total: statuses.length, processed: complete + failed, complete, failed, pending };
+  }
+
   async permanentlyDelete(
     auth: AuthDto,
     ids: string[],
@@ -1321,6 +1352,7 @@ export class AssetService extends BaseService {
         scope: item.scope,
         state: 'pending' as const,
         code: 'DELETION_BATCH_QUEUED',
+        batchId: getAssetDeleteBatchJobId(auth.user.id, uniqueIds, allowActive),
       }));
     }
     const results: PermanentDeletionResultDto[] = [];

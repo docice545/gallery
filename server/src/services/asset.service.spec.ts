@@ -15,6 +15,7 @@ import {
 } from 'src/enum.js';
 import { AssetStats } from 'src/repositories/asset.repository.js';
 import { AssetService } from 'src/services/asset.service.js';
+import { getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { AuthFactory } from 'test/factories/auth.factory.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
@@ -1575,6 +1576,33 @@ describe(AssetService.name, () => {
         data: { ownerId: authStub.user1.user.id, ids, allowActive: false },
       });
       expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+    });
+
+    it('reports durable aggregate progress from the owner-scoped batch and receipts', async () => {
+      const ids = ['asset-1', 'asset-2', 'asset-3', 'asset-4'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'active',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      vi.spyOn(sut, 'deletionStatus')
+        .mockResolvedValueOnce({ id: ids[0], state: 'complete' })
+        .mockResolvedValueOnce({ id: ids[1], state: 'failed', code: 'NFS_UNAVAILABLE' })
+        .mockResolvedValueOnce({ id: ids[2], state: 'pending' })
+        .mockResolvedValueOnce({ id: ids[3], state: 'blocked', code: 'NO_AUTHORIZED_DELETION' });
+
+      await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toEqual({
+        id: batchId,
+        state: 'active',
+        total: 4,
+        processed: 2,
+        complete: 1,
+        failed: 1,
+        pending: 2,
+      });
     });
   });
 

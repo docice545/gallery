@@ -22,6 +22,7 @@ import {
   ManagedDeletionConsentDto,
   ManagedDeletionStatusDto,
   PermanentDeletionDto,
+  PermanentDeletionBatchStatusDto,
   PermanentDeletionResultDto,
   PrepareManagedDeletionDto,
   TrashDeletionScopeDto,
@@ -218,6 +219,20 @@ export class AssetController {
       throw new BadRequestException('At most 200 deletion statuses per request');
     }
     return Promise.all(dto.ids.map((id) => this.service.deletionStatus(auth, id)));
+  }
+
+  @Get('permanent-deletion/status')
+  @Authenticated({ permission: Permission.AssetRead })
+  @Endpoint({
+    summary: 'Get permanent deletion batch status',
+    description: 'Returns durable aggregate progress for an authorized permanent deletion batch.',
+    history: new HistoryBuilder().added('v2.8.0').alpha('v2.8.0'),
+  })
+  deletionBatchStatus(
+    @Auth() auth: AuthDto,
+    @Query('batchId') batchId: string,
+  ): Promise<PermanentDeletionBatchStatusDto> {
+    return this.service.deletionBatchStatus(auth, batchId);
   }
 
   @Get(':id/deletion-status')

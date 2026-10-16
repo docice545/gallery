@@ -1550,10 +1550,20 @@ export type DeletionPolicyDto = {
   verifiedExclusiveRoots: true;
 };
 export type PermanentDeletionResultDto = {
+  batchId?: string;
   code?: string;
   id: string;
   scope?: string;
   state: State;
+};
+export type PermanentDeletionBatchStatusDto = {
+  complete: number;
+  failed: number;
+  id: string;
+  pending: number;
+  processed: number;
+  state: 'pending' | 'active' | 'complete' | 'failed' | 'cancelled';
+  total: number;
 };
 export type AssetJobsDto = {
   /** Asset IDs */
@@ -7216,6 +7226,30 @@ export function deletionStatuses(
         method: 'POST',
         body: bulkIdsDto,
       }),
+    ),
+  );
+}
+export function deletionBatchStatus(
+  {
+    batchId,
+  }: {
+    batchId: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: PermanentDeletionBatchStatusDto;
+    }>(
+      `/assets/permanent-deletion/status${QS.query(
+        QS.explode({
+          batchId,
+        }),
+      )}`,
+      {
+        ...opts,
+      },
     ),
   );
 }

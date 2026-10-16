@@ -40,8 +40,23 @@ export class PermanentDeletionResultDto extends createZodDto(
       state: z.enum(['complete', 'pending', 'failed', 'blocked']),
       code: z.string().optional(),
       scope: z.string().optional(),
+      batchId: z.string().optional().describe('Durable batch job id when deletion is queued.'),
     })
     .meta({ id: 'PermanentDeletionResultDto' }),
+) {}
+
+export class PermanentDeletionBatchStatusDto extends createZodDto(
+  z
+    .object({
+      id: z.string().describe('Durable deletion batch job id.'),
+      state: z.enum(['pending', 'active', 'complete', 'failed', 'cancelled']),
+      total: z.number().int().nonnegative(),
+      processed: z.number().int().nonnegative(),
+      complete: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      pending: z.number().int().nonnegative(),
+    })
+    .meta({ id: 'PermanentDeletionBatchStatusDto' }),
 ) {}
 
 export class DeletionPreflightResultDto extends createZodDto(
