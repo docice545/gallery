@@ -925,6 +925,7 @@ export const QueueJobStatusSchema = z.enum(QueueJobStatus).describe('Queue job s
 
 export enum JobName {
   AssetDelete = 'AssetDelete',
+  AssetDeleteBatch = 'AssetDeleteBatch',
   AssetDeleteCheck = 'AssetDeleteCheck',
   AssetDetectFacesQueueAll = 'AssetDetectFacesQueueAll',
   AssetDetectFaces = 'AssetDetectFaces',

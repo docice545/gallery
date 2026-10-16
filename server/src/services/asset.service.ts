@@ -81,6 +81,10 @@ import { transformOcrBoundingBox } from 'src/utils/transform.js';
 
 @Injectable()
 export class AssetService extends BaseService {
+  /** Keep request/transaction work bounded; larger explicit selections run in the durable queue. */
+  private static readonly INLINE_PERMANENT_DELETION_LIMIT = 200;
+  private static readonly BATCH_CHUNK_SIZE = 200;
+
   async getStatistics(auth: AuthDto, dto: AssetStatsDto) {
     if (dto.visibility === AssetVisibility.Locked) {
       requireElevatedPermission(auth);
@@ -614,6 +618,34 @@ export class AssetService extends BaseService {
         // A read-only/revoked library or a concurrent Restore remains intact.
         this.logger.warn(`Trash expiration deferred: ${deletionCode(error)}`);
       }
+    }
+    return JobStatus.Success;
+  }
+
+  @OnJob({ name: JobName.AssetDeleteBatch, queue: QueueName.BackgroundTask })
+  async handleAssetDeletionBatch(job: JobOf<JobName.AssetDeleteBatch>): Promise<JobStatus> {
+    const user = await this.userRepository.get(job.ownerId, {});
+    if (!user) {
+      this.logger.warn(`Skipping permanent deletion batch for missing owner ${job.ownerId}`);
+      return JobStatus.Skipped;
+    }
+
+    // The queue item is the durable record of the user's explicit request. Disable
+    // re-queuing here: each target has its own receipt and AssetDelete retry path.
+    const results: PermanentDeletionResultDto[] = [];
+    for (let start = 0; start < job.ids.length; start += AssetService.BATCH_CHUNK_SIZE) {
+      results.push(
+        ...(await this.permanentlyDelete(
+          { user: user as AuthDto['user'] },
+          job.ids.slice(start, start + AssetService.BATCH_CHUNK_SIZE),
+          job.allowActive === true,
+          false,
+        )),
+      );
+    }
+    const unresolved = results.filter((result) => result.state !== 'complete').length;
+    if (unresolved > 0) {
+      this.logger.warn(`Permanent deletion batch for ${job.ownerId} left ${unresolved} item(s) unresolved`);
     }
     return JobStatus.Success;
   }
@@ -1260,7 +1292,12 @@ export class AssetService extends BaseService {
     return { id, state: states.every((item) => item?.state === 'complete') ? 'complete' : 'pending' };
   }
 
-  async permanentlyDelete(auth: AuthDto, ids: string[], allowActive = false): Promise<PermanentDeletionResultDto[]> {
+  async permanentlyDelete(
+    auth: AuthDto,
+    ids: string[],
+    allowActive = false,
+    allowBatchQueue = true,
+  ): Promise<PermanentDeletionResultDto[]> {
     const preflight = await this.deletionPreflight(auth, ids, allowActive);
     if (preflight.some((item) => !item.authorized)) {
       // No new journal, hashing, worker, or unlink before every scope is admitted.
@@ -1273,8 +1310,21 @@ export class AssetService extends BaseService {
         }),
       );
     }
+    const uniqueIds = [...new Set(ids)];
+    if (allowBatchQueue && uniqueIds.length > AssetService.INLINE_PERMANENT_DELETION_LIMIT) {
+      await this.jobRepository.queue({
+        name: JobName.AssetDeleteBatch,
+        data: { ownerId: auth.user.id, ids: uniqueIds, allowActive },
+      });
+      return preflight.map((item) => ({
+        id: item.id,
+        scope: item.scope,
+        state: 'pending' as const,
+        code: 'DELETION_BATCH_QUEUED',
+      }));
+    }
     const results: PermanentDeletionResultDto[] = [];
-    for (const id of new Set(ids)) {
+    for (const id of uniqueIds) {
       try {
         const previous = await this.assetRepository.getDeletionReceipt(auth.user.id, id);
         if (!previous) {

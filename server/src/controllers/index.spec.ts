@@ -22,6 +22,8 @@ const ADMIN_ROUTES = new Set([
   'GET queues',
   'GET queues/:name',
   'GET queues/:name/jobs',
+  'POST queues/deletion-jobs/audit',
+  'POST queues/deletion-jobs/reconcile',
   'GET server/license',
   'GET server/statistics',
   // fork-only: storage migration is an admin operation

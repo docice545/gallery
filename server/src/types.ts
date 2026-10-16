@@ -239,6 +239,13 @@ export interface IAssetDeleteJob extends IEntityJob {
   libraryId?: string;
 }
 
+/** An explicit, owner-scoped request for bounded background permanent deletion. */
+export interface IAssetDeleteBatchJob extends IBaseJob {
+  ownerId: string;
+  ids: string[];
+  allowActive?: boolean;
+}
+
 export interface ILibraryFileJob {
   libraryId: string;
   paths: string[];
@@ -554,6 +561,7 @@ export type JobItem =
   // Asset Deletion
   | { name: JobName.PersonCleanup; data?: IBaseJob }
   | { name: JobName.AssetDelete; data: IAssetDeleteJob }
+  | { name: JobName.AssetDeleteBatch; data: IAssetDeleteBatchJob }
   | { name: JobName.AssetDeleteCheck; data?: IBaseJob }
 
   // Library Management

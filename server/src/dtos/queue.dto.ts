@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import z from 'zod';
 import { HistoryBuilder } from 'src/decorators.js';
 import { JobNameSchema, QueueCommandSchema, QueueJobStatusSchema, QueueNameSchema } from 'src/enum.js';
+import { isoDatetimeToDate } from 'src/validation.js';
 
 const QueueNameParamSchema = z
   .object({
@@ -37,6 +38,13 @@ const QueueJobSearchSchema = z
     status: z.array(QueueJobStatusSchema).optional().describe('Filter jobs by status'),
   })
   .meta({ id: 'QueueJobSearchDto' });
+
+const HistoricalDeletionJobsAuditSchema = z
+  .object({
+    olderThan: isoDatetimeToDate.describe('Only deletion jobs created before this UTC timestamp are eligible.'),
+  })
+  .strict()
+  .meta({ id: 'HistoricalDeletionJobsAuditDto' });
 
 const QueueJobResponseSchema = z
   .object({
@@ -82,6 +90,7 @@ export class QueueCommandDto extends createZodDto(QueueCommandSchemaDto) {}
 export class QueueUpdateDto extends createZodDto(QueueUpdateSchema) {}
 export class QueueDeleteDto extends createZodDto(QueueDeleteSchema) {}
 export class QueueJobSearchDto extends createZodDto(QueueJobSearchSchema) {}
+export class HistoricalDeletionJobsAuditDto extends createZodDto(HistoricalDeletionJobsAuditSchema) {}
 export class QueueJobResponseDto extends createZodDto(QueueJobResponseSchema) {}
 export class QueueJobTypeCountsDto extends createZodDto(QueueJobTypeCountsSchema) {}
 export class QueueStatisticsDto extends createZodDto(QueueStatisticsSchema) {}

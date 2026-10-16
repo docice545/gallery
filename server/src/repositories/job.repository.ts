@@ -2,6 +2,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { JobsOptions, Queue, Worker, WorkerOptions } from 'bullmq';
+import { createHash } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
 import type { Redis } from 'ioredis';
 import type { JobCounts, JobItem, JobOf, JobTypeCounts } from 'src/types.js';
@@ -67,6 +68,28 @@ export interface QueueTelemetryOldestJobAge {
 export interface QueueTelemetryMetrics {
   counts: QueueTelemetryJobCount[];
   oldestJobAges: QueueTelemetryOldestJobAge[];
+}
+
+export type HistoricalDeletionJobStatus = 'active' | 'completed' | 'failed' | 'delayed' | 'waiting' | 'paused';
+export type HistoricalDeletionJobCategory = 'obsolete' | 'recent' | 'active';
+
+export interface HistoricalDeletionJobRecord {
+  id: string;
+  name: JobName;
+  status: HistoricalDeletionJobStatus;
+  timestamp: number;
+  category: HistoricalDeletionJobCategory;
+}
+
+export interface HistoricalDeletionJobsReport {
+  queue: QueueName;
+  olderThan: string;
+  dryRun: boolean;
+  scanned: number;
+  eligible: number;
+  removed: number;
+  records: HistoricalDeletionJobRecord[];
+  removedJobIds: string[];
 }
 
 @Injectable()
@@ -289,6 +312,62 @@ export class JobRepository {
       await job.remove();
     }
     return matches.length;
+  }
+
+  /** Inventory, and optionally remove, only obsolete deletion metadata. No handler is executed. */
+  async auditHistoricalDeletionJobs(options: {
+    olderThan: Date;
+    execute?: boolean;
+  }): Promise<HistoricalDeletionJobsReport> {
+    const queueName = QueueName.BackgroundTask;
+    const queue = this.getQueue(queueName);
+    const statuses: HistoricalDeletionJobStatus[] = ['active', 'completed', 'failed', 'delayed', 'waiting', 'paused'];
+    const deletionNames = new Set<JobName>([
+      JobName.AssetDelete,
+      JobName.AssetDeleteCheck,
+      JobName.AssetEmptyTrash,
+      JobName.FileDelete,
+    ]);
+    const seen = new Set<string>();
+    const records: HistoricalDeletionJobRecord[] = [];
+    const cutoff = options.olderThan.getTime();
+
+    for (const status of statuses) {
+      for (let start = 0; ; start += 1000) {
+        const jobs = await queue.getJobs([status], start, start + 999, true);
+        for (const job of jobs) {
+          if (!job?.id || !deletionNames.has(job.name as JobName) || seen.has(job.id)) continue;
+          seen.add(job.id);
+          const timestamp = Number(job.timestamp);
+          const category: HistoricalDeletionJobCategory =
+            status === 'active' ? 'active' : Number.isFinite(timestamp) && timestamp < cutoff ? 'obsolete' : 'recent';
+          records.push({ id: job.id, name: job.name as JobName, status, timestamp, category });
+        }
+        if (jobs.length < 1000) break;
+      }
+    }
+
+    const eligible = records.filter((record) => record.category === 'obsolete' && record.status !== 'active');
+    const removedJobIds: string[] = [];
+    if (options.execute) {
+      for (const record of eligible) {
+        const current = await queue.getJob(record.id);
+        if (!current || (await current.isActive())) continue;
+        await current.remove({ removeChildren: false });
+        removedJobIds.push(record.id);
+      }
+    }
+
+    return {
+      queue: queueName,
+      olderThan: options.olderThan.toISOString(),
+      dryRun: !options.execute,
+      scanned: records.length,
+      eligible: eligible.length,
+      removed: removedJobIds.length,
+      records,
+      removedJobIds,
+    };
   }
 
   getJobCounts(name: QueueName): Promise<JobCounts> {
@@ -572,6 +651,17 @@ export class JobRepository {
 
   private getJobOptions(item: JobItem): JobsOptions | null {
     switch (item.name) {
+      case JobName.AssetDeleteBatch: {
+        const data = item.data as { ownerId: string; ids: string[]; allowActive?: boolean };
+        const fingerprint = createHash('sha256')
+          .update(`${data.ownerId}:${data.allowActive === true}:${[...data.ids].sort().join(',')}`)
+          .digest('hex');
+        return {
+          jobId: `asset-delete-batch/${fingerprint}`,
+          removeOnComplete: true,
+          removeOnFail: true,
+        };
+      }
       case JobName.NotifyAlbumUpdate: {
         return {
           jobId: `${item.data.id}/${item.data.recipientId}`,

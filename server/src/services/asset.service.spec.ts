@@ -1557,6 +1557,27 @@ describe(AssetService.name, () => {
     });
   });
 
+  describe('large permanent deletion batches', () => {
+    it('queues an explicit bounded batch instead of holding the request open', async () => {
+      const ids = Array.from({ length: 201 }, (_, index) => `asset-${index}`);
+      vi.spyOn(sut, 'deletionPreflight').mockResolvedValue(
+        ids.map((id) => ({ id, scope: 'managed', authorized: true })),
+      );
+
+      const results = await sut.permanentlyDelete(authStub.user1, ids);
+
+      expect(results).toHaveLength(ids.length);
+      expect(results.every((result) => result.state === 'pending' && result.code === 'DELETION_BATCH_QUEUED')).toBe(
+        true,
+      );
+      expect(mocks.job.queue).toHaveBeenCalledWith({
+        name: JobName.AssetDeleteBatch,
+        data: { ownerId: authStub.user1.user.id, ids, allowActive: false },
+      });
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+    });
+  });
+
   describe('handleAssetDeletionCheck', () => {
     beforeEach(() => {
       mocks.asset.streamPendingDeletions.mockReturnValue(makeStream([]));
@@ -1597,6 +1618,55 @@ describe(AssetService.name, () => {
       await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
       expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
       expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleAssetDeletionBatch', () => {
+    it('runs the durable batch without recursively enqueueing another batch', async () => {
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      const permanent = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([
+        { id: 'asset-1', state: 'complete' },
+        { id: 'asset-2', state: 'pending' },
+      ]);
+
+      await expect(
+        sut.handleAssetDeletionBatch({ ownerId: authStub.user1.user.id, ids: ['asset-1', 'asset-2'] }),
+      ).resolves.toBe(JobStatus.Success);
+
+      expect(permanent).toHaveBeenCalledWith({ user: authStub.user1.user }, ['asset-1', 'asset-2'], false, false);
+    });
+
+    it('processes large batches in bounded sequential chunks', async () => {
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      const ids = Array.from({ length: 401 }, (_, index) => `asset-${index}`);
+      vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue(ids.map((id) => ({ id, state: 'complete' })));
+
+      await expect(sut.handleAssetDeletionBatch({ ownerId: authStub.user1.user.id, ids })).resolves.toBe(
+        JobStatus.Success,
+      );
+
+      expect(sut.permanentlyDelete).toHaveBeenCalledTimes(3);
+      expect(sut.permanentlyDelete).toHaveBeenNthCalledWith(
+        1,
+        { user: authStub.user1.user },
+        ids.slice(0, 200),
+        false,
+        false,
+      );
+      expect(sut.permanentlyDelete).toHaveBeenNthCalledWith(
+        2,
+        { user: authStub.user1.user },
+        ids.slice(200, 400),
+        false,
+        false,
+      );
+      expect(sut.permanentlyDelete).toHaveBeenNthCalledWith(
+        3,
+        { user: authStub.user1.user },
+        ids.slice(400),
+        false,
+        false,
+      );
     });
   });
 

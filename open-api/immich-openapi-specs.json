@@ -5426,6 +5426,20 @@
         },
         "type": "object"
       },
+      "HistoricalDeletionJobsAuditDto": {
+        "additionalProperties": false,
+        "properties": {
+          "olderThan": {
+            "description": "Only deletion jobs created before this UTC timestamp are eligible.",
+            "example": "2024-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          }
+        },
+        "required": ["olderThan"],
+        "type": "object"
+      },
       "HlsVideoResolution": {
         "description": "HLS video resolution",
         "enum": [480, 720, 1080, 1440, 2160],
@@ -32916,6 +32930,116 @@
           }
         ],
         "x-immich-permission": "queue.read",
+        "x-immich-state": "Alpha"
+      }
+    },
+    "/queues/deletion-jobs/audit": {
+      "post": {
+        "description": "Read-only inventory of stale deletion job metadata; no asset or file state is changed.",
+        "operationId": "auditHistoricalDeletionJobs",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoricalDeletionJobsAuditDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Audit historical deletion jobs",
+        "tags": ["Queues"],
+        "x-immich-admin-only": true,
+        "x-immich-history": [
+          {
+            "state": "Added",
+            "version": "v2.8.0"
+          },
+          {
+            "state": "Alpha",
+            "version": "v2.8.0"
+          }
+        ],
+        "x-immich-permission": "queueJob.read",
+        "x-immich-state": "Alpha"
+      }
+    },
+    "/queues/deletion-jobs/reconcile": {
+      "post": {
+        "description": "Remove only non-active deletion jobs older than the supplied cutoff; never removes media.",
+        "operationId": "reconcileHistoricalDeletionJobs",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoricalDeletionJobsAuditDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Remove obsolete deletion job metadata",
+        "tags": ["Queues"],
+        "x-immich-admin-only": true,
+        "x-immich-history": [
+          {
+            "state": "Added",
+            "version": "v2.8.0"
+          },
+          {
+            "state": "Alpha",
+            "version": "v2.8.0"
+          }
+        ],
+        "x-immich-permission": "queueJob.delete",
         "x-immich-state": "Alpha"
       }
     },

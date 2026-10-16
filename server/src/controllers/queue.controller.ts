@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
 import {
   QueueDeleteDto,
+  HistoricalDeletionJobsAuditDto,
   QueueJobResponseDto,
   QueueJobSearchDto,
   QueueNameParamDto,
@@ -18,6 +19,28 @@ import { QueueService } from 'src/services/queue.service.js';
 @Controller('queues')
 export class QueueController {
   constructor(private service: QueueService) {}
+
+  @Post('deletion-jobs/audit')
+  @Authenticated({ permission: Permission.QueueJobRead, admin: true })
+  @Endpoint({
+    summary: 'Audit historical deletion jobs',
+    description: 'Read-only inventory of stale deletion job metadata; no asset or file state is changed.',
+    history: new HistoryBuilder().added('v2.8.0').alpha('v2.8.0'),
+  })
+  auditHistoricalDeletionJobs(@Auth() auth: AuthDto, @Body() dto: HistoricalDeletionJobsAuditDto) {
+    return this.service.auditHistoricalDeletionJobs(auth, dto);
+  }
+
+  @Post('deletion-jobs/reconcile')
+  @Authenticated({ permission: Permission.QueueJobDelete, admin: true })
+  @Endpoint({
+    summary: 'Remove obsolete deletion job metadata',
+    description: 'Remove only non-active deletion jobs older than the supplied cutoff; never removes media.',
+    history: new HistoryBuilder().added('v2.8.0').alpha('v2.8.0'),
+  })
+  reconcileHistoricalDeletionJobs(@Auth() auth: AuthDto, @Body() dto: HistoricalDeletionJobsAuditDto) {
+    return this.service.reconcileHistoricalDeletionJobs(auth, dto);
+  }
 
   @Get()
   @Authenticated({ permission: Permission.QueueRead, admin: true })

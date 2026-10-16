@@ -207,6 +207,53 @@ describe(JobRepository.name, () => {
     });
   });
 
+  describe('auditHistoricalDeletionJobs', () => {
+    it('reports stale and current deletion jobs without mutating Redis in dry-run mode', async () => {
+      const { sut, queue } = setup();
+      const old = { id: 'old-delete', name: JobName.AssetDelete, timestamp: 1_000 };
+      const recent = { id: 'recent-file', name: JobName.FileDelete, timestamp: 9_000 };
+      const active = { id: 'active-delete', name: JobName.AssetDelete, timestamp: 1_000 };
+      queue.getJobs.mockImplementation(async (statuses: string[]) => {
+        const status = statuses[0];
+        return status === 'failed' ? [old] : status === 'waiting' ? [recent] : status === 'active' ? [active] : [];
+      });
+
+      const report = await sut.auditHistoricalDeletionJobs({ olderThan: new Date(5_000) });
+
+      expect(report).toMatchObject({ dryRun: true, scanned: 3, eligible: 1, removed: 0, removedJobIds: [] });
+      expect(report.records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'old-delete', category: 'obsolete', status: 'failed' }),
+          expect.objectContaining({ id: 'recent-file', category: 'recent', status: 'waiting' }),
+          expect.objectContaining({ id: 'active-delete', category: 'active', status: 'active' }),
+        ]),
+      );
+      expect(queue.getJob).not.toHaveBeenCalled();
+    });
+
+    it('removes only obsolete non-active metadata and never invokes a deletion handler', async () => {
+      const { sut, queue } = setup();
+      const old = { id: 'old-delete', name: JobName.AssetDelete, timestamp: 1_000 };
+      const active = { id: 'active-delete', name: JobName.AssetDelete, timestamp: 1_000 };
+      const removable = {
+        id: 'old-delete',
+        remove: vi.fn().mockResolvedValue(undefined),
+        isActive: vi.fn().mockResolvedValue(false),
+      };
+      const running = { id: 'active-delete', remove: vi.fn(), isActive: vi.fn().mockResolvedValue(true) };
+      queue.getJobs.mockImplementation(async (statuses: string[]) =>
+        statuses[0] === 'failed' ? [old] : statuses[0] === 'active' ? [active] : [],
+      );
+      queue.getJob.mockImplementation(async (id: string) => (id === old.id ? removable : running));
+
+      const report = await sut.auditHistoricalDeletionJobs({ olderThan: new Date(5_000), execute: true });
+
+      expect(report).toMatchObject({ dryRun: false, eligible: 1, removed: 1, removedJobIds: ['old-delete'] });
+      expect(removable.remove).toHaveBeenCalledWith({ removeChildren: false });
+      expect(running.remove).not.toHaveBeenCalled();
+    });
+  });
+
   it('should return immediately when queues have no active waiting delayed or paused jobs', async () => {
     const { sut, queue } = setup([emptyCounts()]);
 

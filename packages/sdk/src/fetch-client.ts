@@ -2818,6 +2818,10 @@ export type QueueResponseDto = {
   name: QueueName;
   statistics: QueueStatisticsDto;
 };
+export type HistoricalDeletionJobsAuditDto = {
+  /** Only deletion jobs created before this UTC timestamp are eligible. */
+  olderThan: string;
+};
 export type QueueUpdateDto = {
   /** Whether to pause the queue */
   isPaused?: boolean;
@@ -10718,6 +10722,56 @@ export function getQueueJobs(
       {
         ...opts,
       },
+    ),
+  );
+}
+/**
+ * Audit historical deletion jobs
+ */
+export function auditHistoricalDeletionJobs(
+  {
+    historicalDeletionJobsAuditDto,
+  }: {
+    historicalDeletionJobsAuditDto: HistoricalDeletionJobsAuditDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: object;
+    }>(
+      '/queues/deletion-jobs/audit',
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: historicalDeletionJobsAuditDto,
+      }),
+    ),
+  );
+}
+/**
+ * Remove obsolete deletion job metadata
+ */
+export function reconcileHistoricalDeletionJobs(
+  {
+    historicalDeletionJobsAuditDto,
+  }: {
+    historicalDeletionJobsAuditDto: HistoricalDeletionJobsAuditDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: object;
+    }>(
+      '/queues/deletion-jobs/reconcile',
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: historicalDeletionJobsAuditDto,
+      }),
     ),
   );
 }
