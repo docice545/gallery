@@ -573,13 +573,18 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       return const {};
     }
     final prefix = await _trashResetPrefix();
-    final keys = ownersById.entries.map((entry) => '$prefix${entry.value}/${entry.key}');
-    final rows = await (_db.settingsEntity.select()..where((row) => row.key.isIn(keys))).get();
     final result = <String, AssetTrashSnapshot>{};
-    for (final row in rows) {
-      if (row.value != null) {
-        final state = _decodeRetained(row.key, row.value!);
-        result[state.id] = state;
+    final keys = [for (final entry in ownersById.entries) '$prefix${entry.value}/${entry.key}'];
+    // Keep the query below the SQLite host parameter limit. Large sync batches
+    // can contain more retained-trash keys than a single IN clause accepts.
+    for (var offset = 0; offset < keys.length; offset += kDriftMaxChunk) {
+      final chunk = keys.sublist(offset, (offset + kDriftMaxChunk).clamp(0, keys.length));
+      final rows = await (_db.settingsEntity.select()..where((row) => row.key.isIn(chunk))).get();
+      for (final row in rows) {
+        if (row.value != null) {
+          final state = _decodeRetained(row.key, row.value!);
+          result[state.id] = state;
+        }
       }
     }
     return result;
