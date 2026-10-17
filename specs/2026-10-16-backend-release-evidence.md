@@ -294,18 +294,18 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 | Docker artifact | **PASS (local)** | Current HEAD image `gallery-server:release-9388a221`, digest `sha256:768f07513482811bb07a49f43d1dee04d110bc83ea65d24bea23dcd296c4f7bb`; network-disabled runtime and export readback passed; registry publication was not attempted. |
 | Trash and deletion contracts | **PASS** | Server, web, and mobile focused suites pass; one owner-scoped Trash flow, durable batch status, cancellation, receipts, and legacy original-client endpoint are covered. |
 | Disposable NFS Live Photo lifecycle | **PASS** | Isolated `10.10.10.95:/volume1/Gallery-Test` run covered JPG-on-NFS plus paired MP4-on-SSD, trash, restore, idempotent restore, consent, and purge. DSM `#recycle` behavior and production NAS remain unverified. |
-| Bulk deletion performance | **PARTIAL** | Historical 1000 synthetic worker items completed in 277170 ms. A corrected local mixed-media 10-item service run completed in 4377 ms (13 originals including 3 motion components); the full corrected 1/10/100/1000 and recovery run remains pending. HTTP/queue latency and NFS load are unmeasured. |
-| Android package continuity | **PARTIAL** | Reproducible release APK has package `de.opennoodle.gallery`, version `5.7.3`, versionCode `13`, SDK 36, SHA-256 `cef0dcaacfffe504db9fabe6f1a705c9803bbcc7a03d707719e36cba7eeae9c5`. It is debug-signed and cannot upgrade the installed `foto` Build 12. |
+| Bulk deletion performance | **PASS (local synthetic matrix); PARTIAL (release performance)** | Corrected 1/10/100/1000 service/worker cases and 401-selection recovery pass (5 tests). The 1000 case deleted 1333 originals in 421533 ms at 2.372 selections/s. HTTP/queue latency, realistic large media and NFS load remain unmeasured. |
+| Android package continuity | **PASS (packaging); PARTIAL (device)** | Signed `foto` Build 13 is package `de.opennoodle.gallery`, version `5.7.3`, target SDK 36, SHA-256 `f17752e1fb4b339647c7c9228577638780ea6823d9f9fb160cfe6970513c2634`. Device upgrade/data preservation and CloudMediaProvider selection remain unverified. |
 | Original Android/iOS runtime compatibility | **BLOCKED** | No representative upstream APK/IPA, Android device, or macOS/Xcode runtime is available. Structural wire-contract retention is not a runtime-client test. |
 | AI Memories daily scheduler | **BLOCKED** | `gallery-ai-daily` is external; no authorized synthetic endpoint or scheduler run is available. Gallery lifecycle tests do not prove delivery, limits, or rejection-after-delete. |
 | Groq → Cloudflare fallback | **BLOCKED** | Provider clients, credentials, and a safe test endpoint are external to this checkout; no private media was sent. |
 | Automatic stack grouping | **BLOCKED** | Native Stack API and unit tests pass, but the external maintenance processor, hourly scheduling, survival, and Anna exclusion were not run. |
-| Signed `foto` Android upgrade | **BLOCKED** | Existing keystore/signing environment and device are unavailable; the debug certificate does not match the authorized certificate. |
-| Artifact publication and deployment | **BLOCKED/PENDING** | Docker image and APK remain local; no registry/store publication, merge, or deployment was authorized or performed. |
+| Signed `foto` Android upgrade | **PASS (artifact); BLOCKED (device)** | Retained Build 13 has the expected `foto` certificate; details and draft download are below. A real Build 12 device upgrade has not been performed. |
+| Artifact publication and deployment | **REVIEW ARTIFACTS RETAINED; PUBLICATION OUT OF SCOPE** | Signed APK and verification files are in an authenticated GitHub draft; Docker export remains local. No production release, registry/store publication, merge or deployment was performed. |
 
 **Readiness assessment: NOT READY for a production release.** The local code,
 tests, isolated NFS lifecycle, and reproducible artifacts are suitable for review,
-but the blocked client, signing, external-AI, automatic-stack, and complete
+but the blocked device/client, external-AI, automatic-stack, and realistic
 performance gates are acceptance requirements rather than optional follow-up.
 
 ## Safe delivery and rollback notes
@@ -421,41 +421,59 @@ Actions run, container registry push, merge, or deployment was triggered.
 - This refresh closes the stale-image evidence gap for the current checkout only. It does not close
   device upgrade, original Android/iOS client, external AI/stack, full performance, or deployment gates.
 
-## Local mixed-media matrix harness (2026-10-17)
+## Local mixed-media matrix and recovery (2026-10-17)
 
-`server/test/medium/specs/services/local-deletion-matrix.spec.ts` is an opt-in,
-reproducible service/worker harness using disposable Testcontainers PostgreSQL,
-tiny ffmpeg-generated PNG/MP4 originals, and temporary filesystem roots. It
-does not use Redis, HTTP, NAS, application bootstrap, ingestion, or production
-resources. Queue submission, events and quota updates are mocked; derivative
-cleanup jobs do not execute. This cannot establish HTTP/queue latency, media
-decoding performance, realistic large-video throughput, or NFS load.
+`server/test/medium/specs/services/local-deletion-matrix.spec.ts` is an opt-in
+service/worker harness using disposable Testcontainers PostgreSQL, tiny
+ffmpeg-generated PNG/MP4 originals, and temporary filesystem roots. It does not
+use Redis, HTTP, NAS, application bootstrap, ingestion, or production resources.
+Queue submission, cancellation checks, events and quota updates are mocked;
+derivative cleanup jobs do not execute. The PostgreSQL test configuration turns
+off fsync, full-page writes and synchronous commit. Results establish local
+synthetic correctness and timing, not production durability or capacity.
 
-The timer starts before `permanentlyDelete` for every size, including the inline
-path. The 1000-selection case also invokes the bounded worker directly. Separate
-401-selection recovery assertions interrupt before chunk two, instantiate fresh
-service/repository instances, verify remaining original bytes, and compare
-completed durable receipts before/after resume. These assertions are present,
-but the corrected full matrix/recovery run has **not** completed yet.
+The initial full run failed cases containing pairs because the fixture placed
+hidden motion originals in the upload root (`MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT`).
+The corrected fixture uses native `encoded-video/<owner>` layout; application
+behavior and safety guards are unchanged. A focused 10-selection rerun passed
+before this full corrected run. Earlier failure/diagnostic logs are retained.
 
-The initial full run passed the single-photo case and failed all four cases
-containing pairs: the fixture incorrectly placed hidden motion originals in the
-upload root. A focused diagnostic returned
-`MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT`. The fixture now follows the native
-`StorageCore` layout, with hidden motion components under an isolated
-`encoded-video/<owner>` root. No application behavior or safety guard changed.
+**PASS:** from source `41f13c2c944a569c9748ffa6cab199c0ade82898`, the full
+corrected harness completed with exit 0, one test file and all five tests passed
+in 641.90 s. Timing begins before `permanentlyDelete`, includes inline service
+work or admission plus direct bounded-worker execution, and excludes fixture
+setup/final verification. RSS is sampled every 20 ms across the operation.
 
-The corrected 10-selection run passed: 4 photos, 3 videos, 3 Live Photo pairs;
-13 originals and 13 complete receipts, no remaining asset rows or original
-files. Admission took 4375 ms, full operation 4377 ms, 2.285 selected assets/s;
-sampled process RSS start/peak/end were 355397632/404156416/404029440 bytes.
-Fixture creation and final verification are outside the measured interval.
-ESLint, server TypeScript checking, and formatting passed. Logs are retained in
-`/mnt/hp-data/codex-work/gallery-auto/20261017-113325-833680/` as
-`local-deletion-matrix.log` (initial failure),
-`local-deletion-pair-diagnostic.log`, and `local-deletion-pair-corrected.log`.
+| Selected | Photos / videos / Live Photos | Originals / complete receipts | Admission ms | Full ms | Selections/s | RSS start / sampled peak / end (bytes) |
+| -------- | ---------------------------- | ----------------------------- | ------------ | ------- | ------------ | -------------------------------------- |
+| 1 | 1 / 0 / 0 | 1 / 1 | 231 | 233 | 4.289 | 356618240 / 381390848 / 381390848 |
+| 10 | 4 / 3 / 3 | 13 / 13 | 4402 | 4403 | 2.271 | 383225856 / 412323840 / 412323840 |
+| 100 | 34 / 33 / 33 | 133 / 133 | 39408 | 39409 | 2.537 | 413634560 / 497766400 / 497766400 |
+| 1000 | 334 / 333 / 333 | 1333 / 1333 | 16533 | 421533 | 2.372 | 512315392 / 617644032 / 545333248 |
 
-Run the full corrected harness from `server/`:
+All cases assert complete receipts, absence of every original file, and no
+remaining asset rows for the synthetic owner. The 1000-selection case invokes
+the worker directly after admission; no queue or HTTP latency is included.
+
+**PASS:** 401 selected assets contain 534 originals. An injected exception before
+the second 200-selection chunk leaves 266 originals complete and 268 original
+files byte-identical. Fresh service/repository instances resume the same payload
+in 78178 ms, complete every receipt and preserve all 266 prior completed receipts
+unchanged. The database and filesystem stay running; this is service-instance
+recovery, not a hard process/DB crash or power-loss test.
+
+Retained under
+`/mnt/hp-data/codex-work/gallery-auto/20261017-113325-833680/`:
+
+- `local-deletion-matrix-corrected-full.log`: complete successful run.
+- `artifacts/local-deletion-matrix-corrected-full.jsonl`: four measurements.
+- `artifacts/local-deletion-recovery-corrected-full.json`: recovery assertions.
+- `artifacts/local-deletion-matrix-corrected-full-report.json`: provenance,
+  command, summary, measurements and limits.
+- `artifacts/local-deletion-matrix-corrected-full.SHA256SUMS`: artifact and test
+  source checksums (paths relative to the task directory).
+
+Reproduce from `server/`:
 
 ```bash
 GALLERY_LOCAL_DELETE_MATRIX=1 DOCKER_HOST=unix:///var/run/docker.sock pnpm exec vitest \
@@ -464,9 +482,10 @@ GALLERY_LOCAL_DELETE_MATRIX=1 DOCKER_HOST=unix:///var/run/docker.sock pnpm exec 
   --maxWorkers=1 --testTimeout=900000 --hookTimeout=900000
 ```
 
-The existing signed Build 13 and backend export remain unchanged: only test
-and evidence files changed after their recorded source commits. Overall release
-readiness remains **NOT READY**. The already-successful NFS lifecycle was not
-repeated. Git readback confirmed PR #1 at `55cc5f354...` before this stage; body
-editing remains unavailable (the GitHub CLI has no API token in this executor),
-so evidence changes are delivered through the existing PR branch.
+HTTP/queue latency, realistic large-video throughput, ingestion/transcoding,
+NFS load, and real client/device/external-service acceptance remain unverified.
+Overall readiness remains **NOT READY**. No successful NFS lifecycle was repeated.
+APK and backend runtime sources are unchanged from their recorded artifact
+commits; no rebuild or signing was needed. Evidence is delivered through the
+existing PR branch; GitHub API body editing remains unavailable in this executor
+because no API token is configured.
