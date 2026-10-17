@@ -237,8 +237,11 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
   preservation. The production design records the external hourly processor and
   thresholds (0.90 similarity, 0.89 pairwise floor, 300 seconds, max 5) and
   Anna's exclusion. The external processor itself was not run, so grouping,
-  Android position display, and scheduler survival remain **BLOCKED** for
-  runtime acceptance.
+  and scheduler survival remain **BLOCKED** for runtime acceptance. Android's
+  asset viewer now renders the selected stack index and local stack length as
+  `N/total`; focused Flutter tests cover one-based formatting, a stale index,
+  and an empty stack. This verifies the numeric indicator logic, not device-level
+  visual behavior or automatic grouping.
 
 ## Isolated disposable Synology NFS lifecycle stage (2026-10-17)
 
