@@ -239,3 +239,12 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
   Anna's exclusion. The external processor itself was not run, so grouping,
   Android position display, and scheduler survival remain **BLOCKED** for
   runtime acceptance.
+
+## Isolated disposable Synology NFS lifecycle stage (2026-10-17)
+
+- The isolated preflight passed against the exact source `10.10.10.95:/volume1/Gallery-Test`, with the dedicated Compose project `gallery-nfs-test`, server bound only to `127.0.0.1:2295`, and no production paths, networks, containers, Redis, databases, or archive mounts included.
+- The first run stopped safely at admin setup because the disposable database already contained an admin from an earlier isolated run; it created no media fixture. Reusing the recorded disposable account then completed the full API lifecycle with a fresh synthetic nonce.
+- **PASS:** actual Gallery upload produced a linked Live Photo pair: JPG row `c5f52b1a-b388-4b89-9f35-458a2914499e` under `/data/upload` backed by the disposable NFS mount, and MP4 row `9cdf18a3-0f79-4fd9-b8ae-b115fddf3c55` under `/data/encoded-video` backed by the dedicated SSD directory. Database pairing (`livePhotoVideoId`) and both physical placements were checked before mutation.
+- **PASS:** trash, restore, repeated restore (idempotency), second trash, explicit managed-deletion consent, and permanent purge completed. Final checks found zero rows for both synthetic IDs and neither synthetic file remained on NFS or SSD. Only the current disposable owner's fixture was addressed.
+- The tested local image was `gallery-server:nfs-f1b1d1f`, image ID/digest `sha256:0669fc1b9aaa4b0008796311775941d0a78b47372433cc6da2c6d58488b8f57e`; no registry publication or production deployment occurred. Evidence log: `/tmp/gallery-nfs-live-photo-20261017-rerun2.log`; retained fixture diagnostics: `/mnt/hp-data/gallery-nfs-test/media/fixture.urbswk`.
+- This is a real isolated NFS-mounted test, but it does not certify DSM recycle-bin semantics, production NAS behavior, upstream original-client compatibility, AI provider fallback, external auto-stack scheduling, or signed Android upgrade packaging.
