@@ -291,7 +291,7 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 | ---- | ------ | ------------------ |
 | Backend build and type check | **PASS** | `server` production build with the documented 3072 MiB local heap and `pnpm check`. |
 | Web build and type checks | **PASS** | `web pnpm build`, Svelte check, and TypeScript check completed with zero diagnostics. Existing WASM URL/chunk advisories remain. |
-| Docker artifact | **PASS (local)** | `gallery-server:release-891764a26`, digest `sha256:9cb61a78da7784e466003603a6e6b5759ee951aba6df942875e4d59cecb0c061`; registry publication was not available or attempted. |
+| Docker artifact | **PASS (local)** | Current HEAD image `gallery-server:release-9388a221`, digest `sha256:768f07513482811bb07a49f43d1dee04d110bc83ea65d24bea23dcd296c4f7bb`; network-disabled runtime and export readback passed; registry publication was not attempted. |
 | Trash and deletion contracts | **PASS** | Server, web, and mobile focused suites pass; one owner-scoped Trash flow, durable batch status, cancellation, receipts, and legacy original-client endpoint are covered. |
 | Disposable NFS Live Photo lifecycle | **PASS** | Isolated `10.10.10.95:/volume1/Gallery-Test` run covered JPG-on-NFS plus paired MP4-on-SSD, trash, restore, idempotent restore, consent, and purge. DSM `#recycle` behavior and production NAS remain unverified. |
 | Bulk deletion performance | **PARTIAL** | 1000 synthetic worker items completed in 277170 ms (3.608 assets/s); 1/10/100 rows are inline correctness fixtures with `elapsedMs=0`, not HTTP latency. The required mixed-media 1/10/100/1000 wall-clock/NFS load matrix is incomplete. |
@@ -388,8 +388,8 @@ output, copied, generated, rotated, or changed, and no APK was installed.
 Package identity, expected certificate, and a versionCode above the reported
 Build 12 satisfy the packaging prerequisites for an update. A real Build 12
 device upgrade, data preservation, original Android/iOS client runtime matrix,
-external AI/stack behavior, full performance matrix, and current backend image
-acceptance remain unverified. The overall release is still **NOT READY**.
+external AI/stack behavior, and full performance matrix remain unverified. The
+overall release is still **NOT READY**.
 
 The signed APK and four accompanying verification files are retained in the
 [GitHub draft release](https://github.com/docice545/gallery/releases/tag/untagged-e5616f5c7905b2552167).
@@ -397,3 +397,26 @@ All five uploaded asset sizes and GitHub SHA-256 digests match the local files.
 The draft targets source `3425fe99f243c50d095817470d902f7d6ee98cce`; it is
 an authenticated review artifact, not a published production release. No paid
 Actions run, container registry push, merge, or deployment was triggered.
+
+## Current backend image refresh (2026-10-17)
+
+- **PASS:** the previous local image tags were inspected before rebuilding. `gallery-server:nfs-3425fe99`
+  carries source `3425fe99f243c50d095817470d902f7d6ee98cce`; `gallery-server:release-891764a26`
+  carries source `891764a26eb2bf1563130c8b5619defbf5a019fd`. Neither was the current HEAD image.
+- **PASS:** the current checkout was built with the existing `server/Dockerfile`:
+  `docker build -f server/Dockerfile -t gallery-server:release-9388a221 --build-arg BUILD_VERSION=5.7.3
+  --build-arg BUILD_ID=local-20261017 --build-arg BUILD_SOURCE_REF=codex/nas-release-readiness-20261016
+  --build-arg BUILD_SOURCE_COMMIT=9388a221af428dc9691032fecd95509634efe590 .` The local OCI manifest
+  digest is `sha256:768f07513482811bb07a49f43d1dee04d110bc83ea65d24bea23dcd296c4f7bb`, size
+  622,166,111 bytes, architecture `linux/amd64`. No registry publication or deployment occurred.
+- **PASS:** a container launched with `--network none`, no mounts, and the image entrypoint overridden to
+  Node reported version `5.7.3`, source commit `9388a221af428dc9691032fecd95509634efe590`, the
+  expected source ref, `local-20261017`, and `NODE_ENV=production`. A second network-disabled,
+  mount-free check found the compiled metadata-extraction deduplication code and both plugin manifests.
+- Retained artifacts are under
+  `/mnt/hp-data/codex-work/gallery-auto/20261017-113325-833680/artifacts/`: inspect JSON, history,
+  runtime output, image listing, and `gallery-server-release-9388a221.tar` (SHA-256
+  `a06c4974983401d2c8c6b5e07b83ff9c870db76375f974e39318ec507641a36b`). The exported tar manifest
+  retains tag `gallery-server:release-9388a221` and 27 layers.
+- This refresh closes the stale-image evidence gap for the current checkout only. It does not close
+  device upgrade, original Android/iOS client, external AI/stack, full performance, or deployment gates.
