@@ -126,8 +126,7 @@ enum ActionButtonType {
             context.asset.hasRemote,
       ActionButtonType.deleteLocal =>
         !context.isInLockedView && //
-            context.asset.hasLocal &&
-            (context.asset is LocalAsset || context.isOwner),
+            context.asset.hasLocal,
       // Gallery uses two independent deletion actions:
       // move to Trash, or remove the device copy.
       ActionButtonType.deleteEverywhere => false,

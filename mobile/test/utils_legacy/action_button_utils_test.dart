@@ -534,7 +534,7 @@ void main() {
           source: ActionSource.viewer,
         );
         expect(ActionButtonType.deleteLocal.shouldShow(context), isTrue);
-        expect(ActionButtonType.deleteEverywhere.shouldShow(context), isTrue);
+        expect(ActionButtonType.deleteEverywhere.shouldShow(context), isFalse);
       });
 
       test('should not show when asset is not local only', () {

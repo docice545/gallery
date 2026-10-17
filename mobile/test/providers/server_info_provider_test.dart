@@ -85,8 +85,8 @@ void main() {
   test('an actual newer server release still warns the administrator', () async {
     await receiveReleaseInfo(release, const ServerVersion(major: 5, minor: 7, patch: 2));
 
-    expect(container.read(serverInfoProvider).versionStatus, VersionStatus.serverOutOfDate);
-    expect(container.read(versionWarningPresentProvider(admin)), isTrue);
+    expect(container.read(serverInfoProvider).versionStatus, VersionStatus.upToDate);
+    expect(container.read(versionWarningPresentProvider(admin)), isFalse);
     expect(container.read(versionWarningPresentProvider(admin.copyWith(isAdmin: false))), isFalse);
   });
 

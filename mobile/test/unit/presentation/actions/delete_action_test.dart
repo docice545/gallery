@@ -244,14 +244,14 @@ void main() {
         expect(find.text('Undo'), findsNothing);
       });
 
-      testWidgets('permanently deletes a merged asset and removes its device copy', (tester) async {
+      testWidgets('permanently deletes a merged asset but preserves its device copy', (tester) async {
         final asset = owned(deletedAt: DateTime(2024), localId: 'local');
 
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await respondToDialog(tester, confirm: true);
 
         verify(() => assetService.deleteWithResults([asset.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'], trash: false)).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
       testWidgets('permanently deletes already trashed assets even with trash enabled', (tester) async {
@@ -271,7 +271,7 @@ void main() {
         await respondToDialog(tester, confirm: true);
 
         verify(() => assetService.deleteWithResults([asset.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'], trash: false)).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
       testWidgets('does nothing when the confirmation is cancelled', (tester) async {
@@ -322,7 +322,7 @@ void main() {
 
         expect(find.text(StaticTranslations.instance.move_to_device_trash), findsNothing);
         verify(() => assetService.deleteWithResults([asset.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'], trash: false)).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
       testWidgets('local only delete on Android with MANAGE_MEDIA shows the prompt', (tester) async {
@@ -355,7 +355,7 @@ void main() {
       });
     });
 
-    testWidgets('Russian narrow-screen menu distinguishes all three deletion modes', (tester) async {
+    testWidgets('Russian narrow-screen menu exposes only separate deletion modes', (tester) async {
       tester.view.physicalSize = const Size(1080, 2340);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.resetPhysicalSize);
@@ -366,16 +366,15 @@ void main() {
           children: [
             ActionButton(action: DeleteAction(source: .timeline)),
             ActionButton(action: CleanupLocalAction(source: .timeline)),
-            ActionButton(action: DeleteEverywhereAction(source: .timeline)),
           ],
         ),
         overrides: context.selected({owned(localId: 'phone')}),
       );
       await EasyLocalization.of(tester.element(find.byType(Column).first))!.setLocale(const Locale('ru'));
       await tester.pumpAndSettle();
-      expect(find.text('Удалить из «Фото»'), findsOneWidget);
+      expect(find.text('В корзину'), findsOneWidget);
       expect(find.text('Удалить с устройства'), findsOneWidget);
-      expect(find.text('Удалить везде'), findsOneWidget);
+      expect(find.text('Удалить везде'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
