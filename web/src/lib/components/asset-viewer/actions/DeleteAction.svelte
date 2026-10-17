@@ -5,10 +5,9 @@
   import AssetDeleteConfirmModal from '$lib/modals/AssetDeleteConfirmModal.svelte';
   import { showDeleteModal } from '$lib/stores/preferences.store';
   import { deleteAssets as deleteAssetsUtil, type OnUndoDelete } from '$lib/utils/actions';
-  import { handleError } from '$lib/utils/handle-error';
   import { toTimelineAsset } from '$lib/utils/timeline-util';
-  import { deleteAssets, type AssetResponseDto } from '@immich/sdk';
-  import { IconButton, modalManager, toastManager } from '@immich/ui';
+  import type { AssetResponseDto } from '@immich/sdk';
+  import { IconButton, modalManager } from '@immich/ui';
   import { mdiDeleteForeverOutline, mdiDeleteOutline } from '@mdi/js';
   import { t } from 'svelte-i18n';
   import type { OnAction, PreAction } from './action';
@@ -23,38 +22,39 @@
   let { asset, onAction, preAction, onUndoDelete = undefined }: Props = $props();
 
   const forceDefault = $derived(asset.isTrashed || !featureFlagsManager.value.trash);
+  let loading = $state(false);
 
   const trashOrDelete = async (forceRequest?: boolean) => {
-    const timelineAsset = toTimelineAsset(asset);
-    const force = forceDefault || forceRequest;
+    if (loading) {
+      return;
+    }
+    loading = true;
+    try {
+      const timelineAsset = toTimelineAsset(asset);
+      const force = forceDefault || forceRequest === true;
 
-    if (force) {
-      if ($showDeleteModal) {
+      if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal)) {
         const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: 1 });
         if (!confirmed) {
           return;
         }
       }
 
-      try {
-        preAction({ type: AssetAction.DELETE, asset: timelineAsset });
-        await deleteAssets({ assetBulkDeleteDto: { ids: [asset.id], force: true } });
-        onAction({ type: AssetAction.DELETE, asset: timelineAsset });
-        toastManager.primary($t('permanently_deleted_asset'));
-      } catch (error) {
-        handleError(error, $t('errors.unable_to_delete_asset'));
-      }
-
-      return;
+      const type = force ? AssetAction.DELETE : AssetAction.TRASH;
+      preAction({ type, asset: timelineAsset });
+      await deleteAssetsUtil(
+        force,
+        (ids) => {
+          if (ids.includes(timelineAsset.id)) {
+            onAction({ type, asset: timelineAsset });
+          }
+        },
+        [timelineAsset],
+        onUndoDelete,
+      );
+    } finally {
+      loading = false;
     }
-
-    preAction({ type: AssetAction.TRASH, asset: timelineAsset });
-    await deleteAssetsUtil(
-      false,
-      () => onAction({ type: AssetAction.TRASH, asset: timelineAsset }),
-      [timelineAsset],
-      onUndoDelete,
-    );
   };
 </script>
 
@@ -71,5 +71,6 @@
   variant="ghost"
   icon={forceDefault ? mdiDeleteForeverOutline : mdiDeleteOutline}
   aria-label={forceDefault ? $t('permanently_delete') : $t('delete')}
+  disabled={loading}
   onclick={() => trashOrDelete()}
 />

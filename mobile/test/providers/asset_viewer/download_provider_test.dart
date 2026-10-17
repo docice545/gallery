@@ -2,6 +2,7 @@ import 'package:background_downloader/background_downloader.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/models/download/livephotos_medatada.model.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/providers/asset_viewer/download.provider.dart';
 import 'package:immich_mobile/services/download.service.dart';
 import 'package:mocktail/mocktail.dart';
@@ -17,6 +18,7 @@ void main() {
   late void Function(TaskProgressUpdate) onProgress;
   late void Function(TaskStatusUpdate) onImage;
   late void Function(TaskStatusUpdate) onLivePhoto;
+  late void Function(Task, LivePhotoSaveResult) onSaved;
 
   setUp(() {
     service = MockDownloadService();
@@ -27,6 +29,8 @@ void main() {
       }
     });
 
+    onSaved =
+        verify(() => service.onLivePhotoSaved = captureAny()).captured.last as void Function(Task, LivePhotoSaveResult);
     onProgress = verify(() => service.onTaskProgress = captureAny()).captured.last as void Function(TaskProgressUpdate);
     onImage =
         verify(() => service.onImageDownloadStatus = captureAny()).captured.last as void Function(TaskStatusUpdate);
@@ -88,26 +92,80 @@ void main() {
     });
   });
 
-  test('canceled does not resurrect or alter the entry', () {
+  test('canceled removes the entry and late progress does not resurrect it', () {
     fakeAsync((async) {
       final task = _task('task-1');
       onProgress(TaskProgressUpdate(task, 0.4));
       onImage(TaskStatusUpdate(task, TaskStatus.canceled));
 
-      expect(notifier.state.taskProgress['task-1']?.status, TaskStatus.running);
-      expect(notifier.state.taskProgress['task-1']?.progress, 0.4);
+      expect(notifier.state.taskProgress.containsKey('task-1'), isFalse);
+      expect(notifier.state.showProgress, isFalse);
+      onProgress(TaskProgressUpdate(task, 0.6));
+      expect(notifier.state.taskProgress.containsKey('task-1'), isFalse);
 
       onImage(TaskStatusUpdate(_task('ghost'), TaskStatus.canceled));
       expect(notifier.state.taskProgress.containsKey('ghost'), isFalse);
     });
   });
 
-  test('a status for an unknown task does not create an entry', () {
+  test('fast tasks report completion even when the downloader never sends progress', () {
     fakeAsync((async) {
       onImage(TaskStatusUpdate(_task('ghost'), TaskStatus.complete));
 
-      expect(notifier.state.taskProgress, isEmpty);
-      expect(notifier.state.showProgress, isFalse);
+      expect(notifier.state.taskProgress['ghost']?.status, TaskStatus.complete);
+      expect(notifier.state.taskProgress['ghost']?.progress, 1);
+      expect(notifier.state.showProgress, isTrue);
     });
+  });
+
+  test('a network failure before progress is visible and cannot be overwritten by late progress', () {
+    final task = _task('network-failed');
+    onImage(TaskStatusUpdate(task, TaskStatus.failed));
+    onProgress(TaskProgressUpdate(task, 0.5));
+    expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.failed);
+    expect(notifier.state.showProgress, isTrue);
+  });
+
+  test('complete entries can be dismissed without canceling a finished native download', () async {
+    final task = _task('complete');
+    onImage(TaskStatusUpdate(task, TaskStatus.complete));
+    await notifier.cancelDownload(task.taskId);
+    expect(notifier.state.taskProgress, isEmpty);
+    expect(notifier.state.showProgress, isFalse);
+    verifyNever(() => service.cancelDownload(any()));
+    onProgress(TaskProgressUpdate(task, 0.9));
+    expect(notifier.state.taskProgress, isEmpty);
+  });
+
+  test('queued retry of a canceled task resets its suppression', () {
+    final task = _task('retry');
+    onImage(TaskStatusUpdate(task, TaskStatus.canceled));
+    onImage(TaskStatusUpdate(task, TaskStatus.enqueued));
+    onProgress(TaskProgressUpdate(task, 0.2));
+    expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.running);
+  });
+  test('UI preserves image-only outcome through status completion and late progress', () {
+    final task = _task('live');
+    onProgress(TaskProgressUpdate(task, .8));
+    onSaved(task, LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.imageOnly, localIdentifier: 'local'));
+    onLivePhoto(TaskStatusUpdate(task, TaskStatus.complete));
+    onProgress(TaskProgressUpdate(task, .99));
+    expect(notifier.state.taskProgress[task.taskId]?.livePhotoOutcome, LivePhotoSaveOutcome.imageOnly);
+    expect(notifier.state.taskProgress[task.taskId]?.status, TaskStatus.complete);
+  });
+
+  test('UI distinguishes saved Live Photo from ordinary still save', () {
+    final task = _task('live');
+    onSaved(task, LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.livePhoto, localIdentifier: 'local'));
+    onLivePhoto(TaskStatusUpdate(task, TaskStatus.complete));
+    expect(notifier.state.taskProgress[task.taskId]?.livePhotoOutcome, LivePhotoSaveOutcome.livePhoto);
+  });
+
+  test('dismissed pair is not resurrected by a late native fidelity callback', () async {
+    final task = _task('live');
+    onLivePhoto(TaskStatusUpdate(task, TaskStatus.complete));
+    await notifier.cancelDownload(task.taskId);
+    onSaved(task, LivePhotoSaveResult(outcome: LivePhotoSaveOutcome.imageOnly, localIdentifier: 'local'));
+    expect(notifier.state.taskProgress, isEmpty);
   });
 }

@@ -105,6 +105,7 @@ export const AssetOrderSchema = z.enum(AssetOrder).describe('Asset sort order').
 export enum AssetOrderBy {
   TakenAt = 'takenAt',
   CreatedAt = 'createdAt',
+  DeletedAt = 'deletedAt',
 }
 
 export const AssetOrderBySchema = z.enum(AssetOrderBy).describe('Asset sorting property').meta({ id: 'AssetOrderBy' });
@@ -924,6 +925,7 @@ export const QueueJobStatusSchema = z.enum(QueueJobStatus).describe('Queue job s
 
 export enum JobName {
   AssetDelete = 'AssetDelete',
+  AssetDeleteBatch = 'AssetDeleteBatch',
   AssetDeleteCheck = 'AssetDeleteCheck',
   AssetDetectFacesQueueAll = 'AssetDetectFacesQueueAll',
   AssetDetectFaces = 'AssetDetectFaces',

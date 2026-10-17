@@ -116,7 +116,10 @@ class UploadRepository {
 
       try {
         final responseBody = jsonDecode(responseBodyString);
-        return UploadResult.success(remoteAssetId: responseBody['id'] as String);
+        return UploadResult.success(
+          remoteAssetId: responseBody['id'] as String,
+          wasCreated: responseBody['status'] == 'created',
+        );
       } catch (e) {
         return UploadResult.error(errorMessage: 'Failed to parse server response');
       }
@@ -166,6 +169,8 @@ class UploadResult {
   final String? remoteAssetId;
   final String? errorMessage;
   final int? statusCode;
+  // Rollback may delete only an explicitly newly created resource, never a duplicate.
+  final bool wasCreated;
 
   const UploadResult({
     required this.isSuccess,
@@ -173,10 +178,11 @@ class UploadResult {
     this.remoteAssetId,
     this.errorMessage,
     this.statusCode,
+    this.wasCreated = false,
   });
 
-  factory UploadResult.success({required String remoteAssetId}) {
-    return UploadResult(isSuccess: true, isCancelled: false, remoteAssetId: remoteAssetId);
+  factory UploadResult.success({required String remoteAssetId, bool wasCreated = false}) {
+    return UploadResult(isSuccess: true, isCancelled: false, remoteAssetId: remoteAssetId, wasCreated: wasCreated);
   }
 
   factory UploadResult.error({String? errorMessage, int? statusCode}) {

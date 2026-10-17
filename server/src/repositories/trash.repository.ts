@@ -36,18 +36,19 @@ export class TrashRepository {
   }
 
   @GenerateSql({ params: [[DummyValue.UUID]] })
-  async restoreAll(ids: string[]): Promise<number> {
+  async restoreAll(ids: string[]): Promise<string[]> {
     if (ids.length === 0) {
-      return 0;
+      return [];
     }
 
-    const { numUpdatedRows } = await this.db
+    const restored = await this.db
       .updateTable('asset')
       .where('status', '=', AssetStatus.Trashed)
       .where('id', 'in', ids)
       .set({ status: AssetStatus.Active, deletedAt: null })
-      .executeTakeFirst();
+      .returning('id')
+      .execute();
 
-    return Number(numUpdatedRows);
+    return restored.map(({ id }) => id);
   }
 }

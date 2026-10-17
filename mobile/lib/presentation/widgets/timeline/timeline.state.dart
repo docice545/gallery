@@ -23,6 +23,7 @@ abstract class TimelineArgs with _$TimelineArgs {
     @Default(kTimelineColumnCount) int columnCount,
     @Default(false) bool showStorageIndicator,
     @Default(false) bool withStack,
+    @Default(false) bool denseLayout,
     GroupAssetsBy? groupBy,
   }) = _TimelineArgs;
 }
@@ -71,8 +72,10 @@ class TimelineStateNotifier extends Notifier<TimelineState> {
 // It should be used only after the timeline service and timeline args provider is overridden
 final timelineSegmentProvider = StreamProvider.autoDispose<List<Segment>>((ref) async* {
   // maxHeight is left out on purpose, a height-only change must not restart the bucket stream
-  final (maxWidth, columnCount, spacing, groupByArg) = ref.watch(
-    timelineArgsProvider.select((args) => (args.maxWidth, args.columnCount, args.spacing, args.groupBy)),
+  final (maxWidth, columnCount, spacing, groupByArg, denseLayout) = ref.watch(
+    timelineArgsProvider.select(
+      (args) => (args.maxWidth, args.columnCount, args.spacing, args.groupBy, args.denseLayout),
+    ),
   );
   final availableTileWidth = maxWidth - (spacing * (columnCount - 1));
   final tileExtent = math.max(0, availableTileWidth) / columnCount;
@@ -95,6 +98,7 @@ final timelineSegmentProvider = StreamProvider.autoDispose<List<Segment>>((ref) 
       buckets: buckets,
       tileHeight: tileExtent,
       columnCount: columnCount,
+      denseLayout: denseLayout,
       spacing: spacing,
       groupBy: isDateless ? GroupAssetsBy.day : spec.groupBy,
     ).generate();

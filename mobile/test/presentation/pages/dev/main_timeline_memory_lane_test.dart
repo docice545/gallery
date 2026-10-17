@@ -93,6 +93,7 @@ ProviderContainer _makeContainer({required SearchService search, required Drift 
       photosFilterCountProvider.overrideWith((ref) => 0),
       featureMessageServiceProvider.overrideWithValue(_StubFeatureMessageService()),
       memoryLaneProvider.overrideWith((ref) async => [_memory()]),
+      memoryCandidatesProvider.overrideWith((ref) async => const []),
     ],
   );
 }

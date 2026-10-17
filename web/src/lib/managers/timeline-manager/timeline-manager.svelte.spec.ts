@@ -1164,6 +1164,109 @@ describe('TimelineManager', () => {
     });
   });
 
+  describe('trash deletion date timeline', () => {
+    const date = fromISODateTimeUTCToObject;
+    const asset = (captured: string, deleted: string) =>
+      timelineAssetFactory.build({
+        isTrashed: true,
+        fileCreatedAt: date(captured),
+        localDateTime: date(captured),
+        deletedAt: date(deleted),
+      });
+
+    const trashManager = async () => {
+      sdkMock.getTimeBuckets.mockResolvedValue([]);
+      const manager = new TimelineManager();
+      await manager.updateOptions({ isTrashed: true, orderBy: AssetOrderBy.DeletedAt });
+      return manager;
+    };
+
+    it('groups by deletion month/day with latest deleted first, preserving capture metadata', async () => {
+      const manager = await trashManager();
+      const older = asset('2025-06-01T12:00:00Z', '2026-09-30T22:00:00Z');
+      const morning = asset('2024-10-05T12:00:00Z', '2026-10-05T09:00:00Z');
+      const newest = asset('2020-01-01T12:00:00Z', '2026-10-05T11:00:00Z');
+      manager.upsertAssets([older, morning, newest]);
+      expect(manager.months.map((month) => month.yearMonth)).toEqual([
+        { year: 2026, month: 10 },
+        { year: 2026, month: 9 },
+      ]);
+      expect(manager.months[0].timelineDays[0].day).toBe(5);
+      expect(manager.months[0].timelineDays[0].groupTitle).not.toContain('2020');
+      const sortedAssets = await getAssets(manager);
+      expect(sortedAssets.map((asset) => asset.id)).toEqual([newest.id, morning.id, older.id]);
+      expect(newest.fileCreatedAt.year).toBe(2020);
+      manager.destroy();
+    });
+
+    it('loads deletion dates from the columnar bucket without requests for each asset', async () => {
+      const newest = asset('2020-01-01T12:00:00Z', '2026-10-05T11:00:00Z');
+      const older = asset('2024-10-05T12:00:00Z', '2026-10-04T11:00:00Z');
+      sdkMock.getTimeBuckets.mockResolvedValue([{ timeBucket: '2026-10-01', count: 2 }]);
+      sdkMock.getTimeBucket.mockResolvedValue(toResponseDto(newest, older));
+      const manager = new TimelineManager();
+      await manager.updateOptions({ isTrashed: true, orderBy: AssetOrderBy.DeletedAt });
+      await manager.loadTimelineMonth({ year: 2026, month: 10 });
+      expect(manager.months[0].timelineDays.map((day) => day.day)).toEqual([5, 4]);
+      const loadedAssets = await getAssets(manager);
+      expect(loadedAssets.map((asset) => asset.id)).toEqual([newest.id, older.id]);
+      expect(sdkMock.getAssetInfo).not.toHaveBeenCalled();
+      manager.destroy();
+    });
+
+    it('removes restored assets immediately without requiring a deletion date on the restored response', async () => {
+      const manager = await trashManager();
+      const photo = asset('2024-10-05T12:00:00Z', '2026-10-05T11:00:00Z');
+      manager.upsertAssets([photo]);
+      const captured = { ...photo.fileCreatedAt };
+      expect(() => manager.upsertAssets([{ ...photo, isTrashed: false, deletedAt: null }])).not.toThrow();
+      expect(await getAssets(manager)).toHaveLength(0);
+      expect(photo.fileCreatedAt).toEqual(captured);
+      manager.destroy();
+    });
+
+    it('moves a repeatedly deleted asset to its new deletion date without changing its capture day', async () => {
+      const manager = await trashManager();
+      const photo = asset('2024-10-05T12:00:00Z', '2026-09-30T11:00:00Z');
+      manager.upsertAssets([photo]);
+      manager.upsertAssets([{ ...photo, deletedAt: date('2026-10-05T11:00:00Z') }]);
+      expect(manager.months.find((month) => month.assetsCount)?.yearMonth).toEqual({ year: 2026, month: 10 });
+      const updatedAssets = await getAssets(manager);
+      expect(updatedAssets[0].localDateTime.year).toBe(2024);
+      manager.destroy();
+    });
+
+    it('reorders a deletion timestamp changed within the same day and keeps tied dates deterministic', async () => {
+      const manager = await trashManager();
+      const first = {
+        ...asset('2024-10-05T12:00:00Z', '2026-10-05T10:00:00Z'),
+        id: '00000000-0000-4000-8000-000000000001',
+      };
+      const second = {
+        ...asset('2020-01-01T12:00:00Z', '2026-10-05T10:00:00Z'),
+        id: '00000000-0000-4000-8000-000000000002',
+      };
+      manager.upsertAssets([first, second]);
+      const tiedAssets = await getAssets(manager);
+      expect(tiedAssets.map((asset) => asset.id)).toEqual([second.id, first.id]);
+      manager.upsertAssets([{ ...first, deletedAt: date('2026-10-05T11:00:00Z') }]);
+      const updatedAssets = await getAssets(manager);
+      expect(updatedAssets.map((asset) => asset.id)).toEqual([first.id, second.id]);
+      manager.destroy();
+    });
+
+    it('selection ranges follow deletion dates instead of original capture dates', async () => {
+      const manager = await trashManager();
+      const oldest = asset('2026-10-04T12:00:00Z', '2026-10-03T11:00:00Z');
+      const middle = asset('2020-01-01T12:00:00Z', '2026-10-04T11:00:00Z');
+      const newest = asset('2024-10-05T12:00:00Z', '2026-10-05T11:00:00Z');
+      manager.upsertAssets([middle, oldest, newest]);
+      const range = await manager.retrieveRange({ id: newest.id }, { id: middle.id });
+      expect(range.map((asset) => asset.id)).toEqual([newest.id, middle.id]);
+      manager.destroy();
+    });
+  });
+
   describe('space timeline with stacked photos', () => {
     let timelineManager: TimelineManager;
     const stackedAssets: Record<string, TimelineAsset[]> = {

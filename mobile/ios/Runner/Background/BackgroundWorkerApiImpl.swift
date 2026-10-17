@@ -33,7 +33,22 @@ class BackgroundWorkerApiImpl: BackgroundWorkerFgHostApi {
     permittedTaskIDs.first { $0.hasSuffix(".refreshUpload") } ?? "app.alextran.immich.background.refreshUpload"
   private static let processingTaskID =
     permittedTaskIDs.first { $0.hasSuffix(".processingUpload") } ?? "app.alextran.immich.background.processingUpload"
-  private static let taskSemaphore = DispatchSemaphore(value: 1)
+  private static let taskLock = NSLock()
+  private static var taskRunning = false
+
+  private static func reserveTask() -> Bool {
+    taskLock.lock()
+    defer { taskLock.unlock() }
+    guard !taskRunning else { return false }
+    taskRunning = true
+    return true
+  }
+
+  private static func releaseTask() {
+    taskLock.lock()
+    taskRunning = false
+    taskLock.unlock()
+  }
 
   public static func registerBackgroundWorkers() {
       BGTaskScheduler.shared.register(
@@ -78,7 +93,7 @@ class BackgroundWorkerApiImpl: BackgroundWorkerFgHostApi {
   private static func handleBackgroundRefresh(task: BGAppRefreshTask) {
     scheduleRefreshWorker()
     // If another task is running, cede the background time back to the OS
-    if taskSemaphore.wait(timeout: .now()) == .success {
+    if reserveTask() {
       // Restrict the refresh task to run only for a maximum of (maxSeconds) seconds
       runBackgroundWorker(task: task, taskType: .refresh, maxSeconds: 20)
     } else {
@@ -88,8 +103,11 @@ class BackgroundWorkerApiImpl: BackgroundWorkerFgHostApi {
   
   private static func handleBackgroundProcessing(task: BGProcessingTask) {
     scheduleProcessingWorker()
-    taskSemaphore.wait()
-    // There are no restrictions for processing tasks. Although, the OS could signal expiration at any time
+    guard reserveTask() else {
+      task.setTaskCompleted(success: false)
+      return
+    }
+    // Processing tasks are still subject to expiration by the OS.
     runBackgroundWorker(task: task, taskType: .processing, maxSeconds: nil)
   }
   
@@ -104,33 +122,19 @@ class BackgroundWorkerApiImpl: BackgroundWorkerFgHostApi {
    *   - maxSeconds: Optional timeout for the operation in seconds
    */
   private static func runBackgroundWorker(task: BGTask, taskType: BackgroundTaskType, maxSeconds: Int?) {
-    defer { taskSemaphore.signal() }
-    let semaphore = DispatchSemaphore(value: 0)
-    var isSuccess = true
-    
-    let backgroundWorker = BackgroundWorker(taskType: taskType, maxSeconds: maxSeconds) { success in
-      isSuccess = success
-      semaphore.signal()
-    }
-
-    task.expirationHandler = {
-      DispatchQueue.main.async {
-        backgroundWorker.close()
-      }
-      isSuccess = false
-      
-      // Schedule a timer to signal the semaphore after 2 seconds
-      Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
-        semaphore.signal()
-      }
-    }
-
+    // No blocking semaphore or forced 2-second completion: the reservation
+    // remains held until Dart acknowledged cancellation and drained.
     DispatchQueue.main.async {
-      backgroundWorker.run()
+      let worker = BackgroundWorker(taskType: taskType, maxSeconds: maxSeconds) { success in
+        task.expirationHandler = nil
+        releaseTask()
+        task.setTaskCompleted(success: success)
+        print("Background task completed with success: \(success)")
+      }
+      task.expirationHandler = {
+        DispatchQueue.main.async { worker.requestCancellation() }
+      }
+      worker.run()
     }
-
-    semaphore.wait()
-    task.setTaskCompleted(success: isSuccess)
-    print("Background task completed with success: \(isSuccess)")
   }
 }

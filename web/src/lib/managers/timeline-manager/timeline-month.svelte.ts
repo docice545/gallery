@@ -179,6 +179,7 @@ export class TimelineMonth {
         bucketAssets.fileCreatedAt[i],
         bucketAssets.localOffsetHours[i],
       );
+      const deletedAt = bucketAssets.deletedAt?.at(i);
 
       const timelineAsset: TimelineAsset = {
         city: bucketAssets.city?.[i] ?? null,
@@ -198,6 +199,7 @@ export class TimelineMonth {
         // server bucket for negative-offset-TZ viewers → empty /recently-added page. See the
         // "buckets createdAt by its UTC month" regression test in timeline-manager.svelte.spec.ts.
         createdAt: fromISODateTimeUTCToObject(bucketAssets.createdAt[i]),
+        deletedAt: deletedAt ? fromISODateTimeUTCToObject(deletedAt) : null,
         fileCreatedAt,
         ownerId: bucketAssets.ownerId[i],
         projectionType: bucketAssets.projectionType[i],

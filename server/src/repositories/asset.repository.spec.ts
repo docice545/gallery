@@ -1,7 +1,8 @@
 import { DummyDriver, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler } from 'kysely';
 import { describe, expect, it } from 'vitest';
 import type { DB } from 'src/schema/index.js';
-import { withTimeBucketAssetFilters } from 'src/repositories/asset.repository.js';
+import { AssetStatus } from 'src/enum.js';
+import { AssetRepository, withTimeBucketAssetFilters } from 'src/repositories/asset.repository.js';
 
 // Offline Kysely — compiles SQL without executing it. No DB connection needed.
 const offlineKysely = () =>
@@ -19,6 +20,31 @@ const compileTimeBucketFilters = (options: Record<string, unknown>) =>
 
 const compileTimeBucketFiltersFull = (options: Record<string, unknown>) =>
   withTimeBucketAssetFilters(offlineKysely().selectFrom('asset').select('asset.id'), options as any).compile();
+
+describe('retention deletion claim', () => {
+  it.each([true, false])('returns the database claim result (%s) using one conditional update', async (claimed) => {
+    const queries: { sql: string; parameters: readonly unknown[] }[] = [];
+    const id = '00000000-0000-4000-8000-000000000001';
+    const cutoff = new Date('2026-10-01T00:00:00.000Z');
+    const db = offlineKysely().withPlugin({
+      transformQuery(args) {
+        queries.push(new PostgresQueryCompiler().compileQuery(args.node, args.queryId));
+        return args.node;
+      },
+      transformResult() {
+        return Promise.resolve({ rows: claimed ? [{ id }] : [] });
+      },
+    });
+    expect(await new AssetRepository(db).claimExpiredDeletion(id, cutoff)).toBe(claimed);
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toContain('update "asset" set "status"');
+    expect(queries[0].sql).toContain('"deletedAt" <=');
+    expect(queries[0].sql).toContain('returning "id"');
+    expect(queries[0].parameters).toContain(cutoff);
+    expect(queries[0].parameters).toContain(AssetStatus.Deleted);
+    await db.destroy();
+  });
+});
 
 describe('withTimeBucketAssetFilters album filters', () => {
   it('filters timeline assets to album members when isInAlbum is true', () => {

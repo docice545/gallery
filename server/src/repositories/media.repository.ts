@@ -4,6 +4,7 @@ import ffmpeg, { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
 import { camelCase, upperFirst } from 'lodash-es';
 import { Duration } from 'luxon';
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Writable } from 'node:stream';
@@ -61,8 +62,105 @@ export type ExtractResult = {
   format: RawExtractedFormat;
 };
 
+/** The small filesystem surface needed to discover a usable VAAPI render node. */
+export type VaapiDeviceProbe = {
+  readdir(directory: string): Promise<string[]>;
+  access(file: string, mode?: number): Promise<void>;
+};
+
+const vaapiDeviceProbe: VaapiDeviceProbe = {
+  readdir: (directory) => fs.readdir(directory, { encoding: 'utf8' }),
+  access: (file, mode) => fs.access(file, mode),
+};
+
+/**
+ * Find an accessible DRM render node without making hardware acceleration a requirement.
+ *
+ * Render nodes are preferred over card nodes because they do not require display access and
+ * are the least-privileged way to use VAAPI from a worker/container. The caller still treats
+ * the returned node as a capability hint: FFmpeg may reject a codec/profile and the frame
+ * extractor must fall back to software.
+ */
+export const findVaapiRenderNode = async (probe: VaapiDeviceProbe = vaapiDeviceProbe): Promise<string | null> => {
+  let entries: string[];
+  try {
+    entries = await probe.readdir('/dev/dri');
+  } catch {
+    return null;
+  }
+
+  const renderNodes = entries
+    .filter((entry) => /^renderD\d+$/.test(entry))
+    .toSorted((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+
+  for (const entry of renderNodes) {
+    const device = path.join('/dev/dri', entry);
+    try {
+      await probe.access(device, fsConstants.R_OK | fsConstants.W_OK);
+      return device;
+    } catch {
+      // A container can expose a node while denying access to the worker user. Try the next
+      // node and let the caller continue with CPU extraction when none are usable.
+    }
+  }
+
+  return null;
+};
+
+export type FrameExtractionPath = 'vaapi' | 'software';
+
+export const getVideoFrameInputOptions = (
+  timestamp: number,
+  extractionPath: FrameExtractionPath,
+  vaapiDevice: string | null,
+) => {
+  const options = [`-ss ${timestamp}`];
+  if (extractionPath === 'vaapi' && vaapiDevice) {
+    options.push('-hwaccel', 'vaapi', '-hwaccel_device', vaapiDevice, '-hwaccel_output_format', 'vaapi');
+  }
+  return options;
+};
+
+export const getVideoFrameOutputOptions = (extractionPath: FrameExtractionPath, vaapiDevice: string | null) => {
+  // `-y` lets the software retry replace a partially written output left by a failed hardware
+  // invocation. Every output path is a fresh job-local frame path, so this is not destructive to
+  // user media.
+  const options = ['-y', '-frames:v 1', '-q:v 2'];
+  if (extractionPath === 'vaapi' && vaapiDevice) {
+    options.unshift('-vf', 'hwdownload,format=nv12');
+  }
+  return options;
+};
+
+/**
+ * Execute one frame extraction with VAAPI first and retry it with software decoding on failure.
+ * Keeping this small seam separate makes the fallback contract deterministic to test without
+ * launching FFmpeg or requiring a host GPU in CI.
+ */
+export const extractFrameWithSoftwareFallback = async (
+  useVaapi: boolean,
+  extract: (path: FrameExtractionPath) => Promise<void>,
+  onVaapiFailure?: (error: unknown) => void,
+): Promise<FrameExtractionPath> => {
+  if (!useVaapi) {
+    await extract('software');
+    return 'software';
+  }
+
+  try {
+    await extract('vaapi');
+    return 'vaapi';
+  } catch (error) {
+    onVaapiFailure?.(error);
+    await extract('software');
+    return 'software';
+  }
+};
+
 @Injectable()
 export class MediaRepository {
+  private vaapiRenderNode?: Promise<string | null>;
+
   constructor(private logger: LoggingRepository) {
     this.logger.setContext(MediaRepository.name);
     // eslint-disable-next-line import-x/no-named-as-default-member
@@ -379,21 +477,31 @@ export class MediaRepository {
 
   async extractVideoFrames(input: string, timestamps: number[], outputDir: string): Promise<string[]> {
     const results: string[] = [];
+    const vaapiDevice = await this.getVaapiRenderNode();
+    let vaapiFailed = false;
+
+    if (vaapiDevice) {
+      this.logger.log(`Using VAAPI render node ${vaapiDevice} for video frame extraction`);
+    } else {
+      this.logger.debug('No usable VAAPI render node found; using software video frame extraction');
+    }
+
     for (const timestamp of timestamps) {
       const output = path.join(outputDir, `frame-${timestamp.toFixed(3)}.jpg`);
       try {
-        await new Promise<void>((resolve, reject) => {
-          ffmpeg(input)
-            .inputOptions([`-ss ${timestamp}`])
-            .outputOptions(['-frames:v 1', '-q:v 2'])
-            .output(output)
-            .on('error', reject)
-            .on('end', () => resolve())
-            .run();
-        });
+        await extractFrameWithSoftwareFallback(
+          vaapiDevice !== null && !vaapiFailed,
+          (extractionPath) => this.extractVideoFrame(input, output, timestamp, extractionPath, vaapiDevice),
+          (error) => {
+            vaapiFailed = true;
+            this.logger.warn(
+              `VAAPI frame extraction failed at ${timestamp}s; retrying with software decoding: ${error}`,
+            );
+          },
+        );
         results.push(output);
       } catch (error) {
-        this.logger.warn(`Failed to extract frame at ${timestamp}s from ${input}: ${error}`);
+        this.logger.warn(`Failed to extract frame at ${timestamp}s: ${error}`);
       }
     }
 
@@ -402,6 +510,36 @@ export class MediaRepository {
     }
 
     return results;
+  }
+
+  private getVaapiRenderNode(): Promise<string | null> {
+    this.vaapiRenderNode ??= findVaapiRenderNode();
+    return this.vaapiRenderNode;
+  }
+
+  private extractVideoFrame(
+    input: string,
+    output: string,
+    timestamp: number,
+    extractionPath: FrameExtractionPath,
+    vaapiDevice: string | null,
+  ): Promise<void> {
+    // JPEG is a software output format. The VAAPI path downloads the decoded surface before
+    // the encoder consumes it. Unsupported codecs/profiles reject this command and are retried
+    // by extractFrameWithSoftwareFallback with the original CPU path.
+    const inputOptions = getVideoFrameInputOptions(timestamp, extractionPath, vaapiDevice);
+    const outputOptions = getVideoFrameOutputOptions(extractionPath, vaapiDevice);
+
+    return new Promise<void>((resolve, reject) => {
+      ffmpeg(input)
+        .inputOptions(inputOptions)
+        .outputOptions(outputOptions)
+        .output(output)
+        .on('start', (command: string) => this.logger.debug(command))
+        .on('error', reject)
+        .on('end', () => resolve())
+        .run();
+    });
   }
 
   transcode(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {

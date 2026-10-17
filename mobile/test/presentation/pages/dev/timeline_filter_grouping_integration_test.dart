@@ -117,6 +117,12 @@ ProviderContainer _makeContainer({required SearchService search, required Drift 
   );
 }
 
+// Search page completion and Drift's initial durable Trash snapshot are
+// independent. The real provider deliberately withholds cached results until
+// that snapshot arrives; assert the populated emission, not its safe empty one.
+Future<List<Bucket>> _populatedBuckets(TimelineService service) =>
+    service.watchBuckets().firstWhere((buckets) => buckets.isNotEmpty).timeout(const Duration(seconds: 2));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -178,7 +184,7 @@ void main() {
     await container.read(photosFilterSearchProvider.notifier).firstLoad;
 
     // Read buckets from the REAL service (no mock factory — genuine end-to-end).
-    final buckets = await svc.watchBuckets().first;
+    final buckets = await _populatedBuckets(svc);
 
     // All buckets must be TimeBuckets (dated), not plain Buckets.
     // REGRESSION: before the fix this would be [Bucket(assetCount: 3)] — one
@@ -233,7 +239,7 @@ void main() {
     await container.read(timelineOverviewModeProvider.notifier).set(TimelineOverviewMode.months);
     await container.read(photosFilterSearchProvider.notifier).firstLoad;
 
-    final monthBuckets = await container.read(timelineServiceProvider).watchBuckets().first;
+    final monthBuckets = await _populatedBuckets(container.read(timelineServiceProvider));
     expect(monthBuckets, everyElement(isA<TimeBucket>()));
     expect(monthBuckets.length, 2, reason: 'Month grouping: 2024-03 + 2024-01');
 
@@ -241,7 +247,7 @@ void main() {
     await container.read(timelineOverviewModeProvider.notifier).set(TimelineOverviewMode.all);
     await container.read(photosFilterSearchProvider.notifier).firstLoad;
 
-    final dayBuckets = await container.read(timelineServiceProvider).watchBuckets().first;
+    final dayBuckets = await _populatedBuckets(container.read(timelineServiceProvider));
     // Day grouping: the 2 March assets share the same date (2024-03-15), so
     // there are 2 distinct day buckets: 2024-03-15 and 2024-01-10.
     expect(dayBuckets, everyElement(isA<TimeBucket>()));
@@ -272,7 +278,7 @@ void main() {
     await container.read(timelineOverviewModeProvider.notifier).set(TimelineOverviewMode.years);
     await container.read(photosFilterSearchProvider.notifier).firstLoad;
 
-    final yearBuckets = await container.read(timelineServiceProvider).watchBuckets().first;
+    final yearBuckets = await _populatedBuckets(container.read(timelineServiceProvider));
     expect(yearBuckets, everyElement(isA<TimeBucket>()));
     expect(yearBuckets.length, 1, reason: 'Year grouping: all 3 assets are in 2024');
     expect((yearBuckets[0] as TimeBucket).date.year, 2024);
@@ -301,7 +307,7 @@ void main() {
     expect(container.read(timelineOverviewModeProvider), TimelineOverviewMode.all, reason: 'Selector opens on All');
     await container.read(photosFilterSearchProvider.notifier).firstLoad;
 
-    final buckets = await container.read(timelineServiceProvider).watchBuckets().first;
+    final buckets = await _populatedBuckets(container.read(timelineServiceProvider));
     expect(buckets.length, 2, reason: 'Month granularity: 2024-03 + 2024-01');
     expect((buckets[0] as TimeBucket).date.month, 3);
     expect((buckets[0] as TimeBucket).date.day, 1, reason: 'Month buckets are truncated to the 1st');

@@ -34,7 +34,13 @@ for (const file of migrationFiles) {
 // Targeted regression guard (not exhaustive, matching the original scope): the
 // shared_space_* / *_audit fork tables the album + library sync slices added — where the
 // drift this spec guards against actually happened.
-const forkTables = [...createdTables].filter((name) => name.startsWith('shared_space') || name.endsWith('_audit'));
+const forkTables = [...createdTables].filter(
+  (name) =>
+    name.startsWith('shared_space') ||
+    name.endsWith('_audit') ||
+    name === 'stack_suppression' ||
+    name === 'memory_candidate',
+);
 
 // The step-9 guard IN-list is the parenthesised block after `tablename IN (`.
 const guardBlock = sql.slice(sql.indexOf('AND tablename IN ('));
@@ -46,6 +52,15 @@ const deleteBlockEnd = sql.indexOf(');', deleteBlockStart) + 2;
 const deleteBlock = sql.slice(deleteBlockStart, deleteBlockEnd);
 
 describe('revert-to-immich.sql', () => {
+  it('blocks conversion before any destructive SQL when durable deletion state exists', () => {
+    const barrier = sql.indexOf("IF to_regclass('public.asset_deletion_tombstone') IS NOT NULL THEN");
+    expect(barrier).toBeGreaterThan(0);
+    expect(sql.slice(barrier, sql.indexOf('END IF;', barrier))).toContain('RAISE EXCEPTION');
+    expect(barrier).toBeLessThan(sql.indexOf('DROP TABLE IF EXISTS'));
+    for (const table of ['asset_deletion_policy', 'asset_deletion_tombstone'])
+      expect(sql).not.toMatch(new RegExp(String.raw`DROP TABLE[^;]*"?${table}\b`));
+  });
+
   it('drops every fork table with CASCADE', () => {
     const missing = forkTables.filter((t) => !sql.includes(`DROP TABLE IF EXISTS "${t}" CASCADE`));
     expect(missing).toEqual([]);
@@ -57,7 +72,14 @@ describe('revert-to-immich.sql', () => {
   });
 
   it('lists every migrations-gallery migration in the step-8 kysely_migrations DELETE block', () => {
-    const missing = migrationNames.filter((name) => !deleteBlock.includes(`'${name}'`));
+    const irreversible = new Set([
+      '1793600000000-AddAuthorizedAssetDeletion',
+      '1793700000000-BindDeletionRecovery',
+      '1794050000000-OwnerStorageDeletion',
+    ]);
+    expect(sql).toContain("to_regclass('public.asset_deletion_tombstone') IS NOT NULL");
+    for (const name of irreversible) expect(deleteBlock).not.toContain(name);
+    const missing = migrationNames.filter((name) => !irreversible.has(name) && !deleteBlock.includes(`'${name}'`));
     expect(missing).toEqual([]);
   });
 });

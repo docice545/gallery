@@ -5,7 +5,7 @@ import type { ILibraryBulkIdsJob, ILibraryFileJob } from 'src/types.js';
 import { JOBS_LIBRARY_PAGINATION_SIZE } from 'src/constants.js';
 import { SystemConfig, defaults } from 'src/dtos/config.dto.js';
 import { mapLibrary } from 'src/dtos/library.dto.js';
-import { AssetType, CronJob, ImmichWorker, JobName, JobStatus } from 'src/enum.js';
+import { AssetStatus, AssetType, CronJob, ImmichWorker, JobName, JobStatus } from 'src/enum.js';
 import { LibraryService } from 'src/services/library.service.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
@@ -398,6 +398,10 @@ describe(LibraryService.name, () => {
   });
 
   describe('handleSyncAssets', () => {
+    beforeEach(() => {
+      mocks.assetJob.setOnlineForLibrarySync.mockResolvedValue();
+    });
+
     it('should offline assets no longer on disk', async () => {
       const asset = AssetFactory.create({ libraryId: 'library-id', isExternal: true });
       const mockAssetJob: ILibraryBulkIdsJob = {
@@ -477,10 +481,59 @@ describe(LibraryService.name, () => {
 
       await expect(sut.handleSyncAssets(mockAssetJob)).resolves.toBe(JobStatus.Success);
 
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], {
-        isOffline: false,
-        deletedAt: null,
+      expect(mocks.assetJob.setOnlineForLibrarySync).toHaveBeenCalledWith([asset.id]);
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+    });
+
+    it('should use a conditional online write when the asset is trashed during stat', async () => {
+      const asset = AssetFactory.create({ originalPath: '/original/path.jpg', isOffline: true });
+      const statStarted = Promise.withResolvers<void>();
+      const stat = Promise.withResolvers<Stats>();
+      mocks.assetJob.getForSyncAssets.mockResolvedValue([{ ...asset }]);
+      mocks.storage.stat.mockImplementation(() => {
+        statStarted.resolve();
+        return stat.promise;
       });
+
+      const sync = sut.handleSyncAssets({
+        assetIds: [asset.id],
+        libraryId: newUuid(),
+        importPaths: ['/original/'],
+        exclusionPatterns: [],
+        totalAssets: 1,
+        progressCounter: 0,
+      });
+      await statStarted.promise;
+      asset.status = AssetStatus.Trashed;
+      asset.deletedAt = newDate();
+      stat.resolve({ mtime: asset.fileModifiedAt } as Stats);
+
+      await expect(sync).resolves.toBe(JobStatus.Success);
+      expect(mocks.assetJob.setOnlineForLibrarySync).toHaveBeenCalledWith([asset.id]);
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+    });
+
+    it('should keep an initially trashed asset in trash when its file comes online', async () => {
+      const asset = AssetFactory.create({
+        originalPath: '/original/path.jpg',
+        isOffline: true,
+        status: AssetStatus.Trashed,
+        deletedAt: newDate(),
+      });
+      mocks.assetJob.getForSyncAssets.mockResolvedValue([asset]);
+      mocks.storage.stat.mockResolvedValue({ mtime: asset.fileModifiedAt } as Stats);
+
+      await sut.handleSyncAssets({
+        assetIds: [asset.id],
+        libraryId: newUuid(),
+        importPaths: ['/original/'],
+        exclusionPatterns: [],
+        totalAssets: 1,
+        progressCounter: 0,
+      });
+
+      expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], { isOffline: false });
+      expect(mocks.assetJob.setOnlineForLibrarySync).not.toHaveBeenCalled();
     });
 
     it('should do nothing with offline asset if covered by exclusion pattern', async () => {
@@ -502,6 +555,7 @@ describe(LibraryService.name, () => {
       expect(mocks.asset.updateAll).not.toHaveBeenCalled();
 
       expect(mocks.job.queueAll).not.toHaveBeenCalled();
+      expect(mocks.assetJob.setOnlineForLibrarySync).not.toHaveBeenCalled();
     });
 
     it('should do nothing with offline asset if not in import path', async () => {
@@ -523,6 +577,7 @@ describe(LibraryService.name, () => {
       expect(mocks.asset.updateAll).not.toHaveBeenCalled();
 
       expect(mocks.job.queueAll).not.toHaveBeenCalled();
+      expect(mocks.assetJob.setOnlineForLibrarySync).not.toHaveBeenCalled();
     });
 
     it('should do nothing with unchanged online assets', async () => {
@@ -560,12 +615,8 @@ describe(LibraryService.name, () => {
 
       await expect(sut.handleSyncAssets(mockAssetJob)).resolves.toBe(JobStatus.Success);
 
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith(
-        [asset.id],
-        expect.not.objectContaining({
-          fileCreatedAt: expect.anything(),
-        }),
-      );
+      expect(mocks.assetJob.setOnlineForLibrarySync).toHaveBeenCalledWith([asset.id]);
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
     });
 
     it('should update with online assets that have changed', async () => {

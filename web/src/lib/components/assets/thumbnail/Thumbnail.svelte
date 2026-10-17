@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ProjectionType } from '$lib/constants';
+  import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { authManager } from '$lib/managers/auth-manager.svelte';
   import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
   import { mediaQueryManager } from '$lib/stores/media-query-manager.svelte';
@@ -275,7 +276,8 @@
           <VideoThumbnail
             class="group-focus-visible:rounded-lg"
             url={getAssetPlaybackUrl({ id: asset.livePhotoVideoId, cacheKey: asset.thumbhash })}
-            enablePlayback={mouseOver && $playVideoThumbnailOnHover}
+            enablePlayback={!assetViewerManager.isViewing && mouseOver && $playVideoThumbnailOnHover}
+            visibleAutoplay={!asset.isTrashed && !assetViewerManager.isViewing}
             pauseIcon={mdiMotionPauseOutline}
             playIcon={mdiMotionPlayOutline}
             showTime={false}

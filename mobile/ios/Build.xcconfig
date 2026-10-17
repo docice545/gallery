@@ -1,0 +1,4 @@
+// Share Flutter's generated version with Runner and both native extensions.
+// Signing stays in its existing file; no release/team policy changes here.
+#include "Signing.xcconfig"
+#include "Flutter/Generated.xcconfig"

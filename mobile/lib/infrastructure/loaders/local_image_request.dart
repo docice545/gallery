@@ -7,8 +7,10 @@ class LocalImageRequest extends ImageRequest {
   final AssetType assetType;
 
   LocalImageRequest({required this.localId, required ui.Size size, required this.assetType})
-    : width = size.width.toInt(),
-      height = size.height.toInt();
+    // A positive subpixel axis must not become the native original-size sentinel.
+    // Explicit Size.zero remains the full-image viewer's original request.
+    : width = size.width > 0 ? math.max(1, size.width.ceil()) : size.width.toInt(),
+      height = size.height > 0 ? math.max(1, size.height.ceil()) : size.height.toInt();
 
   @override
   Future<ImageInfo?> load(ImageDecoderCallback decode, {double scale = 1.0}) async {

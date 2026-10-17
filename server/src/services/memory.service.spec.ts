@@ -4,6 +4,7 @@ import type { OnThisDayData, RuleMemoryData } from 'src/types.js';
 import { defaults } from 'src/dtos/config.dto.js';
 import { MemoryType, SystemMetadataKey, UserMetadataKey } from 'src/enum.js';
 import { MemoryService, RULE_DAILY_LIMIT } from 'src/services/memory.service.js';
+import { MemorySuppressedException, memoryFingerprint } from 'src/utils/memory-candidate.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { MemoryFactory } from 'test/factories/memory.factory.js';
 import { getForMemory } from 'test/mappers.js';
@@ -123,6 +124,152 @@ describe(MemoryService.name, () => {
 
   it('should be defined', () => {
     expect(sut).toBeDefined();
+  });
+
+  describe('owner-only lifecycle snapshots', () => {
+    it('uses the authenticated owner and normalizes legacy data without changing saved/viewed state', async () => {
+      const auth = factory.auth();
+      const assetIds = [newUuid(), newUuid()];
+      const seenAt = new Date('2026-10-05T12:00:00Z');
+      const row = {
+        id: newUuid(),
+        type: MemoryType.Rule,
+        data: [
+          { ruleId: 'gallery_ai_highlight', generator: 'gallery_ai', version: '3.7', theme: 'beach' },
+          JSON.stringify({ title: 'A day at the beach', subtitle: 'Together', context: { score: 0.8 } }),
+        ] as any,
+        isSaved: true,
+        seenAt,
+        showAt: null,
+        hideAt: null,
+        deletedAt: null,
+        assetIds,
+      };
+      mocks.memory.getLifecycle.mockResolvedValue([row]);
+      const result = await sut.getLifecycle(auth, { size: 100 });
+      expect(mocks.memory.getLifecycle).toHaveBeenCalledWith(auth.user.id, { size: 100 });
+      expect(result).toEqual({
+        items: [
+          {
+            ...row,
+            data: {
+              ruleId: 'gallery_ai_highlight',
+              generator: 'gallery_ai',
+              version: '3.7',
+              theme: 'beach',
+              title: 'A day at the beach',
+              subtitle: 'Together',
+              context: { score: 0.8 },
+            },
+            showAt: undefined,
+            hideAt: undefined,
+            deletedAt: undefined,
+            fingerprint: memoryFingerprint(assetIds),
+          },
+        ],
+        nextCursor: undefined,
+      });
+      expect(mocks.memory.update).not.toHaveBeenCalled();
+      expect(mocks.sharedSpace.getTimelineHiddenScope).not.toHaveBeenCalled();
+    });
+
+    it('returns a cursor for the last emitted lifecycle row only when more rows exist', async () => {
+      const auth = factory.auth();
+      const row = {
+        id: newUuid(),
+        type: MemoryType.Rule,
+        data: {},
+        isSaved: false,
+        seenAt: null,
+        showAt: null,
+        hideAt: null,
+        deletedAt: new Date(),
+        assetIds: [],
+      };
+      mocks.memory.getLifecycle.mockResolvedValue([row, { ...row, id: newUuid() }]);
+      const result = await sut.getLifecycle(auth, { after: newUuid(), size: 1 });
+      expect(result.items).toHaveLength(1);
+      expect(result.nextCursor).toBe(row.id);
+      expect(result.items[0].deletedAt).toBe(row.deletedAt);
+      expect(result.items[0].seenAt).toBeUndefined();
+    });
+
+    it('normalizes legacy rejection memberships without requiring a linked memory', async () => {
+      const auth = factory.auth();
+      const assetIds = [newUuid(), newUuid()];
+      const row = {
+        id: newUuid(),
+        fingerprint: memoryFingerprint(assetIds),
+        assetIds: JSON.stringify(assetIds) as any,
+        state: 'dismissed' as const,
+        memoryId: null,
+      };
+      mocks.memory.getRejections.mockResolvedValue([row, { ...row, id: newUuid() }]);
+      const dto = { after: newUuid(), size: 1 };
+      const result = await sut.getRejections(auth, dto);
+      expect(mocks.memory.getRejections).toHaveBeenCalledWith(auth.user.id, dto);
+      expect(result).toEqual({ items: [{ ...row, assetIds }], nextCursor: row.id });
+      expect(mocks.memory.get).not.toHaveBeenCalled();
+    });
+
+    it('returns exhausted empty snapshots without a cursor', async () => {
+      const auth = factory.auth();
+      mocks.memory.getLifecycle.mockResolvedValue([]);
+      mocks.memory.getRejections.mockResolvedValue([]);
+      await expect(sut.getLifecycle(auth, { size: 100 })).resolves.toEqual({ items: [], nextCursor: undefined });
+      await expect(sut.getRejections(auth, { size: 100 })).resolves.toEqual({ items: [], nextCursor: undefined });
+    });
+  });
+
+  describe('candidate decisions', () => {
+    it('uses the ordinary hidden timeline scope when listing and reading candidates', async () => {
+      const auth = factory.auth();
+      const scope = {
+        hiddenSpaceIds: [newUuid()],
+        hiddenAlbumIds: [],
+        hiddenAlbumSpacePairs: [],
+        hiddenLibraryIds: [],
+      };
+      const visibleSpaceId = newUuid();
+      const memory = MemoryFactory.from({ ownerId: auth.user.id }).asset({ ownerId: auth.user.id }).build();
+      const candidateId = newUuid();
+      mocks.sharedSpace.getTimelineHiddenScope.mockResolvedValue(scope);
+      mocks.sharedSpace.getSpaceIdsForTimeline.mockResolvedValue([{ spaceId: visibleSpaceId }]);
+      mocks.memory.getCandidates.mockResolvedValue([{ id: candidateId, memoryId: memory.id, state: 'pending' } as any]);
+      mocks.memory.get.mockResolvedValue(getForMemory(memory));
+
+      await expect(sut.getCandidates(auth)).resolves.toEqual([
+        expect.objectContaining({
+          id: candidateId,
+          state: 'pending',
+          memory: expect.objectContaining({ id: memory.id }),
+        }),
+      ]);
+      expect(mocks.memory.getCandidates).toHaveBeenCalledWith(auth.user.id, scope, [visibleSpaceId]);
+      expect(mocks.memory.get).toHaveBeenCalledWith(memory.id, auth.user.id, scope, [visibleSpaceId]);
+    });
+
+    it('forwards the authenticated owner, rather than an arbitrary supplied user', async () => {
+      const auth = factory.auth();
+      const id = newUuid();
+      mocks.memory.decideCandidate.mockResolvedValue({ id, state: 'dismissed' } as any);
+      await expect(sut.decideCandidate(auth, id, { action: 'dismiss' })).resolves.toEqual({ id, state: 'dismissed' });
+      expect(mocks.memory.decideCandidate).toHaveBeenCalledWith(auth.user.id, id, 'dismiss');
+    });
+
+    it('rejects candidate creation with another user assets before storing anything', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set());
+      await expect(
+        sut.createCandidate(factory.auth(), {
+          type: MemoryType.Rule,
+          data: { title: 'Private' },
+          memoryAt: new Date(),
+          assetIds: [newUuid()],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mocks.memory.createCandidate).not.toHaveBeenCalled();
+      expect(mocks.notification.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('onMemoryCleanup', () => {
@@ -1087,6 +1234,35 @@ describe(MemoryService.name, () => {
       expect(mocks.memory.delete).not.toHaveBeenCalled();
     });
 
+    it('keeps scheduled external unknown-rule memories intact and lets them claim mixed asset IDs', async () => {
+      const external = overlapRow({
+        id: 'external',
+        assets: ['photo', 'video'],
+        data: {
+          ruleId: 'gallery_ai_highlight',
+          dedupeKey: 'highlight-2026-09-01',
+          title: 'A day by the sea',
+          subtitle: 'Photos and video',
+          score: 0.9,
+          context: { place: 'beach' },
+          generator: 'gallery_ai',
+          version: '3.7',
+          theme: 'beach',
+        },
+      });
+      mocks.memory.getForOverlapReconcile.mockResolvedValue([
+        external,
+        overlapRow({ id: 'native', assets: ['photo', ...ids('s', 11)], data: { ruleId: 'season_recap', score: 130 } }),
+      ] as any);
+
+      await runJob();
+
+      expect(mocks.memory.delete).not.toHaveBeenCalled();
+      expect(mocks.memory.removeAssetIds).toHaveBeenCalledExactlyOnceWith('native', ['photo']);
+      expect(external.assets).toEqual([{ id: 'photo' }, { id: 'video' }]);
+      expect(external.data).toMatchObject({ ruleId: 'gallery_ai_highlight', version: '3.7', theme: 'beach' });
+    });
+
     // Pins the claim-order guarantee spec §5.2 is built on: a rule memory must claim ahead of a
     // plain on_this_day card. Both sides get enough unshared assets to clear their own floor no
     // matter who claims first, so an inverted RANK_ON_THIS_DAY/RANK_RULE ordering changes the
@@ -1607,6 +1783,16 @@ describe(MemoryService.name, () => {
   });
 
   describe('create', () => {
+    it('does not turn a durable user suppression into a successful direct AI creation', async () => {
+      mocks.memory.create.mockRejectedValue(new MemorySuppressedException());
+      await expect(
+        sut.create(factory.auth(), {
+          type: MemoryType.Rule,
+          data: { ruleId: 'gallery_ai_highlight', title: 'Renamed by AI' },
+          memoryAt: new Date(),
+        }),
+      ).rejects.toBeInstanceOf(MemorySuppressedException);
+    });
     it('should skip assets the user does not have access to', async () => {
       const [assetId, userId] = newUuids();
       const memory = MemoryFactory.create({ ownerId: userId });
@@ -1704,7 +1890,94 @@ describe(MemoryService.name, () => {
     });
   });
 
+  describe('suppressed nightly generation', () => {
+    it('skips a hidden two-years-ago memory while still creating unrelated years', async () => {
+      const ownerId = newUuid();
+      const target = DateTime.utc(2026, 10, 5);
+      mocks.asset.getByDayOfYear.mockResolvedValue([
+        { year: 2024, assets: [AssetFactory.create({ ownerId })] },
+        { year: 2023, assets: [AssetFactory.create({ ownerId })] },
+      ] as any);
+      mocks.memory.create
+        .mockRejectedValueOnce(new MemorySuppressedException())
+        .mockResolvedValueOnce(MemoryFactory.create() as any);
+
+      await expect((sut as any).createOnThisDayMemories(ownerId, target)).resolves.toBeUndefined();
+      expect(mocks.memory.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates actual generation failures instead of treating every error as suppression', async () => {
+      mocks.asset.getByDayOfYear.mockResolvedValue([{ year: 2024, assets: [AssetFactory.create()] }] as any);
+      mocks.memory.create.mockRejectedValue(new Error('database unavailable'));
+      await expect((sut as any).createOnThisDayMemories(newUuid(), DateTime.utc(2026, 10, 5))).rejects.toThrow(
+        'database unavailable',
+      );
+    });
+
+    it('does not consume a rule slot or replace an on-this-day memory for a suppressed candidate', async () => {
+      const ownerId = newUuid();
+      const target = DateTime.utc(2026, 10, 5);
+      mocks.memory.hasRuleMemory.mockResolvedValue(false);
+      vi.spyOn(sut as any, 'evaluateRuleCandidates').mockResolvedValue([
+        {
+          ruleId: 'birthday',
+          dedupeKey: 'hidden',
+          title: 'Hidden',
+          score: 100,
+          assetIds: [newUuid()],
+          memoryAt: target,
+          supersedesOnThisDayYears: [2024],
+        },
+        {
+          ruleId: 'birthday',
+          dedupeKey: 'new',
+          title: 'Another moment',
+          score: 90,
+          assetIds: [newUuid()],
+          memoryAt: target,
+        },
+      ]);
+      mocks.memory.create
+        .mockRejectedValueOnce(new MemorySuppressedException())
+        .mockResolvedValueOnce(MemoryFactory.create() as any);
+
+      await expect((sut as any).createRuleMemories(ownerId, target, ['birthday'])).resolves.toBeUndefined();
+      expect(mocks.memory.create).toHaveBeenCalledTimes(2);
+      expect(mocks.memory.deleteOnThisDay).not.toHaveBeenCalled();
+    });
+  });
+
   describe('update', () => {
+    it.each([MemoryType.OnThisDay, MemoryType.Rule])(
+      'hides an owned %s memory without touching assets',
+      async (type) => {
+        const auth = factory.auth();
+        const memory = MemoryFactory.create({
+          ownerId: auth.user.id,
+          type,
+          deletedAt: new Date(),
+          data: type === MemoryType.Rule ? { ruleId: 'gallery_ai_highlight' } : { year: 2024 },
+        });
+        mocks.access.memory.checkOwnerAccess.mockResolvedValue(new Set([memory.id]));
+        mocks.memory.hideForUser.mockResolvedValue(getForMemory(memory));
+
+        await expect(sut.update(auth, memory.id, { isHidden: true })).resolves.toMatchObject({
+          id: memory.id,
+          deletedAt: memory.deletedAt,
+        });
+        expect(mocks.memory.hideForUser).toHaveBeenCalledWith(memory.id, auth.user.id);
+        expect(mocks.memory.update).not.toHaveBeenCalled();
+        expect(mocks.memory.removeAssetIds).not.toHaveBeenCalled();
+        expect(mocks.asset.deleteAll).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses to hide a memory owned by another user', async () => {
+      await expect(sut.update(factory.auth(), newUuid(), { isHidden: true })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(mocks.memory.hideForUser).not.toHaveBeenCalled();
+    });
     it('should require access', async () => {
       await expect(sut.update(factory.auth(), 'not-found', { isSaved: true })).rejects.toBeInstanceOf(
         BadRequestException,
@@ -1754,17 +2027,21 @@ describe(MemoryService.name, () => {
       await expect(sut.remove(factory.auth(), newUuid())).rejects.toBeInstanceOf(BadRequestException);
 
       expect(mocks.memory.delete).not.toHaveBeenCalled();
+      expect(mocks.memory.deleteForUser).not.toHaveBeenCalled();
     });
 
     it('should delete a memory', async () => {
       const memoryId = newUuid();
 
       mocks.access.memory.checkOwnerAccess.mockResolvedValue(new Set([memoryId]));
-      mocks.memory.delete.mockResolvedValue();
+      mocks.memory.deleteForUser.mockResolvedValue();
 
       await expect(sut.remove(factory.auth(), memoryId)).resolves.toBeUndefined();
 
-      expect(mocks.memory.delete).toHaveBeenCalledWith(memoryId);
+      expect(mocks.memory.deleteForUser).toHaveBeenCalledWith(memoryId, expect.any(String));
+      expect(mocks.memory.delete).not.toHaveBeenCalled();
+      expect(mocks.memory.removeAssetIds).not.toHaveBeenCalled();
+      expect(mocks.asset.deleteAll).not.toHaveBeenCalled();
     });
   });
 

@@ -17,8 +17,11 @@ class TrashBottomBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: const SafeArea(
           top: false,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.start,
+            spacing: 4,
+            runSpacing: 4,
             children: <ActionColumnButton>[
               .new(action: AssetDebugAction(source: .timeline)),
               .new(action: DeleteAction(source: .timeline)),

@@ -6,10 +6,12 @@ import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/tag.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/platform/native_sync_api.g.dart';
+import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/services/foreground_upload.service.dart';
 import 'package:immich_mobile/utils/option.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -70,6 +72,14 @@ class RepositoryMocks {
   }
 
   void _stubRemoteAssetRepository() {
+    when(() => remoteAsset.repo.beginTrashOperation(any(), restore: any(named: 'restore'))).thenAnswer((_) async => []);
+    when(
+      () => remoteAsset.repo.completeTrashOperation(
+        any(),
+        success: any(named: 'success'),
+        definiteFailure: any(named: 'definiteFailure'),
+      ),
+    ).thenAnswer((_) async {});
     when(remoteAsset.getExif).thenAnswer((_) async => null);
     when(remoteAsset.getAssetEdits).thenAnswer((_) async => const []);
     when(remoteAsset.update).thenAnswer((_) async {});
@@ -203,6 +213,12 @@ class ServiceMocks {
 
   void _stubCleanupService() {
     when(cleanup.deleteLocalAssets).thenAnswer((_) async => 0);
+    when(() => cleanup.service.deleteLocalAssetsDetailed(any(), trash: any(named: 'trash'))).thenAnswer(
+      (call) async => LocalDeletionResult(
+        deletedIds: (call.positionalArguments.first as List<String>).toList(),
+        remainingIds: const [],
+      ),
+    );
   }
 
   void _stubTagService() {
@@ -243,6 +259,7 @@ void _registerFallbacks() {
   registerFallbackValue(<RemoteAsset>[]);
   registerFallbackValue(<LocalAsset>[]);
   registerFallbackValue(ShareAssetType.original);
+  registerFallbackValue(LivePhotoShareMode.preserveMotion);
   registerFallbackValue(const UploadCallbacks());
   registerFallbackValue(_FakeBuildContext());
   registerFallbackValue(DevicePermissionStatus.granted);
@@ -430,6 +447,7 @@ extension type const AssetMediaRepositoryStub(MockAssetMediaRepository api) impl
         any(),
         any(),
         fileType: any(named: 'fileType'),
+        livePhotoMode: any(named: 'livePhotoMode'),
         cancelCompleter: any(named: 'cancelCompleter'),
         onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
       );

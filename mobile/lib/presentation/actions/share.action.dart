@@ -40,19 +40,28 @@ class ShareAction extends AssetActionBuilder {
     // Only show preview option when at least one of the assets is not a video
     final showPreview = assets.any((asset) => !asset.isVideo);
 
-    final fileType = await showDialog<ShareAssetType>(
+    final choice = await showDialog<({ShareAssetType fileType, LivePhotoShareMode livePhotoMode})>(
       context: context,
-      builder: (_) => _ShareFileTypeDialog(showPreview: showPreview),
+      builder: (_) => _ShareFileTypeDialog(
+        showPreview: showPreview,
+        showLivePhoto: CurrentPlatform.isIOS && assets.any((asset) => asset.isMotionPhoto),
+      ),
       useRootNavigator: false,
     );
-    if (fileType == null || !context.mounted) {
+    if (choice == null || !context.mounted) {
       return;
     }
 
-    await _share(context, ref, assets, fileType);
+    await _share(context, ref, assets, choice.fileType, livePhotoMode: choice.livePhotoMode);
   }
 
-  Future<void> _share(BuildContext context, WidgetRef ref, List<BaseAsset> assets, ShareAssetType fileType) async {
+  Future<void> _share(
+    BuildContext context,
+    WidgetRef ref,
+    List<BaseAsset> assets,
+    ShareAssetType fileType, {
+    LivePhotoShareMode livePhotoMode = LivePhotoShareMode.preserveMotion,
+  }) async {
     final cancelCompleter = Completer<void>();
     final progress = ValueNotifier<double?>(null);
     final mediaRepository = ref.read(assetMediaRepositoryProvider);
@@ -63,31 +72,36 @@ class ShareAction extends AssetActionBuilder {
       context: context,
       barrierDismissible: false,
       useRootNavigator: false,
-      builder: (dialogContext) {
-        void finish({required bool failed}) {
+      builder: (dialogContext) => _SharePreparingDialog(
+        progress: progress,
+        prepare: () => mediaRepository.shareAssets(
+          assets,
+          context,
+          fileType: fileType,
+          livePhotoMode: livePhotoMode,
+          cancelCompleter: cancelCompleter,
+          onAssetDownloadProgress: (value) {
+            if (!cancelCompleter.isCompleted) {
+              progress.value = value;
+            }
+          },
+        ),
+        onFinished: (count) {
           if (cancelCompleter.isCompleted || !dialogContext.mounted) {
             return;
           }
-          if (failed) {
+          if (count != assets.length) {
             unawaited(.value(toastService.error(errorMessage)));
           }
           dialogContext.pop();
-        }
-
-        unawaited(
-          mediaRepository
-              .shareAssets(
-                assets,
-                context,
-                fileType: fileType,
-                cancelCompleter: cancelCompleter,
-                onAssetDownloadProgress: (value) => progress.value = value,
-              )
-              .then<void>((count) => finish(failed: count == 0), onError: (_) => finish(failed: true)),
-        );
-
-        return _SharePreparingDialog(progress: progress);
-      },
+        },
+        onCancel: () {
+          if (!cancelCompleter.isCompleted) {
+            cancelCompleter.complete();
+          }
+          dialogContext.pop();
+        },
+      ),
     ).then((_) {
       if (!cancelCompleter.isCompleted) {
         cancelCompleter.complete();
@@ -97,10 +111,31 @@ class ShareAction extends AssetActionBuilder {
   }
 }
 
-class _SharePreparingDialog extends StatelessWidget {
+class _SharePreparingDialog extends StatefulWidget {
   final ValueNotifier<double?> progress;
 
-  const _SharePreparingDialog({required this.progress});
+  final Future<int> Function() prepare;
+  final void Function(int count) onFinished;
+  final VoidCallback onCancel;
+
+  const _SharePreparingDialog({
+    required this.progress,
+    required this.prepare,
+    required this.onFinished,
+    required this.onCancel,
+  });
+
+  @override
+  State<_SharePreparingDialog> createState() => _SharePreparingDialogState();
+}
+
+class _SharePreparingDialogState extends State<_SharePreparingDialog> {
+  @override
+  void initState() {
+    super.initState();
+    // Start once: dialog rebuilds must never enqueue the same originals again.
+    unawaited(widget.prepare().then<void>(widget.onFinished, onError: (_) => widget.onFinished(0)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +147,7 @@ class _SharePreparingDialog extends StatelessWidget {
           SizedBox(
             width: 240,
             child: ValueListenableBuilder<double?>(
-              valueListenable: progress,
+              valueListenable: widget.progress,
               builder: (context, value, _) {
                 final percent = value == null ? null : (value * 100).clamp(0, 100);
                 return Column(
@@ -128,14 +163,16 @@ class _SharePreparingDialog extends StatelessWidget {
           ),
         ],
       ),
+      actions: [TextButton(onPressed: widget.onCancel, child: Text(context.t.cancel))],
     );
   }
 }
 
 class _ShareFileTypeDialog extends StatelessWidget {
   final bool showPreview;
+  final bool showLivePhoto;
 
-  const _ShareFileTypeDialog({this.showPreview = true});
+  const _ShareFileTypeDialog({this.showPreview = true, this.showLivePhoto = false});
 
   @override
   Widget build(BuildContext context) {
@@ -147,14 +184,22 @@ class _ShareFileTypeDialog extends StatelessWidget {
         children: [
           ListTile(
             leading: const Icon(Icons.high_quality_rounded),
-            title: Text(context.t.share_original),
-            onTap: () => context.pop(ShareAssetType.original),
+            title: Text(showLivePhoto ? context.t.share_live_photo : context.t.share_original),
+            onTap: () =>
+                context.pop((fileType: ShareAssetType.original, livePhotoMode: LivePhotoShareMode.preserveMotion)),
           ),
+          if (showLivePhoto)
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: Text(context.t.share_image_only),
+              onTap: () =>
+                  context.pop((fileType: ShareAssetType.original, livePhotoMode: LivePhotoShareMode.imageOnly)),
+            ),
           if (showPreview)
             ListTile(
               leading: const Icon(Icons.photo_size_select_large_rounded),
               title: Text(context.t.share_preview),
-              onTap: () => context.pop(ShareAssetType.preview),
+              onTap: () => context.pop((fileType: ShareAssetType.preview, livePhotoMode: LivePhotoShareMode.imageOnly)),
             ),
         ],
       ),

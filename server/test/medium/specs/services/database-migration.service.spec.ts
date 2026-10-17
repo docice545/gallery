@@ -153,7 +153,7 @@ describe('Database Migration Scenarios', () => {
   });
 
   // Scenario D: Rollback
-  it('should rollback the last migration regardless of interleaving', async () => {
+  it('refuses destructive rollback of durable deletion evidence', async () => {
     const db = await createRawDatabase('migration_test_rollback');
     try {
       const repo = createRepo(db);
@@ -161,13 +161,31 @@ describe('Database Migration Scenarios', () => {
       const before = await repo.getMigrations();
       const lastMigration = before.at(-1)!.name;
 
-      const reverted = await repo.revertLastMigration();
-
-      expect(reverted).toBe(lastMigration);
-
-      const after = await repo.getMigrations();
-      expect(after.length).toBe(before.length - 1);
-      expect(after.map((m) => m.name)).not.toContain(lastMigration);
+      expect(lastMigration).toBe('1794050000000-OwnerStorageDeletion');
+      // The additive storage-mode migration has a non-destructive down path:
+      // disable new grants while retaining its column, identities and receipts.
+      await expect(repo.revertLastMigration()).resolves.toBe(lastMigration);
+      const afterStorageRevert = await repo.getMigrations();
+      expect(afterStorageRevert).toEqual(before.slice(0, -1));
+      await expect(repo.revertLastMigration()).rejects.toThrow(
+        'Keep bound deletion policies and durable receipts. Use forward-compatible rollback.',
+      );
+      expect(await repo.getMigrations()).toEqual(afterStorageRevert);
+      const { rows } = await sql<{
+        journal: string;
+      }>`SELECT to_regclass('asset_deletion_tombstone') AS journal`.execute(db);
+      expect(rows[0].journal).toBe('asset_deletion_tombstone');
+      const { rows: columns } = await sql<{ column_name: string }>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='asset_deletion_policy'
+        AND column_name IN ('authorizationMode', 'rootIdentities', 'recoveryExpiresAt')
+        ORDER BY column_name
+      `.execute(db);
+      expect(columns.map(({ column_name }) => column_name)).toEqual([
+        'authorizationMode',
+        'recoveryExpiresAt',
+        'rootIdentities',
+      ]);
     } finally {
       await db.destroy();
     }
@@ -203,13 +221,12 @@ describe('Database Migration Scenarios', () => {
     try {
       const repo = createRepo(db);
       await repo.runMigrations();
-      await repo.revertLastMigration();
       const afterRevert = await repo.getMigrations();
 
       await repo.runMigrations();
       const afterRerun = await repo.getMigrations();
 
-      expect(afterRerun.length).toBe(afterRevert.length + 1);
+      expect(afterRerun).toEqual(afterRevert);
     } finally {
       await db.destroy();
     }

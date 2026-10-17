@@ -104,6 +104,89 @@ void main() {
     sut = MemoryApiRepository(apiService);
   });
 
+  group('memory management', () {
+    test('view acknowledgement sends only seenAt through the existing update API', () async {
+      late http.BaseRequest captured;
+      apiClient.client = _StubClient((request) async {
+        captured = request;
+        return jsonResponse(jsonEncode(memoryDto('highlight').toJson()));
+      });
+      final seenAt = DateTime.utc(2026, 10, 5, 12);
+      await sut.markViewed('highlight', seenAt);
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/api/memories/highlight');
+      expect(jsonDecode((captured as http.Request).body), {'seenAt': seenAt.toIso8601String()});
+    });
+
+    test('view acknowledgement propagates failed server responses to the service', () async {
+      stubResponse(() => jsonResponse('{"message":"Unavailable"}', status: 503));
+      await expectLater(sut.markViewed('highlight', DateTime.utc(2026)), throwsA(isA<api.ApiException>()));
+    });
+
+    test('delete uses only the upstream memory endpoint', () async {
+      late http.BaseRequest captured;
+      apiClient.client = _StubClient((request) async {
+        captured = request;
+        return jsonResponse('', status: 204);
+      });
+      await sut.delete('two-years-ago');
+      expect(captured.method, 'DELETE');
+      expect(captured.url.path, '/api/memories/two-years-ago');
+      expect((captured as http.Request).body, isEmpty);
+    });
+
+    test('hide persists via memory update and requires a server tombstone', () async {
+      final dto = memoryDto('highlight', type: api.MemoryType.rule, data: {'ruleId': 'gallery_ai_highlight'});
+      dto.deletedAt = api.Optional.present(DateTime.utc(2026, 10, 5));
+      late http.BaseRequest captured;
+      apiClient.client = _StubClient((request) async {
+        captured = request;
+        return jsonResponse(jsonEncode(dto.toJson()));
+      });
+      final hidden = await sut.hide('highlight');
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/api/memories/highlight');
+      expect(jsonDecode((captured as http.Request).body), {'isHidden': true});
+      expect(hidden.deletedAt, DateTime.utc(2026, 10, 5));
+      expect(hidden.data.ruleId, 'gallery_ai_highlight');
+    });
+
+    test('older server ignoring isHidden cannot produce a false successful hide', () async {
+      stubResponse(() => jsonResponse(jsonEncode(memoryDto('ordinary').toJson())));
+      await expectLater(sut.hide('ordinary'), throwsUnsupportedError);
+    });
+
+    test('unrelated memory response cannot confirm a hide', () async {
+      final dto = memoryDto('other');
+      dto.deletedAt = api.Optional.present(DateTime.utc(2026));
+      stubResponse(() => jsonResponse(jsonEncode(dto.toJson())));
+      await expectLater(sut.hide('ordinary'), throwsUnsupportedError);
+    });
+
+    for (final action in ['hide', 'delete']) {
+      test('$action propagates authorization/network/server failures', () async {
+        stubResponse(() => jsonResponse('{"message":"Forbidden"}', status: 403));
+        await expectLater(
+          action == 'hide' ? sut.hide('memory') : sut.delete('memory'),
+          throwsA(isA<api.ApiException>()),
+        );
+      });
+    }
+  });
+
+  group('candidate compatibility', () {
+    test('older server returns an empty candidate list without breaking Memories', () async {
+      stubResponse(() => jsonResponse('{}', status: 404));
+      expect(await sut.getCandidates(), isEmpty);
+    });
+
+    test('decision failures propagate instead of being stored only on the device', () async {
+      stubResponse(() => jsonResponse('{}', status: 403));
+      await expectLater(sut.decideCandidate('candidate-id', 'save'), throwsA(isA<api.ApiException>()));
+      expect(requestedUris.single.path, '/api/memories/candidates/candidate-id/decision');
+    });
+  });
+
   group('formatDay', () {
     // The endpoint validates `for` as YYYY-MM-DD and 400s on anything else, so a missing
     // zero-pad would break the lane every January and every single-digit day — a bug that
@@ -123,6 +206,22 @@ void main() {
   });
 
   group('getMemoryLane', () {
+    test('prefers server display fields while preserving standard memory metadata', () async {
+      final dto = memoryDto(
+        'enriched-memory',
+        data: const {'year': 2019, 'title': 'Legacy title'},
+        assets: [assetDto('sea-photo')],
+      );
+      dto.title = const api.Optional.present('A day by the sea');
+      dto.subtitle = const api.Optional.present('Together at sunset');
+      stubMemories([dto]);
+      final result = await sut.getMemoryLane();
+      expect(result.single.data.title, 'A day by the sea');
+      expect(result.single.data.subtitle, 'Together at sunset');
+      expect(result.single.data.raw['year'], 2019);
+      expect(result.single.id, 'enriched-memory');
+    });
+
     // The lane must ask for a single day. Without `for` the server applies `showAt` but not
     // `hideAt`, so it returns every memory inside the retention window (365 days by default)
     // with all of its assets — megabytes, on every tab switch.

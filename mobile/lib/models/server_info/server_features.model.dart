@@ -12,11 +12,15 @@ abstract class ServerFeatures with _$ServerFeatures {
     required bool oauthEnabled,
     required bool passwordLogin,
     @Default(false) bool ocr,
+    @Default(false) bool authorizedDeletion,
+    @Default(false) bool ownerStorageDeletion,
     @Default(false) bool smartSearch,
   }) = _ServerFeatures;
 
   factory ServerFeatures.fromDto(ServerFeaturesDto dto) => ServerFeatures(
     trash: dto.trash,
+    authorizedDeletion: dto.authorizedDeletion.orElse(false) ?? false,
+    ownerStorageDeletion: dto.ownerStorageDeletion.orElse(false) ?? false,
     map: dto.map,
     oauthEnabled: dto.oauth,
     passwordLogin: dto.passwordLogin,

@@ -1,15 +1,24 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { isUndefined, omitBy } from 'lodash-es';
-import { DateTime, Duration } from 'luxon';
 import { isAbsolute } from 'node:path';
 import type { ShallowDehydrateObject } from 'kysely';
 import type { AssetFace, AssetFile } from 'src/database.js';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import type { LinkedSpacePerson } from 'src/repositories/shared-space.repository.js';
+import type { DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { OnEvent, OnJob } from 'src/decorators.js';
+import {
+  DeletionPolicyDto,
+  DeletionPreflightResultDto,
+  ManagedDeletionStatusDto,
+  PermanentDeletionBatchStatusDto,
+  PermanentDeletionResultDto,
+  PrepareManagedDeletionDto,
+  TrashDeletionScopeDto,
+} from 'src/dtos/asset-deletion.dto.js';
 import { AssetResponseDto, SanitizedAssetResponseDto, mapAsset } from 'src/dtos/asset-response.dto.js';
 import {
   AssetBulkDeleteDto,
@@ -43,7 +52,9 @@ import {
   JobStatus,
   Permission,
   QueueName,
+  StorageFolder,
 } from 'src/enum.js';
+import { getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -55,14 +66,27 @@ import {
   onBeforeLink,
   onBeforeUnlink,
 } from 'src/utils/asset.util.js';
+import {
+  DeletionError,
+  assertWritableDeletionRoots,
+  collectRootIdentities,
+  deletionCode,
+  refreshStorageRootIdentities,
+  sameRootIdentity,
+} from 'src/utils/authorized-deletion.js';
 import { isDeadlockError, retryOnDeadlock, updateLockedColumns } from 'src/utils/database.js';
 import { asDateTimeString, extractTimeZone } from 'src/utils/date.js';
-import { batched, findOrFail } from 'src/utils/misc.js';
+import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
+import { findOrFail } from 'src/utils/misc.js';
 import { applyResolvedIdentityMetadata } from 'src/utils/person-identity.js';
 import { transformOcrBoundingBox } from 'src/utils/transform.js';
 
 @Injectable()
 export class AssetService extends BaseService {
+  /** Keep request/transaction work bounded; larger explicit selections run in the durable queue. */
+  private static readonly INLINE_PERMANENT_DELETION_LIMIT = 200;
+  private static readonly BATCH_CHUNK_SIZE = 200;
+
   async getStatistics(auth: AuthDto, dto: AssetStatsDto) {
     if (dto.visibility === AssetVisibility.Locked) {
       requireElevatedPermission(auth);
@@ -553,29 +577,163 @@ export class AssetService extends BaseService {
 
   @OnJob({ name: JobName.AssetDeleteCheck, queue: QueueName.BackgroundTask })
   async handleAssetDeletionCheck(): Promise<JobStatus> {
-    const config = await this.getConfig({ withCache: false });
-    const trashedDays = config.trash.enabled ? config.trash.days : 0;
-    const trashedBefore = DateTime.now()
-      .minus(Duration.fromObject({ days: trashedDays }))
-      .toJSDate();
+    // Retry only committed, owner-scoped intents. Unsealed legacy jobs are not
+    // proof of consent and never enter this recovery path.
+    for await (const receipt of this.assetRepository.streamPendingDeletions()) {
+      await this.jobRepository.queue({
+        name: JobName.AssetDelete,
+        data: {
+          id: receipt.assetId,
+          deleteOnDisk: true,
+          deletionId: receipt.assetId,
+        },
+      });
+    }
+    const { trash } = await this.getConfig({ withCache: false });
+    if (!trash.enabled || !Number.isFinite(trash.days) || trash.days < 0) return JobStatus.Success;
+    const cutoff = new Date(Date.now() - trash.days * 24 * 60 * 60 * 1000);
+    for await (const asset of this.assetRepository.streamExpiredTrash(cutoff)) {
+      const scope = asset.libraryId ?? 'managed';
+      try {
+        const policy =
+          scope === 'managed'
+            ? await this.ensureManagedStoragePolicy(asset.ownerId)
+            : await this.assetRepository.getDeletionPolicy(asset.ownerId, scope);
+        await this.checkCurrentPolicy(asset.ownerId, scope, policy);
+        await this.assetRepository.preparePermanentDeletion(
+          asset.id,
+          asset.ownerId,
+          (path, roots) => this.storageRepository.snapshotOriginal(path, roots),
+          cutoff,
+        );
+        const targets = await this.assetRepository.getPermanentDeletionTargets(asset.id);
+        for (const target of targets)
+          await this.jobRepository.queue({
+            name: JobName.AssetDelete,
+            data: {
+              id: target.assetId,
+              deleteOnDisk: true,
+              deletionId: target.assetId,
+            },
+          });
+      } catch (error) {
+        // A read-only/revoked library or a concurrent Restore remains intact.
+        this.logger.warn(`Trash expiration deferred: ${deletionCode(error)}`);
+      }
+    }
+    return JobStatus.Success;
+  }
 
-    for await (const assets of batched(this.assetJobRepository.streamForDeletedJob(trashedBefore))) {
-      await this.jobRepository.queueAll(
-        assets.map(({ id, isOffline }) => ({ name: JobName.AssetDelete, data: { id, deleteOnDisk: !isOffline } })),
-      );
+  @OnJob({ name: JobName.AssetDeleteBatch, queue: QueueName.BackgroundTask })
+  async handleAssetDeletionBatch(job: JobOf<JobName.AssetDeleteBatch>): Promise<JobStatus> {
+    const user = await this.userRepository.get(job.ownerId, {});
+    if (!user) {
+      this.logger.warn(`Skipping permanent deletion batch for missing owner ${job.ownerId}`);
+      return JobStatus.Skipped;
     }
 
+    // The queue item is the durable record of the user's explicit request. Disable
+    // re-queuing here: each target has its own receipt and AssetDelete retry path.
+    const results: PermanentDeletionResultDto[] = [];
+    const batchId = getAssetDeleteBatchJobId(job.ownerId, job.ids, job.allowActive === true);
+    for (let start = 0; start < job.ids.length; start += AssetService.BATCH_CHUNK_SIZE) {
+      if (await this.jobRepository.isAssetDeleteBatchCancelled(batchId)) {
+        this.logger.log(`Stopping cancelled permanent deletion batch ${batchId} before chunk ${start}`);
+        return JobStatus.Success;
+      }
+      results.push(
+        ...(await this.permanentlyDelete(
+          { user: user as AuthDto['user'] },
+          job.ids.slice(start, start + AssetService.BATCH_CHUNK_SIZE),
+          job.allowActive === true,
+          false,
+        )),
+      );
+    }
+    const unresolved = results.filter((result) => result.state !== 'complete').length;
+    if (unresolved > 0) {
+      this.logger.warn(`Permanent deletion batch for ${job.ownerId} left ${unresolved} item(s) unresolved`);
+    }
     return JobStatus.Success;
   }
 
   @OnJob({ name: JobName.AssetDelete, queue: QueueName.BackgroundTask })
   async handleAssetDeletion(job: JobOf<JobName.AssetDelete>): Promise<JobStatus> {
     const { id, deleteOnDisk } = job;
+    if (job.trashedBefore !== undefined && Number.isNaN(new Date(job.trashedBefore).getTime())) {
+      return JobStatus.Failed;
+    }
+    if (job.trashedBefore !== undefined) {
+      // Installing this candidate is not approval for any old retention job,
+      // including metadata-only jobs which could discard a Trash tombstone.
+      return JobStatus.Skipped;
+    }
+    if (job.deletionReason === 'library' && (!job.libraryId || deleteOnDisk)) {
+      return JobStatus.Failed;
+    }
+    if (deleteOnDisk && job.deletionId !== id) {
+      return JobStatus.Skipped;
+    }
+
+    if (job.trashedBefore === undefined) {
+      if (job.deletionReason === 'library' && (!job.libraryId || deleteOnDisk)) {
+        return JobStatus.Failed;
+      }
+      const cleanup =
+        job.deletionReason === 'motion'
+          ? { reason: 'motion' as const }
+          : job.deletionReason === 'library' && job.libraryId && !deleteOnDisk
+            ? { reason: 'library' as const, libraryId: job.libraryId }
+            : undefined;
+      if (!(await this.assetRepository.claimDeletion(id, cleanup))) {
+        return JobStatus.Skipped;
+      }
+    } else {
+      const cutoff = new Date(job.trashedBefore);
+      if (Number.isNaN(cutoff.getTime())) {
+        return JobStatus.Failed;
+      }
+      if (!(await this.assetRepository.claimExpiredDeletion(id, cutoff))) {
+        return JobStatus.Skipped;
+      }
+    }
 
     const asset = await this.assetJobRepository.getForAssetDeletion(id);
 
     if (!asset) {
       return JobStatus.Failed;
+    }
+
+    if (deleteOnDisk) {
+      const receipt = await this.assetRepository.getDeletionReceipt(asset.ownerId, id);
+      if (!receipt) return JobStatus.Skipped;
+      try {
+        // Finish a committed intent interrupted before hashing/publishing files.
+        // Never manufacture an intent from an unsealed legacy queue payload.
+        await this.assetRepository.preparePermanentDeletion(id, asset.ownerId, (path, roots) =>
+          this.storageRepository.snapshotOriginal(path, roots),
+        );
+      } catch {
+        return JobStatus.Failed;
+      }
+    }
+
+    if (
+      deleteOnDisk &&
+      !(await this.assetRepository.removeAuthorizedOriginals(id, (file, recheck) =>
+        this.storageRepository.unlinkOriginal(file, async () => {
+          await recheck();
+          await this.validateOwnerRootBoundaries(
+            asset.ownerId,
+            [file.root],
+            [file.rootIdentity],
+            asset.libraryId ?? 'managed',
+            true,
+          );
+        }),
+      ))
+    ) {
+      return JobStatus.Skipped;
     }
 
     if (asset.stack) {
@@ -609,7 +767,11 @@ export class AssetService extends BaseService {
     // null out representativeFaceId. Those locks are taken in face order, so they can cycle against
     // a concurrent space-people recount. Re-drive the victim rather than lose the deletion (#864).
     try {
-      await retryOnDeadlock(() => this.assetRepository.remove(asset));
+      if (!(await retryOnDeadlock(() => this.assetRepository.removeForDeletion(asset)))) {
+        // Only the job which actually removes the row owns its file/events/quota
+        // effects, even when competing jobs fetched the same deletion snapshot.
+        return JobStatus.Skipped;
+      }
     } catch (error) {
       if (!isDeadlockError(error)) {
         throw error;
@@ -619,7 +781,7 @@ export class AssetService extends BaseService {
       // here would leave it behind until the trash sweep runs days later. Re-queue instead: the
       // job goes to the back of the queue, by which point the delete storm has usually drained.
       this.logger.warn(`Re-queueing deletion of asset ${id}: still deadlocking after repeated retries`);
-      await this.jobRepository.queue({ name: JobName.AssetDelete, data: { id, deleteOnDisk } });
+      await this.jobRepository.queue({ name: JobName.AssetDelete, data: job });
       return JobStatus.Skipped;
     }
     if (!asset.libraryId) {
@@ -634,7 +796,12 @@ export class AssetService extends BaseService {
       if (count === 0) {
         await this.jobRepository.queue({
           name: JobName.AssetDelete,
-          data: { id: asset.livePhotoVideoId, deleteOnDisk },
+          data: {
+            id: asset.livePhotoVideoId,
+            deleteOnDisk,
+            deletionReason: 'motion',
+            deletionId: deleteOnDisk ? asset.livePhotoVideoId : undefined,
+          },
         });
       }
     }
@@ -650,27 +817,627 @@ export class AssetService extends BaseService {
       assetFiles.encodedVideoFile?.path,
     ];
 
-    if (deleteOnDisk && !asset.isOffline) {
-      files.push(assetFiles.sidecarFile?.path, asset.originalPath);
-    }
+    // Originals/sidecar are handled above under the durable per-library authorization.
+    // FileDelete receives derivatives only, including for legacy metadata-only cleanup.
 
-    await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: files.filter(Boolean) } });
+    const derivatives = files.filter(Boolean);
+    if (derivatives.length > 0) {
+      await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: derivatives } });
+    }
 
     return JobStatus.Success;
   }
 
   async deleteAll(auth: AuthDto, dto: AssetBulkDeleteDto): Promise<void> {
-    const { ids, force } = dto;
-
+    const { ids } = dto;
+    const { trash } = await this.getConfig({ withCache: true });
+    const force = dto.force || !trash.enabled;
+    if (force) {
+      const results = await this.permanentlyDelete(auth, ids, true);
+      if (results.some((result) => result.state !== 'complete')) {
+        throw new ConflictException(
+          'Permanent deletion incomplete; inspect owner-scoped deletion status and retry only unresolved items.',
+        );
+      }
+      return;
+    }
     await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
-    await this.assetRepository.updateAll(ids, {
+    const changedIds = await this.assetRepository.markDeletionState(ids, {
       deletedAt: new Date(),
       status: force ? AssetStatus.Deleted : AssetStatus.Trashed,
     });
-    await this.eventRepository.emit(force ? 'AssetDeleteAll' : 'AssetTrashAll', {
-      assetIds: ids,
-      userId: auth.user.id,
+    if (changedIds.length > 0) {
+      await this.eventRepository.emit(force ? 'AssetDeleteAll' : 'AssetTrashAll', {
+        assetIds: changedIds,
+        userId: auth.user.id,
+      });
+    }
+  }
+
+  async trashDeletionScopes(auth: AuthDto): Promise<TrashDeletionScopeDto[]> {
+    const assets = await this.assetRepository.getOwnerTrash(auth.user.id);
+    const counts = new Map<string, number>();
+    for (const asset of assets) {
+      const scope = asset.libraryId ?? 'managed';
+      counts.set(scope, (counts.get(scope) ?? 0) + 1);
+    }
+    return Promise.all(
+      [...counts].map(async ([scope, count]) => {
+        const policy =
+          scope === 'managed'
+            ? await this.ensureManagedStoragePolicy(auth.user.id)
+            : await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
+        let authorized = false;
+        try {
+          await this.checkCurrentPolicy(auth.user.id, scope, policy);
+          authorized = true;
+        } catch {
+          /* blocked, no mutation */
+        }
+        return { scope, count, authorized };
+      }),
+    );
+  }
+
+  async emptyAuthorizedTrash(auth: AuthDto): Promise<{ count: number }> {
+    const assets = await this.assetRepository.getOwnerTrash(auth.user.id);
+    // Check every library before the first irreversible action. Empty Trash is not a retention grant.
+    for (const scope of new Set(assets.map((asset) => asset.libraryId ?? 'managed'))) {
+      const policy =
+        scope === 'managed'
+          ? await this.ensureManagedStoragePolicy(auth.user.id)
+          : await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
+      try {
+        await this.checkCurrentPolicy(auth.user.id, scope, policy);
+      } catch (error) {
+        throw new ConflictException(deletionCode(error));
+      }
+    }
+    let count = 0;
+    for (let start = 0; start < assets.length; start += 200) {
+      const results = await this.permanentlyDelete(
+        auth,
+        assets.slice(start, start + 200).map(({ id }) => id),
+      );
+      count += results.filter((result) => result.state === 'complete').length;
+      if (results.some((result) => result.state !== 'complete')) {
+        throw new ConflictException(
+          `Empty Trash incomplete; ${count} originals deleted. Remaining receipts are available for owner-scoped retry.`,
+        );
+      }
+    }
+    return { count };
+  }
+
+  async setDeletionPolicy(auth: AuthDto, dto: DeletionPolicyDto): Promise<void> {
+    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
+    if (dto.enabled) {
+      throw new BadRequestException(
+        dto.scope === 'managed'
+          ? 'Managed deletion requires separate owner consent'
+          : 'External deletion requires separate owner consent',
+      );
+    }
+    const existing = await this.assetRepository.getDeletionPolicy(dto.ownerId, dto.scope);
+    // Revocation never requires available storage/evidence; it cannot replace trusted preparation.
+    if (!dto.enabled && existing && dto.recoveryProof === existing.recoveryProof) {
+      await this.assetRepository.setDeletionPolicy(dto.ownerId, dto.scope, {
+        enabled: false,
+        roots: existing.roots,
+        recoveryProof: existing.recoveryProof,
+        authorizedBy: auth.user.id,
+        rootIdentities: existing.rootIdentities,
+        recoveryExpiresAt: existing.recoveryExpiresAt ? new Date(existing.recoveryExpiresAt) : undefined,
+      });
+      return;
+    }
+    await this.prepareDeletionPolicy(auth, dto);
+  }
+
+  private async prepareDeletionPolicy(auth: AuthDto, dto: DeletionPolicyDto): Promise<void> {
+    const identities = await this.validateDeletionPolicy(dto);
+    const evidence = await this.verifyEvidence(dto.recoveryProof, dto.ownerId, dto.scope, identities);
+    await this.assetRepository.setDeletionPolicy(dto.ownerId, dto.scope, {
+      enabled: false,
+      roots: dto.roots,
+      rootIdentities: identities,
+      recoveryExpiresAt: new Date(evidence.expiresAt),
+      recoveryProof: dto.recoveryProof,
+      authorizedBy: auth.user.id,
     });
+  }
+
+  private async verifyEvidence(proof: string, owner: string, scope: string, identities: DeletionRootIdentity[]) {
+    try {
+      return await verifyRecoveryEvidence(proof, owner, scope, identities);
+    } catch (error) {
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
+  private async validateDeletionPolicy(dto: DeletionPolicyDto): Promise<DeletionRootIdentity[]> {
+    const library = dto.scope === 'managed' ? undefined : await this.libraryRepository.get(dto.scope);
+    if (dto.scope !== 'managed' && (!library || library.ownerId !== dto.ownerId || library.deletedAt)) {
+      throw new BadRequestException('Unknown owner/library scope');
+    }
+    const user = await this.userRepository.get(dto.ownerId, {});
+    if (!user) throw new BadRequestException('Unknown owner');
+    const allowed = library?.importPaths ?? [
+      StorageCore.getFolderLocation(StorageFolder.Upload, dto.ownerId),
+      StorageCore.getLibraryFolder(user),
+    ];
+    if (dto.roots.some((root) => !allowed.includes(root)))
+      throw new BadRequestException('Root is not an existing owner library root');
+    const others = await this.assetRepository.getDeletionRootsForOtherOwners(dto.ownerId);
+    const otherRoots = [
+      ...others.external,
+      ...others.users.flatMap((other) => [
+        StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
+        StorageCore.getLibraryFolder(other),
+        StorageCore.getFolderLocation(StorageFolder.EncodedVideo, other.id),
+      ]),
+    ];
+    try {
+      return await this.storageRepository.validateDeletionRoots(dto.roots, otherRoots);
+    } catch (error) {
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
+  async managedDeletionStatus(auth: AuthDto): Promise<ManagedDeletionStatusDto> {
+    const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, 'managed');
+    let prepared = false;
+    try {
+      if (policy?.authorizationMode === 'storage') {
+        await this.checkStoragePolicy(auth.user.id, 'managed', policy);
+      } else {
+        await this.ownerStorageRoots(auth.user.id, 'managed');
+      }
+      prepared = true;
+    } catch {
+      /* inaccessible/replaced roots never become ready */
+    }
+    return { enabled: policy?.enabled ?? true, prepared, canPrepare: false };
+  }
+
+  async libraryDeletionScopes(auth: AuthDto): Promise<TrashDeletionScopeDto[]> {
+    const [libraries, assets] = await Promise.all([
+      this.libraryRepository.getAll(),
+      this.assetRepository.getOwnerTrash(auth.user.id),
+    ]);
+    return Promise.all(
+      libraries
+        .filter((library) => library.ownerId === auth.user.id && !library.deletedAt)
+        .map(async (library) => {
+          const status = await this.libraryDeletionStatus(auth, library.id);
+          return {
+            scope: library.id,
+            name: library.name,
+            count: assets.filter((asset) => asset.libraryId === library.id).length,
+            authorized: status.enabled && status.prepared,
+          };
+        }),
+    );
+  }
+
+  async libraryDeletionStatus(auth: AuthDto, scope: string): Promise<ManagedDeletionStatusDto> {
+    const library = await this.libraryRepository.get(scope);
+    if (!library || library.ownerId !== auth.user.id || library.deletedAt)
+      throw new ForbiddenException('Unknown owner/library scope');
+    const policy = await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
+    let prepared = false;
+    try {
+      if (policy?.authorizationMode === 'storage') await this.checkStoragePolicy(auth.user.id, scope, policy);
+      else await this.ownerStorageRoots(auth.user.id, scope);
+      prepared = true;
+    } catch {
+      /* unavailable/redirected roots never become writable */
+    }
+    return { enabled: !!policy?.enabled && policy.authorizedBy === auth.user.id, prepared, canPrepare: false };
+  }
+
+  async prepareLibraryDeletion(auth: AuthDto, scope: string, dto: PrepareManagedDeletionDto): Promise<void> {
+    return this.prepareLibraryDeletionForOwner(auth, auth.user.id, scope, dto);
+  }
+
+  async prepareLibraryDeletionForOwner(
+    auth: AuthDto,
+    ownerId: string,
+    scope: string,
+    dto: PrepareManagedDeletionDto,
+  ): Promise<void> {
+    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
+    const library = await this.libraryRepository.get(scope);
+    if (!library || library.ownerId !== ownerId || library.deletedAt)
+      throw new ForbiddenException('Unknown owner/library scope');
+    await this.prepareDeletionPolicy(auth, {
+      ownerId,
+      scope,
+      enabled: false,
+      roots: library.importPaths,
+      recoveryProof: dto.recoveryProof,
+      verifiedExclusiveRoots: dto.verifiedExclusiveRoots,
+    });
+  }
+
+  async setLibraryDeletionConsent(auth: AuthDto, scope: string, enabled: boolean): Promise<void> {
+    const library = await this.libraryRepository.get(scope, true);
+    if (!library || library.ownerId !== auth.user.id || (enabled && library.deletedAt))
+      throw new ForbiddenException('Unknown owner/library scope');
+    await this.configureStorageDeletion(auth.user.id, scope, enabled);
+  }
+
+  async prepareManagedDeletion(auth: AuthDto, dto: PrepareManagedDeletionDto): Promise<void> {
+    return this.prepareManagedDeletionForOwner(auth, auth.user.id, dto);
+  }
+
+  async prepareManagedDeletionForOwner(auth: AuthDto, ownerId: string, dto: PrepareManagedDeletionDto): Promise<void> {
+    if (!auth.user.isAdmin) throw new ForbiddenException('Administrator verification required');
+    const user = await this.userRepository.get(ownerId, {});
+    if (!user) throw new BadRequestException('Unknown owner');
+    const allowed = [StorageCore.getFolderLocation(StorageFolder.Upload, user.id), StorageCore.getLibraryFolder(user)];
+    const roots: string[] = [];
+    for (const root of new Set(allowed)) if (await this.storageRepository.checkFileExists(root)) roots.push(root);
+    if (roots.length === 0) throw new BadRequestException('No existing managed storage roots');
+    await this.prepareDeletionPolicy(auth, {
+      ownerId: user.id,
+      scope: 'managed',
+      roots,
+      enabled: false,
+      recoveryProof: dto.recoveryProof,
+      verifiedExclusiveRoots: dto.verifiedExclusiveRoots,
+    });
+  }
+
+  async setManagedDeletionConsent(auth: AuthDto, enabled: boolean): Promise<void> {
+    await this.configureStorageDeletion(auth.user.id, 'managed', enabled);
+  }
+
+  private async ownerStorageRoots(ownerId: string, scope: string) {
+    const user = await this.userRepository.get(ownerId, {});
+    if (!user) throw new DeletionError('ASSET_NOT_OWNED');
+    const library = scope === 'managed' ? undefined : await this.libraryRepository.get(scope);
+    if (scope !== 'managed' && (!library || library.ownerId !== ownerId || library.deletedAt))
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    const configured = library?.importPaths ?? [
+      StorageCore.getFolderLocation(StorageFolder.Upload, ownerId),
+      StorageCore.getLibraryFolder(user),
+    ];
+    const roots: string[] = [];
+    for (const root of new Set(configured)) {
+      if (await this.storageRepository.checkFileExists(root)) roots.push(root);
+      else if (scope !== 'managed') throw new DeletionError('DELETION_ROOT_CHANGED');
+    }
+    if (roots.length === 0) throw new DeletionError('UNSUPPORTED_DELETION_SCOPE');
+    const identities = await this.validateDeletionPolicy({
+      ownerId,
+      scope,
+      roots,
+      enabled: false,
+      recoveryProof: '',
+      verifiedExclusiveRoots: true,
+    });
+    await assertWritableDeletionRoots(identities);
+    return { roots, identities };
+  }
+
+  private async configureStorageDeletion(ownerId: string, scope: string, enabled: boolean) {
+    const policy = await this.assetRepository.getDeletionPolicy(ownerId, scope);
+    try {
+      const storage = enabled ? await this.ownerStorageRoots(ownerId, scope) : undefined;
+      await this.assetRepository.setDeletionPolicy(ownerId, scope, {
+        authorizationMode: 'storage',
+        enabled,
+        roots: storage?.roots ?? policy?.roots ?? [],
+        rootIdentities: storage?.identities ?? policy?.rootIdentities ?? [],
+        recoveryProof: '',
+        recoveryExpiresAt: null,
+        authorizedBy: ownerId,
+      });
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      )
+        throw error;
+      throw new ConflictException(deletionCode(error));
+    }
+  }
+
+  private async ensureManagedStoragePolicy(ownerId: string) {
+    let policy = await this.assetRepository.getDeletionPolicy(ownerId, 'managed');
+    if (!policy) {
+      const { roots, identities } = await this.ownerStorageRoots(ownerId, 'managed');
+      policy = await this.assetRepository.createManagedStorageDeletionPolicy(ownerId, roots, identities);
+    } else if (policy.authorizationMode !== 'storage' && policy.enabled) {
+      // Carry forward consent only for the SAME persisted physical storage.
+      // A legacy->storage transition must not silently authorize a replacement root.
+      const current = await refreshStorageRootIdentities(policy.rootIdentities);
+      await this.validateOwnerRootBoundaries(ownerId, policy.roots, current, 'managed');
+      await assertWritableDeletionRoots(current);
+      await this.assetRepository.setDeletionPolicy(ownerId, 'managed', {
+        authorizationMode: 'storage',
+        enabled: true,
+        roots: policy.roots,
+        rootIdentities: current,
+        recoveryProof: '',
+        recoveryExpiresAt: null,
+        authorizedBy: ownerId,
+      });
+      policy = await this.assetRepository.getDeletionPolicy(ownerId, 'managed');
+    }
+    return policy;
+  }
+
+  private async checkStoragePolicy(
+    owner: string,
+    scope: string,
+    policy: NonNullable<Awaited<ReturnType<typeof this.assetRepository.getDeletionPolicy>>>,
+  ) {
+    if (policy.authorizedBy !== owner || policy.rootIdentities.length === 0)
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    const current = await refreshStorageRootIdentities(policy.rootIdentities);
+    await this.validateOwnerRootBoundaries(owner, policy.roots, current, scope);
+    await assertWritableDeletionRoots(current);
+  }
+
+  private async checkCurrentPolicy(
+    owner: string,
+    scope: string,
+    policy: Awaited<ReturnType<typeof this.assetRepository.getDeletionPolicy>>,
+  ) {
+    if (!policy?.enabled || (scope !== 'managed' && policy.authorizedBy !== owner))
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (policy.authorizationMode === 'storage') {
+      await this.checkStoragePolicy(owner, scope, policy);
+      return;
+    }
+    if (policy.rootIdentities.length === 0 || !policy.recoveryExpiresAt)
+      throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
+    if (new Date(policy.recoveryExpiresAt).getTime() <= Date.now())
+      throw new DeletionError('DELETION_RECOVERY_EXPIRED');
+    const current = await collectRootIdentities(policy.roots);
+    if (
+      current.length !== policy.rootIdentities.length ||
+      current.some((r) => policy.rootIdentities.every((p) => !sameRootIdentity(r, p)))
+    )
+      throw new DeletionError('DELETION_ROOT_CHANGED');
+    await this.validateOwnerRootBoundaries(owner, policy.roots, policy.rootIdentities, scope);
+    await verifyRecoveryEvidence(policy.recoveryProof, owner, scope, current);
+  }
+
+  private async validateOwnerRootBoundaries(
+    owner: string,
+    roots: string[],
+    bound: DeletionRootIdentity[],
+    scope: string,
+    allowMotionRoot = false,
+  ) {
+    let allowed: Set<string>;
+    if (scope === 'managed') {
+      const user = await this.userRepository.get(owner, {});
+      if (!user) throw new DeletionError('ASSET_NOT_OWNED');
+      allowed = new Set([
+        StorageCore.getFolderLocation(StorageFolder.Upload, owner),
+        StorageCore.getLibraryFolder(user),
+        ...(allowMotionRoot ? [StorageCore.getFolderLocation(StorageFolder.EncodedVideo, owner)] : []),
+      ]);
+    } else {
+      const library = await this.libraryRepository.get(scope);
+      if (!library || library.ownerId !== owner || library.deletedAt)
+        throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+      allowed = new Set([
+        ...library.importPaths,
+        ...(allowMotionRoot ? [StorageCore.getFolderLocation(StorageFolder.EncodedVideo, owner)] : []),
+      ]);
+    }
+    if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+    const others = await this.assetRepository.getDeletionRootsForOtherOwners(owner);
+    const otherRoots = [
+      ...others.external,
+      ...others.users.flatMap((other) => [
+        StorageCore.getFolderLocation(StorageFolder.Upload, other.id),
+        StorageCore.getLibraryFolder(other),
+        StorageCore.getFolderLocation(StorageFolder.EncodedVideo, other.id),
+      ]),
+    ];
+    const current = await this.storageRepository.validateDeletionRoots(roots, otherRoots);
+    if (
+      current.length !== bound.length ||
+      current.some((root) => bound.every((stored) => !sameRootIdentity(root, stored)))
+    )
+      throw new DeletionError('DELETION_ROOT_CHANGED');
+  }
+
+  async deletionPreflight(auth: AuthDto, ids: string[], allowActive = false): Promise<DeletionPreflightResultDto[]> {
+    const results: DeletionPreflightResultDto[] = [];
+    for (const id of new Set(ids)) {
+      let scope: string | undefined;
+      try {
+        const receipt = await this.assetRepository.getDeletionReceipt(auth.user.id, id);
+        if (!receipt) {
+          try {
+            await this.requireAccess({ auth, permission: Permission.AssetDelete, ids: [id] });
+          } catch {
+            throw new DeletionError('ASSET_NOT_OWNED');
+          }
+        }
+        scope = await this.assetRepository.getDeletionScope(auth.user.id, id, allowActive);
+        if (!scope) throw new DeletionError('ASSET_NOT_IN_TRASH');
+        const policy =
+          scope === 'managed'
+            ? await this.ensureManagedStoragePolicy(auth.user.id)
+            : await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
+        if (receipt?.state !== 'complete') await this.checkCurrentPolicy(auth.user.id, scope, policy);
+        results.push({ id, scope, authorized: true });
+      } catch (error) {
+        results.push({
+          id,
+          scope,
+          authorized: false,
+          code: error instanceof ForbiddenException ? 'ASSET_NOT_OWNED' : deletionCode(error),
+        });
+      }
+    }
+    return results;
+  }
+
+  async deletionStatus(auth: AuthDto, id: string): Promise<PermanentDeletionResultDto> {
+    const receipt = await this.assetRepository.getDeletionReceipt(auth.user.id, id);
+    if (!receipt) {
+      return { id, state: 'blocked', code: 'NO_AUTHORIZED_DELETION' };
+    }
+    const targets = await this.assetRepository.getPermanentDeletionTargets(receipt.operationId);
+    const states = await Promise.all(
+      targets.map(({ assetId }) => this.assetRepository.getDeletionReceipt(auth.user.id, assetId)),
+    );
+    const failed = states.find((item) => item?.state === 'failed');
+    if (failed) {
+      return { id, state: 'failed', code: failed.errorCode ?? 'PAIRED_DELETION_INCOMPLETE' };
+    }
+    return { id, state: states.every((item) => item?.state === 'complete') ? 'complete' : 'pending' };
+  }
+
+  async deletionBatchStatus(auth: AuthDto, batchId: string): Promise<PermanentDeletionBatchStatusDto> {
+    const batch = await this.jobRepository.getAssetDeleteBatchJob(batchId);
+    if (
+      !batch ||
+      batch.ownerId !== auth.user.id ||
+      batch.id !== getAssetDeleteBatchJobId(batch.ownerId, batch.ids, batch.allowActive)
+    ) {
+      throw new ForbiddenException('Deletion batch is not available for this user');
+    }
+
+    const statuses: PermanentDeletionResultDto[] = [];
+    for (let start = 0; start < batch.ids.length; start += AssetService.BATCH_CHUNK_SIZE) {
+      statuses.push(
+        ...(await Promise.all(
+          batch.ids.slice(start, start + AssetService.BATCH_CHUNK_SIZE).map((id) => this.deletionStatus(auth, id)),
+        )),
+      );
+    }
+    const complete = statuses.filter((item) => item.state === 'complete').length;
+    const failed = statuses.filter(
+      (item) => item.state === 'failed' || (item.state === 'blocked' && ['complete', 'failed'].includes(batch.state)),
+    ).length;
+    const pending = statuses.length - complete - failed;
+    const state =
+      pending === 0
+        ? failed > 0
+          ? 'failed'
+          : 'complete'
+        : batch.state === 'cancelled'
+          ? 'cancelled'
+          : batch.state === 'active'
+            ? 'active'
+            : 'pending';
+    return {
+      id: batch.id,
+      state,
+      total: statuses.length,
+      processed: complete + failed,
+      complete,
+      failed,
+      pending,
+      ...(batch.cancelRequested && { cancelRequested: true }),
+    };
+  }
+
+  async cancelDeletionBatch(auth: AuthDto, batchId: string): Promise<PermanentDeletionBatchStatusDto> {
+    const batch = await this.jobRepository.getAssetDeleteBatchJob(batchId);
+    if (
+      !batch ||
+      batch.ownerId !== auth.user.id ||
+      batch.id !== getAssetDeleteBatchJobId(batch.ownerId, batch.ids, batch.allowActive)
+    ) {
+      throw new ForbiddenException('Deletion batch is not available for this user');
+    }
+
+    if (batch.state === 'pending' || batch.state === 'active') {
+      await this.jobRepository.cancelAssetDeleteBatch(batchId, auth.user.id);
+    }
+    return this.deletionBatchStatus(auth, batchId);
+  }
+
+  async permanentlyDelete(
+    auth: AuthDto,
+    ids: string[],
+    allowActive = false,
+    allowBatchQueue = true,
+  ): Promise<PermanentDeletionResultDto[]> {
+    const preflight = await this.deletionPreflight(auth, ids, allowActive);
+    if (preflight.some((item) => !item.authorized)) {
+      // No new journal, hashing, worker, or unlink before every scope is admitted.
+      return Promise.all(
+        preflight.map(async (item): Promise<PermanentDeletionResultDto> => {
+          const receipt = await this.assetRepository.getDeletionReceipt(auth.user.id, item.id);
+          return receipt?.state === 'complete'
+            ? { id: item.id, state: 'complete', scope: item.scope }
+            : { id: item.id, state: 'blocked', scope: item.scope, code: item.code ?? 'DELETION_BATCH_NOT_AUTHORIZED' };
+        }),
+      );
+    }
+    const uniqueIds = [...new Set(ids)];
+    if (allowBatchQueue && uniqueIds.length > AssetService.INLINE_PERMANENT_DELETION_LIMIT) {
+      await this.jobRepository.queue({
+        name: JobName.AssetDeleteBatch,
+        data: { ownerId: auth.user.id, ids: uniqueIds, allowActive },
+      });
+      return preflight.map((item) => ({
+        id: item.id,
+        scope: item.scope,
+        state: 'pending' as const,
+        code: 'DELETION_BATCH_QUEUED',
+        batchId: getAssetDeleteBatchJobId(auth.user.id, uniqueIds, allowActive),
+      }));
+    }
+    const results: PermanentDeletionResultDto[] = [];
+    for (const id of uniqueIds) {
+      try {
+        const previous = await this.assetRepository.getDeletionReceipt(auth.user.id, id);
+        if (!previous) {
+          await this.requireAccess({ auth, permission: Permission.AssetDelete, ids: [id] });
+        }
+        const snapshot = (path: string, roots: DeletionRootIdentity[]) =>
+          this.storageRepository.snapshotOriginal(path, roots);
+        if (allowActive)
+          await this.assetRepository.preparePermanentDeletion(id, auth.user.id, snapshot, undefined, true);
+        else await this.assetRepository.preparePermanentDeletion(id, auth.user.id, snapshot);
+        // Publish durable worker retries before inline completion. An interrupted
+        // request can finish through the ordinary queue or receipt recovery sweep.
+        const targets = await this.assetRepository.getPermanentDeletionTargets(id);
+        for (const target of targets)
+          await this.jobRepository.queue({
+            name: JobName.AssetDelete,
+            data: {
+              id: target.assetId,
+              deleteOnDisk: true,
+              deletionId: target.assetId,
+            },
+          });
+        // Existing AssetDelete lifecycle: one row remover owns all row effects.
+        for (const target of targets) {
+          const receipt = await this.assetRepository.getDeletionReceipt(auth.user.id, target.assetId);
+          if (receipt?.state !== 'complete') {
+            await this.handleAssetDeletion({ id: target.assetId, deleteOnDisk: true, deletionId: target.assetId });
+          }
+        }
+        results.push({
+          ...(await this.deletionStatus(auth, id)),
+          scope: preflight.find((item) => item.id === id)?.scope,
+        });
+      } catch (error) {
+        const receipt = await this.assetRepository.getDeletionReceipt(auth.user.id, id);
+        results.push({
+          ...(receipt
+            ? await this.deletionStatus(auth, id)
+            : { id, state: 'blocked' as const, code: deletionCode(error) }),
+          scope: preflight.find((item) => item.id === id)?.scope,
+        });
+      }
+    }
+    return results;
   }
 
   async getMetadata(auth: AuthDto, id: string): Promise<AssetMetadataResponseDto[]> {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import type { SystemConfig } from 'src/dtos/config.dto.js';
 import type { MemoryRule, MemoryRuleCandidate } from 'src/services/memory-rules/memory-rule.interface.js';
@@ -9,13 +9,29 @@ import { OnJob } from 'src/decorators.js';
 import { BulkIdResponseDto, BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import {
+  MemoryCandidateCreateDto,
+  MemoryCandidateDecisionDto,
+  MemoryCandidateResponseDto,
   MemoryCreateDto,
+  MemoryLifecycleResponseDto,
+  MemoryLifecycleSearchDto,
+  MemoryRejectionsResponseDto,
   MemoryResponseDto,
   MemorySearchDto,
   MemoryUpdateDto,
   mapMemory,
 } from 'src/dtos/memory.dto.js';
-import { DatabaseLock, JobName, MemoryType, Permission, QueueName, SystemMetadataKey } from 'src/enum.js';
+import { mapNotification } from 'src/dtos/notification.dto.js';
+import {
+  DatabaseLock,
+  JobName,
+  MemoryType,
+  NotificationLevel,
+  NotificationType,
+  Permission,
+  QueueName,
+  SystemMetadataKey,
+} from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
 import {
   getAdminAvailableMemoryTypeKeys,
@@ -28,6 +44,12 @@ import { createMemoryRules } from 'src/services/memory-rules/memory-type.registr
 import { type ReservableMemory, planReservation } from 'src/services/memory-rules/reservation.util.js';
 import { MemoryThemeSearchAdapter } from 'src/services/memory-rules/theme-search.adapter.js';
 import { addAssets, removeAssets } from 'src/utils/asset.util.js';
+import {
+  MemorySuppressedException,
+  memoryAssetIds,
+  memoryData,
+  memoryFingerprint,
+} from 'src/utils/memory-candidate.js';
 import { findOrFail } from 'src/utils/misc.js';
 import { getPreferences } from 'src/utils/preferences.js';
 
@@ -69,6 +91,86 @@ const isVisibleOn = (row: Pick<MemoryOverlapRow, 'showAt' | 'hideAt'>, target: D
 
 @Injectable()
 export class MemoryService extends BaseService {
+  async getLifecycle(auth: AuthDto, dto: MemoryLifecycleSearchDto): Promise<MemoryLifecycleResponseDto> {
+    const rows = await this.memoryRepository.getLifecycle(auth.user.id, dto);
+    const items = rows.slice(0, dto.size).map((row) => ({
+      ...row,
+      data: memoryData(row.data),
+      seenAt: row.seenAt ?? undefined,
+      showAt: row.showAt ?? undefined,
+      hideAt: row.hideAt ?? undefined,
+      deletedAt: row.deletedAt ?? undefined,
+      fingerprint: memoryFingerprint(row.assetIds),
+    }));
+    return { items, nextCursor: rows.length > dto.size ? items.at(-1)?.id : undefined };
+  }
+
+  async getRejections(auth: AuthDto, dto: MemoryLifecycleSearchDto): Promise<MemoryRejectionsResponseDto> {
+    const rows = await this.memoryRepository.getRejections(auth.user.id, dto);
+    const items = rows.slice(0, dto.size).map((row) => ({
+      ...row,
+      assetIds: memoryAssetIds(row.assetIds),
+      state: 'dismissed' as const,
+    }));
+    return { items, nextCursor: rows.length > dto.size ? items.at(-1)?.id : undefined };
+  }
+
+  async createCandidate(auth: AuthDto, dto: MemoryCandidateCreateDto): Promise<MemoryCandidateResponseDto> {
+    const ids = [...new Set(dto.assetIds)];
+    const allowed = await this.accessRepository.asset.checkOwnerAccess(
+      auth.user.id,
+      new Set(ids),
+      auth.session?.hasElevatedPermission,
+    );
+    if (allowed.size !== ids.length || ids.length === 0)
+      throw new BadRequestException('Candidate assets must be owned by the user');
+    const candidate = await this.memoryRepository.createCandidate(
+      {
+        ownerId: auth.user.id,
+        type: dto.type,
+        data: dto.data,
+        memoryAt: dto.memoryAt,
+      },
+      ids,
+    );
+    const memory = await this.findOrFail(candidate.memoryId!, auth.user.id);
+    if (candidate.created) {
+      try {
+        const item = await this.notificationRepository.create({
+          userId: auth.user.id,
+          type: NotificationType.Custom,
+          level: NotificationLevel.Info,
+          title: typeof dto.data.title === 'string' ? dto.data.title : 'New memory',
+          data: JSON.stringify({ memoryCandidateId: candidate.id }),
+        });
+        this.websocketRepository.clientSend('on_notification', auth.user.id, mapNotification(item));
+      } catch (error) {
+        this.logger.warn(`Candidate persisted but notification could not be delivered: ${error}`);
+      }
+    }
+    return { id: candidate.id, state: candidate.state, memory: mapMemory(memory, auth) };
+  }
+
+  async getCandidates(auth: AuthDto): Promise<MemoryCandidateResponseDto[]> {
+    const [hiddenScope, visibleSpaceIds] = await this.resolveHiddenScopeAndVisibleSpaces(auth.user.id);
+    const rows = await this.memoryRepository.getCandidates(auth.user.id, hiddenScope, visibleSpaceIds);
+    const result: MemoryCandidateResponseDto[] = [];
+    for (const row of rows) {
+      const memory = await this.memoryRepository.get(row.memoryId!, auth.user.id, hiddenScope, visibleSpaceIds);
+      if (memory && memory.assets.length > 0)
+        result.push({ id: row.id, state: row.state, memory: mapMemory(memory, auth) });
+    }
+    return result;
+  }
+
+  async decideCandidate(
+    auth: AuthDto,
+    id: string,
+    dto: MemoryCandidateDecisionDto,
+  ): Promise<MemoryCandidateResponseDto> {
+    const row = await this.memoryRepository.decideCandidate(auth.user.id, id, dto.action);
+    return { id: row.id, state: row.state };
+  }
   @OnJob({ name: JobName.MemoryGenerate, queue: QueueName.BackgroundTask })
   async onMemoriesCreate() {
     const users = await this.userRepository.getList({ withDeleted: false });
@@ -172,19 +274,23 @@ export class MemoryService extends BaseService {
     const hideAt = target.endOf('day').toISO();
     const memories = await this.assetRepository.getByDayOfYear([ownerId], target);
     await Promise.all(
-      memories.map(({ year, assets }) =>
-        this.memoryRepository.create(
-          {
-            ownerId,
-            type: MemoryType.OnThisDay,
-            data: { year },
-            memoryAt: target.set({ year }).toISO()!,
-            showAt,
-            hideAt,
-          },
-          new Set(assets.map(({ id }) => id)),
-        ),
-      ),
+      memories.map(async ({ year, assets }) => {
+        try {
+          await this.memoryRepository.create(
+            {
+              ownerId,
+              type: MemoryType.OnThisDay,
+              data: { year },
+              memoryAt: target.set({ year }).toISO()!,
+              showAt,
+              hideAt,
+            },
+            new Set(assets.map(({ id }) => id)),
+          );
+        } catch (error) {
+          if (!(error instanceof MemorySuppressedException)) throw error;
+        }
+      }),
     );
   }
 
@@ -414,24 +520,29 @@ export class MemoryService extends BaseService {
         .endOf('day')
         .toJSDate();
 
-      await this.memoryRepository.create(
-        {
-          ownerId,
-          type: MemoryType.Rule,
-          data: {
-            ruleId: candidate.ruleId,
-            dedupeKey: candidate.dedupeKey,
-            title: candidate.title,
-            subtitle: candidate.subtitle,
-            score: candidate.score,
-            context: candidate.context,
+      try {
+        await this.memoryRepository.create(
+          {
+            ownerId,
+            type: MemoryType.Rule,
+            data: {
+              ruleId: candidate.ruleId,
+              dedupeKey: candidate.dedupeKey,
+              title: candidate.title,
+              subtitle: candidate.subtitle,
+              score: candidate.score,
+              context: candidate.context,
+            },
+            memoryAt: candidate.memoryAt.toJSDate(),
+            showAt,
+            hideAt,
           },
-          memoryAt: candidate.memoryAt.toJSDate(),
-          showAt,
-          hideAt,
-        },
-        new Set(candidate.assetIds),
-      );
+          new Set(candidate.assetIds),
+        );
+      } catch (error) {
+        if (error instanceof MemorySuppressedException) continue;
+        throw error;
+      }
       // A card that stands in for the day's plain "N years ago" memory replaces it rather than
       // sitting beside it — the two hold substantially the same photos. Safe to run after the
       // insert: the on-this-day loop writes up to DAYS ahead and runs first inside this lock,
@@ -504,10 +615,13 @@ export class MemoryService extends BaseService {
     availableTypes: Set<string>,
     userTypes: Record<string, boolean>,
   ): boolean {
+    const data = memoryData(memory.data);
+    const candidateState = data.candidateState;
+    if (candidateState === 'pending' || candidateState === 'dismissed') return false;
     if (memory.isSaved) {
       return true;
     }
-    const key = getMemoryTypeKeyForMemory(memory.type, memory.data);
+    const key = getMemoryTypeKeyForMemory(memory.type, data);
     if (key === undefined || getMemoryTypeMetadata(key) === undefined) {
       return true;
     }
@@ -554,18 +668,27 @@ export class MemoryService extends BaseService {
   async update(auth: AuthDto, id: string, dto: MemoryUpdateDto): Promise<MemoryResponseDto> {
     await this.requireAccess({ auth, permission: Permission.MemoryUpdate, ids: [id] });
 
-    const memory = await this.memoryRepository.update(id, {
+    if (dto.isHidden) {
+      const memory = await this.memoryRepository.hideForUser(id, auth.user.id);
+      return mapMemory(memory, auth);
+    }
+
+    const changes = {
       isSaved: dto.isSaved,
       memoryAt: dto.memoryAt,
       seenAt: dto.seenAt,
-    });
+    };
+    const memory =
+      dto.title !== undefined || dto.subtitle !== undefined
+        ? await this.memoryRepository.updateDisplay(id, changes, { title: dto.title, subtitle: dto.subtitle })
+        : await this.memoryRepository.update(id, changes);
 
     return mapMemory(memory, auth);
   }
 
   async remove(auth: AuthDto, id: string): Promise<void> {
     await this.requireAccess({ auth, permission: Permission.MemoryDelete, ids: [id] });
-    await this.memoryRepository.delete(id);
+    await this.memoryRepository.deleteForUser(id, auth.user.id);
   }
 
   async addAssets(auth: AuthDto, id: string, dto: BulkIdsDto): Promise<BulkIdResponseDto[]> {

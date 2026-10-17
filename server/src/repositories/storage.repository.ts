@@ -18,6 +18,12 @@ import { PassThrough, Readable, Writable } from 'node:stream';
 import { createGunzip, createGzip } from 'node:zlib';
 import { CrawlOptionsDto, WalkOptionsDto } from 'src/dtos/library.dto.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import {
+  snapshotOriginal,
+  unlinkOriginal,
+  validateDeletionRoots,
+  verifyDisposablePath,
+} from 'src/utils/authorized-deletion.js';
 import { mimeTypes } from 'src/utils/mime-types.js';
 
 export interface WatchEvents {
@@ -48,6 +54,10 @@ export interface DiskUsage {
 
 @Injectable()
 export class StorageRepository {
+  snapshotOriginal = snapshotOriginal;
+  unlinkOriginal = unlinkOriginal;
+  validateDeletionRoots = validateDeletionRoots;
+  verifyDisposablePath = verifyDisposablePath;
   constructor(private logger: LoggingRepository) {
     this.logger.setContext(StorageRepository.name);
   }

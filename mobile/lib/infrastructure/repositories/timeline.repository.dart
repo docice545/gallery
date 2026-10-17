@@ -48,22 +48,52 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     origin: TimelineOrigin.main,
   );
 
+  /// The same owner, space, stack-primary and local-backup boundaries as Photos,
+  /// restricted in SQL to still assets with an existing paired-motion identity.
+  /// Hidden motion videos are resources of their still, never extra tiles.
+  TimelineQuery livePhotos(
+    List<String> userIds,
+    String currentUserId,
+    GroupAssetsBy groupBy, {
+    TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+  }) => (
+    bucketSource: () =>
+        _watchMainBucket(userIds, currentUserId, groupBy: groupBy, temporalScope: temporalScope, livePhotosOnly: true),
+    assetSource: (offset, count) => _getMainBucketAssets(
+      userIds,
+      currentUserId,
+      offset: offset,
+      count: count,
+      temporalScope: temporalScope,
+      livePhotosOnly: true,
+    ),
+    origin: TimelineOrigin.livePhotos,
+  );
+
   Stream<List<Bucket>> _watchMainBucket(
     List<String> userIds,
     String currentUserId, {
     GroupAssetsBy groupBy = GroupAssetsBy.day,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+    bool livePhotosOnly = false,
   }) {
     if (groupBy == GroupAssetsBy.none) {
       throw UnsupportedError("GroupAssetsBy.none is not supported for watchMainBucket");
     }
 
-    if (!temporalScope.isEmpty) {
+    if (!livePhotosOnly && !temporalScope.isEmpty) {
       return _watchScopedMainBucket(userIds, currentUserId, groupBy: groupBy, temporalScope: temporalScope);
     }
 
     return _db.mergedAssetDrift
-        .mergedBucket(userIds: userIds, currentUserId: currentUserId, groupBy: groupBy.index)
+        .mergedBucket(
+          userIds: userIds,
+          currentUserId: currentUserId,
+          groupBy: groupBy.index,
+          livePhotosOnly: livePhotosOnly,
+          scopeStart: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.start!),
+          scopeEnd: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.end!),
+        )
         .map((row) {
           final date = row.bucketDate.truncateDate(groupBy);
           return TimeBucket(date: date, assetCount: row.assetCount);
@@ -77,8 +107,9 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     required int offset,
     required int count,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
+    bool livePhotosOnly = false,
   }) {
-    if (!temporalScope.isEmpty) {
+    if (!livePhotosOnly && !temporalScope.isEmpty) {
       return _getScopedMainBucketAssets(
         userIds,
         currentUserId,
@@ -89,7 +120,14 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     }
 
     return _db.mergedAssetDrift
-        .mergedAsset(userIds: userIds, currentUserId: currentUserId, limit: (_) => Limit(count, offset))
+        .mergedAsset(
+          userIds: userIds,
+          currentUserId: currentUserId,
+          livePhotosOnly: livePhotosOnly,
+          scopeStart: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.start!),
+          scopeEnd: temporalScope.isEmpty ? null : _scopeDateFormat.format(temporalScope.end!),
+          limit: (_) => Limit(count, offset),
+        )
         .map(
           (row) => row.remoteId != null && row.ownerId != null
               ? RemoteAsset(
@@ -145,6 +183,8 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
       _scopedMainBucketSql(userIds, groupBy),
       variables: _scopedMainVariables(userIds, currentUserId, temporalScope),
       readsFrom: {
+        _db.settingsEntity,
+        _db.storeEntity,
         _db.remoteAssetEntity,
         _db.stackEntity,
         _db.sharedSpaceAssetEntity,
@@ -179,6 +219,8 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
             Variable<int>(offset),
           ],
           readsFrom: {
+            _db.settingsEntity,
+            _db.storeEntity,
             _db.remoteAssetEntity,
             _db.stackEntity,
             _db.sharedSpaceAssetEntity,
@@ -836,11 +878,12 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     GroupAssetsBy groupBy, {
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) => _remoteQueryBuilder(
-    filter: (row) => row.deletedAt.isNotNull() & row.ownerId.equals(userId),
+    filter: (row) => row.deletedAt.isNotNull() & row.isIndexTombstone.equals(false) & row.ownerId.equals(userId),
     groupBy: groupBy,
     temporalScope: temporalScope,
     origin: TimelineOrigin.trash,
     joinLocal: true,
+    sortBy: SortAssetsBy.deleted,
   );
 
   TimelineQuery archived(
@@ -1359,7 +1402,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
   }) {
     if (groupBy == GroupAssetsBy.none) {
       final query = _db.remoteAssetEntity.count(
-        where: (row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope),
+        where: (row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope, sortBy: sortBy),
       );
       return query.map(_generateBuckets).watchSingle();
     }
@@ -1369,7 +1412,10 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
 
     final query = _db.remoteAssetEntity.selectOnly()
       ..addColumns([assetCountExp, dateExp])
-      ..where(filter(_db.remoteAssetEntity) & _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope))
+      ..where(
+        filter(_db.remoteAssetEntity) &
+            _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope, sortBy: sortBy),
+      )
       ..groupBy([dateExp])
       ..orderBy([OrderingTerm.desc(dateExp)]);
 
@@ -1399,11 +1445,13 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
               ),
             ])
             ..addColumns([_db.localAssetEntity.id])
-            ..where(filter(_db.remoteAssetEntity) & _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope))
+            ..where(
+              filter(_db.remoteAssetEntity) &
+                  _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope, sortBy: sortBy),
+            )
             ..orderBy([
-              OrderingTerm.desc(
-                sortBy == SortAssetsBy.uploaded ? _db.remoteAssetEntity.uploadedAt : _db.remoteAssetEntity.createdAt,
-              ),
+              OrderingTerm.desc(_db.remoteAssetEntity.sortTimestamp(sortBy)),
+              if (sortBy == SortAssetsBy.deleted) OrderingTerm.asc(_db.remoteAssetEntity.id),
             ])
             ..limit(count, offset: offset);
 
@@ -1412,8 +1460,11 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
           .get();
     } else {
       final query = _db.remoteAssetEntity.select()
-        ..where((row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope))
-        ..orderBy([(row) => OrderingTerm.desc(sortBy == SortAssetsBy.uploaded ? row.uploadedAt : row.createdAt)])
+        ..where((row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope, sortBy: sortBy))
+        ..orderBy([
+          (row) => OrderingTerm.desc(row.sortTimestamp(sortBy)),
+          if (sortBy == SortAssetsBy.deleted) (row) => OrderingTerm.asc(row.id),
+        ])
         ..limit(count, offset: offset);
 
       return query.map((row) => row.toDto()).get();
@@ -1525,6 +1576,21 @@ AND STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= ?3
 AND NOT EXISTS (
   SELECT 1 FROM remote_asset_entity rae WHERE rae.checksum = lae.checksum AND rae.owner_id IN ($userIdsSql)
 )
+AND NOT EXISTS (
+  SELECT 1
+  FROM settings retained_trash
+  WHERE retained_trash.key >= 'sync.trash-reset.'
+    AND retained_trash.key < 'sync.trash-reset/'
+    AND (JSON_EXTRACT(retained_trash.value, '\$.checksum') = lae.checksum
+      OR EXISTS (SELECT 1 FROM JSON_EACH(retained_trash.value, '\$.localIds') WHERE value = lae.id))
+    AND CASE WHEN retained_trash.key LIKE 'sync.trash-reset.%' THEN
+      JSON_EXTRACT(retained_trash.value, '\$.ownerId') IN ($userIdsSql)
+      -- StoreKey.serverEndpoint.id = 12; scope prevents cross-server carryover.
+      AND JSON_EXTRACT(retained_trash.value, '\$.endpoint') =
+        COALESCE((SELECT string_value FROM store_entity WHERE id = 12), '')
+    ELSE 0 END
+)
+
 AND EXISTS (
   SELECT 1 FROM local_album_asset_entity laa
   INNER JOIN local_album_entity la on laa.album_id = la.id
@@ -1649,10 +1715,10 @@ BaseAsset _scopedMainAssetFromRow(QueryRow row) {
       createdAt: row.read<DateTime>('created_at'),
       updatedAt: row.read<DateTime>('updated_at'),
       thumbHash: row.readNullable<String>('thumb_hash'),
-      width: row.read<int>('width'),
-      height: row.read<int>('height'),
+      width: row.readNullable<int>('width'),
+      height: row.readNullable<int>('height'),
       isFavorite: row.read<bool>('is_favorite'),
-      durationMs: row.read<int>('duration_ms'),
+      durationMs: row.readNullable<int>('duration_ms'),
       livePhotoVideoId: row.readNullable<String>('live_photo_video_id'),
       stackId: row.readNullable<String>('stack_id'),
       isEdited: row.read<bool>('is_edited'),
@@ -1667,10 +1733,10 @@ BaseAsset _scopedMainAssetFromRow(QueryRow row) {
     type: AssetType.values[row.read<int>('type')],
     createdAt: row.read<DateTime>('created_at'),
     updatedAt: row.read<DateTime>('updated_at'),
-    width: row.read<int>('width'),
-    height: row.read<int>('height'),
+    width: row.readNullable<int>('width'),
+    height: row.readNullable<int>('height'),
     isFavorite: row.read<bool>('is_favorite'),
-    durationMs: row.read<int>('duration_ms'),
+    durationMs: row.readNullable<int>('duration_ms'),
     orientation: row.read<int>('orientation'),
     playbackStyle: AssetPlaybackStyle.values[row.read<int>('playback_style')],
     cloudId: row.readNullable<String>('i_cloud_id'),
@@ -1681,13 +1747,17 @@ BaseAsset _scopedMainAssetFromRow(QueryRow row) {
   );
 }
 
-Expression<bool> _remoteWithinTemporalScope($RemoteAssetEntityTable row, TimelineTemporalScope scope) {
+Expression<bool> _remoteWithinTemporalScope(
+  $RemoteAssetEntityTable row,
+  TimelineTemporalScope scope, {
+  SortAssetsBy sortBy = SortAssetsBy.taken,
+}) {
   if (scope.isEmpty) {
     return const Constant(true);
   }
   final start = _scopeDateFormat.format(scope.start!);
   final end = _scopeDateFormat.format(scope.end!);
-  final dateExp = row.effectiveCreatedAt(GroupAssetsBy.day);
+  final dateExp = row.effectiveCreatedAt(GroupAssetsBy.day, sortBy: sortBy);
   return dateExp.isBiggerOrEqualValue(start) & dateExp.isSmallerOrEqualValue(end);
 }
 
@@ -1717,9 +1787,17 @@ extension on Expression<DateTime> {
 }
 
 extension on $RemoteAssetEntityTable {
+  Expression<DateTime> sortTimestamp(SortAssetsBy sortBy) => switch (sortBy) {
+    SortAssetsBy.taken => createdAt,
+    SortAssetsBy.uploaded => uploadedAt,
+    SortAssetsBy.deleted => deletedAt,
+  };
+
   Expression<String> effectiveCreatedAt(GroupAssetsBy groupBy, {SortAssetsBy sortBy = SortAssetsBy.taken}) {
-    if (sortBy == SortAssetsBy.uploaded) {
-      return uploadedAt.dateFmt(groupBy, toLocal: true);
+    if (sortBy != SortAssetsBy.taken) {
+      // Upload/deletion instants use the device's calendar, independently of the
+      // original capture timezone. Never rewrite capture metadata for Trash.
+      return sortTimestamp(sortBy).dateFmt(groupBy, toLocal: true);
     }
 
     return coalesce([localDateTime.dateFmt(groupBy), createdAt.dateFmt(groupBy, toLocal: true)]);

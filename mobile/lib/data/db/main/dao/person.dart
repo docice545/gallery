@@ -3,6 +3,7 @@ import 'package:immich_mobile/data/db/main/dao/person.drift.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/people/person.drift.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/asset_face.model.dart';
 import 'package:immich_mobile/domain/models/person.model.dart';
 
 @DriftAccessor()
@@ -34,6 +35,29 @@ class PeopleDatabaseRepository extends DatabaseAccessor<Drift> with $PeopleDatab
       ..where((row) => row.id.isInQuery(faceQuery) & row.isHidden.equals(false));
 
     return query.map((row) => row.toDto()).get();
+  }
+
+  /// Indexed, local-only face geometry. Visible tile consumers release this
+  /// stream when disposed; no asset-detail requests or whole-library face cache.
+  Stream<List<AssetFace>> watchAssetFaces(String assetId) {
+    final query = _db.select(_db.assetFaceEntity)
+      ..where((row) => row.assetId.equals(assetId) & row.isVisible.equals(true) & row.deletedAt.isNull());
+    return query
+        .map(
+          (row) => AssetFace(
+            id: row.id,
+            assetId: row.assetId,
+            personId: row.personId,
+            imageWidth: row.imageWidth,
+            imageHeight: row.imageHeight,
+            boundingBoxX1: row.boundingBoxX1,
+            boundingBoxY1: row.boundingBoxY1,
+            boundingBoxX2: row.boundingBoxX2,
+            boundingBoxY2: row.boundingBoxY2,
+            sourceType: row.sourceType,
+          ),
+        )
+        .watch();
   }
 
   JoinedSelectStatement _allPeopleQuery({required int minFaces, required PeopleSortBy sortBy}) {

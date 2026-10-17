@@ -256,16 +256,16 @@ class BackupNotifier extends StateNotifier<BackupState> {
     _uploadSpeedManager.removeTask(localAssetId);
   }
 
-  Future<void> startBackupWithURLSession(String userId) async {
-    if (!mounted) {
-      _logger.warning("Skip handleBackupResume (pre-call): notifier disposed");
+  Future<void> startBackupWithURLSession(String userId, {Completer<void>? cancellation}) async {
+    if (!mounted || (cancellation?.isCompleted ?? false)) {
+      _logger.warning("Skip handleBackupResume (pre-call): notifier disposed or cancelled");
       return;
     }
     _logger.info("Start background backup sequence");
     state = state.copyWith(error: BackupError.none);
     final tasks = await _backgroundUploadService.getActiveTasks(kBackupGroup);
-    if (!mounted) {
-      _logger.warning("Skip handleBackupResume (post-call): notifier disposed");
+    if (!mounted || (cancellation?.isCompleted ?? false)) {
+      _logger.warning("Skip handleBackupResume (post-call): notifier disposed or cancelled");
       return;
     }
     _logger.info("Found ${tasks.length} pending tasks");

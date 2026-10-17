@@ -884,7 +884,9 @@ export class TimelineManager extends VirtualScrollManager {
   }
 
   protected postUpsert(context: GroupInsertionCache): void {
-    for (const group of context.existingTimelineDays) {
+    const daysToSort =
+      this.#options.orderBy === AssetOrderBy.DeletedAt ? context.changedTimelineDays : context.existingTimelineDays;
+    for (const group of daysToSort) {
       group.sortAssets(this.#options.order);
     }
 

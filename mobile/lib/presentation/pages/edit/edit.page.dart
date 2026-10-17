@@ -7,11 +7,14 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/aspect_ratios.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
+import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
+import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/editor.utils.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
@@ -22,8 +25,9 @@ import 'package:openapi/api.dart' show MirrorAxis, MirrorParameters, RotateParam
 class EditImagePage extends ConsumerStatefulWidget {
   final Image image;
   final Future<void> Function(List<AssetEdit> edits) applyEdits;
+  final RemoteAsset? asset;
 
-  const EditImagePage({super.key, required this.image, required this.applyEdits});
+  const EditImagePage({super.key, required this.image, required this.applyEdits, this.asset});
 
   @override
   ConsumerState<EditImagePage> createState() => _EditImagePageState();
@@ -100,6 +104,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   @override
   Widget build(BuildContext context) {
     final hasUnsavedEdits = ref.watch(editorStateProvider.select((state) => state.hasUnsavedEdits));
+    final allowTransformEdits = widget.asset?.isEditable ?? true;
 
     return PopScope(
       canPop: !hasUnsavedEdits,
@@ -119,14 +124,18 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
             backgroundColor: Colors.black,
             title: Text(context.t.edit),
             leading: ImmichCloseButton(onPressed: () => Navigator.of(context).maybePop()),
-            actions: [_SaveEditsButton(onSave: _saveEditedImage)],
+            actions: [if (allowTransformEdits) _SaveEditsButton(onSave: _saveEditedImage)],
           ),
           backgroundColor: Colors.black,
           body: SafeArea(
             bottom: false,
             child: Column(
               children: [
-                Expanded(child: _EditorPreview(image: widget.image)),
+                Expanded(
+                  child: allowTransformEdits
+                      ? _EditorPreview(image: widget.image)
+                      : Center(child: InteractiveViewer(child: widget.image)),
+                ),
                 AnimatedSize(
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeInOut,
@@ -141,14 +150,16 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                         topRight: Radius.circular(20),
                       ),
                     ),
-                    child: const Column(
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _TransformControls(),
-                        Padding(
-                          padding: EdgeInsets.only(bottom: 36, left: 24, right: 24),
-                          child: Row(children: [Spacer(), _ResetEditsButton()]),
-                        ),
+                        if (allowTransformEdits) const _TransformControls(),
+                        if (widget.asset case final asset?) _MagicEraserButton(asset: asset),
+                        if (allowTransformEdits)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 36, left: 24, right: 24),
+                            child: Row(children: [Spacer(), _ResetEditsButton()]),
+                          ),
                       ],
                     ),
                   ),
@@ -156,6 +167,33 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MagicEraserButton extends ConsumerWidget {
+  final RemoteAsset asset;
+
+  const _MagicEraserButton({required this.asset});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(magicEraserEnabledProvider(asset.id)).value == true;
+    final applyingEdits = ref.watch(editorStateProvider.select((state) => state.isApplyingEdits));
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Tooltip(
+        message: enabled ? context.t.magic_eraser : context.t.magic_eraser_unavailable,
+        child: OutlinedButton.icon(
+          key: const Key('magic-eraser-editor-action'),
+          icon: const Icon(Icons.auto_fix_high),
+          label: Text(context.t.magic_eraser),
+          onPressed: !enabled || applyingEdits
+              ? null
+              : () =>
+                    Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => MagicEraserPage(asset: asset))),
         ),
       ),
     );

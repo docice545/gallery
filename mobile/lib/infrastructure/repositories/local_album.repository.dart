@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart';
 import 'package:drift/drift.dart';
+import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/local/album.dart';
 import 'package:immich_mobile/data/db/main/table/local/album.drift.dart';
@@ -203,6 +205,21 @@ class LocalAlbumRepository extends DatabaseAccessor<Drift> with $LocalAlbumRepos
     return query.map((row) => row.read(_db.localAlbumAssetEntity.assetId)!).get();
   }
 
+  /// The last verified revisions for device assets whose content is already
+  /// known. Local sync resolves a changed revision before replacing its hash.
+  Future<Map<String, DateTime>> getHashedAssetRevisions(Iterable<String> assetIds) async {
+    final revisions = <String, DateTime>{};
+    for (final chunk in assetIds.toSet().slices(kBatchHashFileLimit)) {
+      final query = _db.localAssetEntity.selectOnly()
+        ..addColumns([_db.localAssetEntity.id, _db.localAssetEntity.updatedAt])
+        ..where(_db.localAssetEntity.id.isIn(chunk) & _db.localAssetEntity.checksum.isNotNull());
+      for (final row in await query.get()) {
+        revisions[row.read(_db.localAssetEntity.id)!] = row.read(_db.localAssetEntity.updatedAt)!;
+      }
+    }
+    return revisions;
+  }
+
   Future<void> processDelta({
     required List<LocalAsset> updates,
     required List<String> deletes,
@@ -335,7 +352,7 @@ class LocalAlbumRepository extends DatabaseAccessor<Drift> with $LocalAlbumRepos
           height: Value(asset.height),
           durationMs: Value(asset.durationMs),
           id: asset.id,
-          checksum: const Value(null),
+          checksum: Value(asset.checksum),
           orientation: Value(asset.orientation),
           isFavorite: Value(asset.isFavorite),
           playbackStyle: Value(asset.playbackStyle),

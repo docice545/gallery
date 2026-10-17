@@ -216,6 +216,7 @@ class ImmichAppBarDialog extends HookConsumerWidget {
 
                 showLicensePage(
                   context: context,
+                  applicationName: context.t.app_name,
                   applicationIcon: const Padding(
                     padding: EdgeInsetsGeometry.symmetric(vertical: 10),
                     child: ImmichLogo(size: 40),

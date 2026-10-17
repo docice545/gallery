@@ -13,6 +13,7 @@ const StackSearchSchema = z
 const StackCreateSchema = z
   .object({
     assetIds: z.array(z.uuidv4()).min(2).describe('Asset IDs (first becomes primary, min 2)'),
+    automatic: z.boolean().optional().describe('Respect persistent user suppression for automated grouping'),
   })
   .meta({ id: 'StackCreateDto' });
 
@@ -35,6 +36,11 @@ export class StackSearchDto extends createZodDto(StackSearchSchema) {}
 export class StackCreateDto extends createZodDto(StackCreateSchema) {}
 export class StackUpdateDto extends createZodDto(StackUpdateSchema) {}
 export class StackResponseDto extends createZodDto(StackResponseSchema) {}
+
+export class StackSuppressionSearchDto extends createZodDto(
+  z.object({ page: z.coerce.number().int().min(1).default(1) }),
+) {}
+export class StackSuppressionResponseDto extends createZodDto(z.object({ assetId: z.uuidv4() })) {}
 
 export const mapStack = (stack: Stack, { auth }: { auth?: AuthDto }) => {
   const primary = stack.assets.filter((asset) => asset.id === stack.primaryAssetId);

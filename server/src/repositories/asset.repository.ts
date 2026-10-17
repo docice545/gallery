@@ -18,7 +18,10 @@ import {
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { isEmpty, isUndefined, omitBy } from 'lodash-es';
 import { InjectKysely } from 'nestjs-kysely';
+import { randomUUID } from 'node:crypto';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
+import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
+import { StorageCore } from 'src/cores/storage.core.js';
 import { type LockableProperty, Stack, lockableProperties } from 'src/database.js';
 import { Chunked, ChunkedArray, DummyValue, GenerateSql } from 'src/decorators.js';
 import {
@@ -29,6 +32,7 @@ import {
   AssetType,
   AssetVisibility,
   CalendarHeatmapType,
+  StorageFolder,
   TimeBucketSize,
 } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
@@ -39,6 +43,18 @@ import { AssetJobStatusTable } from 'src/schema/tables/asset-job-status.table.js
 import { AssetMetadataTable } from 'src/schema/tables/asset-metadata.table.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 import {
+  DeletionError,
+  below,
+  bindQuarantine,
+  collectRootIdentities,
+  deletionCode,
+  refreshStorageRootIdentities,
+  samePhysicalRootIdentity,
+  sameQuarantineIdentity,
+  sameRootIdentity,
+  validQuarantineIdentity,
+} from 'src/utils/authorized-deletion.js';
+import {
   anyUuid,
   asUuid,
   escapeLikePattern,
@@ -48,6 +64,7 @@ import {
   inSharedAlbum,
   isStaleAssetForeignKeyConstraint,
   removeUndefinedKeys,
+  timeBucketDateColumn,
   tokenizeForSearch,
   truncatedDate,
   unnest,
@@ -63,6 +80,7 @@ import {
   withSmartSearch,
   withTags,
 } from 'src/utils/database.js';
+import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
 import { globToPostgresRegex } from 'src/utils/misc.js';
 import {
   type TimelineHiddenScope,
@@ -396,7 +414,25 @@ export function withTimeBucketAssetFilters<O>(
   return (
     qb
       .$if(!!options.forceEmptyResult, (qb) => qb.where(sql<SqlBool>`false`))
-      .$if(!!options.isTrashed, (qb) => qb.where('asset.status', '!=', AssetStatus.Deleted))
+      .$if(!!options.isTrashed, (qb) =>
+        qb.where((eb) =>
+          eb.or([
+            // Active external index tombstones also have deletedAt; they are
+            // not user Trash. A failed authorized deletion remains retryable.
+            eb('asset.status', '=', AssetStatus.Trashed),
+            eb.and([
+              eb('asset.status', '=', AssetStatus.Deleted),
+              eb.exists(
+                eb
+                  .selectFrom('asset_deletion_tombstone')
+                  .select('assetId')
+                  .whereRef('assetId', '=', 'asset.id')
+                  .where('state', '!=', 'complete'),
+              ),
+            ]),
+          ]),
+        ),
+      )
       .where('asset.deletedAt', options.isTrashed ? 'is not' : 'is', null)
       .$if(
         !!options.bbox ||
@@ -926,13 +962,42 @@ export class AssetRepository {
     return this.db.insertInto('asset').values(asset).returningAll().executeTakeFirstOrThrow();
   }
 
+  async hasPermanentDeletions(ownerId: string) {
+    return !!(await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('assetId')
+      .where('ownerId', '=', ownerId)
+      .executeTakeFirst());
+  }
+
   @ChunkedArray({ chunkSize: 4000 })
-  async createAll(assets: Insertable<AssetTable>[]) {
-    if (assets.length === 0) {
-      return [];
-    }
-    const ids = await this.db.insertInto('asset').values(assets).returning('id').execute();
-    return ids.map(({ id }) => id);
+  async createAll(assets: (Insertable<AssetTable> & { deletionChecksum?: Buffer })[]) {
+    if (assets.length === 0) return [];
+    return this.db.transaction().execute(async (tx) => {
+      // Share the deletion-intent lock. A scanner queued before confirmation
+      // cannot insert a renamed byte-identical original after permanent deletion.
+      for (const owner of [...new Set(assets.map((asset) => asset.ownerId))].sort()) {
+        await sql`select pg_advisory_xact_lock(hashtextextended(${owner}, 731))`.execute(tx);
+      }
+      const accepted: Insertable<AssetTable>[] = [];
+      for (const { deletionChecksum, ...asset } of assets) {
+        const suppressed = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('assetId')
+          .where('ownerId', '=', asset.ownerId)
+          .where((eb) =>
+            eb.or([
+              eb('originalPath', '=', asset.originalPath),
+              ...(deletionChecksum ? [eb('contentChecksum', '=', deletionChecksum)] : []),
+            ]),
+          )
+          .executeTakeFirst();
+        if (!suppressed) accepted.push(asset);
+      }
+      if (accepted.length === 0) return [];
+      const ids = await tx.insertInto('asset').values(accepted).returning('id').execute();
+      return ids.map(({ id }) => id);
+    });
   }
 
   // #1041: deliberately NOT subtracted here. Filtering candidates at GENERATION time is sticky —
@@ -1495,8 +1560,1037 @@ export class AssetRepository {
     return this.getById(asset.id, { exifInfo: true, faces: {}, edits: true });
   }
 
+  async markDeletionState(
+    ids: string[],
+    options: { deletedAt: Date; status: AssetStatus.Trashed | AssetStatus.Deleted },
+  ): Promise<string[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .updateTable('asset')
+      .where('id', '=', anyUuid(ids))
+      // Once irreversible deletion is claimed, even another Trash request must
+      // not make the row restorable again between the claim and removal.
+      .where('status', '!=', AssetStatus.Deleted)
+      .set(options)
+      .returning('id')
+      .execute();
+    return rows.map(({ id }) => id);
+  }
+
+  async claimDeletion(id: string, cleanup?: { reason: 'library'; libraryId: string } | { reason: 'motion' }) {
+    let query = this.db.updateTable('asset').where('id', '=', asUuid(id)).set({ status: AssetStatus.Deleted });
+    if (cleanup?.reason === 'library') {
+      query = query
+        .where('libraryId', '=', asUuid(cleanup.libraryId))
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('library')
+              .select('id')
+              .where('id', '=', asUuid(cleanup.libraryId))
+              .where('deletedAt', 'is not', null),
+          ),
+        );
+    } else if (cleanup?.reason === 'motion') {
+      query = query
+        .where('type', '=', AssetType.Video)
+        .where('visibility', '=', AssetVisibility.Hidden)
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb.selectFrom('asset as parent').select('parent.id').where('parent.livePhotoVideoId', '=', asUuid(id)),
+            ),
+          ),
+        );
+    } else {
+      // Old jobs carry neither a cutoff nor reliable source information. Only
+      // an already irreversible row can be removed; Active/Trashed rows wait
+      // for a newly guarded retention/library/motion job instead of guessing.
+      query = query
+        .where('status', '=', AssetStatus.Deleted)
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('library')
+                .select('id')
+                .whereRef('library.id', '=', 'asset.libraryId')
+                .where('deletedAt', 'is not', null),
+            ),
+          ),
+        );
+    }
+    return (await query.returning('id').executeTakeFirst()) !== undefined;
+  }
+
+  async claimExpiredDeletion(id: string, trashedBefore: Date): Promise<boolean> {
+    // Restore clears deletedAt; a subsequent Trash assigns a new timestamp.
+    // The conditional UPDATE serializes against Restore on the same row. Once
+    // claimed, Deleted is no longer restorable through the Trash API.
+    const claimed = await this.db
+      .updateTable('asset')
+      .where('id', '=', asUuid(id))
+      .where('deletedAt', '<=', trashedBefore)
+      .where((eb) =>
+        eb.or([
+          eb('status', 'in', [AssetStatus.Trashed, AssetStatus.Deleted]),
+          // Preserve the existing expired offline-library index cleanup. Its
+          // current isOffline flag also prevents unlinking the original below.
+          eb.and([eb('status', '=', AssetStatus.Active), eb('isOffline', '=', true)]),
+        ]),
+      )
+      // Library removal only deletes Gallery's index/generated files. An old
+      // retention job must not reinterpret that removal as deleting originals.
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('library')
+              .select('id')
+              .whereRef('library.id', '=', 'asset.libraryId')
+              .where('deletedAt', 'is not', null),
+          ),
+        ),
+      )
+      .set({ status: AssetStatus.Deleted })
+      .returning('id')
+      .executeTakeFirst();
+    return claimed !== undefined;
+  }
+
   async remove(asset: { id: string }): Promise<void> {
     await this.db.deleteFrom('asset').where('id', '=', asUuid(asset.id)).execute();
+  }
+
+  async removeForDeletion(asset: { id: string }): Promise<boolean> {
+    return this.db.transaction().execute(async (tx) => {
+      const receipt = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', asset.id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (receipt && receipt.state !== 'files-removed') {
+        return false;
+      }
+      if (receipt?.operationId === asset.id) {
+        const companion = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('assetId')
+          .where('operationId', '=', asset.id)
+          .where('assetId', '!=', asset.id)
+          .where('state', '!=', 'complete')
+          .executeTakeFirst();
+        if (companion) return false;
+      }
+      const removed = await tx
+        .deleteFrom('asset')
+        .where('id', '=', asUuid(asset.id))
+        .where('status', '=', AssetStatus.Deleted)
+        .returning('id')
+        .executeTakeFirst();
+      if (removed && receipt) {
+        await tx
+          .updateTable('asset_deletion_tombstone')
+          .set({ state: 'complete', errorCode: null })
+          .where('assetId', '=', asset.id)
+          .execute();
+      }
+      return removed !== undefined;
+    });
+  }
+
+  async isOriginalReferenced(path: string) {
+    const [asset, file] = await Promise.all([
+      this.db.selectFrom('asset').select('id').where('originalPath', '=', path).executeTakeFirst(),
+      this.db.selectFrom('asset_file').select('assetId').where('path', '=', path).executeTakeFirst(),
+    ]);
+    return !!(asset || file);
+  }
+
+  async getOwnerTrash(ownerId: string) {
+    return this.db
+      .selectFrom('asset')
+      .select(['id', 'libraryId'])
+      .where('ownerId', '=', ownerId)
+      .where('deletedAt', 'is not', null)
+      .where((eb) =>
+        eb.or([
+          eb('status', '=', AssetStatus.Trashed),
+          eb.and([
+            eb('status', '=', AssetStatus.Deleted),
+            eb.exists(
+              eb
+                .selectFrom('asset_deletion_tombstone')
+                .select('assetId')
+                .whereRef('assetId', '=', 'asset.id')
+                .where('state', '!=', 'complete'),
+            ),
+          ]),
+        ]),
+      )
+      .execute();
+  }
+
+  async getDeletionScope(ownerId: string, id: string, allowActive = false): Promise<string | undefined> {
+    const asset = await this.db
+      .selectFrom('asset')
+      .select(['libraryId', 'status', 'deletedAt', 'isOffline'])
+      .where('ownerId', '=', ownerId)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (
+      asset?.status === AssetStatus.Trashed ||
+      (allowActive && asset?.status === AssetStatus.Active && !asset.deletedAt && !asset.isOffline)
+    )
+      return asset!.libraryId ?? 'managed';
+    const receipt = await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('scope')
+      .where('ownerId', '=', ownerId)
+      .where('assetId', '=', id)
+      .executeTakeFirst();
+    return receipt?.scope;
+  }
+
+  async getDeletionPolicy(ownerId: string, scope: string) {
+    return this.db
+      .selectFrom('asset_deletion_policy')
+      .selectAll()
+      .where('ownerId', '=', ownerId)
+      .where('scope', '=', scope)
+      .executeTakeFirst();
+  }
+
+  async setDeletionPolicy(
+    ownerId: string,
+    scope: string,
+    values: {
+      enabled: boolean;
+      roots: string[];
+      recoveryProof: string;
+      authorizedBy: string;
+      rootIdentities?: DeletionRootIdentity[];
+      recoveryExpiresAt?: Date | null;
+      authorizationMode?: 'recovery' | 'storage';
+    },
+  ) {
+    await this.db.transaction().execute(async (tx) => {
+      const previous = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', scope)
+        .forUpdate()
+        .executeTakeFirst();
+      if (previous && !values.enabled && values.authorizationMode === 'storage') {
+        // Owner revocation must remain possible after a library/root changes.
+        // Only disable the existing grant; never replace its trusted coordinates
+        // with caller values or require available storage to withdraw consent.
+        await tx
+          .updateTable('asset_deletion_policy')
+          .set({ enabled: false, updatedAt: new Date() })
+          .where('ownerId', '=', ownerId)
+          .where('scope', '=', scope)
+          .execute();
+        return;
+      }
+      const identities = values.rootIdentities?.map((root) => {
+        const stored = previous?.rootIdentities.find((bound) =>
+          values.authorizationMode === 'storage'
+            ? samePhysicalRootIdentity(root, bound)
+            : sameRootIdentity(root, bound),
+        );
+        const { quarantineIdentity: _untrusted, quarantineDirectory: _untrustedDirectory, ...identity } = root;
+        return stored
+          ? {
+              ...identity,
+              quarantineDirectory: stored.quarantineDirectory,
+              quarantineIdentity: stored.quarantineIdentity,
+            }
+          : identity;
+      });
+      const prepared = {
+        authorizationMode: 'recovery' as const,
+        ...values,
+        ...(identities && { rootIdentities: identities }),
+      };
+      await this.verifyLibraryScope(tx, ownerId, scope, prepared.roots);
+      await tx
+        .insertInto('asset_deletion_policy')
+        .values({ ownerId, scope, ...prepared })
+        .onConflict((oc) => oc.columns(['ownerId', 'scope']).doUpdateSet({ ...prepared, updatedAt: new Date() }))
+        .execute();
+    });
+  }
+
+  async createManagedStorageDeletionPolicy(ownerId: string, roots: string[], rootIdentities: DeletionRootIdentity[]) {
+    // A default managed grant never overwrites an explicit owner revocation.
+    await this.db
+      .insertInto('asset_deletion_policy')
+      .values({
+        ownerId,
+        scope: 'managed',
+        authorizationMode: 'storage',
+        enabled: true,
+        roots,
+        rootIdentities,
+        recoveryProof: '',
+        recoveryExpiresAt: null,
+        authorizedBy: ownerId,
+      })
+      .onConflict((conflict) => conflict.columns(['ownerId', 'scope']).doNothing())
+      .execute();
+    return this.getDeletionPolicy(ownerId, 'managed');
+  }
+
+  streamExpiredTrash(cutoff: Date) {
+    // Offline external index tombstones are never user Trash/retention input.
+    return this.db
+      .selectFrom('asset')
+      .select(['id', 'ownerId', 'libraryId'])
+      .where('status', '=', AssetStatus.Trashed)
+      .where('deletedAt', '<=', cutoff)
+      .stream();
+  }
+
+  streamPendingDeletions() {
+    return this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select(['assetId', 'operationId', 'ownerId', 'scope'])
+      .where('state', '!=', 'complete')
+      .orderBy('assetId')
+      .stream();
+  }
+
+  async updateManagedDeletionConsent(
+    ownerId: string,
+    enabled: boolean,
+    validate: (roots: string[], recoveryProof: string, identities: DeletionRootIdentity[]) => Promise<void>,
+  ): Promise<void> {
+    return this.updateDeletionConsent(ownerId, 'managed', enabled, validate);
+  }
+
+  async updateLibraryDeletionConsent(
+    ownerId: string,
+    scope: string,
+    enabled: boolean,
+    validate: (roots: string[], recoveryProof: string, identities: DeletionRootIdentity[]) => Promise<void>,
+  ): Promise<void> {
+    if (scope === 'managed') throw new DeletionError('UNSUPPORTED_DELETION_SCOPE');
+    return this.updateDeletionConsent(ownerId, scope, enabled, validate);
+  }
+
+  private async updateDeletionConsent(
+    ownerId: string,
+    scope: string,
+    enabled: boolean,
+    validate: (roots: string[], recoveryProof: string, identities: DeletionRootIdentity[]) => Promise<void>,
+  ): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', scope)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        !policy ||
+        (enabled &&
+          (policy.roots.length === 0 ||
+            policy.rootIdentities.length === 0 ||
+            !policy.recoveryExpiresAt ||
+            !/^[a-f0-9]{64}$/.test(policy.recoveryProof)))
+      ) {
+        throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
+      }
+      // Lock the current policy through validation and consent. A concurrent
+      // administrator revocation/preparation cannot be overwritten by a stale read.
+      if (enabled) {
+        await this.verifyLibraryScope(tx, ownerId, scope, policy.roots);
+        await validate(policy.roots, policy.recoveryProof, policy.rootIdentities);
+        await verifyRecoveryEvidence(policy.recoveryProof, ownerId, scope, policy.rootIdentities);
+      }
+      await tx
+        .updateTable('asset_deletion_policy')
+        .set({ enabled, updatedAt: new Date(), ...(scope !== 'managed' && { authorizedBy: ownerId }) })
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', scope)
+        .execute();
+      // Retain the signed preparation and roots. External scope records the
+      // owner's consent actor; administrator preparation alone never grants it.
+    });
+  }
+
+  async getDeletionRootsForOtherOwners(ownerId: string) {
+    const [libraries, users] = await Promise.all([
+      this.db.selectFrom('library').select('importPaths').where('ownerId', '!=', ownerId).execute(),
+      this.db.selectFrom('user').select(['id', 'storageLabel']).where('id', '!=', ownerId).execute(),
+    ]);
+    return { external: libraries.flatMap((library) => library.importPaths), users };
+  }
+
+  async getDeletionReceipt(ownerId: string, id: string) {
+    return this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select(['assetId', 'operationId', 'state', 'errorCode'])
+      .where('ownerId', '=', ownerId)
+      .where('assetId', '=', id)
+      .executeTakeFirst();
+  }
+
+  async preparePermanentDeletion(
+    id: string,
+    ownerId: string,
+    snapshot: (path: string, roots: DeletionRootIdentity[]) => Promise<DeletionFile>,
+    trashedBefore?: Date,
+    allowActive = false,
+  ) {
+    const failPreparation = async (error: unknown): Promise<never> => {
+      // Recovery jobs also start at a companion asset ID. Resolve the logical
+      // operation through its owned receipt instead of assuming id is the JPG.
+      const receipt = await this.db
+        .selectFrom('asset_deletion_tombstone')
+        .select('operationId')
+        .where('assetId', '=', id)
+        .where('ownerId', '=', ownerId)
+        .executeTakeFirst();
+      if (receipt) {
+        await this.db
+          .updateTable('asset_deletion_tombstone')
+          .set({ state: 'failed', errorCode: deletionCode(error) })
+          .where('operationId', '=', receipt.operationId)
+          .where('ownerId', '=', ownerId)
+          .where('state', 'not in', ['complete', 'files-removed'])
+          .execute();
+      }
+      throw new DeletionError(deletionCode(error));
+    };
+    // Commit intent before hashing large video. A timeout/restart can then query the actual server receipt.
+    const preparation = this.db.transaction().execute(async (tx) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
+      const existing = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', id)
+        .executeTakeFirst();
+      if (existing) {
+        if (existing.ownerId !== ownerId) throw new DeletionError('ASSET_NOT_OWNED');
+        if (existing.state !== 'complete') {
+          const policy = await tx
+            .selectFrom('asset_deletion_policy')
+            .selectAll()
+            .where('ownerId', '=', ownerId)
+            .where('scope', '=', existing.scope)
+            .forShare()
+            .executeTakeFirst();
+          await this.verifyBoundPolicy(ownerId, existing.scope, policy, tx);
+        }
+        return;
+      }
+      const asset = await tx
+        .selectFrom('asset')
+        .selectAll()
+        .where('id', '=', id)
+        .where('ownerId', '=', ownerId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        !asset ||
+        (asset.status !== AssetStatus.Trashed &&
+          (!(allowActive && asset.status === AssetStatus.Active) || asset.deletedAt || asset.isOffline)) ||
+        (trashedBefore && (!asset.deletedAt || new Date(asset.deletedAt).getTime() > trashedBefore.getTime()))
+      ) {
+        throw new DeletionError('ASSET_NOT_IN_TRASH');
+      }
+      const scope = asset.libraryId ?? 'managed';
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('scope', '=', scope)
+        .forShare()
+        .executeTakeFirst();
+      if (!policy) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+      await this.verifyBoundPolicy(ownerId, scope, policy, tx);
+      const targets = [asset];
+      if (asset.livePhotoVideoId) {
+        const parents = await tx
+          .selectFrom('asset')
+          .select('id')
+          .where('livePhotoVideoId', '=', asset.livePhotoVideoId)
+          .execute();
+        if (parents.length !== 1) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+        const motion = await tx
+          .selectFrom('asset')
+          .selectAll()
+          .where('id', '=', asset.livePhotoVideoId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
+          throw new DeletionError('MOTION_SCOPE_MISMATCH');
+        }
+        targets.push(motion);
+      }
+      const targetIds = targets.map((target) => target.id);
+      const sidecars = await tx
+        .selectFrom('asset_file')
+        .select('path')
+        .where('assetId', 'in', targetIds)
+        .where('type', '=', AssetFileType.Sidecar)
+        .execute();
+      // A known shared original must remain ordinary, restorable Trash. Keep
+      // the execution-time checks below for references added after this read.
+      await this.assertExclusiveOriginals(tx, targetIds, [
+        ...targets.map((target) => target.originalPath),
+        ...sidecars.map(({ path }) => path),
+      ]);
+      for (const target of targets) {
+        const aliases = await tx
+          .selectFrom('asset_duplicate_checksum')
+          .select('checksum')
+          .where('assetId', '=', target.id)
+          .where('ownerId', '=', ownerId)
+          .execute();
+        await tx
+          .insertInto('asset_deletion_tombstone')
+          .values({
+            assetId: target.id,
+            operationId: id,
+            ownerId,
+            libraryId: target.libraryId,
+            scope,
+            originalPath: target.originalPath,
+            checksum: target.checksum,
+            checksumAlgorithm: target.checksumAlgorithm,
+            contentChecksum: Buffer.alloc(0),
+            aliases: aliases.map(({ checksum }) => checksum.toString('hex')),
+            authorization: {
+              mode: policy.authorizationMode,
+              actor: policy.authorizedBy,
+              recoveryProof: policy.recoveryProof,
+              policyUpdatedAt: new Date(policy.updatedAt).toISOString(),
+            },
+            files: [],
+            state: 'preparing',
+            errorCode: null,
+          })
+          .execute();
+      }
+      await tx
+        .updateTable('asset')
+        .set({ status: AssetStatus.Deleted, deletedAt: asset.deletedAt ?? new Date() })
+        .where(
+          'id',
+          'in',
+          targets.map((target) => target.id),
+        )
+        .execute();
+    });
+    await preparation.catch(failPreparation);
+    try {
+      return await this.db.transaction().execute(async (tx) => {
+        await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
+        const parent = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .selectAll()
+          .where('assetId', '=', id)
+          .where('ownerId', '=', ownerId)
+          .executeTakeFirstOrThrow();
+        const targets = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .selectAll()
+          .where('operationId', '=', parent.operationId)
+          .where('ownerId', '=', ownerId)
+          .orderBy('assetId')
+          .forUpdate()
+          .execute();
+        const ids = targets.map((target) => target.assetId);
+        for (const target of targets) {
+          if (target.files.length > 0) {
+            if (target.files.some((file) => !file.rootIdentity || !file.quarantineName))
+              throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+            continue;
+          }
+          const policy = await tx
+            .selectFrom('asset_deletion_policy')
+            .selectAll()
+            .where('ownerId', '=', ownerId)
+            .where('scope', '=', target.scope)
+            .forShare()
+            .executeTakeFirst();
+          await this.verifyBoundPolicy(ownerId, target.scope, policy, tx);
+          const current = await tx
+            .selectFrom('asset')
+            .selectAll()
+            .where('id', '=', target.assetId)
+            .forUpdate()
+            .executeTakeFirst();
+          if (
+            !current ||
+            current.status !== AssetStatus.Deleted ||
+            current.originalPath !== target.originalPath ||
+            current.ownerId !== ownerId
+          ) {
+            throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+          }
+          const sidecars = await tx
+            .selectFrom('asset_file')
+            .select('path')
+            .where('assetId', '=', target.assetId)
+            .where('type', '=', AssetFileType.Sidecar)
+            .execute();
+          const paths = [target.originalPath, ...sidecars.map(({ path }) => path)];
+          await this.assertExclusiveOriginals(tx, ids, paths);
+          const roots = await this.deletionRootsForTarget(tx, current, policy!.rootIdentities, ids);
+          const files = [];
+          for (const path of paths) {
+            files.push(await snapshot(path, roots));
+          }
+          await tx
+            .updateTable('asset_deletion_tombstone')
+            .set({ files, contentChecksum: Buffer.from(files[0].sha1, 'hex'), state: 'pending', errorCode: null })
+            .where('assetId', '=', target.assetId)
+            .execute();
+        }
+        return tx
+          .selectFrom('asset_deletion_tombstone')
+          .selectAll()
+          .where('assetId', '=', id)
+          .executeTakeFirstOrThrow();
+      });
+    } catch (error) {
+      return failPreparation(error);
+    }
+  }
+
+  async removeAuthorizedOriginals(
+    id: string,
+    unlink: (file: DeletionFile, recheck: () => Promise<void>) => Promise<void>,
+  ): Promise<boolean> {
+    try {
+      // Separate committed phase: a crash during unlink must not roll back the
+      // trusted directory identity while leaving a captured original on disk.
+      await this.prepareQuarantineDirectoryIntents(id);
+      await this.bindOriginalQuarantines(id);
+      return await this.db.transaction().execute(async (tx) => {
+        const intent = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('ownerId')
+          .where('assetId', '=', id)
+          .executeTakeFirst();
+        if (!intent) return false;
+        await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
+        const receipt = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .selectAll()
+          .where('assetId', '=', id)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!receipt) {
+          return false;
+        }
+        if (receipt.state === 'complete' || receipt.state === 'files-removed') {
+          return true;
+        }
+        if (receipt.files.length === 0) {
+          throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+        }
+        const current = await tx.selectFrom('asset').selectAll().where('id', '=', id).forUpdate().executeTakeFirst();
+        if (
+          !current ||
+          current.status !== AssetStatus.Deleted ||
+          current.ownerId !== receipt.ownerId ||
+          current.originalPath !== receipt.originalPath ||
+          current.libraryId !== receipt.libraryId
+        ) {
+          throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+        }
+        const policy = await tx
+          .selectFrom('asset_deletion_policy')
+          .selectAll()
+          .where('ownerId', '=', receipt.ownerId)
+          .where('scope', '=', receipt.scope)
+          .forShare()
+          .executeTakeFirst();
+        await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+        const operationTargets = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('assetId')
+          .where('operationId', '=', receipt.operationId)
+          .execute();
+        const allowedRoots = await this.deletionRootsForTarget(
+          tx,
+          current,
+          policy!.rootIdentities,
+          operationTargets.map(({ assetId }) => assetId),
+        );
+        if (
+          receipt.files.some(
+            (file) =>
+              !file.rootIdentity ||
+              allowedRoots.every((root) => {
+                const physical =
+                  policy!.authorizationMode === 'storage'
+                    ? samePhysicalRootIdentity(file.rootIdentity, root)
+                    : sameRootIdentity(file.rootIdentity, root);
+                if (!physical) return true;
+                const persisted = policy!.rootIdentities.some((bound) => bound.path === root.path);
+                return persisted
+                  ? !sameQuarantineIdentity(file.rootIdentity.quarantineIdentity, root.quarantineIdentity) ||
+                      file.rootIdentity.quarantineDirectory !== root.quarantineDirectory
+                  : !validQuarantineIdentity(file.rootIdentity.quarantineIdentity);
+              }),
+          )
+        ) {
+          throw new DeletionError('DELETION_ROOT_CHANGED');
+        }
+        // Recheck references at execution; even an old queued job cannot delete a newly shared original.
+        const operationIds = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('assetId')
+          .where('operationId', '=', receipt.operationId)
+          .execute();
+        const ids = operationIds.map(({ assetId }) => assetId);
+        const paths = receipt.files.map(({ path }) => path);
+        for (const path of [...paths].sort()) {
+          await sql`select pg_advisory_xact_lock(hashtextextended(${path}, 732))`.execute(tx);
+        }
+        await this.assertExclusiveOriginals(tx, ids, paths);
+        for (const file of receipt.files) {
+          await unlink(file, () => this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx));
+        }
+        await tx
+          .updateTable('asset_deletion_tombstone')
+          .set({ state: 'files-removed', errorCode: null })
+          .where('assetId', '=', id)
+          .execute();
+        return true;
+      });
+    } catch (error) {
+      await this.db
+        .updateTable('asset_deletion_tombstone')
+        .set({ state: 'failed', errorCode: deletionCode(error) })
+        .where('assetId', '=', id)
+        .where('state', 'not in', ['complete', 'files-removed'])
+        .execute();
+      throw new DeletionError(deletionCode(error));
+    }
+  }
+
+  /** Commit a fresh directory name before any filesystem mkdir so a retry cannot adopt a different path. */
+  private async prepareQuarantineDirectoryIntents(id: string): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const intent = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('ownerId')
+        .where('assetId', '=', id)
+        .executeTakeFirst();
+      if (!intent) return;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
+      const receipt = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (receipt.state === 'complete' || receipt.state === 'files-removed') return;
+      if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
+        throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .forUpdate()
+        .executeTakeFirst();
+      await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+      const policyRoots = [...policy!.rootIdentities];
+      const operationTargets = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('assetId')
+        .where('operationId', '=', receipt.operationId)
+        .execute();
+      const target = await tx.selectFrom('asset').selectAll().where('id', '=', id).executeTakeFirst();
+      if (!target) throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+      const roots = await this.deletionRootsForTarget(
+        tx,
+        target,
+        policyRoots,
+        operationTargets.map(({ assetId }) => assetId),
+      );
+      const configuredRoots = roots.filter((root) => policyRoots.some((configured) => configured.path === root.path));
+      const motionRoot = roots.find((root) => configuredRoots.every((configured) => configured.path !== root.path));
+      const boundPolicyRoots = policyRoots.map((root) =>
+        root.quarantineIdentity || root.quarantineDirectory
+          ? root
+          : { ...root, quarantineDirectory: `.gallery-deletion-quarantine-${randomUUID()}` },
+      );
+      const files: DeletionFile[] = receipt.files.map((file) => {
+        const index = boundPolicyRoots.findIndex((root) =>
+          policy!.authorizationMode === 'storage'
+            ? samePhysicalRootIdentity(file.rootIdentity, root)
+            : sameRootIdentity(file.rootIdentity, root),
+        );
+        if (index !== -1) {
+          const directory = boundPolicyRoots[index].quarantineDirectory;
+          if (file.rootIdentity.quarantineDirectory && file.rootIdentity.quarantineDirectory !== directory)
+            throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+          return { ...file, rootIdentity: { ...file.rootIdentity, quarantineDirectory: directory } };
+        }
+        if (
+          !motionRoot ||
+          file.path !== receipt.originalPath ||
+          !samePhysicalRootIdentity(file.rootIdentity, motionRoot)
+        )
+          throw new DeletionError('DELETION_ROOT_CHANGED');
+        return {
+          ...file,
+          rootIdentity: {
+            ...file.rootIdentity,
+            quarantineDirectory:
+              file.rootIdentity.quarantineDirectory ??
+              (file.rootIdentity.quarantineIdentity ? undefined : `.gallery-deletion-quarantine-${randomUUID()}`),
+          },
+        };
+      });
+      await tx
+        .updateTable('asset_deletion_policy')
+        .set({ rootIdentities: boundPolicyRoots })
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .execute();
+      await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
+    });
+  }
+
+  private async bindOriginalQuarantines(id: string): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const intent = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('ownerId')
+        .where('assetId', '=', id)
+        .executeTakeFirst();
+      if (!intent) return;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${intent.ownerId}, 731))`.execute(tx);
+      const receipt = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .selectAll()
+        .where('assetId', '=', id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (receipt.state === 'complete' || receipt.state === 'files-removed') return;
+      if (receipt.files.length === 0 || receipt.files.some((file) => !file.rootIdentity || !file.quarantineName))
+        throw new DeletionError('NO_ORIGINAL_IDENTITY_PROOF');
+      const policy = await tx
+        .selectFrom('asset_deletion_policy')
+        .selectAll()
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .forUpdate()
+        .executeTakeFirst();
+      await this.verifyBoundPolicy(receipt.ownerId, receipt.scope, policy, tx);
+      const operationTargets = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('assetId')
+        .where('operationId', '=', receipt.operationId)
+        .execute();
+      const target = await tx.selectFrom('asset').selectAll().where('id', '=', id).executeTakeFirst();
+      if (!target) throw new DeletionError('DELETION_ASSET_SNAPSHOT_CHANGED');
+      const policyRoots = [...policy!.rootIdentities];
+      const roots = await this.deletionRootsForTarget(
+        tx,
+        target,
+        policyRoots,
+        operationTargets.map(({ assetId }) => assetId),
+      );
+      const boundPolicyRoots = [...policyRoots];
+      const files: DeletionFile[] = [];
+      for (const file of receipt.files) {
+        const index = roots.findIndex((root) =>
+          policy!.authorizationMode === 'storage'
+            ? samePhysicalRootIdentity(file.rootIdentity, root)
+            : sameRootIdentity(file.rootIdentity, root),
+        );
+        if (index === -1) throw new DeletionError('DELETION_ROOT_CHANGED');
+        const recorded = file.rootIdentity.quarantineIdentity;
+        const current = roots[index];
+        // A process restart can allocate a new mount namespace/id while the
+        // encoded-video SSD is still the same physical root. Rebind only the
+        // ephemeral mount coordinates; bindQuarantine still verifies the
+        // actual quarantine dev/inode/owner before accepting the receipt.
+        const candidate =
+          recorded &&
+          policy!.authorizationMode === 'storage' &&
+          !sameRootIdentity(file.rootIdentity, current) &&
+          samePhysicalRootIdentity(file.rootIdentity, current)
+            ? {
+                ...current,
+                quarantineDirectory: file.rootIdentity.quarantineDirectory ?? current.quarantineDirectory,
+                quarantineIdentity: {
+                  ...recorded,
+                  mountId: current.mountId,
+                  mountNamespace: current.mountNamespace,
+                },
+              }
+            : recorded && !current.quarantineIdentity
+              ? {
+                  ...current,
+                  quarantineDirectory: file.rootIdentity.quarantineDirectory ?? current.quarantineDirectory,
+                  quarantineIdentity: recorded,
+                }
+              : current;
+        if (
+          recorded &&
+          (recorded.mountId !== file.rootIdentity.mountId ||
+            recorded.mountNamespace !== file.rootIdentity.mountNamespace ||
+            (policy!.authorizationMode === 'storage'
+              ? !candidate.quarantineIdentity ||
+                (['device', 'inode', 'uid', 'gid'] as const).some(
+                  (key) => recorded[key] !== candidate.quarantineIdentity![key],
+                )
+              : !sameQuarantineIdentity(recorded, candidate.quarantineIdentity)))
+        )
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        const policyIndex = policyRoots.findIndex((root) => root.path === roots[index].path);
+        if (policyIndex !== -1 && file.rootIdentity.quarantineDirectory !== roots[index].quarantineDirectory)
+          throw new DeletionError('DELETION_QUARANTINE_CONFLICT');
+        if (policyIndex === -1 && file.rootIdentity.quarantineDirectory)
+          candidate.quarantineDirectory = file.rootIdentity.quarantineDirectory;
+        roots[index] = await bindQuarantine(candidate);
+        if (policyIndex !== -1) boundPolicyRoots[policyIndex] = roots[index];
+        files.push({ ...file, rootIdentity: roots[index] });
+      }
+      await tx
+        .updateTable('asset_deletion_policy')
+        .set({ rootIdentities: boundPolicyRoots })
+        .where('ownerId', '=', receipt.ownerId)
+        .where('scope', '=', receipt.scope)
+        .execute();
+      await tx.updateTable('asset_deletion_tombstone').set({ files }).where('assetId', '=', id).execute();
+    });
+  }
+
+  private async verifyBoundPolicy(
+    ownerId: string,
+    scope: string,
+    policy: Awaited<ReturnType<AssetRepository['getDeletionPolicy']>>,
+    tx: Transaction<DB>,
+  ): Promise<void> {
+    if (!policy?.enabled || (scope !== 'managed' && policy.authorizedBy !== ownerId))
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (policy.authorizationMode === 'storage') {
+      if (policy.authorizedBy !== ownerId || policy.rootIdentities.length === 0)
+        throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+      await this.verifyLibraryScope(tx, ownerId, scope, policy.roots);
+      policy.rootIdentities = await refreshStorageRootIdentities(policy.rootIdentities);
+      return;
+    }
+    if (policy.rootIdentities.length === 0 || !policy.recoveryExpiresAt)
+      throw new DeletionError('MANAGED_DELETION_PREPARATION_REQUIRED');
+    if (new Date(policy.recoveryExpiresAt).getTime() <= Date.now())
+      throw new DeletionError('DELETION_RECOVERY_EXPIRED');
+    await this.verifyLibraryScope(tx, ownerId, scope, policy.roots);
+    const current = await collectRootIdentities(policy.roots);
+    if (
+      current.length !== policy.rootIdentities.length ||
+      current.some((root) => policy.rootIdentities.every((bound) => !sameRootIdentity(root, bound)))
+    ) {
+      throw new DeletionError('DELETION_ROOT_CHANGED');
+    }
+    await verifyRecoveryEvidence(policy.recoveryProof, ownerId, scope, current);
+  }
+
+  private async verifyLibraryScope(tx: Transaction<DB>, ownerId: string, scope: string, roots: string[]) {
+    if (scope === 'managed') {
+      const user = await tx
+        .selectFrom('user')
+        .select(['id', 'storageLabel'])
+        .where('id', '=', ownerId)
+        .forShare()
+        .executeTakeFirst();
+      if (!user) throw new DeletionError('ASSET_NOT_OWNED');
+      const allowed = new Set([
+        StorageCore.getFolderLocation(StorageFolder.Upload, ownerId),
+        StorageCore.getLibraryFolder(user),
+      ]);
+      if (roots.some((root) => !allowed.has(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+      return;
+    }
+    // Hold the library identity/configuration through consent, intent and unlink.
+    // A concurrent import-path edit or library removal must serialize with the
+    // destructive transaction rather than invalidate an already checked scope.
+    const library = await tx.selectFrom('library').selectAll().where('id', '=', scope).forShare().executeTakeFirst();
+    if (!library || library.ownerId !== ownerId || library.deletedAt)
+      throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    if (roots.some((root) => !library.importPaths.includes(root))) throw new DeletionError('DELETION_ROOT_CHANGED');
+  }
+
+  private async assertExclusiveOriginals(tx: Transaction<DB>, ids: string[], paths: string[]) {
+    const reference = await tx
+      .selectFrom('asset')
+      .select('id')
+      .where('id', 'not in', ids)
+      .where('originalPath', 'in', paths)
+      .executeTakeFirst();
+    const fileReference = await tx
+      .selectFrom('asset_file')
+      .select('assetId')
+      .where('assetId', 'not in', ids)
+      .where('path', 'in', paths)
+      .executeTakeFirst();
+    if (reference || fileReference) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+  }
+
+  /**
+   * A Live Photo motion original is generated below the owner's encoded-video
+   * directory. That directory is a separate managed root from the upload/NFS
+   * root and is admitted only when the database proves the exact companion
+   * relationship. It is never added to the owner's configured deletion roots.
+   */
+  private async deletionRootsForTarget(
+    tx: Transaction<DB>,
+    target: Selectable<AssetTable>,
+    policyRoots: DeletionRootIdentity[],
+    operationIds: string[],
+  ): Promise<DeletionRootIdentity[]> {
+    const roots = [...policyRoots];
+    if (target.type !== AssetType.Video) return roots;
+
+    const parents = await tx
+      .selectFrom('asset')
+      .select(['id', 'ownerId', 'libraryId'])
+      .where('livePhotoVideoId', '=', target.id)
+      .execute();
+    if (parents.length === 0) return roots;
+    if (parents.length !== 1 || !operationIds.includes(parents[0].id)) {
+      throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+    }
+    if (parents[0].ownerId !== target.ownerId || parents[0].libraryId !== target.libraryId) {
+      throw new DeletionError('MOTION_SCOPE_MISMATCH');
+    }
+
+    const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, target.ownerId);
+    if (!below(encodedRoot, target.originalPath)) {
+      throw new DeletionError('MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT');
+    }
+    if (roots.some((root) => root.path === encodedRoot)) return roots;
+    const identity = await collectRootIdentities([encodedRoot]);
+    return [...roots, identity[0]];
+  }
+
+  async getPermanentDeletionTargets(id: string) {
+    // Preserve the visible still row for retry if its exclusive motion resource
+    // fails. The logical parent is removed only after its companions complete.
+    return this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('assetId')
+      .where('operationId', '=', id)
+      .orderBy(sql<boolean>`"assetId" = ${id}::uuid`)
+      .execute();
   }
 
   @GenerateSql({ params: [{ ownerId: DummyValue.UUID, libraryId: DummyValue.UUID, checksum: DummyValue.BUFFER }] })
@@ -1521,7 +2615,7 @@ export class AssetRepository {
   }
 
   private async _getByChecksumsWithTombstones(userId: string, checksums: Buffer[]) {
-    const [assetResults, tombstoneResults] = await Promise.all([
+    const [assetResults, tombstoneResults, deletionResults] = await Promise.all([
       this.db
         .selectFrom('asset')
         .select(['id', 'checksum', 'deletedAt'])
@@ -1534,12 +2628,33 @@ export class AssetRepository {
         .where('ownerId', '=', asUuid(userId))
         .where('checksum', 'in', checksums)
         .execute(),
+      this.db
+        .selectFrom('asset_deletion_tombstone')
+        .select(['assetId as id', 'checksum', 'contentChecksum', 'aliases', 'createdAt as deletedAt'])
+        .where('ownerId', '=', userId)
+        .where((eb) =>
+          eb.or([
+            eb('checksum', 'in', checksums),
+            eb('contentChecksum', 'in', checksums),
+            sql<boolean>`aliases ?| ${checksums.map((checksum) => checksum.toString('hex'))}::text[]`,
+          ]),
+        )
+        .execute(),
     ]);
 
     // Asset-table results take priority over tombstone results
     const seen = new Set(assetResults.map((r) => r.checksum.toString('hex')));
     return [
       ...assetResults,
+      ...deletionResults.flatMap((row) => [
+        { id: row.id, checksum: row.checksum, deletedAt: new Date(row.deletedAt) },
+        { id: row.id, checksum: row.contentChecksum, deletedAt: new Date(row.deletedAt) },
+        ...row.aliases.map((checksum) => ({
+          id: row.id,
+          checksum: Buffer.from(checksum, 'hex'),
+          deletedAt: new Date(row.deletedAt),
+        })),
+      ]),
       ...tombstoneResults.filter((r) => !seen.has(r.checksum.toString('hex'))).map((r) => ({ ...r, deletedAt: null })),
     ];
   }
@@ -1568,7 +2683,22 @@ export class AssetRepository {
       .limit(1)
       .executeTakeFirst();
 
-    return tombstone?.assetId;
+    if (tombstone) {
+      return tombstone.assetId;
+    }
+    const permanent = await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('assetId')
+      .where('ownerId', '=', ownerId)
+      .where((eb) =>
+        eb.or([
+          eb('checksum', '=', checksum),
+          eb('contentChecksum', '=', checksum),
+          sql<boolean>`aliases ? ${checksum.toString('hex')}`,
+        ]),
+      )
+      .executeTakeFirst();
+    return permanent?.assetId;
   }
 
   @GenerateSql({ params: [[DummyValue.UUID]] })
@@ -1613,7 +2743,20 @@ export class AssetRepository {
       .$if(visibility === undefined, withDefaultVisibility)
       .$if(!!visibility, (qb) => qb.where('asset.visibility', '=', visibility!))
       .$if(isFavorite !== undefined, (qb) => qb.where('isFavorite', '=', isFavorite!))
-      .$if(!!isTrashed, (qb) => qb.where('asset.status', '!=', AssetStatus.Deleted))
+      .$if(!!isTrashed, (qb) =>
+        qb.where((eb) =>
+          eb.or([
+            eb('asset.status', '!=', AssetStatus.Deleted),
+            eb.exists(
+              eb
+                .selectFrom('asset_deletion_tombstone')
+                .select('assetId')
+                .whereRef('assetId', '=', 'asset.id')
+                .where('state', '!=', 'complete'),
+            ),
+          ]),
+        ),
+      )
       .where('deletedAt', isTrashed ? 'is not' : 'is', null)
       .executeTakeFirstOrThrow();
   }
@@ -1718,11 +2861,8 @@ export class AssetRepository {
     // round-trip is lossy in both directions. The explicit `Z` keeps the comparison pinned to UTC.
     const requestedBucketStarts = requestedBuckets.map((tb) => sql<Date>`${`${tb}T00:00:00Z`}::timestamptz`);
 
-    // Narrow on the same column the buckets are derived from (createdAt for the
-    // "date added" timeline, localDateTime otherwise) so createdAt-grouped covers
-    // are not dropped by a localDateTime range filter.
-    const bucketDateColumn =
-      options.orderBy === AssetOrderBy.CreatedAt ? sql.ref('asset.createdAt') : sql.ref('localDateTime');
+    // Covers must narrow on the same date column as counts and full buckets.
+    const bucketDateColumn = sql.ref(timeBucketDateColumn(options.orderBy));
 
     return this.db
       .with('asset', (qb) =>
@@ -1734,6 +2874,7 @@ export class AssetRepository {
               'asset.id',
               'asset.localDateTime', // projected for ORDER BY only
               'asset.fileCreatedAt', // projected for ORDER BY only
+              'asset.deletedAt', // projected for trash cover ORDER BY only
               sql<string | null>`encode("thumbhash", 'base64')`.as('representativeThumbhash'),
               eb.fn
                 .coalesce(
@@ -1764,7 +2905,13 @@ export class AssetRepository {
         'ratio as representativeRatio',
       ])
       .orderBy('timeBucket', order)
-      .orderBy(sql`("localDateTime" AT TIME ZONE 'UTC')::date`, order)
+      .orderBy(
+        options.orderBy === AssetOrderBy.DeletedAt
+          ? sql.ref('deletedAt')
+          : sql`("localDateTime" AT TIME ZONE 'UTC')::date`,
+        order,
+      )
+      .$if(options.orderBy === AssetOrderBy.DeletedAt, (qb) => qb.orderBy('id', order))
       .orderBy('fileCreatedAt', order)
       .execute() as any as Promise<TimeBucketCoverItem[]>;
   }
@@ -1805,6 +2952,7 @@ export class AssetRepository {
             sql`asset."isFavorite" and asset."ownerId" = ${auth.user.id}`.as('isFavorite'),
             sql`asset.type = 'IMAGE'`.as('isImage'),
             sql`asset."deletedAt" is not null`.as('isTrashed'),
+            'asset.deletedAt',
             'asset.livePhotoVideoId',
             sql`extract(epoch from (asset."localDateTime" AT TIME ZONE 'UTC' - asset."fileCreatedAt" at time zone 'UTC'))::real / 3600`.as(
               'localOffsetHours',
@@ -1852,9 +3000,12 @@ export class AssetRepository {
           .orderBy(
             options.orderBy === AssetOrderBy.CreatedAt
               ? sql`"createdAt"`
-              : sql`(asset."localDateTime" AT TIME ZONE 'UTC')::date`,
+              : options.orderBy === AssetOrderBy.DeletedAt
+                ? sql.ref('asset.deletedAt')
+                : sql`(asset."localDateTime" AT TIME ZONE 'UTC')::date`,
             order,
           )
+          .$if(options.orderBy === AssetOrderBy.DeletedAt, (qb) => qb.orderBy('asset.id', order))
           .orderBy('asset.fileCreatedAt', order)
           .orderBy('asset.originalFileName', order),
       )
@@ -1869,6 +3020,7 @@ export class AssetRepository {
             eb.fn.coalesce(eb.fn('array_agg', ['isImage']), sql.lit('{}')).as('isImage'),
             // TODO: isTrashed is redundant as it will always be all true or false depending on the options
             eb.fn.coalesce(eb.fn('array_agg', ['isTrashed']), sql.lit('{}')).as('isTrashed'),
+            eb.fn.coalesce(eb.fn('array_agg', ['deletedAt']), sql.lit('{}')).as('deletedAt'),
             eb.fn.coalesce(eb.fn('array_agg', ['livePhotoVideoId']), sql.lit('{}')).as('livePhotoVideoId'),
             eb.fn.coalesce(eb.fn('array_agg', ['fileCreatedAt']), sql.lit('{}')).as('fileCreatedAt'),
             eb.fn.coalesce(eb.fn('array_agg', ['localOffsetHours']), sql.lit('{}')).as('localOffsetHours'),
@@ -2087,6 +3239,12 @@ export class AssetRepository {
 
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.STRING]] })
   async filterNewExternalAssetPaths(libraryId: string, paths: string[]): Promise<string[]> {
+    paths = paths.filter((path) =>
+      path
+        .split('/')
+        .every((part) => part !== '.gallery-deletion-quarantine' && !part.startsWith('.gallery-deletion-quarantine-')),
+    );
+    if (paths.length === 0) return [];
     const result = await this.db
       .selectFrom(unnest(paths).as('path'))
       .select('path')
@@ -2104,7 +3262,14 @@ export class AssetRepository {
       )
       .execute();
 
-    return result.map((row) => row.path as string);
+    const suppressed = await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select('originalPath')
+      .where('libraryId', '=', libraryId)
+      .where('originalPath', 'in', paths)
+      .execute();
+    const blocked = new Set(suppressed.map(({ originalPath }) => originalPath));
+    return result.map((row) => row.path as string).filter((path) => !blocked.has(path));
   }
 
   async getLibraryAssetCount(libraryId: string): Promise<number> {

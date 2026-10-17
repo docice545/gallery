@@ -45,6 +45,39 @@ const userId = '00000000-0000-0000-0000-000000000000';
 describe(MemoryRepository.name, () => {
   const sut = new MemoryRepository(offlineKysely());
 
+  describe('owner-only integration snapshots', () => {
+    it('reads full membership without display, candidate, date or sharing filters', async () => {
+      const { sut, last } = recordingRepository();
+      const after = '11111111-1111-4111-8111-111111111111';
+      await sut.getLifecycle(userId, { after, size: 2 });
+      expect(last().sql).toContain('from "memory_asset"');
+      expect(last().sql).toContain('"ownerId" = $1');
+      expect(last().sql).toContain('"id" > $2');
+      expect(last().sql).toContain('order by "id" asc limit $3');
+      expect(last().parameters).toEqual([userId, after, 3]);
+      expect(last().sql).not.toContain('join');
+      expect(last().sql).not.toContain('"visibility"');
+      expect(last().sql).not.toContain('"deletedAt" is null');
+      expect(last().sql).not.toContain('"showAt" <=');
+      expect(last().sql).not.toContain('memory_candidate');
+      expect(last().sql).not.toContain('partner');
+      expect(last().sql).not.toContain('shared_space');
+    });
+
+    it('reads only owned dismissed history without requiring a surviving memory', async () => {
+      const { sut, last } = recordingRepository();
+      const after = '11111111-1111-4111-8111-111111111111';
+      await sut.getRejections(userId, { after, size: 2 });
+      expect(last().sql).toContain('from "memory_candidate"');
+      expect(last().sql).toContain('"ownerId" = $1 and "state" = $2 and "id" > $3');
+      expect(last().sql).toContain('order by "id" asc limit $4');
+      expect(last().parameters).toEqual([userId, 'dismissed', after, 3]);
+      expect(last().sql).not.toContain('join');
+      expect(last().sql).not.toContain('createdAt');
+      expect(last().sql).not.toContain('remindAt');
+    });
+  });
+
   describe('accessibleSearchBuilder', () => {
     it('album arm requires showInTimeline on memory projection surfaces', () => {
       const sut = new MemoryRepository(offlineKysely());
@@ -63,9 +96,10 @@ describe(MemoryRepository.name, () => {
       try {
         const query = sut.searchBuilder('00000000-0000-0000-0000-000000000000', {}).selectAll('memory').compile();
 
-        expect(query.sql).toContain('("showAt" is null or "showAt" <= $1)');
+        expect(query.sql).toContain('("showAt" is null or "showAt" <= $2)');
         expect(query.sql).not.toContain('"hideAt"');
         expect(query.parameters).toEqual([
+          'saved',
           new Date('2026-04-30T12:00:00.000Z'),
           '00000000-0000-0000-0000-000000000000',
         ]);
@@ -80,9 +114,10 @@ describe(MemoryRepository.name, () => {
         .selectAll('memory')
         .compile();
 
-      expect(query.sql).toContain('("showAt" is null or "showAt" <= $1)');
-      expect(query.sql).toContain('("hideAt" is null or "hideAt" >= $2)');
+      expect(query.sql).toContain('("showAt" is null or "showAt" <= $2)');
+      expect(query.sql).toContain('("hideAt" is null or "hideAt" >= $3)');
       expect(query.parameters).toEqual([
+        'saved',
         new Date('2026-04-30T12:00:00.000Z'),
         new Date('2026-04-30T12:00:00.000Z'),
         '00000000-0000-0000-0000-000000000000',
@@ -93,6 +128,27 @@ describe(MemoryRepository.name, () => {
   // `searchAccessible`, not by upstream's `search`, so upstream's contract has to be asserted
   // against the fork's copy or it silently drifts.
   describe('searchAccessible', () => {
+    it.each([{}, { for: new Date('2026-10-05T12:00:00.000Z') }, { isSaved: true }])(
+      'excludes soft-hidden memories from every ordinary list scope %j',
+      async (scope) => {
+        const { sut, last } = recordingRepository();
+        await sut.searchAccessible(userId, scope);
+        expect(last().sql).toContain('"deletedAt" is null');
+        expect(last().sql).toContain('not exists (select "id" from "memory_candidate"');
+      },
+    );
+
+    it('excludes hidden memories from the ordinary count', async () => {
+      const { sut, last } = recordingRepository();
+      await expect(sut.statisticsAccessible(userId, {})).rejects.toThrow();
+      expect(last().sql).toContain('"deletedAt" is null');
+    });
+
+    it('keeps a hidden memory out of a by-id lookup', async () => {
+      const { sut, last } = recordingRepository();
+      await sut.get('11111111-1111-4111-8111-111111111111');
+      expect(last().sql).toContain('"deletedAt" is null');
+    });
     it('leaves showAt scoping to the caller, so the index can show upcoming memories', async () => {
       // Upstream's index sends `isUpcoming: undefined` for "show upcoming" and `false` for
       // "hide upcoming". #486's implicit guard would filter the upcoming ones back out of the

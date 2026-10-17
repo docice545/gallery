@@ -349,7 +349,7 @@ describe(AssetMediaService.name, () => {
       expect(mocks.asset.remove).not.toHaveBeenCalled();
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: [file.originalPath, undefined] },
+        data: { temporaryOwnerId: authStub.admin.user.id, files: [file.originalPath, undefined] },
       });
       expect(mocks.event.emit).not.toHaveBeenCalled();
       expect(mocks.user.updateUsage).not.toHaveBeenCalledWith(authStub.user1.user.id, file.size);
@@ -405,7 +405,7 @@ describe(AssetMediaService.name, () => {
       expect(mocks.asset.remove).toHaveBeenCalledWith({ id: assetEntity.id });
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: [file.originalPath, undefined] },
+        data: { temporaryOwnerId: authStub.user1.user.id, files: [file.originalPath, undefined] },
       });
       expect(mocks.user.updateUsage).not.toHaveBeenCalled();
     });
@@ -470,7 +470,7 @@ describe(AssetMediaService.name, () => {
       expect(mocks.asset.remove).toHaveBeenCalledWith({ id: assetEntity.id });
       expect(mocks.job.queue).not.toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: [file.originalPath, undefined] },
+        data: { temporaryOwnerId: authStub.user1.user.id, files: [file.originalPath, undefined] },
       });
       expect(mocks.user.updateUsage).not.toHaveBeenCalled();
     });
@@ -507,7 +507,7 @@ describe(AssetMediaService.name, () => {
       expect(mocks.asset.remove).toHaveBeenCalledWith({ id: assetEntity.id });
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: [file.originalPath, sidecarFile.originalPath] },
+        data: { temporaryOwnerId: authStub.user1.user.id, files: [file.originalPath, sidecarFile.originalPath] },
       });
       expect(mocks.user.updateUsage).not.toHaveBeenCalled();
     });
@@ -693,7 +693,7 @@ describe(AssetMediaService.name, () => {
 
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: ['fake_path/asset_1.jpeg', undefined] },
+        data: { temporaryOwnerId: authStub.user1.user.id, files: ['fake_path/asset_1.jpeg', undefined] },
       });
       expect(mocks.user.updateUsage).not.toHaveBeenCalled();
     });
@@ -718,7 +718,7 @@ describe(AssetMediaService.name, () => {
 
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: ['fake_path/asset_1.jpeg', undefined] },
+        data: { temporaryOwnerId: authStub.user1.user.id, files: ['fake_path/asset_1.jpeg', undefined] },
       });
       expect(mocks.user.updateUsage).not.toHaveBeenCalled();
     });
@@ -1453,7 +1453,10 @@ describe(AssetMediaService.name, () => {
 
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: [expect.stringContaining('/data/upload/user-id/ra/nd/random-uuid.jpg')] },
+        data: {
+          temporaryOwnerId: authStub.user1.user.id,
+          files: [expect.stringContaining('/data/upload/user-id/ra/nd/random-uuid.jpg')],
+        },
       });
     });
   });
@@ -1586,7 +1589,7 @@ describe(AssetMediaService.name, () => {
 
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.FileDelete,
-        data: { files: ['fake_path/asset_1.jpeg', undefined] },
+        data: { temporaryOwnerId: authStub.user1.user.id, files: ['fake_path/asset_1.jpeg', undefined] },
       });
     });
 

@@ -12,6 +12,39 @@ class MemoryService {
 
   MemoryService(this._repository, this._apiRepository);
 
+  Future<void> markViewed(Memory memory, String? viewerId) async {
+    if (viewerId != memory.ownerId || memory.seenAt != null || memory.deletedAt != null) {
+      return;
+    }
+    try {
+      await _apiRepository.markViewed(memory.id, DateTime.now().toUtc());
+    } catch (error, stackTrace) {
+      // Offline viewing must still work. An absent timestamp is unknown, not a
+      // negative reaction; a later viewer entry can retry the acknowledgement.
+      log.warning('Failed to acknowledge memory viewing', error, stackTrace);
+    }
+  }
+
+  Future<void> hide(String memoryId) async {
+    final hidden = await _apiRepository.hide(memoryId);
+    await _markRemoved(memoryId, hidden.deletedAt!);
+  }
+
+  Future<void> delete(String memoryId) async {
+    await _apiRepository.delete(memoryId);
+    await _markRemoved(memoryId, DateTime.now().toUtc());
+  }
+
+  Future<void> _markRemoved(String memoryId, DateTime removedAt) async {
+    try {
+      await _repository.markRemoved(memoryId, removedAt);
+    } catch (error, stackTrace) {
+      // The server action is already committed. Keep the acknowledged result and
+      // let normal sync repair the cache rather than reporting a failed deletion.
+      log.warning('Failed to update the removed memory cache', error, stackTrace);
+    }
+  }
+
   /// The memory lane: the viewer's own memories AND memories built from photos shared with
   /// them through a Space, matching the web memory lane (which calls the server).
   ///
@@ -25,7 +58,7 @@ class MemoryService {
       // Offline / server failure: fall back to the owner-scoped local list so the viewer's
       // own memories still render (their Space-shared memories are unavailable offline).
       log.warning("Failed to fetch memories from the server; using the local sync DB", error, stackTrace);
-      return _repository.getAll(ownerId);
+      return (await _repository.getAll(ownerId)).where(_isOrdinaryMemory).toList();
     }
   }
 
@@ -39,7 +72,11 @@ class MemoryService {
       return await _apiRepository.getAllMemories(onlyFavorites: onlyFavorites);
     } catch (error, stackTrace) {
       log.warning("Failed to fetch all memories from the server; using the local sync DB", error, stackTrace);
-      return _repository.getAll(ownerId, onlyToday: false, onlyFavorites: onlyFavorites);
+      return (await _repository.getAll(
+        ownerId,
+        onlyToday: false,
+        onlyFavorites: onlyFavorites,
+      )).where(_isOrdinaryMemory).toList();
     }
   }
 
@@ -51,3 +88,8 @@ class MemoryService {
     return _repository.getCount();
   }
 }
+
+bool _isOrdinaryMemory(Memory memory) =>
+    memory.deletedAt == null &&
+    memory.data.raw['candidateState'] != 'pending' &&
+    memory.data.raw['candidateState'] != 'dismissed';

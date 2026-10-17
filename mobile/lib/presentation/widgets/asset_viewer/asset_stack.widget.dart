@@ -6,6 +6,15 @@ import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart'
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 
+String stackPositionLabel(int index, int count) {
+  if (count <= 0) {
+    return '';
+  }
+
+  final safeIndex = index.clamp(0, count - 1);
+  return '${safeIndex + 1}/$count';
+}
+
 class AssetStackRow extends ConsumerWidget {
   final List<RemoteAsset> stack;
 
@@ -28,6 +37,7 @@ class AssetStackRow extends ConsumerWidget {
     }
 
     final showingControls = ref.watch(assetViewerProvider.select((s) => s.showingControls));
+    final stackIndex = ref.watch(assetViewerProvider.select((s) => s.stackIndex));
     final double opacity =
         ref.watch(assetViewerProvider.select((s) => s.backgroundOpacity)) * (showingControls ? 1 : 0);
 
@@ -41,13 +51,27 @@ class AssetStackRow extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             child: Padding(
               padding: const EdgeInsets.only(left: 10.0, right: 10.0, bottom: 20.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                spacing: 5.0,
-                children: List.generate(stack.length, (i) {
-                  final asset = stack[i];
-                  return _StackItem(key: ValueKey(asset.heroTag), asset: asset, index: i);
-                }),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    stackPositionLabel(stackIndex, stack.length),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      shadows: [Shadow(blurRadius: 5.0, color: Colors.black)],
+                    ),
+                  ),
+                  const SizedBox(height: 4.0),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    spacing: 5.0,
+                    children: List.generate(stack.length, (i) {
+                      final asset = stack[i];
+                      return _StackItem(key: ValueKey(asset.heroTag), asset: asset, index: i);
+                    }),
+                  ),
+                ],
               ),
             ),
           ),

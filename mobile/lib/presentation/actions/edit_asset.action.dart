@@ -11,13 +11,15 @@ import 'package:immich_mobile/domain/models/server_capability.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
-import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/websocket.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
+import 'package:immich_mobile/utils/image_url_builder.dart';
+import 'package:openapi/api.dart' show AssetMediaSize;
 
 final _stateProvider = Provider.family.autoDispose<RemoteAsset?, ActionSource>((ref, source) {
   final isSupported = ref.watch(serverInfoProvider.select((state) => state.serverVersion.supports(.assetEdits)));
@@ -26,7 +28,9 @@ final _stateProvider = Provider.family.autoDispose<RemoteAsset?, ActionSource>((
   }
 
   final assets = ref.watch(ownedAssetsActionProvider(source));
-  return assets.where((asset) => asset.isEditable).singleOrNull;
+  // Live/Motion stills can create an AI copy. Their existing crop edit pipeline
+  // remains disabled so the motion component is never silently desynchronized.
+  return assets.where((asset) => asset.isEditable || (asset.isImage && asset.isMotionPhoto)).singleOrNull;
 }, dependencies: [ownedAssetsActionProvider]);
 
 class EditAssetAction extends AssetActionBuilder {
@@ -59,8 +63,9 @@ class EditAssetAction extends AssetActionBuilder {
       unawaited(
         context.pushRoute(
           EditImageRoute(
-            image: Image(image: getFullImageProvider(asset, edited: false)),
+            image: Image(image: getEditorImageProvider(asset)),
             applyEdits: (newEdits) => applyEdits(ref, asset.id, newEdits),
+            asset: asset,
           ),
         ),
       );
@@ -69,6 +74,14 @@ class EditAssetAction extends AssetActionBuilder {
     }
   }
 }
+
+@visibleForTesting
+RemoteImageProvider getEditorImageProvider(RemoteAsset asset) => RemoteImageProvider(
+  // Crop parameters still use the original EXIF dimensions. An interactive
+  // preview avoids an unnecessary original download before opening the AI tool.
+  url: getThumbnailUrlForRemoteId(asset.id, type: AssetMediaSize.preview, edited: false, thumbhash: asset.thumbHash),
+  edited: false,
+);
 
 @visibleForTesting
 Future<void> applyEdits(WidgetRef ref, String remoteId, List<AssetEdit> edits) async {

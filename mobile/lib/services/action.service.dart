@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -52,16 +53,62 @@ class ActionService {
     return result.removed.length;
   }
 
-  Future<int> emptyTrash(String userId) async {
-    final count = await _assetApiRepository.emptyTrash();
-    await _remoteAssetRepository.emptyTrash(userId);
-    return count;
+  Future<({int completed, int remaining})> emptyTrash(String userId) async {
+    // Empty Trash must use the same owner-scoped, per-item reconciliation as
+    // the Trash page. The count-only endpoint cannot tell us which rows were
+    // physically deleted when a batch is partial or races retention.
+    final ids = await _remoteAssetRepository.getTrashIds(userId);
+    if (ids.isEmpty) {
+      return (completed: 0, remaining: 0);
+    }
+
+    final snapshots = await _remoteAssetRepository.beginPermanentDeletion(ids);
+    List<PermanentDeletionResult> results;
+    try {
+      results = await _assetApiRepository.permanentlyDelete(ids);
+    } catch (error, stack) {
+      await _remoteAssetRepository.completeTrashOperation(snapshots, success: false);
+      Error.throwWithStackTrace(error, stack);
+    }
+
+    // Resolve each receipt independently. Failed/blocked items remain in
+    // Trash and can be retried; completed items are removed from the cache.
+    for (final result in results) {
+      final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
+      if (result.state == 'uncertain') {
+        await _remoteAssetRepository.completeTrashOperation(checked, success: false);
+      } else {
+        await _remoteAssetRepository.completePermanentDeletion(
+          checked,
+          result.state == 'blocked' ? const [] : [result.id],
+          result.complete ? [result.id] : const [],
+        );
+      }
+    }
+    final completed = results.where((result) => result.complete).length;
+    return (completed: completed, remaining: results.length - completed);
   }
 
   Future<int> restoreAllTrash(String userId) async {
-    final count = await _assetApiRepository.restoreAllTrash();
-    await _remoteAssetRepository.restoreAllTrash(userId);
-    return count;
+    final snapshots = await _remoteAssetRepository.beginRestoreAllTrash(userId);
+    try {
+      final count = await _assetApiRepository.restoreAllTrash();
+      // A count cannot identify which of the captured rows was restored when
+      // retention/permanent deletion ran concurrently. Preserve revision-guarded
+      // pending state until ordinary sync verifies each captured asset.
+      await _remoteAssetRepository.completeTrashOperation(snapshots, success: false);
+      return count;
+    } catch (error, stack) {
+      try {
+        await _remoteAssetRepository.completeTrashOperation(
+          snapshots,
+          success: false,
+          definiteFailure: AssetApiRepository.isDefiniteTrashRejection(error),
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
+    }
   }
 
   Future<bool> updateDescription(String assetId, String description) async {

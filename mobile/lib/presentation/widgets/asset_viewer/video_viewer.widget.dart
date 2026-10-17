@@ -7,13 +7,14 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
-import 'package:immich_mobile/infrastructure/repositories/storage.repository.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/live_photo_presentation.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
 import 'package:immich_mobile/providers/cast.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
 import 'package:immich_mobile/services/api.service.dart';
 import 'package:logging/logging.dart';
 import 'package:native_video_player/native_video_player.dart';
@@ -22,6 +23,10 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
   final BaseAsset asset;
   final String? localFilePath;
   final bool isCurrent;
+
+  /// Temporarily pause for a menu/dialog while retaining the current asset and
+  /// its native controller. Existing viewers keep their usual playback behavior.
+  final bool playbackPaused;
   final bool showControls;
   final Widget image;
 
@@ -34,15 +39,43 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
   /// user who has autoplay disabled gets a frozen first frame and no way to start playback.
   final bool forceAutoPlay;
 
+  /// A muted, single-pass timeline preview, isolated from asset-viewer state.
+  final bool timelinePreview;
+
+  /// Shared still geometry and unrounded bounded physical requirement for the main feed.
+  /// Viewer playback and callers without a presentation contract stay unchanged.
+  final Size? timelinePreviewImageSize;
+  final Size? timelinePreviewRequiredSize;
+  final Alignment timelinePreviewAlignment;
+  final VoidCallback? onPreviewCompleted;
+
+  /// Native playback position advanced while ready and playing, once per attempt.
+  final VoidCallback? onPreviewStarted;
+
+  /// Initialization failed before progress; the scope owns the bounded retry.
+  final VoidCallback? onPreviewFailed;
+
+  /// Checks the scope's current token synchronously while widget removal is pending.
+  final bool Function()? previewIsActive;
+
   const NativeVideoViewer({
     super.key,
     required this.asset,
     this.localFilePath,
     required this.image,
     this.isCurrent = false,
+    this.playbackPaused = false,
     this.showControls = true,
     this.loopOverride,
     this.forceAutoPlay = false,
+    this.timelinePreview = false,
+    this.timelinePreviewImageSize,
+    this.timelinePreviewRequiredSize,
+    this.timelinePreviewAlignment = Alignment.center,
+    this.onPreviewCompleted,
+    this.onPreviewStarted,
+    this.onPreviewFailed,
+    this.previewIsActive,
   });
 
   @override
@@ -55,27 +88,110 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   NativeVideoPlayerController? _controller;
   late final Future<VideoSource?> _videoSource;
   Timer? _loadTimer;
+  Timer? _previewTimeout;
   bool _isVideoReady = false;
   bool _shouldPlayOnForeground = true;
+  bool _previewConfigured = false;
+  bool _previewFinished = false;
+  bool _previewForeground = true;
+  bool _previewAttached = true;
+  bool _previewAdvanced = false;
+  bool _isLoading = false;
+  bool _resumeAfterPause = false;
+  bool _playbackForeground = true;
+  Future<void>? _pendingPause;
+  int _pauseRevision = 0;
+  VideoPlayerNotifier? _attachedNotifier;
 
-  VideoPlayerNotifier get _notifier => ref.read(videoPlayerProvider(widget.asset.id).notifier);
+  VideoPlayerNotifier get _notifier => widget.timelinePreview
+      ? ref.read(timelinePreviewVideoPlayerProvider(widget.asset.id).notifier)
+      : ref.read(videoPlayerProvider(widget.asset.id).notifier);
+
+  bool get _canPreview =>
+      mounted &&
+      widget.isCurrent &&
+      !widget.playbackPaused &&
+      _previewAttached &&
+      _previewForeground &&
+      !_previewFinished &&
+      (widget.previewIsActive?.call() ?? true);
+
+  bool get _canPresentPreview {
+    final imageSize = widget.timelinePreviewImageSize;
+    final requiredSize = widget.timelinePreviewRequiredSize;
+    if (imageSize == null || requiredSize == null) {
+      return true;
+    }
+    final info = _controller?.videoInfo;
+    return info != null &&
+        canPresentTimelineMotion(
+          imageSize: imageSize,
+          videoSize: Size(info.width.toDouble(), info.height.toDouble()),
+          requiredSize: requiredSize,
+        );
+  }
 
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _playbackForeground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _previewForeground = _playbackForeground;
     WidgetsBinding.instance.addObserver(this);
+    if (widget.timelinePreview) {
+      _previewTrace('selected');
+      _previewTimeout = Timer(const Duration(seconds: 8), () => _finishPreview(reason: 'timeout'));
+    }
     _videoSource = _createSource();
+  }
+
+  @override
+  void deactivate() {
+    if (widget.timelinePreview) {
+      // Pause before child platform-view disposal; later async source/load work is stale.
+      _previewAttached = false;
+      _previewTrace('lease-revoked');
+      unawaited(_attachedNotifier?.pause());
+    }
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    _previewAttached = true;
   }
 
   @override
   void didUpdateWidget(NativeVideoViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    if (widget.timelinePreview && _isVideoReady && !_canPresentPreview) {
+      _finishPreview(reason: 'invalid-geometry');
+      return;
+    }
+
+    if (widget.playbackPaused != oldWidget.playbackPaused) {
+      final revision = ++_pauseRevision;
+      if (widget.playbackPaused) {
+        final status = widget.timelinePreview
+            ? ref.read(timelinePreviewVideoPlayerProvider(widget.asset.id)).status
+            : ref.read(videoPlayerProvider(widget.asset.id)).status;
+        _resumeAfterPause =
+            _resumeAfterPause || status == VideoPlaybackStatus.playing || status == VideoPlaybackStatus.buffering;
+        _queuePause();
+      } else {
+        unawaited(_resumePausedPlayback(revision));
+      }
+    }
+
     if (widget.isCurrent == oldWidget.isCurrent || _controller == null) {
       return;
     }
 
     if (!widget.isCurrent) {
+      ++_pauseRevision;
+      _resumeAfterPause = false;
       _loadTimer?.cancel();
       unawaited(_notifier.pause());
       return;
@@ -85,25 +201,66 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     _loadTimer = Timer(const Duration(milliseconds: 200), _loadVideo);
   }
 
+  Future<void> _resumePausedPlayback(int revision) async {
+    await _pendingPause;
+    if (!mounted ||
+        revision != _pauseRevision ||
+        !_playbackForeground ||
+        widget.playbackPaused ||
+        !widget.isCurrent ||
+        !_resumeAfterPause) {
+      return;
+    }
+    if (_isVideoReady) {
+      _resumeAfterPause = false;
+      await _notifier.play();
+    }
+  }
+
+  void _queuePause() {
+    final notifier = _notifier;
+    // Reopening a menu before native acknowledgement must not leave an older
+    // pause able to arrive after a newer resume.
+    _pendingPause = (_pendingPause ?? Future<void>.value()).then((_) async {
+      if (mounted) {
+        await notifier.pause();
+      }
+    });
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _loadTimer?.cancel();
+    _previewTimeout?.cancel();
     _removeListeners();
     super.dispose();
   }
 
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (widget.timelinePreview) {
+      _previewForeground = state == AppLifecycleState.resumed;
+      if (!_previewForeground) {
+        _finishPreview(reason: 'backgrounded');
+      }
+      return;
+    }
+    _playbackForeground = state == AppLifecycleState.resumed;
     switch (state) {
       case AppLifecycleState.resumed:
-        if (_shouldPlayOnForeground) {
-          await _notifier.play();
+        if (widget.isCurrent && !widget.playbackPaused) {
+          if (_resumeAfterPause) {
+            await _resumePausedPlayback(_pauseRevision);
+          } else if (_shouldPlayOnForeground) {
+            await _notifier.play();
+          }
         }
       case AppLifecycleState.paused:
         _shouldPlayOnForeground = await _controller?.isPlaying() ?? true;
         if (_shouldPlayOnForeground && mounted) {
-          await _notifier.pause();
+          _queuePause();
+          await _pendingPause;
         }
       default:
     }
@@ -114,12 +271,13 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       return null;
     }
 
-    final videoAsset = await ref.read(assetServiceProvider).getAsset(widget.asset) ?? widget.asset;
-    if (!mounted) {
-      return null;
-    }
-
     try {
+      final assetService = ref.read(assetServiceProvider);
+      final videoAsset = await assetService.getAsset(widget.asset) ?? widget.asset;
+      if (!mounted || (widget.timelinePreview && !_canPreview)) {
+        return null;
+      }
+
       final localFilePath = widget.localFilePath;
       if (localFilePath != null) {
         final file = File(localFilePath);
@@ -128,6 +286,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
           throw Exception('No file found for the video');
         }
 
+        _previewTrace('source:explicit-local');
         return await VideoSource.init(
           path: CurrentPlatform.isAndroid ? file.uri.toString() : file.path,
           type: VideoSourceType.file,
@@ -135,12 +294,29 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       }
 
       // Attempt to retrieve LocalAsset, falling back to remote if it cannot be found
-      final localAsset = await _localPlaybackAsset(videoAsset);
+      // photo_manager's subtype export is iOS-only. Android motion JPEG/HEIC
+      // originals are images; use the server's existing extracted video pair.
+      LocalAsset? localAsset = widget.timelinePreview && CurrentPlatform.isAndroid && videoAsset.isMotionPhoto
+          ? null
+          : await _localPlaybackAsset(videoAsset);
+      if (!mounted || (widget.timelinePreview && !_canPreview)) {
+        return null;
+      }
+
+      final storage = ref.read(storageRepositoryProvider);
+      if (widget.timelinePreview &&
+          localAsset != null &&
+          !await storage.isAssetAvailableLocally(localAsset.id, withSubtype: localAsset.isMotionPhoto)) {
+        localAsset = null;
+      }
+      if (!mounted || (widget.timelinePreview && !_canPreview)) {
+        return null;
+      }
 
       if (localAsset != null) {
         final file = localAsset.isMotionPhoto
-            ? await StorageRepository().getMotionFileForAsset(localAsset)
-            : await StorageRepository().getFileForAsset(localAsset.id);
+            ? await storage.getMotionFileForAsset(localAsset)
+            : await storage.getFileForAsset(localAsset.id);
 
         if (!mounted) {
           return null;
@@ -152,31 +328,48 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
         // Pass a file:// URI so Android's Uri.parse doesn't
         // interpret characters like '#' as fragment identifiers.
+        _previewTrace('source:local-pair');
         return await VideoSource.init(
           path: CurrentPlatform.isAndroid ? file.uri.toString() : file.path,
           type: VideoSourceType.file,
         );
       }
 
-      final remoteAsset = videoAsset as RemoteAsset;
+      final RemoteAsset? remoteAsset = videoAsset is RemoteAsset
+          ? videoAsset
+          : widget.timelinePreview && videoAsset.remoteId != null
+          ? await assetService.getRemoteAsset(videoAsset.remoteId!)
+          : null;
+      if (!mounted || (widget.timelinePreview && !_canPreview)) {
+        return null;
+      }
+      if (remoteAsset == null || (widget.timelinePreview && remoteAsset.livePhotoVideoId == null)) {
+        throw StateError('No paired motion video available for this asset');
+      }
 
       final serverEndpoint = Store.get(StoreKey.serverEndpoint);
       if (!context.mounted) {
         return null;
       }
 
-      final isOriginalVideo = ref.read(appConfigProvider).viewer.loadOriginalVideo;
+      final isOriginalVideo = !widget.timelinePreview && ref.read(appConfigProvider).viewer.loadOriginalVideo;
       final String postfixUrl = isOriginalVideo ? 'original' : 'video/playback';
       final String assetId = remoteAsset.livePhotoVideoId ?? remoteAsset.id;
       final String videoUrl = '$serverEndpoint/assets/$assetId/$postfixUrl';
 
+      _previewTrace('source:server-pair-playback');
       return await VideoSource.init(
         path: videoUrl,
         type: VideoSourceType.network,
         headers: ApiService.getRequestHeaders(),
       );
     } catch (error) {
-      _log.severe('Error creating video source for asset ${videoAsset.name}: $error');
+      if (widget.timelinePreview) {
+        _previewTrace('source-failed:${error.runtimeType}');
+        _finishPreview(reason: 'source-unavailable');
+      } else {
+        _log.severe('Error creating video source for asset ${widget.asset.name}: $error');
+      }
       return null;
     }
   }
@@ -219,7 +412,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   }
 
   Future<void> _onPlaybackReady() async {
-    if (!mounted || !widget.isCurrent) {
+    if (!mounted || !widget.isCurrent || (widget.timelinePreview && (!_canPreview || !_previewConfigured))) {
       return;
     }
 
@@ -232,7 +425,29 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       return;
     }
 
+    if (widget.timelinePreview && !_canPresentPreview) {
+      // Keep the sharp still visible. Complete this one-shot reservation rather
+      // than expose a blurry or differently cropped native surface.
+      _finishPreview(reason: 'invalid-native-geometry');
+      return;
+    }
+
     setState(() => _isVideoReady = true);
+
+    if (widget.timelinePreview) {
+      final info = _controller?.videoInfo;
+      _previewTrace('native-ready:${info?.width}x${info?.height}');
+      try {
+        if (_canPreview) {
+          await _controller?.play();
+          _previewTrace('play-request-accepted');
+        }
+      } catch (error) {
+        _previewTrace('play-failed:${error.runtimeType}');
+        _finishPreview(reason: 'play-failed');
+      }
+      return;
+    }
 
     if (ref.read(assetViewerProvider).showingDetails) {
       return;
@@ -240,31 +455,88 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
     final autoPlayVideo = ref.read(appConfigProvider).viewer.autoPlayVideo;
     if (widget.forceAutoPlay || autoPlayVideo || widget.asset.isMotionPhoto) {
+      if (widget.playbackPaused || !_playbackForeground) {
+        _resumeAfterPause = true;
+        _queuePause();
+        return;
+      }
+      _resumeAfterPause = false;
       await _notifier.play();
     }
   }
 
   void _onPlaybackEnded() {
-    if (!mounted) {
+    if (!mounted || (widget.timelinePreview && !_canPreview)) {
       return;
     }
 
     _notifier.onNativePlaybackEnded();
 
-    if (_controller?.playbackInfo?.status == PlaybackStatus.stopped) {
+    if (widget.timelinePreview) {
+      _finishPreview();
+    } else if (_controller?.playbackInfo?.status == PlaybackStatus.stopped) {
       ref.read(isPlayingMotionVideoProvider.notifier).playing = false;
     }
   }
 
-  void _onPlaybackPositionChanged() {
-    if (!mounted) {
+  /// Bounded stage logs: no filenames, IDs, URLs, pairing identifiers or tokens.
+  /// A native command acknowledgement is distinct from actual position progress.
+  void _previewTrace(String stage) {
+    if (widget.timelinePreview) {
+      _log.info('Timeline motion: $stage');
+    }
+  }
+
+  void _finishPreview({String reason = 'ended'}) {
+    if (!mounted || !widget.timelinePreview || !_previewAttached || _previewFinished) {
       return;
+    }
+    _previewFinished = true;
+    _previewTrace('finished:$reason');
+    _loadTimer?.cancel();
+    _previewTimeout?.cancel();
+    unawaited(_attachedNotifier?.pause());
+    // Finishing before readiness also changes whether the native surface paints.
+    setState(() => _isVideoReady = false);
+    if (!_previewAdvanced &&
+        widget.onPreviewFailed != null &&
+        (reason == 'source-unavailable' ||
+            reason == 'load-failed' ||
+            reason == 'play-failed' ||
+            reason == 'native-error' ||
+            reason == 'invalid-native-geometry' ||
+            reason == 'timeout')) {
+      widget.onPreviewFailed!();
+    } else {
+      widget.onPreviewCompleted?.call();
+    }
+  }
+
+  void _onPlaybackError() {
+    if (_controller?.onError.value != null) {
+      _finishPreview(reason: 'native-error');
+    }
+  }
+
+  void _onPlaybackPositionChanged() {
+    if (!mounted || (widget.timelinePreview && !_canPreview)) {
+      return;
+    }
+    final playback = _controller?.playbackInfo;
+    if (widget.timelinePreview &&
+        !_previewAdvanced &&
+        _isVideoReady &&
+        playback?.status == PlaybackStatus.playing &&
+        (playback?.position ?? 0) > 0) {
+      _previewAdvanced = true;
+      _previewTrace('position-advanced');
+      widget.onPreviewStarted?.call();
     }
     _notifier.onNativePositionChanged();
   }
 
   void _onPlaybackStatusChanged() {
-    if (!mounted) {
+    if (!mounted || (widget.timelinePreview && !_canPreview)) {
       return;
     }
     _notifier.onNativeStatusChanged();
@@ -275,16 +547,47 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     _controller?.onPlaybackStatusChanged.removeListener(_onPlaybackStatusChanged);
     _controller?.onPlaybackReady.removeListener(_onPlaybackReady);
     _controller?.onPlaybackEnded.removeListener(_onPlaybackEnded);
+    if (widget.timelinePreview) {
+      _controller?.onError.removeListener(_onPlaybackError);
+    }
   }
 
   Future<void> _loadVideo() async {
     final nc = _controller;
-    if (nc == null || nc.videoSource != null || !mounted) {
+    if (nc == null || nc.videoSource != null || !mounted || _isLoading || (widget.timelinePreview && !_canPreview)) {
       return;
     }
 
+    _isLoading = true;
     final source = await _videoSource;
-    if (source == null || !mounted) {
+    if (source == null || !mounted || (widget.timelinePreview && !_canPreview)) {
+      _isLoading = false;
+      if (source == null && widget.timelinePreview) {
+        _finishPreview(reason: 'source-unavailable');
+      }
+      return;
+    }
+
+    if (widget.timelinePreview) {
+      try {
+        // Configure silence before loading, since readiness can race the load Future.
+        await nc.setVolume(0);
+        if (!_canPreview) {
+          return;
+        }
+        await nc.setLoop(false);
+        if (!_canPreview) {
+          return;
+        }
+        _previewConfigured = true;
+        await nc.loadVideoSource(source);
+        _previewTrace('native-load-accepted');
+      } catch (error) {
+        _previewTrace('load-failed:${error.runtimeType}');
+        _finishPreview(reason: 'load-failed');
+      } finally {
+        _isLoading = false;
+      }
       return;
     }
 
@@ -295,6 +598,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     await localNotifier.load(source);
     await localNotifier.setLoop(!widget.asset.isMotionPhoto && loopVideo);
     await localNotifier.setVolume(1);
+    _isLoading = false;
   }
 
   void _initController(NativeVideoPlayerController nc) {
@@ -302,14 +606,20 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       return;
     }
 
-    _notifier.attachController(nc);
+    final notifier = _notifier;
+    _attachedNotifier = notifier;
+    notifier.attachController(nc);
 
     nc.onPlaybackPositionChanged.addListener(_onPlaybackPositionChanged);
     nc.onPlaybackStatusChanged.addListener(_onPlaybackStatusChanged);
     nc.onPlaybackReady.addListener(_onPlaybackReady);
     nc.onPlaybackEnded.addListener(_onPlaybackEnded);
+    if (widget.timelinePreview) {
+      nc.onError.addListener(_onPlaybackError);
+    }
 
     _controller = nc;
+    _previewTrace('platform-view-created');
 
     if (widget.isCurrent) {
       unawaited(_loadVideo());
@@ -318,27 +628,63 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
   @override
   Widget build(BuildContext context) {
-    final isCasting = ref.watch(castProvider.select((c) => c.isCasting));
-    final status = ref.watch(videoPlayerProvider(widget.asset.id).select((v) => v.status));
+    final isCasting = !widget.timelinePreview && ref.watch(castProvider.select((c) => c.isCasting));
+    final status = widget.timelinePreview
+        ? ref.watch(timelinePreviewVideoPlayerProvider(widget.asset.id).select((v) => v.status))
+        : ref.watch(videoPlayerProvider(widget.asset.id).select((v) => v.status));
 
     return IgnorePointer(
       child: Stack(
         children: [
           if (!_isVideoReady || widget.asset.isMotionPhoto || isCasting) Center(child: widget.image),
           if (!isCasting) ...[
+            // Android hybrid composition needs a painted SurfaceView to prepare
+            // the decoder. The native container stays transparent before its
+            // first frame; iOS and ordinary viewers keep their existing ready gate.
             Visibility.maintain(
-              visible: _isVideoReady,
-              child: NativeVideoPlayerView(onViewReady: _initController),
+              visible: _isVideoReady || (widget.timelinePreview && CurrentPlatform.isAndroid && !_previewFinished),
+              child: _buildNativeSurface(),
             ),
-            Center(
-              child: AnimatedOpacity(
-                opacity: status == VideoPlaybackStatus.buffering ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 400),
-                child: const CircularProgressIndicator(),
+            if (!widget.timelinePreview)
+              Center(
+                child: AnimatedOpacity(
+                  opacity: status == VideoPlaybackStatus.buffering ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 400),
+                  child: const CircularProgressIndicator(),
+                ),
               ),
-            ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildNativeSurface() {
+    final surface = NativeVideoPlayerView(onViewReady: _initController);
+    if (!widget.timelinePreview) {
+      return surface;
+    }
+    // Keep the same widget hierarchy while metadata arrives: rebuilding must
+    // resize the existing platform view rather than create another controller.
+    return ClipRect(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final viewport = Size(constraints.maxWidth, constraints.maxHeight);
+          final info = _controller?.videoInfo;
+          final videoSize = info == null
+              ? widget.timelinePreviewImageSize ?? viewport
+              : Size(info.width.toDouble(), info.height.toDouble());
+          final valid =
+              viewport.width.isFinite &&
+              viewport.height.isFinite &&
+              canPresentTimelineMotion(imageSize: viewport, videoSize: videoSize, requiredSize: viewport);
+          final canvas = valid ? timelineMotionCanvasSize(viewportSize: viewport, videoSize: videoSize) : viewport;
+          return FittedBox(
+            fit: BoxFit.cover,
+            alignment: widget.timelinePreviewAlignment,
+            child: SizedBox(width: canvas.width, height: canvas.height, child: surface),
+          );
+        },
       ),
     );
   }

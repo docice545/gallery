@@ -153,6 +153,8 @@ describe(ServerService.name, () => {
         sidecar: true,
         configFile: false,
         trash: true,
+        authorizedDeletion: true,
+        ownerStorageDeletion: true,
         email: false,
         realtimeTranscoding: false,
         peopleStatistics: false,

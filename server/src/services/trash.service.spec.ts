@@ -41,7 +41,7 @@ describe(TrashService.name, () => {
 
     it('should restore a batch of assets', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
-      mocks.trash.restoreAll.mockResolvedValue(0);
+      mocks.trash.restoreAll.mockResolvedValue(['asset1', 'asset2']);
 
       await sut.restoreAssets(authStub.user1, { ids: ['asset1', 'asset2'] });
 
@@ -51,7 +51,7 @@ describe(TrashService.name, () => {
 
     it('should clean up conflicting tombstones on restore', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
-      mocks.trash.restoreAll.mockResolvedValue(0);
+      mocks.trash.restoreAll.mockResolvedValue(['asset1', 'asset2']);
 
       await sut.restoreAssets(authStub.user1, { ids: ['asset1', 'asset2'] });
 
@@ -60,6 +60,22 @@ describe(TrashService.name, () => {
         'asset2',
       ]);
     });
+  });
+
+  it('reports and emits only assets actually restored when expiry raced the batch', async () => {
+    mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['expired', 'restorable']));
+    mocks.trash.restoreAll.mockResolvedValue(['restorable']);
+    await expect(sut.restoreAssets(authStub.user1, { ids: ['expired', 'restorable'] })).resolves.toEqual({ count: 1 });
+    expect(mocks.event.emit).toHaveBeenCalledWith('AssetRestoreAll', { assetIds: ['restorable'], userId: 'user-id' });
+    expect(mocks.duplicateRepository.deleteConflictingTombstones).toHaveBeenCalledWith('user-id', ['restorable']);
+  });
+
+  it('does not announce a restoration when no row could be restored', async () => {
+    mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['expired']));
+    mocks.trash.restoreAll.mockResolvedValue([]);
+    await expect(sut.restoreAssets(authStub.user1, { ids: ['expired'] })).resolves.toEqual({ count: 0 });
+    expect(mocks.event.emit).not.toHaveBeenCalled();
+    expect(mocks.duplicateRepository.deleteConflictingTombstones).not.toHaveBeenCalled();
   });
 
   describe('restore', () => {
@@ -91,19 +107,10 @@ describe(TrashService.name, () => {
   });
 
   describe('empty', () => {
-    it('should handle an empty trash', async () => {
-      mocks.trash.getDeletedIds.mockResolvedValue(makeAssetIdStream(0));
-      mocks.trash.empty.mockResolvedValue(0);
-      await expect(sut.empty(authStub.user1)).resolves.toEqual({ count: 0 });
+    it('refuses the obsolete unscoped entry point without changing Trash or queues', async () => {
+      await expect(sut.empty(authStub.user1)).rejects.toHaveProperty('status', 409);
+      expect(mocks.trash.empty).not.toHaveBeenCalled();
       expect(mocks.job.queue).not.toHaveBeenCalled();
-    });
-
-    it('should empty the trash', async () => {
-      mocks.trash.getDeletedIds.mockResolvedValue(makeAssetIdStream(1));
-      mocks.trash.empty.mockResolvedValue(1);
-      await expect(sut.empty(authStub.user1)).resolves.toEqual({ count: 1 });
-      expect(mocks.trash.empty).toHaveBeenCalledWith('user-id');
-      expect(mocks.job.queue).toHaveBeenCalledWith({ name: JobName.AssetEmptyTrash, data: {} });
     });
   });
 
@@ -115,42 +122,11 @@ describe(TrashService.name, () => {
   });
 
   describe('handleQueueEmptyTrash', () => {
-    it('should queue asset delete jobs', async () => {
-      mocks.trash.getDeletedIds.mockReturnValue(makeAssetIdStream(1));
-      await expect(sut.handleEmptyTrash()).resolves.toEqual(JobStatus.Success);
-      expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        {
-          name: JobName.AssetDelete,
-          data: { id: 'asset-1', deleteOnDisk: true },
-        },
-      ]);
-    });
-
-    it('should process assets in batches when count exceeds pagination size', async () => {
-      // JOBS_ASSET_PAGINATION_SIZE is 1000, so we need more than 1000 items to trigger a batch flush
-      const totalAssets = 1001;
-      mocks.trash.getDeletedIds.mockReturnValue(makeAssetIdStream(totalAssets));
-
-      await expect(sut.handleEmptyTrash()).resolves.toEqual(JobStatus.Success);
-
-      // Should have been called twice: once for the first 1000, once for the remaining 1
-      expect(mocks.job.queueAll).toHaveBeenCalledTimes(2);
-
-      // First batch: 1000 assets
-      const firstBatchCall = mocks.job.queueAll.mock.calls[0][0];
-      expect(firstBatchCall).toHaveLength(1000);
-      expect(firstBatchCall[0]).toEqual({
-        name: JobName.AssetDelete,
-        data: { id: 'asset-1', deleteOnDisk: true },
-      });
-
-      // Second batch: 1 remaining asset
-      const secondBatchCall = mocks.job.queueAll.mock.calls[1][0];
-      expect(secondBatchCall).toHaveLength(1);
-      expect(secondBatchCall[0]).toEqual({
-        name: JobName.AssetDelete,
-        data: { id: 'asset-1001', deleteOnDisk: true },
-      });
+    it.each([1, 1001])('never activates legacy disk deletion for %s rows', async (count) => {
+      mocks.trash.getDeletedIds.mockReturnValue(makeAssetIdStream(count));
+      await expect(sut.handleEmptyTrash()).resolves.toEqual(JobStatus.Skipped);
+      expect(mocks.trash.getDeletedIds).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).not.toHaveBeenCalled();
     });
   });
 });

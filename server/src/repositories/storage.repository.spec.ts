@@ -113,6 +113,25 @@ const tests: Test[] = [
     },
   },
   {
+    test: 'should ignore Google Takeout JSON beside supported media',
+    options: {
+      pathsToCrawl: ['/photos/'],
+    },
+    files: {
+      '/photos/Trip/metadata.json': false,
+      '/photos/Trip/IMG_1234.jpg': true,
+      '/photos/Trip/IMG_1234.jpg.json': false,
+      '/photos/Trip/IMG_1234.jpg.supplemental-metadata.json': false,
+      '/photos/Trip/IMG_1234.jpg.XMP': false,
+      '/photos/Trip/IMG_1235.HEIC': true,
+      '/photos/Trip/IMG_1235.HEIC.JSON': false,
+      '/photos/Trip/IMG_1235.MOV': true,
+      '/photos/Trip/IMG_1235.MOV.json': false,
+      '/photos/Photos from 2024/metadata.json': false,
+      '/photos/print-subscriptions.json': false,
+    },
+  },
+  {
     test: 'should include photo and video extensions',
     options: {
       pathsToCrawl: ['/photos/', '/videos/'],
@@ -210,6 +229,34 @@ describe(StorageRepository.name, () => {
         expect(actual.toSorted()).toEqual(expected.toSorted());
       });
     }
+  });
+
+  describe('walk', () => {
+    it('does not yield Google Takeout sidecars or album metadata as external library assets', async () => {
+      const files = {
+        '/photos/Trip/metadata.json': '{"title":"Trip"}',
+        '/photos/Trip/photo.jpg': 'image',
+        '/photos/Trip/photo.jpg.supplemental-metadata.json': '{"title":"photo.jpg"}',
+        '/photos/Trip/photo.heic': 'image',
+        '/photos/Trip/photo.heic.JSON': '{}',
+        '/photos/Trip/photo.mov': 'video',
+        '/photos/Trip/photo.mov.json': '{}',
+        '/photos/Trip/photo.jpg.xmp': '<xmp/>',
+      };
+      mockfs(files);
+
+      const actual: string[] = [];
+      for await (const batch of sut.walk({ pathsToCrawl: ['/photos/'], take: 2 })) {
+        expect(batch.length).toBeLessThanOrEqual(2);
+        actual.push(...batch);
+      }
+
+      expect(actual.toSorted()).toEqual([
+        '/photos/Trip/photo.heic',
+        '/photos/Trip/photo.jpg',
+        '/photos/Trip/photo.mov',
+      ]);
+    });
   });
 
   describe('getFolderSize', () => {

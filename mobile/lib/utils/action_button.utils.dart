@@ -15,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/cast.action.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/actions/download.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/open_in_browser.action.dart';
 import 'package:immich_mobile/presentation/actions/remove_from_album.action.dart';
 import 'package:immich_mobile/presentation/actions/restore.action.dart';
@@ -76,6 +77,7 @@ enum ActionButtonType {
   upload,
   openInBrowser,
   unstack,
+  manageStack,
   archive,
   unarchive,
   moveToLockFolder,
@@ -83,6 +85,7 @@ enum ActionButtonType {
   removeFromAlbum,
   restoreTrash,
   deleteLocal,
+  deleteEverywhere,
   delete,
   advancedInfo;
 
@@ -123,7 +126,13 @@ enum ActionButtonType {
             context.asset.hasRemote,
       ActionButtonType.deleteLocal =>
         !context.isInLockedView && //
-            context.asset.isMerged,
+            context.asset.hasLocal &&
+            (context.asset is LocalAsset || context.isOwner),
+      ActionButtonType.deleteEverywhere =>
+        (context.isOwner || context.asset is LocalAsset) &&
+            !context.isInLockedView &&
+            context.asset.isMerged &&
+            context.timelineOrigin != TimelineOrigin.trash,
       ActionButtonType.upload =>
         !context.isInLockedView && //
             context.asset.storage == AssetState.local,
@@ -135,6 +144,11 @@ enum ActionButtonType {
         !context.isInLockedView && //
             context.currentAlbum != null && //
             context.selectedCount == 1,
+      ActionButtonType.manageStack =>
+        context.isOwner &&
+            context.asset.hasRemote &&
+            !context.isInLockedView &&
+            context.timelineOrigin != TimelineOrigin.trash,
       ActionButtonType.unstack =>
         context.isOwner && //
             context.timelineOrigin != TimelineOrigin.trash &&
@@ -186,6 +200,7 @@ enum ActionButtonType {
       ActionButtonType.moveToLockFolder ||
       ActionButtonType.removeFromLockFolder => ActionMenuItem(action: LockAction(source: context.source)),
       ActionButtonType.deleteLocal => ActionMenuItem(action: CleanupLocalAction(source: context.source)),
+      ActionButtonType.deleteEverywhere => ActionMenuItem(action: DeleteEverywhereAction(source: context.source)),
       ActionButtonType.upload => ActionMenuItem(
         action: UploadAction(source: context.source, showProgress: context.source == ActionSource.viewer),
       ),
@@ -196,6 +211,7 @@ enum ActionButtonType {
         action: SetAlbumCoverAction(source: context.source, albumId: context.currentAlbum!.id),
       ),
       ActionButtonType.likeActivity => LikeActivityActionButton(iconOnly: iconOnly, menuItem: menuItem),
+      ActionButtonType.manageStack => ActionMenuItem(action: ManageStackAction(source: context.source)),
       ActionButtonType.unstack => ActionMenuItem(action: StackAction(source: context.source)),
       ActionButtonType.openInBrowser => ActionMenuItem(
         action: OpenInBrowserAction(remoteId: context.asset.remoteId!, origin: context.timelineOrigin),
@@ -247,6 +263,7 @@ enum ActionButtonType {
     ActionButtonType.unarchive => 10,
     ActionButtonType.moveToLockFolder => 10,
     ActionButtonType.deleteLocal => 10,
+    ActionButtonType.deleteEverywhere => 10,
     ActionButtonType.delete => 10,
     ActionButtonType.restoreTrash => 10,
     // 90: advancedInfo

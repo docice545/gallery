@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobName, QueueJobStatus, QueueName } from 'src/enum.js';
 import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
-import { JobRepository, buildWorkerOptions } from 'src/repositories/job.repository.js';
+import { JobRepository, buildWorkerOptions, getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { JobCounts } from 'src/types.js';
 
@@ -26,8 +26,10 @@ const emptyCounts = (): JobCounts => ({
 const setup = (counts: JobCounts[] = []) => {
   const client = {
     exists: vi.fn().mockResolvedValue(0),
+    get: vi.fn().mockResolvedValue(null),
     lrange: vi.fn().mockResolvedValue([]),
     lrem: vi.fn().mockResolvedValue(0),
+    set: vi.fn().mockResolvedValue('OK'),
     srem: vi.fn().mockResolvedValue(0),
   };
   const queue = {
@@ -106,6 +108,22 @@ describe(JobRepository.name, () => {
       expect(options.prefix).toBe('immich_bull');
       expect(options.lockDuration).toBeUndefined();
       expect(options.stalledInterval).toBeUndefined();
+    });
+  });
+
+  describe('metadata extraction deduplication', () => {
+    it('coalesces concurrent extraction requests for one asset and permits retries after failure', () => {
+      const { sut } = setup();
+      const options = (sut as any).getJobOptions({
+        name: JobName.AssetExtractMetadata,
+        data: { id: 'asset-1', source: 'upload' },
+      });
+
+      expect(options).toEqual({
+        jobId: 'asset-extract-metadata/asset-1',
+        removeOnComplete: true,
+        removeOnFail: true,
+      });
     });
   });
 
@@ -204,6 +222,188 @@ describe(JobRepository.name, () => {
       expect(queue.getJobs).toHaveBeenCalledWith(['failed'], 1000, 1999);
       expect(firstPageMatch.remove).toHaveBeenCalled();
       expect(secondPageMatch.remove).toHaveBeenCalled();
+    });
+  });
+
+  describe('auditHistoricalDeletionJobs', () => {
+    it('reports stale and current deletion jobs without mutating Redis in dry-run mode', async () => {
+      const { sut, queue } = setup();
+      const old = { id: 'old-delete', name: JobName.AssetDelete, timestamp: 1000 };
+      const recent = { id: 'recent-file', name: JobName.FileDelete, timestamp: 9000 };
+      const active = { id: 'active-delete', name: JobName.AssetDelete, timestamp: 1000 };
+      queue.getJobs.mockImplementation((statuses: string[]) => {
+        const status = statuses[0];
+        return Promise.resolve(
+          status === 'failed' ? [old] : status === 'waiting' ? [recent] : status === 'active' ? [active] : [],
+        );
+      });
+
+      const report = await sut.auditHistoricalDeletionJobs({ olderThan: new Date(5000) });
+
+      expect(report).toMatchObject({ dryRun: true, scanned: 3, eligible: 1, removed: 0, removedJobIds: [] });
+      expect(report.records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'old-delete', category: 'obsolete', status: 'failed' }),
+          expect.objectContaining({ id: 'recent-file', category: 'recent', status: 'waiting' }),
+          expect.objectContaining({ id: 'active-delete', category: 'active', status: 'active' }),
+        ]),
+      );
+      expect(queue.getJob).not.toHaveBeenCalled();
+    });
+
+    it('removes only obsolete non-active metadata and never invokes a deletion handler', async () => {
+      const { sut, queue } = setup();
+      const old = { id: 'old-delete', name: JobName.AssetDelete, timestamp: 1000 };
+      const active = { id: 'active-delete', name: JobName.AssetDelete, timestamp: 1000 };
+      const removable = {
+        id: 'old-delete',
+        remove: vi.fn().mockResolvedValue(undefined),
+        isActive: vi.fn().mockResolvedValue(false),
+      };
+      const running = { id: 'active-delete', remove: vi.fn(), isActive: vi.fn().mockResolvedValue(true) };
+      queue.getJobs.mockImplementation((statuses: string[]) =>
+        Promise.resolve(statuses[0] === 'failed' ? [old] : statuses[0] === 'active' ? [active] : []),
+      );
+      queue.getJob.mockImplementation((id: string) => Promise.resolve(id === old.id ? removable : running));
+
+      const report = await sut.auditHistoricalDeletionJobs({ olderThan: new Date(5000), execute: true });
+
+      expect(report).toMatchObject({ dryRun: false, eligible: 1, removed: 1, removedJobIds: ['old-delete'] });
+      expect(removable.remove).toHaveBeenCalledWith({ removeChildren: false });
+      expect(running.remove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('asset deletion batch cancellation', () => {
+    it('keeps a cancellation marker readable after the Bull job is removed', async () => {
+      const { sut, client, queue } = setup();
+      const ownerId = 'owner-1';
+      const ids = ['asset-1', 'asset-2'];
+      const id = getAssetDeleteBatchJobId(ownerId, ids);
+      client.get.mockResolvedValue(JSON.stringify({ ownerId, ids, allowActive: false }));
+      queue.getJob.mockResolvedValue(undefined);
+
+      await expect(sut.getAssetDeleteBatchJob(id)).resolves.toEqual({
+        id,
+        state: 'cancelled',
+        ownerId,
+        ids,
+        allowActive: false,
+        cancelRequested: true,
+      });
+      await expect(sut.isAssetDeleteBatchCancelled(id)).resolves.toBe(true);
+    });
+
+    it('marks active batches durably without removing the running Bull job', async () => {
+      const { sut, client, queue } = setup();
+      const ownerId = 'owner-1';
+      const ids = ['asset-1'];
+      const id = getAssetDeleteBatchJobId(ownerId, ids);
+      const job = {
+        name: JobName.AssetDeleteBatch,
+        data: { ownerId, ids, allowActive: false },
+        getState: vi.fn().mockResolvedValue('active'),
+        updateData: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn(),
+      };
+      queue.getJob.mockResolvedValue(job as any);
+
+      await sut.cancelAssetDeleteBatch(id, ownerId);
+
+      expect(client.set).toHaveBeenCalledWith(
+        `queue:asset-delete-batch-cancelled/${id}`,
+        JSON.stringify({ ownerId, ids, allowActive: false }),
+        'EX',
+        7 * 24 * 60 * 60,
+      );
+      expect(job.remove).not.toHaveBeenCalled();
+      expect(job.updateData).toHaveBeenCalledWith({ ownerId, ids, allowActive: false, cancelled: true });
+    });
+
+    it('keeps an active chunk visible while cancellation is requested', async () => {
+      const { sut, client, queue } = setup();
+      const data = { ownerId: 'owner-1', ids: ['asset-1'], allowActive: false };
+      const id = getAssetDeleteBatchJobId(data.ownerId, data.ids);
+      client.get.mockResolvedValue(JSON.stringify(data));
+      queue.getJob.mockResolvedValue({
+        name: JobName.AssetDeleteBatch,
+        data,
+        getState: vi.fn().mockResolvedValue('active'),
+      } as any);
+      await expect(sut.getAssetDeleteBatchJob(id)).resolves.toMatchObject({ state: 'active', cancelRequested: true });
+    });
+
+    it('honours the job stop flag after the status tombstone expires', async () => {
+      const { sut, queue } = setup();
+      const data = { ownerId: 'owner-1', ids: ['asset-1'], allowActive: false, cancelled: true };
+      const id = getAssetDeleteBatchJobId(data.ownerId, data.ids);
+      queue.getJob.mockResolvedValue({
+        name: JobName.AssetDeleteBatch,
+        data,
+        getState: vi.fn().mockResolvedValue('waiting'),
+      } as any);
+      await expect(sut.isAssetDeleteBatchCancelled(id)).resolves.toBe(true);
+      await expect(sut.getAssetDeleteBatchJob(id)).resolves.toMatchObject({ state: 'cancelled' });
+    });
+
+    it('removes a waiting job only after both stop flags are durable', async () => {
+      const { sut, queue, client } = setup();
+      const data = { ownerId: 'owner-1', ids: ['asset-1'], allowActive: false };
+      const id = getAssetDeleteBatchJobId(data.ownerId, data.ids);
+      const job = {
+        name: JobName.AssetDeleteBatch,
+        data,
+        getState: vi.fn().mockResolvedValue('waiting'),
+        updateData: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      };
+      queue.getJob.mockResolvedValue(job as any);
+      await sut.cancelAssetDeleteBatch(id, data.ownerId);
+      expect(job.updateData.mock.invocationCallOrder[0]).toBeLessThan(client.set.mock.invocationCallOrder[0]);
+      expect(client.set.mock.invocationCallOrder[0]).toBeLessThan(job.remove.mock.invocationCallOrder[0]);
+    });
+
+    it('does not rewrite a batch that completed during cancellation', async () => {
+      const { sut, queue, client } = setup();
+      const data = { ownerId: 'owner-1', ids: ['asset-1'] };
+      const id = getAssetDeleteBatchJobId(data.ownerId, data.ids);
+      const job = {
+        name: JobName.AssetDeleteBatch,
+        data,
+        getState: vi.fn().mockResolvedValue('completed'),
+        updateData: vi.fn(),
+        remove: vi.fn(),
+      };
+      queue.getJob.mockResolvedValue(job as any);
+      await sut.cancelAssetDeleteBatch(id, data.ownerId);
+      expect(client.set).not.toHaveBeenCalled();
+      expect(job.updateData).not.toHaveBeenCalled();
+      expect(job.remove).not.toHaveBeenCalled();
+    });
+
+    it('rejects cancellation metadata belonging to a different fingerprint', async () => {
+      const { sut, client } = setup();
+      client.get.mockResolvedValue(JSON.stringify({ ownerId: 'owner-2', ids: ['asset-1'] }));
+      await expect(
+        sut.getAssetDeleteBatchJob(getAssetDeleteBatchJobId('owner-1', ['asset-1'])),
+      ).resolves.toBeUndefined();
+    });
+
+    it('keeps the stop flags when a worker claims the job during removal', async () => {
+      const { sut, queue, client } = setup();
+      const data = { ownerId: 'owner-1', ids: ['asset-1'] };
+      const id = getAssetDeleteBatchJobId(data.ownerId, data.ids);
+      const job = {
+        name: JobName.AssetDeleteBatch,
+        data,
+        getState: vi.fn().mockResolvedValueOnce('waiting').mockResolvedValueOnce('waiting').mockResolvedValue('active'),
+        updateData: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockRejectedValue(new Error('locked')),
+      };
+      queue.getJob.mockResolvedValue(job as any);
+      await expect(sut.cancelAssetDeleteBatch(id, data.ownerId)).resolves.toBeUndefined();
+      expect(client.set).toHaveBeenCalledOnce();
+      expect(job.updateData).toHaveBeenCalledOnce();
     });
   });
 

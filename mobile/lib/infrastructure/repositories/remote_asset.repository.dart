@@ -11,6 +11,7 @@ import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.drift.dart';
+import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/utils/option.dart';
 
 @DriftAccessor()
@@ -18,6 +19,18 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
   RemoteAssetRepository(super.attachedDatabase);
 
   Drift get _db => attachedDatabase;
+
+  /// One reactive query for the grid, including primaries; no requests per tile.
+  Stream<Map<String, int>> watchStackCounts() {
+    final count = _db.remoteAssetEntity.id.count();
+    final query = _db.selectOnly(_db.remoteAssetEntity)
+      ..addColumns([_db.remoteAssetEntity.stackId, count])
+      ..where(_db.remoteAssetEntity.stackId.isNotNull() & _db.remoteAssetEntity.deletedAt.isNull())
+      ..groupBy([_db.remoteAssetEntity.stackId]);
+    return query.watch().map(
+      (rows) => {for (final row in rows) row.read(_db.remoteAssetEntity.stackId)!: row.read(count)!},
+    );
+  }
 
   SingleOrNullSelectable<RemoteAsset?> _assetSelectable(String id) {
     final query =
@@ -58,7 +71,7 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
     }
 
     final query = _db.remoteAssetEntity.select()
-      ..where((row) => row.stackId.equals(stackId) & row.id.equals(asset.id).not())
+      ..where((row) => row.stackId.equals(stackId) & row.id.equals(asset.id).not() & row.deletedAt.isNull())
       ..orderBy([(row) => OrderingTerm.desc(row.createdAt)]);
 
     return query.map((row) => row.toDto()).get();
@@ -103,45 +116,119 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
     }).get();
   }
 
-  Future<void> trash(List<String> ids) {
-    return _db.batch((batch) async {
-      for (final id in ids) {
-        batch.update(
-          _db.remoteAssetEntity,
-          RemoteAssetEntityCompanion(deletedAt: Value(DateTime.now())),
-          where: (e) => e.id.equals(id),
-        );
-      }
+  Future<void> trash(List<String> ids) async {
+    await _changeTrash(ids, restore: false);
+  }
+
+  Future<void> restoreTrash(List<String> ids) async {
+    await _changeTrash(ids, restore: true);
+  }
+
+  Future<List<AssetTrashSnapshot>> beginTrashOperation(List<String> ids, {required bool restore}) =>
+      _changeTrash(ids, restore: restore, pending: true);
+
+  Future<List<AssetTrashSnapshot>> beginPermanentDeletion(List<String> ids) => _db.syncStreamRepository
+      .updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true, operation: 'permanent');
+
+  Future<List<AssetTrashSnapshot>> _changeTrash(List<String> ids, {required bool restore, bool pending = false}) {
+    return _db.transaction(() async {
+      final deletedAt = DateTime.now();
+      final snapshots = await _db.syncStreamRepository.updateRetainedTrash(
+        ids,
+        deletedAt,
+        preserveExistingDates: restore,
+        operation: pending ? (restore ? 'restore' : 'trash') : null,
+      );
+      await _db.batch((batch) {
+        for (final id in ids) {
+          batch.update(
+            _db.remoteAssetEntity,
+            RemoteAssetEntityCompanion(
+              deletedAt: Value(restore ? null : deletedAt),
+              isIndexTombstone: const Value(false),
+            ),
+            where: (e) => e.id.equals(id),
+          );
+        }
+      });
+      return snapshots;
     });
   }
 
-  Future<void> restoreTrash(List<String> ids) {
-    return _db.batch((batch) async {
-      for (final id in ids) {
-        batch.update(
-          _db.remoteAssetEntity,
-          const RemoteAssetEntityCompanion(deletedAt: Value(null)),
-          where: (e) => e.id.equals(id),
-        );
-      }
-    });
+  Future<void> completeTrashOperation(
+    List<AssetTrashSnapshot> snapshots, {
+    required bool success,
+    bool definiteFailure = false,
+  }) => _db.syncStreamRepository.completeTrashOperation(snapshots, success: success, definiteFailure: definiteFailure);
+
+  Future<List<String>> getTrashIds(String ownerId) async {
+    final query = _db.remoteAssetEntity.selectOnly()
+      ..addColumns([_db.remoteAssetEntity.id])
+      ..where(
+        _db.remoteAssetEntity.deletedAt.isNotNull() &
+            _db.remoteAssetEntity.isIndexTombstone.equals(false) &
+            _db.remoteAssetEntity.ownerId.equals(ownerId),
+      );
+    return query.map((row) => row.read(_db.remoteAssetEntity.id)!).get();
   }
 
   Future<void> emptyTrash(String ownerId) async {
-    await _db.remoteAssetEntity.deleteWhere((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId));
+    await _db.transaction(() async {
+      await _db.syncStreamRepository.clearRetainedTrash(ownerId: ownerId);
+      await _db.remoteAssetEntity.deleteWhere(
+        (t) => t.deletedAt.isNotNull() & t.isIndexTombstone.equals(false) & t.ownerId.equals(ownerId),
+      );
+    });
   }
 
   Future<void> restoreAllTrash(String ownerId) async {
-    await (_db.remoteAssetEntity.update()..where((t) => t.deletedAt.isNotNull() & t.ownerId.equals(ownerId))).write(
-      const RemoteAssetEntityCompanion(deletedAt: Value(null)),
-    );
+    await _restoreAllTrash(ownerId);
   }
 
+  Future<List<AssetTrashSnapshot>> beginRestoreAllTrash(String ownerId) => _restoreAllTrash(ownerId, pending: true);
+
+  Future<List<AssetTrashSnapshot>> _restoreAllTrash(String ownerId, {bool pending = false}) {
+    return _db.transaction(() async {
+      final retainedIds = await _db.syncStreamRepository.getRetainedTrashIds(ownerId);
+      final query = _db.remoteAssetEntity.selectOnly()
+        ..addColumns([_db.remoteAssetEntity.id])
+        ..where(
+          _db.remoteAssetEntity.deletedAt.isNotNull() &
+              _db.remoteAssetEntity.isIndexTombstone.equals(false) &
+              _db.remoteAssetEntity.ownerId.equals(ownerId),
+        );
+      final rowIds = await query.map((row) => row.read(_db.remoteAssetEntity.id)!).get();
+      return _changeTrash({...retainedIds, ...rowIds}.toList(), restore: true, pending: pending);
+    });
+  }
+
+  Future<void> completePermanentDeletion(
+    List<AssetTrashSnapshot> snapshots,
+    List<String> suppressedIds,
+    List<String> completedIds,
+  ) => _db.transaction(() async {
+    for (final snapshot in snapshots) {
+      await _db.syncStreamRepository.resolvePermanentDeletion(
+        snapshot,
+        accepted: suppressedIds.contains(snapshot.id),
+        complete: completedIds.contains(snapshot.id),
+      );
+    }
+    await deleteAssets(completedIds);
+  });
+
+  Future<void> retainPermanentDeletion(List<String> ids) => _db.syncStreamRepository.retainPermanentDeletion(ids);
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) => _db.syncStreamRepository.getDeletionLocalIds(ids);
+
   Future<void> deleteAssets(List<String> ids) {
-    return _db.batch((batch) {
-      for (final id in ids) {
-        batch.deleteWhere(_db.remoteAssetEntity, (row) => row.id.equals(id));
-      }
+    return _db.transaction(() async {
+      await _db.syncStreamRepository.clearRetainedTrash(ids: ids);
+      await _db.batch((batch) {
+        for (final id in ids) {
+          batch.deleteWhere(_db.remoteAssetEntity, (row) => row.id.equals(id));
+        }
+      });
     });
   }
 
@@ -193,6 +280,12 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
         }
       });
     });
+  }
+
+  Future<void> detachFromStack(String assetId) async {
+    await (_db.remoteAssetEntity.update()..where((row) => row.id.equals(assetId))).write(
+      const RemoteAssetEntityCompanion(stackId: Value(null)),
+    );
   }
 
   Future<void> updateDescription(String assetId, String description) async {

@@ -105,6 +105,8 @@ describe('Trash page timeline grouping', () => {
       JSON.stringify({ grouping: 'day', hasHandler: true }),
     );
     expect(screen.getByTestId('timeline-options')).toHaveTextContent('"isTrashed":true');
+    expect(screen.getByTestId('timeline-options')).toHaveTextContent('"orderBy":"deletedAt"');
+    expect(screen.getByTestId('timeline-options')).toHaveTextContent('"order":"desc"');
     expect(screen.getByTestId('timeline-options')).toHaveTextContent('"grouping":"day"');
   });
 
@@ -116,6 +118,7 @@ describe('Trash page timeline grouping', () => {
     await waitFor(() => {
       expect(screen.getByTestId('timeline-options')).toHaveTextContent('"isTrashed":true');
       expect(screen.getByTestId('timeline-options')).toHaveTextContent('"grouping":"month"');
+      expect(screen.getByTestId('timeline-options')).toHaveTextContent('"orderBy":"deletedAt"');
       expect(screen.getByTestId('timeline-options')).not.toHaveTextContent('"takenAfter"');
       expect(screen.getByTestId('timeline-options')).not.toHaveTextContent('"takenBefore"');
       expect(screen.queryByTestId('active-filters-bar')).not.toBeInTheDocument();
@@ -127,6 +130,7 @@ describe('Trash page timeline grouping', () => {
     await waitFor(() => {
       expect(screen.getByTestId('timeline-options')).toHaveTextContent('"isTrashed":true');
       expect(screen.getByTestId('timeline-options')).toHaveTextContent('"grouping":"day"');
+      expect(screen.getByTestId('timeline-options')).toHaveTextContent('"orderBy":"deletedAt"');
       expect(screen.getByTestId('timeline-options')).not.toHaveTextContent('"takenAfter"');
       expect(screen.getByTestId('timeline-options')).not.toHaveTextContent('"takenBefore"');
       expect(screen.queryByTestId('active-filters-bar')).not.toBeInTheDocument();

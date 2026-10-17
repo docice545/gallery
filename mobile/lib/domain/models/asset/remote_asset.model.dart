@@ -14,6 +14,7 @@ class RemoteAsset extends BaseAsset {
   final String? livePhotoVideoId;
   final DateTime? uploadedAt;
   final DateTime? deletedAt;
+  final bool isIndexTombstone;
 
   const RemoteAsset({
     required this.id,
@@ -35,6 +36,7 @@ class RemoteAsset extends BaseAsset {
     this.stackId,
     required super.isEdited,
     this.deletedAt,
+    this.isIndexTombstone = false,
   }) : localAssetId = localId;
 
   @override
@@ -69,7 +71,7 @@ class RemoteAsset extends BaseAsset {
   @override
   bool get isEditable => isImage && !isMotionPhoto && !isAnimatedImage;
 
-  bool get isTrashed => deletedAt != null;
+  bool get isTrashed => !isIndexTombstone && deletedAt != null;
 
   bool get isStacked => stackId != null;
 
@@ -117,7 +119,8 @@ class RemoteAsset extends BaseAsset {
         stackId == other.stackId &&
         livePhotoVideoId == other.livePhotoVideoId &&
         uploadedAt == other.uploadedAt &&
-        deletedAt == other.deletedAt;
+        deletedAt == other.deletedAt &&
+        isIndexTombstone == other.isIndexTombstone;
   }
 
   @override
@@ -131,7 +134,8 @@ class RemoteAsset extends BaseAsset {
       stackId.hashCode ^
       livePhotoVideoId.hashCode ^
       uploadedAt.hashCode ^
-      deletedAt.hashCode;
+      deletedAt.hashCode ^
+      isIndexTombstone.hashCode;
 
   RemoteAsset copyWith({
     String? id,
@@ -152,6 +156,7 @@ class RemoteAsset extends BaseAsset {
     String? livePhotoVideoId,
     String? stackId,
     bool? isEdited,
+    bool? isIndexTombstone,
     DateTime? deletedAt,
   }) {
     return RemoteAsset(
@@ -174,6 +179,7 @@ class RemoteAsset extends BaseAsset {
       stackId: stackId ?? this.stackId,
       isEdited: isEdited ?? this.isEdited,
       deletedAt: deletedAt ?? this.deletedAt,
+      isIndexTombstone: isIndexTombstone ?? this.isIndexTombstone,
     );
   }
 }
@@ -192,6 +198,7 @@ class RemoteAssetExif extends RemoteAsset {
     required super.updatedAt,
     super.uploadedAt,
     super.deletedAt,
+    super.isIndexTombstone,
     super.width,
     super.height,
     super.durationMs,
@@ -239,6 +246,7 @@ class RemoteAssetExif extends RemoteAsset {
     String? livePhotoVideoId,
     String? stackId,
     bool? isEdited,
+    bool? isIndexTombstone,
     ExifInfo? exifInfo,
   }) {
     return RemoteAssetExif(
@@ -252,6 +260,7 @@ class RemoteAssetExif extends RemoteAsset {
       updatedAt: updatedAt ?? this.updatedAt,
       uploadedAt: uploadedAt ?? this.uploadedAt,
       deletedAt: deletedAt ?? this.deletedAt,
+      isIndexTombstone: isIndexTombstone ?? this.isIndexTombstone,
       width: width ?? this.width,
       height: height ?? this.height,
       durationMs: durationMs ?? this.durationMs,

@@ -14,6 +14,9 @@ export const newJobRepositoryMock = (): Mocked<RepositoryInterface<JobRepository
     pause: vitest.fn(),
     resume: vitest.fn(),
     searchJobs: vitest.fn(),
+    getAssetDeleteBatchJob: vitest.fn(),
+    cancelAssetDeleteBatch: vitest.fn(),
+    isAssetDeleteBatchCancelled: vitest.fn().mockResolvedValue(false),
     queue: vitest.fn().mockImplementation(() => Promise.resolve()),
     queueAll: vitest.fn().mockImplementation(() => Promise.resolve()),
     isActive: vitest.fn(),
@@ -27,6 +30,7 @@ export const newJobRepositoryMock = (): Mocked<RepositoryInterface<JobRepository
     reconcileOrphanedActiveJobs: vitest.fn().mockImplementation(() => Promise.resolve()),
     removeOrphanedActiveJobs: vitest.fn().mockImplementation(() => Promise.resolve([])),
     removeFailedJobsByJobIdPrefix: vitest.fn().mockResolvedValue(0),
+    auditHistoricalDeletionJobs: vitest.fn(),
     waitForQueueCompletion: vitest.fn(),
     removeJob: vitest.fn(),
   };

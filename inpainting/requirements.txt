@@ -1,0 +1,7 @@
+# Torch CPU wheels are installed separately from the official PyTorch CPU index.
+fastapi==0.135.2
+starlette==1.7.0
+uvicorn==0.41.0
+python-multipart==0.0.22
+Pillow==12.2.0
+numpy==2.4.3

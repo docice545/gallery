@@ -1,5 +1,5 @@
 import { Kysely } from 'kysely';
-import { AssetFileType } from 'src/enum.js';
+import { AssetFileType, AssetStatus } from 'src/enum.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { DB } from 'src/schema/index.js';
@@ -29,6 +29,49 @@ beforeAll(async () => {
 });
 
 describe(AssetJobRepository.name, () => {
+  describe('setOnlineForLibrarySync', () => {
+    it('should clear only active offline timestamps and preserve user deletion states', async () => {
+      const { ctx, sut } = setup();
+      const { user } = await ctx.newUser();
+      const { library } = await ctx.newLibrary({ ownerId: user.id });
+      const deletedAt = new Date('2026-10-05T09:00:00Z');
+      const assets = await Promise.all(
+        [AssetStatus.Active, AssetStatus.Trashed, AssetStatus.Deleted].map(async (status) => {
+          const { asset } = await ctx.newAsset({
+            ownerId: user.id,
+            libraryId: library.id,
+            isExternal: true,
+            isOffline: true,
+            status,
+            deletedAt,
+          });
+          return asset;
+        }),
+      );
+
+      await sut.setOnlineForLibrarySync(assets.map(({ id }) => id));
+
+      const updated = await ctx.database
+        .selectFrom('asset')
+        .select(['id', 'isOffline', 'status', 'deletedAt', 'fileCreatedAt'])
+        .where(
+          'id',
+          'in',
+          assets.map(({ id }) => id),
+        )
+        .execute();
+      for (const asset of assets) {
+        expect(updated.find(({ id }) => id === asset.id)).toEqual({
+          id: asset.id,
+          isOffline: false,
+          status: asset.status,
+          deletedAt: asset.status === AssetStatus.Active ? null : deletedAt,
+          fileCreatedAt: asset.fileCreatedAt,
+        });
+      }
+    });
+  });
+
   describe('streamForThumbnailJob', () => {
     it('should work', async () => {
       const { sut } = setup();

@@ -65,6 +65,7 @@ enum SettingsKey<T> {
   timelineTilesPerRow<int>(),
   timelineGroupAssetsBy<GroupAssetsBy>(codec: EnumCodec(GroupAssetsBy.values)),
   timelineStorageIndicator<bool>(),
+  timelineAutoplayLivePhotos<bool>(),
 
   // Log
   logLevel<LogLevel>(codec: EnumCodec(LogLevel.values)),

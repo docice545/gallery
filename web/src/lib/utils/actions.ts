@@ -1,10 +1,20 @@
-import { AssetVisibility, deleteAssets as deleteBulk, restoreAssets } from '@immich/sdk';
+import {
+  AssetVisibility,
+  deleteAssets as deleteBulk,
+  deletionBatchStatus,
+  deletionPreflight,
+  deletionStatuses,
+  permanentDeletion,
+  restoreAssets,
+} from '@immich/sdk';
 import { toastManager } from '@immich/ui';
 import { t } from 'svelte-i18n';
 import { get } from 'svelte/store';
+import { featureFlagsManager } from '$lib/managers/feature-flags-manager.svelte';
 import { TimelineManager } from '$lib/managers/timeline-manager/timeline-manager.svelte';
 import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
 import type { StackResponse } from '$lib/utils/asset-utils';
+import { deletionMessage } from './deletion-message';
 import { handleError } from './handle-error';
 
 export type OnDelete = (assetIds: string[]) => void;
@@ -18,15 +28,123 @@ export type OnStack = (result: StackResponse) => void;
 export type OnUnstack = (assets: TimelineAsset[]) => void;
 export type OnSetVisibility = (ids: string[]) => void;
 
+const PERMANENT_DELETION_REQUEST_LIMIT = 5000;
+const PERMANENT_DELETION_POLL_INTERVAL_MS = 250;
+const PERMANENT_DELETION_MAX_POLLS = 1200;
+
+const waitForDeletionBatch = async (batchId: string, ids: string[]) => {
+  for (let attempt = 0; attempt < PERMANENT_DELETION_MAX_POLLS; attempt++) {
+    const status = await deletionBatchStatus({ batchId });
+    if (status.state !== 'pending' && status.state !== 'active') {
+      const results = [];
+      for (let start = 0; start < ids.length; start += 200) {
+        results.push(...(await deletionStatuses({ bulkIdsDto: { ids: ids.slice(start, start + 200) } })));
+      }
+      return { results, cancelled: status.state === 'cancelled' || status.cancelRequested === true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, PERMANENT_DELETION_POLL_INTERVAL_MS));
+  }
+  throw new Error('Permanent deletion batch did not finish in time');
+};
+
 export const deleteAssets = async (
   force: boolean,
   onAssetDelete: OnDelete,
   assets: TimelineAsset[],
   onUndoDelete: OnUndoDelete | undefined = undefined,
-) => {
+): Promise<boolean> => {
   const $t = get(t);
   try {
     const ids = assets.map((a) => a.id);
+    if (force && featureFlagsManager.valueOrUndefined?.authorizedDeletion) {
+      const preflight = [];
+      // Admit every scope in the entire selection before any irreversible batch.
+      for (let start = 0; start < ids.length; start += 200) {
+        const batch = ids.slice(start, start + 200);
+        const results = await deletionPreflight({ bulkIdsDto: { ids: batch } });
+        if (
+          results.length !== batch.length ||
+          new Set(results.map((r) => r.id)).size !== batch.length ||
+          results.some((r) => !batch.includes(r.id) || typeof r.authorized !== 'boolean')
+        ) {
+          throw new Error('Invalid deletion preflight');
+        }
+        preflight.push(...results);
+      }
+      if (preflight.some((r) => !r.authorized)) {
+        toastManager.primary(
+          $t('deletion_batch_blocked') +
+            ' ' +
+            preflight
+              .filter((r) => !r.authorized)
+              .map((r) => deletionMessage($t, r.code, r.scope))
+              .join(' '),
+        );
+        return false;
+      }
+      const completed: string[] = [];
+      const unresolved: string[] = [];
+      for (let start = 0; start < ids.length; start += PERMANENT_DELETION_REQUEST_LIMIT) {
+        const batch = ids.slice(start, start + PERMANENT_DELETION_REQUEST_LIMIT);
+        let results = await permanentDeletion({ permanentDeletionDto: { ids: batch, confirmed: true } });
+        if (
+          results.length !== batch.length ||
+          results.some((item, index) => results.findIndex((other) => other.id === item.id) !== index) ||
+          results.some((item) => !batch.includes(item.id))
+        ) {
+          throw new Error('Invalid permanent deletion acknowledgement');
+        }
+        const batchIds = new Set(results.map((result) => result.batchId).filter((id): id is string => Boolean(id)));
+        if (batchIds.size > 1 || (batchIds.size === 1 && results.some((result) => !result.batchId))) {
+          throw new Error('Invalid permanent deletion batch acknowledgement');
+        }
+        const batchId = [...batchIds][0];
+        let cancelled = false;
+        if (batchId) {
+          const status = await waitForDeletionBatch(batchId, batch);
+          results = status.results;
+          cancelled = status.cancelled;
+        }
+        if (
+          results.length !== batch.length ||
+          results.some((item, index) => results.findIndex((other) => other.id === item.id) !== index) ||
+          results.some((item) => !batch.includes(item.id))
+        ) {
+          throw new Error('Invalid permanent deletion status');
+        }
+        const removed = results.filter((result) => result.state === 'complete').map((result) => result.id);
+        completed.push(...removed);
+        unresolved.push(
+          ...results
+            .filter((result) => result.state !== 'complete')
+            .map((result) => deletionMessage($t, result.code, result.scope)),
+        );
+        // Apply each validated batch before requesting another. A later timeout
+        // never hides earlier confirmed results or removes unresolved rows.
+        onAssetDelete(removed);
+        if (
+          cancelled ||
+          results.some(
+            (r) => r.code === 'LIBRARY_DELETION_NOT_AUTHORIZED' || r.code === 'DELETION_BATCH_NOT_AUTHORIZED',
+          )
+        ) {
+          unresolved.push(
+            ...ids.slice(start + PERMANENT_DELETION_REQUEST_LIMIT).map(() => $t('deletion_batch_blocked')),
+          );
+          break;
+        }
+      }
+      toastManager.primary(
+        $t('permanent_deletion_result', {
+          values: {
+            removed: completed.length,
+            remaining: unresolved.length,
+            reasons: unresolved.slice(0, 25).join(', '),
+          },
+        }),
+      );
+      return completed.length === ids.length;
+    }
     await deleteBulk({ assetBulkDeleteDto: { ids, force } });
     onAssetDelete(ids);
 
@@ -42,8 +160,10 @@ export const deleteAssets = async (
       },
       { timeout: 5000 },
     );
+    return true;
   } catch (error) {
     handleError(error, $t('errors.unable_to_delete_assets'));
+    return false;
   }
 };
 

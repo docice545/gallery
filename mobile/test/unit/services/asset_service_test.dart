@@ -3,15 +3,19 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
+import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:openapi/api.dart' show ApiException;
 
 import '../../infrastructure/repository.mock.dart';
 import '../../repository.mocks.dart';
+import '../factories/remote_asset_factory.dart';
 import '../mocks.dart';
 
 void main() {
@@ -53,6 +57,44 @@ void main() {
 
   tearDown(() async {
     await Store.delete(StoreKey.manageLocalMediaAndroid);
+  });
+
+  group('manual stacks', () {
+    test('dissolves a two-member stack without deleting either photo', () async {
+      final asset = RemoteAssetFactory.create(stackId: 'stack');
+      final stack = StackResponse(id: 'stack', primaryAssetId: asset.id, assetIds: [asset.id, 'other']);
+      when(() => apiRepository.getStack('stack')).thenAnswer((_) async => stack);
+      when(() => apiRepository.unStack(['stack'])).thenAnswer((_) async {});
+      when(() => remoteRepository.unStack(['stack'])).thenAnswer((_) async {});
+      await sut.removeFromStack(asset.ownerId, asset);
+      verifyInOrder([
+        () => apiRepository.unStack(['stack']),
+        () => remoteRepository.unStack(['stack']),
+      ]);
+    });
+
+    test('changes primary on the server before removing the old cover', () async {
+      final asset = RemoteAssetFactory.create(stackId: 'stack');
+      final stack = StackResponse(id: 'stack', primaryAssetId: asset.id, assetIds: [asset.id, 'other', 'third']);
+      final updated = stack.copyWith(primaryAssetId: 'other');
+      when(() => apiRepository.getStack('stack')).thenAnswer((_) async => stack);
+      when(() => apiRepository.setStackPrimary('stack', 'other')).thenAnswer((_) async => updated);
+      when(() => remoteRepository.stack(asset.ownerId, updated)).thenAnswer((_) async {});
+      when(() => apiRepository.removeFromStack('stack', asset.id)).thenAnswer((_) async {});
+      when(() => remoteRepository.detachFromStack(asset.id)).thenAnswer((_) async {});
+      await sut.removeFromStack(asset.ownerId, asset);
+      verifyInOrder([
+        () => apiRepository.setStackPrimary('stack', 'other'),
+        () => apiRepository.removeFromStack('stack', asset.id),
+        () => remoteRepository.detachFromStack(asset.id),
+      ]);
+    });
+
+    test('a failed server dissolve leaves the local stack intact', () async {
+      when(() => apiRepository.unStack(['stack'])).thenThrow(Exception('offline'));
+      await expectLater(sut.unstack(['stack']), throwsException);
+      verifyNever(() => remoteRepository.unStack(['stack']));
+    });
   });
 
   group('AssetService.updateDateTime', () {
@@ -117,6 +159,103 @@ void main() {
       verify(() => mocks.assetMedia.api.deleteAll(ids, trash: false)).called(1);
       verify(() => mocks.localAsset.repo.deleteAssets(ids)).called(1);
       verifyNever(() => mocks.trashedAsset.applyTrashedAssets(any()));
+    });
+  });
+
+  group('AssetService.trash', () {
+    const ids = ['asset_id_1', 'asset_id_2'];
+
+    test('writes the local tombstone before the server request', () async {
+      final calls = <String>[];
+      when(() => remoteRepository.beginTrashOperation(ids, restore: false)).thenAnswer((_) async {
+        calls.add('local');
+        return [];
+      });
+      when(() => apiRepository.delete(ids, false)).thenAnswer((_) async => calls.add('server'));
+
+      await sut.trash(ids);
+
+      expect(calls, ['local', 'server']);
+    });
+
+    test('keeps the local tombstone when the server request is ambiguous', () async {
+      when(() => remoteRepository.beginTrashOperation(ids, restore: false)).thenAnswer((_) async => []);
+      when(() => apiRepository.delete(ids, false)).thenThrow(Exception('offline'));
+
+      await expectLater(sut.trash(ids), throwsException);
+
+      verifyInOrder([
+        () => remoteRepository.beginTrashOperation(ids, restore: false),
+        () => apiRepository.delete(ids, false),
+      ]);
+      verifyNever(() => remoteRepository.beginTrashOperation(ids, restore: true));
+    });
+  });
+
+  group('AssetService.restoreTrash', () {
+    const ids = ['asset_id_1', 'asset_id_2'];
+
+    test('clears the local tombstone before the server request', () async {
+      final calls = <String>[];
+      when(() => remoteRepository.beginTrashOperation(ids, restore: true)).thenAnswer((_) async {
+        calls.add('local');
+        return [];
+      });
+      when(() => apiRepository.restoreTrash(ids)).thenAnswer((_) async => calls.add('server'));
+      when(
+        () => remoteRepository.completeTrashOperation([], success: true),
+      ).thenAnswer((_) async => calls.add('confirm'));
+
+      await sut.restoreTrash(ids);
+
+      expect(calls, ['local', 'server', 'confirm']);
+    });
+
+    test('rolls back an explicitly rejected restore', () async {
+      when(() => remoteRepository.beginTrashOperation(ids, restore: true)).thenAnswer((_) async => []);
+      when(() => apiRepository.restoreTrash(ids)).thenThrow(ApiException(403, 'Forbidden'));
+      when(
+        () => remoteRepository.completeTrashOperation([], success: false, definiteFailure: true),
+      ).thenAnswer((_) async {});
+
+      await expectLater(sut.restoreTrash(ids), throwsA(isA<ApiException>()));
+
+      verifyInOrder([
+        () => remoteRepository.beginTrashOperation(ids, restore: true),
+        () => apiRepository.restoreTrash(ids),
+        () => remoteRepository.completeTrashOperation([], success: false, definiteFailure: true),
+      ]);
+      verifyNever(() => remoteRepository.completeTrashOperation([], success: true));
+    });
+  });
+
+  group('AssetService.delete', () {
+    const ids = ['asset_id_1', 'asset_id_2'];
+
+    test('waits for the server before irreversible local removal', () async {
+      final calls = <String>[];
+      when(() => remoteRepository.beginPermanentDeletion(ids)).thenAnswer((_) async => []);
+      when(() => apiRepository.permanentlyDelete(ids)).thenAnswer((_) async {
+        calls.add('server');
+        return ids.map((id) => PermanentDeletionResult(id: id, state: 'complete')).toList();
+      });
+      when(
+        () => remoteRepository.completePermanentDeletion([], any(), any()),
+      ).thenAnswer((_) async => calls.add('local'));
+
+      await sut.delete(ids);
+
+      expect(calls, ['server', 'local', 'local']);
+    });
+
+    test('keeps the local row when permanent deletion fails remotely', () async {
+      when(() => remoteRepository.beginPermanentDeletion(ids)).thenAnswer((_) async => []);
+      when(() => apiRepository.permanentlyDelete(ids)).thenThrow(Exception('offline'));
+      when(() => remoteRepository.completeTrashOperation([], success: false)).thenAnswer((_) async {});
+
+      await expectLater(sut.delete(ids), throwsException);
+
+      verifyNever(() => remoteRepository.deleteAssets(any()));
     });
   });
 }

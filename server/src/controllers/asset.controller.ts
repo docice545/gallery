@@ -1,7 +1,33 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
+import {
+  AdminPrepareDeletionDto,
+  DeletionPolicyDto,
+  DeletionPreflightResultDto,
+  ManagedDeletionConsentDto,
+  ManagedDeletionStatusDto,
+  PermanentDeletionBatchStatusDto,
+  PermanentDeletionDto,
+  PermanentDeletionResultDto,
+  PrepareManagedDeletionDto,
+  TrashDeletionScopeDto,
+} from 'src/dtos/asset-deletion.dto.js';
+import { BulkIdsDto } from 'src/dtos/asset-ids.response.dto.js';
 import { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
 import {
   AssetBulkDeleteDto,
@@ -87,6 +113,147 @@ export class AssetController {
   })
   deleteAssets(@Auth() auth: AuthDto, @Body() dto: AssetBulkDeleteDto): Promise<void> {
     return this.service.deleteAll(auth, dto);
+  }
+
+  @Put('deletion-policy')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  setDeletionPolicy(@Auth() auth: AuthDto, @Body() dto: DeletionPolicyDto): Promise<void> {
+    return this.service.setDeletionPolicy(auth, dto);
+  }
+
+  @Get('managed-deletion-policy')
+  @Authenticated({ permission: Permission.AssetDelete })
+  managedDeletionStatus(@Auth() auth: AuthDto): Promise<ManagedDeletionStatusDto> {
+    return this.service.managedDeletionStatus(auth);
+  }
+
+  @Put('managed-deletion-preparation')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareManagedDeletion(@Auth() auth: AuthDto, @Body() dto: PrepareManagedDeletionDto): Promise<void> {
+    return this.service.prepareManagedDeletion(auth, dto);
+  }
+
+  @Put('admin/managed-deletion-preparation')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareManagedDeletionForOwner(@Auth() auth: AuthDto, @Body() dto: AdminPrepareDeletionDto): Promise<void> {
+    const { ownerId, ...preparation } = dto;
+    return this.service.prepareManagedDeletionForOwner(auth, ownerId, preparation);
+  }
+
+  @Put('managed-deletion-consent')
+  @Authenticated({ permission: Permission.AssetDelete })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  setManagedDeletionConsent(@Auth() auth: AuthDto, @Body() dto: ManagedDeletionConsentDto): Promise<void> {
+    return this.service.setManagedDeletionConsent(auth, dto.enabled);
+  }
+
+  @Get('library-deletion-policy')
+  @Authenticated({ permission: Permission.AssetDelete })
+  libraryDeletionScopes(@Auth() auth: AuthDto): Promise<TrashDeletionScopeDto[]> {
+    return this.service.libraryDeletionScopes(auth);
+  }
+
+  @Get('library-deletion-policy/:id')
+  @Authenticated({ permission: Permission.AssetDelete })
+  libraryDeletionStatus(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<ManagedDeletionStatusDto> {
+    return this.service.libraryDeletionStatus(auth, id);
+  }
+
+  @Put('library-deletion-preparation/:id')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareLibraryDeletion(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: PrepareManagedDeletionDto,
+  ): Promise<void> {
+    return this.service.prepareLibraryDeletion(auth, id, dto);
+  }
+
+  @Put('admin/library-deletion-preparation/:id')
+  @Authenticated({ permission: Permission.SystemConfigUpdate, admin: true })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  prepareLibraryDeletionForOwner(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: AdminPrepareDeletionDto,
+  ): Promise<void> {
+    const { ownerId, ...preparation } = dto;
+    return this.service.prepareLibraryDeletionForOwner(auth, ownerId, id, preparation);
+  }
+
+  @Put('library-deletion-consent/:id')
+  @Authenticated({ permission: Permission.AssetDelete })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  setLibraryDeletionConsent(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: ManagedDeletionConsentDto,
+  ): Promise<void> {
+    return this.service.setLibraryDeletionConsent(auth, id, dto.enabled);
+  }
+
+  @Post('permanent-deletion/preflight')
+  @Authenticated({ permission: Permission.AssetDelete })
+  deletionPreflight(@Auth() auth: AuthDto, @Body() dto: BulkIdsDto): Promise<DeletionPreflightResultDto[]> {
+    if (dto.ids.length > 200) {
+      throw new BadRequestException('At most 200 deletion preflight items');
+    }
+    return this.service.deletionPreflight(auth, dto.ids);
+  }
+
+  @Post('permanent-deletion')
+  @Authenticated({ permission: Permission.AssetDelete })
+  permanentDeletion(@Auth() auth: AuthDto, @Body() dto: PermanentDeletionDto): Promise<PermanentDeletionResultDto[]> {
+    return this.service.permanentlyDelete(auth, dto.ids);
+  }
+
+  @Post('deletion-status')
+  @Authenticated({ permission: Permission.AssetRead })
+  @HttpCode(HttpStatus.OK)
+  deletionStatuses(@Auth() auth: AuthDto, @Body() dto: BulkIdsDto): Promise<PermanentDeletionResultDto[]> {
+    if (dto.ids.length > 200) {
+      throw new BadRequestException('At most 200 deletion statuses per request');
+    }
+    return Promise.all(dto.ids.map((id) => this.service.deletionStatus(auth, id)));
+  }
+
+  @Get('permanent-deletion/status')
+  @Authenticated({ permission: Permission.AssetRead })
+  @Endpoint({
+    summary: 'Get permanent deletion batch status',
+    description: 'Returns durable aggregate progress for an authorized permanent deletion batch.',
+    history: new HistoryBuilder().added('v2.8.0').alpha('v2.8.0'),
+  })
+  deletionBatchStatus(
+    @Auth() auth: AuthDto,
+    @Query('batchId') batchId: string,
+  ): Promise<PermanentDeletionBatchStatusDto> {
+    return this.service.deletionBatchStatus(auth, batchId);
+  }
+
+  @Post('permanent-deletion/:batchId/cancel')
+  @Authenticated({ permission: Permission.AssetDelete })
+  @Endpoint({
+    summary: 'Cancel permanent deletion batch',
+    description:
+      'Stops before the next unstarted chunk. An active chunk and committed per-item retries may still finish; completed work is not undone. Poll status until the batch is no longer active.',
+    history: new HistoryBuilder().added('v2.8.0').alpha('v2.8.0'),
+  })
+  cancelDeletionBatch(
+    @Auth() auth: AuthDto,
+    @Param('batchId') batchId: string,
+  ): Promise<PermanentDeletionBatchStatusDto> {
+    return this.service.cancelDeletionBatch(auth, batchId);
+  }
+
+  @Get(':id/deletion-status')
+  @Authenticated({ permission: Permission.AssetRead })
+  deletionStatus(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<PermanentDeletionResultDto> {
+    return this.service.deletionStatus(auth, id);
   }
 
   @Get(':id')

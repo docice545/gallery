@@ -1,0 +1,120 @@
+name: Gallery frozen Trash artifact proof and handoff
+
+# Artifact verification/packaging only. No app build, private keys or deployment.
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: 'Full build-9 application SHA; leave all inputs empty for historical build-8 proof'
+        type: string
+        default: ''
+      backend_run:
+        type: string
+        default: ''
+      android_run:
+        type: string
+        default: ''
+      ios_run:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  proof:
+    if: github.repository == 'docice545/gallery'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      APP_SOURCE: ${{ inputs.source_commit || '6a558b554e26e8c0fc5bc5c99259a92e7ef26a56' }}
+      BACKEND_RUN: ${{ inputs.backend_run || '37953392247' }}
+      ANDROID_RUN: ${{ inputs.android_run || '37944044747' }}
+      IOS_RUN: ${{ inputs.ios_run || '37936380827' }}
+      IS_CANDIDATE: ${{ inputs.source_commit != '' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Enforce exact application inputs and complete build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$APP_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          git diff --exit-code "$APP_SOURCE" HEAD -- server mobile web packages i18n branding package.json pnpm-lock.yaml pnpm-workspace.yaml patches .dockerignore
+          for run in "$BACKEND_RUN" "$ANDROID_RUN" "$IOS_RUN"; do
+            [[ "$run" =~ ^[1-9][0-9]+$ ]]
+            gh api "repos/docice545/gallery/actions/runs/$run" --jq '{head_sha,status,conclusion}' > "$RUNNER_TEMP/run-$run.json"
+            jq -e '.status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/run-$run.json"
+            if [[ "$run" != "$BACKEND_RUN" ]]; then
+              jq -e --arg sha "$APP_SOURCE" '.head_sha == $sha' "$RUNNER_TEMP/run-$run.json"
+            fi
+          done
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: docice545/gallery
+          run-id: ${{ env.BACKEND_RUN }}
+          name: gallery-trash-server-linux-amd64
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/frozen/backend
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: docice545/gallery
+          run-id: ${{ env.ANDROID_RUN }}
+          name: android-media-pilot-validation-apk
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/frozen/android
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: docice545/gallery
+          run-id: ${{ env.IOS_RUN }}
+          name: ios-unsigned-ipa
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/frozen/ios
+      - name: Seal build-9 profile using verified run/artifact identities
+        if: env.IS_CANDIDATE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/create_candidate_profile.py "$RUNNER_TEMP/frozen" "$APP_SOURCE" "$BACKEND_RUN" "$ANDROID_RUN" "$IOS_RUN" "$RUNNER_TEMP/candidate-profile.json"
+      - name: Docker identity, rollback overlay and tamper fixtures
+        env:
+          GALLERY_DISPOSABLE_RELEASE_TESTS: '1'
+        run: python3 -m unittest scripts.release.tests.test_trash_image_identity scripts.release.tests.test_release_candidate -v
+      - name: Classic Docker import and artifact verification
+        run: |
+          set -euo pipefail
+          docker load -i "$RUNNER_TEMP/frozen/backend/gallery-server-linux-amd64.tar.gz"
+          profile=()
+          if [[ "$IS_CANDIDATE" == true ]]; then
+            profile=(--candidate-profile "$RUNNER_TEMP/candidate-profile.json" --candidate-profile-sha256 "$(sha256sum "$RUNNER_TEMP/candidate-profile.json" | cut -d' ' -f1)")
+          fi
+          python3 scripts/release/verify_frozen_bundle.py "$RUNNER_TEMP/frozen" "$RUNNER_TEMP/classic-release" "${profile[@]}"
+      - name: Containerd store on disposable Actions VM only
+        run: |
+          set -euo pipefail
+          sudo systemctl stop docker
+          if [[ -f /etc/docker/daemon.json ]]; then sudo cp /etc/docker/daemon.json "$RUNNER_TEMP/runner-daemon-before.json"; else printf '{}\n' > "$RUNNER_TEMP/runner-daemon-before.json"; fi
+          jq '.features["containerd-snapshotter"] = true' "$RUNNER_TEMP/runner-daemon-before.json" > "$RUNNER_TEMP/runner-containerd.json"
+          sudo cp "$RUNNER_TEMP/runner-containerd.json" /etc/docker/daemon.json
+          sudo systemctl start docker
+      - name: Verify immutable content on containerd and package final handoff
+        run: |
+          set -euo pipefail
+          docker load -i "$RUNNER_TEMP/frozen/backend/gallery-server-linux-amd64.tar.gz"
+          profile=()
+          if [[ "$IS_CANDIDATE" == true ]]; then
+            profile=(--candidate-profile "$RUNNER_TEMP/candidate-profile.json" --candidate-profile-sha256 "$(sha256sum "$RUNNER_TEMP/candidate-profile.json" | cut -d' ' -f1)")
+          fi
+          python3 scripts/release/verify_frozen_bundle.py "$RUNNER_TEMP/frozen" "$RUNNER_TEMP/gallery-trash-handoff" "${profile[@]}"
+          sha256sum "$RUNNER_TEMP/gallery-trash-handoff/release-manifest.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gallery-trash-frozen-handoff-${{ github.run_id }}
+          path: ${{ runner.temp }}/gallery-trash-handoff/
+          if-no-files-found: error
+          retention-days: 14

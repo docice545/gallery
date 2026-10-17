@@ -1,7 +1,9 @@
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
+import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
+import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
@@ -12,7 +14,7 @@ import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.re
 import 'package:immich_mobile/repositories/asset_api.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/utils/option.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 
 class AssetService {
   final RemoteAssetRepository _remoteRepository;
@@ -93,8 +95,21 @@ class AssetService {
       return;
     }
 
-    await _apiRepository.restoreTrash(remoteIds);
-    await _remoteRepository.restoreTrash(remoteIds);
+    final snapshots = await _remoteRepository.beginTrashOperation(remoteIds, restore: true);
+    try {
+      await _apiRepository.restoreTrash(remoteIds);
+      await _remoteRepository.completeTrashOperation(snapshots, success: true);
+    } catch (error, stack) {
+      try {
+        await _remoteRepository.completeTrashOperation(
+          snapshots,
+          success: false,
+          definiteFailure: AssetApiRepository.isDefiniteTrashRejection(error),
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
+    }
   }
 
   Future<void> stack(String userId, List<String> remoteIds) async {
@@ -111,8 +126,34 @@ class AssetService {
       return;
     }
 
-    await _remoteRepository.unStack(stackIds);
     await _apiRepository.unStack(stackIds);
+    await _remoteRepository.unStack(stackIds);
+  }
+
+  Future<List<({StackResponse stack, String name})>> getStacks() => _apiRepository.getStacks();
+
+  Future<void> setStackPrimary(String userId, String stackId, String assetId) async {
+    final stack = await _apiRepository.setStackPrimary(stackId, assetId);
+    await _remoteRepository.stack(userId, stack);
+  }
+
+  Future<void> removeFromStack(String userId, RemoteAsset asset) async {
+    final stackId = asset.stackId;
+    if (stackId == null) {
+      return;
+    }
+    var stack = await _apiRepository.getStack(stackId);
+    if (stack.assetIds.length <= 2) {
+      await unstack([stackId]);
+      return;
+    }
+    // The standard API forbids removing a primary: change it before detaching.
+    if (stack.primaryAssetId == asset.id) {
+      stack = await _apiRepository.setStackPrimary(stackId, stack.assetIds.firstWhere((id) => id != asset.id));
+      await _remoteRepository.stack(userId, stack);
+    }
+    await _apiRepository.removeFromStack(stackId, asset.id);
+    await _remoteRepository.detachFromStack(asset.id);
   }
 
   Future<void> update(
@@ -155,8 +196,21 @@ class AssetService {
       return;
     }
 
-    await _apiRepository.delete(remoteIds, false);
-    await _remoteRepository.trash(remoteIds);
+    final snapshots = await _remoteRepository.beginTrashOperation(remoteIds, restore: false);
+    try {
+      await _apiRepository.delete(remoteIds, false);
+      await _remoteRepository.completeTrashOperation(snapshots, success: true);
+    } catch (error, stack) {
+      try {
+        await _remoteRepository.completeTrashOperation(
+          snapshots,
+          success: false,
+          definiteFailure: AssetApiRepository.isDefiniteTrashRejection(error),
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stack);
+      }
+    }
   }
 
   Future<void> delete(List<String> remoteIds) async {
@@ -164,9 +218,53 @@ class AssetService {
       return;
     }
 
-    await _apiRepository.delete(remoteIds, true);
-    await _remoteRepository.deleteAssets(remoteIds);
+    // Permanent deletion cannot be rolled back from the local cache. Keep the
+    // server-first order so an offline/failed request never drops the only
+    // locally cached metadata before the backend confirms the operation.
+    final results = await deleteWithResults(remoteIds);
+    if (results.any((result) => !result.complete)) {
+      throw StateError('Some permanent deletions require attention');
+    }
   }
+
+  Future<List<PermanentDeletionResult>> deleteWithResults(
+    List<String> remoteIds, {
+    void Function(PermanentDeletionBatchStatus status)? onBatchStatus,
+  }) async {
+    if (remoteIds.isEmpty) {
+      return const [];
+    }
+    final snapshots = await _remoteRepository.beginPermanentDeletion(remoteIds);
+    try {
+      final results = await _apiRepository.permanentlyDelete(remoteIds, onBatchStatus: onBatchStatus);
+      for (final result in results) {
+        final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
+        if (result.state == 'uncertain') {
+          await _remoteRepository.completeTrashOperation(checked, success: false);
+        } else {
+          await _remoteRepository.completePermanentDeletion(
+            checked,
+            result.state == 'blocked' ? const [] : [result.id],
+            result.complete ? [result.id] : const [],
+          );
+        }
+      }
+      return results;
+    } catch (error, stack) {
+      await _remoteRepository.completeTrashOperation(snapshots, success: false);
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  /// Cancels a batch only when its durable id was explicitly provided by the
+  /// caller. A cancelled batch is never implicitly retried or resumed.
+  Future<PermanentDeletionBatchStatus> cancelDeletionBatch(String batchId) {
+    return _apiRepository.cancelDeletionBatch(batchId);
+  }
+
+  Future<List<String>> getTrashIds(String ownerId) => _remoteRepository.getTrashIds(ownerId);
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) => _remoteRepository.getDeletionLocalIds(ids);
 
   Future<void> applyEdits(String remoteId, List<AssetEdit> edits) async {
     if (edits.isEmpty) {

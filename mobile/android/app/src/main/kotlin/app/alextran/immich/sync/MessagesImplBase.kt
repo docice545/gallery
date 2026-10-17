@@ -494,14 +494,24 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
       }
     } ?: MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
 
-  fun cancelHashing() {
-    hashTask?.cancel()
-    hashTask = null
+  fun cancelHashing(callback: (Result<Unit>) -> Unit) {
+    val task = hashTask
+    task?.cancel()
+    CoroutineScope(Dispatchers.IO).launch {
+      task?.join()
+      if (hashTask === task) hashTask = null
+      completeWhenActive(callback, Result.success(Unit))
+    }
   }
 
-  fun cancelSync() {
-    syncJob?.cancel()
-    syncJob = null
+  fun cancelSync(callback: (Result<Unit>) -> Unit) {
+    val task = syncJob
+    task?.cancel()
+    CoroutineScope(Dispatchers.IO).launch {
+      task?.join()
+      if (syncJob === task) syncJob = null
+      completeWhenActive(callback, Result.success(Unit))
+    }
   }
 
   protected fun <T> runSync(callback: (Result<T>) -> Unit, work: suspend () -> T) {

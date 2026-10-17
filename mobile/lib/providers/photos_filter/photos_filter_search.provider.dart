@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/services/search.service.dart';
 import 'package:immich_mobile/models/search/search_filter.model.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/search.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/timeline_temporal_filter.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
@@ -31,23 +32,41 @@ class PhotosFilterSearchNotifier extends StateNotifier<PhotosFilterSearchState> 
   final SearchFilter _filter;
   final _countController = StreamController<int>.broadcast();
   final _ids = <String>{};
+  final _fetched = <BaseAsset>[];
+  Set<String> _trashedIds = const {};
+  bool _trashReady = false;
+  StreamSubscription<Set<String>>? _trashSubscription;
   bool _disposed = false;
 
   /// Resolves when the page-1 load kicked in the constructor settles.
   late final Future<void> firstLoad;
 
-  PhotosFilterSearchNotifier({required SearchService search, required SearchFilter filter})
+  PhotosFilterSearchNotifier({
+    required SearchService search,
+    required SearchFilter filter,
+    Stream<Set<String>>? trashedIds,
+  })
     // Keep the public named parameters stable; `this._search` would expose a
     // private parameter name to callers.
     // ignore: prefer_initializing_formals
     : _search = search,
-      _filter = filter,
-      super(const PhotosFilterSearchState()) {
+       _filter = filter,
+       super(const PhotosFilterSearchState()) {
     if (filter.isEmpty) {
       firstLoad = Future.value();
       state = const PhotosFilterSearchState(nextPage: null);
       return;
     }
+    _trashReady = trashedIds == null;
+    _trashSubscription = trashedIds?.listen((ids) {
+      if (_disposed) {
+        return;
+      }
+      _trashedIds = ids;
+      _trashReady = true;
+      state = state.copyWith(assets: _visibleAssets());
+      _countController.add(state.assets.length);
+    });
     firstLoad = loadMore();
   }
 
@@ -77,7 +96,8 @@ class PhotosFilterSearchNotifier extends StateNotifier<PhotosFilterSearchState> 
     }
 
     final fresh = result.assets.where((a) => _ids.add(_assetKey(a))).toList(growable: false);
-    final assets = [...state.assets, ...fresh];
+    _fetched.addAll(fresh);
+    final assets = _visibleAssets();
     state = PhotosFilterSearchState(assets: assets, nextPage: result.nextPage, isLoading: false);
     if (!_countController.isClosed) {
       _countController.add(assets.length);
@@ -88,9 +108,13 @@ class PhotosFilterSearchNotifier extends StateNotifier<PhotosFilterSearchState> 
   /// Search results are always RemoteAssets, so remoteId is non-null in practice.
   String _assetKey(BaseAsset a) => a.remoteId ?? a.heroTag;
 
+  List<BaseAsset> _visibleAssets() =>
+      _trashReady ? _fetched.where((asset) => !_trashedIds.contains(asset.remoteId)).toList(growable: false) : const [];
+
   @override
   void dispose() {
     _disposed = true;
+    unawaited(_trashSubscription?.cancel());
     unawaited(_countController.close());
     super.dispose();
   }
@@ -112,5 +136,6 @@ final photosFilterSearchProvider =
       return PhotosFilterSearchNotifier(
         search: search,
         filter: isSearchActive(userId, filter) ? filter : SearchFilter.empty(),
+        trashedIds: ref.watch(driftProvider).syncStreamRepository.watchTrashedAssetIds(),
       );
     }, dependencies: [photosTimelineEffectiveFilterProvider]);

@@ -10,6 +10,7 @@ import 'package:immich_mobile/presentation/actions/edit_datetime.action.dart';
 import 'package:immich_mobile/presentation/actions/edit_location.action.dart';
 import 'package:immich_mobile/presentation/actions/favorite.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/remove_from_album.action.dart';
 import 'package:immich_mobile/presentation/actions/set_album_cover.action.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
@@ -57,6 +58,9 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: <ActionColumnButton>[
+        const .new(action: DeleteAction(source: .timeline)),
+        const .new(action: CleanupLocalAction(source: .timeline)),
+        const .new(action: DeleteEverywhereAction(source: .timeline)),
         const .new(action: AssetDebugAction(source: .timeline)),
         const .new(action: ShareAction(source: .timeline)),
         const .new(action: ShareLinkAction(source: .timeline)),
@@ -67,13 +71,12 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
         ],
         const .new(action: DownloadAction(source: .timeline)),
         if (ownsAlbum) ...const [
-          .new(action: DeleteAction(source: .timeline)),
           .new(action: EditDateTimeAction(source: .timeline)),
           .new(action: EditLocationAction(source: .timeline)),
           .new(action: LockAction(source: .timeline)),
           .new(action: StackAction(source: .timeline)),
+          .new(action: ManageStackAction(source: .timeline)),
         ],
-        const .new(action: CleanupLocalAction(source: .timeline)),
         if (ownsAlbum) ...[
           ActionColumnButton(
             action: RemoveFromAlbumAction(source: .timeline, albumId: widget.album.id),

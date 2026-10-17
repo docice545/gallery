@@ -16,6 +16,7 @@
 			<string>SUBQUERY ( extensionItems, $extensionItem, SUBQUERY ( $extensionItem.attachments,
           $attachment, ( ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url"
           || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" || ANY
+          $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.live-photo" || ANY
           $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.text" || ANY
           $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.movie" || ANY
           $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" ) ).@count &gt; 0

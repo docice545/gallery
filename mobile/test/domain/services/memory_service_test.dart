@@ -14,6 +14,8 @@ void main() {
   late MockMemoryRepository mockRepository;
   late MockMemoryApiRepository mockApiRepository;
 
+  setUpAll(() => registerFallbackValue(DateTime.utc(2026)));
+
   Memory memory(String id, {String ownerId = 'user-1'}) => Memory(
     id: id,
     createdAt: DateTime.utc(2026),
@@ -37,9 +39,82 @@ void main() {
     when(
       () => mockApiRepository.getMemoryLane(),
     ).thenAnswer((_) async => [memory('own-memory'), memory('shared-memory', ownerId: 'space-owner')]);
+    when(() => mockRepository.markRemoved(any(), any())).thenAnswer((_) async {});
+  });
+
+  group('management', () {
+    test('viewing an owned memory acknowledges seenAt without saving or deleting', () async {
+      when(() => mockApiRepository.markViewed(any(), any())).thenAnswer((_) async {});
+      await sut.markViewed(memory('own-memory'), 'user-1');
+      verify(() => mockApiRepository.markViewed('own-memory', any())).called(1);
+      verifyNever(() => mockApiRepository.hide(any()));
+      verifyNever(() => mockApiRepository.delete(any()));
+      verifyNever(() => mockRepository.markRemoved(any(), any()));
+    });
+
+    test('shared, already seen and removed memories are not marked on behalf of their owner', () async {
+      await sut.markViewed(memory('shared', ownerId: 'other-user'), 'user-1');
+      await sut.markViewed(memory('seen').copyWith(seenAt: DateTime.utc(2026)), 'user-1');
+      await sut.markViewed(memory('hidden').copyWith(deletedAt: DateTime.utc(2026)), 'user-1');
+      await sut.markViewed(memory('no-session'), null);
+      verifyNever(() => mockApiRepository.markViewed(any(), any()));
+    });
+
+    test('offline viewing remains usable and never becomes rejection', () async {
+      when(() => mockApiRepository.markViewed(any(), any())).thenThrow(Exception('offline'));
+      await sut.markViewed(memory('own-memory'), 'user-1');
+      verifyNever(() => mockRepository.markRemoved(any(), any()));
+      verifyNever(() => mockApiRepository.delete(any()));
+    });
+
+    test('hide marks only the acknowledged memory cache as removed', () async {
+      final removedAt = DateTime.utc(2026, 10, 5);
+      when(
+        () => mockApiRepository.hide('own-memory'),
+      ).thenAnswer((_) async => memory('own-memory').copyWith(deletedAt: removedAt));
+      await sut.hide('own-memory');
+      verify(() => mockRepository.markRemoved('own-memory', removedAt)).called(1);
+      verifyNever(() => mockApiRepository.delete(any()));
+    });
+
+    test('delete waits for server success before marking the cache', () async {
+      when(() => mockApiRepository.delete('own-memory')).thenAnswer((_) async {});
+      await sut.delete('own-memory');
+      verify(() => mockApiRepository.delete('own-memory')).called(1);
+      verify(() => mockRepository.markRemoved('own-memory', any())).called(1);
+    });
+
+    for (final action in ['hide', 'delete']) {
+      test('$action failure leaves the local memory visible', () async {
+        when(() => mockApiRepository.hide('own-memory')).thenThrow(Exception('offline'));
+        when(() => mockApiRepository.delete('own-memory')).thenThrow(Exception('offline'));
+        await expectLater(action == 'hide' ? sut.hide('own-memory') : sut.delete('own-memory'), throwsException);
+        verifyNever(() => mockRepository.markRemoved(any(), any()));
+      });
+    }
+
+    test('a cache write failure does not undo an already committed server deletion', () async {
+      when(() => mockApiRepository.delete('own-memory')).thenAnswer((_) async {});
+      when(() => mockRepository.markRemoved(any(), any())).thenThrow(Exception('disk unavailable'));
+      await sut.delete('own-memory');
+      verify(() => mockApiRepository.delete('own-memory')).called(1);
+    });
   });
 
   group('getMemoryLane', () {
+    test('offline fallback excludes pending and declined candidates', () async {
+      when(() => mockApiRepository.getMemoryLane()).thenThrow(Exception('offline'));
+      when(() => mockRepository.getAll(any())).thenAnswer(
+        (_) async => [
+          memory('ordinary'),
+          memory('pending').copyWith(data: const MemoryData({'candidateState': 'pending'})),
+          memory('dismissed').copyWith(data: const MemoryData({'candidateState': 'dismissed'})),
+          memory('saved').copyWith(data: const MemoryData({'candidateState': 'saved'})),
+          memory('hidden').copyWith(deletedAt: DateTime.utc(2026)),
+        ],
+      );
+      expect((await sut.getMemoryLane('user-1')).map((memory) => memory.id), ['ordinary', 'saved']);
+    });
     // Regression test for issue #997: memories built from Space-shared photos showed on
     // web but not in the Android app.
     test('returns the server list, which includes Space-shared memories', () async {

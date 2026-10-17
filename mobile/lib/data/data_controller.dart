@@ -29,11 +29,20 @@ class DataController {
     final (db, updatePool) = await openSqliteConnectionWithUpdatePool(name: 'immich');
     final drift = Drift.sqlite(db, updatePool);
 
-    final (logDb, wasRecreated) = await _openLoggerDatabase();
-
-    await StoreService.init(storeRepository: StoreRepository(drift), listenUpdates: !disableStoreWatching);
-
-    return (DataController._(drift, logDb, apiService), wasRecreated);
+    DriftLogger? logger;
+    try {
+      final (logDb, wasRecreated) = await _openLoggerDatabase();
+      logger = logDb;
+      await StoreService.init(storeRepository: StoreRepository(drift), listenUpdates: !disableStoreWatching);
+      return (DataController._(drift, logDb, apiService), wasRecreated);
+    } catch (_) {
+      try {
+        await drift.close();
+      } finally {
+        await logger?.close();
+      }
+      rethrow;
+    }
   }
 
   /// Open the logger database, recreating if corrupt. Returns the logger and whether it was recreated
@@ -78,9 +87,11 @@ class DataController {
   DriftLogger get logDb => _logDb;
 
   Future<void> close() async {
-    await _db.close();
-
-    // Close after the primary DB to ensure all logs are captured
-    await _logDb.close();
+    try {
+      await _db.close();
+    } finally {
+      // Close after the primary DB, even when its close reports an error.
+      await _logDb.close();
+    }
   }
 }

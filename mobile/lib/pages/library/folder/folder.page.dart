@@ -178,6 +178,7 @@ class FolderContent extends HookConsumerWidget {
                     ...folderAssets.mapIndexed(
                       (index, asset) => LargeLeadingTile(
                         onTap: () {
+                          final notifier = ref.read(folderRenderListProvider(folder!).notifier);
                           AssetViewer.setAsset(ref, asset);
                           unawaited(
                             context.pushRoute(
@@ -185,7 +186,7 @@ class FolderContent extends HookConsumerWidget {
                                 initialIndex: index,
                                 timelineService: ref
                                     .read(timelineFactoryProvider)
-                                    .fromAssets(folderAssets, TimelineOrigin.folder),
+                                    .fromAssetStream(notifier.getAssets, notifier.count, TimelineOrigin.folder),
                               ),
                             ),
                           );

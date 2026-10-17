@@ -1,0 +1,95 @@
+name: gallery-nfs-test
+
+services:
+  server:
+    container_name: gallery_nfs_test_server
+    image: ${GALLERY_SERVER_IMAGE:?Set GALLERY_SERVER_IMAGE to the image under test}
+    environment:
+      IMMICH_HOST: 0.0.0.0
+      IMMICH_PORT: 2283
+      IMMICH_MEDIA_LOCATION: /data
+      IMMICH_STORAGE_BACKEND: disk
+      IMMICH_MACHINE_LEARNING_ENABLED: "false"
+      # Keep both workers in this single isolated server container so metadata
+      # extraction and deletion jobs are processed without another project.
+      IMMICH_WORKERS_INCLUDE: api,microservices
+      IMMICH_IGNORE_MOUNT_CHECK_ERRORS: "false"
+      DB_HOSTNAME: database
+      DB_PORT: "5432"
+      DB_USERNAME: ${DB_USERNAME:?Set DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME:?Set DB_DATABASE_NAME}
+      REDIS_HOSTNAME: redis
+      REDIS_PORT: "6379"
+    volumes:
+      # The SSD is the only parent media mount. The NFS bind mount is deliberately
+      # limited to upload/, so encoded motion video and derivatives stay on SSD.
+      - ${SSD_MEDIA_ROOT:?Set SSD_MEDIA_ROOT under /mnt/hp-data/gallery-nfs-test}:/data
+      - ${NFS_TEST_ROOT:?Set NFS_TEST_ROOT to /mnt/gallery-nfs-test}:/data/upload
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "127.0.0.1:2295:2283"
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - gallery_nfs_test
+      - gallery_nfs_test_ingress
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "immich-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+
+  database:
+    container_name: gallery_nfs_test_postgres
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a dedicated test DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME:?Set DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME:?Set a dedicated DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - ${SSD_DB_ROOT:?Set SSD_DB_ROOT under /mnt/hp-data/gallery-nfs-test}:/var/lib/postgresql/data
+    shm_size: 128mb
+    networks:
+      - gallery_nfs_test
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  redis:
+    container_name: gallery_nfs_test_redis
+    image: docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    command: ["valkey-server", "--appendonly", "yes", "--dir", "/data"]
+    volumes:
+      - ${SSD_REDIS_ROOT:?Set SSD_REDIS_ROOT under /mnt/hp-data/gallery-nfs-test}:/data
+    networks:
+      - gallery_nfs_test
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+networks:
+  gallery_nfs_test:
+    name: gallery_nfs_test
+    driver: bridge
+    internal: true
+  # Rootless Docker cannot publish a host port from an internal-only bridge.
+  # Keep database/Redis on the private network and give only the API server a
+  # dedicated ingress bridge whose sole host exposure is 127.0.0.1:2295.
+  gallery_nfs_test_ingress:
+    name: gallery_nfs_test_ingress
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

@@ -60,27 +60,38 @@ abstract final class Bootstrap {
       disableStoreWatching: disableStoreWatching,
     );
 
-    final settingsRepo = await SettingsRepository.ensureInitialized(dataController.db);
+    LogService? logService;
+    try {
+      final settingsRepo = await SettingsRepository.ensureInitialized(dataController.db);
 
-    // TODO(rewrite): This is bad DB coupling and should be removed
-    final endpoint = Store.tryGet(StoreKey.serverEndpoint);
-    if (endpoint != null && endpoint.isNotEmpty) {
-      apiService.setEndpoint(endpoint);
+      // TODO(rewrite): This is bad DB coupling and should be removed
+      final endpoint = Store.tryGet(StoreKey.serverEndpoint);
+      if (endpoint != null && endpoint.isNotEmpty) {
+        apiService.setEndpoint(endpoint);
+      }
+
+      // Take DataController's logging DB and register it with the logging service
+      logService = await LogService.init(
+        logRepository: LogRepository(dataController.logDb),
+        settingsRepository: settingsRepo,
+        shouldBuffer: shouldBufferLogs,
+      );
+
+      if (loggerDatabaseWasRecreated) {
+        Logger('bootstrap:initLogger').warning('Logs database was corrupt and has been recreated');
+      }
+
+      // TODO: Remove once all asset operations are migrated to Native APIs
+      await PhotoManager.setIgnorePermissionCheck(true);
+      return (dataController, apiService);
+    } catch (_) {
+      // Background entrypoints must not leave sqlite alive after failed init.
+      try {
+        await Future.wait([if (logService != null) logService.dispose(), Store.dispose()]);
+      } finally {
+        await dataController.close();
+      }
+      rethrow;
     }
-
-    // Take DataController's logging DB and register it with the logging service
-    await LogService.init(
-      logRepository: LogRepository(dataController.logDb),
-      settingsRepository: settingsRepo,
-      shouldBuffer: shouldBufferLogs,
-    );
-
-    if (loggerDatabaseWasRecreated) {
-      Logger('bootstrap:initLogger').warning('Logs database was corrupt and has been recreated');
-    }
-
-    // TODO: Remove once all asset operations are migrated to Native APIs
-    await PhotoManager.setIgnorePermissionCheck(true);
-    return (dataController, apiService);
   }
 }

@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:collection/collection.dart';
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/main/table/app/settings.drift.dart';
 import 'package:immich_mobile/data/db/main/table/asset/edit.drift.dart';
 import 'package:immich_mobile/data/db/main/table/asset/ocr.drift.dart';
 import 'package:immich_mobile/data/db/main/table/local/album.drift.dart';
@@ -36,6 +38,7 @@ import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/models/user_metadata.model.dart';
 import 'package:immich_mobile/extensions/string_extensions.dart';
@@ -45,6 +48,17 @@ import 'package:immich_mobile/infrastructure/utils/exif.converter.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart' as api show AlbumUserRole, AssetEditAction, AssetVisibility, UserMetadataKey;
 import 'package:openapi/api.dart' hide AlbumUserRole, AssetEditAction, AssetVisibility, UserMetadataKey;
+import 'package:uuid/uuid.dart';
+
+typedef AssetTrashSnapshot = ({
+  String scope,
+  String id,
+  String ownerId,
+  String checksum,
+  DateTime deletedAt,
+  String? retainedKey,
+  String? retainedValue,
+});
 
 @DriftAccessor()
 class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepositoryMixin {
@@ -59,7 +73,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   Drift get _db => attachedDatabase;
 
-  Future<void> reset() async {
+  Future<void> reset({bool retainTrash = true}) async {
     _logger.fine("SyncResetV1 received. Resetting remote entities");
     try {
       await _db.exclusively(() async {
@@ -68,6 +82,43 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         await _db.customStatement('PRAGMA foreign_keys = OFF');
         try {
           await transaction(() async {
+            if (retainTrash) {
+              final rows =
+                  await (_db.remoteAssetEntity.select()
+                        ..where((row) => row.deletedAt.isNotNull() & row.isIndexTombstone.equals(false)))
+                      .get();
+              final endpoint = await _trashEndpoint();
+              final prefix = await _trashResetPrefix();
+              final retained = await _retainedTrash({for (final row in rows) row.id: row.ownerId});
+              await _db.batch((batch) {
+                for (final row in rows) {
+                  // Preserve mutation revisions and pending outcomes across a reset.
+                  if (retained.containsKey(row.id)) {
+                    continue;
+                  }
+                  batch.insert(
+                    _db.settingsEntity,
+                    SettingsEntityCompanion.insert(
+                      key: '$prefix${row.ownerId}/${row.id}',
+                      value: Value(
+                        jsonEncode({
+                          'endpoint': endpoint,
+                          'id': row.id,
+                          'ownerId': row.ownerId,
+                          'checksum': row.checksum,
+                          'deletedAt': row.deletedAt!.millisecondsSinceEpoch,
+                        }),
+                      ),
+                    ),
+                    mode: InsertMode.insertOrReplace,
+                  );
+                }
+              });
+            } else {
+              // Logout clears account metadata. A sync reset retains only
+              // identities/tombstones, never names, paths or media rows.
+              await _db.settingsEntity.deleteWhere((row) => row.key.like('sync.trash-reset.%'));
+            }
             // FK cascade (ON DELETE SET NULL) does not fire while foreign_keys = OFF,
             // so null linkedRemoteAlbumId manually to avoid dangling pointers in local_album_entity.
             await _db.localAlbumEntity.update().write(
@@ -228,10 +279,14 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   Future<void> deleteAssetsV1(Iterable<SyncAssetDeleteV1> data, {String debugLabel = 'user'}) async {
     try {
-      await _db.batch((batch) {
-        for (final asset in data) {
-          batch.deleteWhere(_db.remoteAssetEntity, (row) => row.id.equals(asset.assetId));
-        }
+      final assets = data.toList();
+      await _db.transaction(() async {
+        await clearRetainedTrash(ids: assets.map((asset) => asset.assetId));
+        await _db.batch((batch) {
+          for (final asset in assets) {
+            batch.deleteWhere(_db.remoteAssetEntity, (row) => row.id.equals(asset.assetId));
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: deleteAssetsV1 - $debugLabel', error, stack);
@@ -239,44 +294,555 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetsV1(Iterable<SyncAssetV1> data, {String debugLabel = 'user'}) async {
-    try {
-      final assets = data.toList();
+  /// SyncAssetV1/V2 carry media mtime, not a revision of the server Trash state.
+  /// A null deletedAt from another/backfilled stream therefore cannot prove a
+  /// restore. Keep the persisted tombstone until the current asset endpoint (or
+  /// an explicit successful Restore action) confirms that transition.
+  Future<List<AssetTrashSnapshot>> getRestoreCandidates(Map<String, String> ownersById) async {
+    if (ownersById.isEmpty) {
+      return const [];
+    }
+    final scope = await _trashResetPrefix();
+    final retained = await _retainedTrash(ownersById);
+    final query = _db.remoteAssetEntity.select()
+      ..where((row) => row.id.isIn(ownersById.keys) & row.deletedAt.isNotNull() & row.isIndexTombstone.equals(false));
+    final candidates = Map.of(retained);
+    for (final row in await query.get()) {
+      if (ownersById[row.id] == row.ownerId) {
+        candidates[row.id] = (
+          scope: scope,
+          id: row.id,
+          ownerId: row.ownerId,
+          checksum: row.checksum,
+          deletedAt: row.deletedAt!,
+          retainedKey: retained[row.id]?.retainedKey,
+          retainedValue: retained[row.id]?.retainedValue,
+        );
+      }
+    }
+    // A current active GET cannot resolve a request that has not completed yet.
+    // Pending mutations are reconciled separately, including on an empty sync.
+    candidates.removeWhere(
+      (_, snapshot) => _pendingState(snapshot)?['operation'] != null || _pendingState(snapshot)?['permanent'] == true,
+    );
+    return candidates.values.toList();
+  }
 
-      await _db.batch((batch) {
-        for (final asset in assets) {
-          final companion = RemoteAssetEntityCompanion(
-            name: Value(asset.originalFileName),
-            type: Value(asset.type.toAssetType()),
-            createdAt: Value.absentIfNull(asset.fileCreatedAt),
-            updatedAt: Value.absentIfNull(asset.fileModifiedAt),
-            uploadedAt: Value(asset.createdAt),
-            durationMs: Value(asset.duration?.toDuration()?.inMilliseconds ?? 0),
-            checksum: Value(asset.checksum),
-            isFavorite: Value(asset.isFavorite),
-            ownerId: Value(asset.ownerId),
-            localDateTime: Value(asset.localDateTime),
-            thumbHash: Value(asset.thumbhash),
-            deletedAt: Value(asset.deletedAt),
-            visibility: Value(asset.visibility.toAssetVisibility()),
-            livePhotoVideoId: Value(asset.livePhotoVideoId),
-            stackId: Value(asset.stackId),
-            libraryId: Value(asset.libraryId),
-            width: Value(asset.width),
-            height: Value(asset.height),
-            isEdited: Value(asset.isEdited),
-          );
+  /// The read may race a newer local Trash action. Only clear the state that
+  /// was actually checked, never a replacement tombstone/asset identity.
+  Future<void> confirmRestore(AssetTrashSnapshot checked) async {
+    if (_pendingState(checked)?['operation'] != null || _pendingState(checked)?['permanent'] == true) {
+      return;
+    }
+    await _db.transaction(() async {
+      if (checked.scope != await _trashResetPrefix()) {
+        return;
+      }
+      final currentRetained = (await _retainedTrash({checked.id: checked.ownerId}))[checked.id];
+      // SQLite media dates have second precision. A local restore->retrash
+      // can therefore have the same timestamp (ABA); compare its durable
+      // opaque mutation revision, including when the earlier row had none.
+      if (currentRetained?.retainedValue != checked.retainedValue) {
+        return;
+      }
+      final row = await (_db.remoteAssetEntity.select()..where((row) => row.id.equals(checked.id))).getSingleOrNull();
+      if (row != null &&
+          (row.ownerId != checked.ownerId ||
+              row.checksum != checked.checksum ||
+              (row.deletedAt != null && row.deletedAt != checked.deletedAt))) {
+        return;
+      }
+      if (checked.retainedKey != null) {
+        final retained =
+            await (_db.settingsEntity.select()
+                  ..where((row) => row.key.equals(checked.retainedKey!) & row.value.equals(checked.retainedValue!)))
+                .getSingleOrNull();
+        if (retained == null) {
+          return;
+        }
+        await _db.settingsEntity.deleteWhere((row) => row.key.equals(checked.retainedKey!));
+      }
+      if (row != null) {
+        await (_db.remoteAssetEntity.update()..where((row) => row.id.equals(checked.id))).write(
+          const RemoteAssetEntityCompanion(deletedAt: Value(null), isIndexTombstone: Value(false)),
+        );
+      }
+    });
+  }
 
-          batch.insert(
-            _db.remoteAssetEntity,
-            companion.copyWith(id: Value(asset.id)),
-            mode: InsertMode.insertOrReplace,
-            onConflict: DoUpdate((_) => companion),
+  Future<String> _trashResetPrefix() async {
+    final scope = sha256.convert(utf8.encode(await _trashEndpoint())).toString();
+    return 'sync.trash-reset.$scope/';
+  }
+
+  Future<String> _trashEndpoint() async {
+    final endpoint = await (_db.storeEntity.select()..where((row) => row.id.equals(StoreKey.serverEndpoint.id)))
+        .getSingleOrNull();
+    return endpoint?.stringValue ?? '';
+  }
+
+  AssetTrashSnapshot _decodeRetained(String key, String value) {
+    final state = jsonDecode(value) as Map<String, dynamic>;
+    return (
+      scope: key.substring(0, key.indexOf('/') + 1),
+      id: state['id'] as String,
+      ownerId: state['ownerId'] as String,
+      checksum: state['checksum'] as String,
+      deletedAt: DateTime.fromMillisecondsSinceEpoch(state['deletedAt'] as int, isUtc: true),
+      retainedKey: key,
+      retainedValue: value,
+    );
+  }
+
+  Map<String, dynamic>? _pendingState(AssetTrashSnapshot? snapshot) =>
+      snapshot?.retainedValue == null ? null : jsonDecode(snapshot!.retainedValue!) as Map<String, dynamic>;
+
+  /// Only the foreground cold-start path calls this, before accepting actions.
+  /// A request abandoned with the previous engine has an unknown outcome.
+  Future<void> recoverPendingTrashOperations() async {
+    await _db.transaction(() async {
+      final prefix = await _trashResetPrefix();
+      final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+      for (final row in rows) {
+        if (row.value == null) {
+          continue;
+        }
+        final state = jsonDecode(row.value!) as Map<String, dynamic>;
+        if (state['phase'] == 'inFlight') {
+          state['phase'] = 'uncertain';
+          await (_db.settingsEntity.update()..where((r) => r.key.equals(row.key))).write(
+            SettingsEntityCompanion(value: Value(jsonEncode(state))),
           );
         }
-      });
+      }
+    });
+  }
 
-      await _hideReferencedLivePhotoMotionAssets();
+  Future<List<AssetTrashSnapshot>> getPendingTrashOperations() async {
+    final prefix = await _trashResetPrefix();
+    final owners = await _db.authUserEntity.select().map((row) => row.id).get();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    return [
+      for (final row in rows)
+        if (row.value != null)
+          if (jsonDecode(row.value!) case {'phase': 'uncertain', 'ownerId': final String ownerId})
+            if (owners.contains(ownerId)) _decodeRetained(row.key, row.value!),
+    ];
+  }
+
+  Future<void> completeTrashOperation(
+    List<AssetTrashSnapshot> snapshots, {
+    required bool success,
+    bool definiteFailure = false,
+  }) async {
+    for (final snapshot in snapshots) {
+      final state = _pendingState(snapshot)!;
+      final bool? trashed = success
+          ? state['operation'] == 'trash'
+          : definiteFailure
+          ? state['previousDeletedAt'] != null
+          : null;
+      await _resolveTrashOperation(snapshot, trashed, rollback: definiteFailure);
+    }
+  }
+
+  Future<void> reconcilePendingTrash(AssetTrashSnapshot snapshot, {required bool isTrashed, bool isOffline = false}) =>
+      _resolveTrashOperation(snapshot, isTrashed, restoreIndexState: !isTrashed && isOffline);
+
+  /// Receipt acknowledgements use the same captured revision as Trash/Restore.
+  /// A timeout never proves that a permanent deletion reached the server.
+  Future<void> resolvePermanentDeletion(
+    AssetTrashSnapshot snapshot, {
+    required bool accepted,
+    bool complete = false,
+  }) async {
+    await _db.transaction(() async {
+      if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
+        return;
+      }
+      final query = _db.settingsEntity.select()
+        ..where((row) => row.key.equals(snapshot.retainedKey!) & row.value.equals(snapshot.retainedValue!));
+      if (await query.getSingleOrNull() == null) {
+        return;
+      }
+      final state = _pendingState(snapshot)!;
+      if (accepted) {
+        state['permanent'] = true;
+        if (complete) {
+          state['permanentComplete'] = true;
+        }
+        if (complete) {
+          state.remove('operation');
+          state.remove('phase');
+        } else {
+          state['operation'] = 'permanent';
+          state['phase'] = 'uncertain';
+        }
+        await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
+          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        );
+        if (complete) {
+          await _db.remoteAssetEntity.deleteWhere((row) => row.id.equals(snapshot.id));
+        }
+      } else {
+        // Only a pending operation may resolve a no-intent receipt; completed
+        // permanent tombstones are immutable even after a stale response.
+        if (state['operation'] != 'permanent' || state['permanent'] == true) {
+          return;
+        }
+        await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
+          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        );
+        final rolledBack = _decodeRetained(snapshot.retainedKey!, jsonEncode(state));
+        // A current owner-scoped receipt says no intent exists. Restore only
+        // the captured pre-request Trash state; no local OS files are recreated.
+        await _resolveTrashOperation(rolledBack, true, rollback: true);
+      }
+    });
+  }
+
+  Future<void> _resolveTrashOperation(
+    AssetTrashSnapshot snapshot,
+    bool? trashed, {
+    bool rollback = false,
+    bool restoreIndexState = false,
+  }) async {
+    await _db.transaction(() async {
+      if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
+        return;
+      }
+      final retained =
+          await (_db.settingsEntity.select()
+                ..where((r) => r.key.equals(snapshot.retainedKey!) & r.value.equals(snapshot.retainedValue!)))
+              .getSingleOrNull();
+      if (retained == null) {
+        return; // A newer Trash/Restore owns this asset now.
+      }
+      final row = await (_db.remoteAssetEntity.select()..where((r) => r.id.equals(snapshot.id))).getSingleOrNull();
+      if (row != null && (row.ownerId != snapshot.ownerId || row.checksum != snapshot.checksum)) {
+        return;
+      }
+      final state = _pendingState(snapshot)!;
+      final unresolvedPrevious = rollback && state['previousPending'] == true;
+      var indexRollback = false;
+      if (trashed == null) {
+        state['phase'] = 'uncertain';
+      } else {
+        state.remove('operation');
+        state.remove('phase');
+        final previous = state.remove('previousDeletedAt');
+        final previousTrashDate = state.remove('previousTrashDate');
+        final previousIndexState = state.remove('previousIndexTombstone') == true;
+        indexRollback = (rollback || restoreIndexState) && previousIndexState;
+        state.remove('previousPending');
+        if ((rollback && trashed) || indexRollback) {
+          state['deletedAt'] = previous;
+        }
+        if (row != null) {
+          await (_db.remoteAssetEntity.update()..where((r) => r.id.equals(snapshot.id))).write(
+            RemoteAssetEntityCompanion(
+              isIndexTombstone: Value(indexRollback),
+              deletedAt: Value(
+                trashed || indexRollback
+                    ? DateTime.fromMillisecondsSinceEpoch(state['deletedAt'] as int, isUtc: true)
+                    : null,
+              ),
+            ),
+          );
+        }
+        // A definite rejection rolls back this action, but cannot prove the
+        // outcome of the preceding optimistic operation it was based on.
+        if (unresolvedPrevious) {
+          state['operation'] = trashed ? 'trash' : 'restore';
+          state['phase'] = 'uncertain';
+          state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
+        }
+      }
+      if ((trashed == false || indexRollback) && !unresolvedPrevious) {
+        await _db.settingsEntity.deleteWhere((r) => r.key.equals(snapshot.retainedKey!));
+      } else {
+        await (_db.settingsEntity.update()..where((r) => r.key.equals(snapshot.retainedKey!))).write(
+          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        );
+      }
+    });
+  }
+
+  Future<Map<String, AssetTrashSnapshot>> _retainedTrash(Map<String, String> ownersById) async {
+    if (ownersById.isEmpty) {
+      return const {};
+    }
+    final prefix = await _trashResetPrefix();
+    final result = <String, AssetTrashSnapshot>{};
+    final keys = [for (final entry in ownersById.entries) '$prefix${entry.value}/${entry.key}'];
+    // Keep the query below the SQLite host parameter limit. Large sync batches
+    // can contain more retained-trash keys than a single IN clause accepts.
+    for (var offset = 0; offset < keys.length; offset += kDriftMaxChunk) {
+      final chunk = keys.sublist(offset, (offset + kDriftMaxChunk).clamp(0, keys.length));
+      final rows = await (_db.settingsEntity.select()..where((row) => row.key.isIn(chunk))).get();
+      for (final row in rows) {
+        if (row.value != null) {
+          final state = _decodeRetained(row.key, row.value!);
+          result[state.id] = state;
+        }
+      }
+    }
+    return result;
+  }
+
+  Future<List<String>> getRetainedTrashIds(String ownerId) async {
+    final prefix = await _trashResetPrefix();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix$ownerId/%'))).get();
+    return [
+      for (final row in rows)
+        if (row.value != null && (jsonDecode(row.value!) as Map<String, dynamic>)['permanent'] != true)
+          _decodeRetained(row.key, row.value!).id,
+    ];
+  }
+
+  /// Search pages are server snapshots, not reactive Drift rows. Keep cached
+  /// results behind the same durable Trash markers used by incremental sync,
+  /// including a reset where the corresponding remote row is temporarily absent.
+  Stream<Set<String>> watchTrashedAssetIds() async* {
+    final prefix = await _trashResetPrefix();
+    final previouslyHidden = <String>{};
+    yield* _db
+        .customSelect(
+          '''
+          SELECT id FROM remote_asset_entity WHERE deleted_at IS NOT NULL
+          UNION
+          SELECT json_extract(value, '\$.id') AS id FROM settings
+          WHERE key LIKE ? AND CASE WHEN json_valid(value)
+            THEN COALESCE(json_extract(value, '\$.operation'), 'trash') != 'restore'
+            ELSE 0 END
+          ''',
+          variables: [Variable.withString('$prefix%')],
+          readsFrom: {_db.remoteAssetEntity, _db.settingsEntity},
+        )
+        .watch()
+        .asyncMap((rows) async {
+          final hidden = rows.map((row) => row.read<String>('id')).toSet();
+          final unmarked = previouslyHidden.difference(hidden);
+          if (unmarked.isNotEmpty) {
+            // Clearing a marker also happens on permanent deletion/reset, not
+            // just Restore. Do not resurrect a cached search result while its
+            // row is absent; a later authoritative active row can reveal it.
+            final present = await _db
+                .customSelect(
+                  'SELECT id FROM remote_asset_entity WHERE id IN (SELECT value FROM json_each(?))',
+                  variables: [Variable.withString(jsonEncode(unmarked.toList()))],
+                )
+                .get();
+            hidden.addAll(unmarked.difference(present.map((row) => row.read<String>('id')).toSet()));
+          }
+          previouslyHidden
+            ..clear()
+            ..addAll(hidden);
+          return hidden;
+        });
+  }
+
+  /// Only called after a successful explicit Restore/Delete API operation.
+  /// Works during reset before the corresponding asset row is re-delivered.
+  Future<void> retainPermanentDeletion(List<String> ids) async {
+    final snapshots = await updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true);
+    for (final snapshot in snapshots) {
+      final state = jsonDecode(snapshot.retainedValue!) as Map<String, dynamic>;
+      state['permanent'] = true;
+      state['permanentComplete'] = true;
+      state.remove('operation');
+      state.remove('phase');
+      await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
+        SettingsEntityCompanion(value: Value(jsonEncode(state))),
+      );
+    }
+  }
+
+  Future<void> clearRetainedTrash({Iterable<String>? ids, String? ownerId}) async {
+    final prefix = await _trashResetPrefix();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    final allowedIds = ids?.toSet();
+    await _db.batch((batch) {
+      for (final row in rows) {
+        final raw = jsonDecode(row.value!) as Map<String, dynamic>;
+        if (raw['permanent'] == true || raw['operation'] != null) {
+          continue;
+        }
+        final state = _decodeRetained(row.key, row.value!);
+        if ((ownerId == null || state.ownerId == ownerId) && (allowedIds == null || allowedIds.contains(state.id))) {
+          batch.deleteWhere(_db.settingsEntity, (entity) => entity.key.equals(row.key));
+        }
+      }
+    });
+  }
+
+  Future<List<String>> getDeletionLocalIds(List<String> ids) async {
+    final prefix = await _trashResetPrefix();
+    final owners = await _db.authUserEntity.select().map((row) => row.id).get();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    return {
+      for (final row in rows)
+        if (row.value != null)
+          if (jsonDecode(row.value!) case {
+            'id': final String id,
+            'ownerId': final String ownerId,
+            'localIds': final List localIds,
+          })
+            if (ids.contains(id) && owners.contains(ownerId)) ...localIds.cast<String>(),
+    }.toList();
+  }
+
+  Future<List<AssetTrashSnapshot>> updateRetainedTrash(
+    Iterable<String> ids,
+    DateTime deletedAt, {
+    bool preserveExistingDates = false,
+    String? operation,
+  }) async {
+    final endpoint = await _trashEndpoint();
+    final prefix = await _trashResetPrefix();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    final wanted = ids.toSet();
+    final identities = <String, ({String ownerId, String checksum})>{};
+    final deletionDates = <String, DateTime>{};
+    final previousDates = <String, DateTime?>{};
+    final previousIndexStates = <String, bool>{};
+    final pendingIds = <String>{};
+    for (final row in rows) {
+      final state = _decodeRetained(row.key, row.value!);
+      if (wanted.contains(state.id)) {
+        identities[state.id] = (ownerId: state.ownerId, checksum: state.checksum);
+        deletionDates[state.id] = state.deletedAt;
+        previousDates[state.id] = _pendingState(state)?['operation'] == 'restore' ? null : state.deletedAt;
+        if (_pendingState(state)?['operation'] != null) {
+          pendingIds.add(state.id);
+        }
+      }
+    }
+    final wantedIds = wanted.toList(growable: false);
+    final existing = <RemoteAssetEntityData>[];
+    for (var start = 0; start < wantedIds.length; start += 500) {
+      final slice = wantedIds.skip(start).take(500);
+      existing.addAll(await (_db.remoteAssetEntity.select()..where((row) => row.id.isIn(slice))).get());
+    }
+    for (final row in existing) {
+      previousDates[row.id] = row.deletedAt;
+      previousIndexStates[row.id] = row.isIndexTombstone;
+      if (!preserveExistingDates || row.deletedAt != null) {
+        identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
+      }
+      if (row.deletedAt != null) {
+        deletionDates[row.id] = row.deletedAt!;
+      }
+    }
+    final localIdsByChecksum = <String, List<String>>{};
+    final checksums = identities.values.map((identity) => identity.checksum).toSet();
+    if (checksums.isNotEmpty) {
+      final localRows = await (_db.localAssetEntity.select()..where((row) => row.checksum.isIn(checksums))).get();
+      for (final row in localRows) {
+        (localIdsByChecksum[row.checksum!] ??= []).add(row.id);
+      }
+    }
+    final previousValues = {for (final row in rows) row.key: jsonDecode(row.value!) as Map<String, dynamic>};
+    final snapshots = <AssetTrashSnapshot>[];
+    await _db.batch((batch) {
+      for (final entry in identities.entries) {
+        final key = '$prefix${entry.value.ownerId}/${entry.key}';
+        final previous = previousValues[key];
+        if (previous?['permanent'] == true && operation == 'restore') {
+          throw StateError('Permanent deletion cannot be restored');
+        }
+        final value = jsonEncode({
+          if (previous?['permanent'] == true) 'permanent': true,
+          if (previous?['permanentComplete'] == true) 'permanentComplete': true,
+          'localIds': previous?['localIds'] ?? localIdsByChecksum[entry.value.checksum] ?? <String>[],
+          'endpoint': endpoint,
+          'id': entry.key,
+          'ownerId': entry.value.ownerId,
+          'checksum': entry.value.checksum,
+          'deletedAt':
+              ((preserveExistingDates ? deletionDates[entry.key] ?? deletedAt : deletedAt).millisecondsSinceEpoch ~/
+                  1000) *
+              1000,
+          'revision': const Uuid().v4(),
+          if (operation != null) ...{
+            'operation': operation,
+            'phase': 'inFlight',
+            'previousDeletedAt': previousDates[entry.key]?.millisecondsSinceEpoch,
+            'previousIndexTombstone': previousIndexStates[entry.key] ?? false,
+            if (pendingIds.contains(entry.key)) ...{
+              'previousPending': true,
+              'previousTrashDate': deletionDates[entry.key]?.millisecondsSinceEpoch,
+            },
+          },
+        });
+        snapshots.add(_decodeRetained(key, value));
+        batch.insert(
+          _db.settingsEntity,
+          SettingsEntityCompanion.insert(key: key, value: Value(value)),
+          mode: InsertMode.insertOrReplace,
+        );
+      }
+    });
+    return snapshots;
+  }
+
+  Future<void> updateAssetsV1(Iterable<SyncAssetV1> data, {String debugLabel = 'user'}) async {
+    try {
+      await _db.transaction(() async {
+        final assets = data.toList();
+        final retained = await _retainedTrash({for (final asset in assets) asset.id: asset.ownerId});
+
+        await _db.batch((batch) {
+          for (final asset in assets) {
+            if (_pendingState(retained[asset.id])?['permanentComplete'] == true) {
+              continue;
+            }
+            final companion = RemoteAssetEntityCompanion(
+              isIndexTombstone: Value(
+                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+              ),
+              name: Value(asset.originalFileName),
+              type: Value(asset.type.toAssetType()),
+              createdAt: Value.absentIfNull(asset.fileCreatedAt),
+              updatedAt: Value.absentIfNull(asset.fileModifiedAt),
+              uploadedAt: Value(asset.createdAt),
+              durationMs: Value(asset.duration?.toDuration()?.inMilliseconds ?? 0),
+              checksum: Value(asset.checksum),
+              isFavorite: Value(asset.isFavorite),
+              ownerId: Value(asset.ownerId),
+              localDateTime: Value(asset.localDateTime),
+              thumbHash: Value(asset.thumbhash),
+              deletedAt: Value(
+                _pendingState(retained[asset.id])?['operation'] == 'restore'
+                    ? null
+                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
+              ),
+              visibility: Value(asset.visibility.toAssetVisibility()),
+              livePhotoVideoId: Value(asset.livePhotoVideoId),
+              stackId: Value(asset.stackId),
+              libraryId: Value(asset.libraryId),
+              width: Value(asset.width),
+              height: Value(asset.height),
+              isEdited: Value(asset.isEdited),
+            );
+
+            batch.insert(
+              _db.remoteAssetEntity,
+              companion.copyWith(id: Value(asset.id)),
+              mode: InsertMode.insertOrReplace,
+              onConflict: DoUpdate(
+                (_) => companion.copyWith(
+                  deletedAt: asset.deletedAt == null && retained[asset.id] == null
+                      ? const Value.absent()
+                      : companion.deletedAt,
+                ),
+              ),
+            );
+          }
+        });
+
+        await _hideReferencedLivePhotoMotionAssets();
+      });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsV1 - $debugLabel', error, stack);
       rethrow;
@@ -285,40 +851,60 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   Future<void> updateAssetsV2(Iterable<SyncAssetV2> data, {String debugLabel = 'user'}) async {
     try {
-      await _db.batch((batch) {
-        for (final asset in data) {
-          final companion = RemoteAssetEntityCompanion(
-            name: Value(asset.originalFileName),
-            type: Value(asset.type.toAssetType()),
-            createdAt: Value.absentIfNull(asset.fileCreatedAt),
-            updatedAt: Value.absentIfNull(asset.fileModifiedAt),
-            uploadedAt: Value(asset.createdAt),
-            durationMs: Value(asset.duration),
-            checksum: Value(asset.checksum),
-            isFavorite: Value(asset.isFavorite),
-            ownerId: Value(asset.ownerId),
-            localDateTime: Value(asset.localDateTime),
-            thumbHash: Value(asset.thumbhash),
-            deletedAt: Value(asset.deletedAt),
-            visibility: Value(asset.visibility.toAssetVisibility()),
-            livePhotoVideoId: Value(asset.livePhotoVideoId),
-            stackId: Value(asset.stackId),
-            libraryId: Value(asset.libraryId),
-            width: Value(asset.width),
-            height: Value(asset.height),
-            isEdited: Value(asset.isEdited),
-          );
+      await _db.transaction(() async {
+        final assets = data.toList();
+        final retained = await _retainedTrash({for (final asset in assets) asset.id: asset.ownerId});
+        await _db.batch((batch) {
+          for (final asset in assets) {
+            if (_pendingState(retained[asset.id])?['permanentComplete'] == true) {
+              continue;
+            }
+            final companion = RemoteAssetEntityCompanion(
+              isIndexTombstone: Value(
+                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+              ),
+              name: Value(asset.originalFileName),
+              type: Value(asset.type.toAssetType()),
+              createdAt: Value.absentIfNull(asset.fileCreatedAt),
+              updatedAt: Value.absentIfNull(asset.fileModifiedAt),
+              uploadedAt: Value(asset.createdAt),
+              durationMs: Value(asset.duration),
+              checksum: Value(asset.checksum),
+              isFavorite: Value(asset.isFavorite),
+              ownerId: Value(asset.ownerId),
+              localDateTime: Value(asset.localDateTime),
+              thumbHash: Value(asset.thumbhash),
+              deletedAt: Value(
+                _pendingState(retained[asset.id])?['operation'] == 'restore'
+                    ? null
+                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
+              ),
+              visibility: Value(asset.visibility.toAssetVisibility()),
+              livePhotoVideoId: Value(asset.livePhotoVideoId),
+              stackId: Value(asset.stackId),
+              libraryId: Value(asset.libraryId),
+              width: Value(asset.width),
+              height: Value(asset.height),
+              isEdited: Value(asset.isEdited),
+            );
 
-          batch.insert(
-            _db.remoteAssetEntity,
-            companion.copyWith(id: Value(asset.id)),
-            mode: InsertMode.insertOrReplace,
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
+            batch.insert(
+              _db.remoteAssetEntity,
+              companion.copyWith(id: Value(asset.id)),
+              mode: InsertMode.insertOrReplace,
+              onConflict: DoUpdate(
+                (_) => companion.copyWith(
+                  deletedAt: asset.deletedAt == null && retained[asset.id] == null
+                      ? const Value.absent()
+                      : companion.deletedAt,
+                ),
+              ),
+            );
+          }
+        });
+
+        await _hideReferencedLivePhotoMotionAssets();
       });
-
-      await _hideReferencedLivePhotoMotionAssets();
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsV2 - $debugLabel', error, stack);
       rethrow;

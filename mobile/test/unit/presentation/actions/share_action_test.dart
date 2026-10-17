@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -7,6 +10,8 @@ import 'package:immich_mobile/infrastructure/repositories/settings.repository.da
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/share_link.action.dart';
+import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
+import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -22,6 +27,7 @@ void main() {
   });
 
   tearDown(() async {
+    debugDefaultTargetPlatformOverride = null;
     await context.dispose();
   });
 
@@ -53,6 +59,7 @@ void main() {
       any(),
       any(),
       fileType: captureAny(named: 'fileType'),
+      livePhotoMode: any(named: 'livePhotoMode'),
       cancelCompleter: any(named: 'cancelCompleter'),
       onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
     ),
@@ -72,6 +79,66 @@ void main() {
   }
 
   group('ShareAction', () {
+    testWidgets('iOS original Live Photo default requests preserved motion', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await pumpShare(
+          tester,
+          selection: {
+            RemoteAssetFactory.create(ownerId: context.currentUser.id).copyWith(livePhotoVideoId: 'paired-motion'),
+          },
+        );
+        await tester.tap(find.byType(ImmichIconButton));
+        await settle(tester);
+        final modes = verify(
+          () => context.repository.assetMedia.api.shareAssets(
+            any(),
+            any(),
+            fileType: any(named: 'fileType'),
+            livePhotoMode: captureAny(named: 'livePhotoMode'),
+            cancelCompleter: any(named: 'cancelCompleter'),
+            onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+          ),
+        ).captured;
+        expect(modes, [LivePhotoShareMode.preserveMotion]);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('iOS Live Photo dialog offers intentional original image-only mode', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await pumpShare(
+          tester,
+          selection: {
+            RemoteAssetFactory.create(ownerId: context.currentUser.id).copyWith(livePhotoVideoId: 'paired-motion'),
+          },
+        );
+        final shared = invokeSecondaryAction();
+        await settle(tester);
+        expect(find.text('Live Photo (preserve motion)'), findsOneWidget);
+        expect(find.text('Original image only'), findsOneWidget);
+        await tester.tap(find.byIcon(Icons.image_outlined));
+        await settle(tester);
+        await shared;
+        final modes = verify(
+          () => context.repository.assetMedia.api.shareAssets(
+            any(),
+            any(),
+            fileType: ShareAssetType.original,
+            livePhotoMode: captureAny(named: 'livePhotoMode'),
+            cancelCompleter: any(named: 'cancelCompleter'),
+            onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+          ),
+        ).captured;
+        expect(modes, [LivePhotoShareMode.imageOnly]);
+        expect(SettingsRepository.instance.appConfig.share.fileType, ShareAssetType.original);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
     testWidgets('single press shares with the configured default quality', (tester) async {
       await pumpShare(tester);
 
@@ -116,6 +183,92 @@ void main() {
       await settle(tester);
       await shared;
       expect(find.byIcon(Icons.photo_size_select_large_rounded), findsNothing);
+    });
+
+    testWidgets('shows progress, cancels immediately and ignores late progress safely', (tester) async {
+      final pending = Completer<int>();
+      late Completer<void> cancellation;
+      late void Function(double) onProgress;
+      when(
+        () => context.repository.assetMedia.api.shareAssets(
+          any(),
+          any(),
+          fileType: any(named: 'fileType'),
+          livePhotoMode: any(named: 'livePhotoMode'),
+          cancelCompleter: any(named: 'cancelCompleter'),
+          onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+        ),
+      ).thenAnswer((invocation) {
+        cancellation = invocation.namedArguments[#cancelCompleter] as Completer<void>;
+        onProgress = invocation.namedArguments[#onAssetDownloadProgress] as void Function(double);
+        return pending.future;
+      });
+      await pumpShare(tester);
+      await tester.tap(find.byType(ImmichIconButton));
+      await settle(tester);
+      onProgress(0.42);
+      await tester.pump();
+      expect(find.text('42%'), findsOneWidget);
+      expect(cancellation.isCompleted, isFalse);
+      await tester.tap(find.text('Cancel'));
+      await settle(tester);
+      expect(cancellation.isCompleted, isTrue);
+      expect(find.byType(AlertDialog), findsNothing);
+      onProgress(0.9);
+      pending.complete(0);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(sharedFileTypes(), [ShareAssetType.original]);
+    });
+
+    testWidgets('dialog rebuilds do not start another download', (tester) async {
+      final pending = Completer<int>();
+      when(
+        () => context.repository.assetMedia.api.shareAssets(
+          any(),
+          any(),
+          fileType: any(named: 'fileType'),
+          livePhotoMode: any(named: 'livePhotoMode'),
+          cancelCompleter: any(named: 'cancelCompleter'),
+          onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+        ),
+      ).thenAnswer((_) => pending.future);
+      await pumpShare(tester);
+      await tester.tap(find.byType(ImmichIconButton));
+      await settle(tester);
+      tester.view.physicalSize = const Size(1000, 1600);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pump();
+      pending.complete(1);
+      await settle(tester);
+      expect(sharedFileTypes(), [ShareAssetType.original]);
+    });
+
+    testWidgets('server download failure closes preparing UI and reports an error', (tester) async {
+      when(() => context.service.toast.error(any())).thenAnswer((_) {});
+      when(
+        () => context.repository.assetMedia.api.shareAssets(
+          any(),
+          any(),
+          fileType: any(named: 'fileType'),
+          livePhotoMode: any(named: 'livePhotoMode'),
+          cancelCompleter: any(named: 'cancelCompleter'),
+          onAssetDownloadProgress: any(named: 'onAssetDownloadProgress'),
+        ),
+      ).thenAnswer((_) async => throw StateError('offline'));
+      await tester.pumpTestWidget(
+        context,
+        const ActionIconButton(action: ShareAction(source: .timeline)),
+        overrides: [
+          ...context.selected({RemoteAssetFactory.create()}),
+          toastServiceProvider.overrideWithValue(context.service.toast),
+        ],
+      );
+      await tester.tap(find.byType(ImmichIconButton));
+      await settle(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      verify(() => context.service.toast.error(any())).called(1);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('is hidden when nothing is selected', (tester) async {

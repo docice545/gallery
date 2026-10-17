@@ -105,27 +105,65 @@ class BackgroundUploadService {
   Stream<TaskProgressUpdate> get taskProgressStream => _taskProgressController.stream;
 
   bool shouldAbortQueuingTasks = false;
+  bool _isClosing = false;
+  bool _callbackFailed = false;
+  final Set<Future<void>> _activeCallbacks = {};
+  Future<void>? _drain;
+
+  void stopAcceptingWork() {
+    _isClosing = true;
+    shouldAbortQueuingTasks = true;
+    _uploadRepository.onUploadStatus = null;
+    _uploadRepository.onTaskProgress = null;
+  }
+
+  /// URLSession owns enqueued transfers independently. Stop this engine's
+  /// callback/queuing work without deleting their source files or queue records.
+  Future<void> stopAndDrain() => _drain ??= _stopAndDrain();
+
+  Future<void> _stopAndDrain() async {
+    stopAcceptingWork();
+    while (_activeCallbacks.isNotEmpty) {
+      await Future.wait(_activeCallbacks.toList());
+    }
+    await Future.wait([_taskStatusController.close(), _taskProgressController.close()]);
+    if (_callbackFailed) {
+      throw StateError('Background upload callback failed');
+    }
+  }
 
   void _onTaskProgressCallback(TaskProgressUpdate update) {
-    if (!_taskProgressController.isClosed) {
+    if (!_isClosing && !_taskProgressController.isClosed) {
       _taskProgressController.add(update);
     }
   }
 
   void _onUploadCallback(TaskStatusUpdate update) {
+    if (_isClosing) {
+      return;
+    }
     if (!_taskStatusController.isClosed) {
       _taskStatusController.add(update);
     }
-    unawaited(_handleTaskStatusUpdate(update));
+    late final Future<void> work;
+    work = _handleTaskStatusUpdate(update)
+        .catchError((Object error, StackTrace stack) {
+          _callbackFailed = true;
+          _logger.warning('Background upload callback failed', error, stack);
+        })
+        .whenComplete(() => _activeCallbacks.remove(work));
+    _activeCallbacks.add(work);
   }
 
   void dispose() {
-    unawaited(_taskStatusController.close());
-    unawaited(_taskProgressController.close());
+    unawaited(stopAndDrain().catchError((Object _) {}));
   }
 
   /// Enqueue tasks to the background upload queue
   Future<List<bool>> enqueueTasks(List<UploadTask> tasks) {
+    if (_isClosing || shouldAbortQueuingTasks) {
+      return Future.value(List.filled(tasks.length, false));
+    }
     return _uploadRepository.enqueueBackgroundAll(tasks);
   }
 
@@ -139,8 +177,14 @@ class BackgroundUploadService {
   /// Finds backup candidates, builds upload tasks, and enqueues them
   /// for background processing.
   Future<void> uploadBackupCandidates(String userId) async {
-    await _storageRepository.clearCache();
+    if (_isClosing) {
+      return;
+    }
     shouldAbortQueuingTasks = false;
+    await _storageRepository.clearCache();
+    if (_isClosing || shouldAbortQueuingTasks) {
+      return;
+    }
 
     final candidates = await _backupRepository.getCandidates(userId);
     if (candidates.isEmpty) {
@@ -155,6 +199,9 @@ class BackgroundUploadService {
     final List<UploadTask> tasks = [];
 
     for (final asset in batch) {
+      if (_isClosing || shouldAbortQueuingTasks) {
+        break;
+      }
       final task = await getUploadTask(asset);
       if (task != null) {
         tasks.add(task);
@@ -163,7 +210,10 @@ class BackgroundUploadService {
 
     if (tasks.isNotEmpty && !shouldAbortQueuingTasks) {
       _logger.info("Enqueuing ${tasks.length} background upload tasks");
-      await enqueueTasks(tasks);
+      final enqueued = await enqueueTasks(tasks);
+      if (enqueued.any((success) => !success) && !_isClosing) {
+        throw StateError('Failed to enqueue background upload');
+      }
     }
   }
 
@@ -183,13 +233,13 @@ class BackgroundUploadService {
 
   /// Resume background backup processing
   Future<void> resume() {
-    return _uploadRepository.start();
+    return _isClosing ? Future.value() : _uploadRepository.start();
   }
 
   Future<void> _handleTaskStatusUpdate(TaskStatusUpdate update) async {
     switch (update.status) {
       case TaskStatus.complete:
-        unawaited(_handleLivePhoto(update));
+        await _handleLivePhoto(update);
 
         if (CurrentPlatform.isIOS) {
           try {
@@ -221,20 +271,27 @@ class BackgroundUploadService {
       }
       final response = jsonDecode(update.responseBody!);
 
+      if (_isClosing) {
+        return;
+      }
       final localAsset = await _localAssetRepository.getById(metadata.localAssetId);
-      if (localAsset == null) {
+      if (localAsset == null || _isClosing) {
         return;
       }
 
       final uploadTask = await getLivePhotoUploadTask(localAsset, response['id'] as String);
 
-      if (uploadTask == null) {
+      if (uploadTask == null || _isClosing) {
         return;
       }
 
-      await enqueueTasks([uploadTask]);
-    } catch (error, stackTrace) {
-      dPrint(() => "Error handling live photo upload task: $error $stackTrace");
+      final enqueued = await enqueueTasks([uploadTask]);
+      if (enqueued.any((success) => !success) && !_isClosing) {
+        throw StateError('Failed to enqueue paired Live Photo upload');
+      }
+    } catch (_) {
+      dPrint(() => 'Error handling live photo upload task');
+      rethrow;
     }
   }
 

@@ -3,6 +3,7 @@ import {
   AssetFileType,
   AssetOrder,
   AssetOrderBy,
+  AssetStatus,
   AssetType,
   AssetVisibility,
   SharedSpaceRole,
@@ -433,6 +434,7 @@ describe(AssetRepository.name, () => {
         visibility: AssetVisibility.Locked,
       });
       await createTimelineAsset(ctx, user.id, new Date('2024-07-01T12:00:00.000Z'), {
+        status: AssetStatus.Trashed,
         deletedAt: new Date('2024-07-02T00:00:00.000Z'),
       });
 

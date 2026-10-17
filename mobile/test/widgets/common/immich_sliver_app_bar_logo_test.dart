@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
@@ -23,8 +22,10 @@ import 'package:immich_mobile/providers/photos_filter/photos_filter.provider.dar
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/server_info.service.dart';
+import 'package:immich_mobile/widgets/common/app_logo_with_text.dart';
 import 'package:immich_mobile/widgets/common/immich_sliver_app_bar.dart';
 import 'package:mocktail/mocktail.dart';
+
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
 
@@ -173,7 +174,7 @@ void main() {
     bool busy = false,
   }) async {
     await pumpAppBar(tester, width: width, actions: actions, busy: busy);
-    return tester.getSize(find.byType(SvgPicture));
+    return tester.getSize(find.byType(AppLogoWithText));
   }
 
   group('ImmichSliverAppBar logo', () {

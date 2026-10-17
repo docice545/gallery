@@ -16,6 +16,19 @@ void main() {
     await ctx.dispose();
   });
 
+  test('stack count includes primary and reacts to member removal without network requests', () async {
+    final user = await ctx.newUser();
+    const stackId = 'stack-count-test';
+    final first = await ctx.newRemoteAsset(ownerId: user.id, stackId: stackId);
+    await ctx.newRemoteAsset(ownerId: user.id, stackId: stackId);
+    await ctx.newRemoteAsset(ownerId: user.id, stackId: stackId);
+    expect((await sut.watchStackCounts().first)[stackId], 3);
+    await sut.detachFromStack(first.id);
+    expect((await sut.watchStackCounts().first)[stackId], 2);
+    await sut.unStack([stackId]);
+    expect(await sut.watchStackCounts().first, isEmpty);
+  });
+
   group('getByChecksum', () {
     late String userId;
 

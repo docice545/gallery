@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
@@ -20,6 +21,15 @@ import 'package:logging/logging.dart';
 
 const String _kSyncCancelledCode = "SYNC_CANCELLED";
 
+class _LocalChecksumRefreshException implements Exception {
+  final Object cause;
+
+  const _LocalChecksumRefreshException(this.cause);
+
+  @override
+  String toString() => 'Unable to verify changed device assets: $cause';
+}
+
 class LocalSyncService {
   final LocalAlbumRepository _localAlbumRepository;
   final NativeSyncApi _nativeSyncApi;
@@ -27,6 +37,9 @@ class LocalSyncService {
   final AssetMediaRepository _assetMediaRepository;
   final DevicePermissionRepository _permissionRepository;
   final Completer<void>? _cancellation;
+  final bool rethrowErrors;
+  Future<void>? _nativeCancellation;
+  Future<List<HashResult>>? _checksumRefreshTask;
   final Logger _log = Logger("DeviceSyncService");
 
   LocalSyncService({
@@ -36,13 +49,28 @@ class LocalSyncService {
     required this._assetMediaRepository,
     required this._permissionRepository,
     this._cancellation,
+    this.rethrowErrors = false,
   }) {
-    unawaited(_cancellation?.future.then((_) => _nativeSyncApi.cancelSync().onError(_log.warning)));
+    unawaited(_cancellation?.future.then((_) => cancelNativeWork().onError(_log.warning)));
+  }
+
+  Future<void> cancelNativeWork() {
+    final checksumTask = _checksumRefreshTask;
+    return _nativeCancellation ??= Future.wait<void>([
+      _nativeSyncApi.cancelSync(),
+      if (checksumTask != null) _nativeSyncApi.cancelHashing(),
+      // The sync operation observes and reports the native hash error. Its
+      // cancellation owner still waits for that request to finish unwinding.
+      if (checksumTask != null) checksumTask.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    ]).then((_) {});
   }
 
   bool get _isCancelled => _cancellation?.isCompleted ?? false;
 
   Future<void> sync({bool full = false}) async {
+    if (_isCancelled) {
+      return;
+    }
     final Stopwatch stopwatch = Stopwatch()..start();
     try {
       if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
@@ -60,6 +88,9 @@ class LocalSyncService {
       }
 
       final delta = await _nativeSyncApi.getMediaChanges();
+      if (_isCancelled) {
+        return;
+      }
       if (!delta.hasChanges) {
         _log.fine("No media changes detected. Skipping sync");
         return;
@@ -69,8 +100,14 @@ class LocalSyncService {
       _log.fine("Delta deleted: ${delta.deletes.length}");
 
       final deviceAlbums = await _nativeSyncApi.getAlbums();
+      if (_isCancelled) {
+        return;
+      }
+      final newAssets = await _resolveChangedChecksums(delta.updates.toLocalAssets());
       await _localAlbumRepository.updateAll(deviceAlbums.toLocalAlbums());
-      final newAssets = delta.updates.toLocalAssets();
+      if (_isCancelled) {
+        return;
+      }
       await _localAlbumRepository.processDelta(
         updates: newAssets,
         deletes: delta.deletes,
@@ -110,15 +147,26 @@ class LocalSyncService {
 
         await _resolveCloudIds(newAssets);
       }
-      await _nativeSyncApi.checkpointSync();
+      if (!_isCancelled) {
+        await _nativeSyncApi.checkpointSync();
+      }
     } on PlatformException catch (e, s) {
       if (e.code == _kSyncCancelledCode) {
         _log.warning("Local sync cancelled");
+        if (rethrowErrors) {
+          rethrow;
+        }
       } else {
         _log.severe("Error performing device sync", e, s);
+        if (rethrowErrors) {
+          rethrow;
+        }
       }
     } catch (e, s) {
       _log.severe("Error performing device sync", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     } finally {
       stopwatch.stop();
       _log.info("Device sync took - ${stopwatch.elapsedMilliseconds}ms");
@@ -126,10 +174,16 @@ class LocalSyncService {
   }
 
   Future<void> fullSync() async {
+    if (_isCancelled) {
+      return;
+    }
     try {
       final Stopwatch stopwatch = Stopwatch()..start();
 
       final deviceAlbums = await _nativeSyncApi.getAlbums();
+      if (_isCancelled) {
+        return;
+      }
       final dbAlbums = await _localAlbumRepository.getAll(sortBy: {SortLocalAlbumsBy.id});
 
       await diffSortedLists(
@@ -141,17 +195,28 @@ class LocalSyncService {
         onlySecond: addAlbum,
       );
 
-      await _nativeSyncApi.checkpointSync();
+      if (!_isCancelled) {
+        await _nativeSyncApi.checkpointSync();
+      }
       stopwatch.stop();
       _log.info("Full device sync took - ${stopwatch.elapsedMilliseconds}ms");
     } on PlatformException catch (e, s) {
       if (e.code == _kSyncCancelledCode) {
         _log.warning("Full device sync cancelled");
+        if (rethrowErrors) {
+          rethrow;
+        }
       } else {
         _log.severe("Error performing full device sync", e, s);
+        if (rethrowErrors) {
+          rethrow;
+        }
       }
     } catch (e, s) {
       _log.severe("Error performing full device sync", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
   }
 
@@ -166,11 +231,14 @@ class LocalSyncService {
           ? await _nativeSyncApi.getAssetsForAlbum(album.id).then((a) => a.toLocalAssets())
           : <LocalAsset>[];
 
-      await _localAlbumRepository.upsert(album, toUpsert: assets);
+      await _localAlbumRepository.upsert(album, toUpsert: await _resolveChangedChecksums(assets));
       await _resolveCloudIds(assets);
       _log.fine("Successfully added device album ${album.name}");
     } catch (e, s) {
       _log.warning("Error while adding device album", e, s);
+      if (rethrowErrors || e is _LocalChecksumRefreshException || _isCancelled) {
+        rethrow;
+      }
     }
   }
 
@@ -181,6 +249,9 @@ class LocalSyncService {
       await _localAlbumRepository.deleteAlbum(a.id);
     } catch (e, s) {
       _log.warning("Error while removing device album", e, s);
+      if (rethrowErrors) {
+        rethrow;
+      }
     }
   }
 
@@ -209,6 +280,9 @@ class LocalSyncService {
       return await fullDiff(dbAlbum, deviceAlbum);
     } catch (e, s) {
       _log.warning("Error while diff device album", e, s);
+      if (rethrowErrors || e is _LocalChecksumRefreshException || _isCancelled) {
+        rethrow;
+      }
     }
     return true;
   }
@@ -246,13 +320,16 @@ class LocalSyncService {
 
       await _localAlbumRepository.upsert(
         deviceAlbum.copyWith(backupSelection: dbAlbum.backupSelection),
-        toUpsert: newAssets,
+        toUpsert: await _resolveChangedChecksums(newAssets),
       );
 
       await _resolveCloudIds(newAssets);
       return true;
     } catch (e, s) {
       _log.warning("Error on fast syncing local album: ${dbAlbum.name}", e, s);
+      if (rethrowErrors || e is _LocalChecksumRefreshException || _isCancelled) {
+        rethrow;
+      }
     }
     return false;
   }
@@ -280,7 +357,10 @@ class LocalSyncService {
 
       if (dbAlbum.assetCount == 0) {
         _log.fine("Device album ${deviceAlbum.name} is empty. Adding assets to DB.");
-        await _localAlbumRepository.upsert(updatedDeviceAlbum, toUpsert: assetsInDevice);
+        await _localAlbumRepository.upsert(
+          updatedDeviceAlbum,
+          toUpsert: await _resolveChangedChecksums(assetsInDevice),
+        );
         await _resolveCloudIds(assetsInDevice);
         return true;
       }
@@ -318,18 +398,85 @@ class LocalSyncService {
         return true;
       }
 
-      await _localAlbumRepository.upsert(updatedDeviceAlbum, toUpsert: assetsToUpsert, toDelete: assetsToDelete);
+      await _localAlbumRepository.upsert(
+        updatedDeviceAlbum,
+        toUpsert: await _resolveChangedChecksums(assetsToUpsert),
+        toDelete: assetsToDelete,
+      );
       await _resolveCloudIds(assetsToUpsert);
 
       return true;
     } catch (e, s) {
       _log.warning("Error on full syncing local album: ${dbAlbum.name}", e, s);
+      if (rethrowErrors || e is _LocalChecksumRefreshException || _isCancelled) {
+        rethrow;
+      }
     }
     return true;
   }
 
   Future<void> _resolveCloudIds(Iterable<LocalAsset> assets) =>
       resolveCloudIds(_nativeSyncApi, _localAlbumRepository, assets.map((a) => a.id), cancellation: _cancellation);
+
+  /// Keep verified content identity through an Android media refresh. Publishing
+  /// a null hash for an existing asset would temporarily turn its trashed remote
+  /// twin into a new local Photos tile until the later hash job finishes.
+  Future<List<LocalAsset>> _resolveChangedChecksums(List<LocalAsset> assets) async {
+    if (_isCancelled) {
+      throw PlatformException(code: _kSyncCancelledCode);
+    }
+    if (!CurrentPlatform.isAndroid || assets.isEmpty) {
+      return assets;
+    }
+
+    final checksums = <String, String>{};
+    try {
+      final revisions = await _localAlbumRepository.getHashedAssetRevisions(assets.map((asset) => asset.id));
+      final changedIds = assets
+          .where((asset) => revisions[asset.id] != null && !revisions[asset.id]!.isAtSameMomentAs(asset.updatedAt))
+          .map((asset) => asset.id)
+          .toSet();
+      for (final chunk in changedIds.slices(kBatchHashFileLimit)) {
+        if (_isCancelled) {
+          throw PlatformException(code: _kSyncCancelledCode);
+        }
+        final task = _checksumRefreshTask = _nativeSyncApi.hashAssets(chunk);
+        late List<HashResult> results;
+        try {
+          results = await task;
+        } finally {
+          if (identical(_checksumRefreshTask, task)) {
+            _checksumRefreshTask = null;
+          }
+        }
+        if (_isCancelled) {
+          throw PlatformException(code: _kSyncCancelledCode);
+        }
+        for (final result in results) {
+          if (chunk.contains(result.assetId) &&
+              result.error == null &&
+              result.hash != null &&
+              result.hash!.isNotEmpty) {
+            checksums[result.assetId] = result.hash!;
+          }
+        }
+        if (chunk.any((id) => !checksums.containsKey(id))) {
+          throw StateError('Content hashing did not resolve every changed device asset');
+        }
+      }
+    } catch (error) {
+      if (_isCancelled) {
+        throw PlatformException(code: _kSyncCancelledCode);
+      }
+      throw _LocalChecksumRefreshException(error);
+    }
+    if (_isCancelled) {
+      throw PlatformException(code: _kSyncCancelledCode);
+    }
+    return assets
+        .map((asset) => checksums[asset.id] == null ? asset : asset.copyWith(checksum: checksums[asset.id]))
+        .toList();
+  }
 
   bool _assetsEqual(LocalAsset a, LocalAsset b) {
     if (CurrentPlatform.isAndroid) {
@@ -372,13 +519,7 @@ class LocalSyncService {
     _log.fine("syncTrashedAssets, trashedAssets: ${trashedAssets.map((e) => e.asset.id)}");
     await _trashedLocalAssetRepository.processTrashSnapshot(trashedAssets);
 
-    final assetsToRestore = await _trashedLocalAssetRepository.getToRestore();
-    if (assetsToRestore.isNotEmpty) {
-      final restoredIds = await _assetMediaRepository.restoreAssetsFromTrash(assetsToRestore);
-      await _trashedLocalAssetRepository.applyRestoredAssets(restoredIds);
-    } else {
-      _log.info("syncTrashedAssets, No remote assets found for restoration");
-    }
+    // Local trash remains an OS/user decision. A remote Restore must not recreate the device copy.
 
     final localAssetsToTrash = await _trashedLocalAssetRepository.getToTrash();
     if (localAssetsToTrash.isNotEmpty) {

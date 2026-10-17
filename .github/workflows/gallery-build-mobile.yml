@@ -9,6 +9,16 @@ name: Gallery Build Mobile
 on:
   workflow_dispatch:
     inputs:
+      android_media_pilot:
+        description: 'Verify Android media on an emulator and retain a validation APK. No production signing, store upload or deployment.'
+        required: false
+        type: boolean
+        default: false
+      refresh_ios_pods_lock:
+        description: 'Maintenance only: regenerate CocoaPods lock on macOS into a review branch; no build/signing.'
+        required: false
+        type: boolean
+        default: false
       environment:
         description: 'Target environment'
         required: true
@@ -33,6 +43,14 @@ on:
           - ios
   workflow_call:
     inputs:
+      android_media_pilot:
+        required: false
+        type: boolean
+        default: false
+      refresh_ios_pods_lock:
+        required: false
+        type: boolean
+        default: false
       ref:
         required: false
         type: string
@@ -53,27 +71,27 @@ on:
         default: 'both'
     secrets:
       KEY_JKS:
-        required: true
+        required: false
       ALIAS:
-        required: true
+        required: false
       ANDROID_KEY_PASSWORD:
-        required: true
+        required: false
       ANDROID_STORE_PASSWORD:
-        required: true
+        required: false
       PLAY_STORE_JSON_KEY:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ID:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ISSUER_ID:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY:
-        required: true
+        required: false
       IOS_CERTIFICATE_P12:
-        required: true
+        required: false
       IOS_CERTIFICATE_PASSWORD:
-        required: true
+        required: false
       FASTLANE_TEAM_ID:
-        required: true
+        required: false
   pull_request:
     paths:
       - 'mobile/**'
@@ -94,12 +112,219 @@ concurrency:
 permissions: {}
 
 jobs:
+  verify-android-media:
+    name: Android media pilot (no publishing)
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'docice545/gallery' && inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && inputs.build_target == 'android' && inputs.version == '' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Mise
+        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Setup pinned Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version-file: ./mobile/pubspec.yaml
+          cache: true
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          # The action's legacy default asks for the removed SDK package "tools".
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Full locked code generation
+        run: bash mobile/scripts/android_media_codegen.sh
+      - name: Prepare the pinned Flutter Gradle wrapper
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          # Flutter normally injects these ignored files before its first build.
+          # Unit tests run first here; use the same pinned SDK artifact without
+          # replacing the tracked Gradle distribution/version configuration.
+          wrapper="$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper"
+          test -s gradle/wrapper/gradle-wrapper.properties
+          test -s "$wrapper/gradle/wrapper/gradle-wrapper.jar"
+          install -m 755 "$wrapper/gradlew" gradlew
+          install -m 644 "$wrapper/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+      - name: Native Kotlin/AIDL/streaming policy tests
+        working-directory: mobile/android
+        run: |
+          if ./gradlew :app:testDebugUnitTest --console=plain; then
+            exit 0
+          fi
+          # Keep the real failure visible without requiring artifact access just
+          # to obtain JUnit's full cause (Gradle's default console truncates it).
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          for path in Path('../build/app/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              for case in ET.parse(path).getroot().findall('testcase'):
+                  for failure in case.findall('failure'):
+                      print(case.get('classname'), case.get('name'), failure.get('message'))
+                      print(failure.text or '')
+          PY
+          exit 1
+      - name: Shared Flutter regression tests
+        working-directory: mobile
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+      - name: Enable emulator KVM on this disposable CI runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-gallery-ci-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Actual Android native timeline playback
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          working-directory: mobile
+          script: bash scripts/android_native_motion_test.sh
+      - name: Build release-mode validation APK (CI debug certificate)
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          if [[ -e android/key.jks || -e android/key.properties ]]; then
+            echo '::error::Production signing material is forbidden in the validation lane.'
+            exit 1
+          fi
+          version_name="$(awk -F'[ +]' '/^version:/ {print $2}' pubspec.yaml)"
+          version_code="$(awk -F'[ +]' '/^version:/ {print $3}' pubspec.yaml)"
+          [[ "$version_code" =~ ^[0-9]+$ ]] && (( version_code > 7 ))
+          # Native tests generate the debug registrant, including dev plugins.
+          # Flutter 3.47 requires its normal pub-enabled release preparation to
+          # regenerate that registrant for the release-only Gradle classpath.
+          flutter pub get --enforce-lockfile
+          lock_sha="$(sha256sum pubspec.lock)"
+          flutter build apk --release --target-platform android-arm64 --build-name="$version_name" --build-number="$version_code"
+          test "$lock_sha" = "$(sha256sum pubspec.lock)"
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > "$RUNNER_TEMP/gallery-apk-badging.txt"
+          sed -n '1,3p' "$RUNNER_TEMP/gallery-apk-badging.txt"
+          python3 - "$apk" "$ANDROID_HOME/build-tools/36.0.0/aapt" "$version_name" "$version_code" <<'PY'
+          import importlib.util, shlex, subprocess, sys, zipfile
+          from pathlib import Path
+          apk, aapt, version, build = sys.argv[1:]
+          spec = importlib.util.spec_from_file_location('release', '../scripts/release/android_release.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          badging = subprocess.check_output([aapt, 'dump', 'badging', apk], text=True)
+          fields = dict(x.split('=', 1) for x in shlex.split(badging.splitlines()[0])[1:] if '=' in x)
+          assert (fields['name'], fields['versionName'], fields['versionCode']) == (module.APP_ID, version, build)
+          module.validate_cloud_provider_manifest(subprocess.check_output([aapt, 'dump', 'xmltree', apk, 'AndroidManifest.xml'], text=True))
+          with zipfile.ZipFile(apk) as archive:
+              assert archive.testzip() is None
+              for library in ('libflutter.so', 'libapp.so', 'libsqlite3.so'):
+                  assert 'lib/arm64-v8a/' + library in archive.namelist(), library
+          print('PASS packaged application/version/manifest/native libraries/ZIP integrity')
+          PY
+          sha256sum "$apk"
+          echo '::notice::Validation APK uses the disposable CI debug certificate. It cannot update the HP release-key installation. Rebuild on HP with the existing foto key for the S23 pilot.'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-media-pilot-validation-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: android-media-pilot-native-tests
+          path: |
+            mobile/build/app/reports/tests/testDebugUnitTest/
+            mobile/build/app/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+
+  refresh-ios-pods-lock:
+    name: Regenerate iOS CocoaPods lock for review
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'docice545/gallery' && inputs.refresh_ios_pods_lock && inputs.build_target == 'ios' && inputs.version == '' }}
+    permissions:
+      contents: write
+    runs-on: macos-15
+    steps:
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          xcode_version="$(xcodebuild -version | tr '\n' ' ')"
+          echo "::notice title=iOS Xcode toolchain::$xcode_version"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          # Only this explicit maintenance job can push its generated lock to a
+          # unique review branch. Normal builds retain contents:read/no credentials.
+          persist-credentials: true
+      - name: Setup Mise
+        uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: 'stable'
+          flutter-version-file: ./mobile/pubspec.yaml
+          cache: true
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@c515ec17f69368147deb311832da000dd229d338 # v1.297.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ./mobile/ios
+      - name: Refresh and verify CocoaPods lock
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          if bash scripts/ios_build_only.sh --refresh-pods-lock 2>&1 | tee "$RUNNER_TEMP/ios-build-only.log"; then
+            :
+          else
+            build_status=$?
+            python3 - "$RUNNER_TEMP/ios-build-only.log" <<'PY'
+          import sys
+          from pathlib import Path
+          tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-160:])
+          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Unsigned iOS build failure::' + escaped)
+          PY
+            exit "$build_status"
+          fi
+
+      - name: Save only generated Podfile.lock for review
+        env:
+          LOCK_BRANCH: codex/ios-pods-lock-${{ github.run_id }}
+        run: |
+          if git diff --quiet -- mobile/ios/Podfile.lock; then
+            echo '::error::CocoaPods produced no Podfile.lock change; no review commit created.'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$LOCK_BRANCH"
+          git add -- mobile/ios/Podfile.lock
+          git commit -m 'fix(ios): synchronize CocoaPods lock with Flutter plugins'
+          git push origin "HEAD:refs/heads/$LOCK_BRANCH"
+          echo "::notice title=CocoaPods lock review branch::$LOCK_BRANCH"
+
   build-sign-android:
     name: Build and sign Android
     permissions:
       contents: read
     # Skip when PR from a fork
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
+    if: ${{ !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
     environment: mobile-build
     runs-on: ubuntu-latest
 
@@ -335,16 +560,19 @@ jobs:
           key: build-mobile-gradle-${{ runner.os }}-main
 
   build-sign-ios:
-    name: Build and sign iOS
+    name: Verify or explicitly release iOS
     permissions:
       contents: read
-    if: ${{ !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
+    if: ${{ !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
     environment: mobile-build
     runs-on: macos-15
 
     steps:
       - name: Select Xcode 26
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          xcode_version="$(xcodebuild -version | tr '\n' ' ')"
+          echo "::notice title=iOS Xcode toolchain::$xcode_version"
 
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -353,9 +581,21 @@ jobs:
           persist-credentials: false
           fetch-tags: true
 
+      - name: Preserve committed iOS version and build through branding
+        id: ios-source-meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r app_version app_build <<< "$(awk -F'[ +]' '/^version:/ {print $2, $3}' mobile/pubspec.yaml)"
+          [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$app_build" =~ ^[0-9]+$ ]]
+          echo "version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build=$app_build" >> "$GITHUB_OUTPUT"
+
       - uses: ./.github/actions/apply-branding
         with:
-          version: ${{ inputs.version }}
+          version: ${{ inputs.version || steps.ios-source-meta.outputs.version }}
+          build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Setup Mise
         uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
@@ -371,7 +611,7 @@ jobs:
           cache: true
 
       # Resolve Flutter plugins via CocoaPods (which honors the Podfile's
-      # `platform :ios, '14.0'`) instead of Swift Package Manager. Flutter's
+      # `platform :ios, '15.0'`) instead of Swift Package Manager. Flutter's
       # SPM integration pins the generated FlutterGeneratedPluginSwiftPackage
       # to the framework's default iOS floor (13.0) and only raises it during
       # `flutter build`; fastlane archives via `xcodebuild` directly, so the
@@ -391,16 +631,20 @@ jobs:
           working-directory: ./mobile/ios
 
       - name: Install Flutter dependencies
+        if: inputs.version != ''
         run: mise //mobile:install:ci
 
       - name: Perform codegen
+        if: inputs.version != ''
         run: mise //mobile:codegen
 
       - name: Install CocoaPods dependencies
+        if: inputs.version != ''
         working-directory: ./mobile/ios
-        run: pod install
+        run: bundle exec pod install --deployment
 
       - name: Create API Key
+        if: inputs.version != ''
         env:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
@@ -411,12 +655,14 @@ jobs:
           echo "$API_KEY_CONTENT" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
 
       - name: Import Certificate
+        if: inputs.version != ''
         env:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
         working-directory: ./mobile/ios
         run: echo "$IOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
 
       - name: Create keychain and import certificate
+        if: inputs.version != ''
         env:
           KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -449,14 +695,45 @@ jobs:
         if: inputs.version == ''
         working-directory: ./mobile
         run: |
-          flutter build ipa --no-codesign
+          set -o pipefail
+          if bash scripts/ios_build_only.sh 2>&1 | tee "$RUNNER_TEMP/ios-build-only.log"; then
+            :
+          else
+            build_status=$?
+            python3 - "$RUNNER_TEMP/ios-build-only.log" <<'PY'
+          import sys
+          from pathlib import Path
+          tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-160:])
+          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Unsigned iOS build failure::' + escaped)
+          PY
+            exit "$build_status"
+          fi
 
       - name: Clean up keychain
-        if: always()
+        if: always() && inputs.version != ''
         run: security delete-keychain build.keychain || true
 
+      - name: Upload unsigned archive
+        if: inputs.version == ''
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ios-unsigned-archive
+          path: mobile/build/ios/archive/Runner.xcarchive
+          if-no-files-found: error
+
       - name: Upload IPA artifact
+        if: inputs.version != ''
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: ios-release-ipa
-          path: mobile/ios/Runner.ipa
+          path: mobile/build/ios/ipa/gallery.ipa
+          if-no-files-found: error
+
+      - name: Upload unsigned IPA for user-side signing
+        if: inputs.version == ''
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ios-unsigned-ipa
+          path: mobile/build/ios/ipa/Photos-unsigned.ipa
+          if-no-files-found: error

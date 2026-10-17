@@ -1,0 +1,204 @@
+import {
+  libraryDeletionStatus,
+  managedDeletionStatus,
+  prepareLibraryDeletion,
+  prepareManagedDeletion,
+  setLibraryDeletionConsent,
+  setManagedDeletionConsent,
+} from '@immich/sdk';
+import { modalManager } from '@immich/ui';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import ManagedDeletionSettings from './ManagedDeletionSettings.svelte';
+
+vi.mock('@immich/sdk', async (original) => ({
+  ...(await original()),
+  managedDeletionStatus: vi.fn(),
+  libraryDeletionStatus: vi.fn(),
+  prepareLibraryDeletion: vi.fn(),
+  setLibraryDeletionConsent: vi.fn(),
+  prepareManagedDeletion: vi.fn(),
+  setManagedDeletionConsent: vi.fn(),
+  isHttpError: (error: unknown) => !!(error as { __http?: boolean })?.__http,
+}));
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: true, canPrepare: false });
+  vi.mocked(setManagedDeletionConsent).mockResolvedValue(undefined as never);
+  vi.mocked(prepareManagedDeletion).mockResolvedValue(undefined as never);
+  vi.mocked(libraryDeletionStatus).mockResolvedValue({ enabled: false, prepared: true, canPrepare: false });
+  vi.mocked(setLibraryDeletionConsent).mockResolvedValue(undefined as never);
+  vi.mocked(prepareLibraryDeletion).mockResolvedValue(undefined as never);
+  vi.spyOn(modalManager, 'showDialog').mockResolvedValue(true);
+});
+
+describe('explicit external library owner consent', () => {
+  const scope = 'a55e67c9-e435-4f04-ab10-d37c8c33800f';
+  const openLibrary = async () => {
+    render(ManagedDeletionSettings, { libraryId: scope, libraryName: 'My external library' });
+    await fireEvent.click(screen.getByText(`My external library (${scope})`));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'external_deletion_enable' })).toBeInTheDocument());
+  };
+  it('sends confirmed consent only for the selected library UUID', async () => {
+    await openLibrary();
+    await fireEvent.click(screen.getByRole('button', { name: 'external_deletion_enable' }));
+    await waitFor(() =>
+      expect(setLibraryDeletionConsent).toHaveBeenCalledWith({
+        id: scope,
+        managedDeletionConsentDto: { enabled: true, confirmed: true },
+      }),
+    );
+    expect(modalManager.showDialog).toHaveBeenCalledWith({ prompt: 'external_deletion_confirm' });
+    expect(setManagedDeletionConsent).not.toHaveBeenCalled();
+    expect(prepareLibraryDeletion).not.toHaveBeenCalled();
+  });
+  it('never grants permission after a cancelled confirmation', async () => {
+    vi.mocked(modalManager.showDialog).mockResolvedValue(false);
+    await openLibrary();
+    await fireEvent.click(screen.getByRole('button', { name: 'external_deletion_enable' }));
+    expect(setLibraryDeletionConsent).not.toHaveBeenCalled();
+  });
+  it('does not request administrator recovery proofs for writable owner configuration', async () => {
+    vi.mocked(libraryDeletionStatus).mockResolvedValue({ enabled: false, prepared: true, canPrepare: true });
+    await openLibrary();
+    expect(screen.getByRole('button', { name: 'external_deletion_enable' })).toBeEnabled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(prepareLibraryDeletion).not.toHaveBeenCalled();
+  });
+  it('revokes even when evidence is expired without re-preparing or asking destructive confirmation', async () => {
+    vi.mocked(libraryDeletionStatus).mockResolvedValue({ enabled: true, prepared: false, canPrepare: false });
+    render(ManagedDeletionSettings, { libraryId: scope });
+    await fireEvent.click(screen.getByText(`external_deletion_scope (${scope})`));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'managed_deletion_disable' })).toBeEnabled());
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_disable' }));
+    await waitFor(() =>
+      expect(setLibraryDeletionConsent).toHaveBeenCalledWith({
+        id: scope,
+        managedDeletionConsentDto: { enabled: false, confirmed: true },
+      }),
+    );
+    expect(modalManager.showDialog).not.toHaveBeenCalled();
+    expect(prepareLibraryDeletion).not.toHaveBeenCalled();
+  });
+  it('a root mismatch is explained without claiming the external scope was authorized', async () => {
+    vi.mocked(setLibraryDeletionConsent).mockRejectedValue({
+      __http: true,
+      data: { message: 'DELETION_ROOT_CHANGED' },
+    });
+    await openLibrary();
+    await fireEvent.click(screen.getByRole('button', { name: 'external_deletion_enable' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('managed_deletion_roots_changed'));
+    expect(screen.queryByText('external_deletion_enabled')).not.toBeInTheDocument();
+  });
+});
+const open = async () => {
+  render(ManagedDeletionSettings);
+  await fireEvent.click(screen.getByText('managed_deletion_title'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'managed_deletion_enable' })).toBeInTheDocument());
+};
+describe('explicit owner managed consent', () => {
+  it('requires confirmation and sends only the managed consent contract', async () => {
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
+    await waitFor(() =>
+      expect(setManagedDeletionConsent).toHaveBeenCalledWith({
+        managedDeletionConsentDto: { enabled: true, confirmed: true },
+      }),
+    );
+    expect(modalManager.showDialog).toHaveBeenCalledWith({ prompt: 'managed_deletion_confirm' });
+    expect(prepareManagedDeletion).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+  it('does not silently grant permission when confirmation is cancelled', async () => {
+    vi.mocked(modalManager.showDialog).mockResolvedValue(false);
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
+    expect(setManagedDeletionConsent).not.toHaveBeenCalled();
+  });
+  it('cannot enable storage whose roots failed validation', async () => {
+    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: false, canPrepare: false });
+    await open();
+    expect(screen.getByRole('button', { name: 'managed_deletion_enable' })).toBeDisabled();
+    expect(screen.getByText('managed_deletion_preparation_required')).toBeInTheDocument();
+  });
+  it('revokes permission without a destructive confirmation', async () => {
+    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: true, prepared: true, canPrepare: false });
+    render(ManagedDeletionSettings);
+    await fireEvent.click(screen.getByText('managed_deletion_title'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'managed_deletion_disable' })).toBeInTheDocument());
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_disable' }));
+    await waitFor(() =>
+      expect(setManagedDeletionConsent).toHaveBeenCalledWith({
+        managedDeletionConsentDto: { enabled: false, confirmed: true },
+      }),
+    );
+    expect(modalManager.showDialog).not.toHaveBeenCalled();
+  });
+  it('keeps legacy administrative proof entry out of ordinary owner settings', async () => {
+    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: false, canPrepare: true });
+    await open();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'managed_deletion_prepare' })).not.toBeInTheDocument();
+    expect(prepareManagedDeletion).not.toHaveBeenCalled();
+    expect(setManagedDeletionConsent).not.toHaveBeenCalled();
+  });
+  it('does not claim successful consent on a failed request', async () => {
+    vi.mocked(setManagedDeletionConsent).mockRejectedValueOnce(new Error('timeout'));
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.queryByText('managed_deletion_enabled')).not.toBeInTheDocument();
+  });
+  it('can revoke existing consent even when signed evidence is no longer prepared', async () => {
+    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: true, prepared: false, canPrepare: false });
+    render(ManagedDeletionSettings);
+    await fireEvent.click(screen.getByText('managed_deletion_title'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'managed_deletion_disable' })).toBeEnabled());
+    expect(screen.getByText('managed_deletion_preparation_required')).toBeInTheDocument();
+    expect(screen.queryByText('managed_deletion_enabled')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_disable' }));
+    await waitFor(() => expect(setManagedDeletionConsent).toHaveBeenCalledOnce());
+    expect(modalManager.showDialog).not.toHaveBeenCalled();
+  });
+  it('refreshes expired preparation after a consent rejection while preserving the localized error', async () => {
+    vi.mocked(managedDeletionStatus)
+      .mockResolvedValueOnce({ enabled: false, prepared: true, canPrepare: false })
+      .mockResolvedValue({ enabled: false, prepared: false, canPrepare: false });
+    vi.mocked(setManagedDeletionConsent).mockRejectedValueOnce({
+      __http: true,
+      data: { message: 'DELETION_RECOVERY_EXPIRED', error: 'Conflict', statusCode: 409 },
+    });
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('managed_deletion_recovery_expired'));
+    expect(screen.getByText('managed_deletion_preparation_required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'managed_deletion_enable' })).toBeDisabled();
+    expect(managedDeletionStatus).toHaveBeenCalledTimes(2);
+    expect(setManagedDeletionConsent).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ['LIBRARY_STORAGE_READ_ONLY', 'storage_read_only_deletion'],
+    ['DELETION_RECOVERY_UNAVAILABLE', 'managed_deletion_recovery_missing'],
+    ['DELETION_RECOVERY_INVALID', 'managed_deletion_recovery_invalid'],
+    ['DELETION_RECOVERY_EXPIRED', 'managed_deletion_recovery_expired'],
+    ['DELETION_RECOVERY_SCOPE_MISMATCH', 'managed_deletion_recovery_scope_mismatch'],
+    ['DELETION_ROOT_CHANGED', 'managed_deletion_roots_changed'],
+    ['OVERLAPPING_OWNER_ROOTS', 'managed_deletion_roots_changed'],
+    ['UNSUPPORTED_DELETION_FILESYSTEM', 'managed_deletion_roots_changed'],
+    ['DELETION_QUARANTINE_CONFLICT', 'managed_deletion_roots_changed'],
+  ])('shows localized guidance for %s without granting consent', async (code, key) => {
+    vi.mocked(managedDeletionStatus).mockResolvedValue({ enabled: false, prepared: true, canPrepare: false });
+    vi.mocked(setManagedDeletionConsent).mockRejectedValueOnce({
+      __http: true,
+      data: JSON.stringify({ message: code, error: 'Conflict', statusCode: 409 }),
+    });
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'managed_deletion_enable' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(key));
+    expect(screen.getByRole('alert')).not.toHaveTextContent(code);
+    expect(screen.queryByText('managed_deletion_enabled')).not.toBeInTheDocument();
+    expect(setManagedDeletionConsent).toHaveBeenCalledOnce();
+  });
+});

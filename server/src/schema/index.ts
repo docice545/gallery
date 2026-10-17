@@ -39,6 +39,7 @@ import { AlbumTable } from 'src/schema/tables/album.table.js';
 import { ApiKeyTable } from 'src/schema/tables/api-key.table.js';
 import { AssetAuditTable } from 'src/schema/tables/asset-audit.table.js';
 import { AssetAudioTable, AssetKeyframeTable, AssetVideoTable } from 'src/schema/tables/asset-av.table.js';
+import { AssetDeletionPolicyTable, AssetDeletionTombstoneTable } from 'src/schema/tables/asset-deletion.table.js';
 import { AssetDuplicateChecksumTable } from 'src/schema/tables/asset-duplicate-checksum.table.js';
 import { AssetEditAuditTable } from 'src/schema/tables/asset-edit-audit.table.js';
 import { AssetEditTable } from 'src/schema/tables/asset-edit.table.js';
@@ -70,6 +71,7 @@ import { LibraryTable } from 'src/schema/tables/library.table.js';
 import { MemoryAssetAuditTable } from 'src/schema/tables/memory-asset-audit.table.js';
 import { MemoryAssetTable } from 'src/schema/tables/memory-asset.table.js';
 import { MemoryAuditTable } from 'src/schema/tables/memory-audit.table.js';
+import { MemoryCandidateTable } from 'src/schema/tables/memory-candidate.table.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
 import { MoveTable } from 'src/schema/tables/move.table.js';
 import { NaturalEarthCountriesTable } from 'src/schema/tables/natural-earth-countries.table.js';
@@ -112,6 +114,7 @@ import { SharedSpacePersonTable } from 'src/schema/tables/shared-space-person.ta
 import { SharedSpaceTable } from 'src/schema/tables/shared-space.table.js';
 import { SmartSearchTable } from 'src/schema/tables/smart-search.table.js';
 import { StackAuditTable } from 'src/schema/tables/stack-audit.table.js';
+import { StackSuppressionTable } from 'src/schema/tables/stack-suppression.table.js';
 import { StackTable } from 'src/schema/tables/stack.table.js';
 import { StorageMigrationLogTable } from 'src/schema/tables/storage-migration-log.table.js';
 import { SessionSyncCheckpointTable } from 'src/schema/tables/sync-checkpoint.table.js';
@@ -150,6 +153,8 @@ export class ImmichDatabase {
     AlbumTable,
     ApiKeyTable,
     AssetAuditTable,
+    AssetDeletionPolicyTable,
+    AssetDeletionTombstoneTable,
     AssetDuplicateChecksumTable,
     AssetEditTable,
     AssetEditAuditTable,
@@ -178,6 +183,7 @@ export class ImmichDatabase {
     LibraryUserTable,
     LibraryAssetAuditTable,
     MemoryTable,
+    MemoryCandidateTable,
     MemoryAuditTable,
     MemoryAssetTable,
     MemoryAssetAuditTable,
@@ -223,6 +229,7 @@ export class ImmichDatabase {
     UserGroupMemberTable,
     SmartSearchTable,
     StackTable,
+    StackSuppressionTable,
     StackAuditTable,
     StorageMigrationLogTable,
     SessionSyncCheckpointTable,
@@ -294,6 +301,8 @@ export interface DB {
 
   asset: AssetTable;
   asset_audit: AssetAuditTable;
+  asset_deletion_policy: AssetDeletionPolicyTable;
+  asset_deletion_tombstone: AssetDeletionTombstoneTable;
   asset_duplicate_checksum: AssetDuplicateChecksumTable;
   asset_edit: AssetEditTable;
   asset_edit_audit: AssetEditAuditTable;
@@ -328,6 +337,7 @@ export interface DB {
   library_asset_audit: LibraryAssetAuditTable;
 
   memory: MemoryTable;
+  memory_candidate: MemoryCandidateTable;
   memory_audit: MemoryAuditTable;
   memory_asset: MemoryAssetTable;
   memory_asset_audit: MemoryAssetAuditTable;
@@ -389,6 +399,7 @@ export interface DB {
   smart_search: SmartSearchTable;
 
   stack: StackTable;
+  stack_suppression: StackSuppressionTable;
   stack_audit: StackAuditTable;
 
   storage_migration_log: StorageMigrationLogTable;

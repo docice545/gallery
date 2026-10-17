@@ -4,6 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+### Production constraints for `docice545/gallery`
+
+Before changing stacks, asset visibility, Live/Motion Photo, jobs or deployment, read
+[`specs/2026-10-05-production-autostack-design.md`](specs/2026-10-05-production-autostack-design.md).
+The HP instance uses **one external** `noodle-gallery-maintenance` auto-stack process, not an
+in-app worker. Preserve the native Stack API, asset-preserving DELETE, owner boundaries and manual
+suppression. Anna is intentionally excluded from automatic stacks but **not** Motion Photo cleanup.
+Per-user opt-in/out must preserve that policy and existing manual decisions; do not add a switch
+that the external process does not honor. The automatic-stacking research below is not authorization
+to run a second algorithm. Production scripts, timers and VPN/AWG/Xray/DNS are outside this task's
+scope; no production deployment without an explicit instruction.
+
+HP storage paths are documented in
+[`specs/testing/2026-10-04-photos-hp-build.md`](specs/testing/2026-10-04-photos-hp-build.md):
+`/opt/gallery-fork` is a bind mount of the SSD checkout, existing Gradle/Pub caches
+and Big-LaMa model are already on SSD, and Docker root remains on NVMe. Do not
+move or duplicate them. iOS readiness findings and native validation boundaries
+are recorded in [`specs/2026-10-05-ios-readiness-design.md`](specs/2026-10-05-ios-readiness-design.md).
+
+Anna/chudo_anna's real Google Takeout album/media migration is **complete and closed**.
+Do not reopen, rerun or modify it without a new explicit migration task. The generic
+tooling remains owner-scoped; its historical production scope was **Anna/chudo_anna only**
+(`bb8ccc0b-9322-40ea-9ae5-672d497b3e01`). See
+[`specs/2026-10-05-google-photos-albums-design.md`](specs/2026-10-05-google-photos-albums-design.md).
+Keep the tooling generic and owner-scoped, but do not prepare/run real migrations for docice,
+Lenia or other users. Anna's automatic-stack exclusion is independent and remains unchanged.
+The old dry-run preparation instructions do not authorize repeating the completed migration.
+No media reimport, album creation or production apply in unrelated mobile work.
+
 Gallery is a community fork of [Immich](https://github.com/immich-app/immich), a self-hosted photo and video management solution. The fork is currently based on **Immich v2.7.5** and regularly rebased onto upstream. Source package names are still `immich` / `immich-web` so the rebase path stays clean — only branding, Docker image names, and fork-only code diverge.
 
 Fork-specific features layered on top of upstream include: shared spaces, smart search & filters, user groups, S3-compatible storage, auto-classification, video duplicate detection, pet detection, Google Photos import, image editing & video trimming, and structured JSON logging. See `README.md` for the full list and docs links.

@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { DateTime } from 'luxon';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
@@ -15,6 +14,7 @@ import {
   JobStatus,
 } from 'src/enum.js';
 import { AssetStats } from 'src/repositories/asset.repository.js';
+import { getAssetDeleteBatchJobId } from 'src/repositories/job.repository.js';
 import { AssetService } from 'src/services/asset.service.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { AuthFactory } from 'test/factories/auth.factory.js';
@@ -1472,6 +1472,10 @@ describe(AssetService.name, () => {
   });
 
   describe('deleteAll', () => {
+    beforeEach(() => {
+      mocks.asset.markDeletionState.mockImplementation((ids) => Promise.resolve(ids));
+    });
+
     it('should require asset delete access for all ids', async () => {
       await expect(
         sut.deleteAll(authStub.user1, {
@@ -1480,15 +1484,24 @@ describe(AssetService.name, () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('honors upstream disabled Trash by using owner-scoped permanent deletion', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
+      const delegated = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([{ id: 'asset1', state: 'complete' }]);
+      await sut.deleteAll(authStub.user1, { ids: ['asset1'] });
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1'], true);
+      expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
+    });
+
     it('should force delete a batch of assets', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
 
+      const delegated = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([
+        { id: 'asset1', state: 'complete' },
+        { id: 'asset2', state: 'complete' },
+      ]);
       await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true });
-
-      expect(mocks.event.emit).toHaveBeenCalledWith('AssetDeleteAll', {
-        assetIds: ['asset1', 'asset2'],
-        userId: 'user-id',
-      });
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2'], true);
+      expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
 
     it('should soft delete a batch of assets', async () => {
@@ -1496,7 +1509,7 @@ describe(AssetService.name, () => {
 
       await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: false });
 
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset1', 'asset2'], {
+      expect(mocks.asset.markDeletionState).toHaveBeenCalledWith(['asset1', 'asset2'], {
         deletedAt: expect.any(Date),
         status: AssetStatus.Trashed,
       });
@@ -1506,12 +1519,14 @@ describe(AssetService.name, () => {
     it('should set status to Deleted for force delete', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1']));
 
-      await sut.deleteAll(authStub.user1, { ids: ['asset1'], force: true });
-
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset1'], {
-        deletedAt: expect.any(Date),
-        status: AssetStatus.Deleted,
-      });
+      vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([
+        { id: 'asset1', state: 'blocked', code: 'LIBRARY_DELETION_NOT_AUTHORIZED' },
+      ]);
+      await expect(sut.deleteAll(authStub.user1, { ids: ['asset1'], force: true })).rejects.toHaveProperty(
+        'status',
+        409,
+      );
+      expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
 
     it('should emit AssetTrashAll for soft delete', async () => {
@@ -1524,69 +1539,418 @@ describe(AssetService.name, () => {
         userId: authStub.user1.user.id,
       });
     });
+
+    it('does not announce Trash for an already claimed irreversible deletion', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['claimed']));
+      mocks.asset.markDeletionState.mockResolvedValue([]);
+      await sut.deleteAll(authStub.user1, { ids: ['claimed'], force: false });
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+    });
+
+    it('announces only rows changed in a batch racing permanent deletion', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['claimed', 'active']));
+      mocks.asset.markDeletionState.mockResolvedValue(['active']);
+      await sut.deleteAll(authStub.user1, { ids: ['claimed', 'active'], force: false });
+      expect(mocks.event.emit).toHaveBeenCalledWith('AssetTrashAll', {
+        assetIds: ['active'],
+        userId: authStub.user1.user.id,
+      });
+    });
+  });
+
+  describe('large permanent deletion batches', () => {
+    it.each(['owner', 'fingerprint'])('rejects cancellation with a foreign %s', async (kind) => {
+      const ids = ['asset-1'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'pending',
+        ownerId: kind === 'owner' ? 'other-owner' : authStub.user1.user.id,
+        ids: kind === 'fingerprint' ? ['different-asset'] : ids,
+        allowActive: false,
+      });
+      await expect(sut.cancelDeletionBatch(authStub.user1, batchId)).rejects.toThrow('Deletion batch is not available');
+      expect(mocks.job.cancelAssetDeleteBatch).not.toHaveBeenCalled();
+    });
+
+    it('bounds aggregate receipt checks to 200 in flight', async () => {
+      const ids = Array.from({ length: 1000 }, (_, index) => `asset-${index}`);
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'active',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      let active = 0;
+      let maximum = 0;
+      vi.spyOn(sut, 'deletionStatus').mockImplementation(async (_auth, id) => {
+        maximum = Math.max(maximum, ++active);
+        await Promise.resolve();
+        active--;
+        return { id, state: 'pending' };
+      });
+      await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toMatchObject({
+        total: 1000,
+        pending: 1000,
+      });
+      expect(maximum).toBe(200);
+    });
+
+    it.each(['active', 'cancelled'] as const)(
+      'reports %s cancellation without treating untouched items as deleted',
+      async (state) => {
+        const ids = ['asset-1', 'asset-2'];
+        const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+        mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+          id: batchId,
+          state,
+          ownerId: authStub.user1.user.id,
+          ids,
+          allowActive: false,
+          cancelRequested: true,
+        });
+        vi.spyOn(sut, 'deletionStatus')
+          .mockResolvedValueOnce({ id: ids[0], state: 'complete' })
+          .mockResolvedValueOnce({ id: ids[1], state: 'blocked', code: 'NO_AUTHORIZED_DELETION' });
+        await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toEqual({
+          id: batchId,
+          state,
+          total: 2,
+          processed: 1,
+          complete: 1,
+          failed: 0,
+          pending: 1,
+          cancelRequested: true,
+        });
+      },
+    );
+
+    it('queues an explicit bounded batch instead of holding the request open', async () => {
+      const ids = Array.from({ length: 201 }, (_, index) => `asset-${index}`);
+      vi.spyOn(sut, 'deletionPreflight').mockResolvedValue(
+        ids.map((id) => ({ id, scope: 'managed', authorized: true })),
+      );
+
+      const results = await sut.permanentlyDelete(authStub.user1, ids);
+
+      expect(results).toHaveLength(ids.length);
+      expect(results.every((result) => result.state === 'pending' && result.code === 'DELETION_BATCH_QUEUED')).toBe(
+        true,
+      );
+      expect(mocks.job.queue).toHaveBeenCalledWith({
+        name: JobName.AssetDeleteBatch,
+        data: { ownerId: authStub.user1.user.id, ids, allowActive: false },
+      });
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+    });
+
+    it('reports durable aggregate progress from the owner-scoped batch and receipts', async () => {
+      const ids = ['asset-1', 'asset-2', 'asset-3', 'asset-4'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'active',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      vi.spyOn(sut, 'deletionStatus')
+        .mockResolvedValueOnce({ id: ids[0], state: 'complete' })
+        .mockResolvedValueOnce({ id: ids[1], state: 'failed', code: 'NFS_UNAVAILABLE' })
+        .mockResolvedValueOnce({ id: ids[2], state: 'pending' })
+        .mockResolvedValueOnce({ id: ids[3], state: 'blocked', code: 'NO_AUTHORIZED_DELETION' });
+
+      await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toEqual({
+        id: batchId,
+        state: 'active',
+        total: 4,
+        processed: 2,
+        complete: 1,
+        failed: 1,
+        pending: 2,
+      });
+    });
+
+    it('cancels a pending batch through the owner-scoped durable job state', async () => {
+      const ids = ['asset-1', 'asset-2'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'pending',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      const status = {
+        id: batchId,
+        state: 'cancelled' as const,
+        total: ids.length,
+        processed: 0,
+        complete: 0,
+        failed: 0,
+        pending: ids.length,
+      };
+      vi.spyOn(sut, 'deletionBatchStatus').mockResolvedValue(status);
+
+      await expect(sut.cancelDeletionBatch(authStub.user1, batchId)).resolves.toEqual(status);
+      expect(mocks.job.cancelAssetDeleteBatch).toHaveBeenCalledWith(batchId, authStub.user1.user.id);
+    });
+
+    it('does not interrupt an already terminal batch', async () => {
+      const ids = ['asset-1'];
+      const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
+      mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
+        id: batchId,
+        state: 'complete',
+        ownerId: authStub.user1.user.id,
+        ids,
+        allowActive: false,
+      });
+      const status = {
+        id: batchId,
+        state: 'complete' as const,
+        total: 1,
+        processed: 1,
+        complete: 1,
+        failed: 0,
+        pending: 0,
+      };
+      vi.spyOn(sut, 'deletionBatchStatus').mockResolvedValue(status);
+
+      await expect(sut.cancelDeletionBatch(authStub.user1, batchId)).resolves.toEqual(status);
+      expect(mocks.job.cancelAssetDeleteBatch).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleAssetDeletionCheck', () => {
-    beforeAll(() => {
-      vi.useFakeTimers();
+    beforeEach(() => {
+      mocks.asset.streamPendingDeletions.mockReturnValue(makeStream([]));
+      mocks.asset.streamExpiredTrash.mockReturnValue(makeStream([]));
     });
-
-    afterAll(() => {
-      vi.useRealTimers();
-    });
-
-    it('should immediately queue assets for deletion if trash is disabled', async () => {
-      const asset = AssetFactory.create();
-
-      mocks.assetJob.streamForDeletedJob.mockReturnValue(makeStream([asset]));
-      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false } });
-
+    it('does not expire Trash when the upstream retention setting is disabled', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
       await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.streamExpiredTrash).not.toHaveBeenCalled();
+      expect(mocks.assetJob.streamForDeletedJob).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+    it('recovers only sealed pending original-deletion intents even with retention disabled', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
+      mocks.asset.streamPendingDeletions.mockReturnValue(
+        makeStream([{ assetId: 'pending', operationId: 'pending', ownerId: 'owner', scope: 'managed' }]),
+      );
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.job.queue).toHaveBeenCalledWith({
+        name: JobName.AssetDelete,
+        data: { id: 'pending', deletionId: 'pending', deleteOnDisk: true },
+      });
+      expect(mocks.asset.streamExpiredTrash).not.toHaveBeenCalled();
+    });
+    it('queries only expired user Trash instead of legacy deletedAt/offline index records', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: true, days: 30 } });
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.streamExpiredTrash).toHaveBeenCalledWith(expect.any(Date));
+      expect(mocks.assetJob.streamForDeletedJob).not.toHaveBeenCalled();
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+    });
+    it('preserves read-only external Trash without creating a deletion intent', async () => {
+      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: true, days: 30 } });
+      mocks.asset.streamExpiredTrash.mockReturnValue(
+        makeStream([{ id: 'external', ownerId: 'owner', libraryId: 'readonly-library' }]),
+      );
+      mocks.asset.getDeletionPolicy.mockResolvedValue(undefined);
+      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+  });
 
-      expect(mocks.assetJob.streamForDeletedJob).toHaveBeenCalledWith(new Date());
-      expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: true } },
+  describe('handleAssetDeletionBatch', () => {
+    it('finishes the started chunk and stops before creating intents for the next chunk', async () => {
+      const ids = Array.from({ length: 401 }, (_, index) => `asset-${index}`);
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      mocks.job.isAssetDeleteBatchCancelled.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      const permanent = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([]);
+      await expect(sut.handleAssetDeletionBatch({ ownerId: authStub.user1.user.id, ids })).resolves.toBe(
+        JobStatus.Success,
+      );
+      expect(permanent).toHaveBeenCalledExactlyOnceWith({ user: authStub.user1.user }, ids.slice(0, 200), false, false);
+    });
+
+    it('stops before the next chunk when a durable cancellation marker is present', async () => {
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      mocks.job.isAssetDeleteBatchCancelled.mockResolvedValue(true);
+      const permanent = vi.spyOn(sut, 'permanentlyDelete');
+
+      await expect(
+        sut.handleAssetDeletionBatch({
+          ownerId: authStub.user1.user.id,
+          ids: Array.from({ length: 201 }, (_, index) => `asset-${index}`),
+        }),
+      ).resolves.toBe(JobStatus.Success);
+
+      expect(permanent).not.toHaveBeenCalled();
+    });
+
+    it('runs the durable batch without recursively enqueueing another batch', async () => {
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      const permanent = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([
+        { id: 'asset-1', state: 'complete' },
+        { id: 'asset-2', state: 'pending' },
       ]);
+
+      await expect(
+        sut.handleAssetDeletionBatch({ ownerId: authStub.user1.user.id, ids: ['asset-1', 'asset-2'] }),
+      ).resolves.toBe(JobStatus.Success);
+
+      expect(permanent).toHaveBeenCalledWith({ user: authStub.user1.user }, ['asset-1', 'asset-2'], false, false);
     });
 
-    it('should queue assets for deletion after trash duration', async () => {
-      const asset = AssetFactory.create();
+    it('processes large batches in bounded sequential chunks', async () => {
+      mocks.user.get.mockResolvedValue(authStub.user1.user as any);
+      const ids = Array.from({ length: 401 }, (_, index) => `asset-${index}`);
+      vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue(ids.map((id) => ({ id, state: 'complete' })));
 
-      mocks.assetJob.streamForDeletedJob.mockReturnValue(makeStream([asset]));
-      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: true, days: 7 } });
+      await expect(sut.handleAssetDeletionBatch({ ownerId: authStub.user1.user.id, ids })).resolves.toBe(
+        JobStatus.Success,
+      );
 
-      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
-
-      expect(mocks.assetJob.streamForDeletedJob).toHaveBeenCalledWith(DateTime.now().minus({ days: 7 }).toJSDate());
-      expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: true } },
-      ]);
-    });
-
-    it('should set deleteOnDisk to false for offline assets', async () => {
-      const asset = AssetFactory.create({ isOffline: true });
-
-      mocks.assetJob.streamForDeletedJob.mockReturnValue(makeStream([asset]));
-      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false } });
-
-      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
-
-      expect(mocks.job.queueAll).toHaveBeenCalledWith([
-        { name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: false } },
-      ]);
-    });
-
-    it('should handle empty stream', async () => {
-      mocks.assetJob.streamForDeletedJob.mockReturnValue(makeStream([]));
-      mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false } });
-
-      await expect(sut.handleAssetDeletionCheck()).resolves.toBe(JobStatus.Success);
-
-      expect(mocks.job.queueAll).not.toHaveBeenCalled();
+      expect(sut.permanentlyDelete).toHaveBeenCalledTimes(3);
+      expect(sut.permanentlyDelete).toHaveBeenNthCalledWith(
+        1,
+        { user: authStub.user1.user },
+        ids.slice(0, 200),
+        false,
+        false,
+      );
+      expect(sut.permanentlyDelete).toHaveBeenNthCalledWith(
+        2,
+        { user: authStub.user1.user },
+        ids.slice(200, 400),
+        false,
+        false,
+      );
+      expect(sut.permanentlyDelete).toHaveBeenNthCalledWith(
+        3,
+        { user: authStub.user1.user },
+        ids.slice(400),
+        false,
+        false,
+      );
     });
   });
 
   describe('handleAssetDeletion', () => {
+    const cutoff = '2026-10-01T00:00:00.000Z';
+    beforeEach(() => {
+      mocks.asset.claimDeletion.mockResolvedValue(true);
+      mocks.asset.removeForDeletion.mockResolvedValue(true);
+      mocks.asset.removeAuthorizedOriginals.mockResolvedValue(true);
+      mocks.asset.getDeletionReceipt.mockImplementation((_owner, id) =>
+        Promise.resolve({ assetId: id, operationId: id, state: 'pending', errorCode: null }),
+      );
+    });
+
+    it('does not turn a legacy queue identifier into a new deletion intent', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.getDeletionReceipt.mockResolvedValue(undefined);
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Skipped,
+      );
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.removeAuthorizedOriginals).not.toHaveBeenCalled();
+    });
+
+    it('finishes only a sealed intent interrupted during file preparation before invoking original removal', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Success,
+      );
+      expect(mocks.asset.preparePermanentDeletion).toHaveBeenCalledWith(asset.id, asset.ownerId, expect.any(Function));
+      expect(mocks.asset.preparePermanentDeletion.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.asset.removeAuthorizedOriginals.mock.invocationCallOrder[0],
+      );
+    });
+
+    it.each(['active/restored', 'trashed', 'unclassified motion/library'])(
+      'skips a legacy job for %s when no irreversible deletion can be claimed',
+      async () => {
+        mocks.asset.claimDeletion.mockResolvedValue(false);
+        await expect(sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true })).resolves.toBe(JobStatus.Skipped);
+        expect(mocks.asset.claimDeletion).not.toHaveBeenCalled();
+        expect(mocks.assetJob.getForAssetDeletion).not.toHaveBeenCalled();
+        expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+        expect(mocks.stack.delete).not.toHaveBeenCalled();
+        expect(mocks.job.queue).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['restored', 'restored then trashed after cutoff', 'already removed'])(
+      'skips a stale retention job for an asset %s without deleting files or changing its stack',
+      async () => {
+        mocks.asset.claimExpiredDeletion.mockResolvedValue(false);
+        await expect(
+          sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true, trashedBefore: cutoff }),
+        ).resolves.toBe(JobStatus.Skipped);
+        expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+        expect(mocks.assetJob.getForAssetDeletion).not.toHaveBeenCalled();
+        expect(mocks.stack.delete).not.toHaveBeenCalled();
+        expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+        expect(mocks.job.queue).not.toHaveBeenCalled();
+        expect(mocks.event.emit).not.toHaveBeenCalled();
+      },
+    );
+
+    it('fails closed on a malformed retention cutoff', async () => {
+      await expect(
+        sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true, trashedBefore: 'invalid' }),
+      ).resolves.toBe(JobStatus.Failed);
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { id: 'asset-1', deletionReason: 'library' as const, deleteOnDisk: false },
+      { id: 'asset-1', deletionReason: 'library' as const, libraryId: 'library-1', deleteOnDisk: true },
+    ])('rejects malformed library cleanup without claiming or removing anything: %j', async (job) => {
+      await expect(sut.handleAssetDeletion(job)).resolves.toBe(JobStatus.Failed);
+      expect(mocks.asset.claimDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+
+    it('does not activate an old retention cutoff, even with an authorization-like ID', async () => {
+      const asset = AssetFactory.create();
+      const job = { id: asset.id, deleteOnDisk: true, deletionId: asset.id, trashedBefore: cutoff };
+      mocks.asset.claimExpiredDeletion.mockResolvedValue(true);
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.removeForDeletion.mockRejectedValue(Object.assign(new Error('deadlock'), { code: '40P01' }));
+      await expect(sut.handleAssetDeletion(job)).resolves.toBe(JobStatus.Skipped);
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.removeForDeletion).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+    });
+
+    it('does not apply the retention claim to library removal or motion-resource cleanup', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      await expect(
+        sut.handleAssetDeletion({
+          id: asset.id,
+          deleteOnDisk: false,
+          deletionReason: 'library',
+          libraryId: 'library-1',
+        }),
+      ).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.claimExpiredDeletion).not.toHaveBeenCalled();
+      expect(mocks.asset.claimDeletion).toHaveBeenCalledWith(asset.id, { reason: 'library', libraryId: 'library-1' });
+    });
+
     // Deleting an asset makes Postgres lock shared_space_person itself to satisfy the
     // representativeFaceId ON DELETE SET NULL foreign key, in face-deletion order. That cycles
     // against concurrent space-people recounts and no application-level ordering can prevent it,
@@ -1594,30 +1958,44 @@ describe(AssetService.name, () => {
     it('retries the delete when postgres picks it as a deadlock victim', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove
+      mocks.asset.removeForDeletion
         .mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
-        .mockResolvedValue(void 0);
+        .mockResolvedValue(true);
 
-      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).resolves.toBe(JobStatus.Success);
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Success,
+      );
 
-      expect(mocks.asset.remove).toHaveBeenCalledTimes(2);
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(2);
     });
 
     // A retry must re-drive only the delete. If it re-ran the surrounding work the asset would be
     // announced as deleted twice and its files queued for deletion twice.
     it('does not repeat the surrounding work when the delete is retried', async () => {
-      const asset = AssetFactory.from().build();
+      const asset = AssetFactory.from().file({ type: AssetFileType.Thumbnail }).build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove
+      mocks.asset.removeForDeletion
         .mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
-        .mockResolvedValue(void 0);
+        .mockResolvedValue(true);
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
-      expect(mocks.asset.remove).toHaveBeenCalledTimes(2);
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(2);
       expect(mocks.sharedSpace.getSpacePersonsForAsset).toHaveBeenCalledTimes(1);
       expect(mocks.event.emit).toHaveBeenCalledTimes(1);
       expect(mocks.job.queue).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not repeat quota, events or file cleanup when a competing job already removed the row', async () => {
+      const asset = AssetFactory.create();
+      mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.removeForDeletion.mockResolvedValue(false);
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Skipped,
+      );
+      expect(mocks.user.updateUsage).not.toHaveBeenCalled();
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
     });
 
     // Losing a deletion is the one genuinely harmful outcome here: the asset is already
@@ -1626,13 +2004,15 @@ describe(AssetService.name, () => {
     it('re-queues the deletion instead of losing it when every retry deadlocks', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove.mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+      mocks.asset.removeForDeletion.mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
 
-      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).resolves.toBe(JobStatus.Skipped);
+      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id })).resolves.toBe(
+        JobStatus.Skipped,
+      );
 
       expect(mocks.job.queue).toHaveBeenCalledWith({
         name: JobName.AssetDelete,
-        data: { id: asset.id, deleteOnDisk: true },
+        data: { id: asset.id, deleteOnDisk: true, deletionId: asset.id },
       });
       // the deletion is never reported as done
       expect(mocks.event.emit).not.toHaveBeenCalled();
@@ -1641,13 +2021,15 @@ describe(AssetService.name, () => {
     it('does not retry a delete that failed for a non-deadlock reason', async () => {
       const asset = AssetFactory.from().build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      mocks.asset.remove.mockRejectedValue(Object.assign(new Error('nope'), { code: '23503' }));
+      mocks.asset.removeForDeletion.mockRejectedValue(Object.assign(new Error('nope'), { code: '23503' }));
 
-      await expect(sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).rejects.toMatchObject({
+      await expect(
+        sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id }),
+      ).rejects.toMatchObject({
         code: '23503',
       });
 
-      expect(mocks.asset.remove).toHaveBeenCalledTimes(1);
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(1);
     });
 
     it('should clean up files', async () => {
@@ -1660,19 +2042,19 @@ describe(AssetService.name, () => {
         .build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
       expect(mocks.job.queue.mock.calls).toEqual([
         [
           {
             name: JobName.FileDelete,
             data: {
-              files: [...asset.files.map(({ path }) => path), asset.originalPath],
+              files: asset.files.map(({ path }) => path),
             },
           },
         ],
       ]);
-      expect(mocks.asset.remove).toHaveBeenCalledWith(getForAssetDeletion(asset));
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledWith(getForAssetDeletion(asset));
     });
 
     it('should delete the entire stack if deleted asset was the primary asset and the stack would only contain one asset afterwards', async () => {
@@ -1682,7 +2064,7 @@ describe(AssetService.name, () => {
       mocks.stack.delete.mockResolvedValue();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
       expect(mocks.stack.delete).toHaveBeenCalledWith(asset.stackId);
     });
@@ -1696,7 +2078,7 @@ describe(AssetService.name, () => {
       mocks.stack.delete.mockResolvedValue();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(deletionAsset);
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
       expect(mocks.stack.delete).toHaveBeenCalledWith(deletionAsset.stack.id);
     });
@@ -1709,7 +2091,7 @@ describe(AssetService.name, () => {
       };
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(deletionAsset);
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
       expect(mocks.stack.delete).not.toHaveBeenCalled();
       expect(mocks.stack.update).not.toHaveBeenCalled();
@@ -1724,11 +2106,16 @@ describe(AssetService.name, () => {
       await sut.handleAssetDeletion({
         id: asset.id,
         deleteOnDisk: true,
+        deletionId: asset.id,
       });
 
       expect(mocks.job.queue.mock.calls).toEqual([
-        [{ name: JobName.AssetDelete, data: { id: motionAsset.id, deleteOnDisk: true } }],
-        [{ name: JobName.FileDelete, data: { files: [asset.originalPath] } }],
+        [
+          {
+            name: JobName.AssetDelete,
+            data: { id: motionAsset.id, deleteOnDisk: true, deletionReason: 'motion', deletionId: motionAsset.id },
+          },
+        ],
       ]);
     });
 
@@ -1737,23 +2124,21 @@ describe(AssetService.name, () => {
       mocks.asset.getLivePhotoCount.mockResolvedValue(2);
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
-      expect(mocks.job.queue.mock.calls).toEqual([
-        [{ name: JobName.FileDelete, data: { files: [`/data/library/IMG_${asset.id}.jpg`] } }],
-      ]);
+      expect(mocks.job.queue.mock.calls).toEqual([]);
     });
 
     it('should update usage', async () => {
       const asset = AssetFactory.from().exif({ fileSizeInByte: 5000 }).build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
       expect(mocks.user.updateUsage).toHaveBeenCalledWith(asset.ownerId, -5000);
     });
 
     it('should fail if asset could not be found', async () => {
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(void 0);
-      await expect(sut.handleAssetDeletion({ id: AssetFactory.create().id, deleteOnDisk: true })).resolves.toBe(
+      await expect(sut.handleAssetDeletion({ id: 'asset-1', deleteOnDisk: true, deletionId: 'asset-1' })).resolves.toBe(
         JobStatus.Failed,
       );
     });
@@ -1762,7 +2147,7 @@ describe(AssetService.name, () => {
       const asset = AssetFactory.from({ libraryId: newUuid() }).exif({ fileSizeInByte: 5000 }).build();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(asset as any);
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
       expect(mocks.user.updateUsage).not.toHaveBeenCalled();
     });
@@ -1787,7 +2172,7 @@ describe(AssetService.name, () => {
       const asset = AssetFactory.create();
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(asset as any);
 
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
       expect(mocks.event.emit).toHaveBeenCalledWith('AssetDelete', {
         assetId: asset.id,

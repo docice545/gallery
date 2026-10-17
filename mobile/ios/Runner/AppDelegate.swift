@@ -26,6 +26,8 @@ import native_video_player
 
   public static func registerPlugins(with registry: FlutterPluginRegistry, messenger: FlutterBinaryMessenger) {
     NativeSyncApiImpl.register(with: registry.registrar(forPlugin: NativeSyncApiImpl.name)!)
+    LivePhotoApiImpl.register(with: registry.registrar(forPlugin: "LivePhotoApi")!)
+    LivePhotoSaveApiImpl.register(with: registry.registrar(forPlugin: "LivePhotoSaveApi")!)
     PermissionApiSetup.setUp(binaryMessenger: messenger, api: PermissionApiImpl())
     LocalImageApiSetup.setUp(binaryMessenger: messenger, api: LocalImageApiImpl())
     RemoteImageApiSetup.setUp(binaryMessenger: messenger, api: RemoteImageApiImpl())
@@ -36,5 +38,7 @@ import native_video_player
 
   public static func cancelPlugins(with engine: FlutterEngine) {
     (engine.valuePublished(byPlugin: NativeSyncApiImpl.name) as? NativeSyncApiImpl)?.detachFromEngine()
+    (engine.valuePublished(byPlugin: "LivePhotoApi") as? LivePhotoApiImpl)?.detachFromEngine()
+    (engine.valuePublished(byPlugin: "LivePhotoSaveApi") as? LivePhotoSaveApiImpl)?.detachFromEngine()
   }
 }

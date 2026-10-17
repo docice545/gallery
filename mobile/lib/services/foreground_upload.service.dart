@@ -15,11 +15,14 @@ import 'package:immich_mobile/infrastructure/repositories/backup.repository.dart
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/storage.repository.dart';
 import 'package:immich_mobile/platform/connectivity_api.g.dart';
+import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/platform.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
+import 'package:immich_mobile/repositories/asset_api.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/repositories/upload.repository.dart';
+import 'package:immich_mobile/utils/live_photo_import.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
 import 'package:path/path.dart' as p;
@@ -43,6 +46,11 @@ final foregroundUploadServiceProvider = Provider((ref) {
     ref.watch(driftProvider).backupRepository,
     ref.watch(connectivityApiProvider),
     ref.watch(assetMediaRepositoryProvider),
+    rollbackCreatedMotion: (id) => ref.read(assetApiRepositoryProvider).delete([id], false),
+    verifySharedLivePhotoPair: (stillId, motionId) async {
+      final existing = await ref.read(apiServiceProvider).assetsApi.getAssetInfo(stillId);
+      return existing != null && existing.livePhotoVideoId.orElse(null) == motionId;
+    },
   );
 });
 
@@ -57,14 +65,18 @@ class ForegroundUploadService {
     this._storageRepository,
     this._backupRepository,
     this._connectivityApi,
-    this._assetMediaRepository,
-  );
+    this._assetMediaRepository, {
+    this.rollbackCreatedMotion,
+    this.verifySharedLivePhotoPair,
+  });
 
   final UploadRepository _uploadRepository;
   final StorageRepository _storageRepository;
   final BackupRepository _backupRepository;
   final ConnectivityApi _connectivityApi;
   final AssetMediaRepository _assetMediaRepository;
+  final Future<void> Function(String id)? rollbackCreatedMotion;
+  final Future<bool> Function(String stillId, String motionId)? verifySharedLivePhotoPair;
   final Logger _logger = Logger('ForegroundUploadService');
 
   bool shouldAbortUpload = false;
@@ -153,6 +165,7 @@ class ForegroundUploadService {
   /// Upload files from shared intent
   Future<void> uploadShareIntent(
     List<File> files, {
+    Map<String, String> pairedVideoPaths = const {},
     Completer<void>? cancelToken,
     void Function(String fileId, int bytes, int totalBytes)? onProgress,
     void Function(String fileId, String remoteAssetId)? onSuccess,
@@ -167,12 +180,58 @@ class ForegroundUploadService {
       processItem: (file) async {
         final fileId = p.hash(file.path).toString();
 
-        final result = await _uploadSingleFile(
-          file,
-          deviceAssetId: fileId,
-          cancelToken: cancelToken,
-          onProgress: (bytes, totalBytes) => onProgress?.call(fileId, bytes, totalBytes),
-        );
+        final videoPath = pairedVideoPaths[file.path];
+        if (isOwnedLivePhotoImport(file.path) &&
+            (videoPath == null || pairedVideoForSharedImage(file.path) != videoPath)) {
+          // Recheck immediately before uploading: an originally valid handoff
+          // may have lost its resources after the import screen was populated.
+          onError?.call(fileId, 'LIVE_PHOTO_PAIR_UNAVAILABLE');
+          return;
+        }
+        UploadResult? motion;
+        UploadResult result;
+        if (videoPath != null) {
+          motion = await _uploadSingleFile(
+            File(videoPath),
+            deviceAssetId: '$fileId-motion',
+            cancelToken: cancelToken,
+            extraFields: {'visibility': AssetVisibility.hidden.toString()},
+          );
+        }
+        if (motion != null && !motion.isSuccess) {
+          result = motion;
+        } else {
+          result = await _uploadSingleFile(
+            file,
+            deviceAssetId: fileId,
+            cancelToken: cancelToken,
+            extraFields: {'livePhotoVideoId': ?motion?.remoteAssetId},
+            onProgress: (bytes, totalBytes) => onProgress?.call(fileId, bytes, totalBytes),
+          );
+        }
+        var canRollback = true;
+        if (result.isSuccess && !result.wasCreated && motion?.remoteAssetId != null) {
+          // Deduplication does not link new request fields onto an existing asset.
+          // Confirm the pre-existing native pair instead of claiming still-only
+          // success or changing any existing identity automatically.
+          try {
+            final linked = await verifySharedLivePhotoPair?.call(result.remoteAssetId!, motion!.remoteAssetId!);
+            if (linked != true) {
+              canRollback = linked == false;
+              result = UploadResult.error(errorMessage: 'LIVE_PHOTO_PAIR_NOT_VERIFIED');
+            }
+          } catch (_) {
+            canRollback = false;
+            result = UploadResult.error(errorMessage: 'LIVE_PHOTO_PAIR_NOT_VERIFIED');
+          }
+        }
+        if (!result.isSuccess && canRollback && motion?.wasCreated == true && motion?.remoteAssetId != null) {
+          try {
+            await rollbackCreatedMotion?.call(motion!.remoteAssetId!);
+          } catch (_) {
+            _logger.warning('Unable to roll back a newly uploaded paired resource');
+          }
+        }
 
         if (result.isSuccess) {
           onSuccess?.call(fileId, result.remoteAssetId!);
@@ -413,6 +472,7 @@ class ForegroundUploadService {
     required String deviceAssetId,
     required Completer<void>? cancelToken,
     void Function(int bytes, int totalBytes)? onProgress,
+    Map<String, String> extraFields = const {},
   }) async {
     try {
       // ignore: avoid_slow_async_io
@@ -429,6 +489,7 @@ class ForegroundUploadService {
         'fileModifiedAt': fileModifiedAt.toUtc().toIso8601String(),
         'isFavorite': 'false',
         'duration': '0',
+        ...extraFields,
       };
 
       return await _uploadRepository.uploadFile(

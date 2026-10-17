@@ -11,27 +11,32 @@ on:
         required: true
         default: 'development'
         type: string
+      ios_release:
+        description: 'Explicit signing and TestFlight gate; default is unsigned compilation.'
+        required: false
+        default: false
+        type: boolean
     secrets:
       KEY_JKS:
-        required: true
+        required: false
       ALIAS:
-        required: true
+        required: false
       ANDROID_KEY_PASSWORD:
-        required: true
+        required: false
       ANDROID_STORE_PASSWORD:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ID:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY_ISSUER_ID:
-        required: true
+        required: false
       APP_STORE_CONNECT_API_KEY:
-        required: true
+        required: false
       IOS_CERTIFICATE_P12:
-        required: true
+        required: false
       IOS_CERTIFICATE_PASSWORD:
-        required: true
+        required: false
       FASTLANE_TEAM_ID:
-        required: true
+        required: false
   pull_request:
   push:
     branches: [main, 'release/*']
@@ -180,7 +185,7 @@ jobs:
           key: ${{ steps.cache-gradle-restore.outputs.cache-primary-key }}
 
   build-sign-ios:
-    name: Build and sign iOS
+    name: Verify or explicitly release iOS
     needs: pre-job
     permissions:
       contents: read
@@ -207,6 +212,9 @@ jobs:
 
       - uses: ./.github/actions/apply-branding
 
+      - name: Use CocoaPods for Flutter plugins
+        run: mise exec -- flutter config --no-enable-swift-package-manager
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
@@ -215,16 +223,20 @@ jobs:
           working-directory: ./mobile/ios
 
       - name: Install dependencies
+        if: inputs.ios_release == true
         run: mise //mobile:install:ci
 
       - name: Perform codegen
+        if: inputs.ios_release == true
         run: mise //mobile:codegen
 
       - name: Resolve iOS Swift Packages
+        if: inputs.ios_release == true
         working-directory: ./mobile
         run: flutter build ios --config-only --no-codesign
 
       - name: Create API Key
+        if: inputs.ios_release == true
         env:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
@@ -235,6 +247,7 @@ jobs:
           echo "$API_KEY_CONTENT" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
 
       - name: Import Certificate
+        if: inputs.ios_release == true
         env:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
         working-directory: ./mobile/ios
@@ -243,6 +256,7 @@ jobs:
           echo "$IOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
 
       - name: Create keychain and import certificate
+        if: inputs.ios_release == true
         env:
           KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -262,6 +276,7 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Build and deploy to TestFlight
+        if: inputs.ios_release == true
         env:
           FASTLANE_TEAM_ID: ${{ secrets.FASTLANE_TEAM_ID }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -274,21 +289,34 @@ jobs:
           FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
         working-directory: ./mobile/ios
         run: |
-          if [[ "$DEPLOY" != 'true' ]]; then
-            bundle exec fastlane gha_build_only
-          elif [[ "$ENVIRONMENT" == "development" ]]; then
+          if [[ "$ENVIRONMENT" == "development" ]]; then
             bundle exec fastlane gha_testflight_dev
           else
             bundle exec fastlane gha_release_prod
           fi
 
+      - name: Build iOS (no credentials or upload)
+        if: inputs.ios_release != true
+        working-directory: ./mobile
+        run: bash scripts/ios_build_only.sh
+
       - name: Clean up keychain
-        if: always()
+        if: always() && inputs.ios_release == true
         run: |
           security delete-keychain build.keychain || true
 
+      - name: Upload unsigned archive
+        if: inputs.ios_release != true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-unsigned-archive
+          path: mobile/build/ios/archive/Runner.xcarchive
+          if-no-files-found: error
+
       - name: Upload IPA artifact
+        if: inputs.ios_release == true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-release-ipa
-          path: mobile/ios/Runner.ipa
+          path: mobile/build/ios/ipa/gallery.ipa
+          if-no-files-found: error

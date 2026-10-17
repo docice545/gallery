@@ -1,6 +1,8 @@
+import { Reflector } from '@nestjs/core';
 import request from 'supertest';
 import { AssetController } from 'src/controllers/asset.controller.js';
-import { AssetMetadataKey } from 'src/enum.js';
+import { AssetMetadataKey, Permission } from 'src/enum.js';
+import { getAuthenticatedOptions } from 'src/middleware/auth.guard.js';
 import { AssetService } from 'src/services/asset.service.js';
 import { factory } from 'test/small.factory.js';
 import { ControllerContext, controllerSetup, mockBaseService } from 'test/utils.js';
@@ -17,6 +19,90 @@ describe(AssetController.name, () => {
   beforeEach(() => {
     ctx.reset();
     service.resetAllMocks();
+  });
+
+  it('routes encoded batch IDs to the additive owner-scoped cancellation endpoint', async () => {
+    const batchId = `asset-delete-batch/${'a'.repeat(64)}`;
+    const response = {
+      id: batchId,
+      state: 'active' as const,
+      cancelRequested: true,
+      total: 201,
+      processed: 0,
+      complete: 0,
+      failed: 0,
+      pending: 201,
+    };
+    service.cancelDeletionBatch.mockResolvedValue(response);
+    const { status, body } = await request(ctx.getHttpServer()).post(
+      `/assets/permanent-deletion/${encodeURIComponent(batchId)}/cancel`,
+    );
+    expect(status).toBe(201);
+    expect(body).toEqual(response);
+    expect(service.cancelDeletionBatch).toHaveBeenCalledExactlyOnceWith(undefined, batchId);
+    expect(getAuthenticatedOptions(new Reflector(), AssetController.prototype.cancelDeletionBatch)).toMatchObject({
+      permission: Permission.AssetDelete,
+      sharedLink: false,
+    });
+  });
+
+  describe.each([
+    ['managed', '/assets/admin/managed-deletion-preparation', 'prepareManagedDeletionForOwner'],
+    [
+      'external',
+      '/assets/admin/library-deletion-preparation/00000000-0000-4000-8000-000000000011',
+      'prepareLibraryDeletionForOwner',
+    ],
+  ] as const)('%s administrator preparation API', (kind, path, method) => {
+    const ownerId = '00000000-0000-4000-8000-000000000001';
+    const dto = { ownerId, recoveryProof: 'a'.repeat(64), verifiedExclusiveRoots: true };
+
+    it('requires administrator role and system-config permission, never shared-link authentication', () => {
+      expect(getAuthenticatedOptions(new Reflector(), AssetController.prototype[method])).toMatchObject({
+        admin: true,
+        permission: Permission.SystemConfigUpdate,
+        sharedLink: false,
+        public: false,
+      });
+    });
+
+    it('passes the selected owner separately and never passes roots or an enabled flag', async () => {
+      const { status } = await request(ctx.getHttpServer()).put(path).send(dto);
+      expect(status).toBe(204);
+      const preparation = { recoveryProof: dto.recoveryProof, verifiedExclusiveRoots: true };
+      expect(service[method]).toHaveBeenCalledExactlyOnceWith(
+        ...(kind === 'managed'
+          ? [undefined, ownerId, preparation]
+          : [undefined, ownerId, '00000000-0000-4000-8000-000000000011', preparation]),
+      );
+      expect(service.setManagedDeletionConsent).not.toHaveBeenCalled();
+      expect(service.setLibraryDeletionConsent).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { ownerId: undefined },
+      { ownerId: 'not-a-uuid' },
+      { enabled: true },
+      { enabled: false },
+      { roots: ['/unapproved'] },
+      { scope: 'managed' },
+      { recoveryProof: 'invented' },
+      { verifiedExclusiveRoots: false },
+    ])('rejects invalid or extra preparation fields: %j', async (change) => {
+      const { status } = await request(ctx.getHttpServer())
+        .put(path)
+        .send({ ...dto, ...change });
+      expect(status).toBe(400);
+      expect(service[method]).not.toHaveBeenCalled();
+    });
+  });
+
+  it('requires an actual library UUID for administrator preparation', async () => {
+    const { status } = await request(ctx.getHttpServer())
+      .put('/assets/admin/library-deletion-preparation/not-a-uuid')
+      .send({ ownerId: factory.uuid(), recoveryProof: 'a'.repeat(64), verifiedExclusiveRoots: true });
+    expect(status).toBe(400);
+    expect(service.prepareLibraryDeletionForOwner).not.toHaveBeenCalled();
   });
 
   describe('PUT /assets', () => {

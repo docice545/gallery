@@ -2,6 +2,8 @@
   import { goto } from '$app/navigation';
   import empty3Url from '$lib/assets/empty-3.svg';
   import UserPageLayout from '$lib/components/layouts/UserPageLayout.svelte';
+  import ManagedDeletionSettings from '$lib/components/shared-components/ManagedDeletionSettings.svelte';
+  import ExternalDeletionSettings from '$lib/components/shared-components/ExternalDeletionSettings.svelte';
   import EmptyPlaceholder from '$lib/components/shared-components/EmptyPlaceholder.svelte';
   import DeleteAssets from '$lib/components/timeline/actions/DeleteAssetsAction.svelte';
   import RestoreAssets from './RestoreAction.svelte';
@@ -19,6 +21,7 @@
   import type { TimelineGrouping, TimelineTemporalAnchor } from '$lib/managers/timeline-manager/types';
   import { getTimelineBucketZoomTarget, type ActivatableTimelineBucket } from '$lib/utils/timeline-zoom-navigation';
   import { getTimelineTopVisibleAnchor } from '$lib/managers/timeline-manager/timeline-anchor';
+  import { AssetOrder, AssetOrderBy } from '@immich/sdk';
   import { t } from 'svelte-i18n';
   import type { PageData } from './$types';
 
@@ -31,7 +34,7 @@
   let timelineManager = $state<TimelineManager>() as TimelineManager;
   let timelineGrouping = $state<TimelineGrouping>('day');
   let temporalAnchor = $state<TimelineTemporalAnchor | undefined>();
-  const baseTimelineOptions = { isTrashed: true };
+  const baseTimelineOptions = { isTrashed: true, orderBy: AssetOrderBy.DeletedAt, order: AssetOrder.Desc };
   const options = $derived({
     ...baseTimelineOptions,
     grouping: timelineGrouping,
@@ -73,7 +76,17 @@
     temporalAnchor = result.anchor;
   }
 
-  const { Empty, RestoreAll } = $derived(getTrashActions($t));
+  const getTrashSnapshot = async () => {
+    const assets = [];
+    for await (const asset of timelineManager.assetsIterator()) {
+      assets.push(asset);
+    }
+    return assets;
+  };
+
+  const { Empty, RestoreAll } = $derived(
+    getTrashActions($t, getTrashSnapshot, (assetIds) => timelineManager.removeAssets(assetIds)),
+  );
 </script>
 
 {#if featureFlagsManager.value.trash}
@@ -100,10 +113,20 @@
       grouping={timelineGrouping}
       onGroupingChange={handleTimelineGroupingChange}
     >
+      {#if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
+        <ManagedDeletionSettings />
+        <ExternalDeletionSettings />
+      {/if}
       <p class="p-4 font-medium text-gray-500/60 dark:text-gray-300/60">
-        {$t('trashed_items_will_be_permanently_deleted_after', {
-          values: { days: serverConfigManager.value.trashDays },
-        })}
+        {#if featureFlagsManager.valueOrUndefined?.ownerStorageDeletion}
+          {$t('trash_retention_scope_info', { values: { days: serverConfigManager.value.trashDays } })}
+        {:else if featureFlagsManager.valueOrUndefined?.authorizedDeletion}
+          {$t('trash_manual_retention_info')}
+        {:else}
+          {$t('trashed_items_will_be_permanently_deleted_after', {
+            values: { days: serverConfigManager.value.trashDays },
+          })}
+        {/if}
       </p>
       {#snippet empty()}
         <EmptyPlaceholder text={$t('trash_no_results_message')} src={empty3Url} class="mx-auto mt-10" />

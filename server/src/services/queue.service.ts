@@ -17,6 +17,7 @@ import {
   QueueJobSearchDto,
   QueueResponseDto,
   QueueUpdateDto,
+  HistoricalDeletionJobsAuditDto,
 } from 'src/dtos/queue.dto.js';
 import {
   BootstrapEventPriority,
@@ -184,6 +185,14 @@ export class QueueService extends BaseService {
     if (dto.failed) {
       await this.jobRepository.clear(name, QueueCleanType.Failed);
     }
+  }
+
+  auditHistoricalDeletionJobs(_auth: AuthDto, dto: HistoricalDeletionJobsAuditDto) {
+    return this.jobRepository.auditHistoricalDeletionJobs({ olderThan: dto.olderThan });
+  }
+
+  reconcileHistoricalDeletionJobs(_auth: AuthDto, dto: HistoricalDeletionJobsAuditDto) {
+    return this.jobRepository.auditHistoricalDeletionJobs({ olderThan: dto.olderThan, execute: true });
   }
 
   private async getByName(

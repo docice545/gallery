@@ -6,6 +6,7 @@ import { HistoryBuilder } from 'src/decorators.js';
 import { AssetResponseSchema, mapAsset } from 'src/dtos/asset-response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { AssetOrderWithRandomSchema, MemoryType, MemoryTypeSchema } from 'src/enum.js';
+import { memoryData } from 'src/utils/memory-candidate.js';
 import { isoDateToDate, isoDatetimeToDate, nonEmptyPartial, stringToBool } from 'src/validation.js';
 
 const MemorySearchSchema = z
@@ -30,11 +31,59 @@ const OnThisDaySchema = z
 
 const MemoryDataSchema = z.record(z.string(), z.unknown()).describe('Memory data');
 
-const getMemoryDisplay = (type: MemoryType, data: Record<string, unknown>) => {
-  if (type !== MemoryType.Rule) {
-    return { title: undefined, subtitle: undefined };
-  }
+export class MemoryLifecycleSearchDto extends createZodDto(
+  z
+    .object({
+      after: z.uuidv4().optional().describe('Last returned ID; omit to restart snapshot polling'),
+      size: z.coerce.number().int().min(1).max(1000).default(100).describe('Maximum number of snapshot items'),
+    })
+    .meta({ id: 'MemoryLifecycleSearchDto' }),
+) {}
 
+const MemoryLifecycleSchema = z
+  .object({
+    id: z.uuidv4(),
+    type: MemoryTypeSchema,
+    data: MemoryDataSchema,
+    isSaved: z.boolean(),
+    seenAt: isoDatetimeToDate.optional(),
+    showAt: isoDatetimeToDate.optional(),
+    hideAt: isoDatetimeToDate.optional(),
+    deletedAt: isoDatetimeToDate.optional(),
+    assetIds: z.array(z.uuidv4()).describe('Full stored membership, including assets excluded from display'),
+    fingerprint: z.string().describe('SHA-256 of sorted unique asset IDs joined by commas'),
+  })
+  .meta({ id: 'MemoryLifecycleDto' });
+
+export class MemoryLifecycleResponseDto extends createZodDto(
+  z
+    .object({
+      items: z.array(MemoryLifecycleSchema),
+      nextCursor: z.uuidv4().optional().describe('Pass as after for the next page; absent when exhausted'),
+    })
+    .meta({ id: 'MemoryLifecycleResponseDto' }),
+) {}
+
+export class MemoryRejectionsResponseDto extends createZodDto(
+  z
+    .object({
+      items: z.array(
+        z
+          .object({
+            id: z.uuidv4(),
+            fingerprint: z.string(),
+            assetIds: z.array(z.uuidv4()),
+            state: z.literal('dismissed'),
+            memoryId: z.uuidv4().nullable().describe('Linked memory ID; null after hard deletion'),
+          })
+          .meta({ id: 'MemoryRejectionDto' }),
+      ),
+      nextCursor: z.uuidv4().optional().describe('Pass as after for the next page; absent when exhausted'),
+    })
+    .meta({ id: 'MemoryRejectionsResponseDto' }),
+) {}
+
+const getMemoryDisplay = (data: Record<string, unknown>) => {
   return {
     title: typeof data.title === 'string' ? data.title : undefined,
     subtitle: typeof data.subtitle === 'string' ? data.subtitle : undefined,
@@ -42,9 +91,12 @@ const getMemoryDisplay = (type: MemoryType, data: Record<string, unknown>) => {
 };
 
 const MemoryUpdateSchema = nonEmptyPartial({
+  isHidden: z.literal(true).describe('Permanently hide this memory without deleting its assets'),
   isSaved: z.boolean().describe('Is memory saved'),
   seenAt: isoDatetimeToDate.describe('Date when memory was seen'),
   memoryAt: isoDatetimeToDate.describe('Memory date'),
+  title: z.string().trim().max(200).nullable().describe('Generated display title; null clears it'),
+  subtitle: z.string().trim().max(500).nullable().describe('Generated description; null clears it'),
 }).meta({ id: 'MemoryUpdateDto' });
 
 const MemoryCreateSchema = z
@@ -111,9 +163,30 @@ export class MemoryCreateDto extends createZodDto(MemoryCreateSchema) {}
 export class MemoryStatisticsResponseDto extends createZodDto(MemoryStatisticsResponseSchema) {}
 export class MemoryResponseDto extends createZodDto(MemoryResponseSchema) {}
 
+export class MemoryCandidateCreateDto extends createZodDto(
+  MemoryCreateSchema.safeExtend({
+    assetIds: z.array(z.uuidv4()).min(1),
+    isSaved: z.literal(false).optional(),
+  }).meta({ id: 'MemoryCandidateCreateDto' }),
+) {}
+
+export class MemoryCandidateDecisionDto extends createZodDto(
+  z.object({
+    action: z.enum(['save', 'dismiss', 'later']),
+  }),
+) {}
+
+export class MemoryCandidateResponseDto extends createZodDto(
+  z.object({
+    id: z.uuidv4(),
+    state: z.enum(['pending', 'saved', 'dismissed']),
+    memory: MemoryResponseSchema.optional(),
+  }),
+) {}
+
 export const mapMemory = (entity: Memory, auth: AuthDto): MemoryResponseDto => {
-  const data = entity.data as AnyMemoryData;
-  const { title, subtitle } = getMemoryDisplay(entity.type as MemoryType, data);
+  const data = memoryData(entity.data) as AnyMemoryData;
+  const { title, subtitle } = getMemoryDisplay(data);
 
   return {
     id: entity.id,

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
+import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
@@ -17,8 +18,19 @@ class DownloadStatusFloatingButton extends ConsumerWidget {
     final isDownloading = ref
         .watch(downloadStateProvider.select((state) => state.taskProgress))
         .values
-        .where((element) => element.progress != 1)
+        .where(
+          (element) => ![
+            TaskStatus.complete,
+            TaskStatus.failed,
+            TaskStatus.notFound,
+            TaskStatus.canceled,
+          ].contains(element.status),
+        )
         .isNotEmpty;
+    final hasFailed = ref
+        .watch(downloadStateProvider.select((state) => state.taskProgress))
+        .values
+        .any((info) => info.status == TaskStatus.failed || info.status == TaskStatus.notFound);
 
     return shouldShow
         ? Badge.count(
@@ -43,8 +55,12 @@ class DownloadStatusFloatingButton extends ConsumerWidget {
                   isDownloading
                       ? Icon(Icons.downloading_rounded, color: context.colorScheme.primary, size: 28)
                       : Icon(
-                          Icons.download_done,
-                          color: context.isDarkTheme ? Colors.green[200] : Colors.green[400],
+                          hasFailed ? Icons.error_outline : Icons.download_done,
+                          color: hasFailed
+                              ? context.colorScheme.error
+                              : context.isDarkTheme
+                              ? Colors.green[200]
+                              : Colors.green[400],
                           size: 28,
                         ),
                   if (isDownloading)

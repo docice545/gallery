@@ -120,7 +120,7 @@ void main() {
   });
 
   group('LocalSyncService - syncTrashedAssets behavior', () {
-    test('processes trashed snapshot, restores assets, and trashes local files', () async {
+    test('processes trashed snapshot without silently restoring intentionally deleted device copies', () async {
       final platformAsset = PlatformAsset(
         id: 'remote-id',
         name: 'remote.jpg',
@@ -161,8 +161,8 @@ void main() {
       expect(trashedEntry.asset.name, platformAsset.name);
       verify(() => mockTrashedLocalAssetRepository.getToTrash()).called(1);
 
-      verify(() => mockAssetMediaRepository.restoreAssetsFromTrash(any())).called(1);
-      verify(() => mockTrashedLocalAssetRepository.applyRestoredAssets(restoredIds)).called(1);
+      verifyNever(() => mockAssetMediaRepository.restoreAssetsFromTrash(any()));
+      verifyNever(() => mockTrashedLocalAssetRepository.applyRestoredAssets(any()));
 
       final moveArgs = verify(() => mockAssetMediaRepository.deleteAll(captureAny())).captured.single as List<String>;
       expect(moveArgs, ['local-trash']);

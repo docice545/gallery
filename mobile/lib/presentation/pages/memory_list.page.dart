@@ -24,7 +24,7 @@ class _MemoryListPageState extends ConsumerState<MemoryListPage> {
 
   @override
   Widget build(BuildContext context) {
-    final memories = ref.watch(allMemoriesProvider(_onlyFavorites));
+    final memories = ref.watch(visibleAllMemoriesProvider(_onlyFavorites));
 
     return LayoutBuilder(
       builder: (context, constraints) {

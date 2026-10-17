@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/constants/constants.dart';
@@ -50,6 +52,65 @@ void main() {
 
   tearDown(() async {
     await sut.dispose();
+  });
+
+  test('dispose drains unbuffered writes before the background log DB can close', () async {
+    await sut.dispose();
+    final pendingWrite = Completer<bool>();
+    when(() => mockLogRepo.insert(any())).thenAnswer((_) => pendingWrite.future);
+    sut = await LogService.create(
+      logRepository: mockLogRepo,
+      settingsRepository: mockSettingsRepository,
+      shouldBuffer: false,
+    );
+    Logger('background-drain').info('one pending write');
+    var disposed = false;
+    final dispose = sut.dispose().then((_) => disposed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(disposed, isFalse);
+    Logger('background-drain').info('late record must be ignored');
+    pendingWrite.complete(true);
+    await dispose;
+    expect(disposed, isTrue);
+    verify(() => mockLogRepo.insert(any())).called(1);
+  });
+
+  test('failed shutdown flush still awaits an earlier timer write', () async {
+    await sut.dispose();
+    final pendingWrite = Completer<bool>();
+    var writes = 0;
+    when(() => mockLogRepo.insertAll(any())).thenAnswer((_) {
+      writes++;
+      return writes == 1 ? pendingWrite.future : Future<bool>.error(StateError('flush failed'));
+    });
+    final failingService = await LogService.create(
+      logRepository: mockLogRepo,
+      settingsRepository: mockSettingsRepository,
+    );
+    addTearDown(() async {
+      try {
+        await failingService.dispose();
+      } catch (_) {}
+    });
+    Logger('background-drain').info('first timer write');
+    await Future<void>.delayed(const Duration(seconds: 6));
+    expect(writes, 1);
+    Logger('background-drain').info('second shutdown flush');
+    var finished = false;
+    final dispose = failingService.dispose().then<void>(
+      (_) => finished = true,
+      onError: (Object _) {
+        finished = true;
+      },
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(writes, 2);
+    expect(finished, isFalse);
+    pendingWrite.complete(true);
+    await Future<void>.delayed(Duration.zero);
+    await dispose;
+    expect(finished, isTrue);
+    await expectLater(failingService.dispose(), throwsStateError);
   });
 
   group("Log Service Init:", () {

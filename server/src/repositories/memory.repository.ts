@@ -1,15 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { type Insertable, type Kysely, type OrderByDirection, type Updateable, sql } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { DateTime } from 'luxon';
 import { InjectKysely } from 'nestjs-kysely';
 import type { IBulkAsset } from 'src/types.js';
 import { Chunked, ChunkedSet, DummyValue, GenerateSql } from 'src/decorators.js';
-import { MemorySearchDto } from 'src/dtos/memory.dto.js';
+import { MemoryLifecycleSearchDto, MemorySearchDto } from 'src/dtos/memory.dto.js';
 import { AssetOrderWithRandom, AssetVisibility, MemoryType } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { MemoryTable } from 'src/schema/tables/memory.table.js';
 import { asUuid } from 'src/utils/database.js';
+import {
+  MemorySuppressedException,
+  memoryData,
+  memoryFingerprint,
+  similarMemoryAssets,
+} from 'src/utils/memory-candidate.js';
 import {
   type TimelineHiddenScope,
   hiddenFromOwnTimeline,
@@ -20,6 +26,220 @@ import {
 @Injectable()
 export class MemoryRepository implements IBulkAsset {
   constructor(@InjectKysely() private db: Kysely<DB>) {}
+
+  /** Owner-only integration snapshot: read stored membership, not the viewer's asset projection. */
+  async getLifecycle(ownerId: string, { after, size }: MemoryLifecycleSearchDto) {
+    const rows = await this.db
+      .selectFrom('memory')
+      .select(['id', 'type', 'data', 'isSaved', 'seenAt', 'showAt', 'hideAt', 'deletedAt'])
+      .select((eb) =>
+        jsonArrayFrom(
+          eb
+            .selectFrom('memory_asset')
+            .select('assetId')
+            .whereRef('memoriesId', '=', 'memory.id')
+            .orderBy('assetId', 'asc'),
+        ).as('assetIds'),
+      )
+      .where('ownerId', '=', ownerId)
+      .$if(after !== undefined, (qb) => qb.where('id', '>', after!))
+      .orderBy('id', 'asc')
+      .limit(size + 1)
+      .execute();
+
+    return rows.map((row) => ({ ...row, assetIds: row.assetIds.map(({ assetId }) => assetId) }));
+  }
+
+  /** Durable explicit user decisions survive hard deletion; proposal creation is not decision time. */
+  getRejections(ownerId: string, { after, size }: MemoryLifecycleSearchDto) {
+    return this.db
+      .selectFrom('memory_candidate')
+      .select(['id', 'fingerprint', 'assetIds', 'state', 'memoryId'])
+      .where('ownerId', '=', ownerId)
+      .where('state', '=', 'dismissed')
+      .$if(after !== undefined, (qb) => qb.where('id', '>', after!))
+      .orderBy('id', 'asc')
+      .limit(size + 1)
+      .execute();
+  }
+
+  async createCandidate(memory: Insertable<MemoryTable>, assetIds: string[]) {
+    const ownerId = memory.ownerId;
+    const ids = [...new Set(assetIds)];
+    const fingerprint = memoryFingerprint(ids);
+    return this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
+      const history = await tx.selectFrom('memory_candidate').selectAll().where('ownerId', '=', ownerId).execute();
+      if (history.some((row) => row.state === 'dismissed' && similarMemoryAssets(ids, row.assetIds))) {
+        throw new MemorySuppressedException();
+      }
+      const existing = history.find((row) => row.fingerprint === fingerprint);
+      if (existing) {
+        if (existing.state === 'dismissed' || !existing.memoryId)
+          throw new ConflictException('Candidate already declined');
+        return { ...existing, created: false };
+      }
+      if (history.some((row) => similarMemoryAssets(ids, row.assetIds))) {
+        throw new ConflictException('A similar memory has already been proposed');
+      }
+      // Do not create an AI duplicate of a standard/rule memory already stored for this owner.
+      const memories = await tx
+        .selectFrom('memory')
+        .select('memory.id')
+        .select((eb) =>
+          jsonArrayFrom(eb.selectFrom('memory_asset').select('assetId').whereRef('memoriesId', '=', 'memory.id')).as(
+            'assets',
+          ),
+        )
+        .where('ownerId', '=', ownerId)
+        .where('deletedAt', 'is', null)
+        .execute();
+      if (
+        memories.some((row) =>
+          similarMemoryAssets(
+            ids,
+            row.assets.map((asset) => asset.assetId),
+          ),
+        )
+      ) {
+        throw new ConflictException('Enrich the existing memory instead of duplicating it');
+      }
+      const { id: memoryId } = await tx
+        .insertInto('memory')
+        .values({
+          ...memory,
+          isSaved: false,
+          data: { ...memory.data, candidateState: 'pending' },
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await tx
+        .insertInto('memory_asset')
+        .values(ids.map((assetId) => ({ memoriesId: memoryId, assetId })))
+        .execute();
+      const candidate = await tx
+        .insertInto('memory_candidate')
+        .values({
+          ownerId,
+          memoryId,
+          fingerprint,
+          assetIds: ids,
+          state: 'pending',
+          remindAt: new Date(),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return { ...candidate, created: true };
+    });
+  }
+
+  getCandidates(ownerId: string, hiddenScope?: TimelineHiddenScope, visibleSpaceIds: string[] = []) {
+    return (
+      this.db
+        .selectFrom('memory_candidate')
+        .innerJoin('memory', 'memory.id', 'memory_candidate.memoryId')
+        .selectAll('memory_candidate')
+        .where('memory_candidate.ownerId', '=', ownerId)
+        .where('memory.ownerId', '=', ownerId)
+        .where('memory.deletedAt', 'is', null)
+        .where('memory_candidate.state', '=', 'pending')
+        .where('memory_candidate.remindAt', '<=', new Date())
+        // Filter before limiting, so old proposals with no renderable assets cannot block new ones.
+        .where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('memory_asset')
+              .innerJoin('asset', 'asset.id', 'memory_asset.assetId')
+              .select('asset.id')
+              .whereRef('memory_asset.memoriesId', '=', 'memory_candidate.memoryId')
+              .where('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
+              .where('asset.deletedAt', 'is', null)
+              .$if(!!hiddenScope && !timelineHiddenScopeIsEmpty(hiddenScope), (qb) =>
+                qb.where((eb) =>
+                  eb.or([
+                    eb('asset.ownerId', '!=', asUuid(ownerId)),
+                    hiddenFromOwnTimeline(eb, hiddenScope!, {
+                      kind: 'inline',
+                      visibleSpaceIds,
+                      viewerId: ownerId,
+                    })!,
+                  ]),
+                ),
+              ),
+          ),
+        )
+        .orderBy('memory_candidate.createdAt')
+        .orderBy('memory_candidate.id')
+        .limit(20)
+        .execute()
+    );
+  }
+
+  getCandidateForMemory(memoryId: string) {
+    return this.db.selectFrom('memory_candidate').select('state').where('memoryId', '=', memoryId).executeTakeFirst();
+  }
+
+  async decideCandidate(ownerId: string, id: string, action: 'save' | 'dismiss' | 'later') {
+    return this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
+      const candidate = await tx
+        .selectFrom('memory_candidate')
+        .selectAll()
+        .where('ownerId', '=', ownerId)
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!candidate) throw new NotFoundException('Memory candidate not found');
+      const state = action === 'save' ? 'saved' : action === 'dismiss' ? 'dismissed' : 'pending';
+      if (candidate.state !== 'pending') {
+        if (candidate.state === state) return candidate;
+        throw new ConflictException('Memory candidate already decided');
+      }
+      if (action === 'save' && !candidate.memoryId) {
+        throw new ConflictException('Candidate memory no longer exists');
+      }
+      if (action === 'later') {
+        return tx
+          .updateTable('memory_candidate')
+          .set({ remindAt: DateTime.utc().plus({ days: 1 }).toJSDate() })
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+      }
+      if (candidate.memoryId) {
+        const original = await tx
+          .selectFrom('memory')
+          .select('data')
+          .where('id', '=', candidate.memoryId)
+          .where('ownerId', '=', ownerId)
+          .forUpdate()
+          .executeTakeFirst();
+        const updated = await tx
+          .updateTable('memory')
+          .set({
+            isSaved: action === 'save',
+            showAt: new Date(),
+            hideAt: null,
+            deletedAt: action === 'dismiss' ? new Date() : null,
+            data: { ...memoryData(original?.data), candidateState: state },
+            updatedAt: new Date(),
+          })
+          .where('id', '=', candidate.memoryId)
+          .where('ownerId', '=', ownerId)
+          .returning('id')
+          .execute();
+        if (action === 'save' && updated.length === 0) {
+          throw new ConflictException('Candidate memory no longer exists');
+        }
+      }
+      return tx
+        .updateTable('memory_candidate')
+        .set({ state })
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    });
+  }
 
   async cleanup(retentionDays: number) {
     await this.db
@@ -37,6 +257,17 @@ export class MemoryRepository implements IBulkAsset {
       .deleteFrom('memory')
       .where(sql<Date>`coalesce("showAt", "createdAt")`, '<', DateTime.now().minus({ days: retentionDays }).toJSDate())
       .where('isSaved', '=', false)
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('memory_candidate')
+              .select('id')
+              .whereRef('memory_candidate.memoryId', '=', 'memory.id')
+              .where('state', '=', 'pending'),
+          ),
+        ),
+      )
       .execute();
   }
 
@@ -66,6 +297,17 @@ export class MemoryRepository implements IBulkAsset {
 
     return this.db
       .selectFrom('memory')
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('memory_candidate')
+              .select('id')
+              .whereRef('memory_candidate.memoryId', '=', 'memory.id')
+              .where('state', '!=', 'saved'),
+          ),
+        ),
+      )
       .$if(dto.isSaved !== undefined, (qb) => qb.where('isSaved', '=', dto.isSaved!))
       .$if(dto.type !== undefined, (qb) => qb.where('type', '=', dto.type!))
       .$if(hideUnshown, (qb) =>
@@ -354,6 +596,19 @@ export class MemoryRepository implements IBulkAsset {
 
   async create(memory: Insertable<MemoryTable>, assetIds: Set<string>) {
     const id = await this.db.transaction().execute(async (tx) => {
+      // External AI producers using ordinary POST /memories must respect the same user
+      // decisions. Serialize their insertion with the existing candidate decision lane.
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${memory.ownerId}), 179108)`.execute(tx);
+      if (assetIds.size > 0) {
+        const history = tx
+          .selectFrom('memory_candidate')
+          .select('assetIds')
+          .where('ownerId', '=', memory.ownerId)
+          .where('state', '=', 'dismissed');
+        for await (const row of history.stream(100)) {
+          if (similarMemoryAssets([...assetIds], row.assetIds)) throw new MemorySuppressedException();
+        }
+      }
       const { id } = await tx.insertInto('memory').values(memory).returning('id').executeTakeFirstOrThrow();
 
       if (assetIds.size > 0) {
@@ -367,9 +622,135 @@ export class MemoryRepository implements IBulkAsset {
     return this.getByIdBuilder(id).executeTakeFirstOrThrow();
   }
 
+  /** Only explicit user actions enter durable rejection history; retention/reconciliation do not. */
+  private async suppressForUser(id: string, ownerId: string, action: 'hide' | 'delete') {
+    await this.db.transaction().execute(async (tx) => {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 179108)`.execute(tx);
+      const memory = await tx
+        .selectFrom('memory')
+        .select('id')
+        .where('id', '=', id)
+        .where('ownerId', '=', ownerId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!memory) throw new NotFoundException('Memory not found');
+      const rows = await tx.selectFrom('memory_asset').select('assetId').where('memoriesId', '=', id).execute();
+      const assetIds = rows.map(({ assetId }) => assetId);
+      let linkedDuplicateId: string | null = null;
+      if (assetIds.length > 0) {
+        const rejection = await tx
+          .insertInto('memory_candidate')
+          .values({
+            ownerId,
+            memoryId: id,
+            fingerprint: memoryFingerprint(assetIds),
+            assetIds,
+            state: 'dismissed',
+            remindAt: new Date(),
+          })
+          .onConflict((oc) => oc.columns(['ownerId', 'fingerprint']).doUpdateSet({ state: 'dismissed' }))
+          .returning('memoryId')
+          .executeTakeFirstOrThrow();
+        linkedDuplicateId = rejection.memoryId;
+        if (linkedDuplicateId && linkedDuplicateId !== id) {
+          const linkedAssets = await tx
+            .selectFrom('memory_asset')
+            .select('assetId')
+            .where('memoriesId', '=', linkedDuplicateId)
+            .execute();
+          if (memoryFingerprint(linkedAssets.map(({ assetId }) => assetId)) !== memoryFingerprint(assetIds)) {
+            // A saved candidate may now contain a different, manually edited moment. Its
+            // historical fingerprint must not hide that unrelated current memory.
+            await tx
+              .updateTable('memory_candidate')
+              .set({ memoryId: id })
+              .where('ownerId', '=', ownerId)
+              .where('fingerprint', '=', memoryFingerprint(assetIds))
+              .execute();
+            linkedDuplicateId = null;
+          }
+        }
+      }
+      // A previously saved candidate may have been edited since its original fingerprint.
+      // Preserve both fingerprints and make its former Save decision terminally dismissed too.
+      await tx
+        .updateTable('memory_candidate')
+        .set({ state: 'dismissed' })
+        .where('ownerId', '=', ownerId)
+        .where('memoryId', '=', id)
+        .execute();
+      const hiddenIds = [
+        ...(action === 'hide' ? [id] : []),
+        ...(linkedDuplicateId && linkedDuplicateId !== id ? [linkedDuplicateId] : []),
+      ];
+      if (hiddenIds.length > 0) {
+        // An exact existing candidate-backed duplicate shares this durable decision. Deliver
+        // its tombstone through sync too, instead of leaving a stale offline/deep-link copy.
+        const hiddenMemories = await tx
+          .selectFrom('memory')
+          .select(['id', 'data'])
+          .where('id', 'in', hiddenIds)
+          .where('ownerId', '=', ownerId)
+          .forUpdate()
+          .execute();
+        for (const hidden of hiddenMemories) {
+          await tx
+            .updateTable('memory')
+            .set({
+              deletedAt: new Date(),
+              updatedAt: new Date(),
+              data: { ...memoryData(hidden.data), candidateState: 'dismissed' },
+            })
+            .where('id', '=', hidden.id)
+            .where('ownerId', '=', ownerId)
+            .execute();
+        }
+      }
+      if (action === 'delete') {
+        // The existing FK cascades remove only memory_asset links, never their asset rows.
+        await tx.deleteFrom('memory').where('id', '=', id).where('ownerId', '=', ownerId).execute();
+      }
+    });
+  }
+
+  async hideForUser(id: string, ownerId: string) {
+    await this.suppressForUser(id, ownerId, 'hide');
+    return this.getByIdBuilder(id, undefined, undefined, [], true).executeTakeFirstOrThrow();
+  }
+
+  async deleteForUser(id: string, ownerId: string) {
+    await this.suppressForUser(id, ownerId, 'delete');
+  }
+
   @GenerateSql({ params: [DummyValue.UUID, { ownerId: DummyValue.UUID, isSaved: true }] })
   async update(id: string, memory: Updateable<MemoryTable>) {
+    if (memory.isSaved !== undefined) {
+      const candidate = await this.getCandidateForMemory(id);
+      if (candidate && candidate.state !== 'saved') throw new ConflictException('Use the candidate decision endpoint');
+    }
     await this.db.updateTable('memory').set(memory).where('id', '=', id).execute();
+    return this.getByIdBuilder(id).executeTakeFirstOrThrow();
+  }
+
+  async updateDisplay(
+    id: string,
+    memory: Updateable<MemoryTable>,
+    display: { title?: string | null; subtitle?: string | null },
+  ) {
+    if (memory.isSaved !== undefined) {
+      const candidate = await this.getCandidateForMemory(id);
+      if (candidate && candidate.state !== 'saved') throw new ConflictException('Use the candidate decision endpoint');
+    }
+    await this.db.transaction().execute(async (tx) => {
+      const original = await tx.selectFrom('memory').select('data').where('id', '=', id).forUpdate().executeTakeFirst();
+      if (!original) throw new NotFoundException('Memory not found');
+      const patch = Object.fromEntries(Object.entries(display).filter(([, value]) => value !== undefined));
+      await tx
+        .updateTable('memory')
+        .set({ ...memory, data: { ...memoryData(original.data), ...patch } })
+        .where('id', '=', id)
+        .execute();
+    });
     return this.getByIdBuilder(id).executeTakeFirstOrThrow();
   }
 
@@ -460,6 +841,7 @@ export class MemoryRepository implements IBulkAsset {
     viewerId?: string,
     hiddenScope?: TimelineHiddenScope,
     visibleSpaceIds: string[] = [],
+    includeDeleted = false,
   ) {
     return this.db
       .selectFrom('memory')
@@ -485,6 +867,6 @@ export class MemoryRepository implements IBulkAsset {
         ).as('assets'),
       )
       .where('id', '=', id)
-      .where('deletedAt', 'is', null);
+      .$if(!includeDeleted, (qb) => qb.where('deletedAt', 'is', null));
   }
 }

@@ -12,6 +12,7 @@ import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
@@ -20,11 +21,13 @@ import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/utils/semver.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart';
+import 'package:openapi/api.dart' as api show AssetVisibility;
 
 import '../../api.mocks.dart';
 import '../../fixtures/asset.stub.dart';
 import '../../fixtures/sync_stream.stub.dart';
 import '../../infrastructure/repository.mock.dart';
+import '../../medium/repository_context.dart';
 import '../../repository.mocks.dart';
 import '../../service.mocks.dart';
 
@@ -35,6 +38,8 @@ class _AbortCallbackWrapper {
 }
 
 class _MockAbortCallbackWrapper extends Mock implements _AbortCallbackWrapper {}
+
+class _MockAssetsApi extends Mock implements AssetsApi {}
 
 /// A /server/features response; [syncRequestTypes] defaults to ABSENT — the shape an
 /// older fork server (no capability signalling) produces.
@@ -98,6 +103,7 @@ void main() {
 
   setUp(() async {
     mockSyncStreamRepo = MockSyncStreamRepository();
+    when(() => mockSyncStreamRepo.getRestoreCandidates(any())).thenAnswer((_) async => []);
     mockSyncApiRepo = MockSyncApiRepository();
     mockLocalAssetRepo = MockLocalAssetRepository();
     mockTrashedLocalAssetRepo = MockTrashedLocalAssetRepository();
@@ -143,6 +149,7 @@ void main() {
     // Default: a server that predates capability signalling (no syncRequestTypes field).
     when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => makeServerFeatures());
 
+    when(() => mockSyncStreamRepo.getPendingTrashOperations()).thenAnswer((_) async => []);
     when(() => mockSyncStreamRepo.updateUsersV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteUsersV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updatePartnerV1(any())).thenAnswer(successHandler);
@@ -244,6 +251,313 @@ void main() {
     await sut.sync();
     await handleEventsCallback(events, mockAbortCallbackWrapper.call, mockResetCallbackWrapper.call);
   }
+
+  group('SyncStreamService - authoritative restore confirmation', () {
+    late MediumRepositoryContext context;
+    late _MockAssetsApi assetsApi;
+    late SyncEvent staleActive;
+    late AssetTrashSnapshot candidate;
+
+    AssetResponseDto currentAsset({required bool isTrashed, String ownerId = 'owner'}) => AssetResponseDto(
+      checksum: 'checksum-trash',
+      createdAt: DateTime(2025),
+      duration: null,
+      fileCreatedAt: DateTime(2025),
+      fileModifiedAt: DateTime(2025),
+      hasMetadata: true,
+      height: null,
+      id: 'remote-1',
+      isArchived: false,
+      isEdited: false,
+      isFavorite: false,
+      isOffline: false,
+      isTrashed: isTrashed,
+      localDateTime: DateTime(2025),
+      originalFileName: 'photo.jpg',
+      originalPath: '',
+      ownerId: ownerId,
+      thumbhash: null,
+      type: AssetTypeEnum.IMAGE,
+      updatedAt: DateTime(2026),
+      visibility: api.AssetVisibility.timeline,
+      width: null,
+    );
+
+    setUp(() async {
+      context = MediumRepositoryContext();
+      await context.newUser(id: 'owner');
+      await context.newRemoteAsset(
+        id: 'remote-1',
+        ownerId: 'owner',
+        checksum: 'checksum-trash',
+        deletedAt: DateTime.utc(2026, 10, 7),
+      );
+      candidate = (await SyncStreamRepository(context.db).getRestoreCandidates({'remote-1': 'owner'})).single;
+      when(() => mockSyncStreamRepo.getRestoreCandidates(any())).thenAnswer((_) async => [candidate]);
+      when(() => mockSyncStreamRepo.confirmRestore(candidate)).thenAnswer((_) async {});
+      assetsApi = _MockAssetsApi();
+      when(() => mockApi.assetsApi).thenReturn(assetsApi);
+      staleActive = SyncStreamStub.assetModified(id: candidate.id, checksum: candidate.checksum, ack: 'older-active');
+    });
+    tearDown(() => context.dispose());
+
+    test('older active response cannot clear authoritative Trash', () async {
+      when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: true));
+      await simulateEvents([staleActive]);
+      verify(() => assetsApi.getAssetInfo('remote-1')).called(1);
+      verifyNever(() => mockSyncStreamRepo.confirmRestore(candidate));
+      verify(() => mockSyncStreamRepo.updateAssetsV1(any())).called(1);
+      verify(() => mockSyncApiRepo.ack(['older-active'])).called(1);
+    });
+
+    test('verified current restore is applied before stream update and ACK', () async {
+      when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
+      await simulateEvents([staleActive]);
+      verifyInOrder([
+        () => assetsApi.getAssetInfo('remote-1'),
+        () => mockSyncStreamRepo.confirmRestore(candidate),
+        () => mockSyncStreamRepo.updateAssetsV1(any()),
+        () => mockSyncApiRepo.ack(['older-active']),
+      ]);
+    });
+
+    for (final currentTrash in [false, true]) {
+      test('index-state replay verifies legacy Trash against current GET (trashed=$currentTrash)', () async {
+        final data = staleActive.data as SyncAssetV1;
+        data.deletedAt = DateTime.utc(2026, 10, 7);
+        data.isTrashed = const Optional.present(false);
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: currentTrash));
+        await simulateEvents([staleActive]);
+        verify(() => assetsApi.getAssetInfo('remote-1')).called(1);
+        if (currentTrash) {
+          verifyNever(() => mockSyncStreamRepo.confirmRestore(candidate));
+        } else {
+          verify(() => mockSyncStreamRepo.confirmRestore(candidate)).called(1);
+        }
+        verify(() => mockSyncApiRepo.ack(['older-active'])).called(1);
+      });
+    }
+
+    test('network failure keeps state and leaves restore unacknowledged for retry', () async {
+      when(() => assetsApi.getAssetInfo('remote-1')).thenThrow(Exception('offline'));
+      await expectLater(simulateEvents([staleActive]), throwsA(isA<Exception>()));
+      verifyNever(() => mockSyncStreamRepo.confirmRestore(candidate));
+      verifyNever(() => mockSyncStreamRepo.updateAssetsV1(any()));
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+    });
+
+    test('foreign-owner response fails closed without ACK', () async {
+      when(
+        () => assetsApi.getAssetInfo('remote-1'),
+      ).thenAnswer((_) async => currentAsset(isTrashed: false, ownerId: 'other-owner'));
+      await expectLater(simulateEvents([staleActive]), throwsStateError);
+      verifyNever(() => mockSyncStreamRepo.updateAssetsV1(any()));
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+    });
+
+    test('ordinary active assets require no per-asset confirmation request', () async {
+      when(() => mockSyncStreamRepo.getRestoreCandidates(any())).thenAnswer((_) async => []);
+      await simulateEvents([staleActive]);
+      verifyNever(() => assetsApi.getAssetInfo(any()));
+      verify(() => mockSyncStreamRepo.updateAssetsV1(any())).called(1);
+    });
+
+    test('cancellation during confirmation cannot mutate DB or ACK afterwards', () async {
+      final cancelled = Completer<void>();
+      final requested = Completer<void>();
+      final response = Completer<AssetResponseDto?>();
+      sut = SyncStreamService(
+        syncApiRepository: mockSyncApiRepo,
+        syncStreamRepository: mockSyncStreamRepo,
+        localAssetRepository: mockLocalAssetRepo,
+        trashedLocalAssetRepository: mockTrashedLocalAssetRepo,
+        assetMediaRepository: mockAssetMediaRepo,
+        permissionRepository: mockPermissionRepo,
+        syncMigrationRepository: mockSyncMigrationRepo,
+        api: mockApi,
+        cancellation: cancelled,
+      );
+      when(() => assetsApi.getAssetInfo('remote-1', abortTrigger: cancelled.future)).thenAnswer((_) {
+        requested.complete();
+        return response.future;
+      });
+      final work = simulateEvents([staleActive]);
+      await requested.future;
+      cancelled.complete();
+      response.complete(currentAsset(isTrashed: false));
+      await work;
+      verifyNever(() => mockSyncStreamRepo.confirmRestore(candidate));
+      verifyNever(() => mockSyncStreamRepo.updateAssetsV1(any()));
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+    });
+
+    Future<SyncStreamRepository> useRealRepository({Completer<void>? cancellation}) async {
+      final repository = SyncStreamRepository(context.db);
+      await context.newAuthUser(id: 'owner');
+      sut = SyncStreamService(
+        syncApiRepository: mockSyncApiRepo,
+        syncStreamRepository: repository,
+        localAssetRepository: mockLocalAssetRepo,
+        trashedLocalAssetRepository: mockTrashedLocalAssetRepo,
+        assetMediaRepository: mockAssetMediaRepo,
+        permissionRepository: mockPermissionRepo,
+        syncMigrationRepository: mockSyncMigrationRepo,
+        api: mockApi,
+        cancellation: cancellation,
+      );
+      return repository;
+    }
+
+    for (final offline in [false, true]) {
+      test('empty sync uses current offline state when reconciling an index Trash attempt ($offline)', () async {
+        final repository = await useRealRepository();
+        await context.db.customStatement("UPDATE remote_asset_entity SET is_index_tombstone=1 WHERE id='remote-1'");
+        final remote = RemoteAssetRepository(context.db);
+        final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+        await remote.completeTrashOperation(snapshots, success: false);
+        final current = currentAsset(isTrashed: false)..isOffline = offline;
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => current);
+        expect(await sut.sync(), isTrue);
+        final cached = (await remote.get('remote-1'))!;
+        expect(cached.isIndexTombstone, offline);
+        expect(cached.deletedAt == null, !offline);
+        expect(cached.isTrashed, isFalse);
+        expect(await repository.getRetainedTrashIds('owner'), isEmpty);
+        expect(await repository.getPendingTrashOperations(), isEmpty);
+      });
+    }
+
+    for (final serverTrashed in [false, true]) {
+      test('empty reconnect sync resolves uncertain Trash to current server state $serverTrashed', () async {
+        final repository = await useRealRepository();
+        final remote = RemoteAssetRepository(context.db);
+        await remote.restoreTrash(['remote-1']);
+        // The request failed without an authoritative response. The server
+        // may or may not have applied it; neither outcome is assumed locally.
+        final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+        await remote.completeTrashOperation(snapshots, success: false);
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: serverTrashed));
+        expect(await sut.sync(), isTrue); // streamChanges delivers zero asset events.
+        expect((await remote.get('remote-1'))!.isTrashed, serverTrashed);
+        expect(await repository.getPendingTrashOperations(), isEmpty);
+        verify(() => assetsApi.getAssetInfo('remote-1')).called(1);
+        verifyNever(() => mockSyncApiRepo.ack(any()));
+      });
+    }
+
+    test('offline empty sync retains pending state and the next reconnect resolves it', () async {
+      final repository = await useRealRepository();
+      final remote = RemoteAssetRepository(context.db);
+      final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+      await remote.completeTrashOperation(snapshots, success: false);
+      when(() => assetsApi.getAssetInfo('remote-1')).thenThrow(ApiException(0, 'offline'));
+      await expectLater(sut.sync(), throwsA(isA<ApiException>()));
+      expect(await repository.getPendingTrashOperations(), hasLength(1));
+      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+      when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
+      expect(await sut.sync(), isTrue);
+      expect((await remote.get('remote-1'))!.isTrashed, isFalse);
+      expect(await repository.getPendingTrashOperations(), isEmpty);
+    });
+
+    test('recovered cold-start pending state is resolved even without new stream events', () async {
+      final repository = await useRealRepository();
+      final remote = RemoteAssetRepository(context.db);
+      await remote.beginTrashOperation(['remote-1'], restore: false);
+      await repository.recoverPendingTrashOperations();
+      when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
+      expect(await sut.sync(), isTrue);
+      expect((await remote.get('remote-1'))!.isTrashed, isFalse);
+      expect(await repository.getPendingTrashOperations(), isEmpty);
+    });
+
+    test('stale active event does not issue a confirmation GET for in-flight Trash', () async {
+      await useRealRepository();
+      final remote = RemoteAssetRepository(context.db);
+      final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+      await simulateEvents([staleActive]);
+      verifyNever(() => assetsApi.getAssetInfo(any()));
+      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+      await remote.completeTrashOperation(snapshots, success: true);
+      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+    });
+
+    test('older pending GET response cannot clear a newer Trash revision', () async {
+      final repository = await useRealRepository();
+      final remote = RemoteAssetRepository(context.db);
+      final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+      await remote.completeTrashOperation(snapshots, success: false);
+      final requested = Completer<void>();
+      final response = Completer<AssetResponseDto?>();
+      when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) {
+        requested.complete();
+        return response.future;
+      });
+      final syncing = sut.sync();
+      await requested.future;
+      final newer = await remote.beginTrashOperation(['remote-1'], restore: false);
+      response.complete(currentAsset(isTrashed: false));
+      await syncing;
+      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+      expect(await repository.getRestoreCandidates({'remote-1': 'owner'}), isEmpty);
+      await remote.completeTrashOperation(newer, success: true);
+    });
+
+    test('cancellation during pending reconciliation preserves state and performs no DB acknowledgement', () async {
+      final cancelled = Completer<void>();
+      final repository = await useRealRepository(cancellation: cancelled);
+      final remote = RemoteAssetRepository(context.db);
+      final snapshots = await remote.beginTrashOperation(['remote-1'], restore: false);
+      await remote.completeTrashOperation(snapshots, success: false);
+      final requested = Completer<void>();
+      final response = Completer<AssetResponseDto?>();
+      when(() => assetsApi.getAssetInfo('remote-1', abortTrigger: cancelled.future)).thenAnswer((_) {
+        requested.complete();
+        return response.future;
+      });
+      final syncing = sut.sync();
+      await requested.future;
+      cancelled.complete();
+      response.complete(currentAsset(isTrashed: false));
+      expect(await syncing, isFalse);
+      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+      expect(await repository.getPendingTrashOperations(), hasLength(1));
+    });
+
+    for (final v2 in [false, true]) {
+      test('V${v2 ? 2 : 1} real repository retains stale Trash and accepts confirmed restore', () async {
+        final realRepository = SyncStreamRepository(context.db);
+        sut = SyncStreamService(
+          syncApiRepository: mockSyncApiRepo,
+          syncStreamRepository: realRepository,
+          localAssetRepository: mockLocalAssetRepo,
+          trashedLocalAssetRepository: mockTrashedLocalAssetRepo,
+          assetMediaRepository: mockAssetMediaRepo,
+          permissionRepository: mockPermissionRepo,
+          syncMigrationRepository: mockSyncMigrationRepo,
+          api: mockApi,
+        );
+        final incoming = v2
+            ? SyncEvent(
+                type: SyncEntityType.assetV2,
+                data: SyncAssetV2.fromJson({...(staleActive.data as SyncAssetV1).toJson(), 'duration': 0})!,
+                ack: staleActive.ack,
+              )
+            : staleActive;
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: true));
+        await simulateEvents([incoming]);
+        expect((await context.db.select(context.db.remoteAssetEntity).getSingle()).deletedAt, isNotNull);
+
+        await RemoteAssetRepository(context.db).restoreTrash(['remote-1']);
+        expect((await context.db.select(context.db.remoteAssetEntity).getSingle()).deletedAt, isNull);
+        when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
+        await simulateEvents([incoming]);
+        expect((await context.db.select(context.db.remoteAssetEntity).getSingle()).deletedAt, isNull);
+        expect(await realRepository.getRestoreCandidates({'remote-1': 'owner'}), isEmpty);
+        verify(() => assetsApi.getAssetInfo('remote-1')).called(2);
+      });
+    }
+  });
 
   group("SyncStreamService - _handleEvents", () {
     test("processes events and acks successfully when handlers succeed", () async {
@@ -876,7 +1190,7 @@ void main() {
       verify(() => mockSyncStreamRepo.deleteAssetsV1(any())).called(1);
     });
 
-    test("restores trashed local assets once the matching remote assets leave the trash", () async {
+    test("server Restore never silently recreates an intentionally deleted device copy", () async {
       final trashedAssets = [
         LocalAssetStub.image1.copyWith(id: 'trashed-1', checksum: 'checksum-trash', remoteId: 'remote-1'),
       ];
@@ -895,11 +1209,25 @@ void main() {
 
       await simulateEvents(events);
 
-      verify(() => mockTrashedLocalAssetRepo.applyRestoredAssets(restoredIds)).called(1);
+      verifyNever(() => mockAssetMediaRepo.restoreAssetsFromTrash(any()));
+      verifyNever(() => mockTrashedLocalAssetRepo.applyRestoredAssets(any()));
     });
   });
 
   group('SyncStreamService - Sync Migration', () {
+    test('authorized deletion replays only asset checkpoints once, without clearing cache', () async {
+      final existing = SyncMigrationTask.values.where((task) => task != SyncMigrationTask.v20261010_TrashIndexState);
+      await Store.put(StoreKey.syncMigrationStatus, '[${existing.map((task) => '"${task.name}"').join(',')}]');
+      final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+      when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+      await sut.sync();
+      await sut.sync();
+      final calls = verify(() => mockSyncApiRepo.deleteSyncAck(captureAny())).captured;
+      expect(calls, hasLength(1));
+      expect(calls.single, containsAll([SyncEntityType.assetV2, SyncEntityType.libraryAssetCreateV1]));
+      expect(calls.single, isNot(contains(SyncEntityType.memoryV1)));
+      verifyNever(() => mockSyncStreamRepo.reset());
+    });
     test('ensure that <2.5.0 migrations run', () async {
       await Store.put(StoreKey.syncMigrationStatus, "[]");
       when(

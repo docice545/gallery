@@ -108,7 +108,9 @@ export const ASSET_CHECKSUM_CONSTRAINT = 'UQ_assets_owner_checksum';
 export const VIDEO_STREAM_SESSION_PK_CONSTRAINT = 'video_stream_session_pkey';
 
 export const isAssetChecksumConstraint = (error: unknown) =>
-  (error as PostgresError)?.constraint_name === ASSET_CHECKSUM_CONSTRAINT;
+  [ASSET_CHECKSUM_CONSTRAINT, 'asset_deletion_tombstone_identity'].includes(
+    (error as PostgresError)?.constraint_name ?? '',
+  );
 
 export const isVideoStreamSessionPkConstraint = (error: unknown) =>
   (error as PostgresError)?.constraint_name === VIDEO_STREAM_SESSION_PK_CONSTRAINT;
@@ -665,11 +667,25 @@ export function withTags(eb: ExpressionBuilder<DB, 'asset'>) {
   ).as('tags');
 }
 
+export function timeBucketDateColumn(order: AssetOrderBy = AssetOrderBy.TakenAt) {
+  switch (order) {
+    case AssetOrderBy.CreatedAt: {
+      return 'asset.createdAt';
+    }
+    case AssetOrderBy.DeletedAt: {
+      return 'asset.deletedAt';
+    }
+    default: {
+      return 'localDateTime';
+    }
+  }
+}
+
 export function truncatedDate<O>(
   order: AssetOrderBy = AssetOrderBy.TakenAt,
   bucketSize: TimeBucketSize = TimeBucketSize.Month,
 ) {
-  return sql<O>`date_trunc(${sql.lit(dateTruncUnitForTimeBucketSize(bucketSize))}, ${sql.ref(order === AssetOrderBy.CreatedAt ? 'asset.createdAt' : 'localDateTime')} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
+  return sql<O>`date_trunc(${sql.lit(dateTruncUnitForTimeBucketSize(bucketSize))}, ${sql.ref(timeBucketDateColumn(order))} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
 }
 
 export function withTagId<O>(qb: SelectQueryBuilder<DB, 'asset', O>, tagId: string) {

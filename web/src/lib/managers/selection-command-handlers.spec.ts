@@ -1,4 +1,12 @@
-import { AssetVisibility, deleteAssets as deleteBulk, restoreAssets, updateAssets } from '@immich/sdk';
+import {
+  AssetVisibility,
+  deleteAssets as deleteBulk,
+  deletionPreflight,
+  permanentDeletion,
+  restoreAssets,
+  State,
+  updateAssets,
+} from '@immich/sdk';
 import { modalManager, toastManager } from '@immich/ui';
 import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,10 +47,12 @@ vi.mock('@immich/sdk', async (orig) => ({
   updateAssets: vi.fn().mockResolvedValue(undefined),
   deleteAssets: vi.fn().mockResolvedValue(undefined),
   restoreAssets: vi.fn().mockResolvedValue(undefined),
+  deletionPreflight: vi.fn(),
+  permanentDeletion: vi.fn(),
 }));
 
 vi.mock('$lib/managers/feature-flags-manager.svelte', () => ({
-  featureFlagsManager: { value: { trash: true } },
+  featureFlagsManager: { value: { trash: true }, valueOrUndefined: { authorizedDeletion: false } },
 }));
 
 const makeAsset = (overrides: Partial<TimelineAsset> = {}): TimelineAsset =>
@@ -125,6 +135,10 @@ beforeEach(() => {
   vi.mocked(deleteBulk).mockResolvedValue(undefined as never);
   vi.mocked(restoreAssets).mockResolvedValue(undefined as never);
   featureFlagsManager.value.trash = true;
+  featureFlagsManager.valueOrUndefined!.authorizedDeletion = false;
+  vi.mocked(deletionPreflight).mockImplementation(({ bulkIdsDto }) =>
+    Promise.resolve(bulkIdsDto.ids.map((id) => ({ id, scope: 'managed', authorized: true }))),
+  );
   showDeleteModal.set(false);
   expect(get(showDeleteModal)).toBe(false);
   handleErrorSpy = vi.spyOn(handleErrorModule, 'handleError').mockImplementation(() => {});
@@ -395,6 +409,37 @@ describe('archive selected', () => {
 });
 
 describe('delete selected', () => {
+  it('keeps unresolved assets selected and removes only confirmed permanent deletions', async () => {
+    featureFlagsManager.valueOrUndefined!.authorizedDeletion = true;
+    const selection = makeSelection({
+      assets: [makeAsset({ id: 'asset-1', isTrashed: true }), makeAsset({ id: 'asset-2', isTrashed: true })],
+    });
+    vi.mocked(permanentDeletion).mockResolvedValue([
+      { id: 'asset-1', state: State.Complete },
+      { id: 'asset-2', state: State.Failed },
+    ]);
+
+    await expect(handleDeleteSelected(makeCtx(selection))).resolves.toBe(false);
+
+    expect(modalManager.show).toHaveBeenCalledWith(AssetDeleteConfirmModal, { size: 2 });
+    expect(deleteBulk).not.toHaveBeenCalled();
+    expect(selection.onDelete).toHaveBeenCalledWith(['asset-1']);
+    expect(selection.clearSelection).not.toHaveBeenCalled();
+  });
+
+  it('does not clear selection or issue destructive requests when preflight is blocked', async () => {
+    featureFlagsManager.valueOrUndefined!.authorizedDeletion = true;
+    const selection = makeSelection({ assets: [makeAsset({ isTrashed: true })] });
+    vi.mocked(deletionPreflight).mockResolvedValue([{ id: 'asset-1', authorized: false, scope: 'external' }]);
+
+    await expect(handleDeleteSelected(makeCtx(selection))).resolves.toBe(false);
+
+    expect(deleteBulk).not.toHaveBeenCalled();
+    expect(permanentDeletion).not.toHaveBeenCalled();
+    expect(selection.onDelete).not.toHaveBeenCalled();
+    expect(selection.clearSelection).not.toHaveBeenCalled();
+  });
+
   it('trashes selected owned assets, notifies, includes undo, and clears after success', async () => {
     const assets = [makeAsset({ id: 'asset-1' }), makeAsset({ id: 'asset-2' })];
     const selection = makeSelection({ assets });

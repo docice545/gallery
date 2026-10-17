@@ -1,0 +1,19 @@
+--- a/usr/local/bin/codex-gallery-auto
++++ b/usr/local/bin/codex-gallery-auto
+@@ -4,4 +4,6 @@
+ HOME_DIR=/mnt/hp-data/codex-home
+ WORK_DIR=/mnt/hp-data/codex-work
+ TOOLCHAIN=/mnt/hp-data/codex-toolchain
++NFS_TEST_ROOT=/mnt/gallery-nfs-test
++SSD_TEST_ROOT=/mnt/hp-data/gallery-nfs-test
+ SCRIPT="$WORK_DIR/gallery-auto/gallery-codex-auto"
+ PATH_SAFE="$HOME_DIR/.npm-global/bin:$TOOLCHAIN/flutter/bin:$TOOLCHAIN/gradle/gradle-8.14/bin:$TOOLCHAIN/node/bin:$TOOLCHAIN/node/lib/node_modules/corepack/shims:$TOOLCHAIN/bun/bin:$TOOLCHAIN/android-sdk/cmdline-tools/latest/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:/usr/local/bin:/usr/bin:/bin"
+@@ -30,7 +32,7 @@
+   --property=RestrictSUIDSGID=yes \
+   --property=RestrictRealtime=yes \
+   --property=LockPersonality=yes \
+-  --property=ReadWritePaths="$HOME_DIR $WORK_DIR $TOOLCHAIN" \
++  --property=ReadWritePaths="$HOME_DIR $WORK_DIR $TOOLCHAIN $NFS_TEST_ROOT $SSD_TEST_ROOT" \
+   --property=InaccessiblePaths="/opt /var/lib/marzban /etc/wireguard /etc/amnezia /var/run/docker.sock /run/docker.sock /run/dbus/system_bus_socket /mnt/synology-homes /mnt/synology-immich-managed /mnt/synology-immich-chudo /mnt/synology-immich-lenia /mnt/synology-immich-docice" \
+   --setenv=HOME="$HOME_DIR" \
+   --setenv=USER=codex-gallery \

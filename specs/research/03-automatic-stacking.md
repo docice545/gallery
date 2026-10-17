@@ -1,5 +1,12 @@
 # Feature Research: Automatic Stacking
 
+**HP production constraint (2026-10-05):** this is research, not an enabled worker or permission to
+implement one alongside the external maintenance. For `docice545/gallery`, follow the
+[production auto-stack contract](../2026-10-05-production-autostack-design.md): one external algorithm,
+per-owner consent, native API mutations, manual decisions first, and separate Motion Photo cleanup.
+Moving stacking into Gallery requires a separate migration that disables the external timer before
+any built-in processing starts.
+
 **Votes:** 374 (6th most requested)
 **Status:** Manual stacking exists; auto-stacking infrastructure partially built but unused
 **Upstream Work:** `autoStackId` field extracted from EXIF but never used for grouping

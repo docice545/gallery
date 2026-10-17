@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/search_result.model.dart';
@@ -120,6 +122,65 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
     expect(seen, containsAllInOrder([100, 140]));
+  });
+
+  test('Trash invalidates loaded search pages; Restore returns the same item without duplicates or refetch', () async {
+    final s = _MockSearch();
+    final trash = StreamController<Set<String>>(sync: true);
+    when(() => s.search(any(), 1)).thenAnswer((_) async => SearchResult(assets: _assets(3, 'p1'), nextPage: 2));
+    when(() => s.search(any(), 2)).thenAnswer(
+      (_) async => SearchResult(
+        assets: [
+          TestUtils.createRemoteAsset(id: 'p1-1'),
+          ..._assets(2, 'p2'),
+        ],
+      ),
+    );
+    final n = PhotosFilterSearchNotifier(
+      search: s,
+      filter: SearchFilter.empty().copyWith(context: 'nature'),
+      trashedIds: trash.stream,
+    );
+    addTearDown(n.dispose);
+    addTearDown(trash.close);
+    final counts = <int>[];
+    final subscription = n.count.listen(counts.add);
+    addTearDown(subscription.cancel);
+    await n.firstLoad;
+    // Fail closed until the persisted markers have been read, including cold start.
+    expect(n.getAssets(), isEmpty);
+    trash.add({});
+    expect(n.getAssets().map((a) => a.remoteId), ['p1-0', 'p1-1', 'p1-2']);
+    trash.add({'p1-1'});
+    expect(n.getAssets().map((a) => a.remoteId), ['p1-0', 'p1-2']);
+    await n.loadMore();
+    expect(n.getAssets().map((a) => a.remoteId), ['p1-0', 'p1-2', 'p2-0', 'p2-1']);
+    trash.add({});
+    expect(n.getAssets().map((a) => a.remoteId), ['p1-0', 'p1-1', 'p1-2', 'p2-0', 'p2-1']);
+    await Future<void>.delayed(Duration.zero);
+    expect(counts, containsAllInOrder([3, 2, 4, 5]));
+    verify(() => s.search(any(), 1)).called(1);
+    verify(() => s.search(any(), 2)).called(1);
+  });
+
+  test('a delayed search page cannot resurrect an item trashed while the request was in flight', () async {
+    final s = _MockSearch();
+    final page = Completer<SearchResult?>();
+    final trash = StreamController<Set<String>>(sync: true);
+    when(() => s.search(any(), 1)).thenAnswer((_) => page.future);
+    final n = PhotosFilterSearchNotifier(
+      search: s,
+      filter: SearchFilter.empty().copyWith(context: 'nature'),
+      trashedIds: trash.stream,
+    );
+    addTearDown(n.dispose);
+    addTearDown(trash.close);
+    trash.add({'p1-0'});
+    page.complete(SearchResult(assets: _assets(2, 'p1')));
+    await n.firstLoad;
+    expect(n.getAssets().map((a) => a.remoteId), ['p1-1']);
+    trash.add({});
+    expect(n.getAssets().map((a) => a.remoteId), ['p1-0', 'p1-1']);
   });
 
   group('search activation', () {

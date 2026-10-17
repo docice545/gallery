@@ -76,7 +76,7 @@ void main() {
     ).thenAnswer((invocation) async {
       final fields = invocation.namedArguments[#fields] as Map<String, String>;
       captured.add(Map.of(fields));
-      return UploadResult.success(remoteAssetId: 'remote-${captured.length}');
+      return UploadResult.success(remoteAssetId: 'remote-${captured.length}', wasCreated: true);
     });
     return captured;
   }
@@ -98,6 +98,182 @@ void main() {
     });
     return captured;
   }
+
+  group('paired share import', () {
+    late Directory directory;
+    late File image;
+    late File motion;
+
+    setUp(() {
+      directory = Directory.systemTemp.createTempSync('gallery-pair-upload-');
+      image = File('${directory.path}/still.heic')..writeAsBytesSync([1]);
+      motion = File('${directory.path}/motion.mov')..writeAsBytesSync([2]);
+      when(mockStorageRepository.clearCache).thenAnswer((_) async {});
+    });
+
+    tearDown(() => directory.deleteSync(recursive: true));
+
+    for (final state in ['missing-map', 'malformed-manifest', 'missing-video']) {
+      test('late $state owned handoff fails before upload and never flattens still', () async {
+        final owned = Directory('${directory.path}/live_photo_imports/pair')..createSync(recursive: true);
+        final still = File('${owned.path}/still.heic')..writeAsBytesSync([1]);
+        final video = File('${owned.path}/motion.mov')..writeAsBytesSync([2]);
+        File('${owned.path}/.complete').writeAsStringSync('{}');
+        File('${owned.path}/.live-photo.json').writeAsStringSync(
+          state == 'malformed-manifest' ? '{' : '{"version":1,"image":"still.heic","video":"motion.mov"}',
+        );
+        if (state == 'missing-video') {
+          video.deleteSync();
+        }
+        final fields = captureFields();
+        final errors = <String>[];
+        await sut.uploadShareIntent(
+          [still],
+          pairedVideoPaths: state == 'missing-map' ? const {} : {still.path: video.path},
+          onError: (_, error) => errors.add(error),
+        );
+        expect(fields, isEmpty);
+        expect(errors, ['LIVE_PHOTO_PAIR_UNAVAILABLE']);
+        expect(still.existsSync(), isTrue);
+      });
+    }
+
+    test('uploads hidden motion then one linked still and reports one logical success', () async {
+      final fields = captureFields();
+      final successes = <String>[];
+      await sut.uploadShareIntent(
+        [image],
+        pairedVideoPaths: {image.path: motion.path},
+        onSuccess: (_, id) => successes.add(id),
+      );
+      expect(fields, hasLength(2));
+      expect(fields.first['visibility'], 'hidden');
+      expect(fields.last['livePhotoVideoId'], 'remote-1');
+      expect(fields.last.containsKey('visibility'), isFalse);
+      expect(successes, ['remote-2']);
+      expect(image.existsSync(), isTrue);
+      expect(motion.existsSync(), isTrue);
+    });
+
+    test('motion failure does not silently upload still-only', () async {
+      var attempts = 0;
+      when(
+        () => mockUploadRepository.uploadFile(
+          file: any(named: 'file'),
+          originalFileName: any(named: 'originalFileName'),
+          fields: any(named: 'fields'),
+          cancelToken: any(named: 'cancelToken'),
+          onProgress: any(named: 'onProgress'),
+          logContext: any(named: 'logContext'),
+        ),
+      ).thenAnswer((_) async {
+        attempts++;
+        return UploadResult.error(errorMessage: 'NETWORK');
+      });
+      final errors = <String>[];
+      await sut.uploadShareIntent(
+        [image],
+        pairedVideoPaths: {image.path: motion.path},
+        onError: (_, error) => errors.add(error),
+      );
+      expect(attempts, 1);
+      expect(errors, ['NETWORK']);
+    });
+
+    for (final wasCreated in [true, false]) {
+      test('still failure rollback respects created=$wasCreated and preserves duplicate resources', () async {
+        var attempts = 0;
+        final rollbacks = <String>[];
+        sut = ForegroundUploadService(
+          mockUploadRepository,
+          mockStorageRepository,
+          mockBackupRepository,
+          mockConnectivityApi,
+          mockAssetMediaRepository,
+          rollbackCreatedMotion: (id) async {
+            rollbacks.add(id);
+          },
+        );
+        when(
+          () => mockUploadRepository.uploadFile(
+            file: any(named: 'file'),
+            originalFileName: any(named: 'originalFileName'),
+            fields: any(named: 'fields'),
+            cancelToken: any(named: 'cancelToken'),
+            onProgress: any(named: 'onProgress'),
+            logContext: any(named: 'logContext'),
+          ),
+        ).thenAnswer((_) async {
+          return ++attempts == 1
+              ? UploadResult.success(remoteAssetId: 'motion', wasCreated: wasCreated)
+              : UploadResult.cancelled();
+        });
+        await sut.uploadShareIntent([image], pairedVideoPaths: {image.path: motion.path});
+        expect(attempts, 2);
+        expect(rollbacks, wasCreated ? ['motion'] : isEmpty);
+        expect(image.existsSync(), isTrue);
+        expect(motion.existsSync(), isTrue);
+      });
+    }
+
+    test('ordinary shared image stays on the unpaired original upload path', () async {
+      final fields = captureFields();
+      await sut.uploadShareIntent([image]);
+      expect(fields, hasLength(1));
+      expect(fields.single.containsKey('livePhotoVideoId'), isFalse);
+      expect(fields.single.containsKey('visibility'), isFalse);
+    });
+
+    for (final linked in [true, false, null]) {
+      test('duplicate still confirms native pair before success; linked=$linked', () async {
+        var attempts = 0;
+        final rollbacks = <String>[];
+        final errors = <String>[];
+        final successes = <String>[];
+        sut = ForegroundUploadService(
+          mockUploadRepository,
+          mockStorageRepository,
+          mockBackupRepository,
+          mockConnectivityApi,
+          mockAssetMediaRepository,
+          rollbackCreatedMotion: (id) async {
+            rollbacks.add(id);
+          },
+          verifySharedLivePhotoPair: (still, video) async {
+            expect(still, 'existing-still');
+            expect(video, 'new-motion');
+            if (linked == null) {
+              throw const SocketException('offline');
+            }
+            return linked;
+          },
+        );
+        when(
+          () => mockUploadRepository.uploadFile(
+            file: any(named: 'file'),
+            originalFileName: any(named: 'originalFileName'),
+            fields: any(named: 'fields'),
+            cancelToken: any(named: 'cancelToken'),
+            onProgress: any(named: 'onProgress'),
+            logContext: any(named: 'logContext'),
+          ),
+        ).thenAnswer(
+          (_) async => ++attempts == 1
+              ? UploadResult.success(remoteAssetId: 'new-motion', wasCreated: true)
+              : UploadResult.success(remoteAssetId: 'existing-still'),
+        );
+        await sut.uploadShareIntent(
+          [image],
+          pairedVideoPaths: {image.path: motion.path},
+          onSuccess: (_, id) => successes.add(id),
+          onError: (_, error) => errors.add(error),
+        );
+        expect(successes, linked == true ? ['existing-still'] : isEmpty);
+        expect(errors, linked == true ? isEmpty : ['LIVE_PHOTO_PAIR_NOT_VERIFIED']);
+        expect(rollbacks, linked == false ? ['new-motion'] : isEmpty);
+      });
+    }
+  });
 
   group('uploadSingleAsset', () {
     test('should upload the motion part hidden and keep the still image visible', () async {

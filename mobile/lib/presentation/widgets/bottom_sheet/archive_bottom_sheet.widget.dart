@@ -9,6 +9,7 @@ import 'package:immich_mobile/presentation/actions/edit_datetime.action.dart';
 import 'package:immich_mobile/presentation/actions/edit_location.action.dart';
 import 'package:immich_mobile/presentation/actions/favorite.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
+import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
@@ -49,18 +50,20 @@ class _ArchiveBottomSheetState extends ConsumerState<ArchiveBottomSheet> {
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: const <ActionColumnButton>[
+        .new(action: DeleteAction(source: .timeline)),
+        .new(action: CleanupLocalAction(source: .timeline)),
+        .new(action: DeleteEverywhereAction(source: .timeline)),
         .new(action: AssetDebugAction(source: .timeline)),
         .new(action: ShareAction(source: .timeline)),
         .new(action: ShareLinkAction(source: .timeline)),
         .new(action: ArchiveAction(source: .timeline)),
         .new(action: FavoriteAction(source: .timeline)),
         .new(action: DownloadAction(source: .timeline)),
-        .new(action: DeleteAction(source: .timeline)),
         .new(action: EditDateTimeAction(source: .timeline)),
         .new(action: EditLocationAction(source: .timeline)),
         .new(action: LockAction(source: .timeline)),
         .new(action: StackAction(source: .timeline)),
-        .new(action: CleanupLocalAction(source: .timeline)),
+        .new(action: ManageStackAction(source: .timeline)),
       ],
       // #965: the same picker the main timeline offers, so a space album is reachable from
       // the archive too.

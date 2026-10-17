@@ -2,7 +2,7 @@ enum GroupAssetsBy { day, month, auto, none, year }
 
 enum HeaderType { none, month, day, monthAndDay, year }
 
-enum SortAssetsBy { taken, uploaded }
+enum SortAssetsBy { taken, uploaded, deleted }
 
 class Bucket {
   final int assetCount;

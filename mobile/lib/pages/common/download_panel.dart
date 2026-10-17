@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/platform/live_photo_save_api.g.dart';
 import 'package:immich_mobile/providers/asset_viewer/download.provider.dart';
 
 class DownloadPanel extends ConsumerWidget {
@@ -37,6 +38,7 @@ class DownloadPanel extends ConsumerWidget {
                       progress: task.value.progress,
                       fileName: task.value.fileName,
                       status: task.value.status,
+                      livePhotoOutcome: task.value.livePhotoOutcome,
                       onCancelDownload: () => onCancelDownload(task.key),
                     );
                   },
@@ -52,6 +54,7 @@ class DownloadTaskTile extends StatelessWidget {
   final double progress;
   final String fileName;
   final TaskStatus status;
+  final LivePhotoSaveOutcome? livePhotoOutcome;
   final VoidCallback onCancelDownload;
 
   const DownloadTaskTile({
@@ -59,6 +62,7 @@ class DownloadTaskTile extends StatelessWidget {
     required this.progress,
     required this.fileName,
     required this.status,
+    this.livePhotoOutcome,
     required this.onCancelDownload,
   });
 
@@ -69,7 +73,11 @@ class DownloadTaskTile extends StatelessWidget {
 
     String getStatusText() => switch (status) {
       TaskStatus.running => context.t.downloading,
-      TaskStatus.complete => context.t.download_complete,
+      TaskStatus.complete => switch (livePhotoOutcome) {
+        LivePhotoSaveOutcome.livePhoto => context.t.download_live_photo_preserved,
+        LivePhotoSaveOutcome.imageOnly => context.t.download_live_photo_image_only,
+        _ => context.t.download_complete,
+      },
       TaskStatus.failed => context.t.download_failed,
       TaskStatus.canceled => context.t.download_canceled,
       TaskStatus.paused => context.t.download_paused,

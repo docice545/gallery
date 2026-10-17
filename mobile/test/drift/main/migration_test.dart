@@ -14,6 +14,7 @@ import 'generated/schema_v23.dart' as v23;
 import 'generated/schema_v24.dart' as v24;
 import 'generated/schema_v37.dart' as v37;
 import 'generated/schema_v38.dart' as v38;
+import 'generated/schema_v39.dart' as v39;
 
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
@@ -41,6 +42,43 @@ void main() {
       });
     }
   });
+
+  test(
+    'v38 to v39 preserves cached Trash and adds a conservative index-state flag',
+    () async {
+      final schema = await verifier.schemaAt(38);
+      final oldDb = v38.DatabaseAtV38(schema.newConnection());
+      await oldDb.customStatement(
+        "INSERT INTO user_entity (id,email,name) VALUES ('owner','fixture@example.invalid','fixture')",
+      );
+      await oldDb.customStatement("""
+      INSERT INTO remote_asset_entity (id,owner_id,checksum,name,type,created_at,updated_at,visibility,deleted_at)
+      VALUES ('fixture','owner','fixture-checksum','fixture.jpg',1,'2024-01-01','2024-01-01',0,'2026-10-05')
+    """);
+      final before =
+          (await oldDb
+                  .customSelect(
+                    "SELECT * FROM remote_asset_entity WHERE id='fixture'",
+                  )
+                  .getSingle())
+              .data;
+      await oldDb.close();
+      final migrating = Drift(schema.newConnection());
+      await verifier.migrateAndValidate(migrating, 39);
+      await migrating.close();
+      final migrated = v39.DatabaseAtV39(schema.newConnection());
+      final after =
+          (await migrated
+                  .customSelect(
+                    "SELECT * FROM remote_asset_entity WHERE id='fixture'",
+                  )
+                  .getSingle())
+              .data;
+      expect(after['is_index_tombstone'], 0);
+      expect({...after}..remove('is_index_tombstone'), before);
+      await migrated.close();
+    },
+  );
 
   // The schema-only test above confirms the DDL is correct. This data
   // migration smoke test locks in the runtime contract: existing v23 rows

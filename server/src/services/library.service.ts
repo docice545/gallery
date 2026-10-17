@@ -102,7 +102,7 @@ export class LibraryService extends BaseService {
 
     const matcher = picomatch(`**/*{${mimeTypes.getSupportedFileExtensions().join(',')}}`, {
       nocase: true,
-      ignore: library.exclusionPatterns,
+      ignore: [...library.exclusionPatterns, '**/.gallery-deletion-quarantine/**'],
     });
 
     let _resolve: () => void;
@@ -260,7 +260,7 @@ export class LibraryService extends BaseService {
       return JobStatus.Failed;
     }
 
-    const assetImports: Insertable<AssetTable>[] = [];
+    const assetImports: (Insertable<AssetTable> & { deletionChecksum?: Buffer })[] = [];
     await Promise.all(
       job.paths.map(async (path) => {
         try {
@@ -398,7 +398,10 @@ export class LibraryService extends BaseService {
     )) {
       this.logger.debug(`Queueing deletion of ${assets.length} asset(s) in library ${libraryId}`);
       await this.jobRepository.queueAll(
-        assets.map((asset) => ({ name: JobName.AssetDelete, data: { id: asset.id, deleteOnDisk: false } })),
+        assets.map((asset) => ({
+          name: JobName.AssetDelete,
+          data: { id: asset.id, deleteOnDisk: false, deletionReason: 'library' as const, libraryId },
+        })),
       );
       hasAssets = true;
     }
@@ -418,6 +421,11 @@ export class LibraryService extends BaseService {
     return {
       ownerId,
       libraryId,
+      // Only new paths for owners with permanent tombstones need byte identity.
+      // Existing indexed media are never rehashed or reimported by this change.
+      ...((await this.assetRepository.hasPermanentDeletions(ownerId)) && {
+        deletionChecksum: await this.cryptoRepository.hashFile(assetPath),
+      }),
       checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
       checksumAlgorithm: ChecksumAlgorithm.sha1Path,
       originalPath: assetPath,
@@ -564,7 +572,7 @@ export class LibraryService extends BaseService {
     }
 
     if (assetIdsToOnline.length > 0) {
-      promises.push(this.assetRepository.updateAll(assetIdsToOnline, { isOffline: false, deletedAt: null }));
+      promises.push(this.assetJobRepository.setOnlineForLibrarySync(assetIdsToOnline));
     }
 
     if (trashedAssetIdsToOnline.length > 0) {
@@ -701,7 +709,11 @@ export class LibraryService extends BaseService {
     this.logger.verbose(`Deleting asset(s) ${job.paths} from library ${job.libraryId}`);
     for (const assetPath of job.paths) {
       const asset = await this.assetRepository.getByLibraryIdAndOriginalPath(job.libraryId, assetPath);
-      if (asset) {
+      if (
+        asset &&
+        asset.status === AssetStatus.Active &&
+        !(await this.assetRepository.getDeletionReceipt(asset.ownerId, asset.id))
+      ) {
         await this.assetRepository.remove(asset);
       }
     }

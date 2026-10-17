@@ -229,7 +229,21 @@ export interface IEntityJob extends IBaseJob {
 }
 
 export interface IAssetDeleteJob extends IEntityJob {
+  /** Explicit durable deletion intent; absence never authorizes original removal. */
+  deletionId?: string;
   deleteOnDisk: boolean;
+  /** Retention sweep cutoff; revalidate atomically before irreversible deletion. */
+  trashedBefore?: string;
+  /** Non-retention cleanup must identify its intent; legacy jobs remain fail closed. */
+  deletionReason?: 'library' | 'motion';
+  libraryId?: string;
+}
+
+/** An explicit, owner-scoped request for bounded background permanent deletion. */
+export interface IAssetDeleteBatchJob extends IBaseJob {
+  ownerId: string;
+  ids: string[];
+  allowActive?: boolean;
 }
 
 export interface ILibraryFileJob {
@@ -249,6 +263,8 @@ export interface ILibraryBulkIdsJob {
 }
 
 export interface IDeleteFilesJob extends IBaseJob {
+  /** Only new upload cleanup jobs may target unreferenced temporary upload files. */
+  temporaryOwnerId?: string;
   files: Array<string | null | undefined>;
 }
 
@@ -545,6 +561,7 @@ export type JobItem =
   // Asset Deletion
   | { name: JobName.PersonCleanup; data?: IBaseJob }
   | { name: JobName.AssetDelete; data: IAssetDeleteJob }
+  | { name: JobName.AssetDeleteBatch; data: IAssetDeleteBatchJob }
   | { name: JobName.AssetDeleteCheck; data?: IBaseJob }
 
   // Library Management
@@ -695,7 +712,7 @@ export type StorageAsset = {
   lensModel: string | null;
 };
 
-export type OnThisDayData = { year: number };
+export type OnThisDayData = { year: number; title?: string; subtitle?: string };
 
 export type RuleMemoryData = {
   ruleId: string;

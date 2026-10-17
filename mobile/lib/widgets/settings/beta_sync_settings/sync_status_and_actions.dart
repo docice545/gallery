@@ -62,7 +62,7 @@ class SyncStatusAndActions extends HookConsumerWidget {
         final size = MediaQuery.of(context).size;
         await Share.shareXFiles(
           [XFile(exportFile.path)],
-          text: 'Immich Database Export',
+          text: '${context.t.app_name} — ${context.t.export_database}',
           sharePositionOrigin: Rect.fromPoints(Offset.zero, Offset(size.width / 3, size.height)),
         );
 

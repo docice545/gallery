@@ -303,6 +303,23 @@ export class AssetJobRepository {
       .execute();
   }
 
+  @GenerateSql({ params: [[DummyValue.UUID]] })
+  async setOnlineForLibrarySync(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return;
+    }
+
+    await this.db
+      .updateTable('asset')
+      .set((eb) => ({
+        isOffline: false,
+        // The user may have trashed the asset while the scan awaited its file stat.
+        deletedAt: eb.case().when('status', '=', AssetStatus.Active).then(null).else(eb.ref('deletedAt')).end(),
+      }))
+      .where('id', '=', anyUuid(ids))
+      .execute();
+  }
+
   @GenerateSql({ params: [DummyValue.UUID] })
   getForAssetDeletion(id: string) {
     return this.db

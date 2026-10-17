@@ -5,6 +5,7 @@ import type { TimeBucketDto } from 'src/dtos/time-bucket.dto.js';
 import {
   AlbumUserRole,
   AssetOrder,
+  AssetStatus,
   AssetType,
   AssetVisibility,
   SharedLinkType,
@@ -385,6 +386,7 @@ describe(TimelineService.name, () => {
       const { asset } = await ctx.newAsset({
         ownerId: user.id,
         localDateTime: new Date('1970-02-12'),
+        status: AssetStatus.Trashed,
         deletedAt: new Date(),
       });
       await ctx.newExif({ assetId: asset.id, make: 'Canon' });
@@ -402,6 +404,7 @@ describe(TimelineService.name, () => {
         city: [],
         country: [],
         createdAt: [],
+        deletedAt: [],
         duration: [],
         id: [],
         visibility: [],
@@ -453,6 +456,7 @@ describe(TimelineService.name, () => {
       const { asset } = await ctx.newAsset({
         ownerId: user.id,
         localDateTime: new Date('1970-02-12'),
+        status: AssetStatus.Trashed,
         deletedAt: new Date(),
       });
       await ctx.newExif({ assetId: asset.id, make: 'Canon' });

@@ -90,9 +90,24 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
                       SliverToBoxAdapter(
                         child: Column(
                           children: [
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: widget.actions),
+                            // Keep the first/common actions reachable on narrow screens. A
+                            // horizontally scrolling row hid Trash off-screen on phones with
+                            // long localized labels; wrapping lets the action area use the
+                            // sheet's width and lets the outer scroll view handle secondary rows.
+                            LayoutBuilder(
+                              builder: (context, constraints) => Align(
+                                alignment: Alignment.center,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                                  child: Wrap(
+                                    alignment: WrapAlignment.center,
+                                    crossAxisAlignment: WrapCrossAlignment.start,
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: widget.actions,
+                                  ),
+                                ),
+                              ),
                             ),
                             const Divider(indent: 16, endIndent: 16),
                             const SizedBox(height: 16),

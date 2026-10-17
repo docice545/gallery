@@ -1,7 +1,42 @@
-import { TimeBucketAssetDto, TimeBucketDto } from 'src/dtos/time-bucket.dto.js';
-import { TimeBucketSize } from 'src/enum.js';
+import { TimeBucketAssetDto, TimeBucketCoverDto, TimeBucketDto } from 'src/dtos/time-bucket.dto.js';
+import { AssetOrderBy, TimeBucketSize } from 'src/enum.js';
 
 describe('TimeBucketDto', () => {
+  describe('trash deletion ordering', () => {
+    const schemas = [TimeBucketDto.schema, TimeBucketAssetDto.schema, TimeBucketCoverDto.schema];
+
+    it.each(schemas)('accepts deletion order only for explicitly trashed assets', (schema) => {
+      expect(
+        schema.safeParse({
+          orderBy: AssetOrderBy.DeletedAt,
+          isTrashed: 'true',
+          timeBucket: '2026-10-01',
+          timeBuckets: ['2026-10-01'],
+        }).success,
+      ).toBe(true);
+    });
+
+    it.each(schemas)('rejects deletion order without the trash filter', (schema) => {
+      for (const isTrashed of [undefined, false, 'false']) {
+        expect(
+          schema.safeParse({
+            orderBy: AssetOrderBy.DeletedAt,
+            isTrashed,
+            timeBucket: '2026-10-01',
+            timeBuckets: ['2026-10-01'],
+          }).success,
+        ).toBe(false);
+      }
+    });
+
+    it.each([undefined, AssetOrderBy.TakenAt, AssetOrderBy.CreatedAt])(
+      'preserves existing date order %s',
+      (orderBy) => {
+        expect(TimeBucketDto.schema.safeParse({ orderBy }).success).toBe(true);
+      },
+    );
+  });
+
   describe('bucketSize query param handling', () => {
     it('defaults bucketSize to month', () => {
       const result = TimeBucketDto.schema.safeParse({});
