@@ -294,7 +294,7 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 | Docker artifact | **PASS (local)** | Current HEAD image `gallery-server:release-9388a221`, digest `sha256:768f07513482811bb07a49f43d1dee04d110bc83ea65d24bea23dcd296c4f7bb`; network-disabled runtime and export readback passed; registry publication was not attempted. |
 | Trash and deletion contracts | **PASS** | Server, web, and mobile focused suites pass; one owner-scoped Trash flow, durable batch status, cancellation, receipts, and legacy original-client endpoint are covered. |
 | Disposable NFS Live Photo lifecycle | **PASS** | Isolated `10.10.10.95:/volume1/Gallery-Test` run covered JPG-on-NFS plus paired MP4-on-SSD, trash, restore, idempotent restore, consent, and purge. DSM `#recycle` behavior and production NAS remain unverified. |
-| Bulk deletion performance | **PARTIAL** | 1000 synthetic worker items completed in 277170 ms (3.608 assets/s); 1/10/100 rows are inline correctness fixtures with `elapsedMs=0`, not HTTP latency. The required mixed-media 1/10/100/1000 wall-clock/NFS load matrix is incomplete. |
+| Bulk deletion performance | **PARTIAL** | Historical 1000 synthetic worker items completed in 277170 ms. A corrected local mixed-media 10-item service run completed in 4377 ms (13 originals including 3 motion components); the full corrected 1/10/100/1000 and recovery run remains pending. HTTP/queue latency and NFS load are unmeasured. |
 | Android package continuity | **PARTIAL** | Reproducible release APK has package `de.opennoodle.gallery`, version `5.7.3`, versionCode `13`, SDK 36, SHA-256 `cef0dcaacfffe504db9fabe6f1a705c9803bbcc7a03d707719e36cba7eeae9c5`. It is debug-signed and cannot upgrade the installed `foto` Build 12. |
 | Original Android/iOS runtime compatibility | **BLOCKED** | No representative upstream APK/IPA, Android device, or macOS/Xcode runtime is available. Structural wire-contract retention is not a runtime-client test. |
 | AI Memories daily scheduler | **BLOCKED** | `gallery-ai-daily` is external; no authorized synthetic endpoint or scheduler run is available. Gallery lifecycle tests do not prove delivery, limits, or rejection-after-delete. |
@@ -420,3 +420,53 @@ Actions run, container registry push, merge, or deployment was triggered.
   retains tag `gallery-server:release-9388a221` and 27 layers.
 - This refresh closes the stale-image evidence gap for the current checkout only. It does not close
   device upgrade, original Android/iOS client, external AI/stack, full performance, or deployment gates.
+
+## Local mixed-media matrix harness (2026-10-17)
+
+`server/test/medium/specs/services/local-deletion-matrix.spec.ts` is an opt-in,
+reproducible service/worker harness using disposable Testcontainers PostgreSQL,
+tiny ffmpeg-generated PNG/MP4 originals, and temporary filesystem roots. It
+does not use Redis, HTTP, NAS, application bootstrap, ingestion, or production
+resources. Queue submission, events and quota updates are mocked; derivative
+cleanup jobs do not execute. This cannot establish HTTP/queue latency, media
+decoding performance, realistic large-video throughput, or NFS load.
+
+The timer starts before `permanentlyDelete` for every size, including the inline
+path. The 1000-selection case also invokes the bounded worker directly. Separate
+401-selection recovery assertions interrupt before chunk two, instantiate fresh
+service/repository instances, verify remaining original bytes, and compare
+completed durable receipts before/after resume. These assertions are present,
+but the corrected full matrix/recovery run has **not** completed yet.
+
+The initial full run passed the single-photo case and failed all four cases
+containing pairs: the fixture incorrectly placed hidden motion originals in the
+upload root. A focused diagnostic returned
+`MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT`. The fixture now follows the native
+`StorageCore` layout, with hidden motion components under an isolated
+`encoded-video/<owner>` root. No application behavior or safety guard changed.
+
+The corrected 10-selection run passed: 4 photos, 3 videos, 3 Live Photo pairs;
+13 originals and 13 complete receipts, no remaining asset rows or original
+files. Admission took 4375 ms, full operation 4377 ms, 2.285 selected assets/s;
+sampled process RSS start/peak/end were 355397632/404156416/404029440 bytes.
+Fixture creation and final verification are outside the measured interval.
+ESLint, server TypeScript checking, and formatting passed. Logs are retained in
+`/mnt/hp-data/codex-work/gallery-auto/20261017-113325-833680/` as
+`local-deletion-matrix.log` (initial failure),
+`local-deletion-pair-diagnostic.log`, and `local-deletion-pair-corrected.log`.
+
+Run the full corrected harness from `server/`:
+
+```bash
+GALLERY_LOCAL_DELETE_MATRIX=1 DOCKER_HOST=unix:///var/run/docker.sock pnpm exec vitest \
+  --config test/vitest.config.medium.mjs run \
+  test/medium/specs/services/local-deletion-matrix.spec.ts \
+  --maxWorkers=1 --testTimeout=900000 --hookTimeout=900000
+```
+
+The existing signed Build 13 and backend export remain unchanged: only test
+and evidence files changed after their recorded source commits. Overall release
+readiness remains **NOT READY**. The already-successful NFS lifecycle was not
+repeated. Git readback confirmed PR #1 at `55cc5f354...` before this stage; body
+editing remains unavailable (the GitHub CLI has no API token in this executor),
+so evidence changes are delivered through the existing PR branch.
