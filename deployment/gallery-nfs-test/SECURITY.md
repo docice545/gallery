@@ -9,10 +9,10 @@ delete files by itself.
 | Boundary | Test value | Production value | Protection |
 | --- | --- | --- | --- |
 | Compose project | `gallery-nfs-test` | `immich` | fixed Compose `name` |
-| Server container | `gallery_nfs_test_server` | `immich_server` | preflight rejects existing name and rendered production names |
+| Server container | `gallery_nfs_test_server` | `immich_server` | preflight requires the exact existing Compose service labels and rejects unknown containers |
 | PostgreSQL container/data | `gallery_nfs_test_postgres`, dedicated SSD path | `immich_postgres` and its data | separate bind path; no host port |
 | Redis container/data | `gallery_nfs_test_redis`, dedicated SSD path | `immich_redis` and its data | separate bind path; no host port |
-| Docker network | `gallery_nfs_test` (internal) | `immich_default` | fixed private network; preflight rejects production network text |
+| Docker networks | `gallery_nfs_test` (internal) + `gallery_nfs_test_ingress` (server only, masquerading disabled) | `immich_default` | DB/Redis stay on fixed private network; ingress has only loopback port 2295 and no outbound masquerading; preflight rejects production network text |
 | HTTP | `127.0.0.1:2295` only | production ports | Compose binds only loopback |
 | NFS | `/mnt/gallery-nfs-test` from `10.10.10.95:/volume1/Gallery-Test` | family/NAS originals | preflight requires the exact source and path |
 
@@ -37,8 +37,9 @@ server is started.
    and rejects the template password. Compose passes only the listed test
    settings to the server; it does not import an arbitrary production env file.
 2. Run `scripts/preflight.sh`. It is read-only apart from Docker's config
-   rendering and refuses symlinks, production paths, stale test names/network,
-   port conflicts, a wrong NFS export, and any mount-check bypass.
+   rendering and refuses symlinks, production paths, missing or mismatched
+   existing test containers/networks, unknown containers, a wrong NFS export,
+   and any mount-check bypass.
 3. Do not run Compose from production (`/opt/immich`) and do not use production
    `.env`, databases, Redis, networks or volumes.
 4. `scripts/run-live-photo-test.sh` requires an explicit

@@ -36,6 +36,7 @@ services:
         condition: service_healthy
     networks:
       - gallery_nfs_test
+      - gallery_nfs_test_ingress
     restart: "no"
     healthcheck:
       test: ["CMD", "immich-healthcheck"]
@@ -84,3 +85,11 @@ networks:
     name: gallery_nfs_test
     driver: bridge
     internal: true
+  # Rootless Docker cannot publish a host port from an internal-only bridge.
+  # Keep database/Redis on the private network and give only the API server a
+  # dedicated ingress bridge whose sole host exposure is 127.0.0.1:2295.
+  gallery_nfs_test_ingress:
+    name: gallery_nfs_test_ingress
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

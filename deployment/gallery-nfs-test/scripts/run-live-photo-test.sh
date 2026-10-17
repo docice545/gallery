@@ -17,6 +17,7 @@ fixture_still="$fixture_dir/synthetic-live-photo.jpg"
 fixture_video="$fixture_dir/synthetic-motion.mp4"
 fixture_upload="$fixture_dir/synthetic-live-photo-upload.jpg"
 credentials_file="$fixture_dir/credentials.env"
+run_nonce="$(date +%s%N)-$RANDOM"
 on_error() {
   status=$?
   printf 'Diagnostics retained in %s (status %s):\n' "$fixture_dir" "$status" >&2
@@ -34,22 +35,26 @@ done
 printf 'Starting only the isolated project after both confirmation gates.\n'
 "${compose[@]}" up -d --wait --wait-timeout 180
 
-password=$(openssl rand -hex 24)
-email="gallery-nfs-test-$(date +%s)@example.invalid"
+password="${GALLERY_NFS_TEST_PASSWORD:-$(openssl rand -hex 24)}"
+email="${GALLERY_NFS_TEST_EMAIL:-gallery-nfs-test-$(date +%s)@example.invalid}"
 printf 'EMAIL=%q\nPASSWORD=%q\n' "$email" "$password" >"$credentials_file"
 curl_json() { curl --fail --silent --show-error "$@"; }
 
-curl_json -X POST "$api/auth/admin-sign-up" -H 'Content-Type: application/json' \
-  --data "$(jq -nc --arg e "$email" --arg p "$password" '{email:$e,password:$p,name:"Synthetic NFS test"}')" >/dev/null
+if [[ "${GALLERY_NFS_TEST_REUSE_ACCOUNT:-false}" != true ]]; then
+  curl_json -X POST "$api/auth/admin-sign-up" -H 'Content-Type: application/json' \
+    --data "$(jq -nc --arg e "$email" --arg p "$password" '{email:$e,password:$p,name:"Synthetic NFS test"}')" >/dev/null
+fi
 token=$(curl_json -X POST "$api/auth/login" -H 'Content-Type: application/json' \
   --data "$(jq -nc --arg e "$email" --arg p "$password" '{email:$e,password:$p}')" | jq -r '.accessToken')
 [[ -n "$token" && "$token" != null ]] || die 'login did not return a token'
 auth=(-H "Authorization: Bearer $token")
 
 ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:s=640x480:d=1 -frames:v 1 -q:v 2 "$fixture_still"
-ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=green:s=640x480:d=1.2 -an -c:v libx264 -pix_fmt yuv420p "$fixture_video"
+ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=green:s=640x480:d=1.2 -an -c:v libx264 -pix_fmt yuv420p \
+  -metadata comment="Gallery synthetic NFS motion ${run_nonce}" "$fixture_video"
 motion_size=$(stat -c '%s' "$fixture_video")
 exiftool -overwrite_original \
+  -XMP-dc:Description="Gallery synthetic NFS lifecycle ${run_nonce}" \
   -XMP-GCamera:MotionPhoto=1 -XMP-GCamera:MotionPhotoVersion=1 \
   -XMP-GCamera:MicroVideo=1 -XMP-GCamera:MicroVideoVersion=1 \
   -XMP-GCamera:MicroVideoOffset="$motion_size" "$fixture_still" >/dev/null
@@ -95,7 +100,9 @@ assert_files
 # A failed read is a safe partial-operation probe. The following state snapshot
 # must be byte-for-byte identical, proving a retry does not widen its scope.
 before_failed_read=$(state)
-curl -sS -o /dev/null -w '%{http_code}' "${auth[@]}" "$api/assets/00000000-0000-4000-8000-000000000000" | grep -qx 404 || die 'unexpected status for missing-asset probe'
+missing_asset_code=$(curl -sS -o "$fixture_dir/missing-asset-response.json" -w '%{http_code}' "${auth[@]}" "$api/assets/00000000-0000-4000-8000-000000000000")
+[[ "$missing_asset_code" == 400 ]] || die "unexpected status for missing-asset probe: $missing_asset_code"
+jq -e '.message == "Not found or no asset.read access"' "$fixture_dir/missing-asset-response.json" >/dev/null || die 'missing-asset probe did not return the expected safe access error'
 after_failed_read=$(state)
 [[ "$before_failed_read" == "$after_failed_read" ]] || die 'failed probe changed database state'
 
