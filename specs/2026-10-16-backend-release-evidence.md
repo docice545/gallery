@@ -248,3 +248,10 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 - **PASS:** trash, restore, repeated restore (idempotency), second trash, explicit managed-deletion consent, and permanent purge completed. Final checks found zero rows for both synthetic IDs and neither synthetic file remained on NFS or SSD. Only the current disposable owner's fixture was addressed.
 - The tested local image was `gallery-server:nfs-f1b1d1f`, image ID/digest `sha256:0669fc1b9aaa4b0008796311775941d0a78b47372433cc6da2c6d58488b8f57e`; no registry publication or production deployment occurred. Evidence log: `/tmp/gallery-nfs-live-photo-20261017-rerun2.log`; retained fixture diagnostics: `/mnt/hp-data/gallery-nfs-test/media/fixture.urbswk`.
 - This is a real isolated NFS-mounted test, but it does not certify DSM recycle-bin semantics, production NAS behavior, upstream original-client compatibility, AI provider fallback, external auto-stack scheduling, or signed Android upgrade packaging.
+
+## PR synchronization and Memory/Stack focused rerun (2026-10-17)
+
+- The isolated-NFS evidence was committed as `f213d09654a4564842cfa353362789988f047335` and pushed to `codex/nas-release-readiness-20261016`. GitHub API readback confirms PR `https://github.com/docice545/gallery/pull/1` is open and its head is this exact commit.
+- **PASS:** `server/src/services/memory.service.spec.ts` — 104 tests passed with the isolated Vitest invocation (`pnpm exec vitest --config test/vitest.config.mjs --run src/services/memory.service.spec.ts --pool=forks --maxWorkers=1 --no-file-parallelism --reporter=dot`).
+- **PASS:** `server/src/services/stack.service.spec.ts` — 22 tests passed with the same isolated Vitest settings. These tests cover native stack behavior and do not execute the external hourly maintenance process.
+- These reruns add repository-level regression evidence only. External `gallery-ai-daily`, LiteLLM/Groq/Cloudflare, and `noodle-gallery-maintenance` runtime behavior remains outside this executor and therefore **BLOCKED** for runtime acceptance.
