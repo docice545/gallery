@@ -284,3 +284,44 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
   **not** an upgrade artifact for the installed Build 12 and was not installed;
   the signed `foto` Build >=13 gate remains **BLOCKED** because the keystore,
   device and upgrade environment are unavailable in this executor.
+
+## Final release-readiness matrix (2026-10-17)
+
+| Gate | Result | Evidence and limit |
+| ---- | ------ | ------------------ |
+| Backend build and type check | **PASS** | `server` production build with the documented 3072 MiB local heap and `pnpm check`. |
+| Web build and type checks | **PASS** | `web pnpm build`, Svelte check, and TypeScript check completed with zero diagnostics. Existing WASM URL/chunk advisories remain. |
+| Docker artifact | **PASS (local)** | `gallery-server:release-891764a26`, digest `sha256:9cb61a78da7784e466003603a6e6b5759ee951aba6df942875e4d59cecb0c061`; registry publication was not available or attempted. |
+| Trash and deletion contracts | **PASS** | Server, web, and mobile focused suites pass; one owner-scoped Trash flow, durable batch status, cancellation, receipts, and legacy original-client endpoint are covered. |
+| Disposable NFS Live Photo lifecycle | **PASS** | Isolated `10.10.10.95:/volume1/Gallery-Test` run covered JPG-on-NFS plus paired MP4-on-SSD, trash, restore, idempotent restore, consent, and purge. DSM `#recycle` behavior and production NAS remain unverified. |
+| Bulk deletion performance | **PARTIAL** | 1000 synthetic worker items completed in 277170 ms (3.608 assets/s); 1/10/100 rows are inline correctness fixtures with `elapsedMs=0`, not HTTP latency. The required mixed-media 1/10/100/1000 wall-clock/NFS load matrix is incomplete. |
+| Android package continuity | **PARTIAL** | Reproducible release APK has package `de.opennoodle.gallery`, version `5.7.3`, versionCode `13`, SDK 36, SHA-256 `cef0dcaacfffe504db9fabe6f1a705c9803bbcc7a03d707719e36cba7eeae9c5`. It is debug-signed and cannot upgrade the installed `foto` Build 12. |
+| Original Android/iOS runtime compatibility | **BLOCKED** | No representative upstream APK/IPA, Android device, or macOS/Xcode runtime is available. Structural wire-contract retention is not a runtime-client test. |
+| AI Memories daily scheduler | **BLOCKED** | `gallery-ai-daily` is external; no authorized synthetic endpoint or scheduler run is available. Gallery lifecycle tests do not prove delivery, limits, or rejection-after-delete. |
+| Groq → Cloudflare fallback | **BLOCKED** | Provider clients, credentials, and a safe test endpoint are external to this checkout; no private media was sent. |
+| Automatic stack grouping | **BLOCKED** | Native Stack API and unit tests pass, but the external maintenance processor, hourly scheduling, survival, and Anna exclusion were not run. |
+| Signed `foto` Android upgrade | **BLOCKED** | Existing keystore/signing environment and device are unavailable; the debug certificate does not match the authorized certificate. |
+| Artifact publication and deployment | **BLOCKED/PENDING** | Docker image and APK remain local; no registry/store publication, merge, or deployment was authorized or performed. |
+
+**Readiness assessment: NOT READY for a production release.** The local code,
+tests, isolated NFS lifecycle, and reproducible artifacts are suitable for review,
+but the blocked client, signing, external-AI, automatic-stack, and complete
+performance gates are acceptance requirements rather than optional follow-up.
+
+## Safe delivery and rollback notes
+
+The local Docker artifact is review-only until it is published through the
+existing release workflow. A release operator must first create a database dump
+and preserve the complete `UPLOAD_LOCATION` (including `encoded-video`,
+`library`, `thumbs`, `upload`, and backups), then deploy an immutable image
+digest and verify `/api/server/version` and health before enabling external jobs.
+Do not use a floating tag for a release record.
+
+If validation fails, stop the new services, restore the database backup using
+the documented [backup and restore procedure](/administration/backup-and-restore),
+restore the matching media snapshot, and pin the previously known-good image
+digest. A downgrade has not been tested or promised; schema rollback requires a
+database restore and the matching media state. External AI and maintenance
+jobs must remain disabled until the restored server has passed its health and
+version checks. These instructions were documented only; no production rollback
+or deployment was executed in this stage.
