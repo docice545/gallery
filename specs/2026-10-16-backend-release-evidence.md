@@ -265,3 +265,22 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 - **PASS:** web production build with `cd web && pnpm build`; Svelte production output was written to `web/build`. The build reports the existing unresolved runtime WASM URL and large-chunk advisories; neither is a build failure. `pnpm check:svelte && pnpm check:typescript` completed with zero diagnostics, and `cd server && pnpm check` completed successfully.
 - **PASS:** a reproducible local Docker image was built from this checkout with `docker build -f server/Dockerfile -t gallery-server:release-891764a26 --build-arg BUILD_VERSION=5.7.3 --build-arg BUILD_ID=local-20261017 --build-arg BUILD_SOURCE_REF=codex/nas-release-readiness-20261016 --build-arg BUILD_SOURCE_COMMIT=891764a26eb2bf1563130c8b5619defbf5a019fd .` The local image is `gallery-server:release-891764a26`, manifest digest `sha256:9cb61a78da7784e466003603a6e6b5759ee951aba6df942875e4d59cecb0c061`, size 622,166,460 bytes. A network-disabled container check reported application version `5.7.3` and the exact source commit/ref. No registry publication or deployment was performed.
 - This artifact gate does not close original Android/iOS runtime compatibility, signed Android versionCode >=13 with the authorized `foto` identity, external AI provider fallback, external AI Memories/maintenance scheduling, automatic-stack grouping, or DSM recycle-bin semantics; those remain **BLOCKED** pending the required external clients, signing environment, and external services.
+
+## Android packaging rerun (2026-10-17)
+
+- **PASS (unsigned-for-upgrade artifact):** from source `95048b2d851c916efde39b3a73f31e2b876cec0b`,
+  `cd mobile && /mnt/hp-data/codex-toolchain/flutter/bin/flutter build apk --release --build-name=5.7.3 --build-number=13`
+  completed successfully in 523.1 seconds. The ignored output is
+  `mobile/build/app/outputs/flutter-apk/app-release.apk`, package
+  `de.opennoodle.gallery`, version `5.7.3`, versionCode `13`, compile/target SDK
+  `36`, SHA-256
+  `cef0dcaacfffe504db9fabe6f1a705c9803bbcc7a03d707719e36cba7eeae9c5`.
+- `apksigner verify --verbose --print-certs` passed APK Signature Scheme v2, but
+  identified the Android debug certificate
+  `dbf29cc8789f8c9321846726d08eb93a906dbc4228c72787c02831d738014624` rather
+  than the authorized `foto` certificate
+  `ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`.
+- This proves a reproducible versionCode 13 package and metadata only. It is
+  **not** an upgrade artifact for the installed Build 12 and was not installed;
+  the signed `foto` Build >=13 gate remains **BLOCKED** because the keystore,
+  device and upgrade environment are unavailable in this executor.
