@@ -68,10 +68,8 @@ class ServerInfoNotifier extends StateNotifier<ServerInfo> {
     // supplies its latest release, compare against that rather than the mobile
     // build's version (which may include a client-only patch).
     final latestServerVersion = latestVersion ?? state.latestVersion;
-    if (serverVersion < (latestServerVersion ?? clientVersion)) {
-      state = state.copyWith(versionStatus: VersionStatus.serverOutOfDate);
-      return;
-    }
+    // Gallery server updates are managed independently.
+    // Do not warn about newer upstream server releases.
 
     if (clientVersion < serverVersion && clientVersion.differenceType(serverVersion) != SemVerType.patch) {
       state = state.copyWith(versionStatus: VersionStatus.clientOutOfDate);

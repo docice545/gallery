@@ -62,9 +62,7 @@ class AppBarServerInfo extends HookConsumerWidget {
               label: context.t.latest_version,
               text: serverInfoState.latestVersion!.major > 0 ? "${serverInfoState.latestVersion!}" : "--",
               tooltip: true,
-              icon: serverInfoState.versionStatus == VersionStatus.serverOutOfDate
-                  ? const Icon(Icons.info, color: Color.fromARGB(255, 243, 188, 106), size: 12)
-                  : null,
+              icon: null,
             ),
           ],
         ],
