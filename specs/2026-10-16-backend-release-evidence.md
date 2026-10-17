@@ -197,14 +197,30 @@ scripts.release.tests.test_build11_artifacts` passed 27 tests, and
 - Read-only host preflight confirmed Docker, `findmnt`, and `ss` are available;
   `127.0.0.1:2295` is free and no `gallery_nfs_test_*` containers or
   `gallery_nfs_test` network exist.
-- The exact disposable source is mounted at `/mnt/gallery-nfs-test` as
-  `10.10.10.95:/volume1/Gallery-Test`, but `findmnt` reports `ro`. The harness
-  therefore fails closed and was not started. No Compose container, database,
-  Redis queue, fixture, or NAS file was created or changed.
-- `bash -n deployment/gallery-nfs-test/scripts/preflight.sh deployment/gallery-nfs-test/scripts/run-live-photo-test.sh`
-  passed. The disposable NFS lifecycle remains **BLOCKED** pending an owner-side
-  RW remount of that exact export; production mounts and the Synology recycle
-  directory were not accessed.
+- The exact disposable source is visible at `/mnt/gallery-nfs-test` as
+  `10.10.10.95:/volume1/Gallery-Test`. Mount-namespace evidence distinguishes
+  the cause: `/proc/self/mountinfo` reports the mount's per-mount options as
+  `ro`, while the NFS superblock options on that line report `rw`. This
+  establishes that this executor's mount view is locally read-only; it does not
+  establish that the NAS export is read-only. The session has no effective
+  capabilities, `NoNewPrivs: 1`, and cannot remount it (`mount.nfs` rejects the
+  unprivileged remount). `/etc/fstab` contains no Gallery-Test entry, and the
+  session cannot inspect the host-side executor launch configuration, so the
+  exact host setting that applied the read-only bind mount remains unverified.
+- Safe remediation: have the HP executor/runtime expose only this exact
+  disposable mount to the test executor with a read-write bind mount, retaining
+  existing NAS export rules and keeping production/archive mounts read-only or
+  absent. Recreate the executor mount namespace through normal host-side
+  configuration; do not attempt an in-session remount or edit `/etc/fstab` or
+  NAS export rules. Verify the exact source and visible per-mount `rw` option
+  before running the harness.
+- The harness therefore failed closed and was not started. No Compose
+  container, database, Redis queue, fixture, or NAS file was created or
+  changed. `bash -n deployment/gallery-nfs-test/scripts/preflight.sh
+  deployment/gallery-nfs-test/scripts/run-live-photo-test.sh` passed. The
+  disposable NFS lifecycle remains **BLOCKED** pending a runtime-side RW bind
+  mount for this exact disposable path; production mounts and the Synology
+  recycle directory were not accessed.
 
 ## AI and automatic-stack audit stage (2026-10-17)
 
