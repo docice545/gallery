@@ -347,3 +347,53 @@ The existing NFS image has not been rebuilt with this fix yet, so a new image
 and an end-to-end rerun are required before the candidate can claim fresh NFS
 PASS evidence. The synthetic orphan fixture remains confined to the disposable
 test stack and is not production media.
+
+## Signed Android Build 13 recovered and verified (2026-10-17)
+
+This section supersedes the earlier **signed Android artifact BLOCKED** status,
+but does not close device or overall release acceptance. The previous executor
+continued after its cleanup command was rejected and successfully rebuilt with
+the existing HP `foto` signing configuration. Its retained log records the safe
+temporary-link cleanup, successful build, and the same APK checksum verified
+below. This stage reused that signed artifact; no key was read into assistant
+output, copied, generated, rotated, or changed, and no APK was installed.
+
+- Source: `3425fe99f243c50d095817470d902f7d6ee98cce`, PR #1. The mobile,
+  translations, and OpenAPI source trees are unchanged from the previous
+  Android packaging source; the subsequent code change is server-only.
+- Build command: `cd mobile && /mnt/hp-data/codex-toolchain/flutter/bin/flutter
+  build apk --release --build-name=5.7.3 --build-number=13`. Existing build log:
+  `/tmp/gallery-foto-build13.log`; the previous executor log is
+  `/mnt/hp-data/codex-work/gallery-auto/20261017-102437-746708/round-1.log`.
+- **PASS:** release package `de.opennoodle.gallery`, version `5.7.3`,
+  versionCode `13`, minimum SDK `26`, target SDK `36`; 187,696,311 bytes.
+- **PASS:** APK Signature Scheme v2, one signer, expected `foto` certificate
+  SHA-256 `ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`.
+- **PASS:** APK ZIP integrity and required native payload, non-debuggable
+  binary manifest, CloudMediaProvider declaration, and
+  `zipalign -c -P 16 4`. CloudMediaProvider manifest presence does not prove
+  that Samsung's picker permits selection on a physical S23.
+- **PASS:** Flutter `3.47.2` matches both mobile pins. The version-compatibility
+  and cloud-media-settings suites passed 13 tests (2 files), preserving real
+  health/version warnings, explicit cloud opt-in, and admission/selection states.
+- Retained artifact:
+  `/mnt/hp-data/codex-work/gallery-auto/20261017-113325-833680/artifacts/android-build13-3425fe99/Foto-5.7.3-build13.apk`.
+  SHA-256: `f17752e1fb4b339647c7c9228577638780ea6823d9f9fb160cfe6970513c2634`.
+  The same directory contains `android-signed.json`, `SHA256SUMS`, release notes,
+  and test results; the copied APK is byte-identical to the verified build output.
+- Neither signing-file symlink remains in the checkout. Existing untracked build
+  logs are preserved. No production, NAS, VPN, Redis, or family media was accessed,
+  and the successful disposable NFS lifecycle was not repeated.
+
+Package identity, expected certificate, and a versionCode above the reported
+Build 12 satisfy the packaging prerequisites for an update. A real Build 12
+device upgrade, data preservation, original Android/iOS client runtime matrix,
+external AI/stack behavior, full performance matrix, and current backend image
+acceptance remain unverified. The overall release is still **NOT READY**.
+
+The signed APK and four accompanying verification files are retained in the
+[GitHub draft release](https://github.com/docice545/gallery/releases/tag/untagged-e5616f5c7905b2552167).
+All five uploaded asset sizes and GitHub SHA-256 digests match the local files.
+The draft targets source `3425fe99f243c50d095817470d902f7d6ee98cce`; it is
+an authenticated review artifact, not a published production release. No paid
+Actions run, container registry push, merge, or deployment was triggered.
