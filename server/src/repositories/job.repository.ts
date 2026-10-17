@@ -798,6 +798,17 @@ export class JobRepository {
 
   private getJobOptions(item: JobItem): JobsOptions | null {
     switch (item.name) {
+      case JobName.AssetExtractMetadata: {
+        // Uploads and explicit metadata refreshes can target the same asset while the first
+        // extraction is still running. Coalesce those requests so Motion Photo extraction cannot
+        // race its own checksum-protected motion-asset insert. Failed jobs are removed so a later
+        // refresh remains able to retry the asset.
+        return {
+          jobId: `asset-extract-metadata/${item.data.id}`,
+          removeOnComplete: true,
+          removeOnFail: true,
+        };
+      }
       case JobName.AssetDeleteBatch: {
         const data = item.data as { ownerId: string; ids: string[]; allowActive?: boolean };
         return {

@@ -111,6 +111,22 @@ describe(JobRepository.name, () => {
     });
   });
 
+  describe('metadata extraction deduplication', () => {
+    it('coalesces concurrent extraction requests for one asset and permits retries after failure', () => {
+      const { sut } = setup();
+      const options = (sut as any).getJobOptions({
+        name: JobName.AssetExtractMetadata,
+        data: { id: 'asset-1', source: 'upload' },
+      });
+
+      expect(options).toEqual({
+        jobId: 'asset-extract-metadata/asset-1',
+        removeOnComplete: true,
+        removeOnFail: true,
+      });
+    });
+  });
+
   describe('hasInFlightDedupChain', () => {
     it('returns true when a pass-scoped follow-up exists for the space', async () => {
       const { sut, queue } = setup();
