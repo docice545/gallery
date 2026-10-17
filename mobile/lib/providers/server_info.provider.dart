@@ -67,7 +67,6 @@ class ServerInfoNotifier extends StateNotifier<ServerInfo> {
     // Mobile and server releases can be built independently. Once the server
     // supplies its latest release, compare against that rather than the mobile
     // build's version (which may include a client-only patch).
-    final latestServerVersion = latestVersion ?? state.latestVersion;
     // Gallery server updates are managed independently.
     // Do not warn about newer upstream server releases.
 
