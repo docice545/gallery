@@ -128,11 +128,9 @@ enum ActionButtonType {
         !context.isInLockedView && //
             context.asset.hasLocal &&
             (context.asset is LocalAsset || context.isOwner),
-      ActionButtonType.deleteEverywhere =>
-        (context.isOwner || context.asset is LocalAsset) &&
-            !context.isInLockedView &&
-            context.asset.isMerged &&
-            context.timelineOrigin != TimelineOrigin.trash,
+      // Gallery uses two independent deletion actions:
+      // move to Trash, or remove the device copy.
+      ActionButtonType.deleteEverywhere => false,
       ActionButtonType.upload =>
         !context.isInLockedView && //
             context.asset.storage == AssetState.local,

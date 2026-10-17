@@ -13,7 +13,7 @@ String getThumbnailUrlForRemoteId(
   String? thumbhash,
 }) {
   final url = '${Store.get(StoreKey.serverEndpoint)}/assets/$id/thumbnail?size=$type&edited=$edited';
-  return thumbhash != null ? '$url&c=${Uri.encodeComponent(thumbhash)}' : url;
+  return thumbhash != null && thumbhash.isNotEmpty ? '$url&c=${Uri.encodeComponent(thumbhash)}' : url;
 }
 
 String getPlaybackUrlForRemoteId(final String id) {

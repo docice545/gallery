@@ -60,7 +60,6 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
       actions: <ActionColumnButton>[
         const .new(action: DeleteAction(source: .timeline)),
         const .new(action: CleanupLocalAction(source: .timeline)),
-        const .new(action: DeleteEverywhereAction(source: .timeline)),
         const .new(action: AssetDebugAction(source: .timeline)),
         const .new(action: ShareAction(source: .timeline)),
         const .new(action: ShareLinkAction(source: .timeline)),

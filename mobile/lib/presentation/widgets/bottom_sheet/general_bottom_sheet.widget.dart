@@ -55,7 +55,6 @@ class _GeneralBottomSheetState extends ConsumerState<GeneralBottomSheet> {
       actions: const <ActionColumnButton>[
         .new(action: DeleteAction(source: .timeline)),
         .new(action: CleanupLocalAction(source: .timeline)),
-        .new(action: DeleteEverywhereAction(source: .timeline)),
         .new(action: AssetDebugAction(source: .timeline)),
         .new(action: ShareAction(source: .timeline)),
         .new(action: ShareLinkAction(source: .timeline)),

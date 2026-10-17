@@ -17,7 +17,6 @@ import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
-import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
@@ -123,15 +122,10 @@ class _TrashKebabMenu extends ConsumerWidget {
         Error.throwWithStackTrace(outcome.error!, outcome.stackTrace!);
       }
       final results = outcome.results!;
+      if (!context.mounted) {
+        return;
+      }
       final completed = results.where((result) => result.complete).map((result) => result.id).toList();
-      final localIds = await service.getDeletionLocalIds(completed);
-      if (!context.mounted) {
-        return;
-      }
-      final local = await ref.read(cleanupServiceProvider).deleteLocalAssetsDetailed(localIds, trash: false);
-      if (!context.mounted) {
-        return;
-      }
       final reasons = results
           .where((result) => !result.complete)
           .map((result) => deletionMessage(context, result))
@@ -139,11 +133,12 @@ class _TrashKebabMenu extends ConsumerWidget {
           .join(', ');
       ImmichToast.show(
         context: context,
-        msg:
-            '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: reasons)}. ${context.t.device_deletion_result(removed: local.deletedIds.length, remaining: local.remainingIds.length, names: local.remainingIds.take(25).join(', '))}',
-        toastType: results.any((result) => !result.complete) || local.remainingIds.isNotEmpty
-            ? ToastType.error
-            : ToastType.success,
+        msg: context.t.permanent_deletion_result(
+          removed: completed.length,
+          remaining: results.length - completed.length,
+          reasons: reasons,
+        ),
+        toastType: results.any((result) => !result.complete) ? ToastType.error : ToastType.success,
       );
     } catch (error, stack) {
       handleError(error, stack: stack, description: 'Failed to empty captured Trash selection');

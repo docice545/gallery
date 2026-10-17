@@ -78,7 +78,7 @@ class DeleteAction extends AssetActionBuilder {
           ? context.t.delete_permanently
           : removeLocalCopies
           ? context.t.delete_everywhere
-          : context.t.delete_from_gallery,
+          : "В корзину",
       onAction: () => _delete(context, ref),
     );
   }
@@ -178,35 +178,18 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
     final completed = results.where((result) => result.complete).map((result) => result.id).toSet();
-    final assets = ref.read(assetsActionProvider(source));
-    final permittedLocalIds = assets
-        .where((asset) => completed.contains(asset.remoteId))
-        .map((asset) => asset.localId)
-        .nonNulls
-        .toList();
-    final retainedLocalIds = await assetService.getDeletionLocalIds(completed.toList());
-    if (!context.mounted) {
-      return null;
-    }
-    final local = await _cleanupLocalAssetsDetailed(
-      context,
-      ref,
-      {...permittedLocalIds, ...retainedLocalIds}.toList(),
-      requestCustomPrompt: false,
-      trash: false,
-    );
-    if (!context.mounted) {
-      return null;
-    }
     final incomplete = results
         .where((result) => !result.complete)
         .map((result) => deletionMessage(context, result))
         .take(25)
         .join(', ');
     return (
-      message:
-          '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: incomplete)}. ${_deviceResult(context, ref, local)}',
-      complete: completed.length == results.length && local.remainingIds.isEmpty,
+      message: context.t.permanent_deletion_result(
+        removed: completed.length,
+        remaining: results.length - completed.length,
+        reasons: incomplete,
+      ),
+      complete: completed.length == results.length,
     );
   }
 }
