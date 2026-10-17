@@ -325,3 +325,25 @@ database restore and the matching media state. External AI and maintenance
 jobs must remain disabled until the restored server has passed its health and
 version checks. These instructions were documented only; no production rollback
 or deployment was executed in this stage.
+
+## Metadata extraction race follow-up (2026-10-17)
+
+The isolated harness was rechecked against the running image
+`gallery-server:nfs-f1b1d1f` before rebuilding the candidate. Preflight passed
+with the exact `10.10.10.95:/volume1/Gallery-Test` NFS source, `rw` mount, private
+Compose networks, dedicated SSD paths, and loopback-only port `2295`. The
+image's upload/refresh sequence reproduced a metadata race: the synthetic JPG
+was present on NFS and remained in the isolated database, but no
+`livePhotoVideoId` was created after the metadata job retried. No production
+container, archive mount, or `#recycle` path was accessed, and no permanent
+deletion was attempted in this follow-up.
+
+The candidate now assigns `AssetExtractMetadata` a stable per-asset BullMQ
+`jobId` with `removeOnComplete` and `removeOnFail`, so upload-triggered and
+explicit refresh jobs coalesce while allowing a later retry after failure.
+The regression test and full server type check pass at commit
+`4c37b946e` (`job.repository.spec.ts`: 68 tests; `pnpm check`: exit 0).
+The existing NFS image has not been rebuilt with this fix yet, so a new image
+and an end-to-end rerun are required before the candidate can claim fresh NFS
+PASS evidence. The synthetic orphan fixture remains confined to the disposable
+test stack and is not production media.
