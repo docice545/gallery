@@ -188,13 +188,14 @@ void main() {
     await expectLater(sut.completedDeletions(['a', 'b']), throwsStateError);
   });
 
-  test('checks all 401 IDs before mutation and blocks every scope on missing external consent', () async {
-    var mutations = 0;
+  test('checks all 401 IDs and deletes only authorized managed assets', () async {
+    final deletionBatches = <List<String>>[];
     final batches = <int>[];
     final sut = repository((request) async {
       if (!request.url.path.endsWith('/preflight')) {
-        mutations++;
-        return Response('', 500);
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        deletionBatches.add(ids);
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'complete'}).toList()), 200);
       }
       final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
       batches.add(ids.length);
@@ -216,11 +217,15 @@ void main() {
     }, autoPreflight: false);
     final results = await sut.permanentlyDelete(List.generate(401, (i) => 'fixture-$i'));
     expect(batches, [200, 200, 1]);
-    expect(mutations, 0);
-    expect(results.every((r) => r.state == 'blocked'), isTrue);
-    expect(results.first.code, 'DELETION_BATCH_NOT_AUTHORIZED');
-    expect(results.last.scope, 'external');
-    expect(results.last.code, 'LIBRARY_DELETION_NOT_AUTHORIZED');
+    expect(deletionBatches.length, 1);
+    expect(deletionBatches.single.length, 400);
+    expect(deletionBatches.single.contains('fixture-400'), isFalse);
+    expect(results.length, 401);
+    expect(results.where((r) => r.complete).length, 400);
+    final blocked = results.singleWhere((r) => r.id == 'fixture-400');
+    expect(blocked.state, 'blocked');
+    expect(blocked.scope, 'external');
+    expect(blocked.code, 'LIBRARY_DELETION_NOT_AUTHORIZED');
   });
 
   test('stops unsent batches if a scope is revoked after the read-only preflight', () async {

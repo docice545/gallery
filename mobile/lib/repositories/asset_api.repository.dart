@@ -182,7 +182,7 @@ class AssetApiRepository extends ApiRepository {
     List<String> ids, {
     void Function(PermanentDeletionBatchStatus status)? onBatchStatus,
   }) => _serializeTrashRequest(() async {
-    final requested = ids.toSet().toList();
+    var requested = ids.toSet().toList();
     final acknowledged = <PermanentDeletionResult>[];
     // Check the ENTIRE selection before any mutation, including selections larger than 200.
     // A failed read cannot mean a permanent intent was created.
@@ -194,17 +194,26 @@ class AssetApiRepository extends ApiRepository {
           .map((id) => PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT'))
           .toList();
     }
-    if (preflight.any((result) => result.state != 'authorized')) {
-      return preflight
-          .map(
-            (result) => PermanentDeletionResult(
-              id: result.id,
-              state: 'blocked',
-              scope: result.scope,
-              code: result.code ?? 'DELETION_BATCH_NOT_AUTHORIZED',
-            ),
-          )
-          .toList();
+    // Delete only assets explicitly authorized by the server.
+    // A blocked asset must not prevent deletion of unrelated authorized assets.
+    final authorizedIds = preflight.where((result) => result.state == 'authorized').map((result) => result.id).toSet();
+
+    final blockedResults = preflight
+        .where((result) => result.state != 'authorized')
+        .map(
+          (result) => PermanentDeletionResult(
+            id: result.id,
+            state: 'blocked',
+            scope: result.scope,
+            code: result.code ?? 'DELETION_BATCH_NOT_AUTHORIZED',
+          ),
+        )
+        .toList();
+
+    requested = requested.where(authorizedIds.contains).toList();
+
+    if (requested.isEmpty) {
+      return blockedResults;
     }
     for (var start = 0; start < requested.length; start += _permanentDeletionRequestLimit) {
       final unique = requested.skip(start).take(_permanentDeletionRequestLimit).toSet();
@@ -285,7 +294,7 @@ class AssetApiRepository extends ApiRepository {
         break;
       }
     }
-    return acknowledged;
+    return [...acknowledged, ...blockedResults];
   });
 
   Future<({List<PermanentDeletionResult> results, bool cancelled})> _waitForDeletionBatch(
