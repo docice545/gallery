@@ -648,13 +648,15 @@ where
   "ownerId" = $1::uuid
   and "checksum" in ($2)
 select
-  "assetId" as "id",
-  "checksum"
+  "asset_duplicate_checksum"."assetId" as "id",
+  "asset_duplicate_checksum"."checksum",
+  "asset"."deletedAt"
 from
   "asset_duplicate_checksum"
+inner join "asset" on "asset"."id" = "asset_duplicate_checksum"."assetId"
 where
-  "ownerId" = $1::uuid
-  and "checksum" in ($2)
+  "asset_duplicate_checksum"."ownerId" = $1::uuid
+  and "asset_duplicate_checksum"."checksum" in ($2)
 
 -- AssetRepository.getUploadAssetIdByChecksum
 select

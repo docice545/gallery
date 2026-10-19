@@ -55,6 +55,7 @@ import {
   validQuarantineIdentity,
 } from 'src/utils/authorized-deletion.js';
 import {
+  ASSET_CHECKSUM_CONSTRAINT,
   anyUuid,
   asUuid,
   escapeLikePattern,
@@ -958,29 +959,57 @@ export class AssetRepository {
     });
   }
 
-  create(asset: Insertable<AssetTable>) {
-    return this.db.insertInto('asset').values(asset).returningAll().executeTakeFirstOrThrow();
-  }
-
-  async hasPermanentDeletions(ownerId: string) {
-    return !!(await this.db
-      .selectFrom('asset_deletion_tombstone')
-      .select('assetId')
-      .where('ownerId', '=', ownerId)
-      .executeTakeFirst());
+  async create(asset: Insertable<AssetTable>) {
+    return this.db.transaction().execute(async (tx) => {
+      // Serialize managed uploads with external imports. Without the shared owner lock,
+      // an upload and a scan can both pass their identity checks before either commits.
+      await sql`select pg_advisory_xact_lock(hashtextextended(${asset.ownerId}, 731))`.execute(tx);
+      if (asset.libraryId === null) {
+        const alias = await tx
+          .selectFrom('asset_duplicate_checksum')
+          .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
+          .select('asset_duplicate_checksum.assetId as id')
+          .where('asset_duplicate_checksum.ownerId', '=', asset.ownerId)
+          .where('asset_duplicate_checksum.checksum', '=', asset.checksum)
+          .executeTakeFirst();
+        if (alias) {
+          const error = Object.assign(new Error('duplicate asset checksum'), {
+            code: '23505',
+            constraint_name: ASSET_CHECKSUM_CONSTRAINT,
+          });
+          throw error;
+        }
+      }
+      return tx.insertInto('asset').values(asset).returningAll().executeTakeFirstOrThrow();
+    });
   }
 
   @ChunkedArray({ chunkSize: 4000 })
-  async createAll(assets: (Insertable<AssetTable> & { deletionChecksum?: Buffer })[]) {
+  async createAll(assets: (Insertable<AssetTable> & { contentChecksum?: Buffer })[]) {
     if (assets.length === 0) return [];
     return this.db.transaction().execute(async (tx) => {
       // Share the deletion-intent lock. A scanner queued before confirmation
       // cannot insert a renamed byte-identical original after permanent deletion.
-      for (const owner of [...new Set(assets.map((asset) => asset.ownerId))].sort()) {
+      const owners = [...new Set(assets.map((asset) => asset.ownerId))].sort();
+      for (const owner of owners) {
         await sql`select pg_advisory_xact_lock(hashtextextended(${owner}, 731))`.execute(tx);
       }
-      const accepted: Insertable<AssetTable>[] = [];
-      for (const { deletionChecksum, ...asset } of assets) {
+      const contentChecksums = assets.flatMap((asset) => (asset.contentChecksum ? [asset.contentChecksum] : []));
+      const managedChecksums =
+        contentChecksums.length === 0
+          ? []
+          : await tx
+              .selectFrom('asset')
+              .select(['ownerId', 'checksum'])
+              .where('ownerId', 'in', owners)
+              .where('libraryId', 'is', null)
+              .where('checksum', 'in', contentChecksums)
+              .execute();
+      const managedContent = new Set(
+        managedChecksums.map(({ ownerId, checksum }) => `${ownerId}:${checksum.toString('hex')}`),
+      );
+      const accepted: Array<{ asset: Insertable<AssetTable>; contentChecksum?: Buffer }> = [];
+      for (const { contentChecksum, ...asset } of assets) {
         const suppressed = await tx
           .selectFrom('asset_deletion_tombstone')
           .select('assetId')
@@ -988,15 +1017,37 @@ export class AssetRepository {
           .where((eb) =>
             eb.or([
               eb('originalPath', '=', asset.originalPath),
-              ...(deletionChecksum ? [eb('contentChecksum', '=', deletionChecksum)] : []),
+              ...(contentChecksum ? [eb('contentChecksum', '=', contentChecksum)] : []),
             ]),
           )
           .executeTakeFirst();
-        if (!suppressed) accepted.push(asset);
+        const matchesManaged =
+          contentChecksum && managedContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`);
+        if (!suppressed && !matchesManaged) accepted.push({ asset, contentChecksum });
       }
       if (accepted.length === 0) return [];
-      const ids = await tx.insertInto('asset').values(accepted).returning('id').execute();
-      return ids.map(({ id }) => id);
+      const inserted = await tx
+        .insertInto('asset')
+        .values(accepted.map(({ asset }) => asset))
+        .returning(['id', 'ownerId', 'originalPath'])
+        .execute();
+      const checksumByPath = new Map(
+        accepted.flatMap(({ asset, contentChecksum }) =>
+          contentChecksum ? [[`${asset.ownerId}:${asset.originalPath}`, contentChecksum] as const] : [],
+        ),
+      );
+      const aliases = inserted.flatMap(({ id, ownerId, originalPath }) => {
+        const checksum = checksumByPath.get(`${ownerId}:${originalPath}`);
+        return checksum ? [{ assetId: id, ownerId, checksum }] : [];
+      });
+      if (aliases.length > 0) {
+        await tx
+          .insertInto('asset_duplicate_checksum')
+          .values(aliases)
+          .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
+          .execute();
+      }
+      return inserted.map(({ id }) => id);
     });
   }
 
@@ -2624,9 +2675,10 @@ export class AssetRepository {
         .execute(),
       this.db
         .selectFrom('asset_duplicate_checksum')
-        .select(['assetId as id', 'checksum'])
-        .where('ownerId', '=', asUuid(userId))
-        .where('checksum', 'in', checksums)
+        .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
+        .select(['asset_duplicate_checksum.assetId as id', 'asset_duplicate_checksum.checksum', 'asset.deletedAt'])
+        .where('asset_duplicate_checksum.ownerId', '=', asUuid(userId))
+        .where('asset_duplicate_checksum.checksum', 'in', checksums)
         .execute(),
       this.db
         .selectFrom('asset_deletion_tombstone')

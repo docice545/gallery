@@ -1,10 +1,11 @@
 import { Kysely } from 'kysely';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { StorageCore } from 'src/cores/storage.core.js';
-import { AssetStatus, JobName, JobStatus } from 'src/enum.js';
+import { AssetStatus, ChecksumAlgorithm, JobName, JobStatus } from 'src/enum.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { CryptoRepository } from 'src/repositories/crypto.repository.js';
@@ -16,7 +17,7 @@ import { SharedSpaceRepository } from 'src/repositories/shared-space.repository.
 import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { DB } from 'src/schema/index.js';
 import { LibraryService } from 'src/services/library.service.js';
-import { MediumTestContext, testAssetsDir } from 'test/medium.factory.js';
+import { MediumTestContext, mediumFactory, testAssetsDir } from 'test/medium.factory.js';
 import { newUuid } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
 
@@ -336,6 +337,93 @@ describe(LibraryService.name, () => {
       // the asset delete jobs are only queued here, so this just proves the handler itself unlinks nothing
       expect(existsSync(assetA)).toBe(true);
       expect(existsSync(assetB)).toBe(true);
+    });
+  });
+
+  describe('external content identity', () => {
+    it('stores content checksums so identical uploads resolve to the external asset', async () => {
+      const { ctx } = setup();
+      const filePath = join(importRoot, 'exact-content.jpg');
+      const fileContents = Buffer.from('same bytes in the external library and on the phone');
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, fileContents);
+      const library = await ctx.createLibrary({ importPaths: [importRoot] });
+
+      await ctx.scan(library.id);
+
+      const asset = await ctx.get(AssetRepository).getByLibraryIdAndOriginalPath(library.id, filePath);
+      expect(asset).toBeDefined();
+      const checksum = createHash('sha1').update(fileContents).digest();
+      await expect(ctx.get(AssetRepository).getByChecksums(library.ownerId, [checksum])).resolves.toContainEqual(
+        expect.objectContaining({ id: asset!.id, checksum, deletedAt: null }),
+      );
+      await expect(ctx.get(AssetRepository).getUploadAssetIdByChecksum(library.ownerId, checksum)).resolves.toBe(
+        asset!.id,
+      );
+    });
+
+    it('does not import an external file already present as a managed upload', async () => {
+      const { ctx } = setup();
+      const filePath = join(importRoot, 'already-uploaded.jpg');
+      const fileContents = Buffer.from('the same exact bytes already uploaded');
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, fileContents);
+      const library = await ctx.createLibrary({ importPaths: [importRoot] });
+      await ctx.newAsset({
+        ownerId: library.ownerId,
+        checksum: createHash('sha1').update(fileContents).digest(),
+        checksumAlgorithm: ChecksumAlgorithm.sha1File,
+      });
+
+      await ctx.scan(library.id);
+
+      await expect(ctx.getAssetPaths(library.id)).resolves.toEqual([]);
+    });
+
+    it('serializes a concurrent managed upload and external import by content identity', async () => {
+      const { ctx } = setup();
+      const filePath = join(importRoot, 'concurrent.jpg');
+      const content = Buffer.from('one byte identity across two ingestion paths');
+      const contentChecksum = createHash('sha1').update(content).digest();
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content);
+      const library = await ctx.createLibrary({ importPaths: [importRoot] });
+      const repository = ctx.get(AssetRepository);
+      const managed = mediumFactory.assetInsert({
+        ownerId: library.ownerId,
+        libraryId: null,
+        checksum: contentChecksum,
+        originalPath: join(tempDir, 'data/upload/concurrent.jpg'),
+      });
+      const external = mediumFactory.assetInsert({
+        ownerId: library.ownerId,
+        libraryId: library.id,
+        isExternal: true,
+        checksum: createHash('sha1').update(`path:${filePath}`).digest(),
+        checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+        originalPath: filePath,
+      });
+
+      const [upload, imported] = await Promise.allSettled([
+        repository.create(managed),
+        repository.createAll([{ ...external, contentChecksum }]),
+      ]);
+
+      expect(imported.status).toBe('fulfilled');
+      if (imported.status !== 'fulfilled') throw imported.reason;
+      const assets = await ctx.database
+        .selectFrom('asset')
+        .select(['libraryId', 'checksum'])
+        .where('ownerId', '=', library.ownerId)
+        .execute();
+      expect(assets).toHaveLength(1);
+      if (upload.status === 'fulfilled') {
+        expect(assets[0].libraryId).toBeNull();
+        expect(imported.value).toEqual([]);
+      } else {
+        expect(assets[0].libraryId).toBe(library.id);
+        expect(imported.value).toHaveLength(1);
+      }
     });
   });
 

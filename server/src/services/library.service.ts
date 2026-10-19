@@ -260,7 +260,7 @@ export class LibraryService extends BaseService {
       return JobStatus.Failed;
     }
 
-    const assetImports: (Insertable<AssetTable> & { deletionChecksum?: Buffer })[] = [];
+    const assetImports: (Insertable<AssetTable> & { contentChecksum?: Buffer })[] = [];
     await Promise.all(
       job.paths.map(async (path) => {
         try {
@@ -417,15 +417,12 @@ export class LibraryService extends BaseService {
   private async processEntity(filePath: string, ownerId: string, libraryId: string) {
     const assetPath = path.normalize(filePath);
     const stat = await this.storageRepository.stat(assetPath);
+    const contentChecksum = await this.cryptoRepository.hashFile(assetPath);
 
     return {
       ownerId,
       libraryId,
-      // Only new paths for owners with permanent tombstones need byte identity.
-      // Existing indexed media are never rehashed or reimported by this change.
-      ...((await this.assetRepository.hasPermanentDeletions(ownerId)) && {
-        deletionChecksum: await this.cryptoRepository.hashFile(assetPath),
-      }),
+      contentChecksum,
       checksum: this.cryptoRepository.hashSha1(`path:${assetPath}`),
       checksumAlgorithm: ChecksumAlgorithm.sha1Path,
       originalPath: assetPath,

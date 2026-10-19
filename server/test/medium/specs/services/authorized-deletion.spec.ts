@@ -643,14 +643,31 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
       checksum: Buffer.from('different-path'),
       status: AssetStatus.Active,
       deletedAt: null,
-      deletionChecksum: content,
+      contentChecksum: content,
     };
     expect(await f.repo.createAll([proposed])).toEqual([]);
     expect(
-      await f.repo.createAll([
-        { ...proposed, id: randomUUID(), deletionChecksum: Buffer.from('different-byte-proof') },
-      ]),
+      await f.repo.createAll([{ ...proposed, id: randomUUID(), contentChecksum: Buffer.from('different-byte-proof') }]),
     ).toHaveLength(1);
+  });
+
+  it('keeps captured bytes as a tombstone after permanent external deletion', async () => {
+    const f = await fixture(true);
+    await authorize(f);
+    const content = createHash('sha1')
+      .update(await readFile(f.asset.originalPath))
+      .digest();
+    await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
+    await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal);
+    await f.repo.removeForDeletion(f.asset);
+
+    await expect(f.repo.getByChecksums(f.user.id, [content])).resolves.toContainEqual(
+      expect.objectContaining({ id: f.asset.id, checksum: content, deletedAt: expect.any(Date) }),
+    );
+    await expect(f.ctx.newAsset({ ownerId: f.user.id, checksum: content })).rejects.toHaveProperty(
+      'constraint_name',
+      'asset_deletion_tombstone_identity',
+    );
   });
 
   it('preserves duplicate byte identities after the FK-bound alias rows disappear', async () => {

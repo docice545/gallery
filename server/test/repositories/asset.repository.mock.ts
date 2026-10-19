@@ -21,7 +21,6 @@ export const newAssetRepositoryMock = (): Mocked<RepositoryInterface<AssetReposi
     isOriginalReferenced: vitest.fn(),
     create: vitest.fn(),
     createAll: vitest.fn(),
-    hasPermanentDeletions: vitest.fn().mockResolvedValue(false),
     upsertExif: vitest.fn(),
     updateAllExif: vitest.fn(),
     updateDateTimeOriginal: vitest.fn().mockResolvedValue([]),
