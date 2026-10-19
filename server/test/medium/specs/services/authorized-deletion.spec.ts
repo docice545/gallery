@@ -670,6 +670,20 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     );
   });
 
+  it('reports a trashed asset when an alias row matches its upload checksum', async () => {
+    const f = await fixture();
+    const alias = createHash('sha1').update('alias for a trashed asset').digest();
+    await db
+      .insertInto('asset_duplicate_checksum')
+      .values({ assetId: f.asset.id, ownerId: f.user.id, checksum: alias })
+      .execute();
+    await db.updateTable('asset').set({ deletedAt: new Date() }).where('id', '=', f.asset.id).execute();
+
+    await expect(f.repo.getByChecksums(f.user.id, [alias])).resolves.toContainEqual(
+      expect.objectContaining({ id: f.asset.id, checksum: alias, deletedAt: expect.any(Date) }),
+    );
+  });
+
   it('preserves duplicate byte identities after the FK-bound alias rows disappear', async () => {
     const f = await fixture();
     await authorize(f);

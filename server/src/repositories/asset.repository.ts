@@ -2707,7 +2707,7 @@ export class AssetRepository {
           deletedAt: new Date(row.deletedAt),
         })),
       ]),
-      ...tombstoneResults.filter((r) => !seen.has(r.checksum.toString('hex'))).map((r) => ({ ...r, deletedAt: null })),
+      ...tombstoneResults.filter((r) => !seen.has(r.checksum.toString('hex'))),
     ];
   }
 
