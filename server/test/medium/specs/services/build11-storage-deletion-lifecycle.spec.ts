@@ -264,9 +264,10 @@ describe('Build11 ordinary owner deletion with real PostgreSQL and synthetic fil
       .where('assetId', '=', f.asset.id)
       .executeTakeFirstOrThrow();
     expect(receipt.state).toBe('failed');
-    expect(
-      await readFile(join(f.root, '.gallery-deletion-quarantine', receipt.files[0].quarantineName), 'utf8'),
-    ).toContain('disposable');
+    const quarantineDirectory = receipt.files[0].rootIdentity.quarantineDirectory ?? '.gallery-deletion-quarantine';
+    expect(await readFile(join(f.root, quarantineDirectory, receipt.files[0].quarantineName), 'utf8')).toContain(
+      'disposable',
+    );
     expect(await new AssetRepository(db).removeAuthorizedOriginals(f.asset.id, unlinkOriginal)).toBe(true);
     expect(await new AssetRepository(db).removeForDeletion(f.asset)).toBe(true);
     expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
