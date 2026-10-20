@@ -695,7 +695,7 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
     await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal);
     await f.repo.removeForDeletion(f.asset);
-    expect(await f.repo.getUploadAssetIdByChecksum(f.user.id, alias)).toBe(f.asset.id);
+    expect((await f.repo.getUploadAssetIdByChecksum(f.user.id, alias))?.assetId).toBe(f.asset.id);
     const duplicates = await f.repo.getByChecksums(f.user.id, [alias]);
     expect(duplicates.some((item) => item.checksum.equals(alias) && item.deletedAt)).toBe(true);
     await expect(f.ctx.newAsset({ ownerId: f.user.id, checksum: alias })).rejects.toHaveProperty(

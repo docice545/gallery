@@ -964,23 +964,46 @@ export class AssetRepository {
       // Serialize managed uploads with external imports. Without the shared owner lock,
       // an upload and a scan can both pass their identity checks before either commits.
       await sql`select pg_advisory_xact_lock(hashtextextended(${asset.ownerId}, 731))`.execute(tx);
+      
+      let duplicateId: string | null = null;
       if (asset.libraryId === null) {
         const alias = await tx
           .selectFrom('asset_duplicate_checksum')
           .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
-          .select('asset_duplicate_checksum.assetId as id')
+          .select(['asset_duplicate_checksum.assetId as id', 'asset.duplicateId'])
           .where('asset_duplicate_checksum.ownerId', '=', asset.ownerId)
           .where('asset_duplicate_checksum.checksum', '=', asset.checksum)
           .executeTakeFirst();
         if (alias) {
-          const error = Object.assign(new Error('duplicate asset checksum'), {
-            code: '23505',
-            constraint_name: ASSET_CHECKSUM_CONSTRAINT,
-          });
-          throw error;
+          // Exact content match found - use existing duplicateId or generate new one
+          duplicateId = alias.duplicateId ?? this.cryptoRepository.randomUUID();
+          // Update the existing asset's duplicateId if it didn't have one
+          if (!alias.duplicateId) {
+            await tx
+              .updateTable('asset')
+              .set({ duplicateId })
+              .where('id', '=', alias.id)
+              .execute();
+          }
         }
       }
-      return tx.insertInto('asset').values(asset).returningAll().executeTakeFirstOrThrow();
+      
+      const newAsset = await tx.insertInto('asset').values({ ...asset, duplicateId }).returningAll().executeTakeFirstOrThrow();
+      
+      // If this is a managed upload with a content checksum, store it in asset_duplicate_checksum
+      if (asset.libraryId === null && asset.checksum) {
+        await tx
+          .insertInto('asset_duplicate_checksum')
+          .values({
+            assetId: newAsset.id,
+            ownerId: asset.ownerId,
+            checksum: asset.checksum,
+          })
+          .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
+          .execute();
+      }
+      
+      return newAsset;
     });
   }
 
@@ -1429,13 +1452,11 @@ export class AssetRepository {
   }
 
   @GenerateSql({ params: [[DummyValue.UUID]] })
-  @ChunkedArray()
   getByIds(ids: string[]) {
     return this.db.selectFrom('asset').selectAll('asset').where('asset.id', '=', anyUuid(ids)).execute();
   }
 
   @GenerateSql({ params: [[DummyValue.UUID]] })
-  @ChunkedArray({ paramIndex: 0 })
   getByIdsWithAllRelationsButStacks(ids: string[], viewingUserId?: string) {
     return this.db
       .selectFrom('asset')
@@ -2725,12 +2746,11 @@ export class AssetRepository {
       ...tombstoneResults.filter((r) => !seen.has(r.checksum.toString('hex'))),
     ];
   }
-
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.BUFFER] })
-  async getUploadAssetIdByChecksum(ownerId: string, checksum: Buffer): Promise<string | undefined> {
+  async getUploadAssetIdByChecksum(ownerId: string, checksum: Buffer): Promise<{ assetId: string; duplicateId: string | null } | undefined> {
     const asset = await this.db
       .selectFrom('asset')
-      .select('id')
+      .select(['id', 'duplicateId'])
       .where('ownerId', '=', asUuid(ownerId))
       .where('checksum', '=', checksum)
       .where('libraryId', 'is', null)
@@ -2738,21 +2758,22 @@ export class AssetRepository {
       .executeTakeFirst();
 
     if (asset) {
-      return asset.id;
+      return { assetId: asset.id, duplicateId: asset.duplicateId };
     }
 
-    // Fallback to tombstone table
     const tombstone = await this.db
       .selectFrom('asset_duplicate_checksum')
-      .select('assetId')
-      .where('ownerId', '=', asUuid(ownerId))
-      .where('checksum', '=', checksum)
+      .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
+      .select(['asset_duplicate_checksum.assetId as assetId', 'asset.duplicateId'])
+      .where('asset_duplicate_checksum.ownerId', '=', asUuid(ownerId))
+      .where('asset_duplicate_checksum.checksum', '=', checksum)
       .limit(1)
       .executeTakeFirst();
 
     if (tombstone) {
-      return tombstone.assetId;
+      return { assetId: tombstone.assetId, duplicateId: tombstone.duplicateId };
     }
+
     const permanent = await this.db
       .selectFrom('asset_deletion_tombstone')
       .select('assetId')
@@ -2765,7 +2786,12 @@ export class AssetRepository {
         ]),
       )
       .executeTakeFirst();
-    return permanent?.assetId;
+
+    if (permanent) {
+      return { assetId: permanent.assetId, duplicateId: null };
+    }
+
+    return undefined;
   }
 
   @GenerateSql({ params: [[DummyValue.UUID]] })

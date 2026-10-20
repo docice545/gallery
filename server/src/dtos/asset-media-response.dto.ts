@@ -11,6 +11,7 @@ const AssetMediaStatusSchema = z.enum(AssetMediaStatus).describe('Upload status'
 const AssetMediaResponseSchema = z
   .object({
     status: AssetMediaStatusSchema,
+    duplicateId: z.uuidv4().nullable().optional().describe('Duplicate group ID if matched'),
     id: z.uuidv4().describe('Asset media ID'),
   })
   .meta({ id: 'AssetMediaResponseDto' });

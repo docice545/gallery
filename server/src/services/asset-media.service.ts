@@ -69,10 +69,12 @@ export class AssetMediaService extends BaseService {
       return;
     }
 
-    const assetId = await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, fromChecksum(checksum));
-    if (!assetId) {
+    const result = await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, fromChecksum(checksum));
+    if (!result) {
       return;
     }
+
+    const { assetId, duplicateId } = result;
 
     // A checksum retained in the deletion receipt is an explicit admission
     // denial. Never expose it as a successful duplicate: mobile treats 200 as
@@ -81,9 +83,8 @@ export class AssetMediaService extends BaseService {
       throw new GoneException('ASSET_PERMANENTLY_DELETED: automatic reupload is suppressed');
     }
 
-    return { id: assetId, status: AssetMediaStatus.DUPLICATE };
+    return { id: assetId, status: AssetMediaStatus.DUPLICATE, duplicateId };
   }
-
   canUploadFile({ auth, fieldName, file, body }: UploadRequest): true {
     requireUploadAccess(auth);
 
@@ -349,22 +350,24 @@ export class AssetMediaService extends BaseService {
 
     // handle duplicates with a success response
     if (isAssetChecksumConstraint(error)) {
-      const duplicateId = await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, file.checksum);
-      if (!duplicateId) {
+      const result = await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, file.checksum);
+      if (!result) {
         this.logger.error(`Error locating duplicate for checksum constraint`);
         throw new InternalServerErrorException();
       }
 
-      if (await this.assetRepository.getDeletionReceipt(auth.user.id, duplicateId)) {
+      const { assetId, duplicateId } = result;
+
+      if (await this.assetRepository.getDeletionReceipt(auth.user.id, assetId)) {
         throw new GoneException('ASSET_PERMANENTLY_DELETED: automatic reupload is suppressed');
       }
 
       if (auth.sharedLink) {
-        await this.addToSharedLink(auth.sharedLink, duplicateId);
+        await this.addToSharedLink(auth.sharedLink, assetId);
       }
 
-      this.logger.debug(`Duplicate asset upload rejected: existing asset ${duplicateId}`);
-      return { status: AssetMediaStatus.DUPLICATE, id: duplicateId };
+      this.logger.debug(`Duplicate asset upload rejected: existing asset ${assetId}`);
+      return { status: AssetMediaStatus.DUPLICATE, id: assetId, duplicateId };
     }
 
     // clean up the asset row if it survived create() but a later step failed
