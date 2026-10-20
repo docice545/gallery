@@ -1008,6 +1008,20 @@ export class AssetRepository {
       const managedContent = new Set(
         managedChecksums.map(({ ownerId, checksum }) => `${ownerId}:${checksum.toString('hex')}`),
       );
+      // Also check for existing external assets with the same content checksum
+      // via the asset_duplicate_checksum table (which tracks content identity for all assets)
+      const existingExternalChecksums =
+        contentChecksums.length === 0
+          ? []
+          : await tx
+              .selectFrom('asset_duplicate_checksum')
+              .select(['ownerId', 'checksum'])
+              .where('ownerId', 'in', owners)
+              .where('checksum', 'in', contentChecksums)
+              .execute();
+      const existingExternalContent = new Set(
+        existingExternalChecksums.map(({ ownerId, checksum }) => `${ownerId}:${checksum.toString('hex')}`),
+      );
       const accepted: Array<{ asset: Insertable<AssetTable>; contentChecksum?: Buffer }> = [];
       for (const { contentChecksum, ...asset } of assets) {
         const suppressed = await tx
@@ -1022,7 +1036,8 @@ export class AssetRepository {
           )
           .executeTakeFirst();
         const matchesManaged =
-          contentChecksum && managedContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`);
+          contentChecksum && (managedContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`) ||
+            existingExternalContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`));
         if (!suppressed && !matchesManaged) accepted.push({ asset, contentChecksum });
       }
       if (accepted.length === 0) return [];

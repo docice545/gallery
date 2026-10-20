@@ -460,6 +460,53 @@ describe(LibraryService.name, () => {
         expect(imported.value).toHaveLength(1);
       }
     });
+
+    it('suppresses duplicate external import with same content checksum', async () => {
+      const { ctx } = setup();
+      const filePath1 = join(importRoot, 'duplicate-external-1.jpg');
+      const filePath2 = join(importRoot, 'duplicate-external-2.jpg');
+      const content = Buffer.from('same content in two external files');
+      await mkdir(dirname(filePath1), { recursive: true });
+      await mkdir(dirname(filePath2), { recursive: true });
+      await writeFile(filePath1, content);
+      await writeFile(filePath2, content);
+      const library = await ctx.createLibrary({ importPaths: [importRoot] });
+
+      // First import
+      await ctx.scan(library.id);
+
+      const assetsAfterFirst = await ctx.getAssetPaths(library.id);
+      expect(assetsAfterFirst).toHaveLength(2);
+
+      // Second scan should not import the duplicate
+      await ctx.scan(library.id);
+
+      const assetsAfterSecond = await ctx.getAssetPaths(library.id);
+      expect(assetsAfterSecond).toHaveLength(2);
+    });
+
+    it('suppresses external import when managed upload with same content exists', async () => {
+      const { ctx } = setup();
+      const filePath = join(importRoot, 'managed-exists.jpg');
+      const content = Buffer.from('content already uploaded from phone');
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content);
+      const library = await ctx.createLibrary({ importPaths: [importRoot] });
+
+      // First upload from phone (managed)
+      const contentChecksum = createHash('sha1').update(content).digest();
+      await ctx.newAsset({
+        ownerId: library.ownerId,
+        checksum: contentChecksum,
+        checksumAlgorithm: ChecksumAlgorithm.sha1File,
+      });
+
+      // Then scan external library
+      await ctx.scan(library.id);
+
+      const assets = await ctx.getAssetPaths(library.id);
+      expect(assets).toHaveLength(0);
+    });
   });
 
   describe('queueScan', () => {
