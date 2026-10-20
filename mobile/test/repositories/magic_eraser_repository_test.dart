@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart' as api;
 
@@ -43,7 +44,7 @@ void main() {
         headers: {'content-type': contentType},
       );
 
-  http.StreamedResponse jsonResponse(Object body, {int status = 200}) =>
+  http.StreamedResponse jsonResponse(Object? body, {int status = 200}) =>
       response(utf8.encode(jsonEncode(body)), status: status);
 
   void stub(FutureOr<http.StreamedResponse> Function(http.BaseRequest request) handler) {
@@ -103,6 +104,39 @@ void main() {
           throwsA(isA<api.ApiException>().having((error) => error.code, 'code', status)),
         );
       }
+    });
+
+    test('rejects malformed capabilities instead of reporting a disabled server', () async {
+      for (final body in <Object?>[
+        null,
+        [],
+        {},
+        {'enabled': 'true'},
+        {'enabled': 1},
+      ]) {
+        stub((_) => jsonResponse(body));
+
+        await expectLater(repository.isEnabled(assetId), throwsA(isA<FormatException>()));
+      }
+    });
+
+    test('logs diagnostic status without response bodies, URLs or credentials', () async {
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.INFO;
+      addTearDown(() => Logger.root.level = previousLevel);
+      final records = <LogRecord>[];
+      final subscription = Logger('MagicEraserRepository').onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+      stub((_) => jsonResponse({'message': 'private-response-token'}, status: 503));
+      await expectLater(repository.isEnabled(assetId), throwsA(isA<api.ApiException>()));
+      stub((_) => throw http.ClientException('private-session-token', Uri.parse('https://private-host/photo')));
+      await expectLater(repository.isEnabled(assetId), throwsA(isA<http.ClientException>()));
+
+      expect(records.map((record) => record.message), [
+        'Magic eraser capability check failed (HTTP 503)',
+        'Magic eraser capability check failed (ClientException)',
+      ]);
+      expect(records.every((record) => record.error == null && record.stackTrace == null), isTrue);
     });
   });
 

@@ -8,6 +8,7 @@ import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_ui/immich_ui.dart';
 
 import '../../../riverpod_mocks.dart';
+import '../../factories/local_asset_factory.dart';
 import '../../factories/remote_asset_factory.dart';
 import '../presentation_context.dart';
 
@@ -54,6 +55,53 @@ void main() {
 
     await pumpAction(tester, {live});
 
+    expect(find.byType(ImmichIconButton), findsNothing);
+  });
+
+  testWidgets('does not offer a server editor without a selected photo', (tester) async {
+    await pumpAction(tester, {});
+    expect(find.byType(ImmichIconButton), findsNothing);
+  });
+
+  for (final remoteId in <String?>[null, 'backed-up-photo']) {
+    testWidgets('does not treat a local asset as an owned server photo (remoteId: $remoteId)', (tester) async {
+      await pumpAction(tester, {LocalAssetFactory.create(remoteId: remoteId)});
+      expect(find.byType(ImmichIconButton), findsNothing);
+    });
+  }
+
+  testWidgets('offers editing for an owned remote photo with a matching on-device original', (tester) async {
+    final merged = RemoteAssetFactory.create(ownerId: context.currentUser.id, localId: 'local-original');
+    expect(merged.isMerged, isTrue);
+
+    await pumpAction(tester, {merged});
+    expect(find.byType(ImmichIconButton), findsOneWidget);
+  });
+
+  for (final companion in ['local', 'shared', 'video', 'animated']) {
+    testWidgets('does not silently choose one photo from a mixed selection containing $companion', (tester) async {
+      final mine = RemoteAssetFactory.create(ownerId: context.currentUser.id);
+      final BaseAsset other = switch (companion) {
+        'local' => LocalAssetFactory.create(),
+        'shared' => RemoteAssetFactory.create(ownerId: 'another-owner'),
+        'video' => RemoteAssetFactory.create(ownerId: context.currentUser.id, type: .video),
+        _ => RemoteAssetFactory.create(ownerId: context.currentUser.id).copyWith(durationMs: 1000),
+      };
+
+      await pumpAction(tester, {mine, other});
+      expect(find.byType(ImmichIconButton), findsNothing);
+    });
+  }
+
+  testWidgets('does not offer editing for a trashed photo', (tester) async {
+    final trashed = RemoteAssetFactory.create(ownerId: context.currentUser.id, deletedAt: DateTime.utc(2026));
+    await pumpAction(tester, {trashed});
+    expect(find.byType(ImmichIconButton), findsNothing);
+  });
+
+  testWidgets('does not offer editing for a remote index tombstone', (tester) async {
+    final removed = RemoteAssetFactory.create(ownerId: context.currentUser.id).copyWith(isIndexTombstone: true);
+    await pumpAction(tester, {removed});
     expect(find.byType(ImmichIconButton), findsNothing);
   });
 

@@ -27,11 +27,19 @@ final _stateProvider = Provider.family.autoDispose<RemoteAsset?, ActionSource>((
     return null;
   }
 
-  final assets = ref.watch(ownedAssetsActionProvider(source));
+  // This opens one editor. Filtering first could silently choose one photo from
+  // a selection that also contains local, shared or unsupported assets.
+  if (ref.watch(assetsActionProvider(source).select((assets) => assets.length)) != 1) {
+    return null;
+  }
+  final asset = ref.watch(ownedAssetsActionProvider(source)).singleOrNull;
+  if (asset == null || asset.isTrashed || asset.isIndexTombstone) {
+    return null;
+  }
   // Live/Motion stills can create an AI copy. Their existing crop edit pipeline
   // remains disabled so the motion component is never silently desynchronized.
-  return assets.where((asset) => asset.isEditable || (asset.isImage && asset.isMotionPhoto)).singleOrNull;
-}, dependencies: [ownedAssetsActionProvider]);
+  return asset.isEditable || (asset.isImage && asset.isMotionPhoto) ? asset : null;
+}, dependencies: [assetsActionProvider, ownedAssetsActionProvider]);
 
 class EditAssetAction extends AssetActionBuilder {
   const EditAssetAction({required super.source});
@@ -42,7 +50,7 @@ class EditAssetAction extends AssetActionBuilder {
       return null;
     }
 
-    return .new(icon: Icons.tune, label: context.t.edit, onAction: () => _edit(context, ref));
+    return .new(icon: Icons.edit, label: context.t.edit, onAction: () => _edit(context, ref));
   }
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/services/api.service.dart';
+import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
 
 final magicEraserRepositoryProvider = Provider((ref) => MagicEraserRepository(ref.watch(apiServiceProvider)));
@@ -14,17 +15,15 @@ final magicEraserRepositoryProvider = Provider((ref) => MagicEraserRepository(re
 final magicEraserEnabledProvider = FutureProvider.family.autoDispose<bool, String>((ref, assetId) async {
   final abort = Completer<void>();
   ref.onDispose(() => abort.complete());
-  try {
-    return await ref.watch(magicEraserRepositoryProvider).isEnabled(assetId, abortTrigger: abort.future);
-  } catch (_) {
-    // Optional feature: an offline/older server never disables the crop editor.
-    return false;
-  }
+  // Keep failures distinct from a disabled capability so the editor can explain
+  // them and retry without affecting ordinary transform edits.
+  return ref.watch(magicEraserRepositoryProvider).isEnabled(assetId, abortTrigger: abort.future);
 });
 
 /// Uses the Gallery transport, authentication and local server originals.
 /// Only normalized brush instructions go from the phone to the server.
 class MagicEraserRepository {
+  static final _log = Logger('MagicEraserRepository');
   static const maxPreviewBytes = 8 * 1024 * 1024;
   final ApiService _apiService;
 
@@ -59,12 +58,22 @@ class MagicEraserRepository {
   Future<bool> isEnabled(String assetId, {Future<void>? abortTrigger}) async {
     try {
       final response = await _request('${_base(assetId)}/capabilities', 'GET', abortTrigger: abortTrigger);
-      return (jsonDecode(utf8.decode(response.bodyBytes)) as Map)['enabled'] == true;
-    } on ApiException catch (error) {
-      if (error.code == 404) {
+      final capability = jsonDecode(utf8.decode(response.bodyBytes));
+      if (capability is! Map<String, dynamic> || capability['enabled'] is! bool) {
+        throw const FormatException('Invalid magic eraser capability');
+      }
+      return capability['enabled'] as bool;
+    } catch (error, stack) {
+      if (error is ApiException && error.code == 404) {
         return false;
       }
-      rethrow;
+      // The generated client wraps transport failures in an HTTP 400 exception.
+      // Preserve their actual cause instead of reporting an unsupported photo.
+      final failure = error is ApiException ? error.innerException ?? error : error;
+      // Do not log URLs, session headers, response bodies or asset identifiers.
+      final reason = failure is ApiException ? 'HTTP ${failure.code}' : failure.runtimeType;
+      _log.warning('Magic eraser capability check failed ($reason)');
+      Error.throwWithStackTrace(failure, stack);
     }
   }
 

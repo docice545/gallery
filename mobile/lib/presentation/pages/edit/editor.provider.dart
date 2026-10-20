@@ -12,12 +12,25 @@ part 'editor.provider.freezed.dart';
 final editorStateProvider = NotifierProvider<EditorProvider, EditorState>(EditorProvider.new);
 
 class EditorProvider extends Notifier<EditorState> {
+  Rect _baselineCrop = const Rect.fromLTRB(0, 0, 1, 1);
+  int _baselineRotation = 0;
+  bool _baselineFlipHorizontal = false;
+  bool _baselineFlipVertical = false;
+  CropAspectRatio _baselineAspectRatio = CropAspectRatio.free;
+  bool _annotationsDirty = false;
+
   @override
   EditorState build() {
     return const EditorState();
   }
 
   void clear() {
+    _baselineCrop = const Rect.fromLTRB(0, 0, 1, 1);
+    _baselineRotation = 0;
+    _baselineFlipHorizontal = false;
+    _baselineFlipVertical = false;
+    _baselineAspectRatio = CropAspectRatio.free;
+    _annotationsDirty = false;
     state = const EditorState();
   }
 
@@ -35,12 +48,19 @@ class EditorProvider extends Notifier<EditorState> {
 
     final transform = normalizeTransformEdits(edits);
 
+    _baselineCrop = crop;
+    _baselineRotation = transform.rotation;
+    _baselineFlipHorizontal = transform.mirrorHorizontal;
+    _baselineFlipVertical = transform.mirrorVertical;
+    _baselineAspectRatio = CropAspectRatio.free;
+
     state = state.copyWith(
       originalWidth: originalWidth ?? state.originalWidth,
       originalHeight: originalHeight ?? state.originalHeight,
       crop: crop,
       flipHorizontal: transform.mirrorHorizontal,
       flipVertical: transform.mirrorVertical,
+      hasUnsavedEdits: false,
     );
 
     _animateRotation(transform.rotation, duration: Duration.zero);
@@ -61,8 +81,14 @@ class EditorProvider extends Notifier<EditorState> {
     state = state.copyWith(isApplyingEdits: isApplyingEdits);
   }
 
+  void setAnnotationsEdited(bool dirty) {
+    _annotationsDirty = dirty;
+    _updateDirtyState();
+  }
+
   void setCrop(Rect crop) {
-    state = state.copyWith(crop: crop, hasUnsavedEdits: true);
+    state = state.copyWith(crop: crop);
+    _updateDirtyState();
   }
 
   /// Returns the required shift that has to be done to fit a segment in a given
@@ -91,47 +117,62 @@ class EditorProvider extends Notifier<EditorState> {
     final dx = _shiftIntoBounds(startingSquare.left, startingSquare.right);
     final dy = _shiftIntoBounds(startingSquare.top, startingSquare.bottom);
     startingSquare = startingSquare.shift(Offset(dx, dy));
-    state = state.copyWith(aspectRatio: preset, hasUnsavedEdits: true, crop: startingSquare);
+    state = state.copyWith(aspectRatio: preset, crop: startingSquare);
+    _updateDirtyState();
   }
 
   void resetEdits() {
-    _animateRotation(0);
+    _animateRotation(_baselineRotation);
 
     state = state.copyWith(
-      flipHorizontal: false,
-      flipVertical: false,
-      crop: const Rect.fromLTRB(0, 0, 1, 1),
-      aspectRatio: CropAspectRatio.free,
-      hasUnsavedEdits: true,
+      flipHorizontal: _baselineFlipHorizontal,
+      flipVertical: _baselineFlipVertical,
+      crop: _baselineCrop,
+      aspectRatio: _baselineAspectRatio,
     );
+    _updateDirtyState();
   }
 
   void rotateCCW() {
     _animateRotation(state.rotationAngle - 90);
-    state = state.copyWith(aspectRatio: state.aspectRatio.flipped, hasUnsavedEdits: true);
+    state = state.copyWith(aspectRatio: state.aspectRatio.flipped);
+    _updateDirtyState();
   }
 
   void rotateCW() {
     _animateRotation(state.rotationAngle + 90);
-    state = state.copyWith(aspectRatio: state.aspectRatio.flipped, hasUnsavedEdits: true);
+    state = state.copyWith(aspectRatio: state.aspectRatio.flipped);
+    _updateDirtyState();
   }
 
   void flipHorizontally() {
     if (state.rotationAngle % 180 != 0) {
       // When rotated 90 or 270 degrees, flipping horizontally is equivalent to flipping vertically
-      state = state.copyWith(flipVertical: !state.flipVertical, hasUnsavedEdits: true);
+      state = state.copyWith(flipVertical: !state.flipVertical);
     } else {
-      state = state.copyWith(flipHorizontal: !state.flipHorizontal, hasUnsavedEdits: true);
+      state = state.copyWith(flipHorizontal: !state.flipHorizontal);
     }
+    _updateDirtyState();
   }
 
   void flipVertically() {
     if (state.rotationAngle % 180 != 0) {
       // When rotated 90 or 270 degrees, flipping vertically is equivalent to flipping horizontally
-      state = state.copyWith(flipHorizontal: !state.flipHorizontal, hasUnsavedEdits: true);
+      state = state.copyWith(flipHorizontal: !state.flipHorizontal);
     } else {
-      state = state.copyWith(flipVertical: !state.flipVertical, hasUnsavedEdits: true);
+      state = state.copyWith(flipVertical: !state.flipVertical);
     }
+    _updateDirtyState();
+  }
+
+  void _updateDirtyState() {
+    final transformDirty =
+        state.crop != _baselineCrop ||
+        state.rotationAngle != _baselineRotation ||
+        state.flipHorizontal != _baselineFlipHorizontal ||
+        state.flipVertical != _baselineFlipVertical ||
+        state.aspectRatio != _baselineAspectRatio;
+    state = state.copyWith(hasUnsavedEdits: transformDirty || _annotationsDirty);
   }
 }
 
@@ -153,6 +194,6 @@ abstract class EditorState with _$EditorState {
   }) = _EditorState;
 
   bool get hasEdits {
-    return rotationAngle != 0 || flipHorizontal || flipVertical || crop != const Rect.fromLTRB(0, 0, 1, 1);
+    return hasUnsavedEdits;
   }
 }
