@@ -1559,6 +1559,23 @@ describe(AssetService.name, () => {
   });
 
   describe('large permanent deletion batches', () => {
+    it('creates no deletion intent when any item in a mixed-scope request fails admission', async () => {
+      const ids = ['managed-asset', 'external-asset'];
+      vi.spyOn(sut, 'deletionPreflight').mockResolvedValue([
+        { id: ids[0], scope: 'managed', authorized: true },
+        { id: ids[1], scope: 'library-1', authorized: false, code: 'LIBRARY_DELETION_NOT_AUTHORIZED' },
+      ]);
+      mocks.asset.getDeletionReceipt.mockResolvedValue(undefined);
+
+      await expect(sut.permanentlyDelete(authStub.user1, ids)).resolves.toEqual([
+        { id: ids[0], state: 'blocked', scope: 'managed', code: 'DELETION_BATCH_NOT_AUTHORIZED' },
+        { id: ids[1], state: 'blocked', scope: 'library-1', code: 'LIBRARY_DELETION_NOT_AUTHORIZED' },
+      ]);
+
+      expect(mocks.asset.preparePermanentDeletion).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+
     it.each(['owner', 'fingerprint'])('rejects cancellation with a foreign %s', async (kind) => {
       const ids = ['asset-1'];
       const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
