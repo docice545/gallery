@@ -10,6 +10,9 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   test: {
+    // FOTO_CODEX_MEMORY_SAFETY_V1
+    maxWorkers: 1,
+    fileParallelism: false,
     name: 'server:unit',
     root: serverRoot,
     globals: true,
