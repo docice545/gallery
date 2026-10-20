@@ -136,5 +136,17 @@ void main() {
       expect(retryIds, contains(permissionAsset.id));
       expect(retryIds, isNot(contains(otherAsset.id)));
     });
+
+    test('removing a trash row clears its hash failure marker', () async {
+      final album = await ctx.newLocalAlbum(backupSelection: BackupSelection.selected);
+      final trashed = await ctx.newTrashedLocalAsset(albumId: album.id);
+      final asset = trashed.toLocalAsset();
+
+      await sut.recordHashFailures({asset.id: asset.updatedAt});
+      await sut.processTrashSnapshot([]);
+      await sut.processTrashSnapshot([(albumId: album.id, asset: asset)]);
+
+      expect((await sut.getAssetsToHash([album.id])).map((item) => item.id), contains(asset.id));
+    });
   });
 }

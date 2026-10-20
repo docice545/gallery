@@ -52,7 +52,7 @@ class TrashPage extends StatelessWidget {
           pinned: true,
           centerTitle: true,
           elevation: 0,
-          actions: const [_TrashKebabMenu()],
+          actions: const [TrashKebabMenu()],
         ),
         topSliverWidget: Consumer(
           builder: (context, ref, child) {
@@ -80,8 +80,8 @@ class TrashPage extends StatelessWidget {
   }
 }
 
-class _TrashKebabMenu extends ConsumerWidget {
-  const _TrashKebabMenu();
+class TrashKebabMenu extends ConsumerWidget {
+  const TrashKebabMenu({super.key});
 
   Future<void> _emptyTrash(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
@@ -184,6 +184,18 @@ class _TrashKebabMenu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // The overlay retains system insets even when an ancestor SafeArea has
+    // consumed the anchor's padding. Match the menu panel's safe bounds.
+    final mediaQuery = MediaQuery.of(Overlay.of(context).context);
+    final availableWidth =
+        (mediaQuery.size.width - mediaQuery.padding.horizontal - mediaQuery.viewInsets.horizontal - 16).clamp(
+          0.0,
+          400.0,
+        );
+    final availableHeight = (mediaQuery.size.height - mediaQuery.padding.vertical - mediaQuery.viewInsets.vertical - 16)
+        .clamp(0.0, double.infinity);
+    Widget menuItem(BaseActionButton item) => SizedBox(width: availableWidth, child: item);
+
     return MenuAnchor(
       consumeOutsideTap: true,
       style: MenuStyle(
@@ -193,42 +205,53 @@ class _TrashKebabMenu extends ConsumerWidget {
         shape: const WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
         ),
+        // Keep the menu inside the safe area. MenuItemButton then gives its
+        // label the remaining width and lets it grow vertically as needed.
+        maximumSize: WidgetStatePropertyAll(Size(availableWidth, availableHeight)),
         padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 6)),
       ),
       menuChildren: [
         if (ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion)))
+          menuItem(
+            BaseActionButton(
+              label: context.t.managed_deletion_title,
+              iconData: Icons.shield_outlined,
+              onPressed: () => showDialog<void>(context: context, builder: (_) => const ManagedDeletionDialog()),
+              menuItem: true,
+            ),
+          ),
+        menuItem(
           BaseActionButton(
-            label: context.t.managed_deletion_title,
-            iconData: Icons.shield_outlined,
-            onPressed: () => showDialog<void>(context: context, builder: (_) => const ManagedDeletionDialog()),
+            label: context.t.empty_trash,
+            iconData: Icons.delete_forever_outlined,
+            onPressed: () => _emptyTrash(context, ref),
             menuItem: true,
           ),
-        BaseActionButton(
-          label: context.t.empty_trash,
-          iconData: Icons.delete_forever_outlined,
-          onPressed: () => _emptyTrash(context, ref),
-          menuItem: true,
         ),
         if (ref.watch(serverInfoProvider.select((v) => v.serverFeatures.authorizedDeletion)))
+          menuItem(
+            BaseActionButton(
+              label: context.t.external_deletion_title,
+              iconData: Icons.folder_delete_outlined,
+              onPressed: () =>
+                  showDialog<void>(context: context, builder: (_) => const ManagedDeletionDialog(external: true)),
+              menuItem: true,
+            ),
+          ),
+        menuItem(
           BaseActionButton(
-            label: context.t.external_deletion_title,
-            iconData: Icons.folder_delete_outlined,
-            onPressed: () =>
-                showDialog<void>(context: context, builder: (_) => const ManagedDeletionDialog(external: true)),
+            label: context.t.restore_all,
+            iconData: Icons.restore_outlined,
+            onPressed: () => _confirmAndRun(
+              context,
+              ref,
+              title: context.t.restore_all,
+              content: context.t.assets_restore_confirmation,
+              action: ref.read(actionProvider.notifier).restoreAllTrash,
+              successMsg: (count) => context.t.assets_restored_count(count: count),
+            ),
             menuItem: true,
           ),
-        BaseActionButton(
-          label: context.t.restore_all,
-          iconData: Icons.restore_outlined,
-          onPressed: () => _confirmAndRun(
-            context,
-            ref,
-            title: context.t.restore_all,
-            content: context.t.assets_restore_confirmation,
-            action: ref.read(actionProvider.notifier).restoreAllTrash,
-            successMsg: (count) => context.t.assets_restored_count(count: count),
-          ),
-          menuItem: true,
         ),
       ],
       builder: (context, controller, child) {
