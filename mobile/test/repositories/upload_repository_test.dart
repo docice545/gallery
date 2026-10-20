@@ -124,4 +124,15 @@ void main() {
     expect(result.errorMessage, 'boom');
     verify(() => client.send(any())).called(1);
   });
+
+  test('permanent deletion response remains an upload error', () async {
+    stubSend((_) => response(410, '{"message":"ASSET_PERMANENTLY_DELETED"}'));
+
+    final result = await upload();
+
+    expect(result.isSuccess, isFalse);
+    expect(result.statusCode, 410);
+    expect(result.errorMessage, 'ASSET_PERMANENTLY_DELETED');
+    verify(() => client.send(any())).called(1);
+  });
 }

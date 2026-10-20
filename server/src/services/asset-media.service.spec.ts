@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  GoneException,
   InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
@@ -232,6 +233,21 @@ describe(AssetMediaService.name, () => {
         status: AssetMediaStatus.DUPLICATE,
       });
       expect(mocks.asset.getUploadAssetIdByChecksum).toHaveBeenCalledWith(authStub.admin.user.id, file1);
+    });
+
+    it('should reject a permanently deleted checksum instead of returning a duplicate', async () => {
+      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue('deleted-asset');
+      mocks.asset.getDeletionReceipt.mockResolvedValue({
+        assetId: 'deleted-asset',
+        operationId: 'deleted-asset',
+        state: 'complete',
+        errorCode: null,
+      });
+
+      await expect(sut.getUploadAssetIdByChecksum(authStub.admin, file1.toString('hex'))).rejects.toThrow(
+        GoneException,
+      );
+      expect(mocks.asset.getDeletionReceipt).toHaveBeenCalledWith(authStub.admin.user.id, 'deleted-asset');
     });
   });
 

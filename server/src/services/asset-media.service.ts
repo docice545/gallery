@@ -74,6 +74,13 @@ export class AssetMediaService extends BaseService {
       return;
     }
 
+    // A checksum retained in the deletion receipt is an explicit admission
+    // denial. Never expose it as a successful duplicate: mobile treats 200 as
+    // backed up and would otherwise permanently lose the upload signal.
+    if (await this.assetRepository.getDeletionReceipt(auth.user.id, assetId)) {
+      throw new GoneException('ASSET_PERMANENTLY_DELETED: automatic reupload is suppressed');
+    }
+
     return { id: assetId, status: AssetMediaStatus.DUPLICATE };
   }
 
