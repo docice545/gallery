@@ -357,9 +357,12 @@ describe(LibraryService.name, () => {
       await expect(ctx.get(AssetRepository).getByChecksums(library.ownerId, [checksum])).resolves.toContainEqual(
         expect.objectContaining({ id: asset!.id, checksum, deletedAt: null }),
       );
-      await expect(ctx.get(AssetRepository).getUploadAssetIdByChecksum(library.ownerId, checksum)).resolves.toBe(
-        asset!.id,
-      );
+      await expect(
+        ctx
+          .get(AssetRepository)
+          .getUploadAssetIdByChecksum(library.ownerId, checksum)
+          .then((r) => r?.assetId),
+      ).resolves.toBe(asset!.id);
     });
 
     it('does not import an external file already present as a managed upload', async () => {

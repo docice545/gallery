@@ -183,7 +183,7 @@ export class AssetMediaService extends BaseService {
         await this.addToSharedLink(auth.sharedLink, asset.id);
       }
 
-      return { id: asset.id, status: AssetMediaStatus.CREATED };
+      return { id: asset.id, status: AssetMediaStatus.CREATED, duplicateId: asset.duplicateId };
     } catch (error: any) {
       return this.handleUploadError(error, auth, file, sidecarFile, asset);
     }

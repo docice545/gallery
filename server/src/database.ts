@@ -119,6 +119,7 @@ export type Asset = {
   livePhotoVideoId: string | null;
   localDateTime: Date;
   originalFileName: string;
+  duplicateId: string | null;
   originalPath: string;
   ownerId: string;
   type: AssetType;
@@ -430,6 +431,7 @@ export const columns = {
     'asset.width',
     'asset.height',
     'asset.isEdited',
+    'asset.duplicateId',
   ],
   searchAsset: [
     'asset.id',

@@ -959,12 +959,12 @@ export class AssetRepository {
     });
   }
 
-  async create(asset: Insertable<AssetTable>) {
+  async create(asset: Insertable<AssetTable>): Promise<Selectable<AssetTable>> {
     return this.db.transaction().execute(async (tx) => {
       // Serialize managed uploads with external imports. Without the shared owner lock,
       // an upload and a scan can both pass their identity checks before either commits.
       await sql`select pg_advisory_xact_lock(hashtextextended(${asset.ownerId}, 731))`.execute(tx);
-      
+
       let duplicateId: string | null = null;
       if (asset.libraryId === null) {
         const alias = await tx
@@ -976,20 +976,20 @@ export class AssetRepository {
           .executeTakeFirst();
         if (alias) {
           // Exact content match found - use existing duplicateId or generate new one
-          duplicateId = alias.duplicateId ?? this.cryptoRepository.randomUUID();
+          duplicateId = alias.duplicateId ?? randomUUID();
           // Update the existing asset's duplicateId if it didn't have one
           if (!alias.duplicateId) {
-            await tx
-              .updateTable('asset')
-              .set({ duplicateId })
-              .where('id', '=', alias.id)
-              .execute();
+            await tx.updateTable('asset').set({ duplicateId }).where('id', '=', alias.id).execute();
           }
         }
       }
-      
-      const newAsset = await tx.insertInto('asset').values({ ...asset, duplicateId }).returningAll().executeTakeFirstOrThrow();
-      
+
+      const newAsset = await tx
+        .insertInto('asset')
+        .values({ ...asset, duplicateId })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
       // If this is a managed upload with a content checksum, store it in asset_duplicate_checksum
       if (asset.libraryId === null && asset.checksum) {
         await tx
@@ -1002,7 +1002,7 @@ export class AssetRepository {
           .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
           .execute();
       }
-      
+
       return newAsset;
     });
   }
@@ -1059,7 +1059,8 @@ export class AssetRepository {
           )
           .executeTakeFirst();
         const matchesManaged =
-          contentChecksum && (managedContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`) ||
+          contentChecksum &&
+          (managedContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`) ||
             existingExternalContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`));
         if (!suppressed && !matchesManaged) accepted.push({ asset, contentChecksum });
       }
@@ -2747,7 +2748,10 @@ export class AssetRepository {
     ];
   }
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.BUFFER] })
-  async getUploadAssetIdByChecksum(ownerId: string, checksum: Buffer): Promise<{ assetId: string; duplicateId: string | null } | undefined> {
+  async getUploadAssetIdByChecksum(
+    ownerId: string,
+    checksum: Buffer,
+  ): Promise<{ assetId: string; duplicateId: string | null } | undefined> {
     const asset = await this.db
       .selectFrom('asset')
       .select(['id', 'duplicateId'])

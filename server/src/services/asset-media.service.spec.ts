@@ -157,6 +157,7 @@ const createDto = Object.freeze({
 }) as AssetMediaCreateDto;
 
 const assetEntity = Object.freeze({
+  duplicateId: null,
   id: 'id_1',
   ownerId: 'user_id_1',
   type: AssetType.Video,
@@ -218,8 +219,9 @@ describe(AssetMediaService.name, () => {
     });
 
     it('should find an existing asset', async () => {
-      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue('asset-id');
+      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue({ assetId: 'asset-id', duplicateId: null });
       await expect(sut.getUploadAssetIdByChecksum(authStub.admin, file1.toString('hex'))).resolves.toEqual({
+        duplicateId: null,
         id: 'asset-id',
         status: AssetMediaStatus.DUPLICATE,
       });
@@ -227,8 +229,9 @@ describe(AssetMediaService.name, () => {
     });
 
     it('should find an existing asset by base64', async () => {
-      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue('asset-id');
+      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue({ assetId: 'asset-id', duplicateId: null });
       await expect(sut.getUploadAssetIdByChecksum(authStub.admin, file1.toString('base64'))).resolves.toEqual({
+        duplicateId: null,
         id: 'asset-id',
         status: AssetMediaStatus.DUPLICATE,
       });
@@ -236,7 +239,7 @@ describe(AssetMediaService.name, () => {
     });
 
     it('should reject a permanently deleted checksum instead of returning a duplicate', async () => {
-      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue('deleted-asset');
+      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue({ assetId: 'deleted-asset', duplicateId: null });
       mocks.asset.getDeletionReceipt.mockResolvedValue({
         assetId: 'deleted-asset',
         operationId: 'deleted-asset',
@@ -389,6 +392,7 @@ describe(AssetMediaService.name, () => {
       mocks.asset.create.mockResolvedValue(assetEntity);
 
       await expect(sut.uploadAsset(authStub.user1, createDto, file)).resolves.toEqual({
+        duplicateId: null,
         id: 'id_1',
         status: AssetMediaStatus.CREATED,
       });
@@ -456,6 +460,7 @@ describe(AssetMediaService.name, () => {
 
       await expect(sut.uploadAsset(authStub.user1, createDto, file)).rejects.toThrow(error);
       await expect(sut.uploadAsset(authStub.user1, createDto, file)).resolves.toEqual({
+        duplicateId: null,
         id: assetEntity.id,
         status: AssetMediaStatus.CREATED,
       });
@@ -700,9 +705,10 @@ describe(AssetMediaService.name, () => {
       (error as any).constraint_name = ASSET_CHECKSUM_CONSTRAINT;
 
       mocks.asset.create.mockRejectedValue(error);
-      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue(assetEntity.id);
+      mocks.asset.getUploadAssetIdByChecksum.mockResolvedValue({ assetId: assetEntity.id, duplicateId: null });
 
       await expect(sut.uploadAsset(authStub.user1, createDto, file)).resolves.toEqual({
+        duplicateId: null,
         id: 'id_1',
         status: AssetMediaStatus.DUPLICATE,
       });
@@ -750,6 +756,7 @@ describe(AssetMediaService.name, () => {
       await expect(
         sut.uploadAsset(authStub.user1, { ...createDto, livePhotoVideoId: motionAsset.id }, fileStub.livePhotoStill),
       ).resolves.toEqual({
+        duplicateId: null,
         status: AssetMediaStatus.CREATED,
         id: asset.id,
       });
@@ -767,6 +774,7 @@ describe(AssetMediaService.name, () => {
       await expect(
         sut.uploadAsset(authStub.user1, { ...createDto, livePhotoVideoId: motionAsset.id }, fileStub.livePhotoStill),
       ).resolves.toEqual({
+        duplicateId: null,
         status: AssetMediaStatus.CREATED,
         id: asset.id,
       });
@@ -784,6 +792,7 @@ describe(AssetMediaService.name, () => {
       mocks.asset.create.mockResolvedValueOnce(asset);
 
       await expect(sut.uploadAsset(authStub.user1, createDto, fileStub.photo, fileStub.photoSidecar)).resolves.toEqual({
+        duplicateId: null,
         status: AssetMediaStatus.CREATED,
         id: asset.id,
       });
@@ -1581,6 +1590,7 @@ describe(AssetMediaService.name, () => {
       mocks.asset.create.mockResolvedValue(assetEntity);
 
       await expect(sut.uploadAsset(authStub.user1, dtoWithMetadata, file)).resolves.toEqual({
+        duplicateId: null,
         id: 'id_1',
         status: AssetMediaStatus.CREATED,
       });
