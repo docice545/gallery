@@ -14,13 +14,15 @@ if (!skipDockerSetup) {
 
 export default defineConfig({
   test: {
+    // FOTO_CODEX_MEMORY_SAFETY_V2
+    maxWorkers: 1,
+    fileParallelism: false,
     name: 'e2e:server',
     retry: process.env.CI ? 4 : 0,
     include: ['src/specs/server/**/*.e2e-spec.ts', 'src/ui/**/*.spec.ts'],
     globalSetup,
     testTimeout: 15_000,
     pool: 'threads',
-    maxWorkers: 1,
     isolate: false,
   },
   resolve: {
