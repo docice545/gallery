@@ -380,6 +380,41 @@ describe(LibraryService.name, () => {
       await expect(ctx.getAssetPaths(library.id)).resolves.toEqual([]);
     });
 
+    it('imports byte-distinct content even when assets share a perceptual duplicate group', async () => {
+      const { ctx } = setup();
+      const filePath = join(importRoot, 'perceptual-duplicate.jpg');
+      const externalContent = Buffer.from('external bytes from the library');
+      const managedContent = Buffer.from('different managed bytes from the phone');
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, externalContent);
+      const library = await ctx.createLibrary({ importPaths: [importRoot] });
+      const duplicateId = newUuid();
+
+      await ctx.newAsset({
+        ownerId: library.ownerId,
+        checksum: createHash('sha1').update(managedContent).digest(),
+        checksumAlgorithm: ChecksumAlgorithm.sha1File,
+        duplicateId,
+      });
+
+      const imported = await ctx.get(AssetRepository).createAll([
+        {
+          ...mediumFactory.assetInsert({
+            ownerId: library.ownerId,
+            libraryId: library.id,
+            isExternal: true,
+            duplicateId,
+            checksum: createHash('sha1').update(`path:${filePath}`).digest(),
+            checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+            originalPath: filePath,
+          }),
+          contentChecksum: createHash('sha1').update(externalContent).digest(),
+        },
+      ]);
+
+      expect(imported).toHaveLength(1);
+    });
+
     it('serializes a concurrent managed upload and external import by content identity', async () => {
       const { ctx } = setup();
       const filePath = join(importRoot, 'concurrent.jpg');
