@@ -28,6 +28,7 @@ void main() {
   late MockPermissionRepository mockPermissionRepository;
   late MockNativeSyncApi mockNativeSyncApi;
   late Drift db;
+  var manageMediaPermissionGranted = false;
 
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,8 @@ void main() {
   });
 
   setUp(() async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    manageMediaPermissionGranted = false;
     mockLocalAlbumRepository = MockLocalAlbumRepository();
     mockTrashedLocalAssetRepository = MockTrashedLocalAssetRepository();
     mockAssetMediaRepository = MockAssetMediaRepository();
@@ -56,6 +59,8 @@ void main() {
     );
     when(() => mockNativeSyncApi.getTrashedAssets()).thenAnswer((_) async => {});
     when(() => mockTrashedLocalAssetRepository.processTrashSnapshot(any())).thenAnswer((_) async {});
+    when(() => mockTrashedLocalAssetRepository.updateManageMediaPermission(any())).thenAnswer((_) async => false);
+    when(() => mockTrashedLocalAssetRepository.clearPermissionHashFailures()).thenAnswer((_) async {});
     when(() => mockTrashedLocalAssetRepository.getToRestore()).thenAnswer((_) async => []);
     when(() => mockTrashedLocalAssetRepository.getToTrash()).thenAnswer((_) async => {});
     when(() => mockTrashedLocalAssetRepository.applyRestoredAssets(any())).thenAnswer((_) async {});
@@ -74,23 +79,38 @@ void main() {
     );
 
     await Store.put(StoreKey.manageLocalMediaAndroid, false);
-    when(() => mockPermissionRepository.hasManageMediaPermission()).thenAnswer((_) async => false);
+    when(
+      () => mockPermissionRepository.hasManageMediaPermission(),
+    ).thenAnswer((_) async => manageMediaPermissionGranted);
   });
 
   group('LocalSyncService - syncTrashedAssets gating', () {
     test('invokes syncTrashedAssets when Android flag enabled and permission granted', () async {
       await Store.put(StoreKey.manageLocalMediaAndroid, true);
-      when(() => mockPermissionRepository.hasManageMediaPermission()).thenAnswer((_) async => true);
+      await Future<void>.delayed(Duration.zero);
+      manageMediaPermissionGranted = true;
+      expect(Store.get(StoreKey.manageLocalMediaAndroid, false), isTrue);
 
       await sut.sync();
 
+      verify(() => mockPermissionRepository.hasManageMediaPermission()).called(1);
       verify(() => mockNativeSyncApi.getTrashedAssets()).called(1);
       verify(() => mockTrashedLocalAssetRepository.processTrashSnapshot(any())).called(1);
     });
 
+    test('clears permission hash suppression only when MANAGE_MEDIA is restored', () async {
+      await Store.put(StoreKey.manageLocalMediaAndroid, true);
+      manageMediaPermissionGranted = true;
+      when(() => mockTrashedLocalAssetRepository.updateManageMediaPermission(true)).thenAnswer((_) async => true);
+
+      await sut.sync();
+
+      verify(() => mockTrashedLocalAssetRepository.clearPermissionHashFailures()).called(1);
+    });
+
     test('skips syncTrashedAssets when store flag disabled', () async {
       await Store.put(StoreKey.manageLocalMediaAndroid, false);
-      when(() => mockPermissionRepository.hasManageMediaPermission()).thenAnswer((_) async => true);
+      manageMediaPermissionGranted = true;
 
       await sut.sync();
 
@@ -111,7 +131,7 @@ void main() {
       addTearDown(() => debugDefaultTargetPlatformOverride = TargetPlatform.android);
 
       await Store.put(StoreKey.manageLocalMediaAndroid, true);
-      when(() => mockPermissionRepository.hasManageMediaPermission()).thenAnswer((_) async => true);
+      manageMediaPermissionGranted = true;
 
       await sut.sync();
 

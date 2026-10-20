@@ -131,6 +131,8 @@ class HashService {
     _log.fine("Hashing ${toHash.length} files");
 
     final hashed = <String, String>{};
+    final failedTrashed = <String, DateTime>{};
+    final permissionFailedTrashed = <String, DateTime>{};
     final hashResults = await _nativeSyncApi.hashAssets(
       toHash.keys.toList(),
       allowNetworkAccess: album.backupSelection == BackupSelection.selected,
@@ -151,6 +153,12 @@ class HashService {
         hashed[hashResult.assetId] = hashResult.hash!;
       } else {
         final asset = toHash[hashResult.assetId];
+        if (isTrashed && asset != null) {
+          failedTrashed[hashResult.assetId] = asset.updatedAt;
+          if (hashResult.error?.toLowerCase().contains('permission denied') ?? false) {
+            permissionFailedTrashed[hashResult.assetId] = asset.updatedAt;
+          }
+        }
         _log.warning(
           "Failed to hash asset with id: ${hashResult.assetId}, name: ${asset?.name}, createdAt: ${asset?.createdAt}, from album: ${album.name}. Error: ${hashResult.error ?? "unknown"}",
         );
@@ -160,6 +168,9 @@ class HashService {
     _log.fine("Hashed ${hashed.length}/${toHash.length} assets");
     if (isTrashed) {
       await _trashedLocalAssetRepository.updateHashes(hashed);
+      await _trashedLocalAssetRepository.clearHashFailures(hashed.keys);
+      await _trashedLocalAssetRepository.recordHashFailures(failedTrashed);
+      await _trashedLocalAssetRepository.recordPermissionHashFailures(permissionFailedTrashed);
     } else {
       await _localAssetRepository.updateHashes(hashed);
     }

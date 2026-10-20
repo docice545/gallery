@@ -1,4 +1,7 @@
+import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/data/db/main/table/local/trashed_asset.dart';
+import 'package:immich_mobile/data/db/main/table/local/trashed_asset.drift.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.dart';
 
@@ -95,6 +98,43 @@ void main() {
 
       final ids = result.values.expand((assets) => assets).map((a) => a.id);
       expect(ids, contains(localId));
+    });
+  });
+
+  group('hash retry suppression', () {
+    test('failed hashes are skipped until MediaStore reports a changed row', () async {
+      final album = await ctx.newLocalAlbum(backupSelection: BackupSelection.selected);
+      final trashed = await ctx.newTrashedLocalAsset(albumId: album.id);
+      final asset = trashed.toLocalAsset();
+
+      await sut.recordHashFailures({asset.id: asset.updatedAt});
+      expect(await sut.getAssetsToHash([album.id]), isEmpty);
+
+      await (ctx.db.update(ctx.db.trashedLocalAssetEntity)..where((row) => row.id.equals(asset.id))).write(
+        TrashedLocalAssetEntityCompanion(updatedAt: Value(asset.updatedAt.add(const Duration(seconds: 1)))),
+      );
+      expect((await sut.getAssetsToHash([album.id])).map((item) => item.id), contains(asset.id));
+    });
+
+    test('permission restoration retries only permission-denied hashes', () async {
+      final album = await ctx.newLocalAlbum(backupSelection: BackupSelection.selected);
+      final permissionBlocked = await ctx.newTrashedLocalAsset(albumId: album.id);
+      final otherFailure = await ctx.newTrashedLocalAsset(albumId: album.id);
+      final permissionAsset = permissionBlocked.toLocalAsset();
+      final otherAsset = otherFailure.toLocalAsset();
+
+      await sut.recordHashFailures({
+        permissionAsset.id: permissionAsset.updatedAt,
+        otherAsset.id: otherAsset.updatedAt,
+      });
+      await sut.recordPermissionHashFailures({permissionAsset.id: permissionAsset.updatedAt});
+      await sut.updateManageMediaPermission(false);
+      expect(await sut.updateManageMediaPermission(true), isTrue);
+      await sut.clearPermissionHashFailures();
+
+      final retryIds = (await sut.getAssetsToHash([album.id])).map((item) => item.id).toSet();
+      expect(retryIds, contains(permissionAsset.id));
+      expect(retryIds, isNot(contains(otherAsset.id)));
     });
   });
 }

@@ -1,6 +1,7 @@
 package app.alextran.immich.sync
 
 import android.annotation.SuppressLint
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
@@ -82,6 +83,7 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
       add(MediaStore.MediaColumns.HEIGHT)
       add(MediaStore.MediaColumns.DURATION)
       add(MediaStore.MediaColumns.ORIENTATION)
+      add(MediaStore.MediaColumns.MIME_TYPE)
       // IS_FAVORITE is only available on Android 11 and above
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         add(MediaStore.MediaColumns.IS_FAVORITE)
@@ -91,7 +93,6 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
       } else {
         // fallback to mimetype and xmp for playback style detection on older Android versions
         // both only needed if special format column is not available
-        add(MediaStore.MediaColumns.MIME_TYPE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
           add(MediaStore.MediaColumns.XMP)
         }
@@ -170,6 +171,12 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
           }
 
           val rawMediaType = c.getInt(mediaTypeColumn)
+          val mimeType = if (mimeTypeColumn == -1) null else c.getStringOrNull(mimeTypeColumn)
+          // MediaStore can misclassify non-media files (for example, source files) as images.
+          // Do not sync them into the photo trash or ask the original-stream provider to hash them.
+          if (!MediaMimePolicy.isSupported(rawMediaType, mimeType)) {
+            continue
+          }
           val assetType: Long = when (rawMediaType) {
             MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> 1L
             MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> 2L
@@ -465,9 +472,12 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
 
   private fun openOriginalStream(assetId: String): InputStream {
     val id = assetId.toLong()
-    val collection = when (getMediaType(id)) {
+    val mediaType = getMediaType(id)
+      ?: throw IOException("MediaStore asset $assetId is no longer available")
+    val collection = when (mediaType) {
       MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-      else -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+      MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+      else -> throw IOException("Unsupported MediaStore type $mediaType for asset $assetId")
     }
     val uri = ContentUris.withAppendedId(collection, id)
     val original = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -480,19 +490,32 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
       ?: throw IOException("Cannot open original stream for asset $assetId")
   }
 
-  private fun getMediaType(id: Long): Int =
-    getCursor(
-      MediaStore.VOLUME_EXTERNAL,
-      "${MediaStore.MediaColumns._ID} = ?",
-      arrayOf(id.toString()),
-      arrayOf(MediaStore.Files.FileColumns.MEDIA_TYPE)
-    )?.use { cursor ->
-      if (cursor.moveToFirst()) {
-        cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE))
-      } else {
-        MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+  private fun getMediaType(id: Long): Int? {
+    val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      val queryArgs = Bundle().apply {
+        putString(ContentResolver.QUERY_ARG_SQL_SELECTION, "${MediaStore.MediaColumns._ID} = ?")
+        putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(id.toString()))
+        // A trashed item is still a user-owned original and may need hashing for restore/dedup.
+        putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE)
       }
-    } ?: MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+      ctx.contentResolver.query(
+        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+        arrayOf(MediaStore.Files.FileColumns.MEDIA_TYPE),
+        queryArgs,
+        null,
+      )
+    } else {
+      getCursor(
+        MediaStore.VOLUME_EXTERNAL,
+        "${MediaStore.MediaColumns._ID} = ?",
+        arrayOf(id.toString()),
+        arrayOf(MediaStore.Files.FileColumns.MEDIA_TYPE),
+      )
+    }
+    return cursor?.use { c ->
+      if (c.moveToFirst()) c.getInt(c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)) else null
+    }
+  }
 
   fun cancelHashing(callback: (Result<Unit>) -> Unit) {
     val task = hashTask

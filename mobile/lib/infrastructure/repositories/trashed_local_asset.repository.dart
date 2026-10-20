@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:drift/drift.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/main/table/app/settings.drift.dart';
 import 'package:immich_mobile/data/db/main/table/local/asset.dart';
 import 'package:immich_mobile/data/db/main/table/local/asset.drift.dart';
 import 'package:immich_mobile/data/db/main/table/local/trashed_asset.dart';
@@ -14,6 +15,10 @@ typedef TrashedAsset = ({String albumId, LocalAsset asset});
 
 @DriftAccessor()
 class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedLocalAssetRepositoryMixin {
+  static const _hashFailurePrefix = 'hash-failure:';
+  static const _permissionHashFailurePrefix = 'hash-permission-failure:';
+  static const _manageMediaPermissionKey = 'hash-manage-media-permission';
+
   TrashedLocalAssetRepository(super.attachedDatabase);
 
   Drift get _db => attachedDatabase;
@@ -38,9 +43,88 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
     });
   }
 
-  Future<List<LocalAsset>> getAssetsToHash(Iterable<String> albumIds) {
+  Future<List<LocalAsset>> getAssetsToHash(Iterable<String> albumIds) async {
     final query = _db.trashedLocalAssetEntity.select()..where((r) => r.albumId.isIn(albumIds) & r.checksum.isNull());
-    return query.map((row) => row.toLocalAsset()).get();
+    final candidates = await query.map((row) => row.toLocalAsset()).get();
+    final failures = await _hashFailureRows();
+    final permissionFailures = await _hashFailureRows(prefix: _permissionHashFailurePrefix);
+    return candidates
+        .where(
+          (asset) =>
+              (failures[asset.id] == null || !failures[asset.id]!.isAtSameMomentAs(asset.updatedAt)) &&
+              (permissionFailures[asset.id] == null ||
+                  !permissionFailures[asset.id]!.isAtSameMomentAs(asset.updatedAt)),
+        )
+        .toList();
+  }
+
+  Future<Map<String, DateTime>> _hashFailureRows({String prefix = _hashFailurePrefix}) async {
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('$prefix%'))).get();
+    return {
+      for (final row in rows)
+        if (row.value != null)
+          row.key.substring(prefix.length): DateTime.tryParse(row.value!) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    };
+  }
+
+  Future<void> recordHashFailures(Map<String, DateTime> failures) async {
+    if (failures.isEmpty) return;
+    await _db.batch((batch) {
+      for (final entry in failures.entries) {
+        batch.insert(
+          _db.settingsEntity,
+          SettingsEntityCompanion.insert(
+            key: '$_hashFailurePrefix${entry.key}',
+            value: Value(entry.value.toIso8601String()),
+          ),
+          onConflict: DoUpdate((_) => SettingsEntityCompanion(value: Value(entry.value.toIso8601String()))),
+        );
+      }
+    });
+  }
+
+  Future<void> recordPermissionHashFailures(Map<String, DateTime> failures) async {
+    if (failures.isEmpty) return;
+    await _db.batch((batch) {
+      for (final entry in failures.entries) {
+        batch.insert(
+          _db.settingsEntity,
+          SettingsEntityCompanion.insert(
+            key: '$_permissionHashFailurePrefix${entry.key}',
+            value: Value(entry.value.toIso8601String()),
+          ),
+          onConflict: DoUpdate((_) => SettingsEntityCompanion(value: Value(entry.value.toIso8601String()))),
+        );
+      }
+    });
+  }
+
+  Future<void> clearHashFailures(Iterable<String> assetIds) async {
+    final ids = assetIds.toList();
+    final keys = [...ids.map((id) => '$_hashFailurePrefix$id'), ...ids.map((id) => '$_permissionHashFailurePrefix$id')];
+    if (keys.isNotEmpty) await (_db.delete(_db.settingsEntity)..where((row) => row.key.isIn(keys))).go();
+  }
+
+  Future<bool> updateManageMediaPermission(bool granted) async {
+    final existing = await (_db.settingsEntity.select()..where((row) => row.key.equals(_manageMediaPermissionKey)))
+        .getSingleOrNull();
+    await _db
+        .into(_db.settingsEntity)
+        .insertOnConflictUpdate(
+          SettingsEntityCompanion.insert(key: _manageMediaPermissionKey, value: Value(granted.toString())),
+        );
+    return existing?.value == 'false' && granted;
+  }
+
+  Future<void> clearPermissionHashFailures() async {
+    final permissionFailureKeys =
+        (await (_db.settingsEntity.select()..where((row) => row.key.like('$_permissionHashFailurePrefix%'))).get())
+            .map((row) => row.key)
+            .toList();
+    if (permissionFailureKeys.isEmpty) return;
+    final ids = permissionFailureKeys.map((key) => key.substring(_permissionHashFailurePrefix.length));
+    final keys = [...permissionFailureKeys, ...ids.map((id) => '$_hashFailurePrefix$id')];
+    await (_db.delete(_db.settingsEntity)..where((row) => row.key.isIn(keys))).go();
   }
 
   Future<Iterable<LocalAsset>> getToRestore() async {
@@ -70,9 +154,21 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
   Future<void> processTrashSnapshot(Iterable<TrashedAsset> trashedAssets) async {
     if (trashedAssets.isEmpty) {
       await _db.delete(_db.trashedLocalAssetEntity).go();
+      await (_db.delete(_db.settingsEntity)..where((row) => row.key.like('$_hashFailurePrefix%'))).go();
+      await (_db.delete(_db.settingsEntity)..where((row) => row.key.like('$_permissionHashFailurePrefix%'))).go();
       return;
     }
     final assetIds = trashedAssets.map((e) => e.asset.id).toSet();
+    final failureRows = await (_db.settingsEntity.select()..where((row) => row.key.like('$_hashFailurePrefix%'))).get();
+    final permissionFailureRows =
+        await (_db.settingsEntity.select()..where((row) => row.key.like('$_permissionHashFailurePrefix%'))).get();
+    final staleFailureKeys = [...failureRows, ...permissionFailureRows].map((row) => row.key).where((key) {
+      final prefix = key.startsWith(_permissionHashFailurePrefix) ? _permissionHashFailurePrefix : _hashFailurePrefix;
+      return !assetIds.contains(key.substring(prefix.length));
+    }).toList();
+    if (staleFailureKeys.isNotEmpty) {
+      await (_db.delete(_db.settingsEntity)..where((row) => row.key.isIn(staleFailureKeys))).go();
+    }
     final Map<String, String> localChecksumById = await _getCachedChecksums(assetIds);
 
     return _db.transaction(() async {

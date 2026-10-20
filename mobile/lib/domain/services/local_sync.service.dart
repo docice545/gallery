@@ -75,6 +75,10 @@ class LocalSyncService {
     try {
       if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
         final hasPermission = await _permissionRepository.hasManageMediaPermission();
+        final permissionRestored = await _trashedLocalAssetRepository.updateManageMediaPermission(hasPermission);
+        if (permissionRestored) {
+          await _trashedLocalAssetRepository.clearPermissionHashFailures();
+        }
         if (hasPermission) {
           await _syncTrashedAssets();
         } else {
