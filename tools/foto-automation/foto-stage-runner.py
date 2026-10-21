@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import stat
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import time
 import uuid
+from urllib.parse import urlsplit
 
 DEFAULT_STATE = Path('/mnt/hp-data/codex-work/foto-integration-state')
 
@@ -25,6 +27,27 @@ class Stop(Exception):
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def file_digest(path):
+    h = hashlib.sha256()
+    with path.open('rb') as f:
+        for block in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def output_identity(repo, stage):
+    outputs = {
+        'backend-build': ['server/dist/main.js', 'server/dist/bin/sync-open-api.js'],
+        'sdk-build': ['packages/sdk/build/index.js', 'packages/sdk/build/index.d.ts'],
+        'plugin-sdk-build': ['packages/plugin-sdk/dist/index.js', 'packages/plugin-sdk/dist/index.d.ts'],
+        'android-apk': ['mobile/build/app/outputs/flutter-apk/app-release.apk'],
+        'openapi-spec': ['open-api/immich-openapi-specs.json'],
+        'openapi-typescript': ['packages/sdk/src/fetch-client.ts'],
+        'openapi-dart': ['mobile/generated/openapi/lib/model/asset_media_response_dto.dart'],
+    }.get(stage, [])
+    return {p: file_digest(repo / p) for p in outputs}
 
 
 def private_dir(path):
@@ -80,11 +103,14 @@ def git(repo, *args):
     return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.DEVNULL)
 
 
-def source_identity(repo):
+def source_identity(repo, excludes=()):
     head = git(repo, 'rev-parse', 'HEAD').decode().strip()
-    h = hashlib.sha256(git(repo, 'diff', 'HEAD', '--binary'))
+    h = hashlib.sha256(git(repo, 'diff', 'HEAD', '--binary', '--', '.',
+        *(f':(exclude){p}' for p in excludes)))
     for name in git(repo, 'ls-files', '--others', '--exclude-standard', '-z').split(b'\0'):
         if not name:
+            continue
+        if any(os.fsdecode(name) == p or os.fsdecode(name).startswith(p + '/') for p in excludes):
             continue
         p = repo / os.fsdecode(name)
         h.update(name)
@@ -129,6 +155,24 @@ def command(repo, stage, files):
         pnpm = shutil.which('pnpm')
         if pnpm:
             return repo, [pnpm, 'install', '--filter', 'immich', '--frozen-lockfile', '--reporter=append-only']
+    if stage in ('sdk-dependencies', 'workspace-link', 'sdk-build', 'plugin-sdk-build'):
+        pnpm = shutil.which('pnpm')
+        if pnpm and stage in ('sdk-dependencies', 'workspace-link'):
+            return repo, [pnpm, '--filter', '@immich/sdk', '--filter', '@immich/plugin-sdk',
+                '--filter', 'immich', 'install', '--frozen-lockfile', '--reporter=append-only']
+        if pnpm:
+            return repo, [pnpm, '--filter', '@immich/sdk' if stage == 'sdk-build' else '@immich/plugin-sdk', 'build']
+    if stage == 'openapi-spec' and node:
+        return repo / 'server', [node, str(repo / 'server/dist/bin/sync-open-api.js')]
+    if stage == 'openapi-typescript' and shutil.which('oazapfts'):
+        return repo, [shutil.which('oazapfts'), '--optimistic', '--argumentStyle=object', '--useEnumType',
+            '--allSchemas', 'open-api/immich-openapi-specs.json', 'packages/sdk/src/fetch-client.ts']
+    if stage == 'openapi-dart':
+        return repo / 'open-api', ['/bin/bash', 'bin/generate-dart-sdk.sh']
+    if stage == 'flutter-dependencies' and flutter:
+        return repo / 'mobile', [flutter, 'pub', 'get', '--enforce-lockfile']
+    if stage == 'flutter-codegen' and flutter:
+        return repo / 'mobile', ['/bin/bash', str(Path(__file__).with_name('foto-mobile-codegen.sh'))]
     if stage == 'flutter-test' and flutter and files:
         return repo / 'mobile', [flutter, 'test', '--concurrency=1', *files]
     if stage == 'flutter-analyze' and flutter:
@@ -212,9 +256,12 @@ def supervise(cmd, cwd, log, lock_fd, env, interactive=False):
 
     old = {s: signal.signal(s, on_signal) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
     proc = None
+    def limit_cpu():
+        allowed = sorted(os.sched_getaffinity(0))
+        os.sched_setaffinity(0, allowed[:2])
     try:
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=None if interactive else subprocess.DEVNULL,
-            stdout=log, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=(lock_fd,))
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=(lock_fd,), preexec_fn=limit_cpu)
         while proc.poll() is None and not stopped:
             time.sleep(0.05)
         rc = 128 + stopped[0] if stopped else proc.returncode
@@ -233,7 +280,9 @@ def main():
     parser.add_argument('--resume', action='store_true', help='reuse exact, integrity-checked successful stage only')
     parser.add_argument('--retry-failed', action='store_true', help='explicitly allow one new attempt, never an automatic retry')
     parser.add_argument('stage', choices=['unit', 'medium', 'typecheck', 'backend-build',
-        'dependencies', 'flutter-test', 'flutter-analyze', 'android-apk', 'session'])
+        'dependencies', 'sdk-dependencies', 'workspace-link', 'sdk-build', 'plugin-sdk-build',
+        'openapi-spec', 'openapi-typescript', 'openapi-dart', 'flutter-dependencies',
+        'flutter-codegen', 'flutter-test', 'flutter-analyze', 'android-apk', 'session'])
     parser.add_argument('files', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     private_dir(args.state)
@@ -254,6 +303,20 @@ def main():
     try:
         cwd, cmd = command(repo, args.stage, args.files)
         source = source_identity(repo)
+        generated_paths = {
+            'openapi-spec': ['open-api/immich-openapi-specs.json'],
+            'openapi-typescript': ['packages/sdk/src/fetch-client.ts'],
+            'openapi-dart': ['mobile/generated/openapi'],
+            'flutter-codegen': ['mobile/drift_schemas', 'mobile/lib/data/db/main/database.steps.dart'],
+        }.get(args.stage, [])
+        if args.stage == 'flutter-codegen':
+            for pigeon in (repo / 'mobile/pigeon').glob('*.dart'):
+                for name in re.findall(r"(?:dartOut|swiftOut|kotlinOut):\s*'([^']+)'", pigeon.read_text()):
+                    p = Path(name)
+                    if p.is_absolute() or '..' in p.parts:
+                        raise Stop('UNSAFE_GENERATED_OUTPUT')
+                    generated_paths.append('mobile/' + name)
+        generation_inputs = source_identity(repo, generated_paths) if generated_paths else None
         request = {'source': source, 'repo': str(repo), 'stage': args.stage, 'argv': cmd,
             'runnerSHA256': digest(Path(__file__).read_bytes())}
         # Installing/upgrading the tools invalidates cached successes even at the same Git HEAD.
@@ -280,6 +343,8 @@ def main():
                     raise Stop('CHECKPOINT_LOG_MISMATCH')
                 if previous.get('exitCode') != 0:
                     raise Stop('CORRUPT_CHECKPOINT')
+                if output_identity(repo, args.stage) != previous.get('outputs', {}):
+                    raise Stop('CHECKPOINT_OUTPUT_MISMATCH')
                 print('PASS_REUSED', args.stage, key)
                 return 0
             if previous['status'] != 'PASS' and not args.retry_failed:
@@ -292,9 +357,20 @@ def main():
         atomic_json(receipt, record)
         env = dict(os.environ, NODE_OPTIONS='--max-old-space-size=3072', CI='true',
             MAKEFLAGS='-j1', CMAKE_BUILD_PARALLEL_LEVEL='1', CARGO_BUILD_JOBS='1',
+            GOMAXPROCS='2', RAYON_NUM_THREADS='2', UV_THREADPOOL_SIZE='2', VIPS_CONCURRENCY='2',
             GRADLE_OPTS='-Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.daemon=false '
-                '-Dorg.gradle.jvmargs=-Xmx2048m -Dkotlin.compiler.execution.strategy=in-process',
-            JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=2')
+                '-Dorg.gradle.jvmargs=-Xmx2048m -Dkotlin.compiler.execution.strategy=in-process '
+                '-Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false',
+            JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=2 -Xmx2048m')
+        proxy = urlsplit(env.get('HTTPS_PROXY', env.get('https_proxy', '')))
+        if proxy.hostname:
+            if not re.fullmatch(r'[A-Za-z0-9_.:-]+', proxy.hostname):
+                raise Stop('UNSUPPORTED_PROXY_HOST')
+            port = proxy.port or 80
+            # Java/Gradle do not automatically honor HTTPS_PROXY. Only route to
+            # the already configured proxy, without copying credentials to argv.
+            env['GRADLE_OPTS'] += (f' -Dhttps.proxyHost={proxy.hostname} -Dhttps.proxyPort={port}'
+                f' -Dhttp.proxyHost={proxy.hostname} -Dhttp.proxyPort={port}')
         with (stages / record['log']).open('xb') as log:
             os.chmod(log.name, 0o600)
             rc = supervise(cmd, cwd, log, fd, env)
@@ -302,7 +378,20 @@ def main():
             os.fsync(log.fileno())
         record.update(status='PASS' if rc == 0 else 'FAIL', exitCode=rc, finishedAt=time.time(),
             logSHA256=digest((stages / record['log']).read_bytes()))
-        if source_identity(repo) != source:
+        if rc == 0:
+            try:
+                record['outputs'] = output_identity(repo, args.stage)
+            except OSError:
+                record.update(status='FAIL', reason='EXPECTED_BUILD_OUTPUT_MISSING', exitCode=1)
+                rc = 1
+        after = source_identity(repo)
+        if after != source and generated_paths:
+            if source_identity(repo, generated_paths) == generation_inputs:
+                record['generatedSource'] = after
+            else:
+                record.update(status='FAIL', reason='UNEXPECTED_GENERATION_WRITE', exitCode=1)
+                rc = 1
+        elif after != source:
             record.update(status='FAIL', reason='SOURCE_CHANGED_DURING_STAGE')
             rc = rc or 1
             record['exitCode'] = rc
@@ -317,7 +406,7 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except (Stop, ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (Stop, ValueError, OSError, subprocess.SubprocessError) as error:
         # Do not dump child output, the environment, credential values or source contents.
         print('STOP', str(error), file=sys.stderr)
         sys.exit(2)

@@ -68,7 +68,9 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
   }
 
   Future<void> recordHashFailures(Map<String, DateTime> failures) async {
-    if (failures.isEmpty) return;
+    if (failures.isEmpty) {
+      return;
+    }
     await _db.batch((batch) {
       for (final entry in failures.entries) {
         batch.insert(
@@ -84,7 +86,9 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
   }
 
   Future<void> recordPermissionHashFailures(Map<String, DateTime> failures) async {
-    if (failures.isEmpty) return;
+    if (failures.isEmpty) {
+      return;
+    }
     await _db.batch((batch) {
       for (final entry in failures.entries) {
         batch.insert(
@@ -102,7 +106,9 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
   Future<void> clearHashFailures(Iterable<String> assetIds) async {
     final ids = assetIds.toList();
     final keys = [...ids.map((id) => '$_hashFailurePrefix$id'), ...ids.map((id) => '$_permissionHashFailurePrefix$id')];
-    if (keys.isNotEmpty) await (_db.delete(_db.settingsEntity)..where((row) => row.key.isIn(keys))).go();
+    if (keys.isNotEmpty) {
+      await (_db.delete(_db.settingsEntity)..where((row) => row.key.isIn(keys))).go();
+    }
   }
 
   Future<bool> updateManageMediaPermission(bool granted) async {
@@ -121,7 +127,9 @@ class TrashedLocalAssetRepository extends DatabaseAccessor<Drift> with $TrashedL
         (await (_db.settingsEntity.select()..where((row) => row.key.like('$_permissionHashFailurePrefix%'))).get())
             .map((row) => row.key)
             .toList();
-    if (permissionFailureKeys.isEmpty) return;
+    if (permissionFailureKeys.isEmpty) {
+      return;
+    }
     final ids = permissionFailureKeys.map((key) => key.substring(_permissionHashFailurePrefix.length));
     final keys = [...permissionFailureKeys, ...ids.map((id) => '$_hashFailurePrefix$id')];
     await (_db.delete(_db.settingsEntity)..where((row) => row.key.isIn(keys))).go();

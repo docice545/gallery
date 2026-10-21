@@ -14,6 +14,8 @@
 - Vitest: один worker, без параллельных файлов, `maxConcurrency=1`, только явно названные specs.
   Flutter tests: `--concurrency=1`. Gradle: один worker, без parallel/daemon, JVM 2 GiB,
   Kotlin compiler in-process. Node heap остаётся 3072 MiB.
+  CPU affinity дочернего дерева ограничена двумя доступными CPU; `GOMAXPROCS`, Rayon и UV
+  также ограничены. Это ограничение конкретного процесса, не изменение системных лимитов HP.
 - Linux supervisor создаёт отдельную process group, обрабатывает INT/TERM/HUP, затем TERM/KILL,
   усыновляет и завершает также отделившиеся дочерние процессы через subreaper/pidfd.
 - В systemd остаются **MemoryMax=8G, MemorySwapMax=1G, CPUQuota=200%** и все ограничения доступа.
@@ -24,6 +26,7 @@
 - Успешные этапы сохраняются отдельно от HP manifest: исходный HEAD, digest изменений,
   команда, установленные зависимости, результат, приватный лог и его SHA-256. `--resume`
   использует только совпадающий checkpoint. Повреждение, symlink или изменение лога блокируют reuse.
+  Для сборок дополнительно сверяются SHA-256 обязательных выходных файлов.
 - Manifest сохраняет неизвестные поля и всю существующую history. Перед обновлением создаётся
   приватная transaction с состояниями before/after; оба файла заменяются через fsync + rename.
   При разрыве между заменами возобновление Codex блокируется до явного восстановления transaction.
@@ -55,6 +58,12 @@ production DB/Redis/NAS в окружение тестов. При недост�
 `--retry-failed`. Это не фоновой retry loop. Не повторяйте OOM без исправления причины.
 `dependencies` устанавливает закреплённые зависимости server с frozen lockfile;
 `backend-build`, `flutter-analyze`, `android-apk` также используют общую блокировку.
+Для холодного workspace доступны `sdk-dependencies`, `sdk-build`, `workspace-link`,
+`plugin-sdk-build`. После сборки workspace SDK выполняется `workspace-link`, чтобы pnpm обновил
+injected dependencies. Контракты обновляются через `openapi-spec`, `openapi-typescript`,
+`openapi-dart` только при подтверждённом изменении API. `flutter-dependencies` использует
+`--enforce-lockfile`, а `flutter-codegen` выполняет официальные генераторы последовательно,
+включая Pigeon без `xargs -P4` и build_runner с `--low-resources-mode`.
 
 Runner выводит только статус и путь к приватному логу. В логах тестов могут быть пути fixtures;
 не публикуйте необработанные HP-логи/manifest. История прежних попыток остаётся в `stages/`.
@@ -68,7 +77,7 @@ Runner выводит только статус и путь к приватно�
 3. Проверьте `bash -n` трёх launcher и `foto-prompt-entry.sh`; выполните `python3 -m unittest
    discover -s <staging>/tools/foto-automation/tests -v` на временных fixtures.
 4. При отсутствии активных сессий сохраните копии текущих launcher с уникальным именем.
-   Установите `foto-stage-runner.py`, `foto-manifest.py`, `foto-prompt-entry.sh` и
+   Установите `foto-stage-runner.py`, `foto-manifest.py`, `foto-prompt-entry.sh`, `foto-mobile-codegen.sh` и
    `foto-integration-continue-v2` в **существующий**
    `/mnt/hp-data/codex-work/foto-integration-state/`, owner/group `codex-gallery`, mode 0700.
    Установите два wrapper в их прежние `/usr/local/bin/` с owner root, mode 0755.

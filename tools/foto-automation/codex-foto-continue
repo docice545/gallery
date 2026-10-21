@@ -18,6 +18,7 @@ stop_codex_unit() {
     exit 130
 }
 trap stop_codex_unit INT TERM HUP
+trap 'systemctl stop "$UNIT.service" >/dev/null 2>&1 || true' EXIT
 
 systemd-run \
   --unit="$UNIT" \
@@ -73,4 +74,6 @@ systemd-run \
   python3 /mnt/hp-data/codex-work/foto-integration-state/foto-stage-runner.py \
   session /bin/bash /mnt/hp-data/codex-work/foto-integration-state/foto-prompt-entry.sh \
   /mnt/hp-data/codex-work/foto-integration-state \
-  /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2
+  /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2 <&0 &
+unit_pid=$!
+wait "$unit_pid"

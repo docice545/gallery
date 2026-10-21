@@ -1469,6 +1469,8 @@ export type AssetMediaCreateDto = {
   visibility?: AssetVisibility;
 };
 export type AssetMediaResponseDto = {
+  /** Duplicate group ID if matched */
+  duplicateId?: string | null;
   /** Asset media ID */
   id: string;
   status: AssetMediaStatus;

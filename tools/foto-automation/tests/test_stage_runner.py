@@ -33,7 +33,7 @@ class RunnerTests(unittest.TestCase):
         self.node.write_text('''#!/usr/bin/env python3
 import json, os, signal, subprocess, sys, time
 with open(os.environ['CALLS'], 'a') as f:
-    f.write(json.dumps({'argv':sys.argv[1:], 'env':{k:os.environ.get(k) for k in ['NODE_OPTIONS','GRADLE_OPTS','CI','MAKEFLAGS']}})+'\\n')
+    f.write(json.dumps({'argv':sys.argv[1:], 'cpus':len(os.sched_getaffinity(0)), 'env':{k:os.environ.get(k) for k in ['NODE_OPTIONS','GRADLE_OPTS','CI','MAKEFLAGS']}})+'\\n')
 mode=os.environ.get('MODE','ok')
 if mode == 'oom': os.kill(os.getpid(),signal.SIGKILL)  # exit simulation, NOT a real memory exhaustion test
 if mode == 'error': sys.exit(23)
@@ -44,10 +44,15 @@ if mode == 'tree':
 if mode == 'escaped':
     child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True)
     open(os.environ['CHILD_PID'],'w').write(str(child.pid))
+if mode == 'build':
+    from pathlib import Path
+    for name in ['dist/main.js','dist/bin/sync-open-api.js']:
+        p=Path(name); p.parent.mkdir(parents=True,exist_ok=True); p.write_text('synthetic compiled output')
 if mode == 'slow': time.sleep(1)
 print('synthetic check completed')
 ''')
         self.node.chmod(0o700)
+        (self.repo / '.gitignore').write_text('server/dist/\n')
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'],
             CALLS=str(self.calls), CHILD_PID=str(self.pid_file))
         for cmd in (['init', '-q'], ['config', 'user.email', 'fixture@example.invalid'],
@@ -78,6 +83,7 @@ print('synthetic check completed')
         self.assertIn('--maxConcurrency=1', call['argv'])
         self.assertEqual(call['env']['NODE_OPTIONS'], '--max-old-space-size=3072')
         self.assertIn('org.gradle.parallel=false', call['env']['GRADLE_OPTS'])
+        self.assertLessEqual(call['cpus'], 2)
 
     def test_parallel_request_is_rejected_not_queued(self):
         p = subprocess.Popen(self.argv('unit', self.spec), env=dict(self.env, MODE='slow'),
@@ -91,12 +97,69 @@ print('synthetic check completed')
             p.communicate(timeout=10)
         self.assertEqual(len(self.calls.read_text().splitlines()), 1)
 
+    def test_existing_proxy_is_forwarded_without_credentials(self):
+        self.env['HTTPS_PROXY'] = 'http://fixture-user:fixture-password@proxy.example:8080'
+        self.assertEqual(self.run_stage().returncode, 0)
+        opts = json.loads(self.calls.read_text())['env']['GRADLE_OPTS']
+        self.assertIn('-Dhttps.proxyHost=proxy.example', opts)
+        self.assertNotIn('fixture-password', opts)
+
+    def test_proxy_hostname_cannot_inject_gradle_arguments(self):
+        self.env['HTTPS_PROXY'] = 'http://proxy%20-Dorg.gradle.workers.max=8:8080'
+        r = self.run_stage()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('UNSUPPORTED_PROXY_HOST', r.stderr)
+        self.assertFalse(self.calls.exists())
+
     def test_exact_success_can_be_reused(self):
         self.assertEqual(self.run_stage().returncode, 0)
         r = self.run_stage('--resume')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('PASS_REUSED', r.stdout)
         self.assertEqual(len(self.calls.read_text().splitlines()), 1)
+
+    def test_modified_build_output_cannot_reuse_success(self):
+        pnpm = self.bin / 'pnpm'
+        pnpm.write_bytes(self.node.read_bytes())
+        pnpm.chmod(0o700)
+        r = subprocess.run(self.argv('backend-build'), env=dict(self.env, MODE='build'), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (self.repo / 'server/dist/main.js').write_text('tampered output')
+        r = subprocess.run(self.argv('--resume', 'backend-build'), env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('CHECKPOINT_OUTPUT_MISMATCH', r.stderr)
+
+    def test_host_wrapper_term_is_not_deferred_until_unit_finishes(self):
+        unit_pid = self.base / 'unit-pid'
+        stopped = self.base / 'unit-stopped'
+        systemd = self.bin / 'systemd-run'
+        systemd.write_text('#!/usr/bin/env python3\nimport os,time\n'
+            'open(os.environ["UNIT_PID"],"w").write(str(os.getpid()))\ntime.sleep(60)\n')
+        systemctl = self.bin / 'systemctl'
+        systemctl.write_text('#!/usr/bin/env python3\nimport os,signal\n'
+            'open(os.environ["UNIT_STOPPED"],"a").write("stop\\n")\n'
+            'try:\n fd=os.pidfd_open(int(open(os.environ["UNIT_PID"]).read())); '
+            'signal.pidfd_send_signal(fd,signal.SIGTERM); os.close(fd)\n'
+            'except ProcessLookupError: pass\n')
+        systemd.chmod(0o700)
+        systemctl.chmod(0o700)
+        for name in ('codex-gallery-safe', 'codex-foto-continue'):
+            with self.subTest(wrapper=name):
+                if unit_pid.exists():
+                    unit_pid.unlink()  # this test's private fixture, never a real lock or checkpoint
+                p = subprocess.Popen(['bash', str(ROOT / name)], start_new_session=True,
+                    env=dict(self.env, UNIT_PID=str(unit_pid), UNIT_STOPPED=str(stopped)),
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    self.wait_file(unit_pid)
+                    p.send_signal(signal.SIGTERM)
+                    p.communicate(timeout=5)
+                    self.assertEqual(p.returncode, 130)
+                    self.assertTrue(stopped.exists())
+                finally:
+                    if p.poll() is None:
+                        os.killpg(p.pid, signal.SIGKILL)
+                        p.communicate()
 
     def test_changed_source_cannot_reuse_success(self):
         self.assertEqual(self.run_stage().returncode, 0)

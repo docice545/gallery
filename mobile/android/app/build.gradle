@@ -66,8 +66,11 @@ android {
     }
 
     release {
-      def hasKeystore = file("../key.jks").exists() && file("../key.jks").length() > 0
-      signingConfig hasKeystore ? signingConfigs.release : signingConfigs.debug
+      def releaseKeyFile = signingConfigs.release.storeFile
+      def hasKeystore = releaseKeyFile != null && releaseKeyFile.isFile() && releaseKeyFile.length() > 0
+      // Never replace the installed application's production identity with a debug key.
+      // A Cloud build without the existing project key must remain unsigned.
+      signingConfig hasKeystore ? signingConfigs.release : null
       proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 
       def prNumber = System.getenv("PR_NUMBER")
