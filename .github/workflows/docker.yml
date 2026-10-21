@@ -20,7 +20,7 @@ env:
 jobs:
   pre-job:
     # Source-only review; build and signing follow local integration on HP.
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

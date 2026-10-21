@@ -5,7 +5,8 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
-BRANCHES = ('codex/foto-build17-editor', 'codex/foto-build17-dedup-acceptance')
+BRANCHES = ('codex/foto-build17-editor', 'codex/foto-build17-dedup-acceptance',
+            'codex/foto-build17-editor-compact')
 
 
 def allows(workflow, job, branch, event='pull_request'):

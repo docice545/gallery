@@ -85,7 +85,7 @@ jobs:
               - 'packages/**'
             .github:
               - '.github/**'
-          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && '- .github/workflows/test.yml' || '' }}
+          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && '- .github/workflows/test.yml' || '' }}
 
           force-events: 'workflow_dispatch'
 
@@ -419,7 +419,7 @@ jobs:
   e2e-tests-server-cli:
     name: End-to-End Tests (Server & CLI)
     needs: pre-job
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).server == true || fromJSON(needs.pre-job.outputs.should_run).cli == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).server == true || fromJSON(needs.pre-job.outputs.should_run).cli == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -510,7 +510,7 @@ jobs:
   e2e-tests-web:
     name: End-to-End Tests (Web)
     needs: pre-job
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
