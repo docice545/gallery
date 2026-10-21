@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AssetRejectReason, AssetUploadAction } from 'src/dtos/asset-media-response.dto.js';
@@ -307,4 +307,164 @@ it('rolls back an interrupted identity write and safely retries without acknowle
   });
   expect(await readFile(asset.originalPath)).toEqual(bytes);
   expect(await readFile(originalPath)).toEqual(bytes);
+});
+
+it('reimports a renamed NAS original without reviving or changing its offline index tombstone', async () => {
+  const { ctx, asset, checksum, user, bytes } = await fixture();
+  const renamed = join(root, 'renamed.jpg');
+  await rename(asset.originalPath, renamed);
+  const deletedAt = new Date('2026-10-01T12:00:00Z');
+  await db
+    .updateTable('asset')
+    .set({ status: AssetStatus.Active, isOffline: true, deletedAt })
+    .where('id', '=', asset.id)
+    .execute();
+  const imported = await ctx.get(AssetRepository).createAll([
+    {
+      ...mediumFactory.assetInsert({
+        ownerId: user.id,
+        libraryId: asset.libraryId,
+        isExternal: true,
+        originalPath: renamed,
+        checksum: createHash('sha1').update(renamed).digest(),
+        checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+      }),
+      contentChecksum: checksum,
+    },
+  ]);
+  expect(imported).toHaveLength(1);
+  expect(await ctx.get(AssetRepository).getById(asset.id)).toMatchObject({
+    status: AssetStatus.Active,
+    isOffline: true,
+    deletedAt,
+    originalPath: asset.originalPath,
+  });
+  expect(await ctx.get(AssetRepository).getById(imported[0])).toMatchObject({
+    ownerId: user.id,
+    libraryId: asset.libraryId,
+    originalPath: renamed,
+    status: AssetStatus.Active,
+    deletedAt: null,
+  });
+  await expect(
+    db
+      .selectFrom('asset_duplicate_checksum')
+      .select('assetId')
+      .where('ownerId', '=', user.id)
+      .where('checksum', '=', checksum)
+      .executeTakeFirst(),
+  ).resolves.toEqual({ assetId: imported[0] });
+  expect(await readFile(renamed)).toEqual(bytes);
+});
+
+it('still blocks renamed content explicitly trashed by the owner, even when marked offline', async () => {
+  const { ctx, asset, checksum, user, bytes } = await fixture();
+  const renamed = join(root, 'trashed-renamed.jpg');
+  await rename(asset.originalPath, renamed);
+  await db
+    .updateTable('asset')
+    .set({ status: AssetStatus.Trashed, isOffline: true, deletedAt: new Date() })
+    .where('id', '=', asset.id)
+    .execute();
+  await expect(
+    ctx.get(AssetRepository).createAll([
+      {
+        ...mediumFactory.assetInsert({
+          ownerId: user.id,
+          libraryId: asset.libraryId,
+          isExternal: true,
+          originalPath: renamed,
+          checksum: createHash('sha1').update(renamed).digest(),
+          checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+        }),
+        contentChecksum: checksum,
+      },
+    ]),
+  ).resolves.toEqual([]);
+  expect(await readFile(renamed)).toEqual(bytes);
+});
+
+it('retains two separate originals in one batch while storing one content anchor and retrying safely', async () => {
+  const { ctx, asset, user } = await fixture();
+  const bytes = Buffer.from('another synthetic photo present at two independent paths');
+  const contentChecksum = createHash('sha1').update(bytes).digest();
+  const files = [join(root, 'copy-one.jpg'), join(root, 'copy-two.jpg')];
+  for (const file of files) await writeFile(file, bytes);
+  const batch = files.map((originalPath) => ({
+    ...mediumFactory.assetInsert({
+      ownerId: user.id,
+      libraryId: asset.libraryId,
+      isExternal: true,
+      originalPath,
+      checksum: createHash('sha1').update(originalPath).digest(),
+      checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+    }),
+    contentChecksum,
+  }));
+  const repository = ctx.get(AssetRepository);
+  const ids = await repository.createAll(batch);
+  expect(ids).toHaveLength(2);
+  await expect(repository.createAll(batch)).resolves.toEqual([]);
+  const anchors = await db
+    .selectFrom('asset_duplicate_checksum')
+    .select('assetId')
+    .where('ownerId', '=', user.id)
+    .where('checksum', '=', contentChecksum)
+    .execute();
+  expect(anchors).toHaveLength(1);
+  expect(ids).toContain(anchors[0].assetId);
+  for (const file of files) expect(await readFile(file)).toEqual(bytes);
+});
+
+it('does not reimport an offline original with a pending deletion receipt whose content proof is not prepared yet', async () => {
+  const { ctx, asset, checksum, user, bytes } = await fixture();
+  const renamed = join(root, 'pending-renamed.jpg');
+  await rename(asset.originalPath, renamed);
+  await db
+    .updateTable('asset')
+    .set({ status: AssetStatus.Active, isOffline: true, deletedAt: new Date() })
+    .where('id', '=', asset.id)
+    .execute();
+  // Synthetic intent only: this does not authorize deletion or fabricate a
+  // recovery proof. The scanner must respect the existing durable barrier.
+  await db
+    .insertInto('asset_deletion_tombstone')
+    .values({
+      assetId: asset.id,
+      operationId: asset.id,
+      ownerId: user.id,
+      libraryId: asset.libraryId,
+      scope: asset.libraryId!,
+      originalPath: asset.originalPath,
+      checksum: asset.checksum,
+      checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+      contentChecksum: Buffer.alloc(0),
+      aliases: [checksum.toString('hex')],
+      authorization: {
+        mode: 'storage',
+        actor: user.id,
+        recoveryProof: '',
+        policyUpdatedAt: new Date().toISOString(),
+      },
+      files: [],
+      state: 'failed',
+      errorCode: 'ORIGINAL_OUTSIDE_AUTHORIZED_ROOT',
+    })
+    .execute();
+  await expect(
+    ctx.get(AssetRepository).createAll([
+      {
+        ...mediumFactory.assetInsert({
+          ownerId: user.id,
+          libraryId: asset.libraryId,
+          isExternal: true,
+          originalPath: renamed,
+          checksum: createHash('sha1').update(renamed).digest(),
+          checksumAlgorithm: ChecksumAlgorithm.sha1Path,
+        }),
+        contentChecksum: checksum,
+      },
+    ]),
+  ).resolves.toEqual([]);
+  expect(await readFile(renamed)).toEqual(bytes);
 });
