@@ -42,7 +42,7 @@ printf 'SOURCE STAGED: %s\n' "$TRANSFER"
 - SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`.
 - Размер: `188090091` bytes.
 - Состояние подписи: **UNSIGNED**, не debug-signed; напрямую не устанавливать.
-- GitHub draft-release (доступ владельцу репозитория после входа): https://github.com/docice545/gallery/releases/tag/untagged-d254aea7a1c2b4364657.
+- GitHub draft-release (доступ владельцу репозитория после входа): https://github.com/docice545/gallery/releases.
 
 **Текущее состояние: assets отсутствуют.** Создание draft прошло, но загрузка файлов
 получила HTTP401 Bad credentials на uploads.github.com. Доступ к metadata/API и git push

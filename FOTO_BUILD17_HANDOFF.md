@@ -121,7 +121,7 @@ Cloud-каталог: `/workspace/foto-build17-release-244ae32fc6dc`.
 HTTP401 Bad credentials. API создания release и git push работают; credential для uploads
 в этой среде не принимается. APK/checksums остаются локально; не пересобирать их для повторной загрузки.
 GitHub draft-release (вход владельца, без запуска published workflows):
-https://github.com/docice545/gallery/releases/tag/untagged-d254aea7a1c2b4364657
+https://github.com/docice545/gallery/releases
 Итоговый отчёт: [docs/FOTO_BUILD17_TEST_REPORT.md](docs/FOTO_BUILD17_TEST_REPORT.md).
 Получение исходников, подпись и сохранение HP working tree:
 [docs/FOTO_BUILD17_HP_HANDOFF.md](docs/FOTO_BUILD17_HP_HANDOFF.md).

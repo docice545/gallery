@@ -83,7 +83,7 @@ APK: `Foto-5.7.3-build17-unsigned.apk`, `188090091` bytes.
 SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`. Package`de.opennoodle.gallery`, version`5.7.3+17`.
 Проверка подписи: **UNSIGNED (apksigner exit=1, no signing certificate)**. Проверка ZIP/alignment: **PASS**.
 
-GitHub draft-release (требуется вход владельца): https://github.com/docice545/gallery/releases/tag/untagged-d254aea7a1c2b4364657. Assets в draft отсутствуют: upload endpoint получил HTTP401, download не подтверждён.
+GitHub draft-release (требуется вход владельца): https://github.com/docice545/gallery/releases. Assets в draft отсутствуют: upload endpoint получил HTTP401, download не подтверждён.
 Локальный полный комплект: `/workspace/foto-build17-release-244ae32fc6dc`.
 Повторная сборка для исправления upload не нужна. Signed APK SHA появится только после фактической подписи на HP.
 Инструкция: `docs/FOTO_BUILD17_HP_HANDOFF.md`. Ни установки приложения, ни backend deployment
