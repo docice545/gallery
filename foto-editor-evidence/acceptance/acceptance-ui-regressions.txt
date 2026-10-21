@@ -1,0 +1,79 @@
+00:00 +0: loading /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart
+00:00 +0: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: (setUpAll)
+00:00 +0: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.android (variant: TargetPlatform.android)
+00:01 +1: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:01 +2: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: all six Russian section names remain complete in the scrollable rail
+00:02 +3: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: yellow modes, blue/purple ink and circular ordered pill with separate history
+00:02 +4: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: portrait cutouts keeps complete controls outside system insets
+00:03 +5: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: landscape cutouts keeps complete controls outside system insets
+00:03 +6: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: compact landscape large text keeps complete controls outside system insets
+00:04 +7: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: compact portrait large text keeps complete controls outside system insets
+00:04 +8: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: visual acceptance: Russian drawing screen with source pixels and a new stroke
+00:04 +9: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: visual acceptance: Russian landscape text editor with system cutouts
+00:05 +10: /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart: (tearDownAll)
+00:05 +10: loading /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart
+00:06 +10: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an older or unconfigured server disables only Magic Eraser while keeping the crop editor usable
+00:07 +11: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving opens copy, disabled replacement, and cancel choices
+00:08 +12: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an unavailable optional AI service leaves ordinary transform editing operational
+00:08 +13: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a slow capability check stays disabled and visibly loading until confirmed
+00:08 +14: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 401 failure explains why and permits retry
+00:09 +15: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 403 failure explains why and permits retry
+00:09 +16: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 400 failure explains why and permits retry
+00:09 +17: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 500 failure explains why and permits retry
+00:10 +18: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 503 failure explains why and permits retry
+00:10 +19: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a ClientException failure explains why and permits retry
+00:10 +20: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a RequestAbortedException failure explains why and permits retry
+00:10 +21: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a FormatException failure explains why and permits retry
+00:11 +22: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from disabled without losing crop or rotation
+00:11 +23: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from offline without losing crop or rotation
+00:11 +24: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving transform edits disables capability retry and AI navigation
+00:11 +25: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: rechecking an enabled capability does not reuse a stale enabled result
+00:12 +26: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Russian availability and retry fit a narrow screen with enlarged text
+00:12 +27: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Live/Motion stills expose AI copies without enabling crop or overwrite controls
+00:12 +28: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: existing editor callers without an asset retain their original crop interface
+00:12 +29: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(390.0, 844.0)
+00:13 +30: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(844.0, 390.0)
+00:13 +31: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:14 +32: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:15 +33: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:15 +34: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:16 +35: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:16 +36: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:17 +37: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:17 +38: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:18 +39: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:18 +40: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:19 +41: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:19 +42: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:20 +43: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: all display rotations and flips keep actual preview pixels and exported markup aligned
+00:20 +44: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:21 +45: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:21 +46: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:21 +47: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:21 +48: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: markup ignores letterbox, keeps crop fixed, and stays image-relative after rotation and resize
+00:22 +49: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: changing modes keeps annotations and their undo history
+00:22 +50: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: editing existing text preserves style and position and creates one undoable edit
+00:23 +51: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: cancel text editing preserves the document and undo history
+00:23 +52: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: empty text editing preserves the document and undo history
+00:23 +53: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: unchanged text editing preserves the document and undo history
+00:24 +54: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: move tool edits selected text after zoom rotation and reflection without moving its anchor
+00:25 +55: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: undo and redo keep annotation dirty state aligned with the current document
+00:25 +56: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: reset restores server edit baseline and clears markup as one undoable document change
+00:25 +57: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in crop leaves crop and annotations untouched
+00:26 +58: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in draw leaves crop and annotations untouched
+00:26 +59: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in text leaves crop and annotations untouched
+00:26 +60: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in stickers leaves crop and annotations untouched
+00:26 +61: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: drawing after zoom, rotation and reflection uses image coordinates; resize resets only the viewport
+00:26 +62: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a pinch starting outside the photo cancels a stroke already being drawn
+00:26 +63: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: pinching crop corners preserves an existing crop selection
+00:26 +64: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: six-section rail and drawing pill match the required order and top actions
+00:27 +65: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: sticker layers select, reorder, delete and undo through the shared document history
+00:27 +66: /workspace/gallery/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: text outline background size opacity and font update the selected layer and are undoable
+00:28 +67: loading /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart
+00:29 +67: /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart: successfully saves a PNG copy after timeout
+00:33 +68: /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart: a hanging original load restores save and reopens the copy dialog without losing edits
+00:33 +69: /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart: successfully saves a PNG copy after decode failure
+00:35 +70: /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart: a failed original load restores save and reopens the copy dialog without losing edits
+00:36 +71: /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart: canceling original load preserves edits, releases source and never imports a partial copy
+00:36 +72: /workspace/gallery/mobile/test/pages/edit/editor_save_retry_test.dart: denied native photo save preserves edits and retries as a new copy with no server mutation
+00:38 +73: All tests passed!

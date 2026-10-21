@@ -9,6 +9,32 @@ https://github.com/docice545/gallery/issues/3#issuecomment-6312121710.
 Исходная база: `d7a31f3420b483974a7247613791cdbc395cacd4`.
 Точный проверенный код и хеши файлов: [FOTO_BUILD17_EDITOR_EVIDENCE.json](FOTO_BUILD17_EDITOR_EVIDENCE.json).
 
+## Финальная приёмка Samsung-style UI
+
+Полная таблица «требование → компонент → подтверждение → статус» и три golden-снимка:
+[FOTO_BUILD17_EDITOR_ACCEPTANCE.md](FOTO_BUILD17_EDITOR_ACCEPTANCE.md).
+Исправленный код: `906ad0e6822cd2d85393f035b5a7e4d167f30152`.
+**READY_FOR_LOCAL_INTEGRATION относится только к редактору**, без заявления о готовности всего Build 17.
+
+Аудит воспроизвёл и исправил пять UI-дефектов: горизонтальное меню на iOS, обрезанную drawing pill
+в compact landscape с крупным текстом, обрезанные названия разделов, неточную RU подпись фильтров
+и обрезанный «Вернуть» при 200% текста. Добавлены 10 acceptance cases и три собственных golden
+на синтетическом изображении; существующие тесты не ослаблены.
+
+- **73 PASS / 0 FAIL / 0 SKIP**: 10 новых UI/golden + 57 прежних editor/AI integration + 6 save/retry.
+- После удаления двух неиспользуемых test imports: **10/10 PASS**, обычное сравнение golden,
+  без обновления эталонов; **полный Flutter analyze PASS, No issues found**.
+- Format, RU JSON Prettier и diff whitespace: **PASS**. Суммарно в scoped Flutter evidence
+  **367 различных cases**; повторные 73/10 не прибавляются к прежним 357.
+- Backend/API/OpenAPI, native Android/iOS, зависимости и AI runtime не менялись. Прежние
+  backend/automation/raster проверки сохранены, не запускались повторно без причины.
+
+Новые реальные receipts, отфильтрованные логи и SHA-256 находятся в
+[foto-editor-evidence/acceptance/](foto-editor-evidence/acceptance/) и evidence JSON.
+Ниже сохранена история прежних прогонов и CI: полный Mobile CI относится к `bbd8c5a7a`,
+**не** к новому UI-коммиту. Общие CI/дубликаты и другие подсистемы этим аудитом не ремонтировались.
+Устройства, настоящий Synology и ML inference остаются **NOT TESTED**, как указано в матрице.
+
 ## Выполненные проверки
 
 | Проверка                                                                           | Фактический результат                                             |

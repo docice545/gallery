@@ -172,3 +172,29 @@ Web/backend/schema/SDK/locks editor branch не меняет. По Issue 3 их 
 появиться снова; его статус можно читать в PR #4, не запускать release/RC/build/sign jobs.
 Следующий шаг HP: получить точный опубликованный HEAD из PR, отдельный worktree и инструкции
 `FOTO_BUILD17_EDITOR_HP_HANDOFF.md`; сохранить свои незакоммиченные файлы и canonical history.
+
+## Финальная приёмка редактора, 21.10.2026
+
+Аудит начат на `c755c03cc8c9c560063e403fdac733971541f04b`. Исправления опубликованы в
+`906ad0e6822cd2d85393f035b5a7e4d167f30152` (`fix(editor): finish safe-area and toolbar acceptance`).
+Изменён только общий editor UI, одна RU строка и новые acceptance/golden tests. Подтверждённые
+дефекты: горизонтальное меню iOS, clipping drawing pill/safe-area, сокращённые rail labels,
+«Фильтры / тон» и обрезанный крупный «Вернуть». Существующие тесты не изменены.
+
+- 73/73 PASS: 10 новых + 57 editor/AI integration + 6 save/retry, без skipped.
+- После удаления двух лишних test imports: 10/10 PASS, три обычных golden comparisons.
+- Полный Flutter analyze PASS (No issues found), format/Prettier/diff PASS.
+- Совокупно 367 различных Flutter cases; не складывать перекрывающиеся прогоны.
+- Подробная таблица и границы подтверждения: `FOTO_BUILD17_EDITOR_ACCEPTANCE.md`.
+- Настоящие runner receipts, filtered logs, исходные/public SHA-256: `foto-editor-evidence/acceptance/`
+  и обновлённый `FOTO_BUILD17_EDITOR_EVIDENCE.json`. Старое CI evidence сохранено с исходным SHA.
+
+**READY_FOR_LOCAL_INTEGRATION — только редактор.** Физические Android/iOS permissions/fonts/codecs,
+реальный Synology upload/backup и настоящий AI inference не проверены и перечислены в матрице.
+Ограничения EXIF export/ручного Motion-pair editing/mobile web не скрыты. Новые backend/APK/signing
+и merge не выполнялись; production/Memories/HP state не затронуты. Независимые ошибки общего CI
+остались вне последнего задания; они не названы исправленными или PASS.
+
+Canonical HP progress/pending/manifest по-прежнему недоступны. Их историю не выдумывать и не
+заменять Cloud JSON. Следующий шаг — отдельное локальное объединение по HP handoff, уникальные
+test targets без повторения одних файлов, фиксация фактического merged HEAD и затем device gates.

@@ -73,15 +73,23 @@ from pathlib import Path
 repo, state = Path(sys.argv[1]), sys.argv[2]
 evidence = json.loads((repo / 'FOTO_BUILD17_EDITOR_EVIDENCE.json').read_text())
 runner = repo / 'tools/foto-automation/foto-stage-runner.py'
+by_stage = {'flutter-test': [], 'unit': []}
 for run in evidence['runs']:
-    if run['stage'] not in ('flutter-test', 'unit'):
+    stage = run['stage']
+    if stage not in by_stage:
         continue
-    suffix = '_test.dart' if run['stage'] == 'flutter-test' else '.spec.ts'
+    suffix = '_test.dart' if stage == 'flutter-test' else '.spec.ts'
     targets = [arg for arg in run['argv'] if arg.endswith(suffix)]
     if not targets:
         raise SystemExit('No explicit test targets; preserve logs and stop')
+    for target in targets:
+        if target not in by_stage[stage]:
+            by_stage[stage].append(target)
+for stage, targets in by_stage.items():
+    if not targets:
+        raise SystemExit('Missing test stage; preserve logs and stop')
     subprocess.run([sys.executable, str(runner), '--repo', str(repo), '--state', state,
-                    run['stage'], *targets], cwd=repo, check=True)
+                    stage, *targets], cwd=repo, check=True)
 PY
 ```
 
@@ -89,6 +97,14 @@ PY
 runner откажется при занятом общем lock, не ждать бесконечно и не снимать чужой lock.
 Не запускать одновременно второй `flutter test`, Vitest, tsc, Gradle или Flutter build.
 Если тесты запускаются после локального merge, отчёт должен называть **merged HEAD**.
+Пересекающиеся Cloud runs в evidence дают один список файлов без повторов: новый acceptance
+suite входит в него, старые успешные suites не запускаются по несколько раз. Это проверки
+после будущего локального объединения, не повод заново выполнять неизменённый Cloud checkpoint.
+
+[Финальная матрица приёмки](FOTO_BUILD17_EDITOR_ACCEPTANCE.md) содержит три golden-эталона.
+Сравнивать их обычным тестом на закреплённом Flutter 3.47.2, с существующими шрифтами проекта;
+не выполнять `--update-goldens` для сокрытия отличий. Иной renderer/SDK требует отдельного разбора.
+Эталоны не заменяют проверку native fonts/safe-area/permissions на S23 и iPhone.
 
 ## Canonical progress/pending/manifest
 

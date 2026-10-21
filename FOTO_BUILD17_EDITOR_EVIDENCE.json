@@ -1,4 +1,81 @@
 {
+  "acceptance": {
+    "auditStartCommit": "c755c03cc8c9c560063e403fdac733971541f04b",
+    "baselineReproduction": {
+      "exitCode": 1,
+      "failed": 3,
+      "note": "Temporary seven-case new UI harness reproduced iOS menu, rail ellipsis and compact settings clipping before fixes. This is an expected pre-fix FAIL, not an outstanding final failure.",
+      "originalLogSHA256": "42cfba961e147f20e6a2cb75d709c1601afba819e8b49a31f97641077a64cb08",
+      "passed": 4,
+      "publicLog": "foto-editor-evidence/acceptance/before-ui.txt",
+      "publicLogSHA256": "182daf4f8e68d6b61a6d9d78c315d7507c7eeedba0c7ed03cf00ac11ede1046d",
+      "publicReceipt": "foto-editor-evidence/acceptance/before-ui.receipt.json",
+      "publicReceiptSHA256": "88c7956178260c8ac5f7b2104f0b6890ee8819c02e453e17144a80c62744e4bf",
+      "source": {
+        "changesSHA256": "f1a4675c502cbe8f7b68213334f03afa0e097ff70b781e4341fa20d7181f62cb",
+        "head": "c755c03cc8c9c560063e403fdac733971541f04b"
+      },
+      "status": "FAIL"
+    },
+    "codeCommit": "906ad0e6822cd2d85393f035b5a7e4d167f30152",
+    "failed": 0,
+    "finalRunPassed": 73,
+    "finalRuns": [
+      "acceptance-ui-regressions",
+      "acceptance-analyze",
+      "acceptance-goldens"
+    ],
+    "goldenEnvironment": {
+      "dart": "3.13.2",
+      "flutter": "3.47.2",
+      "fonts": "Existing project GoogleSans/MaterialIcons; sans-serif caption test alias to existing GoogleSans Regular",
+      "reference": "Own synthetic UI baselines; not Samsung official screenshots; no physical-device equivalence claimed",
+      "renderer": "Linux Flutter software test renderer"
+    },
+    "goldenImagesCompared": 3,
+    "goldens": [
+      {
+        "SHA256": "1c6698111f7c219bdd46cdd164718598ad33128b4f6aac19de454a1ae598ad17",
+        "bytes": 25387,
+        "height": 320,
+        "path": "mobile/test/pages/edit/goldens/editor_ru_compact_large_text.png",
+        "width": 720
+      },
+      {
+        "SHA256": "8b5362991b3925cdea89a828b724080836e031e93577d1e2ff4ac49d83239b81",
+        "bytes": 33806,
+        "height": 852,
+        "path": "mobile/test/pages/edit/goldens/editor_ru_draw_portrait.png",
+        "width": 393
+      },
+      {
+        "SHA256": "7a3d1b7aa7e4d8f2ba35d9a344fbe5c2b84346127e2883c0e85a64971c141174",
+        "bytes": 23915,
+        "height": 393,
+        "path": "mobile/test/pages/edit/goldens/editor_ru_text_landscape.png",
+        "width": 852
+      }
+    ],
+    "intentionallyNotPerformed": [
+      "Backend/APK build or signing",
+      "Production access/deployment",
+      "Merge",
+      "Unrelated CI/subsystem repairs",
+      "HP canonical state writes"
+    ],
+    "newDistinctFlutterCases": 10,
+    "notTested": [
+      "Physical Android/iOS permissions, codecs, system fonts, accessibility and background/resume",
+      "Real Synology/HP copy upload/backup and thumbnail pipeline after local integration",
+      "Real Big-LaMa inference; no models installed or sidecar started"
+    ],
+    "repeatedVerificationPassed": 10,
+    "report": "FOTO_BUILD17_EDITOR_ACCEPTANCE.md",
+    "scope": "editor only; not whole Build 17 release",
+    "skipped": 0,
+    "testSourceNote": "Runs used the audit-start HEAD plus the real recorded working-tree digest before commit. The 73-case run preceded removal of two unused test imports; final analyze and 10 acceptance cases passed after that cleanup. Commit 906ad0e contains that tested code; later evidence/handoff commits change no runtime/test files.",
+    "verdict": "READY_FOR_LOCAL_INTEGRATION"
+  },
   "automationFollowup": {
     "command": "python3 -m unittest discover -s tools/foto-automation/tests -q",
     "failed": 0,
@@ -11,10 +88,11 @@
   "automationPassed": 46,
   "branch": "codex/foto-build17-editor",
   "checkpoint": "9c3a3d8fa9fe137e55752b3ca075e0208cb93c5b",
-  "codeAndWorkflowCommit": "bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4",
+  "codeAndWorkflowCommit": "906ad0e6822cd2d85393f035b5a7e4d167f30152",
   "failed": 0,
-  "flutterOverlap": 87,
-  "flutterUniquePassed": 357,
+  "flutterCountNote": "367 distinct across five successful Flutter test runs (527 total case executions, 160 repeats); setup/teardown excluded. Historic full Mobile CI is separate and overlaps.",
+  "flutterOverlap": 160,
+  "flutterUniquePassed": 367,
   "githubCI": {
     "baselineComparison": "foto-editor-evidence/ci-baseline.json",
     "baselineComparisonSHA256": "e29c6e8b151eb89c64bcba514e2ef0dda1db234760da63dac9ae4390ed1c5f9e",
@@ -259,6 +337,7 @@
   "hpCanonicalStateAvailable": false,
   "hpStateModified": false,
   "kind": "cloud-editor-evidence-not-hp-manifest",
+  "previousCodeAndWorkflowCommit": "bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4",
   "runs": [
     {
       "argv": [
@@ -397,6 +476,79 @@
       "stage": "flutter-test",
       "startedAt": 1792577338.0353553,
       "status": "PASS"
+    },
+    {
+      "argv": [
+        "test",
+        "--concurrency=1",
+        "test/pages/edit/editor_acceptance_test.dart",
+        "test/pages/edit/magic_eraser_editor_integration_test.dart",
+        "test/pages/edit/editor_save_retry_test.dart"
+      ],
+      "exitCode": 0,
+      "finishedAt": 1792583221.852758,
+      "name": "acceptance-ui-regressions",
+      "originalLogSHA256": "b28de1522522f38e694530fe878aba4188f761df79e0a26466a4492663dd5d9f",
+      "originalReceiptSHA256": "c3402557dcd951f44ba81d1970a39057964662ccb794ba780bb73d498b5d4a03",
+      "passed": 73,
+      "publicLog": "foto-editor-evidence/acceptance/acceptance-ui-regressions.txt",
+      "publicLogSHA256": "b28de1522522f38e694530fe878aba4188f761df79e0a26466a4492663dd5d9f",
+      "publicReceipt": "foto-editor-evidence/acceptance/acceptance-ui-regressions.receipt.json",
+      "publicReceiptSHA256": "c3402557dcd951f44ba81d1970a39057964662ccb794ba780bb73d498b5d4a03",
+      "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+      "source": {
+        "changesSHA256": "4c5a1c26f9ad5ac78c6a57805c88f74c7eab9c2a3f399cd48604adda182798db",
+        "head": "c755c03cc8c9c560063e403fdac733971541f04b"
+      },
+      "stage": "flutter-test",
+      "startedAt": 1792583178.6482902,
+      "status": "PASS"
+    },
+    {
+      "argv": ["analyze", "--no-pub"],
+      "exitCode": 0,
+      "finishedAt": 1792583343.6500647,
+      "name": "acceptance-analyze",
+      "originalLogSHA256": "798a24f41380a729f43a5518550ac74120cfa66c176da5d59e8a5ac51e6992e7",
+      "originalReceiptSHA256": "3427a1ed287fa1fd0516328e34a771d1a406c248d815f380f26fb4cff9edfb0b",
+      "passed": null,
+      "publicLog": "foto-editor-evidence/acceptance/acceptance-analyze.txt",
+      "publicLogSHA256": "7e3b097dae6a27edd5d14846dcfd6520daf39a25d3d626996ba4f71f9f9c0cf2",
+      "publicReceipt": "foto-editor-evidence/acceptance/acceptance-analyze.receipt.json",
+      "publicReceiptSHA256": "3427a1ed287fa1fd0516328e34a771d1a406c248d815f380f26fb4cff9edfb0b",
+      "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+      "source": {
+        "changesSHA256": "5be9edab7b79d3f8196984e2ca360beafeb30efc54d05222a4c35f9c628ca099",
+        "head": "c755c03cc8c9c560063e403fdac733971541f04b"
+      },
+      "stage": "flutter-analyze",
+      "startedAt": 1792583332.358671,
+      "status": "PASS"
+    },
+    {
+      "argv": [
+        "test",
+        "--concurrency=1",
+        "test/pages/edit/editor_acceptance_test.dart"
+      ],
+      "exitCode": 0,
+      "finishedAt": 1792583400.2521133,
+      "name": "acceptance-goldens",
+      "originalLogSHA256": "5f289e8f86dd1e6fdb8c58a3e9016be3160eece591765e5e2b9bcf00e04e8fe9",
+      "originalReceiptSHA256": "74797796f457d8467100b7d74e23f27c8811c60bbd1df3496f087d5989181d88",
+      "passed": 10,
+      "publicLog": "foto-editor-evidence/acceptance/acceptance-goldens.txt",
+      "publicLogSHA256": "5f289e8f86dd1e6fdb8c58a3e9016be3160eece591765e5e2b9bcf00e04e8fe9",
+      "publicReceipt": "foto-editor-evidence/acceptance/acceptance-goldens.receipt.json",
+      "publicReceiptSHA256": "74797796f457d8467100b7d74e23f27c8811c60bbd1df3496f087d5989181d88",
+      "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+      "source": {
+        "changesSHA256": "5be9edab7b79d3f8196984e2ca360beafeb30efc54d05222a4c35f9c628ca099",
+        "head": "c755c03cc8c9c560063e403fdac733971541f04b"
+      },
+      "stage": "flutter-test",
+      "startedAt": 1792583389.5549226,
+      "status": "PASS"
     }
   ],
   "schema": 1,
@@ -406,10 +558,11 @@
     ".github/workflows/docker.yml": "a9714c1b4586085e30c4e94c37a829984c8df90fb5b177675af11316a0c399a3",
     ".github/workflows/gallery-build-mobile.yml": "0d30dddcf39f04848d754ea207eab0b93fa86c9e0c11a375f2ecd58f45769381",
     ".github/workflows/test.yml": "5391c01e1af4eacd3efc47a418f5b71d4c3bdb19e04b36453aa4861fa81a7bcc",
+    "i18n/ru.json": "9a4818abad94e9378f7f62b81644898b9458523c75c489717ba4e7393dece848",
     "mobile/lib/constants/filters.dart": "2fceb0910464bfd5e1ccf59481b6f025e7655ad839a5e2dabc240cba5e6b4029",
     "mobile/lib/domain/models/annotation.model.dart": "25feb07d13d280a0cb617bc3ad376c02872e6de578fdebc07ee05c6733e8927c",
     "mobile/lib/presentation/pages/edit/annotation_canvas.dart": "c16e4d4413b9350950b43533388c2ff040d5695119ab1672654051514e1b45bf",
-    "mobile/lib/presentation/pages/edit/edit.page.dart": "428e10fcd0a9b97d8aae4bc504263cd526614e24fad832ddfcd570cbbc9805ef",
+    "mobile/lib/presentation/pages/edit/edit.page.dart": "55ed883b683bf1caf1778d0fb35d705ab4bf2088f08cb4996f4d018ef8d1dbfb",
     "mobile/lib/presentation/pages/edit/editor.provider.dart": "bab1b0aa864e1f5caaab47b6c0a569e7109e9a11d977eade2589c8c007cd4be1",
     "mobile/lib/presentation/pages/edit/editor_mode.dart": "bcdaf78f358dd41c4aee90da43fc6813bf41114002eecf0c3b6d26e490484abf",
     "mobile/lib/presentation/pages/edit/editor_viewport.dart": "afcf552f6c06dc007b8428e14993dbdc12d88c58752385a55c477e9724637012",
@@ -422,10 +575,14 @@
     "mobile/lib/utils/color_adjustment.dart": "d14b43616162b4882383294be0cbad9552b63fc06512ac1a152a0649d7402670",
     "mobile/lib/utils/edited_image_exporter.dart": "42124242d7ee48c4ba527552a969a2b726c08f362663d6f1e4b4f89f727fdd4b",
     "mobile/test/pages/edit/annotation_eraser_geometry_test.dart": "84f6e4098f77e8f22e1101f29db811353d4b14aad356e94325eba33e59515054",
+    "mobile/test/pages/edit/editor_acceptance_test.dart": "a18b478a53e5dc12891ae811f430536322412029cc26e8120caa897df92935dd",
     "mobile/test/pages/edit/editor_color_pipeline_test.dart": "7ff6443302a7bb0768bc945a56f243f0eadde14ce5e8abd21cca88c9d5ee28bc",
     "mobile/test/pages/edit/editor_crop_history_test.dart": "1c4a0965be30ab0e9f2013ded8e20cc7f1a1b7a10992f0675ef0567e05de5fd4",
     "mobile/test/pages/edit/editor_objects_test.dart": "38e6ae39c9063462aa27fa1fc96f7d8a8b41e28b9f4a574376435d061ad4a17a",
     "mobile/test/pages/edit/editor_save_retry_test.dart": "c1988b90811daba334d5768d20acdd0276ef941d92c228b861116888e0bceab9",
+    "mobile/test/pages/edit/goldens/editor_ru_compact_large_text.png": "1c6698111f7c219bdd46cdd164718598ad33128b4f6aac19de454a1ae598ad17",
+    "mobile/test/pages/edit/goldens/editor_ru_draw_portrait.png": "8b5362991b3925cdea89a828b724080836e031e93577d1e2ff4ac49d83239b81",
+    "mobile/test/pages/edit/goldens/editor_ru_text_landscape.png": "7a3d1b7aa7e4d8f2ba35d9a344fbe5c2b84346127e2883c0e85a64971c141174",
     "mobile/test/pages/edit/magic_eraser_editor_integration_test.dart": "b5292d16469e7d00a5a09a5a3a4bfb23f99c9d949b181385cd394937b719a69b",
     "mobile/test/unit/providers/editor_document_history_test.dart": "6edd4cd65c6d0463364d4dcd7ddce7ef52bb68bf56a0fdfa1ad616aeb124df39",
     "mobile/test/unit/providers/editor_provider_test.dart": "55c820978493652fec3ef9e461cf910f6170a5cbf01f7d88e40b4ecdcf30663e",

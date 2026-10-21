@@ -1,0 +1,36 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792583343.6500647,
+  "log": "edbf0e14260ea75819cd3810e5a300342e094316835b58c85279c7a3d7de4c45-39a0439cb9564bd4b3b6c87b86767b69.log",
+  "logSHA256": "798a24f41380a729f43a5518550ac74120cfa66c176da5d59e8a5ac51e6992e7",
+  "outputs": {},
+  "pid": 254700,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "analyze",
+      "--no-pub"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "8c96acf4a751364fe7b501a1a1c9755d5b182ae1b56789c7223edaca735e74b1",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "5be9edab7b79d3f8196984e2ca360beafeb30efc54d05222a4c35f9c628ca099",
+      "head": "c755c03cc8c9c560063e403fdac733971541f04b"
+    },
+    "stage": "flutter-analyze",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792583332.358671,
+  "status": "PASS"
+}
