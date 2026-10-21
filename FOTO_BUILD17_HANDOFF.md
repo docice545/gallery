@@ -33,7 +33,7 @@
 
 | Проверка | Результат |
 | --- | --- |
-| Automation, Linux flock/signals/subreaper/pidfd, mock systemd argv, manifest interruption | 35/35 PASS |
+| Automation, Linux flock/signals/subreaper/pidfd, mock systemd argv, manifest interruption | 37/37 PASS после исправления APK runner |
 | Backend asset-media/repository/library/metadata unit | 418/418 PASS |
 | Backend deletion/recovery/Trash/storage/Big-LaMa contracts unit | 485/485 PASS |
 | Изолированный PostgreSQL: upload/library/5 duplicate admission cases/authorized deletion, финальный прогон | 177/177 PASS |
@@ -104,6 +104,10 @@ Automation log: `/tmp/foto-build17-automation-tests.log`. SDK setup log:
 
 1. Первый release APK build на `830ec05cb` остановился через 7m16s: системный Java 21 был JRE
    без JAVA_COMPILER. Полный JDK установлен отдельно, system Java/Gradle/AGP не изменялись.
+   После JDK следующая попытка дошла до compileReleaseJavaWithJavac: --no-pub в Flutter3.47
+   пропускал release-specific plugin generation и оставлял integration_test в registrant.
+   Runner теперь сначала проверяет frozen dependencies, затем вызывает штатную release generation.
+   Добавлены два regression test на порядок и fail-fast; test plugin не добавлен в runtime.
    Повторить **только неудавшийся APK этап**, используя существующий Gradle cache.
    Проверить actual package/version/alignment, SHA-256 и отсутствие debug
    подписи. В Cloud нет `mobile/android/key.jks` или `key.properties`; production signing не выполнен.

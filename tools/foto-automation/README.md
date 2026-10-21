@@ -62,6 +62,10 @@ production DB/Redis/NAS в окружение тестов. При недост�
 `dependencies` устанавливает закреплённые зависимости server с frozen lockfile;
 `backend-build`, `flutter-analyze`, `android-apk` также используют общую блокировку.
 `android-apk` до запуска Gradle требует полный `JAVA_HOME/bin/javac` (JRE недостаточно).
+Внутри того же lock сначала выполняется `flutter pub get --enforce-lockfile`, затем штатный
+`flutter build apk --release` с release-specific генерацией plugin registrant. `--no-pub`
+в Flutter 3.47 пропускает эту генерацию и может оставить dev-only integration_test в Java-коде.
+Registrants вручную не исправляются, test plugin не добавляется в production dependencies.
 Java/Gradle используют уже настроенный `HTTPS_PROXY`, без переноса его credentials в argv.
 Если изолированный JDK не содержит CA платформы, `FOTO_JAVA_TRUSTSTORE` может указывать на
 существующий доверенный Java truststore; проверка TLS при этом не отключается.
@@ -84,7 +88,7 @@ Runner выводит только статус и путь к приватно�
 3. Проверьте `bash -n` трёх launcher и `foto-prompt-entry.sh`; выполните `python3 -m unittest
    discover -s <staging>/tools/foto-automation/tests -v` на временных fixtures.
 4. При отсутствии активных сессий сохраните копии текущих launcher с уникальным именем.
-   Установите `foto-stage-runner.py`, `foto-manifest.py`, `foto-prompt-entry.sh`, `foto-mobile-codegen.sh` и
+   Установите `foto-stage-runner.py`, `foto-manifest.py`, `foto-prompt-entry.sh`, `foto-mobile-codegen.sh`, `foto-android-build.sh` и
    `foto-integration-continue-v2` в **существующий**
    `/mnt/hp-data/codex-work/foto-integration-state/`, owner/group `codex-gallery`, mode 0700.
    Установите два wrapper в их прежние `/usr/local/bin/` с owner root, mode 0755.

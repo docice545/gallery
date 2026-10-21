@@ -141,6 +141,43 @@ print('synthetic check completed')
         self.assertIn('FULL_JDK_REQUIRED', r.stderr)
         self.assertFalse(self.calls.exists())
 
+    def android_fixture(self):
+        (self.repo / 'mobile').mkdir()
+        (self.repo / '.gitignore').write_text('server/dist/\nmobile/build/\n')
+        subprocess.run(['git', '-C', str(self.repo), 'add', '.gitignore'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(self.repo), 'commit', '-qm', 'synthetic Android build output ignore'],
+            check=True, capture_output=True)
+        compiler = self.base / 'jdk/bin/javac'
+        compiler.parent.mkdir(parents=True)
+        compiler.touch(mode=0o700)
+        flutter = self.bin / 'flutter'
+        flutter.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')
+if sys.argv[1:3] == ['pub','get'] and os.environ.get('MODE') == 'error': sys.exit(23)
+if sys.argv[1:3] == ['build','apk']:
+    assert '--no-pub' not in sys.argv
+    out=Path('build/app/outputs/flutter-apk/app-release.apk')
+    out.parent.mkdir(parents=True,exist_ok=True); out.write_bytes(b'synthetic output, not a real APK')
+''')
+        flutter.chmod(0o700)
+        return dict(self.env, JAVA_HOME=str(compiler.parents[1]))
+
+    def test_android_frozen_dependencies_precede_release_plugin_generation(self):
+        env = self.android_fixture()
+        r = subprocess.run(self.argv('android-apk'), env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
+            [['pub', 'get', '--enforce-lockfile'], ['build', 'apk', '--release']])
+
+    def test_android_lockfile_failure_never_starts_gradle_build(self):
+        env = dict(self.android_fixture(), MODE='error')
+        r = subprocess.run(self.argv('android-apk'), env=env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
+            [['pub', 'get', '--enforce-lockfile']])
+
     def test_host_wrapper_term_is_not_deferred_until_unit_finishes(self):
         unit_pid = self.base / 'unit-pid'
         stopped = self.base / 'unit-stopped'

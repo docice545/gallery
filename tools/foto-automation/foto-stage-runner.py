@@ -182,7 +182,7 @@ def command(repo, stage, files):
         compiler = Path(os.environ.get('JAVA_HOME', '/nonexistent')) / 'bin/javac'
         if not compiler.is_file() or not os.access(compiler, os.X_OK):
             raise Stop('FULL_JDK_REQUIRED: JAVA_HOME/bin/javac missing; no Gradle process started')
-        return repo / 'mobile', [flutter, 'build', 'apk', '--release', '--no-pub']
+        return repo / 'mobile', ['/bin/bash', str(Path(__file__).with_name('foto-android-build.sh'))]
     raise Stop('REQUIRED_TOOL_UNAVAILABLE')
 
 
