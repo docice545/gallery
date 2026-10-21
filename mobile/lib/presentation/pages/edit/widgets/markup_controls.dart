@@ -24,9 +24,19 @@ class MarkupControls extends StatelessWidget {
   final VoidCallback onRedo;
   final VoidCallback onGestureStart;
   final VoidCallback onGestureEnd;
+  final bool compact;
+  final bool showToolStrip;
+  final bool settingsExpanded;
+  final bool isSettingsOpen;
+  final VoidCallback? onToggleSettings;
 
   const MarkupControls({
     super.key,
+    this.compact = false,
+    this.showToolStrip = true,
+    this.settingsExpanded = true,
+    this.isSettingsOpen = false,
+    this.onToggleSettings,
     required this.mode,
     required this.tool,
     required this.color,
@@ -101,14 +111,14 @@ class MarkupControls extends StatelessWidget {
       icon: Icon(undo ? Icons.undo : Icons.redo),
     );
     return Material(
-      key: const Key('editor-markup-controls'),
+      key: Key(compact && draw && !showToolStrip ? 'editor-markup-settings' : 'editor-markup-controls'),
       color: const Color(0xff191919),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (draw)
+            if (draw && showToolStrip)
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DecoratedBox(
@@ -150,212 +160,220 @@ class MarkupControls extends StatelessWidget {
                           onPressed: () => onTool(entry),
                         ),
                       const SizedBox(height: 28, child: VerticalDivider(width: 12)),
-                      history(true),
-                      history(false),
+                      if (!compact) ...[history(true), history(false)],
+                      if (compact)
+                        IconButton(
+                          key: const Key('editor-toggle-settings'),
+                          tooltip: context.tr(isSettingsOpen ? 'collapse' : 'settings'),
+                          onPressed: onToggleSettings,
+                          icon: Icon(isSettingsOpen ? Icons.expand_more : Icons.tune),
+                        ),
                     ],
                   ),
                 ),
               ),
-            if (mode == EditorMode.stickers)
+            if (settingsExpanded) ...[
+              if (mode == EditorMode.stickers)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final sticker in [
+                        ('star', Icons.star),
+                        ('heart', Icons.favorite),
+                        ('smile', Icons.sentiment_satisfied_alt),
+                      ])
+                        IconButton(
+                          key: Key('editor-sticker-${sticker.$1}'),
+                          tooltip: '${context.tr('editor_stickers')}: ${sticker.$1}',
+                          onPressed: () => onSticker(sticker.$1),
+                          icon: ['star', 'heart', 'smile'].contains(sticker.$1)
+                              ? Icon(sticker.$2, color: color)
+                              : Text(sticker.$1, style: const TextStyle(fontSize: 32)),
+                          iconSize: 36,
+                        ),
+                    ],
+                  ),
+                ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (mode != EditorMode.stickers)
+                      DropdownButton<AnnotationTool>(
+                        key: const Key('annotation-tool-picker'),
+                        value: tools.contains(tool) ? tool : tools.first,
+                        underline: const SizedBox.shrink(),
+                        dropdownColor: const Color(0xff303030),
+                        items: tools
+                            .map(
+                              (entry) => DropdownMenuItem(
+                                value: entry,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(icon(entry), size: 20),
+                                    const SizedBox(width: 8),
+                                    SizedBox(
+                                      width: 140,
+                                      child: Text(label(entry), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            onTool(value);
+                          }
+                        },
+                      ),
+                    if (!draw && !compact) ...[history(true), history(false)],
+                  ],
+                ),
+              ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    for (final sticker in [
-                      ('star', Icons.star),
-                      ('heart', Icons.favorite),
-                      ('smile', Icons.sentiment_satisfied_alt),
-                    ])
+                    Text(context.t.color),
+                    for (final candidate in palette)
                       IconButton(
-                        key: Key('editor-sticker-${sticker.$1}'),
-                        tooltip: '${context.tr('editor_stickers')}: ${sticker.$1}',
-                        onPressed: () => onSticker(sticker.$1),
-                        icon: ['star', 'heart', 'smile'].contains(sticker.$1)
-                            ? Icon(sticker.$2, color: color)
-                            : Text(sticker.$1, style: const TextStyle(fontSize: 32)),
-                        iconSize: 36,
-                      ),
-                  ],
-                ),
-              ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (mode != EditorMode.stickers)
-                    DropdownButton<AnnotationTool>(
-                      key: const Key('annotation-tool-picker'),
-                      value: tools.contains(tool) ? tool : tools.first,
-                      underline: const SizedBox.shrink(),
-                      dropdownColor: const Color(0xff303030),
-                      items: tools
-                          .map(
-                            (entry) => DropdownMenuItem(
-                              value: entry,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(icon(entry), size: 20),
-                                  const SizedBox(width: 8),
-                                  SizedBox(
-                                    width: 140,
-                                    child: Text(label(entry), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  ),
-                                ],
-                              ),
+                        key: ValueKey('editor-color-${candidate.toARGB32()}'),
+                        tooltip: '${context.t.color} ${candidate.toARGB32().toRadixString(16)}',
+                        onPressed: () => onColor(candidate),
+                        icon: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: candidate,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: color == candidate ? Colors.yellow : Colors.grey,
+                              width: color == candidate ? 3 : 1,
                             ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          onTool(value);
-                        }
-                      },
-                    ),
-                  if (!draw) ...[history(true), history(false)],
-                ],
-              ),
-            ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  Text(context.t.color),
-                  for (final candidate in palette)
-                    IconButton(
-                      key: ValueKey('editor-color-${candidate.toARGB32()}'),
-                      tooltip: '${context.t.color} ${candidate.toARGB32().toRadixString(16)}',
-                      onPressed: () => onColor(candidate),
-                      icon: Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          color: candidate,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: color == candidate ? Colors.yellow : Colors.grey,
-                            width: color == candidate ? 3 : 1,
                           ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-            if (mode == EditorMode.text) ...[
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    DropdownButton<String>(
-                      key: const Key('editor-font'),
-                      value: textStyle.fontFamily ?? 'sans-serif',
-                      items: ['sans-serif', 'serif', 'monospace']
-                          .map(
-                            (font) => DropdownMenuItem(
-                              value: font,
-                              child: Text('Aa', style: TextStyle(fontFamily: font)),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (font) {
-                        if (font != null) {
-                          onTextStyle(textStyle.copyWith(fontFamily: font));
-                        }
-                      },
-                    ),
-                    FilterChip(
-                      key: const Key('editor-text-outline'),
-                      label: Text(context.tr('editor_outline')),
-                      selected: textStyle.outlineWidth > 0,
-                      onSelected: (on) => onTextStyle(textStyle.copyWith(outlineWidth: on ? .006 : 0)),
-                    ),
-                    PopupMenuButton<Color>(
-                      key: const Key('editor-outline-color'),
-                      tooltip: context.tr('editor_outline'),
-                      icon: Icon(Icons.format_color_text, color: textStyle.outlineColor),
-                      onSelected: (color) => onTextStyle(textStyle.copyWith(outlineColor: color, outlineWidth: .006)),
-                      itemBuilder: (_) => [
-                        for (final color in palette)
-                          PopupMenuItem(
-                            value: color,
-                            child: Icon(Icons.circle, color: color),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      key: const Key('editor-text-background'),
-                      label: Text(context.tr('editor_background')),
-                      selected: textStyle.backgroundColor.a > 0,
-                      onSelected: (on) =>
-                          onTextStyle(textStyle.copyWith(backgroundColor: on ? Colors.black : Colors.transparent)),
-                    ),
-                    PopupMenuButton<Color>(
-                      key: const Key('editor-background-color'),
-                      tooltip: context.tr('editor_background'),
-                      icon: const Icon(Icons.format_color_fill),
-                      onSelected: (color) => onTextStyle(textStyle.copyWith(backgroundColor: color)),
-                      itemBuilder: (_) => [
-                        for (final color in palette)
-                          PopupMenuItem(
-                            value: color,
-                            child: Icon(Icons.circle, color: color),
-                          ),
-                      ],
-                    ),
                   ],
                 ),
               ),
+              if (mode == EditorMode.text) ...[
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      DropdownButton<String>(
+                        key: const Key('editor-font'),
+                        value: textStyle.fontFamily ?? 'sans-serif',
+                        items: ['sans-serif', 'serif', 'monospace']
+                            .map(
+                              (font) => DropdownMenuItem(
+                                value: font,
+                                child: Text('Aa', style: TextStyle(fontFamily: font)),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (font) {
+                          if (font != null) {
+                            onTextStyle(textStyle.copyWith(fontFamily: font));
+                          }
+                        },
+                      ),
+                      FilterChip(
+                        key: const Key('editor-text-outline'),
+                        label: Text(context.tr('editor_outline')),
+                        selected: textStyle.outlineWidth > 0,
+                        onSelected: (on) => onTextStyle(textStyle.copyWith(outlineWidth: on ? .006 : 0)),
+                      ),
+                      PopupMenuButton<Color>(
+                        key: const Key('editor-outline-color'),
+                        tooltip: context.tr('editor_outline'),
+                        icon: Icon(Icons.format_color_text, color: textStyle.outlineColor),
+                        onSelected: (color) => onTextStyle(textStyle.copyWith(outlineColor: color, outlineWidth: .006)),
+                        itemBuilder: (_) => [
+                          for (final color in palette)
+                            PopupMenuItem(
+                              value: color,
+                              child: Icon(Icons.circle, color: color),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      FilterChip(
+                        key: const Key('editor-text-background'),
+                        label: Text(context.tr('editor_background')),
+                        selected: textStyle.backgroundColor.a > 0,
+                        onSelected: (on) =>
+                            onTextStyle(textStyle.copyWith(backgroundColor: on ? Colors.black : Colors.transparent)),
+                      ),
+                      PopupMenuButton<Color>(
+                        key: const Key('editor-background-color'),
+                        tooltip: context.tr('editor_background'),
+                        icon: const Icon(Icons.format_color_fill),
+                        onSelected: (color) => onTextStyle(textStyle.copyWith(backgroundColor: color)),
+                        itemBuilder: (_) => [
+                          for (final color in palette)
+                            PopupMenuItem(
+                              value: color,
+                              child: Icon(Icons.circle, color: color),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    Text(context.t.size),
+                    Expanded(
+                      child: Slider(
+                        key: const Key('editor-text-size'),
+                        min: .015,
+                        max: .2,
+                        value: textStyle.fontSize.clamp(.015, .2),
+                        onChangeStart: (_) => onGestureStart(),
+                        onChangeEnd: (_) => onGestureEnd(),
+                        onChanged: (value) => onTextStyle(textStyle.copyWith(fontSize: value)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              if (draw)
+                Row(
+                  children: [
+                    Text(context.t.size),
+                    Expanded(
+                      child: Slider(
+                        key: const Key('annotation-width'),
+                        min: 1,
+                        max: 32,
+                        value: width,
+                        onChanged: onWidth,
+                      ),
+                    ),
+                  ],
+                ),
               Row(
                 children: [
-                  Text(context.t.size),
+                  Tooltip(message: context.tr('editor_opacity'), child: const Icon(Icons.opacity, size: 20)),
                   Expanded(
                     child: Slider(
-                      key: const Key('editor-text-size'),
-                      min: .015,
-                      max: .2,
-                      value: textStyle.fontSize.clamp(.015, .2),
+                      key: const Key('annotation-opacity'),
+                      min: .1,
+                      max: 1,
+                      value: opacity,
                       onChangeStart: (_) => onGestureStart(),
                       onChangeEnd: (_) => onGestureEnd(),
-                      onChanged: (value) => onTextStyle(textStyle.copyWith(fontSize: value)),
+                      onChanged: onOpacity,
                     ),
                   ),
                 ],
               ),
             ],
-            if (draw)
-              Row(
-                children: [
-                  Text(context.t.size),
-                  Expanded(
-                    child: Slider(
-                      key: const Key('annotation-width'),
-                      min: 1,
-                      max: 32,
-                      value: width,
-                      onChanged: onWidth,
-                    ),
-                  ),
-                ],
-              ),
-            Row(
-              children: [
-                Tooltip(message: context.tr('editor_opacity'), child: const Icon(Icons.opacity, size: 20)),
-                Expanded(
-                  child: Slider(
-                    key: const Key('annotation-opacity'),
-                    min: .1,
-                    max: 1,
-                    value: opacity,
-                    onChangeStart: (_) => onGestureStart(),
-                    onChangeEnd: (_) => onGestureEnd(),
-                    onChanged: onOpacity,
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
