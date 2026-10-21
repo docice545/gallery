@@ -1574,7 +1574,7 @@
   "editor_exposure": "Экспозиция",
   "editor_filter_intensity": "Интенсивность",
   "editor_filters": "Фильтры",
-  "editor_filters_adjustments": "Фильтры / тон",
+  "editor_filters_adjustments": "Фильтры / коррекция",
   "editor_flip_horizontal": "Отразить горизонтально",
   "editor_flip_vertical": "Отразить вертикально",
   "editor_handle_corner": "{corner, select, top_left {Левый верхний угол} top_right {Правый верхний угол} bottom_left {Левый нижний угол} bottom_right {Правый нижний угол} other {Угол}}",

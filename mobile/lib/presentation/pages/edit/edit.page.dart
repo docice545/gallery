@@ -505,8 +505,9 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
             leadingWidth: 100,
             leading: TextButton(
               key: const Key('editor-reset'),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
               onPressed: state.hasEdits && !state.isApplyingEdits ? _reset : null,
-              child: Text(context.tr('editor_revert'), maxLines: 1),
+              child: FittedBox(fit: BoxFit.scaleDown, child: Text(context.tr('editor_revert'), maxLines: 1)),
             ),
             actions: [
               if (allowTransformEdits) _SaveEditsButton(onSave: _chooseSaveMode),
@@ -518,6 +519,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                 ),
               PopupMenuButton<String>(
                 key: const Key('editor-more'),
+                icon: const Icon(Icons.more_vert),
                 enabled: !state.isApplyingEdits,
                 onSelected: (value) {
                   switch (value) {
@@ -576,7 +578,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     if (allowTransformEdits || widget.asset != null)
                       _EditorBottomPanel(
                         source: widget.image.image,
-                        maxHeight: constraints.maxHeight / 2,
+                        maxHeight: constraints.maxHeight,
                         mode: _mode,
                         allowTransformEdits: allowTransformEdits,
                         asset: widget.asset,
@@ -677,8 +679,18 @@ class _EditorBottomPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const surface = Color(0xff191919);
+    final modeBar = EditorModeBar(
+      mode: mode,
+      allowTransformEdits: allowTransformEdits,
+      hasMagicEraser: asset != null,
+      onMode: onMode,
+    );
+    // Keep one complete 48px control row (+ padding) reachable even with large
+    // labels and a system gesture inset. Use half the body when that suffices;
+    // the photo receives all remaining space, with its aspect ratio preserved.
+    final minimumHeight = modeBar.preferredHeight(context) + MediaQuery.paddingOf(context).bottom + 56;
     return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxHeight),
+      constraints: BoxConstraints(maxHeight: min(maxHeight, max(maxHeight / 2, minimumHeight))),
       child: Container(
         key: const Key('editor-bottom-panel'),
         width: double.infinity,
@@ -746,12 +758,7 @@ class _EditorBottomPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              EditorModeBar(
-                mode: mode,
-                allowTransformEdits: allowTransformEdits,
-                hasMagicEraser: asset != null,
-                onMode: onMode,
-              ),
+              modeBar,
             ],
           ),
         ),
@@ -774,26 +781,22 @@ class EditorModeBar extends StatelessWidget {
     required this.onMode,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    final modes = [
-      EditorMode.magicEraser,
-      if (allowTransformEdits) ...[
-        EditorMode.crop,
-        EditorMode.filters,
-        EditorMode.draw,
-        EditorMode.stickers,
-        EditorMode.text,
-      ],
-    ];
-    final activeMode = mode == EditorMode.adjustments
-        ? EditorMode.filters
-        : mode == EditorMode.shapes
-        ? EditorMode.draw
-        : mode;
-    const labelStyle = TextStyle(fontSize: 12, height: 1.2);
+  static const _labelStyle = TextStyle(fontSize: 12, height: 1.2);
+
+  List<EditorMode> get _modes => [
+    EditorMode.magicEraser,
+    if (allowTransformEdits) ...[
+      EditorMode.crop,
+      EditorMode.filters,
+      EditorMode.draw,
+      EditorMode.stickers,
+      EditorMode.text,
+    ],
+  ];
+
+  double preferredHeight(BuildContext context) {
     final labelPainter = TextPainter(
-      text: TextSpan(text: modes.map((entry) => entry.label(context)).join(' '), style: labelStyle),
+      text: TextSpan(text: _modes.map((entry) => entry.label(context)).join(' '), style: _labelStyle),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       locale: Localizations.localeOf(context),
@@ -801,16 +804,26 @@ class EditorModeBar extends StatelessWidget {
     )..layout();
     final barHeight = max(64.0, 44 + labelPainter.height.ceilToDouble());
     labelPainter.dispose();
+    return barHeight;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeMode = mode == EditorMode.adjustments
+        ? EditorMode.filters
+        : mode == EditorMode.shapes
+        ? EditorMode.draw
+        : mode;
     return SizedBox(
       key: const Key('editor-mode-bar'),
-      height: barHeight,
+      height: preferredHeight(context),
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         scrollDirection: Axis.horizontal,
         child: Row(
           spacing: 8,
           children: [
-            for (final entry in modes)
+            for (final entry in _modes)
               Semantics(
                 selected: entry == activeMode,
                 child: Tooltip(
@@ -828,27 +841,23 @@ class EditorModeBar extends StatelessWidget {
                       backgroundColor: entry == activeMode ? const Color(0xff303030) : null,
                     ),
                     onPressed: entry == EditorMode.magicEraser && !hasMagicEraser ? null : () => onMode(entry),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 100),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(entry.icon, size: 24),
-                          const SizedBox(height: 4),
-                          Text(
-                            entry == EditorMode.magicEraser
-                                ? context.tr('editor_ai')
-                                : entry == EditorMode.crop
-                                ? context.tr('editor_crop_rotate')
-                                : entry == EditorMode.filters
-                                ? context.tr('editor_filters_adjustments')
-                                : entry.label(context),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: labelStyle,
-                          ),
-                        ],
-                      ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(entry.icon, size: 24),
+                        const SizedBox(height: 4),
+                        Text(
+                          entry == EditorMode.magicEraser
+                              ? context.tr('editor_ai')
+                              : entry == EditorMode.crop
+                              ? context.tr('editor_crop_rotate')
+                              : entry == EditorMode.filters
+                              ? context.tr('editor_filters_adjustments')
+                              : entry.label(context),
+                          maxLines: 1,
+                          style: _labelStyle,
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1096,9 +1105,10 @@ class _SaveEditsButton extends ConsumerWidget {
             width: (MediaQuery.sizeOf(context).width * .43).clamp(100.0, 180.0),
             child: TextButton.icon(
               key: const Key('editor-save'),
-              icon: const Icon(Icons.done_rounded),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              icon: MediaQuery.textScalerOf(context).scale(14) <= 18 ? const Icon(Icons.done_rounded) : null,
               onPressed: hasUnsavedEdits ? onSave : null,
-              label: Text(context.t.save, maxLines: 1, overflow: TextOverflow.ellipsis),
+              label: FittedBox(fit: BoxFit.scaleDown, child: Text(context.t.save, maxLines: 1)),
             ),
           );
   }
