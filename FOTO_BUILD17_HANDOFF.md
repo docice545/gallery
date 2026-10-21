@@ -117,8 +117,11 @@ SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`.
 Никакой ключ не создавался/не получался. Без существующего HP-ключа APK не устанавливать.
 
 Cloud-каталог: `/workspace/foto-build17-release-244ae32fc6dc`.
+**Доставка BLOCKED:** draft создан, но assets не загружены: uploads.github.com возвращает
+HTTP401 Bad credentials. API создания release и git push работают; credential для uploads
+в этой среде не принимается. APK/checksums остаются локально; не пересобирать их для повторной загрузки.
 GitHub draft-release (вход владельца, без запуска published workflows):
-https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc
+https://github.com/docice545/gallery/releases/tag/untagged-d254aea7a1c2b4364657
 Итоговый отчёт: [docs/FOTO_BUILD17_TEST_REPORT.md](docs/FOTO_BUILD17_TEST_REPORT.md).
 Получение исходников, подпись и сохранение HP working tree:
 [docs/FOTO_BUILD17_HP_HANDOFF.md](docs/FOTO_BUILD17_HP_HANDOFF.md).
@@ -135,7 +138,7 @@ JPEG/MP4 через HTTP. Cached sidecar source совпал с checkout, SHA-25
 `/tmp/foto-build17-lama-report.json`, private log `/tmp/foto-build17-lama-e2e.log`.
 Это не проверка физического Android, HP worker, Synology или production.
 
-Следующий шаг: проверить опубликованные checksums, подписать **тот же APK** действующим
+Следующий шаг: передать локальный комплект или восстановить доступ uploads, проверить checksums, подписать **тот же APK** действующим
 проектным ключом на HP по инструкции и выполнить device/synthetic acceptance отдельно.
 Не подделывать Build11 profile старого `android_sign_package.py` для Build17.
 Реальный HP cgroup OOM, физические permissions/background behavior и NFS остаются NOT TESTED.

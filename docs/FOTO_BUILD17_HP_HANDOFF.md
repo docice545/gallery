@@ -42,8 +42,15 @@ printf 'SOURCE STAGED: %s\n' "$TRANSFER"
 - SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`.
 - Размер: `188090091` bytes.
 - Состояние подписи: **UNSIGNED**, не debug-signed; напрямую не устанавливать.
-- GitHub draft-release (доступ владельцу репозитория после входа): https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc.
+- GitHub draft-release (доступ владельцу репозитория после входа): https://github.com/docice545/gallery/releases/tag/untagged-d254aea7a1c2b4364657.
 
+**Текущее состояние: assets отсутствуют.** Создание draft прошло, но загрузка файлов
+получила HTTP401 Bad credentials на uploads.github.com. Доступ к metadata/API и git push
+не подтверждает upload credential. Получение APK через GitHub пока **не проверено и недоступно**.
+Комплект находится в Cloud `/workspace/foto-build17-release-244ae32fc6dc`; исходный APK указан в handoff.
+Не вводите токены в чат; повторная загрузка требует действующей GitHub-аутентификации для uploads.
+
+Следующий блок download применим **после появления assets**, сейчас он не сможет получить комплект.
 Draft выбран намеренно: published release в этом репозитории запускает Docker/CLI/SDK workflows.
 Для скачивания нужен GitHub-вход с доступом к draft; анонимная ссылка не поддерживается.
 
@@ -58,7 +65,7 @@ printf 'VERIFIED DOWNLOAD: %s\n' "$DOWNLOAD_DIR"
 ```
 
 Выполняйте от владельца существующей GitHub-аутентификации; ключ Android для скачивания не нужен.
-Скачайте APK и `SHA256SUMS` из указанного release в новый каталог. Выполните
+После успешной загрузки assets скачайте APK и `SHA256SUMS` из указанного release в новый каталог. Выполните
 `sha256sum -c SHA256SUMS` для всего скачанного комплекта или сравните APK с указанным
 здесь SHA. Сверяйте полный hash, а не только имя. Не пересобирайте APK ради подписи.
 

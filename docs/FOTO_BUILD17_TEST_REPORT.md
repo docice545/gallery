@@ -24,6 +24,7 @@
 | Big-LaMa real model HTTP E2E | 11/11 PASS | Реальная CPU-модель + HTTP + новые PostgreSQL14/Redis + synthetic files; все test containers удалены |
 | Реальный Synology/NFS, HP cgroup OOM | NOT TESTED | Не было доступа/разрешения на production |
 | Samsung S23/iOS физические устройства | NOT TESTED | Cloud не имеет этих устройств |
+| GitHub asset upload / download | BLOCKED | upload HTTP401 Bad credentials; draft создан без assets |
 | Подпись существующим HP-ключом | NOT TESTED | Ключ не получался, не создавался и не изменялся |
 
 Количество уникальных пройденных cases: backend unit **903**, PostgreSQL medium **195**,
@@ -82,7 +83,9 @@ APK: `Foto-5.7.3-build17-unsigned.apk`, `188090091` bytes.
 SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`. Package`de.opennoodle.gallery`, version`5.7.3+17`.
 Проверка подписи: **UNSIGNED (apksigner exit=1, no signing certificate)**. Проверка ZIP/alignment: **PASS**.
 
-GitHub draft-release (требуется вход владельца): https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc. Signed APK SHA появится только после фактической подписи на HP.
+GitHub draft-release (требуется вход владельца): https://github.com/docice545/gallery/releases/tag/untagged-d254aea7a1c2b4364657. Assets в draft отсутствуют: upload endpoint получил HTTP401, download не подтверждён.
+Локальный полный комплект: `/workspace/foto-build17-release-244ae32fc6dc`.
+Повторная сборка для исправления upload не нужна. Signed APK SHA появится только после фактической подписи на HP.
 Инструкция: `docs/FOTO_BUILD17_HP_HANDOFF.md`. Ни установки приложения, ни backend deployment
 здесь не было. Android/iOS permissions, background OS behavior и настоящий NFS проверяются
 оператором на специально созданных тестовых объектах, отдельно от семейного архива.
