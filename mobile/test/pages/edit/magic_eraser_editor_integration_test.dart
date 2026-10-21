@@ -104,7 +104,7 @@ void main() {
 
     await selectMagicEraser(tester);
     expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-    expect(find.text('Magic eraser is unavailable for this photo or server.'), findsOneWidget);
+    expect(find.text('The AI eraser service is unavailable. Please try again later.'), findsOneWidget);
     expect(retry, findsOneWidget);
   });
 
@@ -165,13 +165,18 @@ void main() {
     (api.ApiException(403, 'Private response'), 'You do not have permission to edit this photo.'),
     (api.ApiException(400, 'Private response'), 'Magic eraser does not support this photo.'),
     (
+      const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unsupportedBackend),
+      'This server does not provide the magic eraser API.',
+    ),
+    (
+      const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unavailablePhoto),
+      'This photo is unavailable, offline or in Trash.',
+    ),
+    (
       api.ApiException(500, 'Private response'),
       'Could not check magic eraser availability. Check your connection and retry.',
     ),
-    (
-      api.ApiException(503, 'Private response'),
-      'Could not check magic eraser availability. Check your connection and retry.',
-    ),
+    (api.ApiException(503, 'Private response'), 'The AI eraser service is unavailable. Please try again later.'),
     (
       http.ClientException('Private URL'),
       'Could not check magic eraser availability. Check your connection and retry.',

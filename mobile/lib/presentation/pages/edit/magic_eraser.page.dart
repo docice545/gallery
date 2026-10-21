@@ -8,6 +8,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/pages/edit/magic_eraser_availability.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
@@ -47,6 +48,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   bool _queued = false;
   bool _timeout = false;
   bool _failed = false;
+  Object? _loadError;
   String? _jobId;
   int _generation = 0;
 
@@ -63,6 +65,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     setState(() {
       _loading = true;
       _failed = false;
+      _loadError = null;
     });
     try {
       final enabled = await _repository.isEnabled(widget.asset.id, abortTrigger: _pageAbort.future);
@@ -86,11 +89,12 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
         _source = source;
         _sourceSize = size;
       });
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() {
           _loading = false;
           _failed = true;
+          _loadError = error;
         });
       }
     }
@@ -373,15 +377,19 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     }
     if (!_enabled || _source == null || _sourceSize == null) {
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _failed ? context.t.magic_eraser_failed : context.t.magic_eraser_unavailable,
-              style: const TextStyle(color: Colors.white),
-            ),
-            TextButton(onPressed: _load, child: Text(context.t.retry)),
-          ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                magicEraserAvailabilityMessage(context, _loadError),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white),
+              ),
+              TextButton(onPressed: _load, child: Text(context.t.retry)),
+            ],
+          ),
         ),
       );
     }

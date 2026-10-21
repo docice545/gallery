@@ -19,6 +19,7 @@ import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
+import 'package:immich_mobile/presentation/pages/edit/magic_eraser_availability.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
@@ -34,7 +35,6 @@ import 'package:immich_mobile/utils/edited_image_exporter.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_ui/immich_ui.dart';
-import 'package:openapi/api.dart' show ApiException;
 import 'package:path_provider/path_provider.dart';
 
 export 'editor_mode.dart';
@@ -938,12 +938,7 @@ class _MagicEraserButton extends ConsumerWidget {
     final applyingEdits = ref.watch(editorStateProvider.select((state) => state.isApplyingEdits));
     final message = capability.isLoading
         ? context.t.magic_eraser_checking
-        : switch (capability.error) {
-            ApiException(code: 401) => context.t.magic_eraser_sign_in_required,
-            ApiException(code: 403) => context.t.magic_eraser_access_denied,
-            ApiException(code: 400) => context.t.magic_eraser_unsupported_photo,
-            _ => capability.hasError ? context.t.magic_eraser_check_failed : context.t.magic_eraser_unavailable,
-          };
+        : magicEraserAvailabilityMessage(context, capability.error);
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
