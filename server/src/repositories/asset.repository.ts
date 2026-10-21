@@ -2707,7 +2707,7 @@ export class AssetRepository {
         .selectFrom('asset')
         .select(['id', 'checksum', 'deletedAt'])
         .where('ownerId', '=', asUuid(userId))
-        .where('libraryId', 'is', null)
+        .where((eb) => eb.or([eb('libraryId', 'is', null), eb('status', '=', AssetStatus.Trashed)]))
         .where('checksum', 'in', checksums)
         .execute(),
       this.db
@@ -2716,7 +2716,7 @@ export class AssetRepository {
         .select(['asset_duplicate_checksum.assetId as id', 'asset_duplicate_checksum.checksum', 'asset.deletedAt'])
         .where('asset_duplicate_checksum.ownerId', '=', asUuid(userId))
         .where('asset.ownerId', '=', asUuid(userId))
-        .where('asset.libraryId', 'is', null)
+        .where((eb) => eb.or([eb('asset.libraryId', 'is', null), eb('asset.status', '=', AssetStatus.Trashed)]))
         .where('asset_duplicate_checksum.checksum', 'in', checksums)
         .execute(),
       this.db
@@ -2772,10 +2772,10 @@ export class AssetRepository {
       .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
       .select(['asset_duplicate_checksum.assetId as assetId', 'asset.duplicateId'])
       .where('asset_duplicate_checksum.ownerId', '=', asUuid(ownerId))
-      // External-only presence is not a managed mobile backup. Keep its content
-      // identity for feed dedup, but never acknowledge the phone upload with it.
+      // Active external-only presence is not a managed mobile backup. Explicit
+      // Trash remains an admission barrier; offline Active index tombstones do not.
       .where('asset.ownerId', '=', asUuid(ownerId))
-      .where('asset.libraryId', 'is', null)
+      .where((eb) => eb.or([eb('asset.libraryId', 'is', null), eb('asset.status', '=', AssetStatus.Trashed)]))
       .where('asset_duplicate_checksum.checksum', '=', checksum)
       .limit(1)
       .executeTakeFirst();

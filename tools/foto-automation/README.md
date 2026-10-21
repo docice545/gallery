@@ -11,6 +11,9 @@
   `foto-integration-state/heavy-stage.lock`. Второй запрос получает `STOP BUSY`, а не очередь запусков.
 - Отдельный `codex-session.lock` общий для обоих launcher. Повторный запуск не запускает второй
   Codex и не перезаписывает промпт действующей сессии. Существующие legacy locks сохранены.
+  Оба входа также берут legacy `gallery-build15-auto/auto.lock`; отсутствующий IPC lock создаётся
+  без manifest/history и без замены существующего inode. Вложенный continuation не может
+  переиспользовать унаследованный marker родительской сессии: проверяется PID входного процесса.
 - Vitest: один worker, без параллельных файлов, `maxConcurrency=1`, только явно названные specs.
   Flutter tests: `--concurrency=1`. Gradle: один worker, без parallel/daemon, JVM 2 GiB,
   Kotlin compiler in-process. Node heap остаётся 3072 MiB.
@@ -58,6 +61,10 @@ production DB/Redis/NAS в окружение тестов. При недост�
 `--retry-failed`. Это не фоновой retry loop. Не повторяйте OOM без исправления причины.
 `dependencies` устанавливает закреплённые зависимости server с frozen lockfile;
 `backend-build`, `flutter-analyze`, `android-apk` также используют общую блокировку.
+`android-apk` до запуска Gradle требует полный `JAVA_HOME/bin/javac` (JRE недостаточно).
+Java/Gradle используют уже настроенный `HTTPS_PROXY`, без переноса его credentials в argv.
+Если изолированный JDK не содержит CA платформы, `FOTO_JAVA_TRUSTSTORE` может указывать на
+существующий доверенный Java truststore; проверка TLS при этом не отключается.
 Для холодного workspace доступны `sdk-dependencies`, `sdk-build`, `workspace-link`,
 `plugin-sdk-build`. После сборки workspace SDK выполняется `workspace-link`, чтобы pnpm обновил
 injected dependencies. Контракты обновляются через `openapi-spec`, `openapi-typescript`,

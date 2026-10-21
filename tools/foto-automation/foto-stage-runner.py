@@ -85,10 +85,11 @@ def atomic_json(path, value):
             os.unlink(name)
 
 
-def lock(path):
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+def lock(path, legacy=False):
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_CREAT, 0o600)
     s = os.fstat(fd)
-    if not stat.S_ISREG(s.st_mode) or s.st_uid != os.getuid() or stat.S_IMODE(s.st_mode) != 0o600:
+    safe_mode = not (s.st_mode & 0o022) if legacy else stat.S_IMODE(s.st_mode) == 0o600
+    if not stat.S_ISREG(s.st_mode) or s.st_uid != os.getuid() or not safe_mode:
         os.close(fd)
         raise Stop('UNSAFE_LOCK')
     try:
@@ -178,6 +179,9 @@ def command(repo, stage, files):
     if stage == 'flutter-analyze' and flutter:
         return repo / 'mobile', [flutter, 'analyze', '--no-pub']
     if stage == 'android-apk' and flutter:
+        compiler = Path(os.environ.get('JAVA_HOME', '/nonexistent')) / 'bin/javac'
+        if not compiler.is_file() or not os.access(compiler, os.X_OK):
+            raise Stop('FULL_JDK_REQUIRED: JAVA_HOME/bin/javac missing; no Gradle process started')
         return repo / 'mobile', [flutter, 'build', 'apk', '--release', '--no-pub']
     raise Stop('REQUIRED_TOOL_UNAVAILABLE')
 
@@ -243,7 +247,7 @@ def terminate_group(proc):
         raise Stop('DESCENDANT_CLEANUP_INCOMPLETE')
 
 
-def supervise(cmd, cwd, log, lock_fd, env, interactive=False):
+def supervise(cmd, cwd, log, lock_fd, env, interactive=False, additional_fds=()):
     if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
         raise Stop('LINUX_PIDFD_REQUIRED')
     libc = ctypes.CDLL(None, use_errno=True)
@@ -261,7 +265,8 @@ def supervise(cmd, cwd, log, lock_fd, env, interactive=False):
         os.sched_setaffinity(0, allowed[:2])
     try:
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=None if interactive else subprocess.DEVNULL,
-            stdout=log, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=(lock_fd,), preexec_fn=limit_cpu)
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+            pass_fds=(lock_fd, *additional_fds), preexec_fn=limit_cpu)
         while proc.poll() is None and not stopped:
             time.sleep(0.05)
         rc = 128 + stopped[0] if stopped else proc.returncode
@@ -277,6 +282,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, default=Path('/mnt/hp-data/codex-work/foto-integration'))
     parser.add_argument('--state', type=Path, default=DEFAULT_STATE)
+    parser.add_argument('--legacy-lock', type=Path,
+        default=Path('/mnt/hp-data/codex-work/gallery-build15-auto/auto.lock'))
     parser.add_argument('--resume', action='store_true', help='reuse exact, integrity-checked successful stage only')
     parser.add_argument('--retry-failed', action='store_true', help='explicitly allow one new attempt, never an automatic retry')
     parser.add_argument('stage', choices=['unit', 'medium', 'typecheck', 'backend-build',
@@ -291,11 +298,25 @@ def main():
         if not args.files:
             raise Stop('SESSION_COMMAND_REQUIRED')
         fd = lock(args.state / 'codex-session.lock')
+        legacy_fd = None
         try:
             env = dict(os.environ, FOTO_SESSION_ACTIVE='1')
+            env.pop('FOTO_LEGACY_LOCK_HELD', None)
+            if args.legacy_lock.is_symlink():
+                raise Stop('UNSAFE_LEGACY_LOCK')
+            args.legacy_lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            parent = args.legacy_lock.parent.lstat()
+            if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_mode & 0o022:
+                raise Stop('UNSAFE_LEGACY_LOCK_DIRECTORY')
+            legacy_fd = lock(args.legacy_lock, legacy=True)
+            env['FOTO_LEGACY_LOCK_HELD'] = '1'
             # Session output remains interactive; no Codex is launched by this module on import.
-            return supervise(args.files, repo, None, fd, env, interactive=True)
+            entry = ['/bin/bash', '-c', 'export FOTO_SESSION_ENTRY_PID=$$; exec "$@"', 'foto-session', *args.files]
+            return supervise(entry, repo, None, fd, env, interactive=True,
+                additional_fds=() if legacy_fd is None else (legacy_fd,))
         finally:
+            if legacy_fd is not None:
+                os.close(legacy_fd)
             os.close(fd)
     stages = args.state / 'stages'
     private_dir(stages)
@@ -329,6 +350,11 @@ def main():
                 repo / 'server/node_modules/typescript/package.json',
                 repo / 'mobile/.dart_tool/package_config.json') if p.is_file()
         }
+        if args.stage in ('android-apk', 'openapi-dart'):
+            java_home = Path(os.environ.get('JAVA_HOME', '/nonexistent'))
+            release = java_home / 'release'
+            request['java'] = {'home': str(java_home),
+                'releaseSHA256': file_digest(release) if release.is_file() else None}
         key = digest(json.dumps(request, sort_keys=True).encode())
         receipt = stages / (key + '.json')
         if receipt.is_symlink():
@@ -362,6 +388,11 @@ def main():
                 '-Dorg.gradle.jvmargs=-Xmx2048m -Dkotlin.compiler.execution.strategy=in-process '
                 '-Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false',
             JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=2 -Xmx2048m')
+        trust = env.get('FOTO_JAVA_TRUSTSTORE')
+        if trust:
+            if re.search(r'\s', trust) or not Path(trust).is_file():
+                raise Stop('INVALID_JAVA_TRUSTSTORE')
+            env['JAVA_TOOL_OPTIONS'] += ' -Djavax.net.ssl.trustStore=' + trust
         proxy = urlsplit(env.get('HTTPS_PROXY', env.get('https_proxy', '')))
         if proxy.hostname:
             if not re.fullmatch(r'[A-Za-z0-9_.:-]+', proxy.hostname):

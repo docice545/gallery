@@ -24,7 +24,7 @@ fi
 RUNNER="$STATE_DIR/foto-stage-runner.py"
 # One global session for both launchers; the lock is inherited by the supervised child.
 # No lock files/checkpoints are removed to "recover" from an OOM.
-if [[ "$MODE" == --resume && "${FOTO_SESSION_ACTIVE:-}" != 1 ]]; then
+if [[ "$MODE" == --resume && ( "${FOTO_SESSION_ACTIVE:-}" != 1 || "${FOTO_SESSION_ENTRY_PID:-}" != "$$" ) ]]; then
   [[ -f "$RUNNER" && ! -L "$RUNNER" ]] || die 'install the verified FOTO stage runner first'
   exec python3 "$RUNNER" --repo "$REPO" --state "$STATE_DIR" session /bin/bash "$0" "$@"
 fi
@@ -131,7 +131,7 @@ python3 "$STATE_DIR/foto-manifest.py" --check "$MANIFEST" "$STATE_MANIFEST"
 [[ -z "$(git -C "$REPO" status --porcelain=v1)" ]] || die 'integration worktree is dirty; preserve and review it before continuing'
 
 # Share the legacy lock so the old and new launchers can never run concurrently.
-if [[ -e "$AUTO_STATE/auto.lock" ]]; then
+if [[ -e "$AUTO_STATE/auto.lock" && "${FOTO_LEGACY_LOCK_HELD:-}" != 1 ]]; then
   exec 8<>"$AUTO_STATE/auto.lock"
   flock -n 8 || die 'legacy automation is still active; retry after it exits'
 fi

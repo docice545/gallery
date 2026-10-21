@@ -3,7 +3,7 @@
 set -euo pipefail
 STATE_DIR=$1
 CONTINUATION=$2
-[[ "${FOTO_SESSION_ACTIVE:-}" == 1 && ! -L "$STATE_DIR/prompts/user-task.txt" ]] || exit 2
+[[ "${FOTO_SESSION_ACTIVE:-}" == 1 && "${FOTO_SESSION_ENTRY_PID:-}" == "$$" && ! -L "$STATE_DIR/prompts/user-task.txt" ]] || exit 2
 umask 077
 TMP=$(mktemp "$STATE_DIR/prompts/.user-task.XXXXXXXX")
 trap 'rm -f -- "$TMP"' EXIT

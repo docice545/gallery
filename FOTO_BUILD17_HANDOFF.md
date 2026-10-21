@@ -11,9 +11,14 @@
 - `cc378e4c3`: mapper `duplicateId`, исправление ложного подтверждения external-only файла как
   managed mobile backup, PostgreSQL-регрессии с синтетическими файлами. Исходные исправления
   `f687de397`, `af2dc2df7`, `97e446038` сохранены. Дедупликация не опирается на имя/дату.
-- Следующий checkpoint включает дополнения runner: проверки build-output SHA-256, ограничение CPU
-  дочернего дерева, последовательный Flutter/Pigeon codegen, Java proxy без утечки credentials,
-  своевременную обработку TERM host-wrapper.
+- `830ec05cb9e871a99b713fb5b3502d07f402c1b7`: клиенты, версия 17, unsigned release mode,
+  checkpoints сборок, последовательный mobile codegen, предыдущий опубликованный checkpoint.
+- Дополнительная проверка сохранила explicit external Trash как запрет автоматического reupload,
+  отдельно от offline Active index tombstones. Реальный FAIL нового теста сначала воспроизведён,
+  затем исправлен без миграции или изменения production данных.
+- Дополнения runner: общий legacy lock на весь срок сессии, PID-bound entry для защиты от
+  вложенного continuation, fail-fast проверка полного JDK и фиксация его identity в receipt.
+  TLS для Java использует проверяемый системный truststore; проверки сертификатов не отключались.
 - OpenAPI/TypeScript/Dart регенерированы закреплёнными генераторами. **Одно** смысловое изменение
   схемы: optional nullable `AssetMediaResponseDto.duplicateId`. Итоговый spec diff — 7 строк,
   SDK diff — 2 строки; массовых изменений API нет.
@@ -28,11 +33,11 @@
 
 | Проверка | Результат |
 | --- | --- |
-| Automation, Linux flock/signals/subreaper/pidfd, mock systemd argv, manifest interruption | 30/30 PASS |
+| Automation, Linux flock/signals/subreaper/pidfd, mock systemd argv, manifest interruption | 35/35 PASS |
 | Backend asset-media/repository/library/metadata unit | 418/418 PASS |
 | Backend deletion/recovery/Trash/storage/Big-LaMa contracts unit | 485/485 PASS |
-| Изолированный PostgreSQL: upload/library/new duplicate admission | 91/91 PASS |
-| Изолированный PostgreSQL: authorized deletion/Live Photo/retry | 102/102 PASS |
+| Изолированный PostgreSQL: upload/library/5 duplicate admission cases/authorized deletion, финальный прогон | 177/177 PASS |
+| Неизменённые Live Photo root admission / retry, ранее выполненные | 18/18 PASS |
 | Server TypeScript, targeted ESLint, Nest build + migration sync | PASS |
 | TypeScript SDK build после регенерации | PASS |
 | Flutter sync/backup/delete/restore/autoplay existing regressions | 177 PASS |
@@ -68,7 +73,9 @@ Cloud каталога только после совпадения blob hash/si
 
 Cloud checkout: `/workspace/gallery`. Node 24.21.0, pnpm 11.24.0, Vitest 4.1.11,
 Flutter 3.47.2 / Dart 3.13.2. Используются lockfiles без обновления зависимостей.
-OpenAPI: oazapfts 7.5.0 / generator 7.25.0. JDK 21; Android SDK 36 / build-tools 36.0.0,
+OpenAPI: oazapfts 7.5.0 / generator 7.25.0. Полный Temurin JDK 21.0.2+13 (pin mobile/mise.toml);
+архив SHA-256 `454bebb2c9fe48d981341461ffb6bf1017c7b7c6e15c6b0c29b959194ba3aaa5`,
+проверен по официальному release Adoptium. Android SDK 36 / build-tools 36.0.0,
 NDK 28.2.13676358, CMake 3.22.1, cmdline-tools 19.0. Gradle wrapper — проектный 8.14.
 
 ```bash
@@ -81,7 +88,8 @@ export ANDROID_HOME=/workspace/.gallery-tools/android-sdk-build17
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export ANDROID_USER_HOME=/workspace/.gallery-tools/android-user-build17
 export GRADLE_USER_HOME=/workspace/.gallery-tools/gradle-build17
-export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+export JAVA_HOME=/workspace/.gallery-tools/java-build17/jdk-21.0.2+13
+export FOTO_JAVA_TRUSTSTORE=/etc/ssl/certs/java/cacerts
 python3 tools/foto-automation/foto-stage-runner.py --repo /workspace/gallery \
   --state /tmp/foto-build17-cloud-state android-apk
 ```
@@ -94,7 +102,10 @@ Automation log: `/tmp/foto-build17-automation-tests.log`. SDK setup log:
 
 ## Следующие этапы на момент checkpoint
 
-1. Собрать release APK, проверить actual package/version/alignment, SHA-256 и отсутствие debug
+1. Первый release APK build на `830ec05cb` остановился через 7m16s: системный Java 21 был JRE
+   без JAVA_COMPILER. Полный JDK установлен отдельно, system Java/Gradle/AGP не изменялись.
+   Повторить **только неудавшийся APK этап**, используя существующий Gradle cache.
+   Проверить actual package/version/alignment, SHA-256 и отсутствие debug
    подписи. В Cloud нет `mobile/android/key.jks` или `key.properties`; production signing не выполнен.
 2. По возможности реальный Big-LaMa E2E только на новом изолированном sidecar/PG/Redis.
    Unit contracts не считаются этим E2E. В Cloud есть cached image/model, но реальный E2E пока не запускался.

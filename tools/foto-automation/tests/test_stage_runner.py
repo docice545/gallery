@@ -1,5 +1,6 @@
 """Disposable subprocess/OS lock tests; no Codex/systemd/HP or real OOM is invoked."""
 import importlib.util
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -60,7 +61,8 @@ print('synthetic check completed')
             subprocess.run(['git', '-C', str(self.repo), *cmd], check=True, capture_output=True)
 
     def argv(self, *args):
-        return [sys.executable, str(RUNNER), '--repo', str(self.repo), '--state', str(self.state), *args]
+        return [sys.executable, str(RUNNER), '--repo', str(self.repo), '--state', str(self.state),
+            '--legacy-lock', str(self.base / 'legacy.lock'), *args]
 
     def run_stage(self, *options, mode='ok'):
         return subprocess.run(self.argv(*options, 'unit', self.spec), env=dict(self.env, MODE=mode),
@@ -128,6 +130,16 @@ print('synthetic check completed')
         r = subprocess.run(self.argv('--resume', 'backend-build'), env=self.env, capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('CHECKPOINT_OUTPUT_MISMATCH', r.stderr)
+
+    def test_android_jre_fails_before_starting_a_build(self):
+        flutter = self.bin / 'flutter'
+        flutter.write_bytes(self.node.read_bytes())
+        flutter.chmod(0o700)
+        r = subprocess.run(self.argv('android-apk'), env=dict(self.env, JAVA_HOME=str(self.base / 'missing-jdk')),
+            capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('FULL_JDK_REQUIRED', r.stderr)
+        self.assertFalse(self.calls.exists())
 
     def test_host_wrapper_term_is_not_deferred_until_unit_finishes(self):
         unit_pid = self.base / 'unit-pid'
@@ -284,6 +296,56 @@ print('synthetic check completed')
         finally:
             p.communicate(timeout=10)
         self.assertEqual(len(self.calls.read_text().splitlines()), 1)
+
+    def test_legacy_launcher_blocks_new_codex_session(self):
+        legacy = self.base / 'legacy.lock'
+        legacy.touch(mode=0o600)
+        with legacy.open('r+') as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            r = subprocess.run(self.argv('session', str(self.node)), env=self.env, capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn('BUSY', r.stderr)
+            self.assertFalse(self.calls.exists())
+
+    def test_new_session_blocks_existing_legacy_lock_for_its_entire_lifetime(self):
+        legacy = self.base / 'legacy.lock'
+        legacy.touch(mode=0o644)  # safely allow old read-only-to-others lock modes; never chmod it
+        before = legacy.stat()
+        p = subprocess.Popen(self.argv('session', str(self.node)), env=dict(self.env, MODE='slow'),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.wait_file(self.calls)
+            with legacy.open('r+') as f:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            p.communicate(timeout=10)
+        self.assertEqual(p.returncode, 0)
+        after = legacy.stat()
+        self.assertEqual((before.st_ino, before.st_mode), (after.st_ino, after.st_mode))
+
+    def test_missing_legacy_lock_is_initialized_without_any_checkpoint_history(self):
+        r = subprocess.run(self.argv('session', str(self.node)), env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.base / 'legacy.lock').is_file())
+        self.assertFalse((self.state / 'manifest.json').exists())
+
+    def test_nested_continuation_cannot_reuse_parent_session_marker(self):
+        self.state.mkdir(mode=0o700)
+        (self.state / 'foto-stage-runner.py').write_bytes(RUNNER.read_bytes())
+        script = self.base / 'continuation.sh'
+        text = (ROOT / 'foto-integration-continue-v2').read_text()
+        text = text.replace('STATE_DIR=/mnt/hp-data/codex-work/foto-integration-state', 'STATE_DIR=' + str(self.state))
+        text = text.replace('REPO=/mnt/hp-data/codex-work/foto-integration', 'REPO=' + str(self.repo))
+        script.write_text(text)
+        script.chmod(0o700)
+        # A following command prevents Bash's last-command exec optimization:
+        # this must really create a nested shell, not become the allowed entry PID.
+        r = subprocess.run(self.argv('session', '/bin/bash', '-c', '"$1" --resume; result=$?; exit "$result"', 'fixture', str(script)),
+            env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('BUSY', r.stdout + r.stderr)
+        self.assertFalse(self.calls.exists())
 
     def test_manifest_history_is_not_modified(self):
         self.state.mkdir(mode=0o700)

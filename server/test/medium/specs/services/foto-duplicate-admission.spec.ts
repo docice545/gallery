@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AssetUploadAction } from 'src/dtos/asset-media-response.dto.js';
-import { ChecksumAlgorithm } from 'src/enum.js';
+import { AssetRejectReason, AssetUploadAction } from 'src/dtos/asset-media-response.dto.js';
+import { AssetStatus, ChecksumAlgorithm } from 'src/enum.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { DB } from 'src/schema/index.js';
@@ -114,4 +114,45 @@ it('does not acknowledge another owners managed copy', async () => {
   await expect(
     sut.bulkUploadCheck(auth, { assets: [{ id: 'other-phone', checksum: checksum.toString('hex') }] }),
   ).resolves.toEqual({ results: [{ id: 'other-phone', action: AssetUploadAction.ACCEPT }] });
+});
+
+it('retains the explicit external Trash barrier against automatic mobile reupload', async () => {
+  const { sut, asset, checksum, auth, bytes } = await fixture();
+  await db
+    .updateTable('asset')
+    .set({ status: AssetStatus.Trashed, deletedAt: new Date() })
+    .where('id', '=', asset.id)
+    .execute();
+  await expect(
+    sut.bulkUploadCheck(auth, { assets: [{ id: 'phone', checksum: checksum.toString('hex') }] }),
+  ).resolves.toEqual({
+    results: [
+      {
+        id: 'phone',
+        action: AssetUploadAction.REJECT,
+        reason: AssetRejectReason.DUPLICATE,
+        assetId: asset.id,
+        isTrashed: true,
+      },
+    ],
+  });
+  await expect(sut.getUploadAssetIdByChecksum(auth, checksum.toString('hex'))).resolves.toMatchObject({ id: asset.id });
+  expect(await readFile(asset.originalPath)).toEqual(bytes);
+});
+
+it('does not treat active offline index tombstones as user Trash or a managed backup', async () => {
+  const { sut, asset, checksum, auth, bytes } = await fixture();
+  await db
+    .updateTable('asset')
+    .set({ status: AssetStatus.Active, isOffline: true, deletedAt: new Date() })
+    .where('id', '=', asset.id)
+    .execute();
+  await expect(
+    sut.bulkUploadCheck(auth, { assets: [{ id: 'phone', checksum: checksum.toString('hex') }] }),
+  ).resolves.toEqual({ results: [{ id: 'phone', action: AssetUploadAction.ACCEPT }] });
+  await expect(sut.getUploadAssetIdByChecksum(auth, checksum.toString('hex'))).resolves.toBeUndefined();
+  await expect(
+    db.selectFrom('asset').select(['status', 'isOffline']).where('id', '=', asset.id).executeTakeFirst(),
+  ).resolves.toEqual({ status: AssetStatus.Active, isOffline: true });
+  expect(await readFile(asset.originalPath)).toEqual(bytes);
 });
