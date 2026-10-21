@@ -65,6 +65,7 @@ Flutter **3.47.2**, Dart **3.13.2**, Linux software renderer; все тяжёл�
 Исходные PASS receipts и полные логи скопированы без редактирования в
 [`specs/testing/editor-compact-20261021/`](specs/testing/editor-compact-20261021/).
 [`evidence-index.json`](specs/testing/editor-compact-20261021/evidence-index.json) содержит соответствие запусков и SHA-256 логов/PNG.
+В отдельном `scoped-flutter-analyze.txt` удалены только конечные пробелы строки progress; исходные stage receipts/logs не менялись.
 Receipts честно сохраняют исходный HEAD + fingerprint незакоммиченных тогда изменений, позднее сохранённых в приведённых коммитах;
 они не являются доказательством production, подписанным recovery-proof или выполнением одного нового объединённого тестового запуска.
 
