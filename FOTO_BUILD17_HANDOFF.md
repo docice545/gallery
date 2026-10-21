@@ -13,12 +13,14 @@
   `f687de397`, `af2dc2df7`, `97e446038` сохранены. Дедупликация не опирается на имя/дату.
 - `830ec05cb9e871a99b713fb5b3502d07f402c1b7`: клиенты, версия 17, unsigned release mode,
   checkpoints сборок, последовательный mobile codegen, предыдущий опубликованный checkpoint.
-- Дополнительная проверка сохранила explicit external Trash как запрет автоматического reupload,
+- `b348929efaba55ad122eb9c8edcaecba7961693e`: дополнительная проверка сохранила explicit external Trash как запрет автоматического reupload,
   отдельно от offline Active index tombstones. Реальный FAIL нового теста сначала воспроизведён,
   затем исправлен без миграции или изменения production данных.
-- Дополнения runner: общий legacy lock на весь срок сессии, PID-bound entry для защиты от
+- В том же checkpoint дополнения runner: общий legacy lock на весь срок сессии, PID-bound entry для защиты от
   вложенного continuation, fail-fast проверка полного JDK и фиксация его identity в receipt.
   TLS для Java использует проверяемый системный truststore; проверки сертификатов не отключались.
+- `244ae32fc6dc1bf1199ea1bbd3c06a1e85e8948d`: исправлена release-specific регистрация
+  Android plugins, добавлены 2 regression test. Успешный APK собран строго из этого commit.
 - OpenAPI/TypeScript/Dart регенерированы закреплёнными генераторами. **Одно** смысловое изменение
   схемы: optional nullable `AssetMediaResponseDto.duplicateId`. Итоговый spec diff — 7 строк,
   SDK diff — 2 строки; массовых изменений API нет.
@@ -44,6 +46,8 @@
 | Новый Dart upload-response contract | 3/3 PASS |
 | Local Trash repository / hash retry | 7/7 PASS |
 | Flutter analyze, всё приложение | PASS, No issues found |
+| Android release APK, ZIP, package/version, alignment | PASS; unsigned |
+| Big-LaMa, actual CPU model / HTTP / fresh PG14+Redis / synthetic files | 11/11 PASS |
 | Production signing / физический Android / реальный Synology | NOT TESTED |
 
 Первый medium run имел 7 failures: 6 старых assertions не учитывали уже добавленный `duplicateId`,
@@ -90,6 +94,8 @@ export ANDROID_USER_HOME=/workspace/.gallery-tools/android-user-build17
 export GRADLE_USER_HOME=/workspace/.gallery-tools/gradle-build17
 export JAVA_HOME=/workspace/.gallery-tools/java-build17/jdk-21.0.2+13
 export FOTO_JAVA_TRUSTSTORE=/etc/ssl/certs/java/cacerts
+# Только для воспроизведения на чистом безопасном build-host:
+# текущий APK уже собран; здесь успешный этап повторять не нужно.
 python3 tools/foto-automation/foto-stage-runner.py --repo /workspace/gallery \
   --state /tmp/foto-build17-cloud-state android-apk
 ```
@@ -100,22 +106,38 @@ Automation log: `/tmp/foto-build17-automation-tests.log`. SDK setup log:
 Не повторять прошедшие suites без изменения соответствующего кода. После ошибки сначала
 прочитать конкретный приватный лог; новый запуск неуспешного этапа только с явным `--retry-failed`.
 
-## Следующие этапы на момент checkpoint
+## Готовые артефакты и оставшиеся gates
 
-1. Первый release APK build на `830ec05cb` остановился через 7m16s: системный Java 21 был JRE
-   без JAVA_COMPILER. Полный JDK установлен отдельно, system Java/Gradle/AGP не изменялись.
-   После JDK следующая попытка дошла до compileReleaseJavaWithJavac: --no-pub в Flutter3.47
-   пропускал release-specific plugin generation и оставлял integration_test в registrant.
-   Runner теперь сначала проверяет frozen dependencies, затем вызывает штатную release generation.
-   Добавлены два regression test на порядок и fail-fast; test plugin не добавлен в runtime.
-   Повторить **только неудавшийся APK этап**, используя существующий Gradle cache.
-   Проверить actual package/version/alignment, SHA-256 и отсутствие debug
-   подписи. В Cloud нет `mobile/android/key.jks` или `key.properties`; production signing не выполнен.
-2. По возможности реальный Big-LaMa E2E только на новом изолированном sidecar/PG/Redis.
-   Unit contracts не считаются этим E2E. В Cloud есть cached image/model, но реальный E2E пока не запускался.
-3. Дополнить отчёт результатом APK, сохранить manifest/checksums и инструкцию подписи существующим
-   HP key. Старый `android_sign_package.py` строго Build 11: не подделывать его profile для Build 17.
-4. Push следующего checkpoint в эту же ветку, без force-push.
+APK source: **244ae32fc6dc1bf1199ea1bbd3c06a1e85e8948d**.
+APK: `/workspace/gallery/mobile/build/app/outputs/flutter-apk/app-release.apk`,
+188,090,091 bytes, `de.opennoodle.gallery`, `5.7.3+17`.
+SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`.
+Фактически проверены ZIP integrity, package/version и zipalign `-P 16`. `apksigner verify`
+подтвердил отсутствие подписи (exit1, Missing META-INF/MANIFEST.MF), **не production/debug key**.
+Никакой ключ не создавался/не получался. Без существующего HP-ключа APK не устанавливать.
+
+Cloud-каталог: `/workspace/foto-build17-release-244ae32fc6dc`.
+GitHub release: https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc
+Итоговый отчёт: [docs/FOTO_BUILD17_TEST_REPORT.md](docs/FOTO_BUILD17_TEST_REPORT.md).
+Получение исходников, подпись и сохранение HP working tree:
+[docs/FOTO_BUILD17_HP_HANDOFF.md](docs/FOTO_BUILD17_HP_HANDOFF.md).
+
+Два прежних APK отказа устранены: JRE без JAVA_COMPILER; затем Flutter3.47 `--no-pub`
+пропускал release registrant regeneration. Проверки не обходились, integration_test не
+добавлялся в production dependencies. Успешный APK этап занимает 433.5s Gradle;
+повторять его не нужно. В Cloud нет проектных `key.jks`/`key.properties`.
+
+Big-LaMa **реально** выполнен на новом Cloud sidecar, свежих PostgreSQL14/Redis и synthetic
+JPEG/MP4 через HTTP. Cached sidecar source совпал с checkout, SHA-256 модели
+`344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9` проверен.
+11 contracts PASS; все3созданных контейнера и fixtures удалены. Отчёт:
+`/tmp/foto-build17-lama-report.json`, private log `/tmp/foto-build17-lama-e2e.log`.
+Это не проверка физического Android, HP worker, Synology или production.
+
+Следующий шаг: проверить опубликованные checksums, подписать **тот же APK** действующим
+проектным ключом на HP по инструкции и выполнить device/synthetic acceptance отдельно.
+Не подделывать Build11 profile старого `android_sign_package.py` для Build17.
+Реальный HP cgroup OOM, физические permissions/background behavior и NFS остаются NOT TESTED.
 
 ## HP: что неизвестно и что запрещено менять
 
@@ -127,4 +149,5 @@ Cloud mapper исправлен независимо по воспроизвод
 Production, NAS, PostgreSQL, Redis, VPN/DNS/маршрутизация и реальные фотографии не затрагивались.
 Deployment, автоматический запуск Codex, изменение HP limits и merge в main не выполнялись.
 
-**Checkpoint status: BLOCKED до реального APK и проверенной подписи существующим проектным ключом.**
+**Checkpoint status: BLOCKED для подписанного production-релиза: реальный APK готов,
+подпись существующим HP-ключом и физические acceptance-проверки ещё не выполнены.**
