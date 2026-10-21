@@ -743,7 +743,18 @@ class _EditorBottomPanel extends StatelessWidget {
     );
     final draw = mode == EditorMode.draw || mode == EditorMode.shapes;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final limit = sidePanel ? maxHeight : max(modeBar.preferredHeight(context) + bottomInset, maxHeight * .34);
+    final footerHeight = modeBar.preferredHeight(context) + bottomInset;
+    // A keyboard can leave less room than even the primary toolbar. Keep the
+    // document and restore the controls when space returns, without overflow.
+    if (maxHeight < footerHeight) {
+      return const SizedBox.shrink();
+    }
+    final headerHeight = draw ? 56.0 : 48.0;
+    final auxiliaryFits = maxHeight >= footerHeight + headerHeight + (settingsExpanded ? 48 : 0);
+    final showSettings = settingsExpanded && auxiliaryFits;
+    final minimumHeight =
+        footerHeight + (auxiliaryFits && (draw || showSettings) ? headerHeight : 0) + (showSettings ? 48 : 0);
+    final limit = sidePanel ? maxHeight : max(minimumHeight, maxHeight * .34);
     Widget markup({required bool controls}) => MarkupControls(
       mode: mode,
       tool: tool,
@@ -783,9 +794,9 @@ class _EditorBottomPanel extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (draw)
+              if (draw && auxiliaryFits)
                 markup(controls: false)
-              else if (settingsExpanded)
+              else if (showSettings)
                 Row(
                   children: [
                     Expanded(
@@ -802,7 +813,7 @@ class _EditorBottomPanel extends StatelessWidget {
                     ),
                   ],
                 ),
-              if (settingsExpanded)
+              if (showSettings)
                 Flexible(
                   fit: sidePanel ? FlexFit.tight : FlexFit.loose,
                   child: SingleChildScrollView(
@@ -840,7 +851,7 @@ class _EditorBottomPanel extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (sidePanel && !settingsExpanded) const Spacer(),
+              if (sidePanel && !showSettings) const Spacer(),
               modeBar,
             ],
           ),

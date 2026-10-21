@@ -137,6 +137,63 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('short landscape with cutouts keeps the drawing strip and five tools usable on $platform', (
+      tester,
+    ) async {
+      await pumpCompactEditor(
+        tester,
+        size: const Size(568, 320),
+        padding: const FakeViewPadding(left: 44, right: 44, bottom: 24),
+      );
+      await tester.tap(find.byKey(const Key('editor-mode-draw')));
+      await tester.pumpAndSettle();
+      for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
+        expect(find.byKey(Key('editor-tool-$tool')).hitTestable(), findsOneWidget);
+      }
+      for (final mode in ['crop', 'filters', 'draw', 'text', 'stickers']) {
+        expect(find.byKey(Key('editor-mode-$mode')).hitTestable(), findsOneWidget);
+      }
+      expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(100));
+      await tester.tap(find.byKey(const Key('editor-toggle-settings')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-toggle-settings')).hitTestable(), findsOneWidget);
+      expect(find.byKey(const Key('annotation-tool-picker')).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
+    testWidgets('short landscape keyboard temporarily collapses settings without losing edits on $platform', (
+      tester,
+    ) async {
+      await pumpCompactEditor(
+        tester,
+        size: const Size(568, 320),
+        padding: const FakeViewPadding(left: 44, right: 44, bottom: 24),
+      );
+      await tester.tap(find.byKey(const Key('editor-mode-text')));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+      final before = container.read(editorStateProvider);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+      tester.view.padding = const FakeViewPadding(left: 44, right: 44);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-active-settings')), findsNothing);
+      for (final mode in ['crop', 'filters', 'draw', 'text', 'stickers']) {
+        expect(find.byKey(Key('editor-mode-$mode')).hitTestable(), findsOneWidget);
+      }
+      expect(container.read(editorStateProvider), before);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-mode-bar')), findsNothing);
+      expect(container.read(editorStateProvider), before);
+      expect(tester.takeException(), isNull);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.padding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-active-settings')), findsOneWidget);
+      expect(container.read(editorStateProvider), before);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
+  }
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('drawing survives settings, undo/redo and orientation on $platform', (tester) async {
       await pumpCompactEditor(tester, portrait: true);
       await tester.tap(find.byKey(const Key('editor-mode-draw')));
