@@ -7,23 +7,7 @@ PATH_SAFE="$HOME_DIR/.npm-global/bin:$TOOLCHAIN/flutter/bin:$TOOLCHAIN/gradle/gr
 if [[ "${1:-}" == "--dry-run" && $# -eq 1 ]]; then
     exec /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2 --dry-run
 fi
-# FOTO_PROMPT_INPUT_V1
-PROMPT_FILE=/mnt/hp-data/codex-work/foto-integration-state/prompts/user-task.txt
-
-echo "Введите новый промпт Codex. Завершение ввода: Ctrl+D."
-echo "Для продолжения предыдущего задания без изменений сразу нажмите Ctrl+D."
-
-TMP=$(mktemp)
-cat > "$TMP"
-
-if [[ -s "$TMP" ]]; then
-    install -o codex-gallery -g codex-gallery -m 600 "$TMP" "$PROMPT_FILE"
-    echo "Новый промпт сохранён."
-else
-    echo "Продолжаем предыдущее задание."
-fi
-
-rm -f "$TMP"
+# Prompt writes happen inside the session lock, never before a concurrent launch is rejected.
 
 # FOTO_SYSTEMD_STOP_V1
 UNIT="codex-foto-$(date +%s)-$$"
@@ -49,6 +33,11 @@ systemd-run \
   --property=CPUQuota=200% \
   --property=MemoryMax=8G \
   --property=MemorySwapMax=1G \
+  --property=KillMode=control-group \
+  --property=OOMPolicy=stop \
+  --property=Restart=no \
+  --property=TimeoutStopSec=15s \
+  --property=SendSIGKILL=yes \
   --property=Nice=10 \
   --property=ProtectSystem=strict \
   --setenv=XDG_RUNTIME_DIR=/run/user/1001 \
@@ -81,4 +70,7 @@ systemd-run \
   --setenv=BUN_INSTALL="$TOOLCHAIN/bun" \
   --setenv=npm_config_cache="$TOOLCHAIN/cache/npm" \
   --working-directory="$WORK_DIR/foto-integration" \
-  /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2 --resume
+  python3 /mnt/hp-data/codex-work/foto-integration-state/foto-stage-runner.py \
+  session /bin/bash /mnt/hp-data/codex-work/foto-integration-state/foto-prompt-entry.sh \
+  /mnt/hp-data/codex-work/foto-integration-state \
+  /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2

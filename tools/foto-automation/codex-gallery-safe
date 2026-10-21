@@ -7,7 +7,15 @@ CODEX="$HOME_DIR/.npm-global/bin/codex"
 TOOLCHAIN=/mnt/hp-data/codex-toolchain
 PATH_SAFE="$HOME_DIR/.npm-global/bin:$TOOLCHAIN/flutter/bin:$TOOLCHAIN/gradle/gradle-8.14/bin:$TOOLCHAIN/node/bin:$TOOLCHAIN/node/lib/node_modules/corepack/shims:$TOOLCHAIN/bun/bin:$TOOLCHAIN/android-sdk/cmdline-tools/latest/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:/usr/local/bin:/usr/bin:/bin"
 
-exec systemd-run \
+UNIT="codex-gallery-$(date +%s)-$$"
+stop_unit() {
+  trap - INT TERM HUP
+  systemctl stop "$UNIT.service" 2>/dev/null || true
+  exit 130
+}
+trap stop_unit INT TERM HUP
+systemd-run \
+  --unit="$UNIT" \
   --quiet \
   --wait \
   --pipe \
@@ -20,6 +28,11 @@ exec systemd-run \
   --property=CPUQuota=200% \
   --property=MemoryMax=8G \
   --property=MemorySwapMax=1G \
+  --property=KillMode=control-group \
+  --property=OOMPolicy=stop \
+  --property=Restart=no \
+  --property=TimeoutStopSec=15s \
+  --property=SendSIGKILL=yes \
   --property=Nice=10 \
   --property=ProtectSystem=strict \
   --setenv=XDG_RUNTIME_DIR=/run/user/1001 \
@@ -56,5 +69,6 @@ exec systemd-run \
     set -euo pipefail
     GH_TOKEN="${GH_TOKEN:-}" # Web handoff: local secret loading removed
     export GH_TOKEN
-    exec "$HOME/.npm-global/bin/codex" "$@"
+    exec python3 /mnt/hp-data/codex-work/foto-integration-state/foto-stage-runner.py \
+      --repo /mnt/hp-data/codex-work/gallery session "$HOME/.npm-global/bin/codex" "$@"
   ' codex "$@"

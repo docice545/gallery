@@ -18,14 +18,21 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 MODE=${1:-}
 [[ $# -eq 1 && ( "$MODE" == --dry-run || "$MODE" == --resume ) ]] || { usage >&2; exit 64; }
+if [[ $(id -u) -eq 0 ]]; then
+  exec runuser -u codex-gallery -- "$0" "$@"
+fi
+RUNNER="$STATE_DIR/foto-stage-runner.py"
+# One global session for both launchers; the lock is inherited by the supervised child.
+# No lock files/checkpoints are removed to "recover" from an OOM.
+if [[ "$MODE" == --resume && "${FOTO_SESSION_ACTIVE:-}" != 1 ]]; then
+  [[ -f "$RUNNER" && ! -L "$RUNNER" ]] || die 'install the verified FOTO stage runner first'
+  exec python3 "$RUNNER" --repo "$REPO" --state "$STATE_DIR" session /bin/bash "$0" "$@"
+fi
 [[ -d "$REPO/.git" || -f "$REPO/.git" ]] || die "integration worktree missing: $REPO"
 [[ -x "$SAFE_WRAPPER" ]] || die "sandbox wrapper unavailable: $SAFE_WRAPPER"
 [[ -f "$STATE_DIR/plan.md" && -f "$STATE_DIR/progress.md" && -f "$STATE_DIR/pending-tasks.md" && -f "$MANIFEST" && -f "$STATE_MANIFEST" ]] || die 'persistent state files are incomplete'
 command -v python3 >/dev/null || die 'python3 is required'
 
-if [[ $(id -u) -eq 0 ]]; then
-  exec runuser -u codex-gallery -- "$0" "$@"
-fi
 BRANCH=$(git -C "$REPO" branch --show-current)
 HEAD=$(git -C "$REPO" rev-parse HEAD)
 EXPECTED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expected_head"])' "$MANIFEST")
@@ -39,7 +46,7 @@ Continue the existing FOTO integration from the durable checkpoint below. This i
 
 Read the supplied compact state only. Inspect source files and tests narrowly as needed. Never read prior round logs, full diffs, or old conversation transcripts. Keep command output bounded and save full logs under the current run directory. At the end update persistent progress.md and pending-tasks.md. If a verified code checkpoint is committed, include exact lines `Verified HEAD: <full sha>` and `Verified tests: <short results>` in progress.md. The launcher atomically updates `/mnt/hp-data/codex-work/foto-integration.manifest.json` and its state-directory mirror after those lines and a clean worktree are verified; preserve manifest history. Do not mark a change verified without running its targeted checks.
 
-MEMORY SAFETY: The Codex systemd unit has a strict 8 GiB RAM and 1 GiB swap limit. Never run unrestricted Vitest suites. Run Vitest with --maxWorkers=1 --no-file-parallelism and split large suites into bounded groups. Do not launch concurrent test runners, browsers, or builds. Preserve existing test coverage and report any tests not completed. Do not modify production services or resource limits.
+MEMORY SAFETY: The Codex systemd unit has a strict 8 GiB RAM and 1 GiB swap limit. All tests/typechecks/builds MUST go through `python3 /mnt/hp-data/codex-work/foto-integration-state/foto-stage-runner.py --resume STAGE [explicit test paths]`. Stages: unit, medium, typecheck, backend-build, flutter-test, flutter-analyze, android-apk. The runner technically serializes these processes using one common nonblocking flock, limits workers and supervises child groups. Do not invoke raw Vitest/tsc/Gradle/Flutter/mise tasks or background builds, bypass the runner, start nested launchers or auto-retry failed stages. A failed/interrupted stage requires an explicit human --retry-failed. Report unavailable checks accurately. Do not modify production services or resource limits.
 AUTOCODEX RESULT PROTOCOL: End your final response with exactly one standalone line: AUTOCODEX_TASK_CONTINUE if work remains; AUTOCODEX_TASK_COMPLETE if the active task is finished; AUTOCODEX_TASK_BLOCKED if progress is impossible. Update progress.md and pending-tasks.md before returning. Do not start another launcher or nested automation.
 
 Do not push, deploy, reset, clean, force-push, edit production, NAS, PostgreSQL, Redis, VPN, DNS, routing, or release metadata. Preserve all existing worktree changes. The active legacy launcher must remain untouched.
@@ -119,6 +126,7 @@ if [[ "$MODE" == --dry-run ]]; then
 fi
 
 [[ "$(id -un)" == codex-gallery ]] || die 'run this launcher as codex-gallery'
+python3 "$STATE_DIR/foto-manifest.py" --check "$MANIFEST" "$STATE_MANIFEST"
 [[ "$HEAD" == "$EXPECTED" ]] || die "HEAD differs from verified manifest: $HEAD != $EXPECTED"
 [[ -z "$(git -C "$REPO" status --porcelain=v1)" ]] || die 'integration worktree is dirty; preserve and review it before continuing'
 
@@ -127,6 +135,10 @@ if [[ -e "$AUTO_STATE/auto.lock" ]]; then
   exec 8<>"$AUTO_STATE/auto.lock"
   flock -n 8 || die 'legacy automation is still active; retry after it exits'
 fi
+# Revalidate state AFTER taking all locks, not from a pre-lock snapshot.
+HEAD=$(git -C "$REPO" rev-parse HEAD)
+EXPECTED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expected_head"])' "$MANIFEST")
+[[ "$HEAD" == "$EXPECTED" && -z "$(git -C "$REPO" status --porcelain=v1)" ]] || die 'state changed while acquiring locks'
 exec 9>"$STATE_DIR/continue.lock"
 flock -n 9 || die 'continuation v2 is already running'
 
@@ -165,6 +177,10 @@ for ((round=1; round<=MAX_ROUNDS; round++)); do
     rc=$?
   fi
   if (( rc != 0 )); then
+    if (( rc == 137 || rc == 134 || rc == 143 )) || grep -Eqi 'out of memory|heap limit|oom-kill|oom_kill|Killed process' "$LOG"; then
+      printf 'RESOURCE_FAILURE round=%s exit=%s; explicit review required\n' "$round" "$rc" > "$RUN/status.txt"
+      exit 3
+    fi
     if grep -Eqi 'context_length_exceeded|maximum context length' "$LOG"; then
       printf 'CONTEXT_RESTART\n' > "$RUN/status.txt"
       CONTEXT="$RUN/context-$round-retry.md"
@@ -281,27 +297,7 @@ foto_recover_untracked_reports() {
   if [[ "$HEAD" != "$EXPECTED" ]]; then
     grep -Fq "Verified HEAD: $HEAD" "$STATE_DIR/progress.md" || { printf 'UNVERIFIED_HEAD round=%s head=%s\n' "$round" "$HEAD" > "$RUN/status.txt"; die 'new HEAD lacks an exact verification record in progress.md'; }
     grep -Fq 'Verified tests:' "$STATE_DIR/progress.md" || { printf 'UNVERIFIED_TESTS round=%s head=%s\n' "$round" "$HEAD" > "$RUN/status.txt"; die 'new HEAD lacks a test result record in progress.md'; }
-    python3 - "$MANIFEST" "$HEAD" "$BRANCH" "$RUN" <<'PY'
-import json, os, sys, tempfile
-from datetime import datetime, timezone
-path, head, branch, run = sys.argv[1:]
-with open(path, encoding='utf-8') as f: m=json.load(f)
-old=m.get('expected_head')
-history=list(m.get('history', []))
-history.append({'recorded_at':datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'previous_head':old,'verified_head':head,'branch':branch,'run_directory':run})
-m['expected_head']=head
-m['checked_head']=head
-m['checked_at']=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z')
-m['history']=history
-fd,tmp=tempfile.mkstemp(prefix='.manifest.',dir=os.path.dirname(path),text=True)
-try:
-    with os.fdopen(fd,'w',encoding='utf-8') as f:
-        json.dump(m,f,ensure_ascii=False,indent=2); f.write('\n'); f.flush(); os.fsync(f.fileno())
-    os.replace(tmp,path)
-finally:
-    if os.path.exists(tmp): os.unlink(tmp)
-PY
-    cp "$MANIFEST" "$STATE_DIR/manifest.json"
+    python3 "$STATE_DIR/foto-manifest.py" "$MANIFEST" "$STATE_MANIFEST" "$HEAD" "$BRANCH" "$RUN"
   fi
     if ! grep -Eq "^[[:space:]]*AUTOCODEX_TASK_(CONTINUE|COMPLETE|BLOCKED)[[:space:]]*$" "$RESULT"; then
       printf "INVALID_RESULT round=%s\n" "$round" > "$RUN/status.txt"
