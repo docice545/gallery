@@ -1,9 +1,9 @@
 # FOTO Build 17 editor — checkpoint 2026-10-21
 
 **Текущее состояние: редактор подготовлен к локальному объединению; production не изменялся.**
-Проверенный runtime/CI checkpoint: `9fab4c70f` (полный SHA в evidence JSON).
-Дальнейший commit содержит только отчёты и дополнительную emoji-регрессию.
-Итог: **357 различных Flutter + 221 backend unit + 44 automation PASS**, 0 оставшихся FAIL/SKIP.
+Проверенный editor runtime checkpoint: `9fab4c70f`; CI source-only guard: `bbd8c5a7a`.
+Полные SHA, реальные receipts и hashes сохранены в evidence JSON.
+Итог: **357 различных Flutter + 221 backend unit + 46 automation PASS**, 0 FAIL/SKIP в этих scoped suites. Общий CI имеет отдельно подтверждённые baseline FAIL (см. отчёт).
 
 - [Отчёт и границы проверки](FOTO_BUILD17_EDITOR_TEST_REPORT.md).
 - [Команды безопасного переноса/объединения на HP](FOTO_BUILD17_EDITOR_HP_HANDOFF.md).
@@ -134,3 +134,41 @@ remain local acceptance checks; they are not claimed by these Flutter/HTTP/unit 
   Never apply rc/rc-ml labels or dispatch backend/APK build workflows for this task.
 - No backend/native/schema/lock changes, models installed, production media/DB/queues accessed,
   or HP automation launched. Safe local merge and canonical-state update are documented separately.
+
+## PR / CI follow-up
+
+PR #4: https://github.com/docice545/gallery/pull/4 — OPEN, не merged; base
+`codex/foto-build17-web-handoff` (`d7a31f3420b483974a7247613791cdbc395cacd4`).
+`cd4907fd2` сохранил отчёты/Unicode raster regression. `bbd8c5a7a` ограничил общий Docker E2E для
+source-only editor review; новый run реально показывает SKIPPED для обоих E2E/ML/Medium jobs.
+Automation: **46/46 PASS** (7 прежних scope cases + 2 новых, 37 manifest/runner cases).
+
+Dart Code Analysis в GitHub прошёл на `cd4907fd2`; Branding, i18n, .github formatting, migration ORDER,
+Zizmor и conventional PR title тоже PASS. Changelog label исправлена и проверка PASS.
+ShellCheck и upstream assertion FAIL подтверждены на неизменённой базе тем же checker/auditor:
+[точные причины и SHA-256](foto-editor-evidence/ci-baseline.json). Эти unrelated baseline gates
+не исправлялись изменениями production/release scripts в рамках editor issue. Общий workflow
+не объявляется зелёным. Подробности и ограничения: `FOTO_BUILD17_EDITOR_TEST_REPORT.md`.
+
+Cloud не имеет HP canonical progress/pending/manifest; их данные не выдуманы. Дальнейший оператор
+должен сохранить имеющуюся историю и внести только реальные результаты локального объединения.
+Не запускать final backend/APK/signing на основании одних Cloud unit PASS.
+
+## Завершённый CI checkpoint `bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4`
+
+Полный Mobile CI завершён: **4985 PASS / 1 SKIP / 0 FAIL**. Skip — неизменённый flaky map-theme
+suite. Полный Dart analysis повторно **PASS**. Это дополнительные проверки совместимости;
+4985 уже включает editor cases, складывать их с 357 нельзя. Реальные отфильтрованные логи и SHA-256
+сохранены в `foto-editor-evidence/` и `FOTO_BUILD17_EDITOR_EVIDENCE.json`.
+
+Глобальный Test workflow **FAIL**, 6 checks: ShellCheck, Upstream Rebase Tooling, OpenAPI Clients,
+SQL Schema Checks, Lint Web, Test Web. Первые два одинаково FAIL при исполнении на исходной базе.
+Для остальных четырёх зафиксированы точные ошибки в отчёте; полный baseline run для них НЕ выполнялся.
+Web/backend/schema/SDK/locks editor branch не меняет. По Issue 3 их ремонт относится к следующему
+локальному unified integration, не к повторному переписыванию редактора. Эти gates не объявлены PASS.
+
+Дальнейший commit содержит handoff/evidence only; runtime hashes остаются проверенными. Не повторять
+357/221 tests без изменения runtime или локального объединения. Автоматический docs-head CI может
+появиться снова; его статус можно читать в PR #4, не запускать release/RC/build/sign jobs.
+Следующий шаг HP: получить точный опубликованный HEAD из PR, отдельный worktree и инструкции
+`FOTO_BUILD17_EDITOR_HP_HANDOFF.md`; сохранить свои незакоммиченные файлы и canonical history.

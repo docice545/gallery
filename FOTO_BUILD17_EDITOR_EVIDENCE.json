@@ -1,11 +1,261 @@
 {
-  "automationPassed": 44,
+  "automationFollowup": {
+    "command": "python3 -m unittest discover -s tools/foto-automation/tests -q",
+    "failed": 0,
+    "logSHA256": "0951ff37ccb3993eca35efe4d2e1bff0b7f31437f7a55c44ff6be36655fff280",
+    "passed": 46,
+    "publicLog": "foto-editor-evidence/automation-scope.txt",
+    "publicLogSHA256": "0951ff37ccb3993eca35efe4d2e1bff0b7f31437f7a55c44ff6be36655fff280",
+    "skipped": 0
+  },
+  "automationPassed": 46,
   "branch": "codex/foto-build17-editor",
   "checkpoint": "9c3a3d8fa9fe137e55752b3ca075e0208cb93c5b",
-  "codeAndWorkflowCommit": "9fab4c70f48330dd6ad5313ec2014c58dd68b81d",
+  "codeAndWorkflowCommit": "bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4",
   "failed": 0,
   "flutterOverlap": 87,
   "flutterUniquePassed": 357,
+  "githubCI": {
+    "baselineComparison": "foto-editor-evidence/ci-baseline.json",
+    "baselineComparisonSHA256": "e29c6e8b151eb89c64bcba514e2ef0dda1db234760da63dac9ae4390ed1c5f9e",
+    "dartAnalysis": [
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545698/job/119180194617",
+        "name": "Run Dart Code Analysis",
+        "status": "COMPLETED",
+        "workflowName": "Static Code Analysis"
+      }
+    ],
+    "globalFailures": [
+      {
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180091920",
+        "name": "ShellCheck",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180092236",
+        "name": "OpenAPI Clients",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180092190",
+        "name": "SQL Schema Checks",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180189560",
+        "name": "Upstream Rebase Tooling",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180189570",
+        "name": "Lint Web",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180190195",
+        "name": "Test Web",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      }
+    ],
+    "globalSuiteClaimedPassed": false,
+    "logs": {
+      "github-global-ci": {
+        "originalLogSHA256": "edd77ffd0730bcf9dc14a42253059f4f3b812f9b3e0f272ec79078ba3c2d0787",
+        "publicLog": "foto-editor-evidence/github-global-ci.txt",
+        "publicLogSHA256": "54c0ab4d170e8f494086f0a8e390a552f4bd71ac525bfd57c13a499be502a459"
+      },
+      "github-mobile-ci": {
+        "originalLogSHA256": "b88a07223aafddbd3885a6ba5f2a689b449762fa7238a77c8d81c46e2380f094",
+        "publicLog": "foto-editor-evidence/github-mobile-ci.txt",
+        "publicLogSHA256": "5abef37e1ee61323f5fd843eeff4e1e6054ab7695b642ef710d68236ee20541c"
+      }
+    },
+    "mobileSuiteReportedCounts": {
+      "additionalToScopedCounts": false,
+      "failed": 0,
+      "passed": 4985,
+      "skip": "mobile/test/modules/map/map_theme_override_test.dart (existing flaky suite)",
+      "skipped": 1
+    },
+    "pr": "https://github.com/docice545/gallery/pull/4",
+    "sourceHead": "bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4",
+    "sourceOnlyJobs": {
+      "head": "bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4",
+      "jobs": [
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545999/job/119180142772",
+          "name": "Android media pilot (no publishing)",
+          "status": "COMPLETED",
+          "workflowName": "Gallery Build Mobile"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545960/job/119180196540",
+          "name": "Build and sign Android",
+          "status": "COMPLETED",
+          "workflowName": "Build Mobile"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587546400/job/119180138243",
+          "name": "Re-Tag ML",
+          "status": "COMPLETED",
+          "workflowName": "Docker"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545960/job/119180197170",
+          "name": "Verify or explicitly release iOS",
+          "status": "COMPLETED",
+          "workflowName": "Build Mobile"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587546400/job/119180096777",
+          "name": "Re-Tag Server",
+          "status": "COMPLETED",
+          "workflowName": "Docker"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545999/job/119180095031",
+          "name": "Build and sign Android",
+          "status": "COMPLETED",
+          "workflowName": "Gallery Build Mobile"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587546400/job/119180097355",
+          "name": "Build and Push ML",
+          "status": "COMPLETED",
+          "workflowName": "Docker"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545999/job/119180159535",
+          "name": "Verify or explicitly release iOS",
+          "status": "COMPLETED",
+          "workflowName": "Gallery Build Mobile"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587546400/job/119180135153",
+          "name": "Build and Push Server",
+          "status": "COMPLETED",
+          "workflowName": "Docker"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180192207",
+          "name": "Medium Tests (Server)",
+          "status": "COMPLETED",
+          "workflowName": "Test"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180192168",
+          "name": "End-to-End Tests (Server & CLI)",
+          "status": "COMPLETED",
+          "workflowName": "Test"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180192192",
+          "name": "End-to-End Tests (Web)",
+          "status": "COMPLETED",
+          "workflowName": "Test"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180191879",
+          "name": "Unit Test ML",
+          "status": "COMPLETED",
+          "workflowName": "Test"
+        },
+        {
+          "conclusion": "SKIPPED",
+          "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180192040",
+          "name": "Unit Test ML Training",
+          "status": "COMPLETED",
+          "workflowName": "Test"
+        }
+      ],
+      "snapshotAt": "2026-10-21T11:03:08.981919+00:00"
+    },
+    "validationJobs": [
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545786/job/119180092861",
+        "name": "Verify migration ORDER",
+        "status": "COMPLETED",
+        "workflowName": "Migration Order"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587542745/job/119180086663",
+        "name": "validate-release-label",
+        "status": "COMPLETED",
+        "workflowName": "PR Label Validation"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545698/job/119180194617",
+        "name": "Run Dart Code Analysis",
+        "status": "COMPLETED",
+        "workflowName": "Static Code Analysis"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180190239",
+        "name": "Test Branding",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180190019",
+        "name": "Test i18n",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180190032",
+        "name": "Unit Test Mobile",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180189990",
+        "name": ".github Files Formatting",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      },
+      {
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/docice545/gallery/actions/runs/39587545769/job/119180190898",
+        "name": "End-to-End Tests Success",
+        "status": "COMPLETED",
+        "workflowName": "Test"
+      }
+    ]
+  },
   "hpCanonicalStateAvailable": false,
   "hpStateModified": false,
   "kind": "cloud-editor-evidence-not-hp-manifest",
@@ -155,6 +405,7 @@
     ".github/workflows/build-mobile.yml": "2c663a55eb5bae557055141b8739648c3fa30e442db00d2b2dc4675d4e13dd13",
     ".github/workflows/docker.yml": "a9714c1b4586085e30c4e94c37a829984c8df90fb5b177675af11316a0c399a3",
     ".github/workflows/gallery-build-mobile.yml": "0d30dddcf39f04848d754ea207eab0b93fa86c9e0c11a375f2ecd58f45769381",
+    ".github/workflows/test.yml": "5391c01e1af4eacd3efc47a418f5b71d4c3bdb19e04b36453aa4861fa81a7bcc",
     "mobile/lib/constants/filters.dart": "2fceb0910464bfd5e1ccf59481b6f025e7655ad839a5e2dabc240cba5e6b4029",
     "mobile/lib/domain/models/annotation.model.dart": "25feb07d13d280a0cb617bc3ad376c02872e6de578fdebc07ee05c6733e8927c",
     "mobile/lib/presentation/pages/edit/annotation_canvas.dart": "c16e4d4413b9350950b43533388c2ff040d5695119ab1672654051514e1b45bf",
@@ -183,6 +434,6 @@
     "mobile/test/utils/editor_formats_test.dart": "20668556cc511a3cd0e949786da560e60415df7e84434ecfc0eb51262ecf2b93",
     "tools/foto-automation/foto-editor-localize.sh": "21c88f4736d1adf5c3bbe8d59964e3d68d01feded8ffbfe4d410e4cffa141bf0",
     "tools/foto-automation/foto-stage-runner.py": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
-    "tools/foto-automation/tests/test_editor_scope.py": "1c669d89124adafe960aad087531ea5d0f88bb53f28ac820cc7b0e60b9f04fe4"
+    "tools/foto-automation/tests/test_editor_scope.py": "fb2d95f46aee3b402315d5cb018be5df13321d1429cd81d5e53292090df113c3"
   }
 }

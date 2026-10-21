@@ -1,0 +1,368 @@
+{
+  "additionalUnchangedFiles": {
+    "mobile/test/modules/map/map_theme_override_test.dart": {
+      "baselineSHA256": "c434f3c8b461b52b98fd06fc2c67897e402b94c81b38ac189a4813d7205ddb1e",
+      "currentSHA256": "c434f3c8b461b52b98fd06fc2c67897e402b94c81b38ac189a4813d7205ddb1e",
+      "unchanged": true
+    },
+    "web/src/lib/components/spaces/space-people-page.spec.ts": {
+      "baselineSHA256": "d8fd7e4649b273e6ffbd16e539df45f1c304dab70e2fc77489410ee644df1ea2",
+      "currentSHA256": "d8fd7e4649b273e6ffbd16e539df45f1c304dab70e2fc77489410ee644df1ea2",
+      "unchanged": true
+    },
+    "web/src/lib/services/trash-authorization.spec.ts": {
+      "baselineSHA256": "370eeaa7c31ae8319faab1660cdbc2f355f8ba23138c53078c90b230beabd39c",
+      "currentSHA256": "370eeaa7c31ae8319faab1660cdbc2f355f8ba23138c53078c90b230beabd39c",
+      "unchanged": true
+    }
+  },
+  "additionalUnchangedFilesAreNotAnExecutedBaselineSuite": true,
+  "baseline": "d7a31f3420b483974a7247613791cdbc395cacd4",
+  "checkedHead": "bbd8c5a7ae20b9e43b90ab506dbbb32200c3f7d4",
+  "editorHasNoDiffInTheseAreas": {
+    "mobile/android": [],
+    "mobile/ios": [],
+    "open-api": [],
+    "packages/sdk": [],
+    "pnpm-lock.yaml": [],
+    "server": [],
+    "web": []
+  },
+  "kind": "read-only-ci-baseline-comparison",
+  "remoteRun": "https://github.com/docice545/gallery/actions/runs/39587545769",
+  "runtimeOrProductionChanges": false,
+  "shellcheck": {
+    "baseline": "d7a31f3420b483974a7247613791cdbc395cacd4",
+    "checker": "ShellCheck 0.11.0",
+    "editorLocalize": {
+      "exitCode": 0,
+      "output": {
+        "comments": []
+      }
+    },
+    "files": [
+      {
+        "baseSHA256": "e518b517e2861996e466f6d66775ac55b8198c2028976471aadaf2c734807c2c",
+        "currentSHA256": "e518b517e2861996e466f6d66775ac55b8198c2028976471aadaf2c734807c2c",
+        "path": "scripts/release/hp_build10_image_update.sh",
+        "results": [
+          {
+            "diagnostics": [
+              {
+                "code": 2154,
+                "column": 6,
+                "endColumn": 127,
+                "endLine": 29,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 29,
+                "message": "result_status is referenced but not assigned."
+              }
+            ],
+            "exitCode": 1
+          },
+          {
+            "diagnostics": [
+              {
+                "code": 2154,
+                "column": 6,
+                "endColumn": 127,
+                "endLine": 29,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 29,
+                "message": "result_status is referenced but not assigned."
+              }
+            ],
+            "exitCode": 1
+          }
+        ],
+        "sameDiagnostics": true,
+        "unchanged": true
+      },
+      {
+        "baseSHA256": "a8702d6a7a32fcbe8263e67c8d195db43d16d22feb1dd6001d236b565698fd8a",
+        "currentSHA256": "a8702d6a7a32fcbe8263e67c8d195db43d16d22feb1dd6001d236b565698fd8a",
+        "path": "scripts/release/hp_build10_rollback.sh",
+        "results": [
+          {
+            "diagnostics": [
+              {
+                "code": 2154,
+                "column": 6,
+                "endColumn": 127,
+                "endLine": 23,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 23,
+                "message": "result_status is referenced but not assigned."
+              }
+            ],
+            "exitCode": 1
+          },
+          {
+            "diagnostics": [
+              {
+                "code": 2154,
+                "column": 6,
+                "endColumn": 127,
+                "endLine": 23,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 23,
+                "message": "result_status is referenced but not assigned."
+              }
+            ],
+            "exitCode": 1
+          }
+        ],
+        "sameDiagnostics": true,
+        "unchanged": true
+      },
+      {
+        "baseSHA256": "e550a003c643e1eba65fe4d6242d786dfe31567ce280de0d93d7ed8b907ae83c",
+        "currentSHA256": "e550a003c643e1eba65fe4d6242d786dfe31567ce280de0d93d7ed8b907ae83c",
+        "path": "scripts/release/server_build.sh",
+        "results": [
+          {
+            "diagnostics": [
+              {
+                "code": 2174,
+                "column": 7,
+                "endColumn": 9,
+                "endLine": 111,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 111,
+                "message": "When used with -p, -m only applies to the deepest directory."
+              }
+            ],
+            "exitCode": 1
+          },
+          {
+            "diagnostics": [
+              {
+                "code": 2174,
+                "column": 7,
+                "endColumn": 9,
+                "endLine": 111,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 111,
+                "message": "When used with -p, -m only applies to the deepest directory."
+              }
+            ],
+            "exitCode": 1
+          }
+        ],
+        "sameDiagnostics": true,
+        "unchanged": true
+      },
+      {
+        "baseSHA256": "17f8a43b685888d310f3fb8a13f80e8b85f7b884782aae767fdc0cd73e4ac060",
+        "currentSHA256": "17f8a43b685888d310f3fb8a13f80e8b85f7b884782aae767fdc0cd73e4ac060",
+        "path": "scripts/diagnostics/hp_vaapi_audit.sh",
+        "results": [
+          {
+            "diagnostics": [
+              {
+                "code": 2016,
+                "column": 54,
+                "endColumn": 10,
+                "endLine": 56,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 47,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 79,
+                "endColumn": 10,
+                "endLine": 66,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 61,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 55,
+                "endColumn": 10,
+                "endLine": 85,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 73,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 93,
+                "endColumn": 66,
+                "endLine": 131,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 110,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 122,
+                "endColumn": 116,
+                "endLine": 151,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 149,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              }
+            ],
+            "exitCode": 1
+          },
+          {
+            "diagnostics": [
+              {
+                "code": 2016,
+                "column": 54,
+                "endColumn": 10,
+                "endLine": 56,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 47,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 79,
+                "endColumn": 10,
+                "endLine": 66,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 61,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 55,
+                "endColumn": 10,
+                "endLine": 85,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 73,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 93,
+                "endColumn": 66,
+                "endLine": 131,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 110,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              },
+              {
+                "code": 2016,
+                "column": 122,
+                "endColumn": 116,
+                "endLine": 151,
+                "file": "-",
+                "fix": null,
+                "level": "info",
+                "line": 149,
+                "message": "Expressions don't expand in single quotes, use double quotes for that."
+              }
+            ],
+            "exitCode": 1
+          }
+        ],
+        "sameDiagnostics": true,
+        "unchanged": true
+      },
+      {
+        "baseSHA256": "6bf22833e1c84cc56673645abf1e0b6c87829bd7f2710a440da819c63e67505a",
+        "currentSHA256": "6bf22833e1c84cc56673645abf1e0b6c87829bd7f2710a440da819c63e67505a",
+        "path": "scripts/diagnostics/gallery-nas-recovery-565ef38.sh",
+        "results": [
+          {
+            "diagnostics": [
+              {
+                "code": 2155,
+                "column": 8,
+                "endColumn": 35,
+                "endLine": 6,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 6,
+                "message": "Declare and assign separately to avoid masking return values."
+              }
+            ],
+            "exitCode": 1
+          },
+          {
+            "diagnostics": [
+              {
+                "code": 2155,
+                "column": 8,
+                "endColumn": 35,
+                "endLine": 6,
+                "file": "-",
+                "fix": null,
+                "level": "warning",
+                "line": 6,
+                "message": "Declare and assign separately to avoid masking return values."
+              }
+            ],
+            "exitCode": 1
+          }
+        ],
+        "sameDiagnostics": true,
+        "unchanged": true
+      }
+    ]
+  },
+  "upstreamAssertions": {
+    "baseline": "d7a31f3420b483974a7247613791cdbc395cacd4",
+    "current": {
+      "details": [
+        ".github/workflows/gallery-build-mobile.yml must apply branding before flutter build"
+      ],
+      "ok": false,
+      "title": "Gallery Release Workflow Static Assertions"
+    },
+    "unchangedBaseline": {
+      "details": [
+        ".github/workflows/gallery-build-mobile.yml must apply branding before flutter build"
+      ],
+      "ok": false,
+      "title": "Gallery Release Workflow Static Assertions"
+    }
+  },
+  "upstreamAuditorSource": {
+    "tools/upstream-preflight/src/audits/rebase-confidence.spec.ts": {
+      "baseSHA256": "f54ce6014c115ab35a91bdc7c5604d4dd2f55560306f68ac8ecc93cca8d2044b",
+      "currentSHA256": "f54ce6014c115ab35a91bdc7c5604d4dd2f55560306f68ac8ecc93cca8d2044b",
+      "unchanged": true
+    },
+    "tools/upstream-preflight/src/audits/rebase-confidence.ts": {
+      "baseSHA256": "411a23df738286d8ce74bebe60a2eb93647580a8db549a14a78e67dfd4bd8e2b",
+      "currentSHA256": "411a23df738286d8ce74bebe60a2eb93647580a8db549a14a78e67dfd4bd8e2b",
+      "unchanged": true
+    }
+  }
+}
