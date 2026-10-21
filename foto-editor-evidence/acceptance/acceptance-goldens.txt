@@ -1,0 +1,14 @@
+00:00 +0: loading /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.android (variant: TargetPlatform.android)
+00:01 +1: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:01 +2: acceptance: all six Russian section names remain complete in the scrollable rail
+00:02 +3: acceptance: yellow modes, blue/purple ink and circular ordered pill with separate history
+00:03 +4: acceptance: portrait cutouts keeps complete controls outside system insets
+00:03 +5: acceptance: landscape cutouts keeps complete controls outside system insets
+00:04 +6: acceptance: compact landscape large text keeps complete controls outside system insets
+00:04 +7: acceptance: compact portrait large text keeps complete controls outside system insets
+00:04 +8: visual acceptance: Russian drawing screen with source pixels and a new stroke
+00:05 +9: visual acceptance: Russian landscape text editor with system cutouts
+00:06 +10: (tearDownAll)
+00:06 +10: All tests passed!

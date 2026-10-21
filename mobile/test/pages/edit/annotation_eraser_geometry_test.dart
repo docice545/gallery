@@ -78,7 +78,7 @@ void main() {
     expect(editor.elements.single, original);
   });
 
-  testWidgets('long multiline text is erasable at the end of its actual layout', (tester) async {
+  testWidgets('stroke eraser preserves long multiline text at the end of its actual layout', (tester) async {
     final original = element('text', AnnotationTool.text, const [
       Offset(.1, .1),
     ], text: 'A long caption that wraps across several lines\nand ends here');
@@ -89,9 +89,10 @@ void main() {
     final end = const Offset(36, 36) + Offset(painter.width - 4, painter.height - 4);
     painter.dispose();
     await tester.tapAt(imagePoint(tester, end / 360));
-    expect(editor.elements, isEmpty);
-    expect(editor.undo(), isTrue);
     expect(editor.elements.single, original);
+    expect(editor.undo(), isTrue);
+    expect(editor.elements, isEmpty);
+    expect(editor.undo(), isFalse);
   });
 
   testWidgets('tap removes only the top overlapping element, and undo restores its order', (tester) async {

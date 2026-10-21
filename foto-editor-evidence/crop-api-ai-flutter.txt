@@ -1,0 +1,184 @@
+00:00 +0: loading $REPO/mobile/test/pages/edit/editor_crop_history_test.dart
+00:00 +0: $REPO/mobile/test/pages/edit/editor_crop_history_test.dart: aspect 1:1 withExif=true forms one reversible pixel-crop history step
+00:01 +1: $REPO/mobile/test/pages/edit/editor_crop_history_test.dart: aspect 16:9 withExif=true forms one reversible pixel-crop history step
+00:02 +2: $REPO/mobile/test/pages/edit/editor_crop_history_test.dart: aspect Original withExif=true forms one reversible pixel-crop history step
+00:02 +3: $REPO/mobile/test/pages/edit/editor_crop_history_test.dart: aspect Original withExif=false forms one reversible pixel-crop history step
+00:03 +4: loading $REPO/mobile/test/unit/providers/editor_document_history_test.dart
+00:03 +4: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: undo and redo traverse geometry, corrections, filters and styled markup in order
+00:03 +5: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: one continuous slider gesture is one undo step and redo restores the final value
+00:03 +6: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: no-op interactions do not consume history or discard redo
+00:03 +7: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: a new edit after undo invalidates redo
+00:03 +8: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: reset is one reversible document change including annotations
+00:03 +9: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: four turns and zero-intensity effects are clean
+00:03 +10: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: history retains at most 100 immutable snapshots
+00:03 +11: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: saving locks all document mutations, undo and redo
+00:03 +12: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: invalid geometry and non-finite corrections fail without changing the document
+00:03 +13: loading $REPO/mobile/test/unit/providers/editor_provider_test.dart
+00:04 +13: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider initial state has default values
+00:04 +14: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment adds adjustment to state
+00:04 +15: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment clamps value to [-1, 1]
+00:04 +16: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment removes key when value is 0
+00:04 +17: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter updates filter index and intensity
+00:04 +18: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter clamps index to valid range
+00:04 +19: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter clamps intensity to [0, 1]
+00:04 +20: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider resetEdits resets adjustments and filter
+00:04 +21: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider hasUnsavedEdits reflects adjustment changes
+00:04 +22: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider hasUnsavedEdits reflects filter changes
+00:04 +23: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider init loads baseline adjustments from edits
+00:04 +24: loading $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart
+00:05 +24: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an older or unconfigured server disables only Magic Eraser while keeping the crop editor usable
+00:07 +25: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving opens copy, disabled replacement, and cancel choices
+00:07 +26: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an unavailable optional AI service leaves ordinary transform editing operational
+00:07 +27: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a slow capability check stays disabled and visibly loading until confirmed
+00:08 +28: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 401 failure explains why and permits retry
+00:08 +29: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 403 failure explains why and permits retry
+00:08 +30: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 400 failure explains why and permits retry
+00:08 +31: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 500 failure explains why and permits retry
+00:09 +32: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 503 failure explains why and permits retry
+00:09 +33: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a ClientException failure explains why and permits retry
+00:09 +34: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a RequestAbortedException failure explains why and permits retry
+00:10 +35: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a FormatException failure explains why and permits retry
+00:10 +36: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from disabled without losing crop or rotation
+00:10 +37: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from offline without losing crop or rotation
+00:10 +38: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving transform edits disables capability retry and AI navigation
+00:11 +39: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: rechecking an enabled capability does not reuse a stale enabled result
+00:11 +40: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Russian availability and retry fit a narrow screen with enlarged text
+00:11 +41: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Live/Motion stills expose AI copies without enabling crop or overwrite controls
+00:12 +42: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: existing editor callers without an asset retain their original crop interface
+00:12 +43: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(390.0, 844.0)
+00:12 +44: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(844.0, 390.0)
+00:12 +45: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:13 +46: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:14 +47: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:15 +48: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:15 +49: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:16 +50: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:16 +51: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:17 +52: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:17 +53: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:18 +54: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:19 +55: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:19 +56: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:20 +57: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: all display rotations and flips keep actual preview pixels and exported markup aligned
+00:20 +58: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:20 +59: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:21 +60: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:21 +61: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:21 +62: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: markup ignores letterbox, keeps crop fixed, and stays image-relative after rotation and resize
+00:22 +63: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: changing modes keeps annotations and their undo history
+00:22 +64: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: editing existing text preserves style and position and creates one undoable edit
+00:23 +65: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: cancel text editing preserves the document and undo history
+00:23 +66: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: empty text editing preserves the document and undo history
+00:24 +67: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: unchanged text editing preserves the document and undo history
+00:24 +68: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: move tool edits selected text after zoom rotation and reflection without moving its anchor
+00:25 +69: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: undo and redo keep annotation dirty state aligned with the current document
+00:25 +70: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: reset restores server edit baseline and clears markup as one undoable document change
+00:25 +71: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in crop leaves crop and annotations untouched
+00:25 +72: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in draw leaves crop and annotations untouched
+00:26 +73: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in text leaves crop and annotations untouched
+00:26 +74: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in stickers leaves crop and annotations untouched
+00:26 +75: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: drawing after zoom, rotation and reflection uses image coordinates; resize resets only the viewport
+00:26 +76: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a pinch starting outside the photo cancels a stroke already being drawn
+00:26 +77: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: pinching crop corners preserves an existing crop selection
+00:26 +78: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: six-section rail and drawing pill match the required order and top actions
+00:27 +79: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: sticker layers select, reorder, delete and undo through the shared document history
+00:27 +80: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: text outline background size opacity and font update the selected layer and are undoable
+00:28 +81: loading $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart
+00:28 +81: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: (setUpAll)
+00:28 +81: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: an older or disabled server leaves the feature unavailable without requesting an original
+00:29 +82: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: a server-only source displays without inpainting or importing an asset automatically
+00:30 +83: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: a failed source download can be retried without creating a job or changing the asset
+00:30 +84: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: brush taps, undo, redo and reset maintain a removable selection
+00:30 +85: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: a continuous brush drag produces a selection after competing tap gestures cancel
+00:31 +86: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: brush size and additive/eraser gestures are sent as normalized mask operations
+00:31 +87: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: zoom mode enables image gestures and does not paint a selection
+00:31 +88: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: processing shows progress, prevents repeated submit and stops the known server job on Cancel
+00:31 +89: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: Cancel during job creation discards a late result instead of leaving an unknown server job
+00:32 +90: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: Before/After changes only the displayed preview and Save copy remains explicit
+00:32 +91: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: Save copy cannot be submitted twice and disposal does not cancel an atomic import
+00:32 +92: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: a failed processing job retains the original and permits retry without a silent save
+00:33 +93: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: rejects an invalid encoded result without offering Save copy
+00:33 +94: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: rejects an oversized decoded result without offering Save copy
+00:33 +95: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: closing while creating a job cancels its late response and does not update a disposed widget
+00:33 +96: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: Motion/Live Photo editing identifies the independent still copy without changing its pair
+00:33 +97: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: Russian mask controls and Before/After/Save fit a 320 dp viewport with enlarged text
+00:34 +98: $REPO/mobile/test/pages/edit/magic_eraser_page_test.dart: (tearDownAll)
+00:34 +98: loading $REPO/mobile/test/repositories/magic_eraser_repository_test.dart
+00:34 +98: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: capability compatibility an older server hides the feature without breaking the existing editor
+00:34 +99: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: capability compatibility honors a disabled server instead of creating an inpainting job
+00:34 +100: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: capability compatibility reads the enabled capability and sends existing session and proxy headers
+00:34 +101: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: capability compatibility does not disguise an authorization or server error as an old server
+00:34 +102: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: capability compatibility rejects malformed capabilities instead of reporting a disabled server
+00:34 +103: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: capability compatibility logs diagnostic status without response bodies, URLs or credentials
+00:34 +104: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: mask-only processing does not submit an empty mask or an eraser-only history to the processing queue
+00:34 +105: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: mask-only processing a server-only asset submits mask instructions without downloading or uploading the original
+00:34 +106: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: mask-only processing reads processing, failure and ready status without saving a copy automatically
+00:34 +107: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: mask-only processing reports a full processing queue without claiming that the job started
+00:34 +108: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: mask-only processing network failure propagates and creates no local or second copy
+00:34 +109: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: mask-only processing uses the provided abort trigger while submitting a mask
+00:34 +110: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews streaming image requests preserve API-client authentication, not only static headers
+00:34 +111: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews streaming images preserve query authentication without losing encoded values
+00:34 +112: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews gets a server-derived source preview without asking the phone to fetch the original
+00:34 +113: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews gets a result preview while leaving save as an explicit separate action
+00:34 +114: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews rejects unsuccessful image responses instead of decoding a server error as a photograph
+00:34 +115: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews rejects an oversized declared source and cancels its response stream immediately
+00:34 +116: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews rejects an empty preview rather than presenting a broken image as a result
+00:34 +117: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews limits a chunked preview with no content length and stops reading after the bound
+00:34 +118: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded original-aligned source and result previews uses abortable transport for source loading
+00:34 +119: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: explicit lifecycle operations cancels a job through DELETE without deleting or changing the source asset
+00:34 +120: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: explicit lifecycle operations saves only an explicit new asset result, never PUTs over the original
+00:34 +121: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: explicit lifecycle operations surfaces ownership and expired job errors for save and cancel
+00:34 +122: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded network operations mask transport is cancelled after 90 seconds even without a user cancellation
+00:34 +123: $REPO/mobile/test/repositories/magic_eraser_repository_test.dart: bounded network operations preview transport is cancelled after 90 seconds even without a user cancellation
+00:34 +124: loading $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart
+00:35 +124: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke snapshots normalized points without allowing later input or output mutation
+00:35 +125: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke accepts boundary coordinates and the largest supported brush
+00:35 +126: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke rejects a brush outside the normalized image or nonfinite coordinates
+00:35 +127: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke rejects empty or excessively sampled gestures
+00:35 +128: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke rejects zero, negative, excessive and nonfinite brush sizes
+00:35 +129: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke records erasing as a mask operation without changing the original gesture
+00:35 +130: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke sends normalized mask instructions rather than source image bytes
+00:35 +131: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask starts with no selection or history
+00:35 +132: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask eraser-only gestures do not permit an inpainting request
+00:35 +133: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask add, undo and redo preserve the previous immutable snapshots
+00:35 +134: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask a new gesture after undo discards redo rather than reviving a removed object mask
+00:35 +135: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask undoing all gestures removes the selection and preserves redo ordering
+00:35 +136: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask reset removes both mask and redo history without modifying existing snapshots
+00:35 +137: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask snapshots constructor input and exposes an immutable mask
+00:35 +138: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask limits gesture count without modifying the accepted mask
+00:35 +139: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask limits total sample count even when every individual gesture is valid
+00:35 +140: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserJob reads processing lifecycle states without inventing an edited asset
+00:35 +141: $REPO/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserJob reads a saved copy and a failure code distinctly
+00:35 +142: loading $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart
+00:39 +142: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: allows an owned Live/Motion still into the editor without relaxing its transform-edit eligibility
+00:40 +143: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not expose editing of another owners Live Photo
+00:40 +144: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not offer a server editor without a selected photo
+00:40 +145: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not treat a local asset as an owned server photo (remoteId: null)
+00:40 +146: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not treat a local asset as an owned server photo (remoteId: backed-up-photo)
+00:40 +147: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: offers editing for an owned remote photo with a matching on-device original
+00:40 +148: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing local
+00:40 +149: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing shared
+00:40 +150: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing video
+00:40 +151: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing animated
+00:40 +152: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not offer editing for a trashed photo
+00:40 +153: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not offer editing for a remote index tombstone
+00:40 +154: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: keeps ordinary videos and animated images outside the photo eraser entry point
+00:40 +155: $REPO/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: the editor loads a bounded unedited preview even when an original exists locally
+00:40 +156: loading $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart
+00:41 +156: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditAssetAction offers to edit a single owned editable asset
+00:42 +157: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditAssetAction is hidden when the server predates edit sync
+00:42 +158: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditAssetAction is hidden for more than one asset
+00:42 +159: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditAssetAction is hidden for an asset owned by someone else
+00:42 +160: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditAssetAction is hidden for a non-editable asset
+00:42 +161: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditAssetAction reads the edits and exif for the asset it is about to open
+00:42 +162: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditLocationAction offers to edit an owned remote asset
+00:42 +163: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditLocationAction is hidden without any owned remote asset
+00:42 +164: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditLocationAction saves the location against every owned asset and toasts the count
+00:42 +165: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditDateTimeAction offers to edit an owned remote asset
+00:42 +166: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditDateTimeAction is hidden without any owned remote asset
+00:42 +167: $REPO/mobile/test/unit/presentation/actions/edit_action_test.dart: EditDateTimeAction saves the date against every owned asset and toasts the count
+00:43 +168: loading $REPO/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart
+00:43 +168: $REPO/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart: photo has no duplicate editor entry in the expanded top menu
+00:45 +169: $REPO/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart: Live/Motion photo has no duplicate editor entry in the expanded top menu
+00:45 +170: $REPO/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart: video has no duplicate editor entry in the expanded top menu
+00:45 +171: All tests passed!

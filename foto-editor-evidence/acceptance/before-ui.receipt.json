@@ -1,0 +1,36 @@
+{
+  "exitCode": 1,
+  "finishedAt": 1792582190.84546,
+  "log": "5d26c1a46aedbd9851bfc98fdd3c91ba1b87a8b713d997d7b23ff832ce77f1eb-1a5137100f6d46c3ad5568081f122879.log",
+  "logSHA256": "42cfba961e147f20e6a2cb75d709c1601afba819e8b49a31f97641077a64cb08",
+  "pid": 252464,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "test",
+      "--concurrency=1",
+      "test/pages/edit/editor_acceptance_test.dart"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "8c96acf4a751364fe7b501a1a1c9755d5b182ae1b56789c7223edaca735e74b1",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "f1a4675c502cbe8f7b68213334f03afa0e097ff70b781e4341fa20d7181f62cb",
+      "head": "c755c03cc8c9c560063e403fdac733971541f04b"
+    },
+    "stage": "flutter-test",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792582180.7042935,
+  "status": "FAIL"
+}

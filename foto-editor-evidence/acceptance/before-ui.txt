@@ -1,0 +1,37 @@
+00:00 +0: loading /workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.android (variant: TargetPlatform.android)
+00:01 +1: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _DescendantWidgetFinder:<Found 0 widgets with icon "IconData(U+0E404)" descending from
+   Which: means none were found but one was expected
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart:119:7)
+  file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart line 119
+00:02 +1 -1: acceptance: black screen and exact Russian top actions including vertical dots on TargetPlatform.iOS (variant: TargetPlatform.iOS) [E]
+00:02 +1 -1: acceptance: all six Russian section names remain complete in the scrollable rail
+The following TestFailure was thrown running a test:
+Expected: false
+  Actual: <true>
+A horizontal rail can grow instead of ellipsizing Обрезка / поворот
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart:131:7)
+  file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart line 131
+00:03 +1 -2: acceptance: all six Russian section names remain complete in the scrollable rail [E]
+00:03 +1 -2: acceptance: yellow modes, blue/purple ink and circular ordered pill with separate history
+00:04 +2 -2: acceptance: portrait cutouts keeps complete controls outside system insets
+00:04 +3 -2: acceptance: landscape cutouts keeps complete controls outside system insets
+00:04 +4 -2: acceptance: compact landscape large text keeps complete controls outside system insets
+The following TestFailure was thrown running a test:
+Expected: a value less than or equal to <223.01>
+  Actual: <236.0>
+   Which: is not a value less than or equal to <223.01>
+editor-tool-pen must fit the visible settings viewport
+When the exception was thrown, this was the stack:
+#4      _inside (file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart:88:3)
+#5      main.<anonymous closure> (file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart:215:9)
+  file:///workspace/gallery/mobile/test/pages/edit/editor_acceptance_test.dart line 88
+00:05 +4 -3: acceptance: compact landscape large text keeps complete controls outside system insets [E]
+00:05 +4 -3: (tearDownAll)
+00:05 +4 -3: Some tests failed.

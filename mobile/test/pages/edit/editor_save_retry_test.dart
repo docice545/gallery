@@ -223,7 +223,12 @@ void main() {
         expect(pending.isObserved, isFalse);
         expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(save, findsOneWidget);
-        expect(find.text('Error - Something went wrong'), findsOneWidget);
+        expect(
+          find.text(
+            'Could not save a copy. Check the connection, image format and device photo permissions, then retry.',
+          ),
+          findsOneWidget,
+        );
         verifyNever(
           () => media.saveImageWithFile(
             any(),
@@ -250,4 +255,73 @@ void main() {
       },
     );
   }
+  testWidgets('canceling original load preserves edits, releases source and never imports a partial copy', (
+    tester,
+  ) async {
+    final container = await openEditor(tester);
+    final pending = EditorTestImageCompleter();
+    await chooseCopy(tester, pending);
+    await tester.tap(find.byKey(const Key('editor-cancel-export')));
+    await tester.pumpAndSettle();
+    expect(container.read(editorStateProvider).isApplyingEdits, isFalse);
+    expect(container.read(editorStateProvider).rotationAngle, -90);
+    expect(pending.isObserved, isFalse);
+    expect(find.byType(EditImagePage), findsOneWidget);
+    verifyNever(
+      () => media.saveImageWithFile(
+        any(),
+        title: any(named: 'title'),
+        relativePath: any(named: 'relativePath'),
+      ),
+    );
+    expect(applyEditsCalls, 0);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(copy, findsOneWidget);
+  });
+  testWidgets('denied native photo save preserves edits and retries as a new copy with no server mutation', (
+    tester,
+  ) async {
+    final directory = (await tester.runAsync(() => Directory.systemTemp.createTemp('foto-editor-permission-')))!;
+    addTearDown(() => directory.delete(recursive: true));
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (_) async => directory.path,
+    );
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null),
+    );
+    final source = (await tester.runAsync(createEditorRaster))!;
+    addTearDown(source.dispose);
+    var attempts = 0;
+    when(
+      () => media.saveImageWithFile(
+        any(),
+        title: any(named: 'title'),
+        relativePath: any(named: 'relativePath'),
+      ),
+    ).thenAnswer((_) async => ++attempts == 1 ? null : _MockAssetEntity());
+    final container = await openEditor(tester);
+    await chooseCopy(tester, EditorTestImageCompleter()..emitImage(ImageInfo(image: source.clone())));
+    for (var i = 0; i < 100 && container.read(editorStateProvider).isApplyingEdits; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump();
+    }
+    expect(attempts, 1);
+    expect(container.read(editorStateProvider).hasEdits, isTrue);
+    expect(container.read(editorStateProvider).rotationAngle, -90);
+    expect(directory.listSync(), isEmpty);
+    expect(find.byType(EditImagePage), findsOneWidget);
+    expect(applyEditsCalls, 0);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    await chooseCopy(tester, EditorTestImageCompleter()..emitImage(ImageInfo(image: source.clone())));
+    await finishCopy(tester);
+    expect(attempts, 2);
+    expect(directory.listSync(), isEmpty);
+    expect(applyEditsCalls, 0);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
 }

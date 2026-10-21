@@ -3,183 +3,248 @@ import 'package:flutter/services.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/aspect_ratios.dart';
+import 'package:immich_mobile/constants/filters.dart';
+import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
+import 'package:immich_mobile/utils/color_adjustment.dart';
 import 'package:immich_mobile/utils/editor.utils.dart';
 
 part 'editor.provider.freezed.dart';
 
 final editorStateProvider = NotifierProvider<EditorProvider, EditorState>(EditorProvider.new);
 
+/// One bounded document history across geometry, color and markup. A slider or
+/// crop gesture commits one step, rather than retaining a snapshot per frame.
 class EditorProvider extends Notifier<EditorState> {
-  Rect _baselineCrop = const Rect.fromLTRB(0, 0, 1, 1);
-  int _baselineRotation = 0;
-  bool _baselineFlipHorizontal = false;
-  bool _baselineFlipVertical = false;
-  CropAspectRatio _baselineAspectRatio = CropAspectRatio.free;
-  bool _annotationsDirty = false;
+  EditorState _baseline = const EditorState();
+  final List<EditorState> _undo = [];
+  final List<EditorState> _redo = [];
+  EditorState? _gestureStart;
+  bool _legacyAnnotationsDirty = false;
+  static const historyLimit = 100;
 
   @override
-  EditorState build() {
-    return const EditorState();
-  }
+  EditorState build() => const EditorState();
 
   void clear() {
-    _baselineCrop = const Rect.fromLTRB(0, 0, 1, 1);
-    _baselineRotation = 0;
-    _baselineFlipHorizontal = false;
-    _baselineFlipVertical = false;
-    _baselineAspectRatio = CropAspectRatio.free;
-    _annotationsDirty = false;
-    state = const EditorState();
+    _undo.clear();
+    _redo.clear();
+    _gestureStart = null;
+    _legacyAnnotationsDirty = false;
+    _baseline = const EditorState();
+    state = _baseline;
   }
 
   void init(List<AssetEdit> edits, ExifInfo exifInfo) {
     clear();
-
-    final existingCrop = edits.whereType<CropEdit>().firstOrNull;
-
-    final originalWidth = exifInfo.isFlipped ? exifInfo.height : exifInfo.width;
-    final originalHeight = exifInfo.isFlipped ? exifInfo.width : exifInfo.height;
-
-    final Rect crop = existingCrop != null && originalWidth != null && originalHeight != null
-        ? convertCropParametersToRect(existingCrop.parameters, originalWidth, originalHeight)
-        : const Rect.fromLTRB(0, 0, 1, 1);
-
+    final crop = edits.whereType<CropEdit>().firstOrNull;
+    final width = exifInfo.isFlipped ? exifInfo.height : exifInfo.width;
+    final height = exifInfo.isFlipped ? exifInfo.width : exifInfo.height;
     final transform = normalizeTransformEdits(edits);
-
-    _baselineCrop = crop;
-    _baselineRotation = transform.rotation;
-    _baselineFlipHorizontal = transform.mirrorHorizontal;
-    _baselineFlipVertical = transform.mirrorVertical;
-    _baselineAspectRatio = CropAspectRatio.free;
-
-    state = state.copyWith(
-      originalWidth: originalWidth ?? state.originalWidth,
-      originalHeight: originalHeight ?? state.originalHeight,
-      crop: crop,
+    // Adjustments/markup are baked into a new copy, never invented as unsupported
+    // AssetEdit API fields. Existing server crop/rotation metadata stays intact.
+    _baseline = EditorState(
+      originalWidth: width ?? 0,
+      originalHeight: height ?? 0,
+      crop: crop != null && width != null && height != null
+          ? convertCropParametersToRect(crop.parameters, width, height)
+          : const Rect.fromLTRB(0, 0, 1, 1),
+      rotationAngle: transform.rotation,
       flipHorizontal: transform.mirrorHorizontal,
       flipVertical: transform.mirrorVertical,
-      hasUnsavedEdits: false,
     );
-
-    _animateRotation(transform.rotation, duration: Duration.zero);
+    state = _baseline;
   }
 
-  void _animateRotation(int angle, {Duration duration = const Duration(milliseconds: 300)}) {
-    state = state.copyWith(rotationAngle: angle, animationDuration: duration);
+  bool _sameDocument(EditorState a, EditorState b) =>
+      a.crop == b.crop &&
+      a.rotationAngle % 360 == b.rotationAngle % 360 &&
+      a.flipHorizontal == b.flipHorizontal &&
+      a.flipVertical == b.flipVertical &&
+      a.aspectRatio == b.aspectRatio &&
+      mapEquals(a.adjustments, b.adjustments) &&
+      a.selectedFilterIndex == b.selectedFilterIndex &&
+      a.filterIntensity == b.filterIntensity &&
+      listEquals(a.annotations, b.annotations);
+
+  bool _dirty(EditorState value) =>
+      !_sameDocument(
+        value.copyWith(
+          selectedFilterIndex: value.filterIntensity == 0 ? 0 : value.selectedFilterIndex,
+          filterIntensity: value.selectedFilterIndex == 0 || value.filterIntensity == 0 ? 1 : value.filterIntensity,
+        ),
+        _baseline,
+      ) ||
+      _legacyAnnotationsDirty;
+
+  void _publish(EditorState next) {
+    state = next.copyWith(hasUnsavedEdits: _dirty(next), canUndo: _undo.isNotEmpty, canRedo: _redo.isNotEmpty);
+  }
+
+  void _remember(EditorState value) {
+    _undo.add(value);
+    if (_undo.length > historyLimit) {
+      _undo.removeAt(0);
+    }
+    _redo.clear();
+  }
+
+  void _commit(EditorState next) {
+    if (state.isApplyingEdits || _sameDocument(state, next)) {
+      return;
+    }
+    if (_gestureStart == null) {
+      _remember(state);
+    }
+    _publish(next);
+  }
+
+  void beginGesture() {
+    if (!state.isApplyingEdits) {
+      _gestureStart ??= state;
+    }
+  }
+
+  void endGesture() {
+    final start = _gestureStart;
+    _gestureStart = null;
+    if (start != null && !_sameDocument(start, state)) {
+      _remember(start);
+      _publish(state);
+    }
+  }
+
+  void undo() {
+    endGesture();
+    if (_undo.isEmpty || state.isApplyingEdits) {
+      return;
+    }
+    _redo.add(state);
+    _publish(_undo.removeLast().copyWith(isApplyingEdits: false, animationDuration: Duration.zero));
+  }
+
+  void redo() {
+    if (_redo.isEmpty || state.isApplyingEdits) {
+      return;
+    }
+    _undo.add(state);
+    _publish(_redo.removeLast().copyWith(isApplyingEdits: false, animationDuration: Duration.zero));
   }
 
   void normalizeRotation() {
-    final normalizedAngle = ((state.rotationAngle % 360) + 360) % 360;
-    if (normalizedAngle != state.rotationAngle) {
-      state = state.copyWith(rotationAngle: normalizedAngle, animationDuration: Duration.zero);
-    }
+    state = state.copyWith(rotationAngle: state.rotationAngle % 360, animationDuration: Duration.zero);
   }
 
-  void setIsEditing(bool isApplyingEdits) {
-    state = state.copyWith(isApplyingEdits: isApplyingEdits);
+  void setIsEditing(bool applying) {
+    endGesture();
+    state = state.copyWith(isApplyingEdits: applying);
   }
 
+  // Kept for existing callers; the editor uses the full immutable document below.
   void setAnnotationsEdited(bool dirty) {
-    _annotationsDirty = dirty;
-    _updateDirtyState();
+    _legacyAnnotationsDirty = dirty;
+    _publish(state);
   }
+
+  void setAnnotations(List<AnnotationElement> elements) =>
+      _commit(state.copyWith(annotations: List.unmodifiable(elements)));
 
   void setCrop(Rect crop) {
-    state = state.copyWith(crop: crop);
-    _updateDirtyState();
+    if (![crop.left, crop.top, crop.right, crop.bottom].every((v) => v.isFinite) ||
+        crop.isEmpty ||
+        crop.left < 0 ||
+        crop.top < 0 ||
+        crop.right > 1 ||
+        crop.bottom > 1) {
+      throw ArgumentError.value(crop, 'crop');
+    }
+    _commit(state.copyWith(crop: crop));
   }
 
-  /// Returns the required shift that has to be done to fit a segment in a given
-  /// constraint
-  double _shiftIntoBounds(double start, double end, {double min = 0.0, double max = 1.0}) {
-    if (start < min) {
-      return min - start;
-    }
-    if (end > max) {
-      return max - end;
-    }
-    return 0.0;
-  }
+  double _shiftIntoBounds(double start, double end) => start < 0 ? -start : (end > 1 ? 1 - end : 0);
 
   void setAspectRatio(CropAspectRatio preset) {
-    // Expand the initial selection into a square. We have to keep the longest
-    // side the same as before when the user changes the aspect ratio. Otherwise
-    // the selection might shrink
-    Rect startingSquare = Rect.fromCenter(
-      center: state.crop.center,
-      width: state.crop.longestSide,
-      height: state.crop.longestSide,
-    );
-    // If one side of the square is outside of the image border after the
-    // expansion, move it towards the center of the required amount
-    final dx = _shiftIntoBounds(startingSquare.left, startingSquare.right);
-    final dy = _shiftIntoBounds(startingSquare.top, startingSquare.bottom);
-    startingSquare = startingSquare.shift(Offset(dx, dy));
-    state = state.copyWith(aspectRatio: preset, crop: startingSquare);
-    _updateDirtyState();
+    if (preset == state.aspectRatio) {
+      return;
+    }
+    final ownGesture = _gestureStart == null;
+    beginGesture();
+    try {
+      final square = Rect.fromCenter(
+        center: state.crop.center,
+        width: state.crop.longestSide,
+        height: state.crop.longestSide,
+      );
+      _commit(
+        state.copyWith(
+          aspectRatio: preset,
+          crop: square.shift(
+            Offset(_shiftIntoBounds(square.left, square.right), _shiftIntoBounds(square.top, square.bottom)),
+          ),
+        ),
+      );
+    } finally {
+      if (ownGesture) {
+        endGesture();
+      }
+    }
   }
 
   void resetEdits() {
-    _animateRotation(_baselineRotation);
+    endGesture();
+    _legacyAnnotationsDirty = false;
+    _commit(_baseline);
+  }
 
-    state = state.copyWith(
-      flipHorizontal: _baselineFlipHorizontal,
-      flipVertical: _baselineFlipVertical,
-      crop: _baselineCrop,
-      aspectRatio: _baselineAspectRatio,
+  void rotateCCW() => _rotate(-90);
+  void rotateCW() => _rotate(90);
+  void _rotate(int angle) => _commit(
+    state.copyWith(
+      rotationAngle: state.rotationAngle + angle,
+      aspectRatio: state.aspectRatio.flipped,
+      animationDuration: const Duration(milliseconds: 300),
+    ),
+  );
+
+  void flipHorizontally() => state.rotationAngle % 180 != 0
+      ? _commit(state.copyWith(flipVertical: !state.flipVertical))
+      : _commit(state.copyWith(flipHorizontal: !state.flipHorizontal));
+
+  void flipVertically() => state.rotationAngle % 180 != 0
+      ? _commit(state.copyWith(flipHorizontal: !state.flipHorizontal))
+      : _commit(state.copyWith(flipVertical: !state.flipVertical));
+
+  void setAdjustment(String key, double value) {
+    if (!ColorAdjustment.keys.contains(key) || !value.isFinite) {
+      throw ArgumentError.value(value, key);
+    }
+    final adjustments = Map<String, double>.from(state.adjustments);
+    final clamped = value.clamp(-1.0, 1.0);
+    if (clamped == 0) {
+      adjustments.remove(key);
+    } else {
+      adjustments[key] = clamped;
+    }
+    _commit(state.copyWith(adjustments: adjustments));
+  }
+
+  void setFilter(int index, {double intensity = 1}) {
+    if (!intensity.isFinite) {
+      throw ArgumentError.value(intensity, 'intensity');
+    }
+    _commit(
+      state.copyWith(
+        selectedFilterIndex: index.clamp(0, filters.length - 1),
+        filterIntensity: intensity.clamp(0.0, 1.0),
+      ),
     );
-    _updateDirtyState();
-  }
-
-  void rotateCCW() {
-    _animateRotation(state.rotationAngle - 90);
-    state = state.copyWith(aspectRatio: state.aspectRatio.flipped);
-    _updateDirtyState();
-  }
-
-  void rotateCW() {
-    _animateRotation(state.rotationAngle + 90);
-    state = state.copyWith(aspectRatio: state.aspectRatio.flipped);
-    _updateDirtyState();
-  }
-
-  void flipHorizontally() {
-    if (state.rotationAngle % 180 != 0) {
-      // When rotated 90 or 270 degrees, flipping horizontally is equivalent to flipping vertically
-      state = state.copyWith(flipVertical: !state.flipVertical);
-    } else {
-      state = state.copyWith(flipHorizontal: !state.flipHorizontal);
-    }
-    _updateDirtyState();
-  }
-
-  void flipVertically() {
-    if (state.rotationAngle % 180 != 0) {
-      // When rotated 90 or 270 degrees, flipping vertically is equivalent to flipping horizontally
-      state = state.copyWith(flipHorizontal: !state.flipHorizontal);
-    } else {
-      state = state.copyWith(flipVertical: !state.flipVertical);
-    }
-    _updateDirtyState();
-  }
-
-  void _updateDirtyState() {
-    final transformDirty =
-        state.crop != _baselineCrop ||
-        state.rotationAngle != _baselineRotation ||
-        state.flipHorizontal != _baselineFlipHorizontal ||
-        state.flipVertical != _baselineFlipVertical ||
-        state.aspectRatio != _baselineAspectRatio;
-    state = state.copyWith(hasUnsavedEdits: transformDirty || _annotationsDirty);
   }
 }
 
 @freezed
 abstract class EditorState with _$EditorState {
   const EditorState._();
-
   const factory EditorState({
     @Default(false) bool isApplyingEdits,
     @Default(0) int rotationAngle,
@@ -191,9 +256,12 @@ abstract class EditorState with _$EditorState {
     @Default(0) int originalHeight,
     @Default(Duration.zero) Duration animationDuration,
     @Default(false) bool hasUnsavedEdits,
+    @Default({}) Map<String, double> adjustments,
+    @Default(0) int selectedFilterIndex,
+    @Default(1.0) double filterIntensity,
+    @Default([]) List<AnnotationElement> annotations,
+    @Default(false) bool canUndo,
+    @Default(false) bool canRedo,
   }) = _EditorState;
-
-  bool get hasEdits {
-    return hasUnsavedEdits;
-  }
+  bool get hasEdits => hasUnsavedEdits;
 }

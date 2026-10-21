@@ -46,6 +46,8 @@ def output_identity(repo, stage):
         'openapi-spec': ['open-api/immich-openapi-specs.json'],
         'openapi-typescript': ['packages/sdk/src/fetch-client.ts'],
         'openapi-dart': ['mobile/generated/openapi/lib/model/asset_media_response_dto.dart'],
+        'editor-codegen': ['mobile/lib/presentation/pages/edit/editor.provider.freezed.dart'],
+        'editor-localize': ['mobile/lib/generated/translations.g.dart', 'mobile/lib/generated/codegen_loader.g.dart'],
     }.get(stage, [])
     return {p: file_digest(repo / p) for p in outputs}
 
@@ -174,6 +176,11 @@ def command(repo, stage, files):
         return repo / 'mobile', [flutter, 'pub', 'get', '--enforce-lockfile']
     if stage == 'flutter-codegen' and flutter:
         return repo / 'mobile', ['/bin/bash', str(Path(__file__).with_name('foto-mobile-codegen.sh'))]
+    if stage == 'editor-codegen' and flutter:
+        return repo / 'mobile', [str(Path(flutter).parent / 'dart'), 'run', 'build_runner', 'build',
+            '--build-filter', 'lib/presentation/pages/edit/editor.provider.freezed.dart']
+    if stage == 'editor-localize' and flutter:
+        return repo / 'mobile', ['/bin/bash', str(Path(__file__).with_name('foto-editor-localize.sh'))]
     if stage == 'flutter-test' and flutter and files:
         return repo / 'mobile', [flutter, 'test', '--concurrency=1', *files]
     if stage == 'flutter-analyze' and flutter:
@@ -289,7 +296,7 @@ def main():
     parser.add_argument('stage', choices=['unit', 'medium', 'typecheck', 'backend-build',
         'dependencies', 'sdk-dependencies', 'workspace-link', 'sdk-build', 'plugin-sdk-build',
         'openapi-spec', 'openapi-typescript', 'openapi-dart', 'flutter-dependencies',
-        'flutter-codegen', 'flutter-test', 'flutter-analyze', 'android-apk', 'session'])
+        'flutter-codegen', 'editor-codegen', 'editor-localize', 'flutter-test', 'flutter-analyze', 'android-apk', 'session'])
     parser.add_argument('files', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     private_dir(args.state)

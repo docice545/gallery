@@ -5,24 +5,48 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/utils/annotation_painter.dart';
+import 'package:immich_mobile/utils/color_adjustment.dart';
+
+class ImageExportCancelledException implements Exception {
+  const ImageExportCancelledException();
+}
+
+class ImageExportLimitException implements Exception {
+  const ImageExportLimitException();
+}
 
 /// Renders the edit document in source-image coordinates, then applies the crop
 /// and orthogonal transforms. The viewport, zoom and editor chrome are excluded.
 class EditedImageExporter {
   const EditedImageExporter._();
 
+  static const maxPixels = 32 * 1024 * 1024;
+  static void validateDimensions(int width, int height) {
+    if (width <= 0 || height <= 0 || width * height > maxPixels) {
+      throw const ImageExportLimitException();
+    }
+  }
+
   static const sourceLoadTimeout = Duration(seconds: 30);
 
   /// Returns an owned image handle and detaches on success, failure or timeout.
   /// Removing the listener also lets cancellable providers abandon the request.
-  static Future<ui.Image> loadSource(ImageProvider provider, {Duration timeout = sourceLoadTimeout}) async {
+  static Future<ui.Image> loadSource(
+    ImageProvider provider, {
+    Duration timeout = sourceLoadTimeout,
+    Future<void>? cancel,
+  }) async {
     final stream = provider.resolve(ImageConfiguration.empty);
     final result = Completer<ui.Image>();
     final listener = ImageStreamListener(
       (info, _) {
         try {
           if (!result.isCompleted) {
-            result.complete(info.image.clone());
+            if (info.image.width * info.image.height > maxPixels) {
+              result.completeError(const ImageExportLimitException());
+            } else {
+              result.complete(info.image.clone());
+            }
           }
         } finally {
           info.dispose();
@@ -34,10 +58,25 @@ class EditedImageExporter {
         }
       },
     );
+    final deadline = Timer(timeout, () {
+      if (!result.isCompleted) {
+        result.completeError(TimeoutException('Original image load timed out', timeout));
+      }
+    });
+    if (cancel != null) {
+      unawaited(
+        cancel.then((_) {
+          if (!result.isCompleted) {
+            result.completeError(const ImageExportCancelledException());
+          }
+        }),
+      );
+    }
     try {
       stream.addListener(listener);
-      return await result.future.timeout(timeout);
+      return await result.future;
     } finally {
+      deadline.cancel();
       stream.removeListener(listener);
     }
   }
@@ -49,7 +88,14 @@ class EditedImageExporter {
     required bool flipHorizontal,
     required bool flipVertical,
     required List<AnnotationElement> annotations,
+    Map<String, double> adjustments = const {},
+    int selectedFilterIndex = 0,
+    double filterIntensity = 1.0,
   }) async {
+    validateDimensions(source.width, source.height);
+    if (![crop.left, crop.top, crop.right, crop.bottom].every((v) => v.isFinite)) {
+      throw ArgumentError.value(crop, 'crop');
+    }
     final safeCrop = Rect.fromLTRB(
       crop.left.clamp(0.0, 1.0),
       crop.top.clamp(0.0, 1.0),
@@ -81,7 +127,12 @@ class EditedImageExporter {
     canvas.rotate(normalizedRotation * 3.141592653589793 / 180);
     canvas.scale(flipHorizontal ? -1.0 : 1.0, flipVertical ? -1.0 : 1.0);
     canvas.translate(-(left + cropWidth / 2), -(top + cropHeight / 2));
-    canvas.drawImage(source, Offset.zero, Paint()..filterQuality = FilterQuality.high);
+
+    final paint = Paint()
+      ..filterQuality = FilterQuality.high
+      ..colorFilter = ColorAdjustment.combinedFilter(adjustments, selectedFilterIndex, filterIntensity);
+
+    canvas.drawImage(source, Offset.zero, paint);
     AnnotationPainter(annotations).paint(canvas, Size(source.width.toDouble(), source.height.toDouble()));
     canvas.restore();
     final picture = recorder.endRecording();

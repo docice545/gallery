@@ -85,4 +85,27 @@ void main() {
     image.dispose();
     expect(retry.isObserved, isFalse);
   });
+  testWidgets('cancel detaches a stalled decoder immediately and a late frame cannot affect retry', (tester) async {
+    final cancel = Completer<void>();
+    final failed = expectLater(
+      EditedImageExporter.loadSource(provider, cancel: cancel.future),
+      throwsA(isA<ImageExportCancelledException>()),
+    );
+    expect(stream.isObserved, isTrue);
+    cancel.complete();
+    await tester.pump();
+    await failed;
+    expect(stream.isObserved, isFalse);
+    final retry = EditorTestImageCompleter()..emitImage(ImageInfo(image: source.clone()));
+    provider.sources.add(retry);
+    final image = await EditedImageExporter.loadSource(provider);
+    expect((image.width, image.height), (64, 48));
+    image.dispose();
+  });
+
+  test('export dimensions are bounded without allocating an oversized raster', () {
+    expect(() => EditedImageExporter.validateDimensions(9000, 9000), throwsA(isA<ImageExportLimitException>()));
+    expect(() => EditedImageExporter.validateDimensions(0, 100), throwsA(isA<ImageExportLimitException>()));
+    EditedImageExporter.validateDimensions(6000, 4000);
+  });
 }

@@ -16,8 +16,13 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
+import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/markup_controls.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
@@ -31,6 +36,8 @@ import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:openapi/api.dart' show ApiException;
 import 'package:path_provider/path_provider.dart';
+
+export 'editor_mode.dart';
 
 @RoutePage()
 class EditImagePage extends ConsumerStatefulWidget {
@@ -46,27 +53,201 @@ class EditImagePage extends ConsumerStatefulWidget {
 
 class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProviderStateMixin {
   final _annotations = AnnotationEditor();
-  late _EditorMode _mode;
+  late EditorMode _mode;
   AnnotationTool _tool = AnnotationTool.pen;
-  Color _color = Colors.red;
+  Color _color = Colors.blue;
   double _strokeWidth = 5;
   double _opacity = 1;
+  String? _selectedId;
+  bool _cancelSave = false;
+  bool _writingCopy = false;
+  Completer<void>? _cancelLoad;
+  AnnotationElement _textStyle = AnnotationElement(
+    id: 'text-style',
+    tool: AnnotationTool.text,
+    points: const [Offset.zero],
+    color: Colors.blue,
+    width: 1,
+    opacity: 1,
+    fontFamily: 'sans-serif',
+  );
+
+  AnnotationElement? get _selected => _annotations.elements.where((element) => element.id == _selectedId).firstOrNull;
+
+  void _reset() {
+    ref.read(editorStateProvider.notifier).resetEdits();
+    setState(() => _selectedId = null);
+  }
+
+  void _setTextStyle(AnnotationElement style) {
+    _textStyle = style;
+    final selected = _selected;
+    if (selected != null && selected.isText) {
+      _annotations.update(
+        selected.copyWith(
+          fontSize: style.fontSize,
+          fontFamily: style.fontFamily,
+          outlineColor: style.outlineColor,
+          outlineWidth: style.outlineWidth,
+          backgroundColor: style.backgroundColor,
+        ),
+      );
+      _syncAnnotationDirty();
+    }
+    setState(() {});
+  }
+
+  void _setInk({Color? color, double? opacity}) {
+    _color = color ?? _color;
+    _opacity = opacity ?? _opacity;
+    final selected = _selected;
+    if (selected != null && (selected.isCaption || _tool == AnnotationTool.move)) {
+      _annotations.update(selected.copyWith(color: color, opacity: opacity));
+      _syncAnnotationDirty();
+    }
+    setState(() {});
+  }
+
+  void _addSticker(String sticker) {
+    final element = AnnotationElement(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      tool: AnnotationTool.sticker,
+      points: const [Offset(.4, .4)],
+      color: _color,
+      width: 1,
+      opacity: _opacity,
+      text: sticker,
+      fontSize: .2,
+    );
+    _annotations.add(element);
+    _syncAnnotationDirty();
+    setState(() {
+      _selectedId = element.id;
+      _tool = AnnotationTool.move;
+    });
+  }
+
+  Future<void> _layers() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xff191919),
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => SafeArea(
+          child: SizedBox(
+            height: 360,
+            child: Column(
+              children: [
+                Text(context.tr('editor_layers'), style: const TextStyle(color: Colors.white)),
+                Expanded(
+                  child: ListView(
+                    children: [
+                      for (final element in _annotations.elements.reversed)
+                        ListTile(
+                          key: ValueKey('editor-layer-${element.id}'),
+                          selected: _selectedId == element.id,
+                          textColor: Colors.white,
+                          title: Text(
+                            element.isText
+                                ? element.text!
+                                : element.isSticker
+                                ? context.tr('editor_stickers')
+                                : context.t.editor_draw,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            setState(() {
+                              _selectedId = element.id;
+                              _mode = element.isText
+                                  ? EditorMode.text
+                                  : element.isSticker
+                                  ? EditorMode.stickers
+                                  : EditorMode.draw;
+                              _tool = AnnotationTool.move;
+                            });
+                            Navigator.pop(context);
+                          },
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: context.tr('editor_layer_up'),
+                                icon: const Icon(Icons.arrow_upward),
+                                onPressed: () {
+                                  _annotations.reorder(element.id, _annotations.elements.indexOf(element) + 1);
+                                  _syncAnnotationDirty();
+                                  update(() {});
+                                },
+                              ),
+                              IconButton(
+                                tooltip: context.tr('editor_layer_down'),
+                                icon: const Icon(Icons.arrow_downward),
+                                onPressed: () {
+                                  _annotations.reorder(element.id, _annotations.elements.indexOf(element) - 1);
+                                  _syncAnnotationDirty();
+                                  update(() {});
+                                },
+                              ),
+                              IconButton(
+                                tooltip: context.tr('editor_delete_layer'),
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () {
+                                  _annotations.remove(element.id);
+                                  _syncAnnotationDirty();
+                                  update(() {});
+                                  setState(() => _selectedId = null);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _mode = widget.asset?.isEditable ?? true ? _EditorMode.crop : _EditorMode.magicEraser;
+    _annotations.replaceAll(ref.read(editorStateProvider).annotations);
+    _mode = widget.asset?.isEditable ?? true ? EditorMode.crop : EditorMode.magicEraser;
+  }
+
+  void _cancelExport() {
+    _cancelSave = true;
+    if (!(_cancelLoad?.isCompleted ?? true)) {
+      _cancelLoad!.complete();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cancelExport();
+    super.dispose();
   }
 
   Future<void> _saveCopy() async {
+    _cancelSave = false;
+    _cancelLoad = Completer<void>();
+    _writingCopy = false;
     ref.read(editorStateProvider.notifier).setIsEditing(true);
     String? path;
     ui.Image? source;
     ui.Image? rendered;
     var saved = false;
     try {
+      final asset = widget.asset;
+      if (asset?.width != null && asset?.height != null) {
+        EditedImageExporter.validateDimensions(asset!.width!, asset.height!);
+      }
       source = await _loadOriginalImage();
-      if (!mounted) {
+      if (!mounted || _cancelSave) {
         return;
       }
       final state = ref.read(editorStateProvider);
@@ -77,11 +258,24 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         flipHorizontal: state.flipHorizontal,
         flipVertical: state.flipVertical,
         annotations: _annotations.elements,
+        adjustments: state.adjustments,
+        selectedFilterIndex: state.selectedFilterIndex,
+        filterIntensity: state.filterIntensity,
       );
+      if (!mounted || _cancelSave) {
+        return;
+      }
       final bytes = await EditedImageExporter.encodePng(rendered);
+      if (!mounted || _cancelSave) {
+        return;
+      }
       final directory = await getTemporaryDirectory();
       path = '${directory.path}/gallery-edit-${DateTime.now().microsecondsSinceEpoch}.png';
       await File(path).writeAsBytes(bytes, flush: true);
+      if (!mounted || _cancelSave) {
+        return;
+      }
+      setState(() => _writingCopy = true);
       final copy = await ref
           .read(fileMediaRepositoryProvider)
           .saveImageWithFile(
@@ -93,9 +287,13 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         throw StateError('Unable to save edited copy');
       }
       saved = true;
-    } catch (_) {
-      if (mounted) {
-        ImmichToast.show(context: context, msg: context.t.error_title, toastType: ToastType.error);
+    } catch (error) {
+      if (mounted && !_cancelSave) {
+        ImmichToast.show(
+          context: context,
+          msg: context.tr(error is ImageExportLimitException ? 'editor_export_too_large' : 'editor_export_failed'),
+          toastType: ToastType.error,
+        );
       }
     } finally {
       source?.dispose();
@@ -112,16 +310,17 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
       }
     }
     if (saved && mounted) {
-      ImmichToast.show(context: context, msg: context.t.success, toastType: ToastType.success);
+      ImmichToast.show(context: context, msg: context.tr('editor_save_copy_device'), toastType: ToastType.success);
       Navigator.of(context).pop();
     }
   }
 
-  Future<ui.Image> _loadOriginalImage() {
+  Future<ui.Image> _loadOriginalImage() async {
     final provider = widget.asset == null
         ? widget.image.image
         : RemoteImageProvider(url: getOriginalUrlForRemoteId(widget.asset!.id, edited: false), edited: false);
-    return EditedImageExporter.loadSource(provider);
+    final image = await EditedImageExporter.loadSource(provider, cancel: _cancelLoad?.future);
+    return image;
   }
 
   Future<String?> _promptText({String? initialText}) {
@@ -177,23 +376,27 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     if (!mounted || text == null || text.trim().isEmpty) {
       return;
     }
-    _annotations.add(
-      AnnotationElement(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        tool: AnnotationTool.text,
-        points: [point],
-        color: _color,
-        width: relativeWidth,
-        opacity: _opacity,
-        text: text.trim(),
-      ),
+    final element = AnnotationElement(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      tool: AnnotationTool.text,
+      points: [point],
+      color: _color,
+      width: relativeWidth,
+      opacity: _opacity,
+      text: text.trim(),
+      fontFamily: _textStyle.fontFamily,
+      fontSize: _textStyle.fontSize,
+      outlineWidth: _textStyle.outlineWidth,
+      outlineColor: _textStyle.outlineColor,
+      backgroundColor: _textStyle.backgroundColor,
     );
+    _annotations.add(element);
     _syncAnnotationDirty();
-    setState(() {});
+    setState(() => _selectedId = element.id);
   }
 
   void _syncAnnotationDirty() {
-    ref.read(editorStateProvider.notifier).setAnnotationsEdited(_annotations.elements.isNotEmpty);
+    ref.read(editorStateProvider.notifier).setAnnotations(_annotations.elements);
   }
 
   Future<void> _chooseSaveMode() async {
@@ -212,6 +415,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
               key: const Key('edit-save-copy'),
               leading: const Icon(Icons.copy),
               title: Text(context.t.magic_eraser_save_copy),
+              subtitle: Text(context.tr('editor_copy_explanation')),
               onTap: () => Navigator.of(context).pop(EditSaveMode.copy),
             ),
             ListTile(
@@ -262,13 +466,24 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    final hasUnsavedEdits = ref.watch(editorStateProvider.select((state) => state.hasUnsavedEdits));
+    final state = ref.watch(editorStateProvider);
+    final hasUnsavedEdits = state.hasUnsavedEdits;
+    ref.listen(editorStateProvider, (previous, current) {
+      if (previous?.annotations != current.annotations) {
+        _annotations.replaceAll(current.annotations);
+      }
+    });
+    final notifier = ref.read(editorStateProvider.notifier);
     final allowTransformEdits = widget.asset?.isEditable ?? true;
 
     return PopScope(
-      canPop: !hasUnsavedEdits,
+      canPop: !hasUnsavedEdits && !state.isApplyingEdits,
+
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) {
+          return;
+        }
+        if (state.isApplyingEdits) {
           return;
         }
         final shouldDiscard = await _showDiscardChangesDialog() ?? false;
@@ -287,71 +502,118 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            leading: ImmichCloseButton(onPressed: () => Navigator.of(context).maybePop()),
-            actions: [if (allowTransformEdits) _SaveEditsButton(onSave: _chooseSaveMode)],
+            leadingWidth: 100,
+            leading: TextButton(
+              key: const Key('editor-reset'),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              onPressed: state.hasEdits && !state.isApplyingEdits ? _reset : null,
+              child: FittedBox(fit: BoxFit.scaleDown, child: Text(context.tr('editor_revert'), maxLines: 1)),
+            ),
+            actions: [
+              if (allowTransformEdits) _SaveEditsButton(onSave: _chooseSaveMode),
+              if (state.isApplyingEdits && !_writingCopy)
+                TextButton(
+                  key: const Key('editor-cancel-export'),
+                  onPressed: _cancelExport,
+                  child: Text(context.t.cancel),
+                ),
+              PopupMenuButton<String>(
+                key: const Key('editor-more'),
+                icon: const Icon(Icons.more_vert),
+                enabled: !state.isApplyingEdits,
+                onSelected: (value) {
+                  switch (value) {
+                    case 'undo':
+                      notifier.undo();
+                    case 'redo':
+                      notifier.redo();
+                    case 'layers':
+                      unawaited(_layers());
+                    case 'close':
+                      Navigator.of(context).maybePop();
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(value: 'undo', enabled: state.canUndo, child: Text(context.t.undo)),
+                  PopupMenuItem(value: 'redo', enabled: state.canRedo, child: Text(context.t.magic_eraser_redo)),
+                  PopupMenuItem(
+                    value: 'layers',
+                    enabled: allowTransformEdits,
+                    child: Text(context.tr('editor_layers')),
+                  ),
+                  PopupMenuItem(value: 'close', child: Text(context.t.close)),
+                ],
+              ),
+            ],
           ),
           backgroundColor: Colors.black,
           body: SafeArea(
             bottom: false,
             child: LayoutBuilder(
-              builder: (context, constraints) => Column(
-                children: [
-                  Expanded(
-                    child: allowTransformEdits
-                        ? _EditorPreview(
-                            image: widget.image,
-                            annotations: _annotations,
-                            tool: _tool,
-                            color: _color,
-                            width: _strokeWidth,
-                            opacity: _opacity,
-                            mode: _mode,
-                            onTextPosition: _addText,
-                            onEditText: _editText,
-                            onChanged: (_) {
-                              _syncAnnotationDirty();
-                              setState(() {});
-                            },
-                          )
-                        : Center(child: InteractiveViewer(child: widget.image)),
-                  ),
-                  if (allowTransformEdits || widget.asset != null)
-                    _EditorBottomPanel(
-                      maxHeight: constraints.maxHeight / 2,
-                      mode: _mode,
-                      allowTransformEdits: allowTransformEdits,
-                      asset: widget.asset,
-                      tool: _tool,
-                      color: _color,
-                      width: _strokeWidth,
-                      opacity: _opacity,
-                      annotations: _annotations,
-                      onReset: () {
-                        _annotations.clear();
-                        _syncAnnotationDirty();
-                        ref.read(editorStateProvider.notifier).resetEdits();
-                        setState(() {});
-                      },
-                      onMode: (mode) => setState(() {
-                        _mode = mode;
-                        _tool = mode.defaultTool;
-                      }),
-                      onTool: (tool) => setState(() => _tool = tool),
-                      onColor: (color) => setState(() => _color = color),
-                      onWidth: (width) => setState(() => _strokeWidth = width),
-                      onOpacity: (opacity) => setState(() => _opacity = opacity),
-                      onUndo: () {
-                        _annotations.undo();
-                        _syncAnnotationDirty();
-                        setState(() {});
-                      },
-                      onRedo: () {
-                        _annotations.redo();
-                        _syncAnnotationDirty();
-                        setState(() {});
-                      },
+              builder: (context, constraints) => AbsorbPointer(
+                absorbing: state.isApplyingEdits,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: allowTransformEdits
+                          ? _EditorPreview(
+                              image: widget.image,
+                              annotations: _annotations,
+                              tool: _tool,
+                              color: _color,
+                              width: _strokeWidth,
+                              opacity: _opacity,
+                              mode: _mode,
+                              selectedId: _selectedId,
+                              onSelectionChanged: (id) => setState(() => _selectedId = id),
+                              onTextPosition: _addText,
+                              onEditText: _editText,
+                              onChanged: (_) {
+                                _syncAnnotationDirty();
+                                setState(() {});
+                              },
+                            )
+                          : Center(child: InteractiveViewer(child: widget.image)),
                     ),
-                ],
+                    if (allowTransformEdits || widget.asset != null)
+                      _EditorBottomPanel(
+                        source: widget.image.image,
+                        maxHeight: constraints.maxHeight,
+                        mode: _mode,
+                        allowTransformEdits: allowTransformEdits,
+                        asset: widget.asset,
+                        tool: _tool,
+                        color: _color,
+                        width: _strokeWidth,
+                        opacity: _opacity,
+                        canUndo: state.canUndo,
+                        canRedo: state.canRedo,
+                        textStyle: _selected?.isText == true ? _selected! : _textStyle,
+                        onTextStyle: _setTextStyle,
+                        onSticker: _addSticker,
+                        onReset: _reset,
+                        onMode: (mode) => setState(() {
+                          _mode = mode;
+                          _tool = mode.defaultTool;
+                          _selectedId = null;
+                        }),
+                        onTool: (tool) => setState(() {
+                          _tool = tool;
+                          if (tool == AnnotationTool.pen || tool == AnnotationTool.highlighter) {
+                            _color = tool == AnnotationTool.pen ? Colors.blue : Colors.purple;
+                            _opacity = tool == AnnotationTool.pen ? 1 : .45;
+                          }
+                        }),
+                        onColor: (color) => _setInk(color: color),
+                        onWidth: (width) => setState(() => _strokeWidth = width),
+                        onOpacity: (opacity) => _setInk(opacity: opacity),
+                        onUndo: notifier.undo,
+                        onRedo: notifier.redo,
+                        onGestureStart: notifier.beginGesture,
+                        onGestureEnd: notifier.endGesture,
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -361,45 +623,25 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   }
 }
 
-enum _EditorMode { crop, draw, text, shapes, magicEraser }
-
-extension on _EditorMode {
-  AnnotationTool get defaultTool => switch (this) {
-    _EditorMode.draw => AnnotationTool.pen,
-    _EditorMode.text => AnnotationTool.text,
-    _EditorMode.shapes => AnnotationTool.rectangle,
-    _ => AnnotationTool.pen,
-  };
-
-  IconData get icon => switch (this) {
-    _EditorMode.crop => Icons.crop,
-    _EditorMode.draw => Icons.draw,
-    _EditorMode.text => Icons.title,
-    _EditorMode.shapes => Icons.category_outlined,
-    _EditorMode.magicEraser => Icons.auto_fix_high,
-  };
-
-  String label(BuildContext context) => switch (this) {
-    _EditorMode.crop => context.t.crop,
-    _EditorMode.draw => context.t.editor_draw,
-    _EditorMode.text => context.t.editor_text,
-    _EditorMode.shapes => context.t.editor_shapes,
-    _EditorMode.magicEraser => context.t.magic_eraser,
-  };
-}
-
 class _EditorBottomPanel extends StatelessWidget {
+  final ImageProvider source;
   final double maxHeight;
-  final _EditorMode mode;
+  final EditorMode mode;
   final bool allowTransformEdits;
   final RemoteAsset? asset;
   final AnnotationTool tool;
   final Color color;
   final double width;
   final double opacity;
-  final AnnotationEditor annotations;
+  final bool canUndo;
+  final bool canRedo;
+  final AnnotationElement textStyle;
+  final ValueChanged<AnnotationElement> onTextStyle;
+  final ValueChanged<String> onSticker;
+  final VoidCallback onGestureStart;
+  final VoidCallback onGestureEnd;
   final VoidCallback onReset;
-  final ValueChanged<_EditorMode> onMode;
+  final ValueChanged<EditorMode> onMode;
   final ValueChanged<AnnotationTool> onTool;
   final ValueChanged<Color> onColor;
   final ValueChanged<double> onWidth;
@@ -408,6 +650,7 @@ class _EditorBottomPanel extends StatelessWidget {
   final VoidCallback onRedo;
 
   const _EditorBottomPanel({
+    required this.source,
     required this.maxHeight,
     required this.mode,
     required this.allowTransformEdits,
@@ -416,7 +659,13 @@ class _EditorBottomPanel extends StatelessWidget {
     required this.color,
     required this.width,
     required this.opacity,
-    required this.annotations,
+    required this.canUndo,
+    required this.canRedo,
+    required this.textStyle,
+    required this.onTextStyle,
+    required this.onSticker,
+    required this.onGestureStart,
+    required this.onGestureEnd,
     required this.onReset,
     required this.onMode,
     required this.onTool,
@@ -429,15 +678,25 @@ class _EditorBottomPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
+    const surface = Color(0xff191919);
+    final modeBar = EditorModeBar(
+      mode: mode,
+      allowTransformEdits: allowTransformEdits,
+      hasMagicEraser: asset != null,
+      onMode: onMode,
+    );
+    // Keep one complete 48px control row (+ padding) reachable even with large
+    // labels and a system gesture inset. Use half the body when that suffices;
+    // the photo receives all remaining space, with its aspect ratio preserved.
+    final minimumHeight = modeBar.preferredHeight(context) + MediaQuery.paddingOf(context).bottom + 56;
     return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxHeight),
+      constraints: BoxConstraints(maxHeight: min(maxHeight, max(maxHeight / 2, minimumHeight))),
       child: Container(
         key: const Key('editor-bottom-panel'),
         width: double.infinity,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
           top: false,
@@ -451,16 +710,42 @@ class _EditorBottomPanel extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (mode == _EditorMode.crop && allowTransformEdits) _TransformControls(onReset: onReset),
-                      if (mode == _EditorMode.draw || mode == _EditorMode.text || mode == _EditorMode.shapes)
-                        _MarkupControls(
+                      if (mode == EditorMode.crop && allowTransformEdits) const _TransformControls(),
+                      if (mode == EditorMode.filters || mode == EditorMode.adjustments) ...[
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          children: [
+                            TextButton(
+                              key: const Key('editor-color-filters'),
+                              onPressed: () => onMode(EditorMode.filters),
+                              child: Text(context.t.editor_filters),
+                            ),
+                            TextButton(
+                              key: const Key('editor-color-adjustments'),
+                              onPressed: () => onMode(EditorMode.adjustments),
+                              child: Text(context.t.editor_adjustments),
+                            ),
+                          ],
+                        ),
+                        if (mode == EditorMode.filters) FilterPanel(source: source) else const AdjustmentPanel(),
+                      ],
+                      if (mode == EditorMode.draw ||
+                          mode == EditorMode.text ||
+                          mode == EditorMode.shapes ||
+                          mode == EditorMode.stickers)
+                        MarkupControls(
                           mode: mode,
                           tool: tool,
                           color: color,
                           width: width,
                           opacity: opacity,
-                          canUndo: annotations.canUndo,
-                          canRedo: annotations.canRedo,
+                          canUndo: canUndo,
+                          canRedo: canRedo,
+                          textStyle: textStyle,
+                          onTextStyle: onTextStyle,
+                          onSticker: onSticker,
+                          onGestureStart: onGestureStart,
+                          onGestureEnd: onGestureEnd,
                           onTool: onTool,
                           onColor: onColor,
                           onWidth: onWidth,
@@ -468,17 +753,12 @@ class _EditorBottomPanel extends StatelessWidget {
                           onUndo: onUndo,
                           onRedo: onRedo,
                         ),
-                      if (mode == _EditorMode.magicEraser && asset != null) _MagicEraserButton(asset: asset!),
+                      if (mode == EditorMode.magicEraser && asset != null) _MagicEraserButton(asset: asset!),
                     ],
                   ),
                 ),
               ),
-              _EditorModeBar(
-                mode: mode,
-                allowTransformEdits: allowTransformEdits,
-                hasMagicEraser: asset != null,
-                onMode: onMode,
-              ),
+              modeBar,
             ],
           ),
         ),
@@ -487,29 +767,36 @@ class _EditorBottomPanel extends StatelessWidget {
   }
 }
 
-class _EditorModeBar extends StatelessWidget {
-  final _EditorMode mode;
+class EditorModeBar extends StatelessWidget {
+  final EditorMode mode;
   final bool allowTransformEdits;
   final bool hasMagicEraser;
-  final ValueChanged<_EditorMode> onMode;
+  final ValueChanged<EditorMode> onMode;
 
-  const _EditorModeBar({
+  const EditorModeBar({
+    super.key,
     required this.mode,
     required this.allowTransformEdits,
     required this.hasMagicEraser,
     required this.onMode,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    final modes = [
-      if (allowTransformEdits) ...const [_EditorMode.crop, _EditorMode.draw, _EditorMode.text, _EditorMode.shapes],
-      if (hasMagicEraser) _EditorMode.magicEraser,
-    ];
-    final colors = Theme.of(context).colorScheme;
-    const labelStyle = TextStyle(fontSize: 12, height: 1.2);
+  static const _labelStyle = TextStyle(fontSize: 12, height: 1.2);
+
+  List<EditorMode> get _modes => [
+    EditorMode.magicEraser,
+    if (allowTransformEdits) ...[
+      EditorMode.crop,
+      EditorMode.filters,
+      EditorMode.draw,
+      EditorMode.stickers,
+      EditorMode.text,
+    ],
+  ];
+
+  double preferredHeight(BuildContext context) {
     final labelPainter = TextPainter(
-      text: TextSpan(text: modes.map((entry) => entry.label(context)).join(' '), style: labelStyle),
+      text: TextSpan(text: _modes.map((entry) => entry.label(context)).join(' '), style: _labelStyle),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       locale: Localizations.localeOf(context),
@@ -517,39 +804,60 @@ class _EditorModeBar extends StatelessWidget {
     )..layout();
     final barHeight = max(64.0, 44 + labelPainter.height.ceilToDouble());
     labelPainter.dispose();
+    return barHeight;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeMode = mode == EditorMode.adjustments
+        ? EditorMode.filters
+        : mode == EditorMode.shapes
+        ? EditorMode.draw
+        : mode;
     return SizedBox(
       key: const Key('editor-mode-bar'),
-      height: barHeight,
+      height: preferredHeight(context),
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         scrollDirection: Axis.horizontal,
         child: Row(
           spacing: 8,
           children: [
-            for (final entry in modes)
+            for (final entry in _modes)
               Semantics(
-                selected: entry == mode,
+                selected: entry == activeMode,
                 child: Tooltip(
-                  message: entry.label(context),
+                  message: entry == EditorMode.crop
+                      ? context.tr('editor_crop_rotate')
+                      : entry == EditorMode.filters
+                      ? context.tr('editor_filters_adjustments')
+                      : entry.label(context),
                   child: TextButton(
                     key: Key('editor-mode-${entry.name}'),
                     style: TextButton.styleFrom(
                       minimumSize: const Size(64, 48),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      foregroundColor: entry == mode ? colors.onSecondaryContainer : colors.onSurface,
-                      backgroundColor: entry == mode ? colors.secondaryContainer : null,
+                      foregroundColor: entry == activeMode ? Colors.yellow : Colors.white70,
+                      backgroundColor: entry == activeMode ? const Color(0xff303030) : null,
                     ),
-                    onPressed: () => onMode(entry),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 100),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(entry.icon, size: 24),
-                          const SizedBox(height: 4),
-                          Text(entry.label(context), maxLines: 1, overflow: TextOverflow.ellipsis, style: labelStyle),
-                        ],
-                      ),
+                    onPressed: entry == EditorMode.magicEraser && !hasMagicEraser ? null : () => onMode(entry),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(entry.icon, size: 24),
+                        const SizedBox(height: 4),
+                        Text(
+                          entry == EditorMode.magicEraser
+                              ? context.tr('editor_ai')
+                              : entry == EditorMode.crop
+                              ? context.tr('editor_crop_rotate')
+                              : entry == EditorMode.filters
+                              ? context.tr('editor_filters_adjustments')
+                              : entry.label(context),
+                          maxLines: 1,
+                          style: _labelStyle,
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -590,7 +898,15 @@ class _MagicEraserButton extends ConsumerWidget {
             child: OutlinedButton.icon(
               key: const Key('magic-eraser-editor-action'),
               icon: const Icon(Icons.auto_fix_high),
-              label: Text(context.t.magic_eraser),
+              label: SizedBox(
+                width: (MediaQuery.sizeOf(context).width - 160).clamp(80.0, 220.0),
+                child: Text(
+                  context.t.magic_eraser,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              ),
               onPressed: !enabled || applyingEdits
                   ? null
                   : () => Navigator.of(
@@ -707,9 +1023,7 @@ class _AspectRatioSelector extends ConsumerWidget {
 }
 
 class _TransformControls extends ConsumerWidget {
-  final VoidCallback onReset;
-
-  const _TransformControls({required this.onReset});
+  const _TransformControls();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -763,7 +1077,6 @@ class _TransformControls extends ConsumerWidget {
                   ),
                 ),
               ),
-              _ResetEditsButton(onPressed: onReset),
             ],
           ),
         ),
@@ -788,32 +1101,16 @@ class _SaveEditsButton extends ConsumerWidget {
             padding: EdgeInsets.all(8.0),
             child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5)),
           )
-        : ImmichIconButton(
-            icon: Icons.done_rounded,
-            color: ImmichColor.primary,
-            variant: ImmichVariant.ghost,
-            disabled: !hasUnsavedEdits,
-            onPressed: onSave,
+        : SizedBox(
+            width: (MediaQuery.sizeOf(context).width * .43).clamp(100.0, 180.0),
+            child: TextButton.icon(
+              key: const Key('editor-save'),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              icon: MediaQuery.textScalerOf(context).scale(14) <= 18 ? const Icon(Icons.done_rounded) : null,
+              onPressed: hasUnsavedEdits ? onSave : null,
+              label: FittedBox(fit: BoxFit.scaleDown, child: Text(context.t.save, maxLines: 1)),
+            ),
           );
-  }
-}
-
-class _ResetEditsButton extends ConsumerWidget {
-  final VoidCallback onPressed;
-
-  const _ResetEditsButton({required this.onPressed});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final editorState = ref.watch(editorStateProvider);
-    return ImmichTextButton(
-      key: const Key('editor-reset'),
-      labelText: context.t.reset,
-      onPressed: onPressed,
-      variant: ImmichVariant.ghost,
-      expanded: false,
-      disabled: !editorState.hasEdits || editorState.isApplyingEdits,
-    );
   }
 }
 
@@ -824,10 +1121,12 @@ class _EditorPreview extends ConsumerStatefulWidget {
   final Color color;
   final double width;
   final double opacity;
-  final _EditorMode mode;
+  final EditorMode mode;
   final void Function(Offset point, double relativeWidth)? onTextPosition;
   final ValueChanged<AnnotationElement>? onEditText;
   final ValueChanged<List<AnnotationElement>>? onChanged;
+  final String? selectedId;
+  final ValueChanged<String?>? onSelectionChanged;
 
   const _EditorPreview({
     required this.image,
@@ -840,6 +1139,8 @@ class _EditorPreview extends ConsumerStatefulWidget {
     this.onTextPosition,
     this.onEditText,
     this.onChanged,
+    this.selectedId,
+    this.onSelectionChanged,
   });
 
   @override
@@ -849,7 +1150,9 @@ class _EditorPreview extends ConsumerStatefulWidget {
 class _EditorPreviewState extends ConsumerState<_EditorPreview> {
   late final CropController cropController;
   final _navigationActive = ValueNotifier(false);
+  final _objectTransformActive = ValueNotifier(false);
   Rect? _cropBeforeNavigation;
+  bool _applyingControllerState = false;
   ImageStream? _imageStream;
   late final ImageStreamListener _imageListener;
   Size? _imageSize;
@@ -889,6 +1192,9 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
   }
 
   void onCrop() {
+    if (_applyingControllerState) {
+      return;
+    }
     if (_navigationActive.value) {
       final crop = _cropBeforeNavigation;
       if (crop != null && cropController.crop != crop) {
@@ -918,6 +1224,7 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
     cropController.dispose();
     _navigationActive.removeListener(_onNavigation);
     _navigationActive.dispose();
+    _objectTransformActive.dispose();
     super.dispose();
   }
 
@@ -926,24 +1233,33 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
     final editorState = ref.watch(editorStateProvider);
 
     ref.listen(editorStateProvider, (previous, current) {
-      // Only re-apply the aspect ratio when it changes, otherwise the crop rect will shrink on every rotation
-      if (previous?.aspectRatio != current.aspectRatio) {
-        double? ratio;
-
-        ratio = switch (current.aspectRatio) {
-          CropAspectRatio.original => current.originalWidth / current.originalHeight,
-          _ => current.aspectRatio.ratio,
-        };
-
-        if (current.rotationAngle % 180 != 0) {
-          ratio = ratio != null ? 1 / ratio : null;
+      // A programmatic replay is not a fresh user gesture. In particular changing
+      // aspectRatio also notifies CropController with its intermediate crop.
+      _applyingControllerState = true;
+      try {
+        if (previous?.aspectRatio != current.aspectRatio) {
+          double? ratio = switch (current.aspectRatio) {
+            CropAspectRatio.original =>
+              current.originalWidth > 0 && current.originalHeight > 0
+                  ? current.originalWidth / current.originalHeight
+                  : _imageSize?.aspectRatio,
+            _ => current.aspectRatio.ratio,
+          };
+          if (current.rotationAngle % 180 != 0) {
+            ratio = ratio != null ? 1 / ratio : null;
+          }
+          cropController.aspectRatio = ratio;
         }
-
-        cropController.aspectRatio = ratio;
+        if (cropController.crop != current.crop) {
+          cropController.crop = current.crop;
+        }
+      } finally {
+        _applyingControllerState = false;
       }
-
-      if (cropController.crop != current.crop) {
-        cropController.crop = current.crop;
+      // Store the final, image-space ratio correction in the same preset step.
+      // Valid historical snapshots replay exactly and do not clear redo.
+      if (cropController.crop != ref.read(editorStateProvider).crop) {
+        ref.read(editorStateProvider.notifier).setCrop(cropController.crop);
       }
     });
 
@@ -955,7 +1271,10 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
         }
         final sideways = editorState.rotationAngle % 180 != 0;
         final available = sideways ? Size(constraints.maxHeight, constraints.maxWidth) : constraints.biggest;
-        final fitted = applyBoxFit(BoxFit.contain, imageSize, available).destination;
+        final visibleCrop = widget.mode == EditorMode.crop ? const Rect.fromLTWH(0, 0, 1, 1) : editorState.crop;
+        final visibleSize = Size(imageSize.width * visibleCrop.width, imageSize.height * visibleCrop.height);
+        final fitted = applyBoxFit(BoxFit.contain, visibleSize, available).destination;
+        final fullSize = Size(fitted.width / visibleCrop.width, fitted.height / visibleCrop.height);
 
         // Rotate layout and hit testing together. The stack has the decoded
         // image's aspect ratio, so normalized annotations never include letterbox.
@@ -969,41 +1288,58 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
               key: const Key('editor-image-surface'),
               width: fitted.width,
               height: fitted.height,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  IgnorePointer(
-                    ignoring: widget.mode != _EditorMode.crop,
-                    child: CropImage(
-                      key: ObjectKey(widget.image.image),
-                      controller: cropController,
-                      image: widget.image,
-                      gridColor: widget.mode == _EditorMode.crop ? Colors.white : Colors.transparent,
-                      gridInnerColor: widget.mode == _EditorMode.crop ? Colors.white : Colors.transparent,
-                      gridCornerColor: widget.mode == _EditorMode.crop ? Colors.white : Colors.transparent,
-                      showCorners: widget.mode == _EditorMode.crop,
-                      scrimColor: widget.mode == _EditorMode.crop ? Colors.black54 : Colors.transparent,
+              child: ClipRect(
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: -visibleCrop.left * fullSize.width,
+                      top: -visibleCrop.top * fullSize.height,
+                      width: fullSize.width,
+                      height: fullSize.height,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          IgnorePointer(
+                            ignoring: widget.mode != EditorMode.crop,
+                            child: Listener(
+                              onPointerDown: (_) => ref.read(editorStateProvider.notifier).beginGesture(),
+                              onPointerUp: (_) => ref.read(editorStateProvider.notifier).endGesture(),
+                              onPointerCancel: (_) => ref.read(editorStateProvider.notifier).endGesture(),
+                              child: FilteredImage(
+                                editorState: editorState,
+                                image: widget.image,
+                                cropController: cropController,
+                                mode: widget.mode,
+                              ),
+                            ),
+                          ),
+                          Positioned.fill(
+                            child: AnnotationCanvas(
+                              key: const Key('annotation-canvas'),
+                              editor: widget.annotations,
+                              tool: widget.tool,
+                              color: widget.color,
+                              width: widget.width,
+                              opacity: widget.opacity,
+                              navigationActive: _navigationActive,
+                              objectTransformActive: _objectTransformActive,
+                              selectedId: widget.selectedId,
+                              onSelectionChanged: widget.onSelectionChanged,
+                              enabled:
+                                  widget.mode == EditorMode.draw ||
+                                  widget.mode == EditorMode.text ||
+                                  widget.mode == EditorMode.shapes ||
+                                  widget.mode == EditorMode.stickers,
+                              onTextPosition: widget.onTextPosition,
+                              onEditText: widget.onEditText,
+                              onChanged: widget.onChanged,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  Positioned.fill(
-                    child: AnnotationCanvas(
-                      key: const Key('annotation-canvas'),
-                      editor: widget.annotations,
-                      tool: widget.tool,
-                      color: widget.color,
-                      width: widget.width,
-                      opacity: widget.opacity,
-                      navigationActive: _navigationActive,
-                      enabled:
-                          widget.mode == _EditorMode.draw ||
-                          widget.mode == _EditorMode.text ||
-                          widget.mode == _EditorMode.shapes,
-                      onTextPosition: widget.onTextPosition,
-                      onEditText: widget.onEditText,
-                      onChanged: widget.onChanged,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1013,147 +1349,10 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
           key: const Key('editor-preview-viewport'),
           contentSize: sideways ? Size(fitted.height, fitted.width) : fitted,
           navigationActive: _navigationActive,
+          objectTransformActive: _objectTransformActive,
           child: RepaintBoundary(child: transformedPreview),
         );
       },
-    );
-  }
-}
-
-class _MarkupControls extends StatelessWidget {
-  final _EditorMode mode;
-  final AnnotationTool tool;
-  final Color color;
-  final double width;
-  final double opacity;
-  final bool canUndo;
-  final bool canRedo;
-  final ValueChanged<AnnotationTool> onTool;
-  final ValueChanged<Color> onColor;
-  final ValueChanged<double> onWidth;
-  final ValueChanged<double> onOpacity;
-  final VoidCallback onUndo;
-  final VoidCallback onRedo;
-
-  const _MarkupControls({
-    required this.mode,
-    required this.tool,
-    required this.color,
-    required this.width,
-    required this.opacity,
-    required this.canUndo,
-    required this.canRedo,
-    required this.onTool,
-    required this.onColor,
-    required this.onWidth,
-    required this.onOpacity,
-    required this.onUndo,
-    required this.onRedo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const colors = [Colors.white, Colors.red, Colors.orange, Colors.yellow, Colors.green, Colors.blue, Colors.purple];
-    final tools = switch (mode) {
-      _EditorMode.draw => const [
-        (AnnotationTool.pen, Icons.edit),
-        (AnnotationTool.brush, Icons.brush),
-        (AnnotationTool.highlighter, Icons.highlight),
-        (AnnotationTool.eraser, Icons.auto_fix_off),
-        (AnnotationTool.move, Icons.open_with),
-      ],
-      _EditorMode.shapes => const [
-        (AnnotationTool.arrow, Icons.arrow_forward),
-        (AnnotationTool.rectangle, Icons.crop_square),
-        (AnnotationTool.ellipse, Icons.circle_outlined),
-        (AnnotationTool.move, Icons.open_with),
-      ],
-      _ => const [(AnnotationTool.text, Icons.title), (AnnotationTool.move, Icons.open_with)],
-    };
-    return Material(
-      key: const Key('editor-markup-controls'),
-      color: Colors.black.withValues(alpha: .78),
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (tools.length > 1)
-                  DropdownButton<AnnotationTool>(
-                    key: const Key('annotation-tool-picker'),
-                    value: tool,
-                    dropdownColor: Colors.grey.shade900,
-                    underline: const SizedBox.shrink(),
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                    items: tools
-                        .map(
-                          (entry) => DropdownMenuItem(
-                            value: entry.$1,
-                            child: Icon(entry.$2, color: Colors.white),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        onTool(value);
-                      }
-                    },
-                  )
-                else
-                  Icon(tools.single.$2, color: Colors.white),
-                IconButton(
-                  key: const Key('annotation-undo'),
-                  tooltip: context.t.undo,
-                  onPressed: canUndo ? onUndo : null,
-                  icon: const Icon(Icons.undo, color: Colors.white),
-                ),
-                IconButton(
-                  key: const Key('annotation-redo'),
-                  tooltip: context.t.magic_eraser_redo,
-                  onPressed: canRedo ? onRedo : null,
-                  icon: const Icon(Icons.redo, color: Colors.white),
-                ),
-              ],
-            ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  Text(context.t.color, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                  for (final candidate in colors)
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => onColor(candidate),
-                      icon: Icon(Icons.circle, color: candidate, size: 18),
-                    ),
-                ],
-              ),
-            ),
-            Row(
-              children: [
-                Text(context.t.size, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                Expanded(
-                  child: Slider(key: const Key('annotation-width'), min: 1, max: 32, value: width, onChanged: onWidth),
-                ),
-                const Icon(Icons.opacity, color: Colors.white, size: 18),
-                Expanded(
-                  child: Slider(
-                    key: const Key('annotation-opacity'),
-                    min: .1,
-                    max: 1,
-                    value: opacity,
-                    onChanged: onOpacity,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

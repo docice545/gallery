@@ -1,0 +1,27 @@
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.1055102Z ./scripts/diagnostics/hp_vaapi_audit.sh:47:54: note: Expressions don't expand in single quotes, use double quotes for that. [SC2016]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.1056794Z ./scripts/diagnostics/hp_vaapi_audit.sh:61:79: note: Expressions don't expand in single quotes, use double quotes for that. [SC2016]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.1058217Z ./scripts/diagnostics/hp_vaapi_audit.sh:73:55: note: Expressions don't expand in single quotes, use double quotes for that. [SC2016]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.1059674Z ./scripts/diagnostics/hp_vaapi_audit.sh:110:93: note: Expressions don't expand in single quotes, use double quotes for that. [SC2016]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.1061082Z ./scripts/diagnostics/hp_vaapi_audit.sh:149:122: note: Expressions don't expand in single quotes, use double quotes for that. [SC2016]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.1384139Z ./scripts/diagnostics/gallery-nas-recovery-565ef38.sh:6:8: warning: Declare and assign separately to avoid masking return values. [SC2155]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.2707840Z ./scripts/release/server_build.sh:111:7: warning: When used with -p, -m only applies to the deepest directory. [SC2174]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.4335556Z ./scripts/release/hp_build10_rollback.sh:23:6: warning: result_status is referenced but not assigned. [SC2154]
+ShellCheck	Run ShellCheck	2026-10-21T10:50:54.4915488Z ./scripts/release/hp_build10_image_update.sh:29:6: warning: result_status is referenced but not assigned. [SC2154]
+SQL Schema Checks	Verify migration files have not changed	2026-10-21T10:53:03.9049060Z Changed files: server/src/1792579982516-TestMigration.ts
+OpenAPI Clients	Verify files have not changed	2026-10-21T10:52:59.3347803Z Changed files: open-api/immich-openapi-specs.json packages/sdk/src/fetch-client.ts
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:42.0931974Z  ❯ src/audits/rebase-confidence.spec.ts (34 tests | 1 failed) 41ms
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:42.0957456Z      × passes the current Gallery release workflow static assertions 7ms
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:46.8525903Z  FAIL  src/audits/rebase-confidence.spec.ts > validateGalleryWorkflowText > passes the current Gallery release workflow static assertions
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:46.8532912Z AssertionError: expected false to be true // Object.is equality
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:46.8649761Z  Test Files  1 failed | 25 passed (26)
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:46.8661739Z       Tests  1 failed | 291 passed | 1 skipped (293)
+Upstream Rebase Tooling	Run upstream-preflight tests	2026-10-21T10:51:46.8695217Z ##[error]AssertionError: expected false to be true // Object.is equality
+Lint Web	Run linter	2026-10-21T10:54:58.9423975Z   25:37  error  Async arrow function has no 'await' expression  @typescript-eslint/require-await
+Lint Web	Run linter	2026-10-21T10:54:58.9427283Z   33:37  error  Async arrow function has no 'await' expression  @typescript-eslint/require-await
+Lint Web	Run linter	2026-10-21T10:54:58.9428217Z   39:37  error  Async arrow function has no 'await' expression  @typescript-eslint/require-await
+Test Web	Run ci-unit	2026-10-21T10:55:30.0899493Z ReferenceError: Element is not defined
+Test Web	Run ci-unit	2026-10-21T10:55:30.0920573Z This error originated in "src/lib/components/spaces/space-people-page.spec.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+Test Web	Run ci-unit	2026-10-21T10:55:30.0929258Z  Test Files  398 passed | 1 skipped (399)
+Test Web	Run ci-unit	2026-10-21T10:55:30.0951210Z       Tests  6468 passed | 2 skipped | 4 todo (6474)
+Test Web	Run ci-unit	2026-10-21T10:55:30.1010019Z ##[error]ReferenceError: Element is not defined
+Test Web	Run ci-unit	This error originated in "src/lib/components/spaces/space-people-page.spec.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.

@@ -1,0 +1,107 @@
+"""Exercise the actual workflow conditions; no GitHub jobs, signing or builds."""
+import ast
+from pathlib import Path
+import re
+import runpy
+from unittest import TestCase, mock
+
+ROOT = Path(__file__).resolve().parents[3]
+WORKFLOW = ROOT / '.github/workflows/build-mobile.yml'
+
+
+def allows(job, *, event='pull_request', branch='codex/foto-build17-editor',
+           actor='fixture-user', fork=False, mobile=True, workflow=WORKFLOW,
+           e2e=True, web=True, server=True, cli=True):
+    blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', workflow.read_text(), re.M | re.S))
+    condition = re.search(r'^    if: \$\{\{ (.+) \}\}$', blocks[job], re.M).group(1)
+    return evaluate(condition, event=event, branch=branch, actor=actor, fork=fork,
+                    mobile=mobile, e2e=e2e, web=web, server=server, cli=cli)
+
+
+def evaluate(condition, *, event='pull_request', branch='codex/foto-build17-editor',
+             actor='fixture-user', fork=False, mobile=True, e2e=True,
+             web=True, server=True, cli=True):
+    replacements = {
+        'github.event_name': repr(event), 'github.head_ref': repr(branch),
+        'github.actor': repr(actor), 'github.event.pull_request.head.repo.fork': repr(fork),
+        'fromJSON(needs.pre-job.outputs.should_run).mobile': repr(mobile),
+        'fromJSON(needs.pre-job.outputs.should_run).e2e': repr(e2e),
+        'fromJSON(needs.pre-job.outputs.should_run).web': repr(web),
+        'fromJSON(needs.pre-job.outputs.should_run).server': repr(server),
+        'fromJSON(needs.pre-job.outputs.should_run).cli': repr(cli),
+        'inputs.android_media_pilot': 'False', 'inputs.refresh_ios_pods_lock': 'False', 'inputs.build_target': repr(''),
+    }
+    for key, value in replacements.items():
+        condition = condition.replace(key, value)
+    condition = condition.replace('&&', ' and ').replace('||', ' or ')
+    condition = re.sub(r'!(?!=)', ' not ', condition).replace('true', 'True').strip()
+    expression = ast.parse(condition, mode='eval')
+    allowed = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not,
+               ast.Compare, ast.Eq, ast.NotEq, ast.Constant)
+    if not all(isinstance(node, allowed) for node in ast.walk(expression)):
+        raise AssertionError('Unexpected workflow expression; review the guard explicitly')
+    return eval(compile(expression, str(WORKFLOW), 'eval'), {'__builtins__': {}})
+
+
+class EditorScopeTests(TestCase):
+    def test_editor_pull_request_cannot_start_android_or_ios_build_and_sign_jobs(self):
+        for job in ['build-sign-android', 'build-sign-ios']:
+            self.assertFalse(allows(job))
+
+    def test_other_pull_requests_keep_the_existing_behavior(self):
+        for job in ['build-sign-android', 'build-sign-ios']:
+            self.assertTrue(allows(job, branch='fixture-normal-pr'))
+
+    def test_main_and_explicit_invocations_remain_available(self):
+        for event in ['push', 'workflow_dispatch', 'workflow_call']:
+            for job in ['build-sign-android', 'build-sign-ios']:
+                self.assertTrue(allows(job, event=event, branch=''))
+
+    def test_existing_actor_fork_and_changed_file_guards_are_preserved(self):
+        self.assertFalse(allows('build-sign-android', branch='normal', actor='dependabot[bot]'))
+        self.assertFalse(allows('build-sign-ios', branch='normal', fork=True))
+        for job in ['build-sign-android', 'build-sign-ios']:
+            self.assertFalse(allows(job, branch='normal', mobile=False))
+
+    def test_gallery_mobile_build_and_sign_jobs_obey_the_same_editor_scope(self):
+        workflow = ROOT / '.github/workflows/gallery-build-mobile.yml'
+        for job in ['build-sign-android', 'build-sign-ios']:
+            self.assertFalse(allows(job, workflow=workflow))
+            self.assertTrue(allows(job, workflow=workflow, branch='normal'))
+            self.assertTrue(allows(job, workflow=workflow, event='workflow_dispatch', branch=''))
+
+    def test_docker_build_publish_and_retag_graph_cannot_start_for_editor_pr(self):
+        workflow = ROOT / '.github/workflows/docker.yml'
+        self.assertFalse(allows('pre-job', workflow=workflow))
+        self.assertTrue(allows('pre-job', workflow=workflow, branch='normal'))
+        self.assertTrue(allows('pre-job', workflow=workflow, event='push', branch=''))
+        blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', workflow.read_text(), re.M | re.S))
+        for job in ['server', 'machine-learning', 'retag_server', 'retag_ml']:
+            self.assertIn('    needs: pre-job', blocks[job])
+            self.assertNotIn('always()', blocks[job])
+
+    def test_editor_codegen_targets_only_the_freezed_document(self):
+        runtime = runpy.run_path(str(ROOT / 'tools/foto-automation/foto-stage-runner.py'))
+        with mock.patch('shutil.which', side_effect=lambda name: '/fixture/bin/' + name):
+            cwd, args = runtime['command'](ROOT, 'editor-codegen', [])
+        self.assertEqual(cwd, ROOT / 'mobile')
+        self.assertEqual(args[-2:], ['--build-filter', 'lib/presentation/pages/edit/editor.provider.freezed.dart'])
+        self.assertNotIn('--delete-conflicting-outputs', args)
+
+    def test_editor_pr_cannot_start_e2e_backend_ml_builds_even_if_filters_force_them(self):
+        workflow = ROOT / '.github/workflows/test.yml'
+        for job in ['e2e-tests-server-cli', 'e2e-tests-web']:
+            self.assertFalse(allows(job, workflow=workflow))
+            self.assertTrue(allows(job, workflow=workflow, branch='normal'))
+            self.assertTrue(allows(job, workflow=workflow, event='workflow_dispatch', branch=''))
+            self.assertFalse(allows(job, workflow=workflow, branch='normal',
+                                    e2e=False, web=False, server=False, cli=False))
+
+    def test_editor_changes_keep_normal_path_checks_without_forcing_unrelated_suites(self):
+        workflow = (ROOT / '.github/workflows/test.yml').read_text()
+        condition = re.search(r'^          force-filters: \$\{\{ (.+) \}\}$', workflow, re.M).group(1)
+        self.assertEqual(evaluate(condition), '')
+        self.assertEqual(evaluate(condition, branch='normal'), '- .github/workflows/test.yml')
+        self.assertEqual(evaluate(condition, event='workflow_dispatch', branch=''), '- .github/workflows/test.yml')
+        for scope in ['i18n', 'web', 'mobile', 'upstream-preflight']:
+            self.assertRegex(workflow, rf'(?m)^            {scope}:$')

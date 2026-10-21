@@ -1,0 +1,4 @@
+Unit Test Mobile	Run tests	2026-10-21T10:56:06.5637331Z ##[group]⏭️ Skipped tests
+Unit Test Mobile	Run tests	2026-10-21T10:56:06.5638384Z ⏭️ /home/runner/work/gallery/gallery/mobile/test/modules/map/map_theme_override_test.dart: (suite) (skipped)
+Unit Test Mobile	Run tests	2026-10-21T10:56:06.5639506Z Skip: Flaky test, needs investigation
+Unit Test Mobile	Run tests	2026-10-21T11:03:18.9000182Z 🎉 4985 tests passed, 1 skipped.

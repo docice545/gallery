@@ -90,6 +90,26 @@ class AnnotationEditor {
     _elements = const [];
   }
 
+  /// Synchronize the surface with the editor-wide history without recording a
+  /// second, divergent undo stack.
+  void replaceAll(List<AnnotationElement> elements) {
+    _elements = List.unmodifiable(elements);
+    _undo.clear();
+    _redo.clear();
+  }
+
+  bool reorder(String id, int destination) {
+    final index = _elements.indexWhere((element) => element.id == id);
+    if (index < 0 || destination < 0 || destination >= _elements.length || index == destination) {
+      return false;
+    }
+    _record();
+    final updated = [..._elements];
+    updated.insert(destination, updated.removeAt(index));
+    _elements = updated;
+    return true;
+  }
+
   void _record() {
     _undo.add(_elements);
     _redo.clear();
