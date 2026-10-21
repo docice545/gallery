@@ -145,6 +145,7 @@ export const getForMetadataExtraction = (
   clusterGroupId: clusterGroupId ?? newUuid(),
   checksum: asset.checksum,
   checksumAlgorithm: asset.checksumAlgorithm,
+  duplicateId: asset.duplicateId,
   fileCreatedAt: asset.fileCreatedAt,
   fileModifiedAt: asset.fileModifiedAt,
   isExternal: asset.isExternal,

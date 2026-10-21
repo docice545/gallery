@@ -341,7 +341,7 @@ describe(LibraryService.name, () => {
   });
 
   describe('external content identity', () => {
-    it('stores content checksums so identical uploads resolve to the external asset', async () => {
+    it('stores external content identity without falsely acknowledging a managed mobile backup', async () => {
       const { ctx } = setup();
       const filePath = join(importRoot, 'exact-content.jpg');
       const fileContents = Buffer.from('same bytes in the external library and on the phone');
@@ -354,15 +354,16 @@ describe(LibraryService.name, () => {
       const asset = await ctx.get(AssetRepository).getByLibraryIdAndOriginalPath(library.id, filePath);
       expect(asset).toBeDefined();
       const checksum = createHash('sha1').update(fileContents).digest();
-      await expect(ctx.get(AssetRepository).getByChecksums(library.ownerId, [checksum])).resolves.toContainEqual(
-        expect.objectContaining({ id: asset!.id, checksum, deletedAt: null }),
-      );
+      await expect(
+        ctx.database.selectFrom('asset_duplicate_checksum').selectAll().where('assetId', '=', asset!.id).execute(),
+      ).resolves.toContainEqual(expect.objectContaining({ ownerId: library.ownerId, checksum }));
+      await expect(ctx.get(AssetRepository).getByChecksums(library.ownerId, [checksum])).resolves.toEqual([]);
       await expect(
         ctx
           .get(AssetRepository)
           .getUploadAssetIdByChecksum(library.ownerId, checksum)
           .then((r) => r?.assetId),
-      ).resolves.toBe(asset!.id);
+      ).resolves.toBeUndefined();
     });
 
     it('does not import an external file already present as a managed upload', async () => {
@@ -418,7 +419,7 @@ describe(LibraryService.name, () => {
       expect(imported).toHaveLength(1);
     });
 
-    it('serializes a concurrent managed upload and external import by content identity', async () => {
+    it('serializes concurrent ingestion while preserving a real managed mobile backup', async () => {
       const { ctx } = setup();
       const filePath = join(importRoot, 'concurrent.jpg');
       const content = Buffer.from('one byte identity across two ingestion paths');
@@ -451,16 +452,17 @@ describe(LibraryService.name, () => {
       if (imported.status !== 'fulfilled') throw imported.reason;
       const assets = await ctx.database
         .selectFrom('asset')
-        .select(['libraryId', 'checksum'])
+        .select(['id', 'libraryId', 'checksum', 'duplicateId'])
         .where('ownerId', '=', library.ownerId)
         .execute();
-      expect(assets).toHaveLength(1);
-      if (upload.status === 'fulfilled') {
-        expect(assets[0].libraryId).toBeNull();
-        expect(imported.value).toEqual([]);
-      } else {
-        expect(assets[0].libraryId).toBe(library.id);
-        expect(imported.value).toHaveLength(1);
+      expect(upload.status).toBe('fulfilled');
+      expect(assets.filter((asset) => asset.libraryId === null)).toHaveLength(1);
+      expect(assets).toHaveLength(1 + imported.value.length);
+      if (imported.value.length > 0) {
+        // The scan won the owner lock. Its original must remain; the subsequent
+        // upload creates a managed copy and joins the verified content group.
+        expect(assets[0].duplicateId).not.toBeNull();
+        expect(new Set(assets.map((asset) => asset.duplicateId)).size).toBe(1);
       }
     });
 

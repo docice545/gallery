@@ -55,7 +55,6 @@ import {
   validQuarantineIdentity,
 } from 'src/utils/authorized-deletion.js';
 import {
-  ASSET_CHECKSUM_CONSTRAINT,
   anyUuid,
   asUuid,
   escapeLikePattern,
@@ -2708,6 +2707,7 @@ export class AssetRepository {
         .selectFrom('asset')
         .select(['id', 'checksum', 'deletedAt'])
         .where('ownerId', '=', asUuid(userId))
+        .where('libraryId', 'is', null)
         .where('checksum', 'in', checksums)
         .execute(),
       this.db
@@ -2715,6 +2715,8 @@ export class AssetRepository {
         .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
         .select(['asset_duplicate_checksum.assetId as id', 'asset_duplicate_checksum.checksum', 'asset.deletedAt'])
         .where('asset_duplicate_checksum.ownerId', '=', asUuid(userId))
+        .where('asset.ownerId', '=', asUuid(userId))
+        .where('asset.libraryId', 'is', null)
         .where('asset_duplicate_checksum.checksum', 'in', checksums)
         .execute(),
       this.db
@@ -2770,6 +2772,10 @@ export class AssetRepository {
       .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
       .select(['asset_duplicate_checksum.assetId as assetId', 'asset.duplicateId'])
       .where('asset_duplicate_checksum.ownerId', '=', asUuid(ownerId))
+      // External-only presence is not a managed mobile backup. Keep its content
+      // identity for feed dedup, but never acknowledge the phone upload with it.
+      .where('asset.ownerId', '=', asUuid(ownerId))
+      .where('asset.libraryId', 'is', null)
       .where('asset_duplicate_checksum.checksum', '=', checksum)
       .limit(1)
       .executeTakeFirst();

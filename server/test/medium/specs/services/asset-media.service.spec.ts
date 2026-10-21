@@ -67,6 +67,7 @@ describe(AssetService.name, () => {
       ).resolves.toEqual({
         id: expect.any(String),
         status: AssetMediaStatus.CREATED,
+        duplicateId: null,
       });
 
       expect(ctx.getMock(EventRepository).emit).toHaveBeenCalledWith('AssetCreate', {
@@ -102,6 +103,7 @@ describe(AssetService.name, () => {
       ).resolves.toEqual({
         id: expect.any(String),
         status: AssetMediaStatus.CREATED,
+        duplicateId: null,
       });
     });
 
@@ -134,7 +136,7 @@ describe(AssetService.name, () => {
       };
 
       const response = await sut.uploadAsset(auth, uploadDto, file);
-      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.CREATED });
+      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.CREATED, duplicateId: null });
 
       const update = await sharedLinkRepo.get(user.id, sharedLink.id);
       const assets = update!.assets;
@@ -173,7 +175,7 @@ describe(AssetService.name, () => {
       };
 
       const response = await sut.uploadAsset(auth, uploadDto, mediumFactory.uploadFile({ checksum: asset.checksum }));
-      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.DUPLICATE });
+      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.DUPLICATE, duplicateId: null });
 
       const update = await sharedLinkRepo.get(user.id, sharedLink.id);
       const assets = update!.assets;
@@ -211,7 +213,7 @@ describe(AssetService.name, () => {
       };
 
       const response = await sut.uploadAsset(auth, uploadDto, mediumFactory.uploadFile());
-      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.CREATED });
+      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.CREATED, duplicateId: null });
 
       const result = await ctx.get(AlbumRepository).getAssetIds(album.id, [response.id]);
       const assets = [...result];
@@ -261,7 +263,7 @@ describe(AssetService.name, () => {
       };
 
       const response = await sut.uploadAsset(auth, uploadDto, mediumFactory.uploadFile({ checksum: asset.checksum }));
-      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.DUPLICATE });
+      expect(response).toEqual({ id: expect.any(String), status: AssetMediaStatus.DUPLICATE, duplicateId: null });
 
       const result = await ctx.get(AlbumRepository).getAssetIds(album.id, [response.id]);
       const assets = [...result];
