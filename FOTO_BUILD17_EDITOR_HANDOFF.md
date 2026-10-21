@@ -1,5 +1,21 @@
 # FOTO Build 17 editor — checkpoint 2026-10-21
 
+**Текущее состояние: редактор подготовлен к локальному объединению; production не изменялся.**
+Проверенный runtime/CI checkpoint: `9fab4c70f` (полный SHA в evidence JSON).
+Дальнейший commit содержит только отчёты и дополнительную emoji-регрессию.
+Итог: **357 различных Flutter + 221 backend unit + 44 automation PASS**, 0 оставшихся FAIL/SKIP.
+
+- [Отчёт и границы проверки](FOTO_BUILD17_EDITOR_TEST_REPORT.md).
+- [Команды безопасного переноса/объединения на HP](FOTO_BUILD17_EDITOR_HP_HANDOFF.md).
+- [Машиночитаемые receipts/hashes](FOTO_BUILD17_EDITOR_EVIDENCE.json).
+- [Устройство редактора и API-границы](specs/2026-10-21-foto-editor-design.md).
+
+Ниже сохранена история этапов; прежние pending-пункты закрыты последующими записями.
+Canonical progress/pending/manifest HP отсутствовали в Cloud и не заменялись фиктивными файлами.
+Актуальные **pending**: локальное объединение с непубликованными правками HP, повторные проверки
+merged HEAD и устройства/реальные codecs/Synology, затем отдельное разрешение на final build/signing.
+APK/backend не собирались, подпись не выполнялась, PR нельзя сливать в main.
+
 Branch: `codex/foto-build17-editor`. Start: `9c3a3d8fa9fe137e55752b3ca075e0208cb93c5b`.
 Issue: https://github.com/docice545/gallery/issues/3 including owner layout clarification.
 
@@ -104,3 +120,17 @@ when EXIF is absent. Four new square/wide/original/no-EXIF tests include undo/re
 
 Real HEIC/RAW device decoding, native photo permissions, real Synology and actual ML inference
 remain local acceptance checks; they are not claimed by these Flutter/HTTP/unit tests.
+
+## Final scope / publication
+
+- Stage 1 and Stage 2 code preserved in `89b619d0e` and `91cb5ca55`.
+- Aspect replay fix: `d2243baee`; tested real controller + all post-fix editor/API contracts.
+- CI source-only guards: `9fab4c70f`, 44 automation tests. Both mobile build/sign workflows
+  skip this editor PR; Docker build/publish/retag graph also skips it. Normal test workflows
+  remain available; other branches and explicitly invoked release workflows keep their behavior.
+- Additional Unicode raster case: 11 object tests PASS (`c62587f9…`), including actual preview/export
+  for an emoji. Glyph appearance on physical Android/iOS still depends on system fonts.
+- Publish complete branch, create an unmerged PR against `codex/foto-build17-web-handoff`.
+  Never apply rc/rc-ml labels or dispatch backend/APK build workflows for this task.
+- No backend/native/schema/lock changes, models installed, production media/DB/queues accessed,
+  or HP automation launched. Safe local merge and canonical-state update are documented separately.

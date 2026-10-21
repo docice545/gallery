@@ -1,0 +1,280 @@
+00:00 +0: loading $REPO/mobile/test/pages/edit/annotation_canvas_test.dart
+00:00 +0: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: normalizes stroke thickness against the image side
+00:00 +1: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: draws a normalized stroke and supports tool changes
+00:00 +2: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: eraser removes the topmost annotation under the gesture
+00:00 +3: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: a second pointer cancels an in-progress stroke until both fingers lift
+00:00 +4: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: pointer cancellation discards the unfinished annotation
+00:00 +5: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: adding a second finger cancels AnnotationTool.eraser without changing the document or undo history
+00:00 +6: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: adding a second finger cancels AnnotationTool.move without changing the document or undo history
+00:00 +7: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: resizing during a single-finger stroke discards the unfinished stroke
+00:00 +8: $REPO/mobile/test/pages/edit/annotation_canvas_test.dart: eraser follows a drag across multiple geometries and records one undo snapshot
+00:00 +9: loading $REPO/mobile/test/pages/edit/annotation_resize_test.dart
+00:01 +9: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:01 +10: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:01 +11: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.ellipse keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:01 +12: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.ellipse keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:01 +13: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.arrow keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:01 +14: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.arrow keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:01 +15: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.text keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:01 +16: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.text keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:01 +17: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle resizes about its first point and commits one undo entry
+00:02 +18: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.ellipse resizes about its first point and commits one undo entry
+00:02 +19: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.arrow resizes about its first point and commits one undo entry
+00:02 +20: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: a reversed arrow keeps its first endpoint fixed when resizing
+00:02 +21: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: text "Foto" shares bounds with selection and scales without moving its anchor
+00:02 +22: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: text "A long caption that wraps across several lines" shares bounds with selection and scales without moving its anchor
+00:02 +23: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: capture hides selection; a surface resize preserves resized text coordinates and font size
+00:02 +24: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: cancel discards resize without changing the document or history
+00:02 +25: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: second pointer discards resize without changing the document or history
+00:02 +26: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: surface resize discards resize without changing the document or history
+00:02 +27: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle move and resize use image coordinates after pinch, rotation and reflection
+00:02 +28: $REPO/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.text move and resize use image coordinates after pinch, rotation and reflection
+00:02 +29: loading $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart
+00:02 +29: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: curved stroke hits its middle segments and leaves empty enclosed space untouched
+00:03 +30: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: AnnotationTool.rectangle empty center does not erase its outline
+00:03 +31: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: AnnotationTool.ellipse empty center does not erase its outline
+00:03 +32: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: arrow wing beyond the shaft tolerance is erasable
+00:03 +33: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: stroke eraser preserves long multiline text at the end of its actual layout
+00:03 +34: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: tap removes only the top overlapping element, and undo restores its order
+00:03 +35: $REPO/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: eraser uses transformed coordinates after pinch, pan, rotation and reflection
+00:03 +36: loading $REPO/mobile/test/pages/edit/editor_viewport_test.dart
+00:04 +36: $REPO/mobile/test/pages/edit/editor_viewport_test.dart: zoom and pan stay bounded; cancelled touches release the navigation lock
+00:04 +37: loading $REPO/mobile/test/pages/edit/editor_objects_test.dart
+00:05 +37: $REPO/mobile/test/pages/edit/editor_objects_test.dart: pixel-space object transforms invert exactly on a non-square source
+00:05 +38: $REPO/mobile/test/pages/edit/editor_objects_test.dart: style, transform and reorder remain immutable and undoable
+00:05 +39: $REPO/mobile/test/pages/edit/editor_objects_test.dart: two-finger object move/scale/rotate commits once without zooming the photo or resuming a stroke
+00:05 +40: $REPO/mobile/test/pages/edit/editor_objects_test.dart: pointer cancellation discards the object draft and permits a clean retry
+00:05 +41: $REPO/mobile/test/pages/edit/editor_objects_test.dart: rotated scaled sticker is selectable through its inverse source transform
+00:05 +42: $REPO/mobile/test/pages/edit/editor_objects_test.dart: stroke eraser removes only ink under overlapping text and sticker layers
+00:05 +43: $REPO/mobile/test/pages/edit/editor_objects_test.dart: styled text object renders identically in the real canvas and exported PNG
+00:05 +44: $REPO/mobile/test/pages/edit/editor_objects_test.dart: styled star object renders identically in the real canvas and exported PNG
+00:05 +45: $REPO/mobile/test/pages/edit/editor_objects_test.dart: styled heart object renders identically in the real canvas and exported PNG
+00:05 +46: $REPO/mobile/test/pages/edit/editor_objects_test.dart: styled smile object renders identically in the real canvas and exported PNG
+00:05 +47: loading $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart
+00:06 +47: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: catalog contains original plus 32 effects and validates out-of-range access
+00:06 +48: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible brightness correction and preserves original pixels
+00:06 +49: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible contrast correction and preserves original pixels
+00:06 +50: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible saturation correction and preserves original pixels
+00:06 +51: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible exposure correction and preserves original pixels
+00:06 +52: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible temperature correction and preserves original pixels
+00:06 +53: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible shadows correction and preserves original pixels
+00:06 +54: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible highlights correction and preserves original pixels
+00:06 +55: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible hue correction and preserves original pixels
+00:06 +56: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 1 at partial intensity
+00:06 +57: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 2 at partial intensity
+00:06 +58: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 3 at partial intensity
+00:06 +59: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 4 at partial intensity
+00:06 +60: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 5 at partial intensity
+00:06 +61: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 6 at partial intensity
+00:06 +62: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 7 at partial intensity
+00:06 +63: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 8 at partial intensity
+00:06 +64: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 9 at partial intensity
+00:06 +65: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 10 at partial intensity
+00:06 +66: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 11 at partial intensity
+00:06 +67: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 12 at partial intensity
+00:06 +68: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 13 at partial intensity
+00:06 +69: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 14 at partial intensity
+00:06 +70: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 15 at partial intensity
+00:06 +71: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 16 at partial intensity
+00:06 +72: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 17 at partial intensity
+00:06 +73: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 18 at partial intensity
+00:06 +74: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 19 at partial intensity
+00:07 +75: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 20 at partial intensity
+00:07 +76: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 21 at partial intensity
+00:07 +77: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 22 at partial intensity
+00:07 +78: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 23 at partial intensity
+00:07 +79: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 24 at partial intensity
+00:07 +80: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 25 at partial intensity
+00:07 +81: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 26 at partial intensity
+00:07 +82: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 27 at partial intensity
+00:07 +83: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 28 at partial intensity
+00:07 +84: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 29 at partial intensity
+00:07 +85: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 30 at partial intensity
+00:07 +86: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 31 at partial intensity
+00:07 +87: $REPO/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 32 at partial intensity
+00:07 +88: loading $REPO/mobile/test/pages/edit/editor_save_retry_test.dart
+00:10 +88: $REPO/mobile/test/pages/edit/editor_save_retry_test.dart: successfully saves a PNG copy after timeout
+00:13 +89: $REPO/mobile/test/pages/edit/editor_save_retry_test.dart: a hanging original load restores save and reopens the copy dialog without losing edits
+00:13 +90: $REPO/mobile/test/pages/edit/editor_save_retry_test.dart: successfully saves a PNG copy after decode failure
+00:15 +91: $REPO/mobile/test/pages/edit/editor_save_retry_test.dart: a failed original load restores save and reopens the copy dialog without losing edits
+00:16 +92: $REPO/mobile/test/pages/edit/editor_save_retry_test.dart: canceling original load preserves edits, releases source and never imports a partial copy
+00:16 +93: $REPO/mobile/test/pages/edit/editor_save_retry_test.dart: denied native photo save preserves edits and retries as a new copy with no server mutation
+00:18 +94: loading $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart
+00:18 +94: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an older or unconfigured server disables only Magic Eraser while keeping the crop editor usable
+00:20 +95: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving opens copy, disabled replacement, and cancel choices
+00:20 +96: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an unavailable optional AI service leaves ordinary transform editing operational
+00:21 +97: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a slow capability check stays disabled and visibly loading until confirmed
+00:21 +98: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 401 failure explains why and permits retry
+00:21 +99: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 403 failure explains why and permits retry
+00:21 +100: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 400 failure explains why and permits retry
+00:22 +101: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 500 failure explains why and permits retry
+00:22 +102: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 503 failure explains why and permits retry
+00:22 +103: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a ClientException failure explains why and permits retry
+00:22 +104: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a RequestAbortedException failure explains why and permits retry
+00:23 +105: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a FormatException failure explains why and permits retry
+00:23 +106: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from disabled without losing crop or rotation
+00:23 +107: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from offline without losing crop or rotation
+00:24 +108: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving transform edits disables capability retry and AI navigation
+00:24 +109: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: rechecking an enabled capability does not reuse a stale enabled result
+00:24 +110: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Russian availability and retry fit a narrow screen with enlarged text
+00:24 +111: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Live/Motion stills expose AI copies without enabling crop or overwrite controls
+00:25 +112: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: existing editor callers without an asset retain their original crop interface
+00:25 +113: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(390.0, 844.0)
+00:25 +114: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(844.0, 390.0)
+00:25 +115: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:26 +116: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:27 +117: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:27 +118: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:28 +119: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:28 +120: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:29 +121: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:29 +122: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:30 +123: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:31 +124: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:31 +125: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:31 +126: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:32 +127: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: all display rotations and flips keep actual preview pixels and exported markup aligned
+00:33 +128: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:33 +129: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:33 +130: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:33 +131: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:33 +132: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: markup ignores letterbox, keeps crop fixed, and stays image-relative after rotation and resize
+00:34 +133: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: changing modes keeps annotations and their undo history
+00:34 +134: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: editing existing text preserves style and position and creates one undoable edit
+00:35 +135: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: cancel text editing preserves the document and undo history
+00:35 +136: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: empty text editing preserves the document and undo history
+00:35 +137: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: unchanged text editing preserves the document and undo history
+00:36 +138: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: move tool edits selected text after zoom rotation and reflection without moving its anchor
+00:36 +139: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: undo and redo keep annotation dirty state aligned with the current document
+00:37 +140: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: reset restores server edit baseline and clears markup as one undoable document change
+00:37 +141: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in crop leaves crop and annotations untouched
+00:37 +142: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in draw leaves crop and annotations untouched
+00:37 +143: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in text leaves crop and annotations untouched
+00:38 +144: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in stickers leaves crop and annotations untouched
+00:38 +145: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: drawing after zoom, rotation and reflection uses image coordinates; resize resets only the viewport
+00:38 +146: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a pinch starting outside the photo cancels a stroke already being drawn
+00:38 +147: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: pinching crop corners preserves an existing crop selection
+00:38 +148: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: six-section rail and drawing pill match the required order and top actions
+00:38 +149: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: sticker layers select, reorder, delete and undo through the shared document history
+00:39 +150: $REPO/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: text outline background size opacity and font update the selected layer and are undoable
+00:39 +151: loading $REPO/mobile/test/utils/annotation_editor_test.dart
+00:40 +151: $REPO/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(2.0, 2.0) preserves every relative point and style
+00:40 +152: $REPO/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(-2.0, -2.0) preserves every relative point and style
+00:40 +153: $REPO/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(-2.0, 2.0) preserves every relative point and style
+00:40 +154: $REPO/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(2.0, -2.0) preserves every relative point and style
+00:40 +155: $REPO/mobile/test/utils/annotation_editor_test.dart: records strokes and supports undo and redo
+00:40 +156: $REPO/mobile/test/utils/annotation_editor_test.dart: a new mutation clears redo and moving preserves style
+00:40 +157: $REPO/mobile/test/utils/annotation_editor_test.dart: remove and clear are undoable and unknown ids are harmless
+00:40 +158: loading $REPO/mobile/test/utils/edited_image_exporter_test.dart
+00:40 +158: $REPO/mobile/test/utils/edited_image_exporter_test.dart: keeps source dimensions and pixels without editor viewport dependence
+00:40 +159: $REPO/mobile/test/utils/edited_image_exporter_test.dart: applies a source-relative crop and preserves pixel dimensions
+00:40 +160: $REPO/mobile/test/utils/edited_image_exporter_test.dart: rotates and flips pixels in the same output coordinate system
+00:40 +161: $REPO/mobile/test/utils/edited_image_exporter_test.dart: paints annotations into source pixels before cropping and transformation
+00:40 +162: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=false vertical=false
+00:40 +163: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=false vertical=true
+00:40 +164: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=true vertical=false
+00:40 +165: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=true vertical=true
+00:40 +166: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=false vertical=false
+00:40 +167: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=false vertical=true
+00:40 +168: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=true vertical=false
+00:40 +169: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=true vertical=true
+00:40 +170: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=false vertical=false
+00:40 +171: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=false vertical=true
+00:40 +172: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=true vertical=false
+00:40 +173: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=true vertical=true
+00:40 +174: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=false vertical=false
+00:40 +175: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=false vertical=true
+00:40 +176: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=true vertical=false
+00:40 +177: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=true vertical=true
+00:40 +178: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=false vertical=false
+00:40 +179: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=false vertical=true
+00:40 +180: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=true vertical=false
+00:40 +181: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=true vertical=true
+00:40 +182: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=false vertical=false
+00:40 +183: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=false vertical=true
+00:40 +184: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=true vertical=false
+00:40 +185: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=true vertical=true
+00:40 +186: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=false vertical=false
+00:40 +187: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=false vertical=true
+00:40 +188: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=true vertical=false
+00:40 +189: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=true vertical=true
+00:40 +190: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=false vertical=false
+00:40 +191: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=false vertical=true
+00:40 +192: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=true vertical=false
+00:40 +193: $REPO/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=true vertical=true
+00:40 +194: $REPO/mobile/test/utils/edited_image_exporter_test.dart: normalizes rotation -450 like the preview quarter-turn
+00:40 +195: $REPO/mobile/test/utils/edited_image_exporter_test.dart: normalizes rotation -90 like the preview quarter-turn
+00:40 +196: $REPO/mobile/test/utils/edited_image_exporter_test.dart: normalizes rotation 630 like the preview quarter-turn
+00:40 +197: loading $REPO/mobile/test/utils/edited_image_loader_test.dart
+00:41 +197: $REPO/mobile/test/utils/edited_image_loader_test.dart: owns the decoded handle and detaches after a delayed image
+00:41 +198: $REPO/mobile/test/utils/edited_image_loader_test.dart: owns the decoded handle and detaches after a cached image
+00:41 +199: $REPO/mobile/test/utils/edited_image_loader_test.dart: propagates decoding failure and detaches so a new source can be retried
+00:41 +200: $REPO/mobile/test/utils/edited_image_loader_test.dart: times out at the default deadline, detaches, and ignores late images during a retry
+00:41 +201: $REPO/mobile/test/utils/edited_image_loader_test.dart: cancel detaches a stalled decoder immediately and a late frame cannot affect retry
+00:41 +202: $REPO/mobile/test/utils/edited_image_loader_test.dart: export dimensions are bounded without allocating an oversized raster
+00:41 +203: loading $REPO/mobile/test/utils/editor_formats_test.dart
+00:42 +203: $REPO/mobile/test/utils/editor_formats_test.dart: decodes sample.png with correct orientation and exports a new raster without changing source bytes
+00:42 +204: $REPO/mobile/test/utils/editor_formats_test.dart: decodes orientation-6.jpg with correct orientation and exports a new raster without changing source bytes
+00:42 +205: loading $REPO/mobile/test/utils/edit_save_policy_test.dart
+00:43 +205: $REPO/mobile/test/utils/edit_save_policy_test.dart: replace is disabled until an atomic backup and library refresh path exists
+00:43 +206: loading $REPO/mobile/test/unit/providers/editor_provider_test.dart
+00:43 +206: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider initial state has default values
+00:43 +207: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment adds adjustment to state
+00:43 +208: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment clamps value to [-1, 1]
+00:43 +209: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment removes key when value is 0
+00:43 +210: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter updates filter index and intensity
+00:43 +211: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter clamps index to valid range
+00:43 +212: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter clamps intensity to [0, 1]
+00:43 +213: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider resetEdits resets adjustments and filter
+00:43 +214: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider hasUnsavedEdits reflects adjustment changes
+00:43 +215: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider hasUnsavedEdits reflects filter changes
+00:43 +216: $REPO/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider init loads baseline adjustments from edits
+00:43 +217: loading $REPO/mobile/test/unit/providers/editor_document_history_test.dart
+00:44 +217: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: undo and redo traverse geometry, corrections, filters and styled markup in order
+00:44 +218: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: one continuous slider gesture is one undo step and redo restores the final value
+00:44 +219: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: no-op interactions do not consume history or discard redo
+00:44 +220: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: a new edit after undo invalidates redo
+00:44 +221: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: reset is one reversible document change including annotations
+00:44 +222: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: four turns and zero-intensity effects are clean
+00:44 +223: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: history retains at most 100 immutable snapshots
+00:44 +224: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: saving locks all document mutations, undo and redo
+00:44 +225: $REPO/mobile/test/unit/providers/editor_document_history_test.dart: invalid geometry and non-finite corrections fail without changing the document
+00:44 +226: loading $REPO/mobile/test/unit/utils/color_adjustment_test.dart
+00:44 +226: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment buildMatrix returns identity for empty adjustments
+00:44 +227: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment buildFilter returns null for empty adjustments
+00:44 +228: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment brightness adjustment modifies matrix correctly
+00:44 +229: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment negative brightness adjustment modifies matrix correctly
+00:44 +230: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment contrast adjustment modifies matrix correctly
+00:44 +231: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment saturation adjustment modifies matrix correctly
+00:44 +232: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment exposure adjustment modifies matrix correctly
+00:44 +233: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment temperature adjustment modifies matrix correctly
+00:44 +234: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment shadows adjustment modifies matrix correctly
+00:44 +235: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment highlights adjustment modifies matrix correctly
+00:44 +236: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment multiple adjustments combine correctly
+00:44 +237: $REPO/mobile/test/unit/utils/color_adjustment_test.dart: ColorAdjustment clamping works for extreme values
+00:44 +238: loading $REPO/mobile/test/unit/utils/editor_test.dart
+00:45 +238: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle no edits
+00:45 +239: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single 90° rotation
+00:45 +240: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single 180° rotation
+00:45 +241: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single 270° rotation
+00:45 +242: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single horizontal mirror
+00:45 +243: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single vertical mirror
+00:45 +244: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 90° rotation + horizontal mirror
+00:45 +245: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 90° rotation + vertical mirror
+00:45 +246: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 90° rotation + both mirrors
+00:45 +247: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 180° rotation + horizontal mirror
+00:45 +248: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 180° rotation + vertical mirror
+00:45 +249: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 180° rotation + both mirrors
+00:45 +250: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 270° rotation + horizontal mirror
+00:45 +251: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 270° rotation + vertical mirror
+00:45 +252: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 270° rotation + both mirrors
+00:45 +253: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle horizontal mirror + 90° rotation
+00:45 +254: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle horizontal mirror + 180° rotation
+00:45 +255: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle horizontal mirror + 270° rotation
+00:45 +256: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle vertical mirror + 90° rotation
+00:45 +257: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle vertical mirror + 180° rotation
+00:45 +258: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle vertical mirror + 270° rotation
+00:45 +259: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle both mirrors + 90° rotation
+00:45 +260: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle both mirrors + 180° rotation
+00:45 +261: $REPO/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle both mirrors + 270° rotation
+00:45 +262: All tests passed!

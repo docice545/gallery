@@ -217,7 +217,7 @@ void main() {
     expect(editor.elements, [stroke, text, _sticker()]);
   });
 
-  for (final tool in ['text', 'star', 'heart', 'smile']) {
+  for (final tool in ['text', 'star', 'heart', 'smile', '🙂']) {
     testWidgets('styled $tool object renders identically in the real canvas and exported PNG', (tester) async {
       final object = tool == 'text'
           ? AnnotationElement(
