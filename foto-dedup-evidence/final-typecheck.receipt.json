@@ -1,0 +1,35 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792597528.1520092,
+  "log": "bdb4edde7a1aa344a51799430655e987671054d34a64d507a24485a6df438e5f-a21482155148453cac6f01202ad7c84e.log",
+  "logSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "outputs": {},
+  "pid": 278416,
+  "request": {
+    "argv": [
+      "/workspace/gallery-dedup-acceptance/server/node_modules/.bin/tsc",
+      "--noEmit"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "7b2d28af6f1afdbaab01d4bc40f16939873aa731529467f302f0c8991f2293da",
+      "head": "fb3d89d1aeed42f92a6282a933a0b755d9dd5865"
+    },
+    "stage": "typecheck",
+    "tool": {
+      "mtime": 1792592826802229192,
+      "path": "/workspace/gallery-dedup-acceptance/server/node_modules/.bin/tsc",
+      "size": 2152
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792597525.173923,
+  "status": "PASS"
+}

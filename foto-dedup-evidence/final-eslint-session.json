@@ -1,0 +1,35 @@
+{
+  "method": "actual supervised session, no native receipt invented",
+  "argv": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "/workspace/gallery/tools/foto-automation/foto-stage-runner.py",
+    "--repo",
+    "/workspace/gallery-dedup-acceptance",
+    "--state",
+    "/tmp/foto-build17-cloud-state",
+    "--legacy-lock",
+    "/tmp/foto-build17-cloud-state/legacy.lock",
+    "session",
+    "env",
+    "--chdir=server",
+    "pnpm",
+    "exec",
+    "eslint",
+    "src/repositories/asset.repository.ts",
+    "test/medium/specs/services/foto-duplicate-admission.spec.ts",
+    "--max-warnings",
+    "0"
+  ],
+  "sourceBefore": {
+    "head": "9cba0246791603e3ff1fbcffaa46e65124906522",
+    "changesSHA256": "5f91cbf9c93391fb83720c82e310f0e822ba1bfda7426f2e160e5ab260447244"
+  },
+  "sourceAfter": {
+    "head": "9cba0246791603e3ff1fbcffaa46e65124906522",
+    "changesSHA256": "5f91cbf9c93391fb83720c82e310f0e822ba1bfda7426f2e160e5ab260447244"
+  },
+  "startedAt": 1792598062.1228523,
+  "finishedAt": 1792598077.2545857,
+  "exitCode": 0,
+  "unchangedSource": true
+}

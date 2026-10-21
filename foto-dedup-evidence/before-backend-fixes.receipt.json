@@ -1,0 +1,40 @@
+{
+  "exitCode": 1,
+  "finishedAt": 1792592858.4326105,
+  "log": "72390d583b85dde532ed84d4faff4948ad4fbd9181f9991c0f81a7331abb0520-9935cbb20b284691a1e04ecc8f48e230.log",
+  "logSHA256": "fe14fdd58b5195df9688f2aadfab6c456c1b3527c2efd434149f79560a054d63",
+  "pid": 262371,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "/workspace/gallery-dedup-acceptance/server/node_modules/vitest/vitest.mjs",
+      "--config",
+      "test/vitest.config.medium.mjs",
+      "run",
+      "test/medium/specs/services/foto-duplicate-admission.spec.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--maxConcurrency=1"
+    ],
+    "installedDependencies": {
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "8be1c5db494319286ecc3a582920fae99f4b0dac409424d538a83c391997b723",
+      "head": "d7a31f3420b483974a7247613791cdbc395cacd4"
+    },
+    "stage": "medium",
+    "tool": {
+      "mtime": 1788825403000000000,
+      "path": "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "size": 126595440
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792592845.546048,
+  "status": "FAIL"
+}

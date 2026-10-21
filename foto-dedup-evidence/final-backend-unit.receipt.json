@@ -1,0 +1,44 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792597525.0691369,
+  "log": "2bfa6dc8a09217eb53411744f412cd5f60e6611909bbc8ee38415b8ccdd8d314-5dabfda6a29c40d8975afa5ad1cf92f3.log",
+  "logSHA256": "c2996ca51f60024b1f1bb4c9cd611be0239ffafc89e2f39c489e6aef44679801",
+  "outputs": {},
+  "pid": 278263,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "/workspace/gallery-dedup-acceptance/server/node_modules/vitest/vitest.mjs",
+      "--config",
+      "test/vitest.config.mjs",
+      "run",
+      "src/repositories/asset.repository.spec.ts",
+      "src/services/asset-media.service.spec.ts",
+      "src/services/duplicate.service.spec.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--maxConcurrency=1"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "7b2d28af6f1afdbaab01d4bc40f16939873aa731529467f302f0c8991f2293da",
+      "head": "fb3d89d1aeed42f92a6282a933a0b755d9dd5865"
+    },
+    "stage": "unit",
+    "tool": {
+      "mtime": 1788825403000000000,
+      "path": "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "size": 126595440
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792597513.4661543,
+  "status": "PASS"
+}

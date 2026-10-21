@@ -24,6 +24,17 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
 
   Drift get _db => attachedDatabase;
 
+  // One remote original can match several device copies. A JOIN would multiply
+  // cards before LIMIT/OFFSET while bucket counts still count remote rows once.
+  // Keep the same scalar lookup already used by the main/album timelines.
+  Expression<String> _matchingLocalAssetId() => subqueryExpression<String>(
+    _db.localAssetEntity.selectOnly()
+      ..addColumns([_db.localAssetEntity.id])
+      ..where(_db.localAssetEntity.checksum.equalsExp(_db.remoteAssetEntity.checksum))
+      ..orderBy([OrderingTerm.asc(_db.localAssetEntity.id)])
+      ..limit(1),
+  );
+
   Stream<List<String>> watchTimelineUserIds(String userId) {
     final query = _db.partnerEntity.selectOnly()
       ..addColumns([_db.partnerEntity.sharedById])
@@ -438,12 +449,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
 
     // Correlated subquery picks the first matching local asset by checksum,
     // avoiding fan-out when the same photo exists in multiple device albums (#23273).
-    final localId = subqueryExpression<String>(
-      _db.localAssetEntity.selectOnly()
-        ..addColumns([_db.localAssetEntity.id])
-        ..where(_db.localAssetEntity.checksum.equalsExp(_db.remoteAssetEntity.checksum))
-        ..limit(1),
-    );
+    final localId = _matchingLocalAssetId();
 
     final query =
         _db.remoteAssetEntity.select().addColumns([localId]).join([
@@ -652,13 +658,9 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
             ]),
         );
 
+    final localId = _matchingLocalAssetId();
     final query =
-        _db.remoteAssetEntity.select().addColumns([_db.localAssetEntity.id]).join([
-            leftOuterJoin(
-              _db.localAssetEntity,
-              _db.remoteAssetEntity.checksum.equalsExp(_db.localAssetEntity.checksum),
-              useColumns: false,
-            ),
+        _db.remoteAssetEntity.select().addColumns([localId]).join([
             leftOuterJoin(
               _db.stackEntity,
               _db.stackEntity.id.equalsExp(_db.remoteAssetEntity.stackId),
@@ -678,9 +680,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
           ..orderBy([OrderingTerm.desc(_db.remoteAssetEntity.createdAt)])
           ..limit(count, offset: offset);
 
-    return query
-        .map((row) => row.readTable(_db.remoteAssetEntity).toDto(localId: row.read(_db.localAssetEntity.id)))
-        .get();
+    return query.map((row) => row.readTable(_db.remoteAssetEntity).toDto(localId: row.read(localId))).get();
   }
 
   // Detail query for one linked album inside a space. Scopes by album membership
@@ -771,26 +771,18 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
         ..addColumns([_db.sharedSpaceAlbumAssetEntity.assetId])
         ..where(_db.sharedSpaceAlbumAssetEntity.albumId.equals(albumId)),
     );
-    final query =
-        _db.remoteAssetEntity.select().addColumns([_db.localAssetEntity.id]).join([
-            leftOuterJoin(
-              _db.localAssetEntity,
-              _db.remoteAssetEntity.checksum.equalsExp(_db.localAssetEntity.checksum),
-              useColumns: false,
-            ),
-          ])
-          ..where(
-            _db.remoteAssetEntity.deletedAt.isNull() &
-                (_db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.timeline) |
-                    _db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.archive)) &
-                _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope) &
-                membership,
-          )
-          ..orderBy([OrderingTerm.desc(_db.remoteAssetEntity.createdAt)])
-          ..limit(count, offset: offset);
-    return query
-        .map((row) => row.readTable(_db.remoteAssetEntity).toDto(localId: row.read(_db.localAssetEntity.id)))
-        .get();
+    final localId = _matchingLocalAssetId();
+    final query = _db.remoteAssetEntity.select().addColumns([localId])
+      ..where(
+        _db.remoteAssetEntity.deletedAt.isNull() &
+            (_db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.timeline) |
+                _db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.archive)) &
+            _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope) &
+            membership,
+      )
+      ..orderBy([OrderingTerm.desc(_db.remoteAssetEntity.createdAt)])
+      ..limit(count, offset: offset);
+    return query.map((row) => row.readTable(_db.remoteAssetEntity).toDto(localId: row.read(localId))).get();
   }
 
   TimelineQuery fromAssets(List<BaseAsset> assets, TimelineOrigin origin) => (
@@ -1436,28 +1428,19 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) {
     if (joinLocal) {
-      final query =
-          _db.remoteAssetEntity.select().join([
-              leftOuterJoin(
-                _db.localAssetEntity,
-                _db.remoteAssetEntity.checksum.equalsExp(_db.localAssetEntity.checksum),
-                useColumns: false,
-              ),
-            ])
-            ..addColumns([_db.localAssetEntity.id])
-            ..where(
-              filter(_db.remoteAssetEntity) &
-                  _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope, sortBy: sortBy),
-            )
-            ..orderBy([
-              OrderingTerm.desc(_db.remoteAssetEntity.sortTimestamp(sortBy)),
-              if (sortBy == SortAssetsBy.deleted) OrderingTerm.asc(_db.remoteAssetEntity.id),
-            ])
-            ..limit(count, offset: offset);
+      final localId = _matchingLocalAssetId();
+      final query = _db.remoteAssetEntity.select().addColumns([localId])
+        ..where(
+          filter(_db.remoteAssetEntity) &
+              _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope, sortBy: sortBy),
+        )
+        ..orderBy([
+          OrderingTerm.desc(_db.remoteAssetEntity.sortTimestamp(sortBy)),
+          if (sortBy == SortAssetsBy.deleted) OrderingTerm.asc(_db.remoteAssetEntity.id),
+        ])
+        ..limit(count, offset: offset);
 
-      return query
-          .map((row) => row.readTable(_db.remoteAssetEntity).toDto(localId: row.read(_db.localAssetEntity.id)))
-          .get();
+      return query.map((row) => row.readTable(_db.remoteAssetEntity).toDto(localId: row.read(localId))).get();
     } else {
       final query = _db.remoteAssetEntity.select()
         ..where((row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope, sortBy: sortBy))

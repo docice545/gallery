@@ -1,0 +1,53 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792595245.6611664,
+  "log": "b4571d28deabdc95541e796dc5fbbf910fbeda754b8bbbd3c11e49b5e794460b-6158470a732b49d6a440e638b6e1cfd8.log",
+  "logSHA256": "52a147570ac3008a19721bab383f3093c403ceaedc95602539e1b577401e3c03",
+  "outputs": {},
+  "pid": 270059,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "/workspace/gallery-dedup-acceptance/server/node_modules/vitest/vitest.mjs",
+      "--config",
+      "test/vitest.config.mjs",
+      "run",
+      "src/controllers/stack.controller.spec.ts",
+      "src/controllers/sync.controller.spec.ts",
+      "src/controllers/system-config.controller.spec.ts",
+      "src/controllers/system-metadata.controller.spec.ts",
+      "src/controllers/tag.controller.spec.ts",
+      "src/controllers/timeline.controller.spec.ts",
+      "src/controllers/trash.controller.spec.ts",
+      "src/controllers/user-admin.controller.spec.ts",
+      "src/controllers/user.controller.spec.ts",
+      "src/controllers/workflow.controller.spec.ts",
+      "src/cores/storage.core.spec.ts",
+      "src/dtos/album-response.dto.spec.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--maxConcurrency=1"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "cc35a1f00de46116035c8681183bfbde0fa60e599c5b0ee3a6c949755dc77989",
+      "head": "fb3d89d1aeed42f92a6282a933a0b755d9dd5865"
+    },
+    "stage": "unit",
+    "tool": {
+      "mtime": 1788825403000000000,
+      "path": "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "size": 126595440
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792595214.9059582,
+  "status": "PASS"
+}

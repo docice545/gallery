@@ -1,0 +1,5 @@
+ ✓ |server:medium| test/medium/specs/services/library.service.spec.ts (76 tests | 70 skipped) 336ms
+ Test Files  1 passed (1)
+      Tests  6 passed | 70 skipped (76)
+   Duration  13.24s (transform 2.10s, setup 0ms, import 4.24s, tests 336ms, environment 0ms)
+JSON report written to /tmp/foto-dedup-library-final-results.json

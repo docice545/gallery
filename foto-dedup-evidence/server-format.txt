@@ -1,0 +1,4 @@
+Checking formatting...
+[warn] src/schema/migrations-gallery/1793400000000-FixMemoryCandidateSchema.ts
+[warn] src/utils/recovery-evidence.spec.ts
+[warn] Code style issues found in 2 files. Run Prettier with --write to fix.

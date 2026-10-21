@@ -1,0 +1,10 @@
+ ❯ |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts (13 tests | 1 failed) 388ms
+   × reimports a renamed NAS original without reviving or changing its offline index tombstone 21ms
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > reimports a renamed NAS original without reviving or changing its offline index tombstone
+AssertionError: expected [] to have a length of 1 but got +0
+- Expected
++ Received
+ ❯ test/medium/specs/services/foto-duplicate-admission.spec.ts:335:20
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Duration  11.34s (transform 2.11s, setup 0ms, import 4.28s, tests 388ms, environment 0ms)

@@ -1,0 +1,21 @@
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > preserves an explicit perceptual group without conflating different bytes
+AssertionError: expected null to be '5fdc7237-980e-49bc-8d9a-6bf526c38904' // Object.is equality
+- Expected:
++ Received:
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > does not treat a checksum-resolution alias as proof that different originals have identical bytes
+AssertionError: expected '03f36efc-6739-43b8-b0b4-94b9b5fdeef9' to be null
+- Expected:
++ Received:
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > does not change another owners asset through a mismatched checksum alias
+AssertionError: expected 'a57abcf4-9b61-4a1f-a5d4-99bdb7cde5b3' to be null
+- Expected:
++ Received:
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > does not suppress an external import through another owners mismatched alias
+AssertionError: expected [] to have a length of 1 but got +0
+- Expected
++ Received
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > accepts the same original once when an interrupted library batch is redelivered
+PostgresError: duplicate key value violates unique constraint "asset_ownerId_libraryId_checksum_idx"
+ Test Files  1 failed (1)
+      Tests  5 failed | 6 passed (11)
+   Duration  12.42s (transform 2.28s, setup 0ms, import 4.90s, tests 457ms, environment 0ms)
