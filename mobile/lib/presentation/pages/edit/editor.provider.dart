@@ -18,6 +18,7 @@ class EditorProvider extends Notifier<EditorState> {
   bool _baselineFlipVertical = false;
   CropAspectRatio _baselineAspectRatio = CropAspectRatio.free;
   bool _annotationsDirty = false;
+  Map<String, double> _baselineAdjustments = {};
 
   @override
   EditorState build() {
@@ -31,6 +32,7 @@ class EditorProvider extends Notifier<EditorState> {
     _baselineFlipVertical = false;
     _baselineAspectRatio = CropAspectRatio.free;
     _annotationsDirty = false;
+    _baselineAdjustments = {};
     state = const EditorState();
   }
 
@@ -54,6 +56,9 @@ class EditorProvider extends Notifier<EditorState> {
     _baselineFlipVertical = transform.mirrorVertical;
     _baselineAspectRatio = CropAspectRatio.free;
 
+    // Initialize baseline adjustments from existing edits if any
+    _baselineAdjustments = _extractAdjustments(edits);
+
     state = state.copyWith(
       originalWidth: originalWidth ?? state.originalWidth,
       originalHeight: originalHeight ?? state.originalHeight,
@@ -61,9 +66,15 @@ class EditorProvider extends Notifier<EditorState> {
       flipHorizontal: transform.mirrorHorizontal,
       flipVertical: transform.mirrorVertical,
       hasUnsavedEdits: false,
+      adjustments: _baselineAdjustments,
     );
 
     _animateRotation(transform.rotation, duration: Duration.zero);
+  }
+
+  Map<String, double> _extractAdjustments(List<AssetEdit> edits) {
+    // TODO: Extract adjustments from AssetEdit when supported
+    return {};
   }
 
   void _animateRotation(int angle, {Duration duration = const Duration(milliseconds: 300)}) {
@@ -129,6 +140,9 @@ class EditorProvider extends Notifier<EditorState> {
       flipVertical: _baselineFlipVertical,
       crop: _baselineCrop,
       aspectRatio: _baselineAspectRatio,
+      adjustments: _baselineAdjustments,
+      selectedFilterIndex: 0,
+      filterIntensity: 1.0,
     );
     _updateDirtyState();
   }
@@ -165,6 +179,26 @@ class EditorProvider extends Notifier<EditorState> {
     _updateDirtyState();
   }
 
+  void setAdjustment(String key, double value) {
+    final clampedValue = value.clamp(-1.0, 1.0);
+    final adjustments = Map<String, double>.from(state.adjustments);
+    if (clampedValue == 0.0) {
+      adjustments.remove(key);
+    } else {
+      adjustments[key] = clampedValue;
+    }
+    state = state.copyWith(adjustments: adjustments);
+    _updateDirtyState();
+  }
+
+  void setFilter(int index, {double intensity = 1.0}) {
+    state = state.copyWith(
+      selectedFilterIndex: index.clamp(0, 31),
+      filterIntensity: intensity.clamp(0.0, 1.0),
+    );
+    _updateDirtyState();
+  }
+
   void _updateDirtyState() {
     final transformDirty =
         state.crop != _baselineCrop ||
@@ -172,7 +206,21 @@ class EditorProvider extends Notifier<EditorState> {
         state.flipHorizontal != _baselineFlipHorizontal ||
         state.flipVertical != _baselineFlipVertical ||
         state.aspectRatio != _baselineAspectRatio;
-    state = state.copyWith(hasUnsavedEdits: transformDirty || _annotationsDirty);
+
+    final adjustmentsDirty = !_mapsEqual(state.adjustments, _baselineAdjustments);
+    final filterDirty = state.selectedFilterIndex != 0 || state.filterIntensity != 1.0;
+
+    state = state.copyWith(hasUnsavedEdits: transformDirty || _annotationsDirty || adjustmentsDirty || filterDirty);
+  }
+
+  bool _mapsEqual(Map<String, double> a, Map<String, double> b) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || (a[key]! - b[key]!).abs() > 1e-10) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
@@ -191,9 +239,13 @@ abstract class EditorState with _$EditorState {
     @Default(0) int originalHeight,
     @Default(Duration.zero) Duration animationDuration,
     @Default(false) bool hasUnsavedEdits,
+    @Default({}) Map<String, double> adjustments,
+    @Default(0) int selectedFilterIndex,
+    @Default(1.0) double filterIntensity,
   }) = _EditorState;
 
   bool get hasEdits {
     return hasUnsavedEdits;
   }
+
 }

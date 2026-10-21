@@ -3,8 +3,10 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:immich_mobile/constants/filters.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/utils/annotation_painter.dart';
+import 'package:immich_mobile/utils/color_adjustment.dart';
 
 /// Renders the edit document in source-image coordinates, then applies the crop
 /// and orthogonal transforms. The viewport, zoom and editor chrome are excluded.
@@ -49,6 +51,9 @@ class EditedImageExporter {
     required bool flipHorizontal,
     required bool flipVertical,
     required List<AnnotationElement> annotations,
+    Map<String, double> adjustments = const {},
+    int selectedFilterIndex = 0,
+    double filterIntensity = 1.0,
   }) async {
     final safeCrop = Rect.fromLTRB(
       crop.left.clamp(0.0, 1.0),
@@ -81,7 +86,25 @@ class EditedImageExporter {
     canvas.rotate(normalizedRotation * 3.141592653589793 / 180);
     canvas.scale(flipHorizontal ? -1.0 : 1.0, flipVertical ? -1.0 : 1.0);
     canvas.translate(-(left + cropWidth / 2), -(top + cropHeight / 2));
-    canvas.drawImage(source, Offset.zero, Paint()..filterQuality = FilterQuality.high);
+
+    // Apply adjustments and filters using ColorFilter
+    final paint = Paint()..filterQuality = FilterQuality.high;
+    
+    // Build combined color filter from adjustments
+    final adjustmentFilter = ColorAdjustment.buildFilter(adjustments);
+    if (adjustmentFilter != null) {
+      paint.colorFilter = adjustmentFilter;
+    }
+    
+    // Apply selected filter if any with proper intensity blending
+    if (selectedFilterIndex > 0 && selectedFilterIndex < filters.length) {
+      final filter = applyFilterIntensity(selectedFilterIndex, filterIntensity);
+      paint.colorFilter = paint.colorFilter == null 
+          ? filter 
+          : ColorFilter.compose(filter, paint.colorFilter!);
+    }
+
+    canvas.drawImage(source, Offset.zero, paint);
     AnnotationPainter(annotations).paint(canvas, Size(source.width.toDouble(), source.height.toDouble()));
     canvas.restore();
     final picture = recorder.endRecording();
