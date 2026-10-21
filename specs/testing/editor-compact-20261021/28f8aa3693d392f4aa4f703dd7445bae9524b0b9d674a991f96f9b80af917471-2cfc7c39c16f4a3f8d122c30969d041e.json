@@ -1,0 +1,35 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792612593.238807,
+  "log": "28f8aa3693d392f4aa4f703dd7445bae9524b0b9d674a991f96f9b80af917471-2cfc7c39c16f4a3f8d122c30969d041e.log",
+  "logSHA256": "aa9cc7364c832770f709f40806819cf56097533d84422337341f7e2c08855885",
+  "outputs": {
+    "mobile/lib/generated/codegen_loader.g.dart": "ee787385a13b13df1ef3d2bc0f99f937c4292ffebd2102118de15fe4b6acb6c4",
+    "mobile/lib/generated/translations.g.dart": "a7c9e361d294a5f50f3881a37edaa107eb067d1a9159e8ab08951318873a812e"
+  },
+  "pid": 292496,
+  "request": {
+    "argv": [
+      "/bin/bash",
+      "/workspace/gallery-editor-compact/tools/foto-automation/foto-editor-localize.sh"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15"
+    },
+    "repo": "/workspace/gallery-editor-compact",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "c00bfe5864aa9272060bc5167b91fd014612e90ecae41f09e25c9f8c6835dbb8",
+      "head": "21cdd857dc0a1c909344b14c4bb95632c37a28f2"
+    },
+    "stage": "editor-localize",
+    "tool": {
+      "mtime": 1778324878000000000,
+      "path": "/bin/bash",
+      "size": 1298416
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792612591.67233,
+  "status": "PASS"
+}

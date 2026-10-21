@@ -1,0 +1,76 @@
+{
+  "goldens": {
+    "compact_android_portrait.png": {
+      "height": 852,
+      "sha256": "3e530f6a0c6c5c8f7ce80222d91145db3a0eb1db358ca4618582032ade0a783b",
+      "width": 393
+    },
+    "compact_android_portrait_draw.png": {
+      "height": 852,
+      "sha256": "2c338e009842a4c248adf874284ff28a6ffccc0a2673d25f50141ed623ba0afc",
+      "width": 393
+    },
+    "compact_ios_portrait.png": {
+      "height": 844,
+      "sha256": "1a1008c2bbe879cd44d18993b7654ac7308014a8b7ee7574e19cdf6e8b64ffbf",
+      "width": 390
+    },
+    "compact_ios_portrait_draw.png": {
+      "height": 844,
+      "sha256": "0fa089e05ddd7d97810b2e7aed3f584da4fc638df69ffd1187ecf30d12fb3606",
+      "width": 390
+    },
+    "compact_landscape.png": {
+      "height": 393,
+      "sha256": "91d4a1b664ba584de176d4cce1cc068fe78b6f906f673922e4d84b572a33a2ed",
+      "width": 852
+    },
+    "compact_landscape_draw.png": {
+      "height": 393,
+      "sha256": "f4aaaceb37cc703d806875346970f5c531616a1bee0f2d903a98e359c419be90",
+      "width": 852
+    },
+    "editor_ru_compact_large_text.png": {
+      "height": 320,
+      "sha256": "3b94277bd0f9e9d8b11d56b4fefbcc004270ce26ee40e76044bb1cad089fc8c0",
+      "width": 720
+    },
+    "editor_ru_draw_portrait.png": {
+      "height": 852,
+      "sha256": "d0f4df3967435a17516292dc60b0dc9e8eef50770e387f5c219ba383962304de",
+      "width": 393
+    },
+    "editor_ru_text_landscape.png": {
+      "height": 393,
+      "sha256": "a6f6825ee98c616ee8379f2c6b6d55407c8bbb7f0602295b516d7ee70c95a5a5",
+      "width": 852
+    }
+  },
+  "runs": {
+    "ai-client-115": {
+      "log": "76b71660536e8051c65e4eda1d3427d11fb96cb819bfbdde1c192a9efc22a406-5cc80593c0b94f1c8a937541ea7b3164.log",
+      "logSHA256": "b67b48ac65d83af15ec8b173a4ca7104602a1f91a1665eb13585b590280e92d2",
+      "receipt": "76b71660536e8051c65e4eda1d3427d11fb96cb819bfbdde1c192a9efc22a406-5cc80593c0b94f1c8a937541ea7b3164.json"
+    },
+    "ai-repository-final-32": {
+      "log": "19145b63038eb9e7649897a0505cbfc995970b11aab965639a107a7f8505bcb6-2b1eb602bbe644ec8a7d2986f7da52fc.log",
+      "logSHA256": "979b7e90f328efb48fcdb696107f85bb98905ace7ae8e8687e3f1b283da1fdcf",
+      "receipt": "19145b63038eb9e7649897a0505cbfc995970b11aab965639a107a7f8505bcb6-2b1eb602bbe644ec8a7d2986f7da52fc.json"
+    },
+    "editor-localize": {
+      "log": "28f8aa3693d392f4aa4f703dd7445bae9524b0b9d674a991f96f9b80af917471-2cfc7c39c16f4a3f8d122c30969d041e.log",
+      "logSHA256": "aa9cc7364c832770f709f40806819cf56097533d84422337341f7e2c08855885",
+      "receipt": "28f8aa3693d392f4aa4f703dd7445bae9524b0b9d674a991f96f9b80af917471-2cfc7c39c16f4a3f8d122c30969d041e.json"
+    },
+    "editor-regressions-243": {
+      "log": "cb17a96e63822f458ce1b1b4853363a1799d39ce51703090c5473b776d3d31c6-5e660b819ad342d685770214de4789c2.log",
+      "logSHA256": "df58d6266f0bad1124228f49e524412f5c12e816b103fd2426ef50aba1143e30",
+      "receipt": "cb17a96e63822f458ce1b1b4853363a1799d39ce51703090c5473b776d3d31c6-5e660b819ad342d685770214de4789c2.json"
+    },
+    "layout-88": {
+      "log": "baec045d5a5fbc559f9f24141d5e52f457d5ca18cf7690395708c524560e1062-d9622b55d2794844a64c93e824446910.log",
+      "logSHA256": "bcf61db83883d7cbaa8b69b7661929a2b9b7ff2db04d18dfedbf47188c278c8c",
+      "receipt": "baec045d5a5fbc559f9f24141d5e52f457d5ca18cf7690395708c524560e1062-d9622b55d2794844a64c93e824446910.json"
+    }
+  }
+}
