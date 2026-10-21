@@ -82,7 +82,7 @@ APK: `Foto-5.7.3-build17-unsigned.apk`, `188090091` bytes.
 SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`. Package`de.opennoodle.gallery`, version`5.7.3+17`.
 Проверка подписи: **UNSIGNED (apksigner exit=1, no signing certificate)**. Проверка ZIP/alignment: **PASS**.
 
-Публикация: https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc. Signed APK SHA появится только после фактической подписи на HP.
+GitHub draft-release (требуется вход владельца): https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc. Signed APK SHA появится только после фактической подписи на HP.
 Инструкция: `docs/FOTO_BUILD17_HP_HANDOFF.md`. Ни установки приложения, ни backend deployment
 здесь не было. Android/iOS permissions, background OS behavior и настоящий NFS проверяются
 оператором на специально созданных тестовых объектах, отдельно от семейного архива.

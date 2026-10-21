@@ -42,8 +42,22 @@ printf 'SOURCE STAGED: %s\n' "$TRANSFER"
 - SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`.
 - Размер: `188090091` bytes.
 - Состояние подписи: **UNSIGNED**, не debug-signed; напрямую не устанавливать.
-- Публикация: https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc.
+- GitHub draft-release (доступ владельцу репозитория после входа): https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc.
 
+Draft выбран намеренно: published release в этом репозитории запускает Docker/CLI/SDK workflows.
+Для скачивания нужен GitHub-вход с доступом к draft; анонимная ссылка не поддерживается.
+
+```bash
+set -euo pipefail
+umask 077
+DOWNLOAD_DIR=$(mktemp -d "${PWD}/foto-build17-download.XXXXXXXX")
+gh release download foto-5.7.3-build17-cloud-244ae32fc6dc \
+  --repo docice545/gallery --dir "$DOWNLOAD_DIR"
+(cd "$DOWNLOAD_DIR" && sha256sum -c SHA256SUMS)
+printf 'VERIFIED DOWNLOAD: %s\n' "$DOWNLOAD_DIR"
+```
+
+Выполняйте от владельца существующей GitHub-аутентификации; ключ Android для скачивания не нужен.
 Скачайте APK и `SHA256SUMS` из указанного release в новый каталог. Выполните
 `sha256sum -c SHA256SUMS` для всего скачанного комплекта или сравните APK с указанным
 здесь SHA. Сверяйте полный hash, а не только имя. Не пересобирайте APK ради подписи.

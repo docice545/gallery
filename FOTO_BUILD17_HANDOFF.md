@@ -117,7 +117,8 @@ SHA-256: `49e2ee65a8dd881085edf2934b72cf19985f28ee9918de37ce99eb1cd70efd08`.
 Никакой ключ не создавался/не получался. Без существующего HP-ключа APK не устанавливать.
 
 Cloud-каталог: `/workspace/foto-build17-release-244ae32fc6dc`.
-GitHub release: https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc
+GitHub draft-release (вход владельца, без запуска published workflows):
+https://github.com/docice545/gallery/releases/tag/foto-5.7.3-build17-cloud-244ae32fc6dc
 Итоговый отчёт: [docs/FOTO_BUILD17_TEST_REPORT.md](docs/FOTO_BUILD17_TEST_REPORT.md).
 Получение исходников, подпись и сохранение HP working tree:
 [docs/FOTO_BUILD17_HP_HANDOFF.md](docs/FOTO_BUILD17_HP_HANDOFF.md).
