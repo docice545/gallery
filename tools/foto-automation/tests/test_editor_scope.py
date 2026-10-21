@@ -10,13 +10,25 @@ WORKFLOW = ROOT / '.github/workflows/build-mobile.yml'
 
 
 def allows(job, *, event='pull_request', branch='codex/foto-build17-editor',
-           actor='fixture-user', fork=False, mobile=True, workflow=WORKFLOW):
+           actor='fixture-user', fork=False, mobile=True, workflow=WORKFLOW,
+           e2e=True, web=True, server=True, cli=True):
     blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', workflow.read_text(), re.M | re.S))
     condition = re.search(r'^    if: \$\{\{ (.+) \}\}$', blocks[job], re.M).group(1)
+    return evaluate(condition, event=event, branch=branch, actor=actor, fork=fork,
+                    mobile=mobile, e2e=e2e, web=web, server=server, cli=cli)
+
+
+def evaluate(condition, *, event='pull_request', branch='codex/foto-build17-editor',
+             actor='fixture-user', fork=False, mobile=True, e2e=True,
+             web=True, server=True, cli=True):
     replacements = {
         'github.event_name': repr(event), 'github.head_ref': repr(branch),
         'github.actor': repr(actor), 'github.event.pull_request.head.repo.fork': repr(fork),
         'fromJSON(needs.pre-job.outputs.should_run).mobile': repr(mobile),
+        'fromJSON(needs.pre-job.outputs.should_run).e2e': repr(e2e),
+        'fromJSON(needs.pre-job.outputs.should_run).web': repr(web),
+        'fromJSON(needs.pre-job.outputs.should_run).server': repr(server),
+        'fromJSON(needs.pre-job.outputs.should_run).cli': repr(cli),
         'inputs.android_media_pilot': 'False', 'inputs.refresh_ios_pods_lock': 'False', 'inputs.build_target': repr(''),
     }
     for key, value in replacements.items():
@@ -75,3 +87,21 @@ class EditorScopeTests(TestCase):
         self.assertEqual(cwd, ROOT / 'mobile')
         self.assertEqual(args[-2:], ['--build-filter', 'lib/presentation/pages/edit/editor.provider.freezed.dart'])
         self.assertNotIn('--delete-conflicting-outputs', args)
+
+    def test_editor_pr_cannot_start_e2e_backend_ml_builds_even_if_filters_force_them(self):
+        workflow = ROOT / '.github/workflows/test.yml'
+        for job in ['e2e-tests-server-cli', 'e2e-tests-web']:
+            self.assertFalse(allows(job, workflow=workflow))
+            self.assertTrue(allows(job, workflow=workflow, branch='normal'))
+            self.assertTrue(allows(job, workflow=workflow, event='workflow_dispatch', branch=''))
+            self.assertFalse(allows(job, workflow=workflow, branch='normal',
+                                    e2e=False, web=False, server=False, cli=False))
+
+    def test_editor_changes_keep_normal_path_checks_without_forcing_unrelated_suites(self):
+        workflow = (ROOT / '.github/workflows/test.yml').read_text()
+        condition = re.search(r'^          force-filters: \$\{\{ (.+) \}\}$', workflow, re.M).group(1)
+        self.assertEqual(evaluate(condition), '')
+        self.assertEqual(evaluate(condition, branch='normal'), '- .github/workflows/test.yml')
+        self.assertEqual(evaluate(condition, event='workflow_dispatch', branch=''), '- .github/workflows/test.yml')
+        for scope in ['i18n', 'web', 'mobile', 'upstream-preflight']:
+            self.assertRegex(workflow, rf'(?m)^            {scope}:$')
