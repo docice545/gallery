@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
@@ -136,6 +137,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('drawing survives settings, undo/redo and orientation on $platform', (tester) async {
+      await pumpCompactEditor(tester, portrait: true);
+      await tester.tap(find.byKey(const Key('editor-mode-draw')));
+      await tester.pumpAndSettle();
+      final canvas = find.byType(AnnotationCanvas);
+      final container = ProviderScope.containerOf(tester.element(canvas));
+      final box = tester.renderObject<RenderBox>(canvas);
+      final start = box.localToGlobal(Offset(box.size.width * .4, box.size.height * .4));
+      final end = box.localToGlobal(Offset(box.size.width * .6, box.size.height * .6));
+      await tester.dragFrom(start, end - start);
+      await tester.pumpAndSettle();
+      final drawing = container.read(editorStateProvider).annotations.single;
+      expect(drawing.points.first.dx, closeTo(.4, .001));
+      expect(drawing.points.first.dy, closeTo(.4, .001));
+      expect(drawing.points.last.dx, closeTo(.6, .001));
+      expect(drawing.points.last.dy, closeTo(.6, .001));
+      await tester.tap(find.byKey(const Key('editor-toggle-settings')));
+      await tester.pumpAndSettle();
+      expect(container.read(editorStateProvider).annotations.single, drawing);
+      await tester.tap(find.byKey(const Key('editor-header-undo')));
+      await tester.pumpAndSettle();
+      expect(container.read(editorStateProvider).annotations, isEmpty);
+      await tester.tap(find.byKey(const Key('editor-header-redo')));
+      await tester.pumpAndSettle();
+      expect(container.read(editorStateProvider).annotations.single, drawing);
+      tester.view.physicalSize = const Size(852, 393);
+      await tester.pumpAndSettle();
+      expect(container.read(editorStateProvider).annotations.single, drawing);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
     testWidgets('rotation between layouts preserves crop controller and history on $platform', (tester) async {
       await pumpCompactEditor(tester, portrait: true);
       final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
