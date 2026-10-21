@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euo pipefail
+HOME_DIR=/mnt/hp-data/codex-home
+WORK_DIR=/mnt/hp-data/codex-work
+TOOLCHAIN=/mnt/hp-data/codex-toolchain
+PATH_SAFE="$HOME_DIR/.npm-global/bin:$TOOLCHAIN/flutter/bin:$TOOLCHAIN/gradle/gradle-8.14/bin:$TOOLCHAIN/node/bin:$TOOLCHAIN/node/lib/node_modules/corepack/shims:$TOOLCHAIN/bun/bin:$TOOLCHAIN/android-sdk/cmdline-tools/latest/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:/usr/local/bin:/usr/bin:/bin"
+if [[ "${1:-}" == "--dry-run" && $# -eq 1 ]]; then
+    exec /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2 --dry-run
+fi
+# FOTO_PROMPT_INPUT_V1
+PROMPT_FILE=/mnt/hp-data/codex-work/foto-integration-state/prompts/user-task.txt
+
+echo "Введите новый промпт Codex. Завершение ввода: Ctrl+D."
+echo "Для продолжения предыдущего задания без изменений сразу нажмите Ctrl+D."
+
+TMP=$(mktemp)
+cat > "$TMP"
+
+if [[ -s "$TMP" ]]; then
+    install -o codex-gallery -g codex-gallery -m 600 "$TMP" "$PROMPT_FILE"
+    echo "Новый промпт сохранён."
+else
+    echo "Продолжаем предыдущее задание."
+fi
+
+rm -f "$TMP"
+
+# FOTO_SYSTEMD_STOP_V1
+UNIT="codex-foto-$(date +%s)-$$"
+stop_codex_unit() {
+    trap - INT TERM HUP
+    echo "Останавливаю Codex и все дочерние процессы: $UNIT"
+    systemctl stop "$UNIT.service" 2>/dev/null || true
+    exit 130
+}
+trap stop_codex_unit INT TERM HUP
+
+systemd-run \
+  --unit="$UNIT" \
+  --quiet \
+  --wait \
+  --pipe \
+  --collect \
+  --property=User=codex-gallery \
+  --property=Group=codex-gallery \
+  --property=NoNewPrivileges=yes \
+  --property=PrivateTmp=yes \
+  --property=TasksMax=1024 \
+  --property=CPUQuota=200% \
+  --property=MemoryMax=8G \
+  --property=MemorySwapMax=1G \
+  --property=Nice=10 \
+  --property=ProtectSystem=strict \
+  --setenv=XDG_RUNTIME_DIR=/run/user/1001 \
+  --setenv=DOCKER_HOST=unix:///run/user/1001/docker.sock \
+  --property=ProtectHome=read-only \
+  --property=ProtectProc=invisible \
+  --property=ProtectKernelTunables=yes \
+  --property=ProtectKernelModules=yes \
+  --property=ProtectKernelLogs=yes \
+  --property=ProtectControlGroups=yes \
+  --property=ProtectClock=yes \
+  --property=RestrictSUIDSGID=yes \
+  --property=RestrictRealtime=yes \
+  --property=LockPersonality=yes \
+  --property=ReadWritePaths="$HOME_DIR $WORK_DIR $TOOLCHAIN" \
+  --property=InaccessiblePaths="/opt /var/lib/marzban /etc/wireguard /etc/amnezia /var/run/docker.sock /run/docker.sock /run/dbus/system_bus_socket /mnt/synology-homes /mnt/synology-immich-managed /mnt/synology-immich-chudo /mnt/synology-immich-lenia /mnt/synology-immich-docice" \
+  --setenv=NODE_OPTIONS=--max-old-space-size=3072 \
+  --setenv=CI=true \
+  --setenv=GRADLE_OPTS=-Dorg.gradle.workers.max=1 \
+  --setenv=HOME="$HOME_DIR" \
+  --setenv=USER=codex-gallery \
+  --setenv=LOGNAME=codex-gallery \
+  --setenv=PATH="$PATH_SAFE" \
+  --setenv=ANDROID_HOME="$TOOLCHAIN/android-sdk" \
+  --setenv=ANDROID_SDK_ROOT="$TOOLCHAIN/android-sdk" \
+  --setenv=JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64" \
+  --setenv=PUB_CACHE="$TOOLCHAIN/cache/pub" \
+  --setenv=GRADLE_USER_HOME="$TOOLCHAIN/cache/gradle" \
+  --setenv=COREPACK_HOME="$TOOLCHAIN/cache/corepack" \
+  --setenv=BUN_INSTALL="$TOOLCHAIN/bun" \
+  --setenv=npm_config_cache="$TOOLCHAIN/cache/npm" \
+  --working-directory="$WORK_DIR/foto-integration" \
+  /mnt/hp-data/codex-work/foto-integration-state/foto-integration-continue-v2 --resume

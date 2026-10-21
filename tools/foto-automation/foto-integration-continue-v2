@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+STATE_DIR=/mnt/hp-data/codex-work/foto-integration-state
+AUTO_STATE=/mnt/hp-data/codex-work/gallery-build15-auto
+REPO=/mnt/hp-data/codex-work/foto-integration
+SAFE_WRAPPER=/usr/local/bin/codex-gallery-safe
+MANIFEST=/mnt/hp-data/codex-work/foto-integration.manifest.json
+STATE_MANIFEST="$STATE_DIR/manifest.json"
+MAX_ROUNDS=20
+MAX_CONTEXT_BYTES=24000
+MAX_EMERGENCY_BYTES=12000
+
+usage() {
+  printf 'Usage: %s --dry-run | --resume\n' "$0"
+}
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+MODE=${1:-}
+[[ $# -eq 1 && ( "$MODE" == --dry-run || "$MODE" == --resume ) ]] || { usage >&2; exit 64; }
+[[ -d "$REPO/.git" || -f "$REPO/.git" ]] || die "integration worktree missing: $REPO"
+[[ -x "$SAFE_WRAPPER" ]] || die "sandbox wrapper unavailable: $SAFE_WRAPPER"
+[[ -f "$STATE_DIR/plan.md" && -f "$STATE_DIR/progress.md" && -f "$STATE_DIR/pending-tasks.md" && -f "$MANIFEST" && -f "$STATE_MANIFEST" ]] || die 'persistent state files are incomplete'
+command -v python3 >/dev/null || die 'python3 is required'
+
+if [[ $(id -u) -eq 0 ]]; then
+  exec runuser -u codex-gallery -- "$0" "$@"
+fi
+BRANCH=$(git -C "$REPO" branch --show-current)
+HEAD=$(git -C "$REPO" rev-parse HEAD)
+EXPECTED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expected_head"])' "$MANIFEST")
+[[ "$BRANCH" == codex/foto-integration ]] || die "unexpected integration branch: $BRANCH"
+
+make_context() {
+  local compact=${1:-full}
+  {
+    cat <<'PROMPT'
+Continue the existing FOTO integration from the durable checkpoint below. This is a fresh, isolated Codex invocation. Do not resume or quote any previous chat or run log. Work only on the next bounded integration stage (at most 20–30 meaningful actions); do not attempt the full remaining integration at once.
+
+Read the supplied compact state only. Inspect source files and tests narrowly as needed. Never read prior round logs, full diffs, or old conversation transcripts. Keep command output bounded and save full logs under the current run directory. At the end update persistent progress.md and pending-tasks.md. If a verified code checkpoint is committed, include exact lines `Verified HEAD: <full sha>` and `Verified tests: <short results>` in progress.md. The launcher atomically updates `/mnt/hp-data/codex-work/foto-integration.manifest.json` and its state-directory mirror after those lines and a clean worktree are verified; preserve manifest history. Do not mark a change verified without running its targeted checks.
+
+MEMORY SAFETY: The Codex systemd unit has a strict 8 GiB RAM and 1 GiB swap limit. Never run unrestricted Vitest suites. Run Vitest with --maxWorkers=1 --no-file-parallelism and split large suites into bounded groups. Do not launch concurrent test runners, browsers, or builds. Preserve existing test coverage and report any tests not completed. Do not modify production services or resource limits.
+AUTOCODEX RESULT PROTOCOL: End your final response with exactly one standalone line: AUTOCODEX_TASK_CONTINUE if work remains; AUTOCODEX_TASK_COMPLETE if the active task is finished; AUTOCODEX_TASK_BLOCKED if progress is impossible. Update progress.md and pending-tasks.md before returning. Do not start another launcher or nested automation.
+
+Do not push, deploy, reset, clean, force-push, edit production, NAS, PostgreSQL, Redis, VPN, DNS, routing, or release metadata. Preserve all existing worktree changes. The active legacy launcher must remain untouched.
+PROMPT
+    if [[ -s "$STATE_DIR/prompts/user-task.txt" ]]; then
+      printf "\n--- USER TASK (PRIORITY) ---\n"
+      cat "$STATE_DIR/prompts/user-task.txt"
+    fi
+    printf '\n--- PLAN ---\n'
+    if [[ "$compact" == full ]]; then
+      cat "$STATE_DIR/plan.md"
+    else
+      sed -n '1,30p' "$STATE_DIR/plan.md"
+    fi
+    if [[ "$compact" == full ]]; then
+      printf '\n--- PROGRESS ---\n'; cat "$STATE_DIR/progress.md"
+      printf '\n--- PENDING TASKS ---\n'; cat "$STATE_DIR/pending-tasks.md"
+      local checkpoints=() tests=()
+      mapfile -t checkpoints < <(find "$STATE_DIR/checkpoints" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort)
+      if ((${#checkpoints[@]})); then
+        printf '\n--- LATEST CHECKPOINT ---\n'; cat "$STATE_DIR/checkpoints/${checkpoints[-1]}"
+      fi
+      mapfile -t tests < <(find "$STATE_DIR/test-results" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort)
+      if ((${#tests[@]})); then
+        printf '\n--- LATEST COMPACT TEST RESULTS ---\n'; cat "$STATE_DIR/test-results/${tests[-1]}"
+      fi
+    else
+      printf '\n--- NEXT TASKS ---\n'; sed -n '1,15p' "$STATE_DIR/pending-tasks.md"
+      local checkpoints=() tests=()
+      mapfile -t checkpoints < <(find "$STATE_DIR/checkpoints" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort)
+      if ((${#checkpoints[@]})); then
+        printf '\n--- LAST VERIFIED CHECKPOINT ---\n'; sed -n '1,35p' "$STATE_DIR/checkpoints/${checkpoints[-1]}"
+      fi
+      mapfile -t tests < <(find "$STATE_DIR/test-results" -maxdepth 1 -type f -name '*.md' -printf '%f\n' | sort)
+      if ((${#tests[@]})); then
+        printf '\n--- TEST SUMMARY ---\n'; sed -n '1,80p' "$STATE_DIR/test-results/${tests[-1]}"
+      fi
+    fi
+    printf '\n--- MANIFEST SUMMARY ---\n'
+    python3 - "$MANIFEST" <<'PY'
+import json, sys
+m=json.load(open(sys.argv[1], encoding='utf-8'))
+for key in ('project','integration_branch','integration_worktree','expected_head','checked_at','state_directory','automation'):
+    print(f'{key}: {m.get(key, "") }')
+PY
+    printf '\n--- RECENT COMMITS ---\n'
+    git -C "$REPO" log -8 --format='%h %s'
+  }
+}
+
+if [[ "$MODE" == --dry-run ]]; then
+  bash -n "$0"
+  printf 'branch=%s\nhead=%s\nmanifest_expected_head=%s\n' "$BRANCH" "$HEAD" "$EXPECTED"
+  if [[ -n "$(git -C "$REPO" status --porcelain=v1)" ]]; then
+    printf 'worktree=dirty (dry-run only; actual resume will stop)\n'
+  else
+    printf 'worktree=clean\n'
+  fi
+  if [[ -e "$AUTO_STATE/auto.lock" ]]; then
+    exec 8<>"$AUTO_STATE/auto.lock"
+    if flock -n 8; then printf 'legacy_launcher_lock=available\n'; flock -u 8; else printf 'legacy_launcher_lock=held (do not start concurrently)\n'; fi
+  else
+    printf 'legacy_launcher_lock=missing\n'
+  fi
+  preview=$(make_context full)
+  bytes=$(printf '%s' "$preview" | wc -c)
+  printf 'compact_prompt_bytes=%s (limit=%s)\n' "$bytes" "$MAX_CONTEXT_BYTES"
+  if (( bytes > MAX_CONTEXT_BYTES )); then
+    preview=$(make_context emergency)
+    bytes=$(printf '%s' "$preview" | wc -c)
+    printf 'emergency_prompt_bytes=%s (limit=%s)\n' "$bytes" "$MAX_EMERGENCY_BYTES"
+    (( bytes <= MAX_EMERGENCY_BYTES )) || die 'emergency context exceeds configured size limit'
+  fi
+  printf '%s\n' '--- bounded prompt preview (first 32 lines) ---'
+  printf '%s\n' "$preview" | sed -n '1,32p'
+  exit 0
+fi
+
+[[ "$(id -un)" == codex-gallery ]] || die 'run this launcher as codex-gallery'
+[[ "$HEAD" == "$EXPECTED" ]] || die "HEAD differs from verified manifest: $HEAD != $EXPECTED"
+[[ -z "$(git -C "$REPO" status --porcelain=v1)" ]] || die 'integration worktree is dirty; preserve and review it before continuing'
+
+# Share the legacy lock so the old and new launchers can never run concurrently.
+if [[ -e "$AUTO_STATE/auto.lock" ]]; then
+  exec 8<>"$AUTO_STATE/auto.lock"
+  flock -n 8 || die 'legacy automation is still active; retry after it exits'
+fi
+exec 9>"$STATE_DIR/continue.lock"
+flock -n 9 || die 'continuation v2 is already running'
+
+RUN="$STATE_DIR/runs/$(date -u +%Y%m%d-%H%M%S)-$$"
+mkdir -m 700 "$RUN"
+printf '%s\n' "$RUN" > "$STATE_DIR/latest-run"
+printf 'RUNNING\n' > "$RUN/status.txt"
+
+# FOTO_STOP_STATUS_V1
+on_stop() {
+    trap - INT TERM HUP
+    printf 'INTERRUPTED signal=%s\n' "$1" > "$RUN/status.txt"
+    exit 130
+}
+trap 'on_stop INT' INT
+trap 'on_stop TERM' TERM
+trap 'on_stop HUP' HUP
+
+
+for ((round=1; round<=MAX_ROUNDS; round++)); do
+  RESULT="$RUN/result-$round.txt"
+  LOG="$RUN/round-$round.log"
+  CONTEXT="$RUN/context-$round.md"
+  before=$(sha256sum "$STATE_DIR/progress.md" | cut -d' ' -f1)
+  make_context full > "$CONTEXT"
+  bytes=$(wc -c < "$CONTEXT")
+  if (( bytes > MAX_CONTEXT_BYTES )); then
+    make_context emergency > "$CONTEXT"
+    bytes=$(wc -c < "$CONTEXT")
+    (( bytes <= MAX_EMERGENCY_BYTES )) || { printf 'STATE_TOO_LARGE\n' > "$RUN/status.txt"; die 'even emergency context exceeds limit'; }
+  fi
+
+  if /mnt/hp-data/codex-home/.npm-global/bin/codex exec -c model_reasoning_effort=xhigh --ephemeral --cd "$REPO" --add-dir "$STATE_DIR" --output-last-message "$RESULT" - < "$CONTEXT" > "$LOG" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+  if (( rc != 0 )); then
+    if grep -Eqi 'context_length_exceeded|maximum context length' "$LOG"; then
+      printf 'CONTEXT_RESTART\n' > "$RUN/status.txt"
+      CONTEXT="$RUN/context-$round-retry.md"
+      RESULT="$RUN/result-$round-retry.txt"
+      LOG="$RUN/round-$round-retry.log"
+      make_context emergency > "$CONTEXT"
+      bytes=$(wc -c < "$CONTEXT")
+      (( bytes <= MAX_EMERGENCY_BYTES )) || { printf 'STATE_TOO_LARGE\n' > "$RUN/status.txt"; die 'emergency context exceeds limit'; }
+      if /mnt/hp-data/codex-home/.npm-global/bin/codex exec -c model_reasoning_effort=xhigh --ephemeral --cd "$REPO" --add-dir "$STATE_DIR" --output-last-message "$RESULT" - < "$CONTEXT" > "$LOG" 2>&1; then
+        rc=0
+      else
+        rc=$?
+      fi
+    fi
+  fi
+  # FOTO_EMPTY_RESPONSE_RETRY_V2
+  # One retry only for a successful Codex exit with whitespace-only output.
+  if (( rc == 0 )) && [[ -f "$RESULT" ]] &&
+     [[ -z "$(tr -d '[:space:]' < "$RESULT")" ]]; then
+
+    CURRENT_HEAD=$(git -C "$REPO" rev-parse HEAD)
+    CURRENT_EXPECTED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expected_head"])' "$MANIFEST")
+    CURRENT_PROGRESS=$(sha256sum "$STATE_DIR/progress.md" | cut -d' ' -f1)
+
+    if [[ "$CURRENT_HEAD" == "$EXPECTED" &&
+          "$CURRENT_HEAD" == "$CURRENT_EXPECTED" &&
+          "$CURRENT_PROGRESS" == "$before" &&
+          -z "$(git -C "$REPO" status --porcelain=v1)" ]]; then
+
+      printf 'EMPTY_RESPONSE_RETRY round=%s\\n' "$round" > "$RUN/status.txt"
+
+      RESULT="$RUN/result-$round-empty-retry.txt"
+      LOG="$RUN/round-$round-empty-retry.log"
+
+      if /mnt/hp-data/codex-home/.npm-global/bin/codex exec -c model_reasoning_effort=xhigh --ephemeral --cd "$REPO" --add-dir "$STATE_DIR" --output-last-message "$RESULT" - < "$CONTEXT" > "$LOG" 2>&1; then
+        rc=0
+      else
+        rc=$?
+      fi
+    else
+      printf 'EMPTY_RESPONSE_STATE_CHANGED round=%s\\n' "$round" > "$RUN/status.txt"
+      die 'Empty response with changed state; manual review required'
+    fi
+  fi
+
+  if (( rc != 0 )) || [[ ! -s "$RESULT" ]] ||
+     [[ -z "$(tr -d '[:space:]' < "$RESULT")" ]]; then
+    printf 'ERROR round=%s exit=%s log=%s\\n' "$round" "$rc" "$LOG" > "$RUN/status.txt"
+    tail -n 12 "$LOG" >&2 || true
+    exit 3
+  fi
+  tail -n 12 "$RESULT"
+
+
+# FOTO_SAFE_REPORT_RECOVERY_V1
+foto_recover_untracked_reports() {
+  local repo="$REPO"
+  local state="$STATE_DIR"
+  local current expected name source destination archive
+  local -a entries
+
+  current=$(git -C "$repo" rev-parse HEAD) || return 1
+  expected=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expected_head"])' "$MANIFEST") || return 1
+
+  [[ "$current" == "$expected" ]] || return 1
+
+  mapfile -d '' -t entries < <(
+    git -C "$repo" status --porcelain=v1 -z --untracked-files=all
+  )
+
+  ((${#entries[@]} > 0)) || return 0
+
+  for name in "${entries[@]}"; do
+    case "$name" in
+      '?? progress.md'|'?? pending-tasks.md') ;;
+      *) return 1 ;;
+    esac
+  done
+
+  for name in progress.md pending-tasks.md; do
+    source="$repo/$name"
+    destination="$state/$name"
+
+    [[ -e "$source" ]] || continue
+    [[ -f "$source" && ! -L "$source" ]] || return 1
+    [[ -f "$destination" && ! -L "$destination" ]] || return 1
+  done
+
+  archive="$state/recovered-repo-reports-auto/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  mkdir -m 700 -p "$archive" || return 1
+
+  for name in progress.md pending-tasks.md; do
+    source="$repo/$name"
+    [[ -f "$source" ]] || continue
+    mv -n -- "$source" "$archive/$name" || return 1
+    [[ ! -e "$source" ]] || return 1
+  done
+
+  chmod 600 "$archive"/*.md 2>/dev/null || true
+
+  [[ -z "$(git -C "$repo" status --porcelain=v1)" ]]
+}
+
+  if ! foto_recover_untracked_reports; then
+    printf 'REPORT_RECOVERY_FAILED round=%s\n' "$round" > "$RUN/status.txt"
+    die 'Safe report recovery failed; manual review required'
+  fi
+  if [[ -n "$(git -C "$REPO" status --porcelain=v1)" ]]; then
+    printf 'DIRTY_WORKTREE round=%s\n' "$round" > "$RUN/status.txt"
+    die 'worktree contains uncommitted changes; no automatic staging or cleanup performed'
+  fi
+  HEAD=$(git -C "$REPO" rev-parse HEAD)
+  EXPECTED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expected_head"])' "$MANIFEST")
+  if [[ "$HEAD" != "$EXPECTED" ]]; then
+    grep -Fq "Verified HEAD: $HEAD" "$STATE_DIR/progress.md" || { printf 'UNVERIFIED_HEAD round=%s head=%s\n' "$round" "$HEAD" > "$RUN/status.txt"; die 'new HEAD lacks an exact verification record in progress.md'; }
+    grep -Fq 'Verified tests:' "$STATE_DIR/progress.md" || { printf 'UNVERIFIED_TESTS round=%s head=%s\n' "$round" "$HEAD" > "$RUN/status.txt"; die 'new HEAD lacks a test result record in progress.md'; }
+    python3 - "$MANIFEST" "$HEAD" "$BRANCH" "$RUN" <<'PY'
+import json, os, sys, tempfile
+from datetime import datetime, timezone
+path, head, branch, run = sys.argv[1:]
+with open(path, encoding='utf-8') as f: m=json.load(f)
+old=m.get('expected_head')
+history=list(m.get('history', []))
+history.append({'recorded_at':datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'previous_head':old,'verified_head':head,'branch':branch,'run_directory':run})
+m['expected_head']=head
+m['checked_head']=head
+m['checked_at']=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z')
+m['history']=history
+fd,tmp=tempfile.mkstemp(prefix='.manifest.',dir=os.path.dirname(path),text=True)
+try:
+    with os.fdopen(fd,'w',encoding='utf-8') as f:
+        json.dump(m,f,ensure_ascii=False,indent=2); f.write('\n'); f.flush(); os.fsync(f.fileno())
+    os.replace(tmp,path)
+finally:
+    if os.path.exists(tmp): os.unlink(tmp)
+PY
+    cp "$MANIFEST" "$STATE_DIR/manifest.json"
+  fi
+    if ! grep -Eq "^[[:space:]]*AUTOCODEX_TASK_(CONTINUE|COMPLETE|BLOCKED)[[:space:]]*$" "$RESULT"; then
+      printf "INVALID_RESULT round=%s\n" "$round" > "$RUN/status.txt"
+      die "Invalid Codex response; stopped without retry"
+    fi
+  after=$(sha256sum "$STATE_DIR/progress.md" | cut -d' ' -f1)
+  {
+    printf '# Run checkpoint %s/%s\n\n' "$round" "$MAX_ROUNDS"
+    printf -- '- Recorded at: %s\n- Branch: `%s`\n- Verified HEAD: `%s`\n- Progress SHA-256: `%s`\n- Result: `%s`\n\n' "$(date -u +%FT%TZ)" "$BRANCH" "$HEAD" "$after" "$(tail -n 1 "$RESULT" | tr -d '\r')"
+    printf '## Current progress excerpt\n\n'
+    tail -n 24 "$STATE_DIR/progress.md"
+  } > "$STATE_DIR/checkpoints/$(date -u +%Y%m%d-%H%M%S)-round-$round.md"
+
+  if grep -Eq '^[[:space:]]*AUTOCODEX_TASK_COMPLETE[[:space:]]*$' "$RESULT"; then
+    printf 'COMPLETE\n' > "$RUN/status.txt"
+    exit 0
+  fi
+  if grep -Eq '^[[:space:]]*AUTOCODEX_TASK_BLOCKED[[:space:]]*$' "$RESULT"; then
+    printf 'BLOCKED\n' > "$RUN/status.txt"
+    exit 5
+  fi
+  if ! grep -Eq '^[[:space:]]*AUTOCODEX_TASK_CONTINUE[[:space:]]*$' "$RESULT"; then
+    printf 'INVALID_RESULT round=%s\n' "$round" > "$RUN/status.txt"
+    die "missing task marker in $RESULT"
+  fi
+  if [[ "$before" == "$after" ]]; then
+    printf 'STALLED round=%s\n' "$round" > "$RUN/status.txt"
+    die 'progress.md was not updated; stopping safely'
+  fi
+  printf 'CONTINUE\n' > "$RUN/status.txt"
+done
+
+printf 'LIMIT_REACHED\n' > "$RUN/status.txt"
+printf 'Reached %s bounded rounds; compact state is preserved at %s\n' "$MAX_ROUNDS" "$STATE_DIR"
+exit 8
