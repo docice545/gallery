@@ -964,14 +964,18 @@ export class AssetRepository {
       // an upload and a scan can both pass their identity checks before either commits.
       await sql`select pg_advisory_xact_lock(hashtextextended(${asset.ownerId}, 731))`.execute(tx);
 
-      let duplicateId: string | null = null;
+      let duplicateId: string | null = asset.duplicateId ?? null;
       if (asset.libraryId === null) {
         const alias = await tx
           .selectFrom('asset_duplicate_checksum')
           .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
           .select(['asset_duplicate_checksum.assetId as id', 'asset.duplicateId'])
           .where('asset_duplicate_checksum.ownerId', '=', asset.ownerId)
+          .where('asset.ownerId', '=', asset.ownerId)
           .where('asset_duplicate_checksum.checksum', '=', asset.checksum)
+          // Resolution aliases can intentionally point DIFFERENT bytes at a
+          // keeper. They are upload barriers, not proof of content equality.
+          .where((eb) => eb.or([eb('asset.libraryId', 'is not', null), eb('asset.checksum', '=', asset.checksum)]))
           .executeTakeFirst();
         if (alias) {
           // Exact content match found - use existing duplicateId or generate new one
@@ -1037,9 +1041,24 @@ export class AssetRepository {
           ? []
           : await tx
               .selectFrom('asset_duplicate_checksum')
-              .select(['ownerId', 'checksum'])
-              .where('ownerId', 'in', owners)
-              .where('checksum', 'in', contentChecksums)
+              .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
+              .select(['asset_duplicate_checksum.ownerId', 'asset_duplicate_checksum.checksum'])
+              .whereRef('asset.ownerId', '=', 'asset_duplicate_checksum.ownerId')
+              .where('asset_duplicate_checksum.ownerId', 'in', owners)
+              .where('asset_duplicate_checksum.checksum', 'in', contentChecksums)
+              // An offline external index entry is not a surviving original or
+              // user deletion intent. It must not hide a renamed file forever.
+              // Explicit Trashed/Deleted assets remain admission barriers.
+              .where((eb) =>
+                eb.not(
+                  eb.and([
+                    eb('asset.libraryId', 'is not', null),
+                    eb('asset.status', '=', AssetStatus.Active),
+                    eb('asset.isOffline', '=', true),
+                    eb('asset.deletedAt', 'is not', null),
+                  ]),
+                ),
+              )
               .execute();
       const existingExternalContent = new Set(
         existingExternalChecksums.map(({ ownerId, checksum }) => `${ownerId}:${checksum.toString('hex')}`),
@@ -1053,7 +1072,15 @@ export class AssetRepository {
           .where((eb) =>
             eb.or([
               eb('originalPath', '=', asset.originalPath),
-              ...(contentChecksum ? [eb('contentChecksum', '=', contentChecksum)] : []),
+              ...(contentChecksum
+                ? [
+                    eb('contentChecksum', '=', contentChecksum),
+                    eb('checksum', '=', contentChecksum),
+                    // A failed preparation may not have a SHA-256 snapshot yet.
+                    // Preserve its admitted content aliases across NAS renames.
+                    sql<boolean>`aliases ? ${contentChecksum.toString('hex')}`,
+                  ]
+                : []),
             ]),
           )
           .executeTakeFirst();
@@ -1067,6 +1094,9 @@ export class AssetRepository {
       const inserted = await tx
         .insertInto('asset')
         .values(accepted.map(({ asset }) => asset))
+        // Job delivery is at least once. A scan can repeat a path in one batch,
+        // or redeliver it after commit; keep the existing ID and metadata.
+        .onConflict((oc) => oc.doNothing())
         .returning(['id', 'ownerId', 'originalPath'])
         .execute();
       const checksumByPath = new Map(
@@ -1074,15 +1104,40 @@ export class AssetRepository {
           contentChecksum ? [[`${asset.ownerId}:${asset.originalPath}`, contentChecksum] as const] : [],
         ),
       );
-      const aliases = inserted.flatMap(({ id, ownerId, originalPath }) => {
+      const aliases = new Map<string, { assetId: string; ownerId: string; checksum: Buffer }>();
+      for (const { id, ownerId, originalPath } of inserted) {
         const checksum = checksumByPath.get(`${ownerId}:${originalPath}`);
-        return checksum ? [{ assetId: id, ownerId, checksum }] : [];
-      });
-      if (aliases.length > 0) {
+        if (checksum) {
+          const key = `${ownerId}:${checksum.toString('hex')}`;
+          // Keep every original asset, but only one anchor per conflict key.
+          // PostgreSQL cannot update the same key twice in one INSERT.
+          if (!aliases.has(key)) aliases.set(key, { assetId: id, ownerId, checksum });
+        }
+      }
+      if (aliases.size > 0) {
         await tx
           .insertInto('asset_duplicate_checksum')
-          .values(aliases)
-          .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
+          .values(aliases.values().toArray())
+          .onConflict((oc) =>
+            oc
+              .columns(['ownerId', 'checksum'])
+              .doUpdateSet({ assetId: (eb) => eb.ref('excluded.assetId') })
+              // Rebind only the stale index pointer, never its asset row, and
+              // never a live keeper, another owner, or an explicit Trash intent.
+              .where((eb) =>
+                eb.exists(
+                  eb
+                    .selectFrom('asset as retired')
+                    .select('retired.id')
+                    .whereRef('retired.id', '=', 'asset_duplicate_checksum.assetId')
+                    .whereRef('retired.ownerId', '=', 'asset_duplicate_checksum.ownerId')
+                    .where('retired.libraryId', 'is not', null)
+                    .where('retired.status', '=', AssetStatus.Active)
+                    .where('retired.isOffline', '=', true)
+                    .where('retired.deletedAt', 'is not', null),
+                ),
+              ),
+          )
           .execute();
       }
       return inserted.map(({ id }) => id);

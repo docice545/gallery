@@ -85,9 +85,8 @@ jobs:
               - 'packages/**'
             .github:
               - '.github/**'
-          # This editor-only PR must keep path-filtered checks without forcing unrelated
-          # Docker/ML suites when it changes the source-only CI guards themselves.
-          force-filters: ${{ (github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build17-editor') && '- .github/workflows/test.yml' || '' }}
+          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && '- .github/workflows/test.yml' || '' }}
+
           force-events: 'workflow_dispatch'
 
   upstream-preflight:
@@ -420,8 +419,7 @@ jobs:
   e2e-tests-server-cli:
     name: End-to-End Tests (Server & CLI)
     needs: pre-job
-    # These suites build backend/ML images; keep the editor PR source-only.
-    if: ${{ (github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build17-editor') && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).server == true || fromJSON(needs.pre-job.outputs.should_run).cli == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).server == true || fromJSON(needs.pre-job.outputs.should_run).cli == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -512,8 +510,7 @@ jobs:
   e2e-tests-web:
     name: End-to-End Tests (Web)
     needs: pre-job
-    # i18n edits trigger this suite, which also builds backend/ML images.
-    if: ${{ (github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build17-editor') && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
