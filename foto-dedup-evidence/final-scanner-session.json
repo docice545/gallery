@@ -1,0 +1,42 @@
+{
+  "method": "actual supervised session and Vitest JSON, not a native stage receipt",
+  "argv": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "/workspace/gallery/tools/foto-automation/foto-stage-runner.py",
+    "--repo",
+    "/workspace/gallery-dedup-acceptance",
+    "--state",
+    "/tmp/foto-build17-cloud-state",
+    "--legacy-lock",
+    "/tmp/foto-build17-cloud-state/legacy.lock",
+    "session",
+    "env",
+    "--chdir=server",
+    "node",
+    "/workspace/gallery-dedup-acceptance/server/node_modules/vitest/vitest.mjs",
+    "--config",
+    "test/vitest.config.medium.mjs",
+    "run",
+    "test/medium/specs/services/library.service.spec.ts",
+    "--testNamePattern",
+    "external content identity",
+    "--maxWorkers=1",
+    "--no-file-parallelism",
+    "--maxConcurrency=1",
+    "--reporter=default",
+    "--reporter=json",
+    "--outputFile=/tmp/foto-dedup-library-final-results.json"
+  ],
+  "sourceBefore": {
+    "head": "9cba0246791603e3ff1fbcffaa46e65124906522",
+    "changesSHA256": "82b5575ba24ab0acae84b948b26edaa86f48d442feb535a3333f5d5ebbea666e"
+  },
+  "sourceAfter": {
+    "head": "9cba0246791603e3ff1fbcffaa46e65124906522",
+    "changesSHA256": "82b5575ba24ab0acae84b948b26edaa86f48d442feb535a3333f5d5ebbea666e"
+  },
+  "startedAt": 1792597838.6071336,
+  "finishedAt": 1792597852.4405994,
+  "exitCode": 0,
+  "unchangedSource": true
+}

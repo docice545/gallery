@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "bashBlocksParsed": 15,
+  "pythonHeredocsParsed": 6,
+  "hashReferencesVerified": 91,
+  "uniqueFullUnitLoop": true,
+  "scope": "static syntax/paths/hashes/secret-pattern scan only; no merged build, native/NFS or runtime validation"
+}

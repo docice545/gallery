@@ -1,0 +1,43 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792593397.618119,
+  "log": "a187ce496aeae4bb53c0689665c24bf554aef74e4b0203f92ff82f5153f75519-66f7627e0115415b9ac29175fc7a6423.log",
+  "logSHA256": "cd8a9cabdc52c03c586156690d515e1aa010d29663444ca2aa26ac5d084b30b3",
+  "outputs": {},
+  "pid": 264831,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "test",
+      "--concurrency=1",
+      "test/infrastructure/repositories/foto_dedup_timeline_test.dart",
+      "test/infrastructure/repositories/timeline_repository_test.dart",
+      "test/infrastructure/repositories/trash_deletion_timeline_test.dart",
+      "test/infrastructure/repositories/trash_local_sync_test.dart",
+      "test/domain/services/sync_stream_service_test.dart",
+      "test/medium/repositories/backup_repository_test.dart",
+      "test/infrastructure/repositories/live_photos_timeline_test.dart"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "1be2fbe7a0820c173322584ad26100a07ae72cb4ac731fceed99d41a6a3e1c3b",
+      "head": "d7a31f3420b483974a7247613791cdbc395cacd4"
+    },
+    "stage": "flutter-test",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792593372.937475,
+  "status": "PASS"
+}

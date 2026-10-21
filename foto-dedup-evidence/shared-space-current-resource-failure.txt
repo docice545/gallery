@@ -1,0 +1,7 @@
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+Error: [vitest-pool]: Worker forks emitted error.
+Caused by: Error: Worker exited unexpectedly
+ Test Files   (1)
+      Tests  640 passed (661)
+     Errors  1 error
+   Duration  29.10s (transform 2.94s, setup 0ms, import 5.24s, tests 0ms, environment 0ms)

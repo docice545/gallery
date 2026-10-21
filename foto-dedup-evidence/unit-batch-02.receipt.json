@@ -1,0 +1,53 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792595181.4597557,
+  "log": "ed9c5533e4721afdd03b90884904b333137681e8f61000a02e68b8312a61bc58-9de92fc69f8443069ce2d7f743ace475.log",
+  "logSHA256": "4fb0758a1780d3904bf314dcc9652323f7f92f87cee9aa7edb7fb99d4bc7c828",
+  "outputs": {},
+  "pid": 269670,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "/workspace/gallery-dedup-acceptance/server/node_modules/vitest/vitest.mjs",
+      "--config",
+      "test/vitest.config.mjs",
+      "run",
+      "src/controllers/database-backup.controller.spec.ts",
+      "src/controllers/download.controller.spec.ts",
+      "src/controllers/duplicate.controller.spec.ts",
+      "src/controllers/face-repair-admin.controller.spec.ts",
+      "src/controllers/face-suggestion.controller.spec.ts",
+      "src/controllers/index.spec.ts",
+      "src/controllers/job.controller.spec.ts",
+      "src/controllers/library-manifest.controller.spec.ts",
+      "src/controllers/library.controller.spec.ts",
+      "src/controllers/magic-eraser.controller.spec.ts",
+      "src/controllers/maintenance.controller.spec.ts",
+      "src/controllers/map.controller.spec.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--maxConcurrency=1"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "cc35a1f00de46116035c8681183bfbde0fa60e599c5b0ee3a6c949755dc77989",
+      "head": "fb3d89d1aeed42f92a6282a933a0b755d9dd5865"
+    },
+    "stage": "unit",
+    "tool": {
+      "mtime": 1788825403000000000,
+      "path": "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "size": 126595440
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792595148.9475536,
+  "status": "PASS"
+}

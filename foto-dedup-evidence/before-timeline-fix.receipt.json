@@ -1,0 +1,36 @@
+{
+  "exitCode": 1,
+  "finishedAt": 1792593204.31338,
+  "log": "b099ab96b6cab690326a396a1af94a82b961202a8c40460dd5104634b7bb1f96-4015bd7414bf425f97a23d5708e26c0f.log",
+  "logSHA256": "239eec42a501eeffa4f990aacae20be7057f4d253cefb58ae9e4ed561fcde7ec",
+  "pid": 264057,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "test",
+      "--concurrency=1",
+      "test/infrastructure/repositories/foto_dedup_timeline_test.dart"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "edf5066470f8c42ed9de3c1b60c06099aaeb145126736c979909584c34307e33",
+      "head": "d7a31f3420b483974a7247613791cdbc395cacd4"
+    },
+    "stage": "flutter-test",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792593186.1647809,
+  "status": "FAIL"
+}

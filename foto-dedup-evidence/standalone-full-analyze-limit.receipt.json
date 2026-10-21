@@ -1,0 +1,35 @@
+{
+  "exitCode": 1,
+  "finishedAt": 1792593469.753011,
+  "log": "0cd8e34dca291fee5f5fdc6b205159251012b437d728dfbfba794659abb75e8c-011ff09e3e044af08d55ad35acbf483a.log",
+  "logSHA256": "cc32a3a96bb488bdda755a180da89eed57b51b4f36ba9a57cbc48c89953890f3",
+  "pid": 265092,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "analyze",
+      "--no-pub"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-acceptance",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "1be2fbe7a0820c173322584ad26100a07ae72cb4ac731fceed99d41a6a3e1c3b",
+      "head": "d7a31f3420b483974a7247613791cdbc395cacd4"
+    },
+    "stage": "flutter-analyze",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792593447.3527005,
+  "status": "FAIL"
+}

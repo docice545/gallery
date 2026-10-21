@@ -1,0 +1,11 @@
+  error: PostgresError: ON CONFLICT DO UPDATE command cannot affect row a second time
+ ❯ |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts (14 tests | 1 failed) 468ms
+   × retains two separate originals in one batch while storing one content anchor and retrying safely 15ms
+ FAIL  |server:medium| test/medium/specs/services/foto-duplicate-admission.spec.ts > retains two separate originals in one batch while storing one content anchor and retrying safely
+PostgresError: ON CONFLICT DO UPDATE command cannot affect row a second time
+ ❯ ErrorResponse ../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:815:30
+ ❯ handle ../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:489:6
+ ❯ Socket.data ../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:324:9
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Duration  13.71s (transform 1.98s, setup 0ms, import 4.07s, tests 468ms, environment 0ms)

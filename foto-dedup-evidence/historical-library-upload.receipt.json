@@ -1,0 +1,45 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792561293.827189,
+  "log": "f96bd2d55601c77f266fae0f1dd5cc13c38e1b2927f72914c99e79d4c8955c9d-d9949711109b4cb59b52f06238f43685.log",
+  "logSHA256": "c92cbe2629c1e2c7071d133269d02a93b74aabf15e727669d252aab16db226eb",
+  "outputs": {},
+  "pid": 223903,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "/workspace/gallery/server/node_modules/vitest/vitest.mjs",
+      "--config",
+      "test/vitest.config.medium.mjs",
+      "run",
+      "test/medium/specs/services/foto-duplicate-admission.spec.ts",
+      "test/medium/specs/services/asset-media.service.spec.ts",
+      "test/medium/specs/services/library.service.spec.ts",
+      "test/medium/specs/services/authorized-deletion.spec.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--maxConcurrency=1"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15",
+      "node_modules/.modules.yaml": "3deb8324535262bc1bde60045b018f320dad270763efa7f98d62a47f7c2a687a",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery",
+    "runnerSHA256": "207f2a860cea1a54e77607d28bf4653508e9dfecf399faea38ee9c25271943bf",
+    "source": {
+      "changesSHA256": "fb13039ff2229ba90bb2168d0989c1f7791cfab7252bb1a63aa98d9e0ec622ab",
+      "head": "830ec05cb9e871a99b713fb5b3502d07f402c1b7"
+    },
+    "stage": "medium",
+    "tool": {
+      "mtime": 1788825403000000000,
+      "path": "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "size": 126595440
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792561269.4062085,
+  "status": "PASS"
+}

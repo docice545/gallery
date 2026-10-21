@@ -1,0 +1,40 @@
+{
+  "exitCode": 1,
+  "finishedAt": 1792595997.2688704,
+  "log": "90ab70975c9fa82381795fd023ab19e23bc1403d6dba04e34f44d73a0d68c4f4-bfec57d6958c434880366a92f22b62a1.log",
+  "logSHA256": "41ed1e5efd26280bf3cba86cd210f5d7c7e2b521255bd4f2564a7f2cb5e7b0be",
+  "pid": 273177,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "/workspace/gallery-dedup-baseline/server/node_modules/vitest/vitest.mjs",
+      "--config",
+      "test/vitest.config.mjs",
+      "run",
+      "src/services/shared-space.service.spec.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--maxConcurrency=1"
+    ],
+    "installedDependencies": {
+      "node_modules/.modules.yaml": "ca22bcfaa3d7af13764c1b7c745c11d095120d9e321ec2144ac2653858ace308",
+      "server/node_modules/typescript/package.json": "d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655",
+      "server/node_modules/vitest/package.json": "a28126d97bcaf567da5bed69443b7f3bcd9a7a8c38c8b66e554686b6bb2c10e0"
+    },
+    "repo": "/workspace/gallery-dedup-baseline",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "ff050566d342c4c869a93ad88a740251f5a217c0bf611a62da24f06a705ffe34",
+      "head": "d7a31f3420b483974a7247613791cdbc395cacd4"
+    },
+    "stage": "unit",
+    "tool": {
+      "mtime": 1788825403000000000,
+      "path": "/workspace/.gallery-tools/node-v24.21.0-linux-x64/bin/node",
+      "size": 126595440
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792595966.80825,
+  "status": "FAIL"
+}
