@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/aspect_ratios.dart';
+import 'package:immich_mobile/constants/filters.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
+import 'package:immich_mobile/utils/color_adjustment.dart';
 import 'package:immich_mobile/utils/editor.utils.dart';
 
 part 'editor.provider.freezed.dart';
@@ -180,6 +182,9 @@ class EditorProvider extends Notifier<EditorState> {
   }
 
   void setAdjustment(String key, double value) {
+    if (!ColorAdjustment.keys.contains(key) || !value.isFinite) {
+      throw ArgumentError.value(value, key);
+    }
     final clampedValue = value.clamp(-1.0, 1.0);
     final adjustments = Map<String, double>.from(state.adjustments);
     if (clampedValue == 0.0) {
@@ -193,7 +198,7 @@ class EditorProvider extends Notifier<EditorState> {
 
   void setFilter(int index, {double intensity = 1.0}) {
     state = state.copyWith(
-      selectedFilterIndex: index.clamp(0, 31),
+      selectedFilterIndex: index.clamp(0, filters.length - 1),
       filterIntensity: intensity.clamp(0.0, 1.0),
     );
     _updateDirtyState();
@@ -208,13 +213,15 @@ class EditorProvider extends Notifier<EditorState> {
         state.aspectRatio != _baselineAspectRatio;
 
     final adjustmentsDirty = !_mapsEqual(state.adjustments, _baselineAdjustments);
-    final filterDirty = state.selectedFilterIndex != 0 || state.filterIntensity != 1.0;
+    final filterDirty = state.selectedFilterIndex != 0 && state.filterIntensity > 0.0;
 
     state = state.copyWith(hasUnsavedEdits: transformDirty || _annotationsDirty || adjustmentsDirty || filterDirty);
   }
 
   bool _mapsEqual(Map<String, double> a, Map<String, double> b) {
-    if (a.length != b.length) return false;
+    if (a.length != b.length) {
+      return false;
+    }
     for (final key in a.keys) {
       if (!b.containsKey(key) || (a[key]! - b[key]!).abs() > 1e-10) {
         return false;
@@ -247,5 +254,4 @@ abstract class EditorState with _$EditorState {
   bool get hasEdits {
     return hasUnsavedEdits;
   }
-
 }

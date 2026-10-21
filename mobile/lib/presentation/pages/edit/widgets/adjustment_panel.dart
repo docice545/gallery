@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 
 /// Adjustment panel for image corrections: brightness, contrast, saturation, etc.
 class AdjustmentPanel extends ConsumerWidget {
@@ -62,7 +62,7 @@ class AdjustmentPanel extends ConsumerWidget {
       _AdjustmentConfig(
         key: 'shadows',
         label: context.t.editor_shadows,
-        icon: Icons.shadow_light,
+        icon: Icons.tonality,
         value: editorState.adjustments['shadows'] ?? 0.0,
         min: -1.0,
         max: 1.0,
@@ -104,10 +104,10 @@ class AdjustmentPanel extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 itemCount: adjustments.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
                   final config = adjustments[index];
-                  final isSelected = false; // We'll track selected tool separately if needed
+                  const isSelected = false; // We'll track selected tool separately if needed
                   return _AdjustmentToolButton(
                     config: config,
                     isSelected: isSelected,
@@ -153,11 +153,7 @@ class _AdjustmentToolButton extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _AdjustmentToolButton({
-    required this.config,
-    required this.isSelected,
-    required this.onTap,
-  });
+  const _AdjustmentToolButton({required this.config, required this.isSelected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

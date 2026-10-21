@@ -1,23 +1,18 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/filters.dart';
-import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 
 /// Filter panel for selecting and adjusting photo filters
 class FilterPanel extends ConsumerWidget {
-  const FilterPanel({super.key});
+  final ImageProvider source;
+  const FilterPanel({super.key, required this.source});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final editorState = ref.watch(editorStateProvider);
     final editorNotifier = ref.read(editorStateProvider.notifier);
-    // Get the source image from the editor page state
-    // We'll pass it via a provider or directly from the parent
-    final sourceImage = ref.watch(editorSourceImageProvider);
-
     return Material(
       key: const Key('editor-filter-panel'),
       color: Colors.black.withValues(alpha: .78),
@@ -34,7 +29,7 @@ class FilterPanel extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 itemCount: filters.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
                   final isSelected = editorState.selectedFilterIndex == index;
                   return _FilterThumbnail(
@@ -42,7 +37,7 @@ class FilterPanel extends ConsumerWidget {
                     name: filterNames[index],
                     filter: filters[index],
                     isSelected: isSelected,
-                    sourceImage: sourceImage,
+                    source: source,
                     filterIntensity: editorState.filterIntensity,
                     onTap: () => editorNotifier.setFilter(index, intensity: editorState.filterIntensity),
                   );
@@ -56,10 +51,7 @@ class FilterPanel extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Row(
                   children: [
-                    Text(
-                      context.t.editor_filter_intensity,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                    ),
+                    Text(context.t.editor_filter_intensity, style: const TextStyle(color: Colors.white, fontSize: 14)),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Slider(
@@ -67,10 +59,8 @@ class FilterPanel extends ConsumerWidget {
                         min: 0.0,
                         max: 1.0,
                         value: editorState.filterIntensity,
-                        onChanged: (value) => editorNotifier.setFilter(
-                          editorState.selectedFilterIndex,
-                          intensity: value,
-                        ),
+                        onChanged: (value) =>
+                            editorNotifier.setFilter(editorState.selectedFilterIndex, intensity: value),
                         activeColor: Colors.white,
                         inactiveColor: Colors.white24,
                       ),
@@ -94,16 +84,12 @@ class FilterPanel extends ConsumerWidget {
   }
 }
 
-/// Provider for the source image used in filter thumbnails
-/// This is set by the editor page when the image is loaded
-final editorSourceImageProvider = StateProvider<ui.Image?>((ref) => null);
-
 class _FilterThumbnail extends StatelessWidget {
   final int index;
   final String name;
   final ColorFilter filter;
   final bool isSelected;
-  final ui.Image? sourceImage;
+  final ImageProvider source;
   final double filterIntensity;
   final VoidCallback onTap;
 
@@ -112,7 +98,7 @@ class _FilterThumbnail extends StatelessWidget {
     required this.name,
     required this.filter,
     required this.isSelected,
-    required this.sourceImage,
+    required this.source,
     required this.filterIntensity,
     required this.onTap,
   });
@@ -129,15 +115,13 @@ class _FilterThumbnail extends StatelessWidget {
             height: 60,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
-              border: isSelected
-                  ? Border.all(color: Colors.white, width: 3)
-                  : Border.all(color: Colors.transparent, width: 3),
-              image: DecorationImage(
-                image: _FilterPreviewImage(
-                  filter: applyFilterIntensity(index, filterIntensity),
-                  sourceImage: sourceImage,
-                ),
-                fit: BoxFit.cover,
+              border: Border.all(color: isSelected ? Colors.yellow : Colors.transparent, width: 3),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: ColorFiltered(
+                colorFilter: applyFilterIntensity(index, filterIntensity),
+                child: Image(image: source, width: 60, height: 60, fit: BoxFit.cover),
               ),
             ),
           ),
@@ -155,58 +139,5 @@ class _FilterThumbnail extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-/// An image that shows the filter applied to the source image
-class _FilterPreviewImage extends ImageProvider<_FilterPreviewImage> {
-  final ColorFilter filter;
-  final ui.Image? sourceImage;
-
-  const _FilterPreviewImage({required this.filter, this.sourceImage});
-
-  @override
-  ImageStreamCompleter load(_FilterPreviewImage key, ImageDecoderCallback decode) {
-    return OneFrameImageStreamCompleter(
-      SynchronousFuture<ImageInfo>(
-        ImageInfo(
-          image: _createFilterPreview(key.filter, key.sourceImage),
-          scale: 1.0,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Future<_FilterPreviewImage> obtainKey(ImageConfiguration configuration) {
-    return SynchronousFuture(this);
-  }
-
-  static ui.Image _createFilterPreview(ColorFilter filter, ui.Image? sourceImage) {
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, 60, 60));
-    
-    if (sourceImage != null) {
-      // Draw the source image scaled to fit
-      final srcRect = Rect.fromLTWH(0, 0, sourceImage.width.toDouble(), sourceImage.height.toDouble());
-      final dstRect = Rect.fromLTWH(0, 0, 60, 60);
-      final paint = Paint()..filterQuality = FilterQuality.low;
-      canvas.drawImageRect(sourceImage, srcRect, dstRect, paint);
-      canvas.drawRect(dstRect, Paint()..colorFilter = filter);
-    } else {
-      // Fallback to gradient if no source image
-      final rect = Rect.fromLTWH(0, 0, 60, 60);
-      final gradient = LinearGradient(
-        colors: [Colors.grey.shade300, Colors.grey.shade600],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ).createShader(rect);
-      
-      canvas.drawRect(rect, Paint()..shader = gradient);
-      canvas.drawRect(rect, Paint()..colorFilter = filter);
-    }
-    
-    final picture = recorder.endRecording();
-    return picture.toImageSync(60, 60);
   }
 }

@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:immich_mobile/constants/filters.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/utils/annotation_painter.dart';
 import 'package:immich_mobile/utils/color_adjustment.dart';
@@ -87,22 +86,9 @@ class EditedImageExporter {
     canvas.scale(flipHorizontal ? -1.0 : 1.0, flipVertical ? -1.0 : 1.0);
     canvas.translate(-(left + cropWidth / 2), -(top + cropHeight / 2));
 
-    // Apply adjustments and filters using ColorFilter
-    final paint = Paint()..filterQuality = FilterQuality.high;
-    
-    // Build combined color filter from adjustments
-    final adjustmentFilter = ColorAdjustment.buildFilter(adjustments);
-    if (adjustmentFilter != null) {
-      paint.colorFilter = adjustmentFilter;
-    }
-    
-    // Apply selected filter if any with proper intensity blending
-    if (selectedFilterIndex > 0 && selectedFilterIndex < filters.length) {
-      final filter = applyFilterIntensity(selectedFilterIndex, filterIntensity);
-      paint.colorFilter = paint.colorFilter == null 
-          ? filter 
-          : ColorFilter.compose(filter, paint.colorFilter!);
-    }
+    final paint = Paint()
+      ..filterQuality = FilterQuality.high
+      ..colorFilter = ColorAdjustment.combinedFilter(adjustments, selectedFilterIndex, filterIntensity);
 
     canvas.drawImage(source, Offset.zero, paint);
     AnnotationPainter(annotations).paint(canvas, Size(source.width.toDouble(), source.height.toDouble()));

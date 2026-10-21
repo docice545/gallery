@@ -16,13 +16,12 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
+import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
-import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
-import 'package:immich_mobile/utils/color_adjustment.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
@@ -36,6 +35,8 @@ import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:openapi/api.dart' show ApiException;
 import 'package:path_provider/path_provider.dart';
+
+export 'editor_mode.dart';
 
 @RoutePage()
 class EditImagePage extends ConsumerStatefulWidget {
@@ -125,13 +126,11 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     }
   }
 
-  Future<ui.Image> _loadOriginalImage() {
+  Future<ui.Image> _loadOriginalImage() async {
     final provider = widget.asset == null
         ? widget.image.image
         : RemoteImageProvider(url: getOriginalUrlForRemoteId(widget.asset!.id, edited: false), edited: false);
     final image = await EditedImageExporter.loadSource(provider);
-    // Provide the source image for filter thumbnails
-    ref.read(editorSourceImageProvider.notifier).state = image;
     return image;
   }
 
@@ -271,39 +270,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     );
   }
 
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
-
   @override
   Widget build(BuildContext context) {
     final hasUnsavedEdits = ref.watch(editorStateProvider.select((state) => state.hasUnsavedEdits));
@@ -361,6 +327,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                   ),
                   if (allowTransformEdits || widget.asset != null)
                     _EditorBottomPanel(
+                      source: widget.image.image,
                       maxHeight: constraints.maxHeight / 2,
                       mode: _mode,
                       allowTransformEdits: allowTransformEdits,
@@ -405,38 +372,8 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   }
 }
 
-enum EditorMode { crop, adjustments, filters, draw, text, shapes, magicEraser }
-
-extension on EditorMode {
-  AnnotationTool get defaultTool => switch (this) {
-    EditorMode.draw => AnnotationTool.pen,
-    EditorMode.text => AnnotationTool.text,
-    EditorMode.shapes => AnnotationTool.rectangle,
-    _ => AnnotationTool.pen,
-  };
-
-  IconData get icon => switch (this) {
-    EditorMode.crop => Icons.crop,
-    EditorMode.adjustments => Icons.tune,
-    EditorMode.filters => Icons.filter,
-    EditorMode.draw => Icons.draw,
-    EditorMode.text => Icons.title,
-    EditorMode.shapes => Icons.category_outlined,
-    EditorMode.magicEraser => Icons.auto_fix_high,
-  };
-
-  String label(BuildContext context) => switch (this) {
-    EditorMode.crop => context.t.crop,
-    EditorMode.adjustments => context.t.editor_adjustments,
-    EditorMode.filters => context.t.editor_filters,
-    EditorMode.draw => context.t.editor_draw,
-    EditorMode.text => context.t.editor_text,
-    EditorMode.shapes => context.t.editor_shapes,
-    EditorMode.magicEraser => context.t.magic_eraser,
-  };
-}
-
 class _EditorBottomPanel extends StatelessWidget {
+  final ImageProvider source;
   final double maxHeight;
   final EditorMode mode;
   final bool allowTransformEdits;
@@ -456,6 +393,7 @@ class _EditorBottomPanel extends StatelessWidget {
   final VoidCallback onRedo;
 
   const _EditorBottomPanel({
+    required this.source,
     required this.maxHeight,
     required this.mode,
     required this.allowTransformEdits,
@@ -474,39 +412,6 @@ class _EditorBottomPanel extends StatelessWidget {
     required this.onUndo,
     required this.onRedo,
   });
-
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -534,7 +439,7 @@ class _EditorBottomPanel extends StatelessWidget {
                     children: [
                       if (mode == EditorMode.crop && allowTransformEdits) _TransformControls(onReset: onReset),
                       if (mode == EditorMode.adjustments) const AdjustmentPanel(),
-                      if (mode == EditorMode.filters) const FilterPanel(),
+                      if (mode == EditorMode.filters) FilterPanel(source: source),
                       if (mode == EditorMode.draw || mode == EditorMode.text || mode == EditorMode.shapes)
                         _MarkupControls(
                           mode: mode,
@@ -577,49 +482,24 @@ class EditorModeBar extends StatelessWidget {
   final ValueChanged<EditorMode> onMode;
 
   const EditorModeBar({
+    super.key,
     required this.mode,
     required this.allowTransformEdits,
     required this.hasMagicEraser,
     required this.onMode,
   });
 
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
-
   @override
   Widget build(BuildContext context) {
     final modes = [
-      if (allowTransformEdits) ...const [EditorMode.crop, EditorMode.adjustments, EditorMode.filters, EditorMode.draw, EditorMode.text, EditorMode.shapes],
+      if (allowTransformEdits) ...const [
+        EditorMode.crop,
+        EditorMode.adjustments,
+        EditorMode.filters,
+        EditorMode.draw,
+        EditorMode.text,
+        EditorMode.shapes,
+      ],
       if (hasMagicEraser) EditorMode.magicEraser,
     ];
     final colors = Theme.of(context).colorScheme;
@@ -746,39 +626,6 @@ class _AspectRatioButton extends StatelessWidget {
 
   const _AspectRatioButton({required this.ratio, required this.isSelected, required this.onPressed});
 
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
-
   @override
   Widget build(BuildContext context) {
     final color = isSelected ? context.primaryColor : context.themeData.iconTheme.color;
@@ -808,39 +655,6 @@ class _AspectRatioRect extends StatelessWidget {
   final Color? color;
 
   const _AspectRatioRect({required this.ratio, required this.color});
-
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1103,39 +917,6 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
     super.dispose();
   }
 
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
-
   @override
   Widget build(BuildContext context) {
     final editorState = ref.watch(editorStateProvider);
@@ -1261,39 +1042,6 @@ class _MarkupControls extends StatelessWidget {
     required this.onUndo,
     required this.onRedo,
   });
-
-    // Build color filter from adjustments using shared utility
-    ColorFilter? colorFilter = ColorAdjustment.buildFilter(editorState.adjustments);
-    
-    // Apply selected filter
-    if (editorState.selectedFilterIndex > 0 && editorState.selectedFilterIndex < filters.length) {
-      final filter = filters[editorState.selectedFilterIndex];
-      if (editorState.filterIntensity >= 1.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      } else if (editorState.filterIntensity > 0.0) {
-        colorFilter = colorFilter == null ? filter : ColorFilter.compose(filter, colorFilter);
-      }
-    }
-    
-    final child = CropImage(
-      key: ObjectKey(image.image),
-      controller: cropController,
-      image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
-    );
-    
-    if (colorFilter != null) {
-      return ColorFiltered(
-        colorFilter: colorFilter,
-        child: child,
-      );
-    }
-    return child;
-  }
 
   @override
   Widget build(BuildContext context) {

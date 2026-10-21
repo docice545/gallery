@@ -1,6 +1,6 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
-import 'package:easy_localization/easy_localization.dart';
 
 /// Editor modes for the image editor.
 enum EditorMode { crop, adjustments, filters, draw, text, shapes, magicEraser }
