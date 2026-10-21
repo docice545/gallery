@@ -165,19 +165,30 @@ class EditorProvider extends Notifier<EditorState> {
   double _shiftIntoBounds(double start, double end) => start < 0 ? -start : (end > 1 ? 1 - end : 0);
 
   void setAspectRatio(CropAspectRatio preset) {
-    final square = Rect.fromCenter(
-      center: state.crop.center,
-      width: state.crop.longestSide,
-      height: state.crop.longestSide,
-    );
-    _commit(
-      state.copyWith(
-        aspectRatio: preset,
-        crop: square.shift(
-          Offset(_shiftIntoBounds(square.left, square.right), _shiftIntoBounds(square.top, square.bottom)),
+    if (preset == state.aspectRatio) {
+      return;
+    }
+    final ownGesture = _gestureStart == null;
+    beginGesture();
+    try {
+      final square = Rect.fromCenter(
+        center: state.crop.center,
+        width: state.crop.longestSide,
+        height: state.crop.longestSide,
+      );
+      _commit(
+        state.copyWith(
+          aspectRatio: preset,
+          crop: square.shift(
+            Offset(_shiftIntoBounds(square.left, square.right), _shiftIntoBounds(square.top, square.bottom)),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (ownGesture) {
+        endGesture();
+      }
+    }
   }
 
   void resetEdits() {

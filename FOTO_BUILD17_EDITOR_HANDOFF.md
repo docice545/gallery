@@ -84,3 +84,23 @@ Validation at this checkpoint, all serialized:
 
 Still pending: scoped API/AI contract regression run; explicit aspect-preset gesture/history
 integration coverage; final review, editor documentation and PR. No final builds/signing.
+
+## Stage 3 crop/API verification
+
+A new real widget test reproduced an additional defect: changing an aspect preset caused
+CropController's intermediate notifications to enter document history; undo could not return
+to the baseline. Programmatic controller replay is now guarded, final ratio correction is
+stored in the same preset transaction, and Original ratio falls back to decoded dimensions
+when EXIF is absent. Four new square/wide/original/no-EXIF tests include undo/redo and rotation.
+
+- **171/171 PASS** in the post-fix crop/provider/editor/API/AI Flutter run (`c6201faa…`).
+  This overlaps 77 cases with the earlier 262-pass run: **356 distinct Flutter cases**, not 433.
+  Setup/teardown hooks are excluded from that total. Zero remaining failures or skipped cases.
+- **221/221 PASS** backend unit contracts (`9b118c19…`, MagicEraserService, AssetMediaService,
+  editor visibility utilities). Inference is mocked; synthetic temporary filesystem only.
+- Full Flutter analyze after the fix: **PASS**, no issues (`da5aa3b7…`).
+- OpenAPI, backend runtime, native Android/iOS code, dependency locks and deletion policies
+  have no editor-task diff. No schema/client regeneration or migration was necessary.
+
+Real HEIC/RAW device decoding, native photo permissions, real Synology and actual ML inference
+remain local acceptance checks; they are not claimed by these Flutter/HTTP/unit tests.

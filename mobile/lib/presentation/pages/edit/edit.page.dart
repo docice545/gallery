@@ -1142,6 +1142,7 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
   final _navigationActive = ValueNotifier(false);
   final _objectTransformActive = ValueNotifier(false);
   Rect? _cropBeforeNavigation;
+  bool _applyingControllerState = false;
   ImageStream? _imageStream;
   late final ImageStreamListener _imageListener;
   Size? _imageSize;
@@ -1181,6 +1182,9 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
   }
 
   void onCrop() {
+    if (_applyingControllerState) {
+      return;
+    }
     if (_navigationActive.value) {
       final crop = _cropBeforeNavigation;
       if (crop != null && cropController.crop != crop) {
@@ -1219,24 +1223,33 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
     final editorState = ref.watch(editorStateProvider);
 
     ref.listen(editorStateProvider, (previous, current) {
-      // Only re-apply the aspect ratio when it changes, otherwise the crop rect will shrink on every rotation
-      if (previous?.aspectRatio != current.aspectRatio) {
-        double? ratio;
-
-        ratio = switch (current.aspectRatio) {
-          CropAspectRatio.original => current.originalWidth / current.originalHeight,
-          _ => current.aspectRatio.ratio,
-        };
-
-        if (current.rotationAngle % 180 != 0) {
-          ratio = ratio != null ? 1 / ratio : null;
+      // A programmatic replay is not a fresh user gesture. In particular changing
+      // aspectRatio also notifies CropController with its intermediate crop.
+      _applyingControllerState = true;
+      try {
+        if (previous?.aspectRatio != current.aspectRatio) {
+          double? ratio = switch (current.aspectRatio) {
+            CropAspectRatio.original =>
+              current.originalWidth > 0 && current.originalHeight > 0
+                  ? current.originalWidth / current.originalHeight
+                  : _imageSize?.aspectRatio,
+            _ => current.aspectRatio.ratio,
+          };
+          if (current.rotationAngle % 180 != 0) {
+            ratio = ratio != null ? 1 / ratio : null;
+          }
+          cropController.aspectRatio = ratio;
         }
-
-        cropController.aspectRatio = ratio;
+        if (cropController.crop != current.crop) {
+          cropController.crop = current.crop;
+        }
+      } finally {
+        _applyingControllerState = false;
       }
-
-      if (cropController.crop != current.crop) {
-        cropController.crop = current.crop;
+      // Store the final, image-space ratio correction in the same preset step.
+      // Valid historical snapshots replay exactly and do not clear redo.
+      if (cropController.crop != ref.read(editorStateProvider).crop) {
+        ref.read(editorStateProvider.notifier).setCrop(cropController.crop);
       }
     });
 
