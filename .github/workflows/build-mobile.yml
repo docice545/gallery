@@ -77,7 +77,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    if: ${{ github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    # Issue 3: editor source/testing handoff only. Unified builds/signing happen later on HP.
+    if: ${{ (github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build17-editor') && github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: mich
 
     steps:
@@ -190,7 +191,8 @@ jobs:
     permissions:
       contents: read
     # Run on main branch or workflow_dispatch, or on PRs/other branches (build only, no upload)
-    if: ${{ !github.event.pull_request.head.repo.fork && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    # Keep this source-only editor PR from producing or signing mobile artifacts.
+    if: ${{ (github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build17-editor') && !github.event.pull_request.head.repo.fork && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: macos-26
 
     steps:
