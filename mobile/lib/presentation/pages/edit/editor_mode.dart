@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 
 /// Editor modes for the image editor.
-enum EditorMode { crop, adjustments, filters, draw, text, shapes, magicEraser }
+enum EditorMode { crop, adjustments, filters, draw, text, shapes, stickers, magicEraser }
 
 extension EditorModeExtension on EditorMode {
   AnnotationTool get defaultTool => switch (this) {
     EditorMode.draw => AnnotationTool.pen,
     EditorMode.text => AnnotationTool.text,
     EditorMode.shapes => AnnotationTool.rectangle,
+    EditorMode.stickers => AnnotationTool.move,
     _ => AnnotationTool.pen,
   };
 
@@ -20,6 +21,7 @@ extension EditorModeExtension on EditorMode {
     EditorMode.draw => Icons.draw,
     EditorMode.text => Icons.title,
     EditorMode.shapes => Icons.category_outlined,
+    EditorMode.stickers => Icons.emoji_emotions_outlined,
     EditorMode.magicEraser => Icons.auto_fix_high,
   };
 
@@ -30,6 +32,7 @@ extension EditorModeExtension on EditorMode {
     EditorMode.draw => context.tr('editor_draw'),
     EditorMode.text => context.tr('editor_text'),
     EditorMode.shapes => context.tr('editor_shapes'),
+    EditorMode.stickers => context.tr('editor_stickers'),
     EditorMode.magicEraser => context.tr('magic_eraser'),
   };
 }

@@ -56,6 +56,8 @@ class FilterPanel extends ConsumerWidget {
                     Expanded(
                       child: Slider(
                         key: const Key('filter-intensity-slider'),
+                        onChangeStart: (_) => editorNotifier.beginGesture(),
+                        onChangeEnd: (_) => editorNotifier.endGesture(),
                         min: 0.0,
                         max: 1.0,
                         value: editorState.filterIntensity,

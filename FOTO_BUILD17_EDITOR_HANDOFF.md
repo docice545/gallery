@@ -51,3 +51,36 @@ HP's canonical progress/pending files and both manifests are not mounted in Clou
 and any unpublished HP changes have not been fabricated, overwritten or incorporated. Keep them
 and append only results actually obtained after local integration. Existing unsigned APK on the
 prior handoff branch does NOT contain this editor. User forbids final builds/signing at this stage.
+
+## Stage 2 checkpoint
+
+- One bounded 100-step document undo/redo history across crop/rotation/flips, corrections,
+  effects, text, stickers and drawn layers. Slider gestures coalesce; reset is undoable.
+- Six-section dark rail; top Revert / Save / vertical menu. Drawing pill order and blue/purple
+  pens follow the owner clarification. Text has fonts, size, color, outline, background,
+  opacity. Built-in vector stickers plus emoji use no proprietary artwork/downloaded fonts.
+- Normalized source coordinates, pixel-space object rotation/scaling, two-finger object gestures
+  distinct from viewport navigation, layer selection/reordering/deletion. Stroke eraser leaves
+  captions/stickers and the source raster untouched. Long strokes and history have bounds.
+- Cropped preview outside the crop tool now matches the exported crop. Saving is device-copy
+  only, with an honest backup explanation. Added immediate source-load cancellation, deadline
+  cleanup, 32 MP export guard, explicit errors, permission-failure retry and temporary cleanup.
+- Added English/Russian plus the nine required companion locales. Two tiny JPEG/PNG fixtures
+  are synthetic, generated using Pillow 12.3.0. JPEG EXIF orientation is baked into output;
+  original bytes/metadata remain intact. Other EXIF is not carried into the new PNG.
+
+Validation at this checkpoint, all serialized:
+
+- **262/262 editor Flutter tests PASS**, log `e44dbe34…-2efe5f38…` (17 explicit test files).
+- Full Flutter analyze: **PASS / no issues**, log `2faaf686…-a19bc85d…`.
+- Existing automation safety/manifest tests: **37/37 PASS**.
+- Pixel tests include styled text and transformed vector stickers, 32 filter intensities,
+  all source rotations/flips, originals unchanged. Gestures include cancellation and retry.
+- Early runs exposed and corrected layout overflow, a leftover cancellation deadline timer,
+  the old duplicate filter/compile errors and an overlapping text-edit affordance. Final
+  checkpoint has no failures. The changed old eraser-text assertion follows the user's
+  explicit new requirement: erase drawn lines only; the old seven-section navigation tests
+  now exercise the requested six sections. Pixel/ownership assertions were retained.
+
+Still pending: scoped API/AI contract regression run; explicit aspect-preset gesture/history
+integration coverage; final review, editor documentation and PR. No final builds/signing.

@@ -1,8 +1,8 @@
 import 'dart:math' as math;
-import 'dart:ui' show Color, Offset;
+import 'dart:ui' show Color, Offset, Size;
 
 /// Tools supported by the photo markup editor.
-enum AnnotationTool { pen, brush, highlighter, eraser, text, move, arrow, rectangle, ellipse }
+enum AnnotationTool { pen, brush, highlighter, eraser, text, sticker, move, arrow, rectangle, ellipse }
 
 /// A normalized point (0..1 in the image's coordinate space) used by markup.
 /// Keeping coordinates independent of the preview size makes the result stable
@@ -18,6 +18,12 @@ class AnnotationElement {
   final double opacity;
   final String? text;
   final double fontSize;
+  final String? fontFamily;
+  final Color outlineColor;
+  final double outlineWidth;
+  final Color backgroundColor;
+  final double rotation;
+  final double scale;
 
   AnnotationElement({
     required this.id,
@@ -28,10 +34,36 @@ class AnnotationElement {
     required this.opacity,
     this.text,
     this.fontSize = 0.06,
+    this.fontFamily,
+    this.outlineColor = const Color(0xff000000),
+    this.outlineWidth = 0,
+    this.backgroundColor = const Color(0x00000000),
+    this.rotation = 0,
+    this.scale = 1,
   }) : points = List.unmodifiable(points),
        assert(points.isNotEmpty),
        assert(width > 0),
+       assert(scale > 0),
+       assert(fontSize > 0),
        assert(opacity >= 0 && opacity <= 1);
+
+  bool get isSticker => tool == AnnotationTool.sticker;
+  bool get isCaption => isText || isSticker;
+  bool get isDrawing => !isCaption;
+
+  /// Transform in source-pixel space, so non-square images do not skew rotation.
+  Offset transformPoint(Offset point, Size size, {bool inverse = false}) {
+    final anchor = Offset(points.first.dx * size.width, points.first.dy * size.height);
+    final delta = point - anchor;
+    final angle = inverse ? -rotation : rotation;
+    final factor = inverse ? 1 / scale : scale;
+    return anchor +
+        Offset(
+              delta.dx * math.cos(angle) - delta.dy * math.sin(angle),
+              delta.dx * math.sin(angle) + delta.dy * math.cos(angle),
+            ) *
+            factor;
+  }
 
   bool get isText => tool == AnnotationTool.text;
   bool get isShape =>
@@ -54,6 +86,12 @@ class AnnotationElement {
     double? width,
     double? opacity,
     double? fontSize,
+    String? fontFamily,
+    Color? outlineColor,
+    double? outlineWidth,
+    Color? backgroundColor,
+    double? rotation,
+    double? scale,
   }) => AnnotationElement(
     id: id,
     tool: tool,
@@ -63,6 +101,12 @@ class AnnotationElement {
     opacity: opacity ?? this.opacity,
     text: text ?? this.text,
     fontSize: fontSize ?? this.fontSize,
+    fontFamily: fontFamily ?? this.fontFamily,
+    outlineColor: outlineColor ?? this.outlineColor,
+    outlineWidth: outlineWidth ?? this.outlineWidth,
+    backgroundColor: backgroundColor ?? this.backgroundColor,
+    rotation: rotation ?? this.rotation,
+    scale: scale ?? this.scale,
   );
 
   @override
@@ -75,10 +119,31 @@ class AnnotationElement {
       other.width == width &&
       other.opacity == opacity &&
       other.text == text &&
-      other.fontSize == fontSize;
+      other.fontSize == fontSize &&
+      other.fontFamily == fontFamily &&
+      other.outlineColor == outlineColor &&
+      other.outlineWidth == outlineWidth &&
+      other.backgroundColor == backgroundColor &&
+      other.rotation == rotation &&
+      other.scale == scale;
 
   @override
-  int get hashCode => Object.hash(id, tool, Object.hashAll(points), color, width, opacity, text, fontSize);
+  int get hashCode => Object.hash(
+    id,
+    tool,
+    Object.hashAll(points),
+    color,
+    width,
+    opacity,
+    text,
+    fontSize,
+    fontFamily,
+    outlineColor,
+    outlineWidth,
+    backgroundColor,
+    rotation,
+    scale,
+  );
 
   static bool _samePoints(List<Offset> a, List<Offset> b) =>
       a.length == b.length && a.indexed.every((entry) => entry.$2 == b[entry.$1]);

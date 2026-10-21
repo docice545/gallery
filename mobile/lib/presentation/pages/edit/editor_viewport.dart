@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// A shared image/annotation transform. Raw pointers keep two-finger navigation
@@ -6,8 +7,15 @@ class EditorViewport extends StatefulWidget {
   final Size contentSize;
   final ValueNotifier<bool> navigationActive;
   final Widget child;
+  final ValueListenable<bool>? objectTransformActive;
 
-  const EditorViewport({super.key, required this.contentSize, required this.navigationActive, required this.child});
+  const EditorViewport({
+    super.key,
+    required this.contentSize,
+    required this.navigationActive,
+    required this.child,
+    this.objectTransformActive,
+  });
 
   @override
   State<EditorViewport> createState() => _EditorViewportState();
@@ -25,7 +33,7 @@ class _EditorViewportState extends State<EditorViewport> {
   bool _interrupted = false;
 
   void _rebase() {
-    if (_pointers.length < 2 || _interrupted) {
+    if (_pointers.length < 2 || _interrupted || (widget.objectTransformActive?.value ?? false)) {
       _startDistance = null;
       return;
     }
@@ -38,6 +46,10 @@ class _EditorViewportState extends State<EditorViewport> {
 
   void _down(PointerDownEvent event) {
     _pointers[event.pointer] = event.localPosition;
+    if (widget.objectTransformActive?.value ?? false) {
+      _interrupted = true;
+      return;
+    }
     if (_pointers.length >= 2) {
       widget.navigationActive.value = true;
     }
