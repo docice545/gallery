@@ -11,6 +11,10 @@
 3. `20c71d932b2ed04c2a8b0b15e7eac8c76a253dcc` — причины AI availability, безопасная read-only диагностика 404, десять локализаций.
 4. `03a642d6239f0cc8f0455fd96bc732ba43d04552` — Android/iOS drawing history, адаптация crop regression к свёрнутым настройкам.
 
+5. `c5adf6b63caeef3f88967c2fcef4de21e70b5d24` — исправление подтверждённого overflow в коротком landscape-окне и восстановления панелей после клавиатуры.
+
+PR: https://github.com/docice545/gallery/pull/6.
+
 Подробные доказательства и ограничения: [`EDITOR_COMPACT_ACCEPTANCE.md`](EDITOR_COMPACT_ACCEPTANCE.md).
 Следующие documentation-only коммиты не меняют проверенную реализацию. Конечный HEAD определяется через `git rev-parse HEAD` и указан в PR.
 
@@ -40,7 +44,7 @@ Flutter 3.47.2 / Dart 3.13.2, зафиксированные `mobile/mise.toml` 
 Generated outputs, caches, ключи и двоичные сборки не добавлены в Git. Чистому checkout нужны существующие штатные codegen prerequisites;
 не переносить generated файлы из другой версии. Не запускать `mise` parallel codegen одновременно с tests.
 
-Ниже команды из корня уже подготовленного локального integration checkout. Состояние именно этой проверки отделено от канонического HP manifest:
+Ниже команды из корня уже подготовленного локального integration checkout, когда другие тяжёлые проверки и локальная Codex automation не выполняются. Состояние именно этой проверки отделено от канонического HP manifest:
 
 ```bash
 set -euo pipefail
@@ -70,7 +74,7 @@ python3 -m unittest discover -s tools/foto-automation/tests -p test_dedup_source
 git diff --check
 ```
 
-Этот объединённый список содержит 376 актуальных cases; в Cloud они прошли отдельными последовательными наборами,
+Этот объединённый список содержит 380 актуальных cases; в Cloud они прошли отдельными последовательными наборами,
 с пересечениями, описанными в отчёте. Golden-проверки запускать без `--update-goldens`.
 Если `rg` отсутствует на HP, вместо mapfile перечислить 12 существующих файлов `mobile/test/pages/edit/*_test.dart`
 с префиксом `test/pages/edit/`; runner специально принимает только явные имена файлов.
@@ -81,7 +85,7 @@ Review state находится вне checkout и не является product
 
 Здесь не собирались APK/IPA/backend, не менялись signature/package IDs, backend, OpenAPI, NAS и пользовательские данные.
 После локального объединения повторить перечисленные тесты при наличии конфликтов, затем отдельно согласовать native builds
-и проверки Android/iPhone из отчёта. Реальная AI inference не проверена и требует безопасного non-production сервиса.
+и проверки Android/iPhone из отчёта. В общем CI есть ShellCheck FAIL в неизменённых release/diagnostic scripts; подробности и границы — в отчёте и PR. Не считать агрегирующие success с пропущенными build jobs готовыми сборками. Реальная AI inference не проверена и требует безопасного non-production сервиса.
 
 Если локальное объединение ещё не завершено и возник конфликт — `git merge --abort` в отдельной integration worktree.
 Если оно уже сохранено — вернуть интеграционный merge отдельным `git revert -m 1 <merge-SHA>` после проверки графа.

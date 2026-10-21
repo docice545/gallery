@@ -1,0 +1,140 @@
+00:00 +0: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.android (variant: TargetPlatform.android)
+══╡ EXCEPTION CAUGHT BY RENDERING LIBRARY ╞═════════════════════════════════════════════════════════
+The following assertion was thrown during layout:
+A RenderFlex overflowed by 54 pixels on the bottom.
+
+The relevant error-causing widget was:
+  Column
+  Column:file:///workspace/gallery-editor-compact/mobile/lib/presentation/pages/edit/edit.page.dart:783:18
+
+The overflowing RenderFlex has an orientation of Axis.vertical.
+The edge of the RenderFlex that is overflowing has been marked in the rendering with a yellow and
+black striped pattern. This is usually caused by the contents being too big for the RenderFlex.
+Consider applying a flex factor (e.g. using an Expanded widget) to force the children of the
+RenderFlex to fit within the available space instead of being sized to their natural size.
+This is considered an error condition because it indicates that there is content that cannot be
+seen. If the content is legitimately bigger than the available space, consider clipping it with a
+ClipRect widget before putting it in the flex, or using a scrollable container rather than a Flex,
+like a ListView.
+The specific RenderFlex in question is: RenderFlex#a9986 relayoutBoundary=up10 OVERFLOWING:
+  needs compositing
+  creator: Column ← MediaQuery ← Padding ← SafeArea ← Padding ← DecoratedBox ← ConstrainedBox ←
+    Container-[<'editor-bottom-panel'>] ← ConstrainedBox ← _EditorBottomPanel ← Column ← AbsorbPointer
+    ← ⋯
+  parentData: offset=Offset(0.0, 0.0) (can use size)
+  constraints: BoxConstraints(w=480.0, 0.0<=h<=65.8)
+  size: Size(480.0, 65.8)
+  direction: vertical
+  mainAxisAlignment: start
+  mainAxisSize: min
+  crossAxisAlignment: center
+  verticalDirection: down
+  spacing: 0.0
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤
+════════════════════════════════════════════════════════════════════════════════════════════════════
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _HitTestableWidgetFinder:<Found 0 widgets with key [<'editor-mode-crop'>] (considering
+only hit-testable widgets with a RenderBox): []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart:154:9)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart line 154
+The test description was:
+  short landscape with cutouts keeps the drawing strip and five tools usable on
+  TargetPlatform.android (variant: TargetPlatform.android)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following message was thrown:
+Multiple exceptions (2) were detected during the running of the current test, and at least one was
+unexpected.
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:01 +0 -1: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.android (variant: TargetPlatform.android) [E]
+  Test failed. See exception logs above.
+  The test description was: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.android (variant: TargetPlatform.android)
+
+00:01 +0 -1: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+══╡ EXCEPTION CAUGHT BY RENDERING LIBRARY ╞═════════════════════════════════════════════════════════
+The following assertion was thrown during layout:
+A RenderFlex overflowed by 54 pixels on the bottom.
+
+The relevant error-causing widget was:
+  Column
+  Column:file:///workspace/gallery-editor-compact/mobile/lib/presentation/pages/edit/edit.page.dart:783:18
+
+The overflowing RenderFlex has an orientation of Axis.vertical.
+The edge of the RenderFlex that is overflowing has been marked in the rendering with a yellow and
+black striped pattern. This is usually caused by the contents being too big for the RenderFlex.
+Consider applying a flex factor (e.g. using an Expanded widget) to force the children of the
+RenderFlex to fit within the available space instead of being sized to their natural size.
+This is considered an error condition because it indicates that there is content that cannot be
+seen. If the content is legitimately bigger than the available space, consider clipping it with a
+ClipRect widget before putting it in the flex, or using a scrollable container rather than a Flex,
+like a ListView.
+The specific RenderFlex in question is: RenderFlex#d6c5c relayoutBoundary=up10 OVERFLOWING:
+  needs compositing
+  creator: Column ← MediaQuery ← Padding ← SafeArea ← Padding ← DecoratedBox ← ConstrainedBox ←
+    Container-[<'editor-bottom-panel'>] ← ConstrainedBox ← _EditorBottomPanel ← Column ← AbsorbPointer
+    ← ⋯
+  parentData: offset=Offset(0.0, 0.0) (can use size)
+  constraints: BoxConstraints(w=480.0, 0.0<=h<=65.8)
+  size: Size(480.0, 65.8)
+  direction: vertical
+  mainAxisAlignment: start
+  mainAxisSize: min
+  crossAxisAlignment: center
+  verticalDirection: down
+  spacing: 0.0
+◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤
+════════════════════════════════════════════════════════════════════════════════════════════════════
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _HitTestableWidgetFinder:<Found 0 widgets with key [<'editor-mode-crop'>] (considering
+only hit-testable widgets with a RenderBox): []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart:154:9)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart line 154
+The test description was:
+  short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.iOS
+  (variant: TargetPlatform.iOS)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following message was thrown:
+Multiple exceptions (2) were detected during the running of the current test, and at least one was
+unexpected.
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -2: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.iOS (variant: TargetPlatform.iOS) [E]
+  Test failed. See exception logs above.
+  The test description was: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+
+00:02 +0 -2: (tearDownAll)
+00:02 +0 -2: Some tests failed.
+
+Failing tests:
+  /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.android (variant: TargetPlatform.android)
+  /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: short landscape with cutouts keeps the drawing strip and five tools usable on TargetPlatform.iOS (variant: TargetPlatform.iOS)
