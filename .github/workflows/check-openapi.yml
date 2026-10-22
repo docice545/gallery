@@ -27,7 +27,7 @@ jobs:
       - name: Check for breaking API changes
         uses: oasdiff/oasdiff-action/breaking@9c0494cfee8b8fcc9fb383ed2d5d3fbdae169b93 # v0.1.15
         with:
-          base: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.base_ref }}/open-api/immich-openapi-specs.json
+          base: https://raw.githubusercontent.com/${{ github.repository }}/main/open-api/immich-openapi-specs.json
           revision: open-api/immich-openapi-specs.json
           fail-on: ERR
           review: false
@@ -54,7 +54,7 @@ jobs:
       - name: Fetch base spec from base branch
         run: |
           curl -fsSL \
-            "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.base_ref }}/open-api/immich-openapi-specs.json" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/open-api/immich-openapi-specs.json" \
             -o /tmp/base-spec.json
 
       - name: Check newly-required fields have a backward-compat patch
