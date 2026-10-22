@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { DatabaseRepository } from 'src/repositories/database.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { CompositeMigrationProvider } from 'src/schema/composite-migration-provider.js';
 import { DB } from 'src/schema/index.js';
 import { getKyselyConfig } from 'src/utils/database.js';
 
@@ -157,7 +158,27 @@ describe('Database Migration Scenarios', () => {
     const db = await createRawDatabase('migration_test_rollback');
     try {
       const repo = createRepo(db);
-      await repo.runMigrations();
+      // This scenario exercises the existing deletion-evidence rollback boundary,
+      // not whatever unrelated additive migration happens to be last today. Start
+      // a fresh, empty DB at that real boundary without reverting new user data.
+      const provider = new CompositeMigrationProvider([
+        join(import.meta.dirname, '../../../../src/schema/migrations'),
+        join(import.meta.dirname, '../../../../src/schema/migrations-gallery'),
+      ]);
+      const baseline = await provider.getMigrations();
+      // This later-added overlay is interleaved before 179405 by timestamp but
+      // was not present at the original Build 17 deletion boundary. All current
+      // migrations are exercised by the fresh/upgrade/idempotency scenarios above.
+      delete baseline['1794000000000-AddAssetFavoriteTables'];
+      const migrator = new Migrator({
+        db,
+        migrationLockTableName: 'kysely_migrations_lock',
+        migrationTableName: 'kysely_migrations',
+        allowUnorderedMigrations: true,
+        provider: { getMigrations: () => Promise.resolve(baseline) },
+      });
+      const { error } = await migrator.migrateTo('1794050000000-OwnerStorageDeletion');
+      expect(error).toBeUndefined();
       const before = await repo.getMigrations();
       const lastMigration = before.at(-1)!.name;
 
