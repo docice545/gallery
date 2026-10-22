@@ -395,6 +395,7 @@ class Pipeline:
             'https_proxy', 'http_proxy', 'NO_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'}}
         env.update(NODE_OPTIONS='--max-old-space-size=4096', CI='true', MAKEFLAGS='-j1',
                    CMAKE_BUILD_PARALLEL_LEVEL='1', UV_THREADPOOL_SIZE='2', VIPS_CONCURRENCY='2', GOMAXPROCS='2',
+                   npm_config_child_concurrency='1', npm_config_workspace_concurrency='1',
                    MISE_JOBS='1', JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=2 -Xmx2048m',
                    GRADLE_OPTS='-Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.daemon=false '
                    '-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process '
@@ -664,11 +665,11 @@ def recipes_for(repo):
                  *('mobile/' + x for x in flutter)]:
         need((repo / name).is_file(), 'MANDATORY_TEST_MISSING_' + name)
     result = [
-        ('dependencies', '.', ['pnpm', 'install', '--frozen-lockfile'], ['server/node_modules/vitest/package.json']),
+        ('dependencies', '.', ['pnpm', 'install', '--frozen-lockfile', '--child-concurrency=1'], ['server/node_modules/vitest/package.json']),
         ('sdk-initial', '.', ['pnpm', '--filter', '@immich/sdk', 'build'], ['packages/sdk/build/index.js']),
         ('workspace-links', '.', ['pnpm', '--filter', '@immich/sdk', '--filter', '@immich/plugin-sdk',
                                   '--filter', '@immich/plugin-core', '--filter', '@immich/plugin-gallery',
-                                  'install', '--frozen-lockfile'], []),
+                                  'install', '--frozen-lockfile', '--child-concurrency=1'], []),
         ('plugin-sdk', '.', ['pnpm', '--filter', '@immich/plugin-sdk', 'build'], ['packages/plugin-sdk/dist/index.js']),
         ('plugin-core', '.', ['pnpm', '--filter', '@immich/plugin-core', 'build'], ['packages/plugin-core/dist/plugin.wasm']),
         ('plugin-gallery', '.', ['pnpm', '--filter', '@immich/plugin-gallery', 'build'], ['packages/plugin-gallery/dist/plugin.wasm']),
@@ -737,7 +738,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (Stop, OSError, ValueError, KeyError, tarfile.TarError, zipfile.BadZipFile) as error:
+    except (Stop, OSError, ValueError, KeyError, TypeError, AttributeError, tarfile.TarError, zipfile.BadZipFile) as error:
         # Never echo subprocess output, configuration contents, passwords or tokens.
         print('STOP', str(error) if isinstance(error, Stop) else type(error).__name__ + '_SEE_PRIVATE_STATE', file=sys.stderr)
         sys.exit(1)

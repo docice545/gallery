@@ -402,6 +402,18 @@ class ReleaseTest(unittest.TestCase):
                 app.rootless()
             self.assertEqual(q.call_count, 1)
 
+    def test_child_environment_has_no_production_or_signing_secrets(self):
+        with patch.dict(os.environ, DB_URL='not-a-real-secret', IMMICH_TEST_POSTGRES_URL='not-a-test-db',
+                        ANDROID_STORE_PASSWORD='not-a-real-password', PR_NUMBER='99', DOCKER_CONTEXT='production'):
+            with patch.object(app, 'rootless', return_value='unix:///run/user/synthetic/docker.sock'):
+                env = self.p.environment()
+        for key in ('DB_URL', 'IMMICH_TEST_POSTGRES_URL', 'ANDROID_STORE_PASSWORD', 'PR_NUMBER', 'DOCKER_CONTEXT'):
+            self.assertNotIn(key, env)
+        self.assertEqual(env['npm_config_child_concurrency'], '1')
+        self.assertEqual(env['npm_config_workspace_concurrency'], '1')
+        self.assertIn('org.gradle.workers.max=1', env['GRADLE_OPTS'])
+        self.assertIn('org.gradle.daemon=false', env['GRADLE_OPTS'])
+
     def test_builder_limits_and_running_history(self):
         node = {'Driver': 'docker-container', 'Nodes': [{'Endpoint': 'rootless', 'Name': 'foto17-limited0'}]}
         record = {'HostConfig': {'Memory': 10 * 1024**3, 'MemorySwap': 12 * 1024**3},
