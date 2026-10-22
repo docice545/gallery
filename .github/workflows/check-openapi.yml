@@ -31,6 +31,15 @@ jobs:
           revision: open-api/immich-openapi-specs.json
           fail-on: ERR
           review: false
+          err-ignore: |
+            enum-value-added:
+              SyncEntityType/AssetFaceV3
+              SyncEntityType/AssetFavoriteV1
+              SyncEntityType/AssetFavoriteDeleteV1
+              SyncEntityType/AuthUserV2
+              SyncEntityType/MemoryV2
+              SyncEntityType/MemoryToAssetV2
+              QueueJobType/AssetDeleteBatch
 
   check-mobile-patches:
     runs-on: ubuntu-latest
