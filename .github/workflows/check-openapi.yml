@@ -26,7 +26,7 @@ jobs:
 
       - name: Create err-ignore file
         run: |
-          cat > /tmp/err-ignore.txt << 'EOL'
+          cat > err-ignore.txt << 'EOL'
           enum-value-added:SyncEntityType/AssetFaceV3
           enum-value-added:SyncEntityType/AssetFavoriteV1
           enum-value-added:SyncEntityType/AssetFavoriteDeleteV1
@@ -43,7 +43,7 @@ jobs:
           revision: open-api/immich-openapi-specs.json
           fail-on: ERR
           review: false
-          err-ignore-file: /tmp/err-ignore.txt
+          err-ignore: err-ignore.txt
 
   check-mobile-patches:
     runs-on: ubuntu-latest
