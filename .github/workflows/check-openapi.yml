@@ -24,16 +24,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Create err-ignore file
-        run: |
-          cat > err-ignore.txt << 'EOL'
-          # Match enum-value-added check for any type
-          enum-value-added
-          EOL
-          echo "=== err-ignore.txt content ==="
-          cat err-ignore.txt
-          echo "================================"
-
       - name: Check for breaking API changes
         uses: oasdiff/oasdiff-action/breaking@9c0494cfee8b8fcc9fb383ed2d5d3fbdae169b93 # v0.1.15
         with:
@@ -41,7 +31,7 @@ jobs:
           revision: open-api/immich-openapi-specs.json
           fail-on: ERR
           review: false
-          err-ignore: err-ignore.txt
+          exclude-elements: enum-value-added
 
   check-mobile-patches:
     runs-on: ubuntu-latest
