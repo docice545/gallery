@@ -16,7 +16,8 @@ import { gallery_lock_asset_file_path } from 'src/schema/functions.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 
 @Table('asset_file')
-// Do not generate a migration that drops the column-specific path guard.
+// Preserve the migration-owned UPDATE OF path guard; sql-tools has no column-event model.
+// Its enabled database definition is asserted by schema-cli-compat.spec.ts.
 @Trigger({
   name: 'gallery_lock_asset_file_path',
   timing: 'before',
