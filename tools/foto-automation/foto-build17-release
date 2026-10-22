@@ -308,8 +308,12 @@ class Pipeline:
             need(pr['head']['repo']['full_name'] == REPOSITORY and pr['base']['repo']['full_name'] == REPOSITORY,
                  'FOREIGN_PR_REPOSITORY')
             need(pr['head']['sha'] == pin['sha'] and pr['head']['ref'] == ROLES[role], 'PR_HEAD_CHANGED')
-            need(pr['base']['ref'] == BASE_BRANCH and pr['base']['sha'] == self.c['expected_head'], 'WRONG_PR_BASE')
-            need(pr['state'] == 'open' and not pr['draft'] and pr['mergeable'] is True, 'PR_INCOMPLETE_OR_CONFLICTED')
+            merged_here = (pr['state'] == 'closed' and pr.get('merged') is True and
+                           git(self.repo, 'merge-base', '--is-ancestor', pin['sha'], 'HEAD', optional=True) is not None)
+            need(pr['base']['ref'] == BASE_BRANCH and (merged_here or pr['base']['sha'] == self.c['expected_head']),
+                 'WRONG_PR_BASE')
+            need(not pr['draft'] and (merged_here or pr['state'] == 'open' and pr['mergeable'] is True),
+                 'PR_INCOMPLETE_OR_CONFLICTED')
             result = api(f"commits/{pin['sha']}/check-runs?per_page=100")
             need(result['total_count'] <= 100, 'CI_PAGINATION_REVIEW_REQUIRED')
             checks_green(result['check_runs'], self.c['required_checks'])

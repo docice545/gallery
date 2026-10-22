@@ -216,6 +216,20 @@ class ReleaseTest(unittest.TestCase):
         self.assertNotIn('MERGED_editor', events)
         self.assertTrue((self.p.source() / 'compatibility.txt').exists())
 
+    def test_merged_pr_requires_verified_local_ancestry(self):
+        self.run_git('merge', '--no-ff', '--no-edit', self.heads['editor'])
+        self.c['expected_head'] = self.run_git('rev-parse', 'HEAD')
+        original = self.api
+        def merged(path):
+            value = original(path)
+            if path == 'pulls/1':
+                value.update(state='closed', merged=True, mergeable=None)
+                value['base']['sha'] = self.base
+            return value
+        with patch.object(app, 'api', side_effect=merged):
+            self.p.prepare()
+        self.assertNotIn('MERGED_editor', [x['event'] for x in self.p.manifest['history']])
+
     def test_conflict_preserved_no_auto_resolution(self):
         for role in app.ROLES:
             self.run_git('switch', app.ROLES[role])
