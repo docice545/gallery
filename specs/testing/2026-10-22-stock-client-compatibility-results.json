@@ -127,6 +127,11 @@
       "unchanged": true
     }
   ],
+  "rbacAndRollbackFixtureResolution": "Real favorites dependency wired into remaining explicit SearchService fixture. 90 passed in mixed two-file run; original deletion-boundary fixture fixed and its failed test passed separately (6 filtered). Latest downgrade is not claimed safe.",
+  "rbacFixtureCodeChecks": {
+    "eslint": 0,
+    "typecheck": 0
+  },
   "resultsAreOverlappingRunsNotUniqueTotals": true,
   "schemaCliComparison": {
     "human": [],
@@ -309,9 +314,24 @@
       "passedRun": true,
       "sha256": "5ca432a0c84cf09ee4e398e56ee29401a7e8628a2a420bc6754e88319075117e",
       "summary": ["Test Files  1 passed (1)", "Tests  6 passed (6)"]
+    },
+    {
+      "log": "foto-compat-ci-rbac-migrations-medium-final.log",
+      "passedRun": false,
+      "sha256": "00940ecd2e78655df756d999d86348314d81c8e85b0794179d3c41db09185022",
+      "summary": [
+        "Test Files  1 failed | 1 passed (2)",
+        "Tests  1 failed | 90 passed (91)"
+      ]
+    },
+    {
+      "log": "foto-compat-ci-deletion-boundary-medium-final.log",
+      "passedRun": true,
+      "sha256": "fb71a77185373ed53c378262dddb3fc18ed8727af58f324b0cfd4da37a034c85",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed | 6 skipped (7)"]
     }
   ],
-  "testedCodeCommit": "6675b91a17bad1f7589f4a45b093b0ce7407f8ba",
+  "testedCodeCommit": "289807cc3bd3a09b87e70c74b9b582bbd5f893f3",
   "upstreams": {
     "immich-3.3.5": {
       "matchedMethodPath": 268,

@@ -310,7 +310,7 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm exec vitest \
 Машиночитаемые результаты, method/path comparison и SHA-256 неизменённых
 защитных исходников: [results.json](2026-10-22-stock-client-compatibility-results.json).
 Последний проверенный code commit:
-`6675b91a17bad1f7589f4a45b093b0ce7407f8ba`. После первоначального 57006e191
+`289807cc3bd3a09b87e70c74b9b582bbd5f893f3`. После первоначального 57006e191
 исправлены explicit medium fixtures и schema metadata/generation; storage guard
 functions, применённые миграции и media workflows не изменены. Отчёты не заменяют native E2E.
 
@@ -388,3 +388,20 @@ PASS. **PR не следует объединять, считая общий CI 
 отключена. GitHub-run на последнем опубликованном code ещё не считается PASS
 по результатам этих локальных проверок. Остальные перечисленные CI/native
 ограничения сохраняются до фактического результата.
+
+### Завершение explicit RBAC/migration fixtures
+
+Завершившийся medium CI на предыдущем HEAD показал ещё девять вызовов SearchService
+без favorite dependency в `people-identity-rbac` и устаревшее предположение о
+последней миграции. Search fixture теперь использует реальный favorites repository.
+Совместный локальный запуск RBAC и migration scenarios: **90 PASS / 1 FAIL**;
+оставшийся rollback fixture после уточнения — **1 selected PASS / 6 filtered**.
+Эти два результата не объявляются единым зелёным CI запуском.
+
+Rollback fixture теперь строит **пустую БД старой storage-mode boundary** реальными
+миграциями, исключая позднее добавленный (но interleaved по timestamp) favorite
+overlay. Затем, как прежде, проверяет отказ в откате BindDeletionRecovery и
+сохранность journal/policy columns. Он не удаляет новые пользовательские favorite
+данные, не отключает rollback guard и не заменяет отдельную проверку upgrade со
+**всеми** актуальными миграциями. Совместимость latest production downgrade всё
+ещё NOT VERIFIED. Оба изменённых файла прошли ESLint и TypeScript.
