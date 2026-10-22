@@ -594,7 +594,7 @@ describe('/asset', () => {
       await utils.waitForWebsocketEvent({ event: 'assetDelete', id: motionId, timeout: livePhotoEventTimeout });
     });
 
-    it('should not delete a shared motion asset', async () => {
+    it('refuses ambiguous shared motion deletion without changing any original', async () => {
       const { id: motionId } = await utils.createAsset(admin.accessToken, {
         assetData: { filename: 'test.mp4', bytes: makeRandomImage() },
       });
@@ -612,9 +612,13 @@ describe('/asset', () => {
         .delete('/assets')
         .send({ ids: [asset1], force: true })
         .set('Authorization', `Bearer ${admin.accessToken}`);
-      expect(status).toBe(204);
+      // Permanent deletion is deliberately fail-closed when another still owns
+      // the companion. The guarded API must not manufacture a partial grant.
+      expect(status).toBe(409);
 
-      await utils.waitForWebsocketEvent({ event: 'assetDelete', id: asset1, timeout: livePhotoEventTimeout });
+      await expect(utils.getAssetInfo(admin.accessToken, asset1)).resolves.toMatchObject({
+        id: asset1, livePhotoVideoId: motionId, isTrashed: false,
+      });
       await utils.waitForQueueFinish(admin.accessToken, 'backgroundTask');
 
       await expect(utils.getAssetInfo(admin.accessToken, motionId)).resolves.toMatchObject({ id: motionId });
@@ -622,6 +626,12 @@ describe('/asset', () => {
         id: asset2,
         livePhotoVideoId: motionId,
       });
+      for (const id of [asset1, asset2, motionId]) {
+        const original = await request(app).get(`/assets/${id}/original`)
+          .set('Authorization', `Bearer ${admin.accessToken}`);
+        expect(original.status).toBe(200);
+        expect(original.body.length).toBeGreaterThan(0);
+      }
     });
   });
 
@@ -1031,7 +1041,8 @@ describe('/asset', () => {
         .field('fileModifiedAt', new Date().toISOString())
         .attach('assetData', makeRandomImage(), 'example.jpg');
 
-      expect(body).toEqual({ id: expect.any(String), status: AssetMediaStatus.Created });
+      // duplicateId is an additive nullable field of AssetMediaResponseDto.
+      expect(body).toEqual({ id: expect.any(String), status: AssetMediaStatus.Created, duplicateId: null });
       expect(status).toBe(201);
 
       const user = await getMyUser({ headers: asBearerAuth(quotaUser.accessToken) });

@@ -2725,6 +2725,11 @@ export class AssetRepository {
       throw new DeletionError('MOTION_SCOPE_MISMATCH');
     }
 
+    // Uploaded companions already live inside the owner's bound upload/library
+    // root. Only a generated companion outside those roots needs SSD admission.
+    // snapshotOriginal still verifies the bound root and every path component.
+    if (roots.some((root) => below(root.path, target.originalPath))) return roots;
+
     const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, target.ownerId);
     if (!below(encodedRoot, target.originalPath)) {
       throw new DeletionError('MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT');
