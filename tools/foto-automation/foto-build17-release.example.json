@@ -1,0 +1,37 @@
+{
+  "automation_state": "/mnt/hp-data/codex-work/foto-integration-state",
+  "expected_head": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "export_dir": "/var/tmp/foto-build17-release-artifacts",
+  "legacy_lock": "/mnt/hp-data/codex-work/gallery-build15-auto/auto.lock",
+  "min_free_gib": 60,
+  "prs": {
+    "compatibility": {
+      "approval_note": "",
+      "approved": false,
+      "number": 7,
+      "sha": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede"
+    },
+    "editor": {
+      "approval_note": "",
+      "approved": false,
+      "number": 6,
+      "sha": "5e84b5132427624d926abe28fad788d89ed2431c"
+    }
+  },
+  "repo": "/mnt/hp-data/codex-work/foto-build17-integration-review",
+  "required_checks": [
+    "Test & Lint Server",
+    "Medium Tests (Server)",
+    "OpenAPI Clients",
+    "SQL Schema Checks",
+    "Verify migration ORDER",
+    "Unit Test Mobile",
+    "Run Dart Code Analysis"
+  ],
+  "signing": {
+    "certificate_sha256": "REPLACE_WITH_TRUSTED_EXISTING_CERTIFICATE_SHA256",
+    "keystore": "/REPLACE_WITH_EXISTING_PRIVATE_KEY_PATH",
+    "properties": "/REPLACE_WITH_EXISTING_PRIVATE_KEY_PROPERTIES_PATH"
+  },
+  "state": "/mnt/hp-data/codex-work/foto-build17-release-state"
+}
