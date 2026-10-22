@@ -3,7 +3,8 @@ set -euo pipefail
 umask 077
 # Optional per-owner/root captures are read by the existing local recovery helper.
 # This file stays usable as a standalone NAS diagnostic when no captures are supplied.
-export GALLERY_RECOVERY_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+GALLERY_RECOVERY_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export GALLERY_RECOVERY_SCRIPT_DIR
 python3 - <<'PY'
 import collections, contextlib, getpass, hashlib, importlib.util, json, os, pwd, re
 import shutil, ssl, stat, subprocess, sys, tempfile, time, urllib.parse, urllib.request, warnings, uuid

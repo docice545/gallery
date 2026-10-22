@@ -124,6 +124,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Preserve source version for pilot branding
+        id: pilot-version
+        shell: bash
+        run: |
+          echo "version=$(awk -F'[ +]' '/^version:/ {print $2}' mobile/pubspec.yaml)" >> "$GITHUB_OUTPUT"
+          echo "build=$(awk -F'[ +]' '/^version:/ {print $3}' mobile/pubspec.yaml)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/apply-branding
+        with:
+          version: ${{ steps.pilot-version.outputs.version }}
+          build_number: ${{ steps.pilot-version.outputs.build }}
       - name: Setup Mise
         uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
         with:
