@@ -6,6 +6,7 @@ enum ServerCapability {
   bulkCloudIdMetadata(SemVer(major: 2, minor: 5, patch: 0)),
   assetEdits(SemVer(major: 2, minor: 6, patch: 0)),
   assetFacesV2(SemVer(major: 2, minor: 6, patch: 0)),
+  assetFacesV3(SemVer(major: 2, minor: 7, patch: 0)),
   syncV2(SemVer(major: 3, minor: 0, patch: 0)),
   assetOcr(SemVer(major: 3, minor: 0, patch: 0)),
 

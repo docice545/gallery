@@ -24,6 +24,18 @@ class SyncApiRepository {
     return _api.syncApi.deleteSyncAck(SyncAckDeleteDto(types: Optional.present(types)));
   }
 
+  /// Core sync types introduced after capability signalling (M14). These must ONLY be sent
+  /// when the server explicitly declares support via GET /server/features (syncRequestTypes).
+  /// They are not included in the version-gate fallback because no pre-declaration server
+  /// can accept them.
+  static const _coreSyncTypesV2 = [
+    SyncRequestType.authUsersV2,
+    SyncRequestType.memoriesV2,
+    SyncRequestType.memoryToAssetsV2,
+    SyncRequestType.assetFacesV3,
+    SyncRequestType.assetFavoritesV1,
+  ];
+
   /// The Phase-2B space-album request types that are safe to send from the `serverVersion >
   /// 5.0.0` fallback below: the original five that every fork server shipping version-gated
   /// space albums accepts, plus the per-member hidden-album rows from #1041, which ride the
@@ -85,7 +97,7 @@ class SyncApiRepository {
           SyncRequestType.partnerStacksV1,
           SyncRequestType.userMetadataV1,
           SyncRequestType.peopleV1,
-          serverVersion.supports(.assetFacesV2) ? SyncRequestType.assetFacesV2 : SyncRequestType.assetFacesV1,
+          serverVersion.supports(.assetFacesV3) ? SyncRequestType.assetFacesV3 : serverVersion.supports(.assetFacesV2) ? SyncRequestType.assetFacesV2 : SyncRequestType.assetFacesV1,
           if (serverVersion.supports(.assetOcr)) SyncRequestType.assetOcrV1,
           // --- gallery-fork: shared-space + library sync types ---
           //
@@ -148,6 +160,7 @@ class SyncApiRepository {
           // not the full _spaceAlbumSyncTypes list.
           if (supportedSyncTypes != null)
             ...(_spaceAlbumSyncTypes.where((type) => supportedSyncTypes.contains(type.toJson())))
+            ...(_coreSyncTypesV2.where((type) => supportedSyncTypes.contains(type.toJson())))
           else if (serverVersion > const SemVer(major: 5, minor: 0, patch: 0))
             ..._legacySpaceAlbumSyncTypes,
         ],
@@ -332,6 +345,13 @@ const _kResponseMap = <SyncEntityType, Function(Object)>{
   SyncEntityType.sharedSpaceAlbumHiddenV1: SyncSharedSpaceAlbumHiddenV1.fromJson,
   SyncEntityType.sharedSpaceAlbumHiddenBackfillV1: SyncSharedSpaceAlbumHiddenV1.fromJson,
   SyncEntityType.sharedSpaceAlbumHiddenDeleteV1: SyncSharedSpaceAlbumHiddenDeleteV1.fromJson,
+  // --- gallery-fork: v2 sync types (previously unhandled) ---
+  SyncEntityType.authUserV2: SyncAuthUserV2.fromJson,
+  SyncEntityType.memoryV2: SyncMemoryV2.fromJson,
+  SyncEntityType.memoryToAssetV2: SyncMemoryAssetV1.fromJson,
+  SyncEntityType.assetFaceV3: SyncAssetFaceV2.fromJson,
+  SyncEntityType.assetFavoriteV1: SyncAssetFavoriteV1.fromJson,
+  SyncEntityType.assetFavoriteDeleteV1: SyncAssetFavoriteDeleteV1.fromJson,
 };
 
 class _SyncEmptyDto {

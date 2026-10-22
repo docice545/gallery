@@ -2140,6 +2140,144 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
+
+  Future<void> updateAuthUsersV2(Iterable<SyncAuthUserV2> data) async {
+    try {
+      await _db.batch((batch) {
+        for (final user in data) {
+          final companion = AuthUserEntityCompanion(
+            name: Value(user.name),
+            email: Value(user.email),
+            hasProfileImage: Value(user.hasProfileImage),
+            profileChangedAt: Value(user.profileChangedAt),
+            avatarColor: Value(user.avatarColor.orElse(null)?.toAvatarColor() ?? AvatarColor.primary),
+            isAdmin: Value(user.isAdmin),
+            pinCode: Value(user.pinCode),
+            quotaSizeInBytes: Value(user.quotaSizeInBytes ?? 0),
+            quotaUsageInBytes: Value(user.quotaUsageInBytes),
+          );
+
+          batch.insert(
+            _db.authUserEntity,
+            companion.copyWith(id: Value(user.id)),
+            onConflict: DoUpdate((_) => companion),
+          );
+        }
+      });
+    } catch (error, stack) {
+      _logger.severe('Error: SyncAuthUserV2', error, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> updateMemoriesV2(Iterable<SyncMemoryV2> data) async {
+    try {
+      await _db.batch((batch) {
+        for (final memory in data) {
+          final companion = MemoryEntityCompanion(
+            createdAt: Value(memory.createdAt),
+            deletedAt: Value(memory.deletedAt),
+            ownerId: Value(memory.ownerId),
+            type: Value(memory.type.toMemoryType()),
+            data: Value(jsonEncode(memory.data)),
+            isSaved: Value(memory.isSaved),
+            memoryAt: Value(memory.memoryAt),
+            seenAt: Value.absentIfNull(memory.seenAt),
+            showAt: Value.absentIfNull(memory.showAt),
+            hideAt: Value.absentIfNull(memory.hideAt),
+          );
+
+          batch.insert(
+            _db.memoryEntity,
+            companion.copyWith(id: Value(memory.id)),
+            onConflict: DoUpdate((_) => companion),
+          );
+        }
+      });
+    } catch (error, stack) {
+      _logger.severe('Error: updateMemoriesV2', error, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> updateMemoryAssetsV2(Iterable<SyncMemoryAssetV1> data) async {
+    try {
+      final deferred = await _insertMemoryAssetLinks([for (final link in data) (link.memoryId, link.assetId)]);
+      if (deferred.isNotEmpty) {
+        _deferredMemoryAssets.addAll(deferred);
+        _logger.fine('Deferred ${deferred.length} memory asset link(s) until their memory/asset arrives');
+      }
+    } catch (error, stack) {
+      _logger.severe('Error: updateMemoryAssetsV2', error, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> updateAssetFacesV3(Iterable<SyncAssetFaceV2> data) async {
+    try {
+      await _db.batch((batch) {
+        for (final assetFace in data) {
+          final companion = AssetFaceEntityCompanion(
+            assetId: Value(assetFace.assetId),
+            personId: Value(assetFace.personId),
+            imageWidth: Value(assetFace.imageWidth),
+            imageHeight: Value(assetFace.imageHeight),
+            boundingBoxX1: Value(assetFace.boundingBoxX1),
+            boundingBoxY1: Value(assetFace.boundingBoxY1),
+            boundingBoxX2: Value(assetFace.boundingBoxX2),
+            boundingBoxY2: Value(assetFace.boundingBoxY2),
+            sourceType: Value(assetFace.sourceType),
+            deletedAt: Value(assetFace.deletedAt),
+            isVisible: Value(assetFace.isVisible),
+          );
+
+          batch.insert(
+            _db.assetFaceEntity,
+            companion.copyWith(id: Value(assetFace.id)),
+            onConflict: DoUpdate((_) => companion),
+          );
+        }
+      });
+    } catch (error, stack) {
+      _logger.severe('Error: updateAssetFacesV3', error, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> updateAssetFavoritesV1(Iterable<SyncAssetFavoriteV1> data) async {
+    try {
+      await _db.batch((batch) {
+        for (final favorite in data) {
+          batch.update(
+            _db.remoteAssetEntity,
+            RemoteAssetEntityCompanion(isFavorite: const Value(true)),
+            where: (row) => row.id.equals(favorite.assetId),
+          );
+        }
+      });
+    } catch (error, stack) {
+      _logger.severe('Error: updateAssetFavoritesV1', error, stack);
+      rethrow;
+    }
+  }
+
+  Future<void> deleteAssetFavoritesV1(Iterable<SyncAssetFavoriteDeleteV1> data) async {
+    try {
+      await _db.batch((batch) {
+        for (final favorite in data) {
+          batch.update(
+            _db.remoteAssetEntity,
+            RemoteAssetEntityCompanion(isFavorite: const Value(false)),
+            where: (row) => row.id.equals(favorite.assetId),
+          );
+        }
+      });
+    } catch (error, stack) {
+      _logger.severe('Error: deleteAssetFavoritesV1', error, stack);
+      rethrow;
+    }
+  }
+
   Future<void> pruneAssets() async {
     try {
       await _db.transaction(() async {
