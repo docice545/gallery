@@ -74,7 +74,18 @@ class SyncApiRepository {
 
     final request = http.AbortableRequest('POST', Uri.parse(endpoint), abortTrigger: abortSignal);
     request.headers.addAll(headers);
-    request.body = jsonEncode(
+        // Pre-compute the space-album sync types so they can be spread conditionally
+        // inside a collection literal (collection-if allows only one expression).
+        final List<SyncRequestType> spaceAlbumTypes =
+            supportedSyncTypes != null
+                ? [..._spaceAlbumSyncTypes, ..._coreSyncTypesV2]
+                      .where((type) => supportedSyncTypes.contains(type.toJson()))
+                      .toList()
+                : serverVersion > const SemVer(major: 5, minor: 0, patch: 0)
+                    ? _legacySpaceAlbumSyncTypes
+                    : <SyncRequestType>[],
+
+request.body = jsonEncode(
       SyncStreamDto(
         types: [
           SyncRequestType.authUsersV1,
@@ -120,17 +131,6 @@ class SyncApiRepository {
           SyncRequestType.libraryAssetsV1,
           SyncRequestType.libraryAssetExifsV1,
           SyncRequestType.sharedSpaceLibrariesV1,
-
-          // Pre-compute the space-album sync types so they can be spread conditionally
-          // inside a collection literal (collection-if allows only one expression).
-          final List<SyncRequestType> spaceAlbumTypes =
-              supportedSyncTypes != null
-                  ? [..._spaceAlbumSyncTypes, ..._coreSyncTypesV2]
-                        .where((type) => supportedSyncTypes.contains(type.toJson()))
-                        .toList()
-                  : serverVersion > const SemVer(major: 5, minor: 0, patch: 0)
-                      ? _legacySpaceAlbumSyncTypes
-                      : <SyncRequestType>[],
 
           // --- gallery-fork: shared-space album sync types (Phase 2B) ---
           //
