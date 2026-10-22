@@ -1,0 +1,207 @@
+{
+  "sourceCommit": "8303cb117e197c700332b33b61b45314c9cc5bb4",
+  "sourceTag": "v3.3.5",
+  "schemas": {
+    "SyncAuthUserV2": {
+      "type": "object",
+      "required": [
+        "deletedAt",
+        "email",
+        "hasProfileImage",
+        "id",
+        "isAdmin",
+        "name",
+        "oauthId",
+        "pinCode",
+        "profileChangedAt",
+        "quotaSizeInBytes",
+        "quotaUsageInBytes",
+        "storageLabel"
+      ],
+      "properties": {
+        "avatarColor": {
+          "nullable": true,
+          "allOf": [
+            {
+              "type": "string",
+              "enum": ["primary", "pink", "red", "yellow", "blue", "green", "purple", "orange", "gray", "amber"]
+            }
+          ]
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "email": {
+          "type": "string"
+        },
+        "hasProfileImage": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "isAdmin": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "oauthId": {
+          "type": "string",
+          "nullable": true
+        },
+        "pinCode": {
+          "type": "string",
+          "nullable": true
+        },
+        "profileChangedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "quotaSizeInBytes": {
+          "type": "integer",
+          "nullable": true
+        },
+        "quotaUsageInBytes": {
+          "type": "integer"
+        },
+        "storageLabel": {
+          "type": "string",
+          "nullable": true
+        }
+      }
+    },
+    "SyncMemoryV2": {
+      "type": "object",
+      "required": [
+        "createdAt",
+        "data",
+        "deletedAt",
+        "hideAt",
+        "id",
+        "isSaved",
+        "memoryAt",
+        "ownerId",
+        "seenAt",
+        "showAt",
+        "type",
+        "updatedAt"
+      ],
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "data": {
+          "type": "object"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "hideAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "isSaved": {
+          "type": "boolean"
+        },
+        "memoryAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ownerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "seenAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "showAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "type": {
+          "type": "string",
+          "enum": ["on_this_day", "birthday"]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SyncAssetFaceV3": {
+      "type": "object",
+      "required": [
+        "assetId",
+        "boundingBoxX1",
+        "boundingBoxX2",
+        "boundingBoxY1",
+        "boundingBoxY2",
+        "deletedAt",
+        "id",
+        "imageHeight",
+        "imageWidth",
+        "isVisible",
+        "personId",
+        "sourceType"
+      ],
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "boundingBoxX1": {
+          "type": "integer"
+        },
+        "boundingBoxX2": {
+          "type": "integer"
+        },
+        "boundingBoxY1": {
+          "type": "integer"
+        },
+        "boundingBoxY2": {
+          "type": "integer"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "imageHeight": {
+          "type": "integer"
+        },
+        "imageWidth": {
+          "type": "integer"
+        },
+        "isVisible": {
+          "type": "boolean"
+        },
+        "personId": {
+          "type": "string",
+          "nullable": true
+        },
+        "sourceType": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
