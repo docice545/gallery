@@ -20,6 +20,9 @@ import tomllib
 import uuid
 import zipfile
 
+# Startup and --check must not create __pycache__ beside a versioned install.
+sys.dont_write_bytecode = True
+
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('foto_release_stage_runner', HERE / 'foto-stage-runner.py')
 runner = importlib.util.module_from_spec(spec)
@@ -34,7 +37,8 @@ ROLES = {'editor': 'codex/foto-build17-editor-compact', 'compatibility': 'codex/
 REQUIRED_CHECKS = {
     'editor': {'Unit Test Mobile', 'Run Dart Code Analysis'},
     'compatibility': {'Test & Lint Server', 'Medium Tests (Server)', 'OpenAPI Clients', 'SQL Schema Checks',
-                      'Verify migration ORDER', 'Unit Test Mobile', 'Run Dart Code Analysis'},
+                      'Verify migration ORDER', 'Unit Test Mobile', 'Run Dart Code Analysis',
+                      'check-openapi', 'check-mobile-patches', 'Test Web', 'Lint Web', 'End-to-End Tests Success'},
 }
 SUCCESS = {'success', 'neutral', 'skipped'}
 
@@ -77,9 +81,12 @@ def api(path):
 
 def checks_green(checks, required):
     need(checks, 'CI_UNKNOWN')
-    names = {c['name']: c for c in checks}
     for name in required:
-        need(name in names and names[name]['status'] == 'completed' and names[name]['conclusion'] == 'success',
+        matching = [c for c in checks if c['name'] == name]
+        # API order is not an attempt selector. Never let an older success mask
+        # a skipped/unknown required attempt; ambiguous names need review.
+        need(len(matching) <= 1, 'CI_REQUIRED_CHECK_AMBIGUOUS')
+        need(matching and matching[0]['status'] == 'completed' and matching[0]['conclusion'] == 'success',
              'REQUIRED_CI_NOT_SUCCESS')
     # Skipped optional jobs are not counted as tests. Cancelled or red jobs block admission.
     need(all(c['status'] == 'completed' and c['conclusion'] in SUCCESS for c in checks), 'CI_RED_PENDING_OR_UNKNOWN')
@@ -684,6 +691,7 @@ def recipes_for(repo):
                'test/pages/edit/editor_color_pipeline_test.dart', 'test/pages/edit/editor_save_retry_test.dart',
                'test/pages/edit/magic_eraser_editor_integration_test.dart',
                'test/domain/services/sync_stream_service_test.dart', 'test/providers/backup/backup_provider_test.dart',
+               'test/infrastructure/repositories/memory_v2_journal_test.dart',
                'test/infrastructure/repositories/trash_pending_operations_test.dart',
                'test/infrastructure/repositories/trash_sync_visibility_test.dart']
     for name in [*('server/' + x for x in unit), *('server/test/medium/specs/' + x for x in medium),

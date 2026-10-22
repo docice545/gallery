@@ -20,6 +20,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 app = importlib.util.module_from_spec(spec)
 loader.exec_module(app)
 REAL_GIT = app.git
+REAL_REQUIRED_CHECKS = copy.deepcopy(app.REQUIRED_CHECKS)
 
 
 class ReleaseTest(unittest.TestCase):
@@ -178,6 +179,24 @@ class ReleaseTest(unittest.TestCase):
     def test_green_checks_accept_optional_skip_not_as_test(self):
         app.checks_green([{'name': 'Contract', 'status': 'completed', 'conclusion': 'success'},
                           {'name': 'Docs', 'status': 'completed', 'conclusion': 'skipped'}], ['Contract'])
+
+    def test_required_check_duplicates_cannot_hide_a_skipped_attempt(self):
+        success = {'name': 'Contract', 'status': 'completed', 'conclusion': 'success'}
+        skipped = {**success, 'conclusion': 'skipped'}
+        for checks in ([skipped, success], [success, skipped], [success, success]):
+            with self.subTest(checks=checks), self.assertRaisesRegex(app.Stop, 'CI_REQUIRED_CHECK_AMBIGUOUS'):
+                app.checks_green(checks, ['Contract'])
+
+    def test_cli_startup_does_not_write_beside_versioned_install(self):
+        installed = self.root / 'installed'
+        installed.mkdir()
+        for name in ('foto-build17-release', 'foto-stage-runner.py'):
+            (installed / name).write_bytes(SCRIPT.with_name(name).read_bytes())
+        env = {k: v for k, v in os.environ.items() if k not in ('PYTHONDONTWRITEBYTECODE', 'PYTHONPYCACHEPREFIX')}
+        result = subprocess.run([sys.executable, str(installed / SCRIPT.name), '--help'], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual({p.name for p in installed.iterdir()}, {'foto-build17-release', 'foto-stage-runner.py'})
 
     def test_editor_gate_does_not_require_unchanged_server_job(self):
         self.c['required_checks']['editor'] = ['Mobile']
@@ -541,6 +560,20 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(app.Stop, 'REQUIRED_CI_CANNOT_BE_REMOVED'):
             app.config(cfg)
 
+    def test_protocol_web_and_e2e_gates_cannot_be_removed(self):
+        required = {'check-openapi', 'check-mobile-patches', 'Test Web', 'Lint Web', 'End-to-End Tests Success'}
+        self.assertTrue(required <= REAL_REQUIRED_CHECKS['compatibility'])
+        self.c['required_checks'] = {role: sorted(checks) for role, checks in REAL_REQUIRED_CHECKS.items()}
+        cfg = self.root / 'strict-config.json'
+        with patch.object(app, 'REQUIRED_CHECKS', REAL_REQUIRED_CHECKS):
+            for name in required:
+                candidate = copy.deepcopy(self.c)
+                candidate['required_checks']['compatibility'].remove(name)
+                cfg.write_text(json.dumps(candidate))
+                cfg.chmod(0o600)
+                with self.subTest(name=name), self.assertRaisesRegex(app.Stop, 'REQUIRED_CI_CANNOT_BE_REMOVED'):
+                    app.config(cfg)
+
     def test_no_mode_and_mutually_exclusive_modes(self):
         for args in ([], ['--test', '--build']):
             result = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True)
@@ -551,6 +584,7 @@ class ReleaseTest(unittest.TestCase):
             recipes = app.recipes_for(self.repo)
         commands = [cmd for _, _, cmd, _ in recipes]
         self.assertTrue(any('test/pages/edit/editor_compact_layout_test.dart' in cmd for cmd in commands))
+        self.assertTrue(any('test/infrastructure/repositories/memory_v2_journal_test.dart' in cmd for cmd in commands))
         for name, _, cmd, _ in recipes:
             if name.startswith(('unit-', 'medium-')):
                 self.assertIn('--maxWorkers=1', cmd)

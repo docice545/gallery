@@ -9,7 +9,7 @@
       "approval_note": "",
       "approved": false,
       "number": 7,
-      "sha": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede"
+      "sha": "2364b82e9246a08174ad6d5278bc7227388e8e31"
     },
     "editor": {
       "approval_note": "",
@@ -27,7 +27,12 @@
       "SQL Schema Checks",
       "Verify migration ORDER",
       "Unit Test Mobile",
-      "Run Dart Code Analysis"
+      "Run Dart Code Analysis",
+      "check-openapi",
+      "check-mobile-patches",
+      "Test Web",
+      "Lint Web",
+      "End-to-End Tests Success"
     ],
     "editor": ["Unit Test Mobile", "Run Dart Code Analysis"]
   },
