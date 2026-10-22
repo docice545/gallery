@@ -310,7 +310,7 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm exec vitest \
 Машиночитаемые результаты, method/path comparison и SHA-256 неизменённых
 защитных исходников: [results.json](2026-10-22-stock-client-compatibility-results.json).
 Последний проверенный code commit:
-`289807cc3bd3a09b87e70c74b9b582bbd5f893f3`. После первоначального 57006e191
+`923d89de6cfa26467c3074d3ef1f7900d91db5fc`. После первоначального 57006e191
 исправлены explicit medium fixtures и schema metadata/generation; storage guard
 functions, применённые миграции и media workflows не изменены. Отчёты не заменяют native E2E.
 
@@ -405,3 +405,23 @@ overlay. Затем, как прежде, проверяет отказ в от�
 данные, не отключает rollback guard и не заменяет отдельную проверку upgrade со
 **всеми** актуальными миграциями. Совместимость latest production downgrade всё
 ещё NOT VERIFIED. Оба изменённых файла прошли ESLint и TypeScript.
+
+### Подтверждённый GitHub результат и финальный codegen context
+
+- **SQL Schema Checks PASS в GitHub** на `3194ced8f`: [job 119715287262](https://github.com/docice545/gallery/actions/runs/39746061469/job/119715287262).
+  Сам job/status проверен API; это дополнение к локальным проверкам, не inference
+  из unit mocks. Миграции/reset/schema comparison/SQL snapshots прошли.
+- OpenAPI Clients на том HEAD ещё FAIL. Добавленная ограниченная annotation
+  публичного generated diff выявила **raw, неотформатированный spec**. Причина:
+  `server/.prettierignore` содержит `*.json`; ранняя проверка из корня не
+  воспроизводила этот cwd. Первый formatter fix был неполон.
+- Финальные commands используют явный JSON config и empty ignore path для
+  конкретного generated spec. SDK получил собственный config, сохраняющий
+  существующие single quotes/80 columns. Глобальные ignore rules и проверка
+  diff/exit 1 не отключены. **Две генерации из реальных cwd `server/` и root
+  прошли с теми же двумя SHA-256; файлы spec и SDK остались побайтно прежними.**
+  Старое root-only reproduction не используется как доказательство исправления
+  cwd-проблемы. Новый результат: `foto-compat-codegen-exact-cwd.json`.
+- Последний codegen context проверен в `923d89de6`; его GitHub rerun до получения
+  фактического результата не объявляется успешным. Native E2E и прочие общие
+  CI-ограничения выше сохраняются.

@@ -1,6 +1,32 @@
 {
   "additionalFixtureCommit": "3021cbff08bcb59867d6547ffa9cd58fccbdb8aa",
   "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "codegenExactCwd": [
+    {
+      "explicitFormatterConfig": true,
+      "explicitIgnorePath": "/dev/null",
+      "iteration": 1,
+      "sdkFormatterConfig": "packages/sdk/.prettierrc",
+      "serverCwd": "server",
+      "sha256": {
+        "open-api/immich-openapi-specs.json": "12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243",
+        "packages/sdk/src/fetch-client.ts": "f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f"
+      },
+      "unchanged": true
+    },
+    {
+      "explicitFormatterConfig": true,
+      "explicitIgnorePath": "/dev/null",
+      "iteration": 2,
+      "sdkFormatterConfig": "packages/sdk/.prettierrc",
+      "serverCwd": "server",
+      "sha256": {
+        "open-api/immich-openapi-specs.json": "12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243",
+        "packages/sdk/src/fetch-client.ts": "f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f"
+      },
+      "unchanged": true
+    }
+  ],
   "codegenReproducibility": [
     {
       "iteration": 1,
@@ -53,13 +79,20 @@
       "server/src/utils/recovery-evidence.spec.ts"
     ],
     "changelogLabel": "changelog:enhancement added",
+    "generatedAPIContextFailure": "Server cwd ignore *.json skipped initial formatter; final explicit config/empty ignore path and SDK config reproduce exact artifacts twice. GitHub rerun not asserted yet.",
     "generatedGatesLocalResolution": "Formatted codegen produces identical spec/SDK twice. Strict CLI drift empty and exact guards test passes. SQL snapshots regenerated. GitHub rerun not asserted green.",
     "imageAndMobileBuildRuns": "Cancelled because outside task scope",
     "initialHead": "d82dc7bc5989418d4fb66c9c4592cf1482ac21f1",
     "mediumFixtureFailure": "Corrected explicit favorites repository wiring; two files passed and stack file passed after focused rerun. Full CI rerun not asserted.",
     "openapiGate": "FAIL: response enum additions; gate compares main rather than PR base. No rule disabled.",
     "overall": "NOT GREEN",
-    "shellcheckAndDart": "FAIL; exact cause NOT VERIFIED: annotations contain only exit status, full logs Forbidden"
+    "shellcheckAndDart": "FAIL; exact cause NOT VERIFIED: annotations contain only exit status, full logs Forbidden",
+    "verifiedSQLSchemaCheck": {
+      "conclusion": "success",
+      "head": "3194ced8faa114d2567826ca753533fbdc7cc047",
+      "jobId": 119715287262,
+      "url": "https://github.com/docice545/gallery/actions/runs/39746061469/job/119715287262"
+    }
   },
   "immutableDeletionMigration": {
     "path": "server/src/schema/migrations-gallery/1793600000000-AddAuthorizedAssetDeletion.ts",
@@ -331,7 +364,7 @@
       "summary": ["Test Files  1 passed (1)", "Tests  1 passed | 6 skipped (7)"]
     }
   ],
-  "testedCodeCommit": "289807cc3bd3a09b87e70c74b9b582bbd5f893f3",
+  "testedCodeCommit": "923d89de6cfa26467c3074d3ef1f7900d91db5fc",
   "upstreams": {
     "immich-3.3.5": {
       "matchedMethodPath": 268,
