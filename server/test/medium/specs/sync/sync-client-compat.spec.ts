@@ -5,7 +5,7 @@ import { AssetEditRepository } from 'src/repositories/asset-edit.repository.js';
 import { SyncRepository } from 'src/repositories/sync.repository.js';
 import { DB } from 'src/schema/index.js';
 import { SyncTestContext } from 'test/medium.factory.js';
-import { getKyselyDB } from 'test/utils.js';
+import { getKyselyDB, wait } from 'test/utils.js';
 
 let db: Kysely<DB>;
 beforeAll(async () => {
@@ -189,4 +189,55 @@ it('does not acknowledge over an offline-index change racing the invalidation ch
   const next = await ctx.syncStream(auth, [SyncRequestType.AssetsV2]);
   expect(next.map((e) => e.type)).toEqual([SyncEntityType.SyncResetV1]);
   expect(raced.some((e) => e.type === SyncEntityType.AssetDeleteV1)).toBe(false);
+});
+
+it('rebuilds original album and metadata links when an external index returns online', async () => {
+  const ctx = new SyncTestContext(db);
+  const { auth, user } = await ctx.newSyncAuthUser();
+  const { library } = await ctx.newLibrary({ ownerId: user.id });
+  const { asset } = await ctx.newAsset({
+    ownerId: user.id,
+    libraryId: library.id,
+    isExternal: true,
+    status: AssetStatus.Active,
+    deletedAt: new Date(),
+    isOffline: true,
+  });
+  await ctx.newExif({ assetId: asset.id, exifImageWidth: 100, exifImageHeight: 80 });
+  const { album } = await ctx.newAlbum({ ownerId: user.id });
+  await ctx.newAlbumAsset({ albumId: album.id, assetId: asset.id });
+  // Advance all relevant entity ACKs past the hidden rows, not just SyncComplete.
+  await wait(2);
+  const { asset: anchor } = await ctx.newAsset({ ownerId: user.id });
+  await ctx.newExif({ assetId: anchor.id, exifImageWidth: 200, exifImageHeight: 160 });
+  await ctx.newAlbumAsset({ albumId: album.id, assetId: anchor.id });
+  const types = [
+    SyncRequestType.AssetsV2,
+    SyncRequestType.AssetExifsV1,
+    SyncRequestType.AlbumsV2,
+    SyncRequestType.AlbumToAssetsV1,
+  ];
+  const hidden = await ctx.syncStream(auth, types);
+  await ctx.syncAckAll(auth, hidden);
+  await db.updateTable('asset').set({ deletedAt: null, isOffline: false }).where('id', '=', asset.id).execute();
+  let restored = await ctx.syncStream(auth, types);
+  if (restored.some((e) => e.type === SyncEntityType.SyncResetV1)) {
+    await ctx.syncAckAll(auth, restored);
+    restored = await ctx.syncStream(auth, types);
+  }
+  expect(restored).toContainEqual(
+    expect.objectContaining({
+      type: SyncEntityType.AssetV2,
+      data: expect.objectContaining({ id: asset.id, deletedAt: null }),
+    }),
+  );
+  expect(restored).toContainEqual(
+    expect.objectContaining({ type: SyncEntityType.AssetExifV1, data: expect.objectContaining({ assetId: asset.id }) }),
+  );
+  expect(restored).toContainEqual(
+    expect.objectContaining({
+      type: SyncEntityType.AlbumToAssetV1,
+      data: expect.objectContaining({ assetId: asset.id, albumId: album.id }),
+    }),
+  );
 });

@@ -86,11 +86,16 @@ export class SyncRepository {
   async hasIndexTombstoneChanges(afterUpdateId: string) {
     // A reset is harmless for unrelated sessions. Global invalidation also covers every
     // album/partner/space route without leaking which inaccessible asset changed.
+    // Also cover external indexes coming ONLINE: their old FK/EXIF rows did not
+    // advance while hidden. Conservatively refresh for active external updates;
+    // managed uploads remain incremental and no catalog/media data is mutated.
     const row = await this.db
       .selectFrom('asset')
       .select('id')
       .where('status', '=', AssetStatus.Active)
-      .where('deletedAt', 'is not', null)
+      .where((eb) =>
+        eb.or([eb('deletedAt', 'is not', null), eb('libraryId', 'is not', null), eb('isExternal', '=', true)]),
+      )
       .where('updateId', '>', afterUpdateId)
       .limit(1)
       .executeTakeFirst();
