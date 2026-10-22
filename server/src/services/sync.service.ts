@@ -7,13 +7,13 @@ import { OnJob } from 'src/decorators.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
 import {
+  LegacySyncEntityTypeSchema,
   SyncAckDeleteDto,
   SyncAckSetDto,
   SyncAssetV1,
   SyncAssetV2,
   SyncItem,
   SyncStreamDto,
-  LegacySyncEntityTypeSchema,
   syncAlbumV2ToV1,
 } from 'src/dtos/sync.dto.js';
 import { AssetStatus, JobName, MemoryType, QueueName, SyncEntityType, SyncRequestType } from 'src/enum.js';
