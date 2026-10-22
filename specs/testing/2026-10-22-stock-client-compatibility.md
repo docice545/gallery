@@ -309,10 +309,10 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm exec vitest \
 
 Машиночитаемые результаты, method/path comparison и SHA-256 неизменённых
 защитных исходников: [results.json](2026-10-22-stock-client-compatibility-results.json).
-Исходные файлы и tests относятся к code commit
-`57006e191fb0f167d1211d977d9ab8ea15f87d8e`. Дополнительные medium fixtures
-исправлены и проверены в `3021cbff08bcb59867d6547ffa9cd58fccbdb8aa`; runtime
-backend после 57006e191 не менялся. Отчёты не заменяют native E2E.
+Последний проверенный code commit:
+`6675b91a17bad1f7589f4a45b093b0ce7407f8ba`. После первоначального 57006e191
+исправлены explicit medium fixtures и schema metadata/generation; storage guard
+functions, применённые миграции и media workflows не изменены. Отчёты не заменяют native E2E.
 
 Итог: конкретные backend блокеры B1–B7 закрыты целевыми проверками. Не выявлено
 нового blocker в рассмотренных caller paths; полная эксплуатационная
@@ -353,3 +353,38 @@ PR: [docice545/gallery/pull/7](https://github.com/docice545/gallery/pull/7).
 Новые изменённые fixtures проверены отдельно; успешно пройденные тяжёлые наборы
 не перезапускались. Статус общего CI нужно читать отдельно от целевых backend
 PASS. **PR не следует объединять, считая общий CI или native E2E завершёнными.**
+
+### Доработка связанных generated gates
+
+После предыдущего CI проверены и исправлены ещё два воспроизводимых дефекта:
+
+1. **OpenAPI Clients reproducibility.** Pipeline генерировал raw JSON/TypeScript,
+   а сохранённые файлы были отформатированы. В существующие `mise` tasks добавлен
+   штатный Prettier после генерации spec и SDK, без изменения семантики контрактов.
+   Две последовательные генерации точных subcommands дали **нулевой diff**:
+   spec SHA-256 `12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243`,
+   SDK SHA-256 `f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f`.
+   `mise` executable в Cloud отсутствует: выполнены его Node/formatter/oazapfts
+   subcommands, TOML разобран штатным parser. Контрактный rerun: **6/6 PASS**.
+2. **SQL Schema Checks.** Строгий migration CLI, в отличие от runtime drift
+   check, предлагал `DROP TRIGGER` для `gallery_block_deleted_asset` и
+   `gallery_lock_asset_file_path`. Это существующие migration-owned `UPDATE OF`
+   guards; sql-tools не умеет моделировать список колонок trigger event. Их
+   имена теперь зарегистрированы в schema metadata с `synchronize:false`.
+   Это **не отключение триггеров PostgreSQL** и не изменение старой миграции:
+   существующий DDL сохраняется. Новая независимая PostgreSQL-проверка требует
+   оба exact `pg_get_triggerdef`, `tgenabled='O'`, нулевой строгий CLI diff и
+   отсутствие SQL на изменение guards. **2/2 PASS**. Широкий `ignoreExtra`
+   в CLI не добавлялся; DDL не подменялся новым менее строгим триггером.
+3. SQL snapshots обновлены штатным `dist/bin/sync-sql.js` против только временной
+   migrated PostgreSQL. Девять файлов отражают текущие repositories, в том числе
+   ранее не обновлённые base duplicateId/library-sync/memory queries. Это
+   generated documentation, не запуск очередей или новых production запросов.
+   Generator exit 0 не считается успешным исполнением всех dummy SQL: его
+   ожидаемые FK/no-result diagnostics не скрываются.
+
+Новые schema files/test проходят ESLint (0 warnings), TypeScript и Nest compile;
+77 fork migrations и 2 aliases по-прежнему копируются. Никакая проверка CI не
+отключена. GitHub-run на последнем опубликованном code ещё не считается PASS
+по результатам этих локальных проверок. Остальные перечисленные CI/native
+ограничения сохраняются до фактического результата.
