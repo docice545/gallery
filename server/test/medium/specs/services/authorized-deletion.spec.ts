@@ -546,8 +546,12 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
       expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toMatchObject([{ state: 'complete' }]);
       await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
       await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
-      const receipt = await f.repo.getDeletionReceipt(f.user.id, motion.id);
-      expect(receipt?.files[0].root).toBe(root);
+      const receipt = await db
+        .selectFrom('asset_deletion_tombstone')
+        .select('files')
+        .where('assetId', '=', motion.id)
+        .executeTakeFirstOrThrow();
+      expect(receipt.files[0].root).toBe(root);
     },
   );
 
