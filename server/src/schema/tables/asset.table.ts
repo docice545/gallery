@@ -8,8 +8,8 @@ import {
   Index,
   PrimaryGeneratedColumn,
   Table,
-  Trigger,
   type Timestamp,
+  Trigger,
   UpdateDateColumn,
 } from '@immich/sql-tools';
 import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
