@@ -4,12 +4,40 @@ import { InjectKysely } from 'nestjs-kysely';
 import type { SyncAck } from 'src/types.js';
 import { columns } from 'src/database.js';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
+import { AssetStatus, MemoryType } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { asUuid } from 'src/utils/database.js';
 import { accessibleSpaceAlbums, accessibleSpaces, spaceVisibilityGate } from 'src/utils/shared-space-album-scope.js';
 
 // Re-export the relocated scoping helpers so existing `sync.repository` importers
 // keep working after the definitions moved to the fork-owned scope module.
+
+// Use the same exclusion for assets AND their FK-bearing sync relations. Never turn an
+// offline catalog tombstone into AssetDeleteV1 (Android may delete a matching local file).
+const catalogAssetPresent = (assetId: Expression<unknown>) => sql<boolean>`not exists (
+  select 1 from asset as index_tombstone
+  where index_tombstone.id = ${assetId}
+    and index_tombstone.status = ${AssetStatus.Active}
+    and index_tombstone."deletedAt" is not null
+)`;
+
+const catalogRowPresent = (table: keyof DB) => {
+  const keys: Partial<Record<keyof DB, string>> = {
+    asset: 'id',
+    asset_exif: 'assetId',
+    asset_edit: 'assetId',
+    asset_face: 'assetId',
+    asset_metadata: 'assetId',
+    asset_ocr: 'assetId',
+    album_asset: 'assetId',
+    shared_space_asset: 'assetId',
+    album_space_asset: 'assetId',
+    memory_asset: 'assetId',
+    stack: 'primaryAssetId',
+  };
+  const key = keys[table];
+  return key ? catalogAssetPresent(sql.ref(`${table}.${key}`)) : sql<boolean>`true`;
+};
 
 export type SyncBackfillOptions = {
   nowId: string;
@@ -36,6 +64,8 @@ const dummyCreateAfterOptions = {
 };
 
 export type SyncQueryOptions = {
+  includeForkMemories?: boolean;
+  faceScope?: 'cluster';
   nowId: string;
   userId: string;
   ack?: SyncAck;
@@ -51,6 +81,20 @@ const dummyQueryOptions = {
 
 @Injectable()
 export class SyncRepository {
+  async hasIndexTombstoneChanges(afterUpdateId: string) {
+    // A reset is harmless for unrelated sessions. Global invalidation also covers every
+    // album/partner/space route without leaking which inaccessible asset changed.
+    const row = await this.db
+      .selectFrom('asset')
+      .select('id')
+      .where('status', '=', AssetStatus.Active)
+      .where('deletedAt', 'is not', null)
+      .where('updateId', '>', afterUpdateId)
+      .limit(1)
+      .executeTakeFirst();
+    return !!row;
+  }
+
   album: AlbumSync;
   albumAsset: AlbumAssetSync;
   albumAssetExif: AlbumAssetExifSync;
@@ -143,6 +187,7 @@ export class BaseSync {
 
     return this.db
       .selectFrom(table(t).as(t))
+      .where(catalogRowPresent(t))
       .where(updateIdRef, '<', nowId)
       .where(updateIdRef, '<=', beforeUpdateId)
       .$if(!!afterUpdateId, (qb) => qb.where(updateIdRef, '>', afterUpdateId!))
@@ -175,6 +220,7 @@ export class BaseSync {
 
     return this.db
       .selectFrom(table(t).as(t))
+      .where(catalogRowPresent(t))
       .where(updateIdRef, '<', nowId)
       .$if(!!ack, (qb) => qb.where(updateIdRef, '>', ack!.updateId))
       .orderBy(updateIdRef, 'asc');
@@ -239,6 +285,7 @@ class AlbumAssetSync extends BaseSync {
     return this.backfillQuery('album_asset', options)
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -259,6 +306,7 @@ class AlbumAssetSync extends BaseSync {
     return this.upsertQuery('asset', options)
       .innerJoin('album_asset', 'album_asset.assetId', 'asset.id')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -282,6 +330,7 @@ class AlbumAssetSync extends BaseSync {
       .select('album_asset.updateId')
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -303,6 +352,7 @@ class AlbumAssetExifSync extends BaseSync {
     return this.backfillQuery('album_asset', options)
       .innerJoin('asset_exif', 'asset_exif.assetId', 'album_asset.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('album_asset.updateId')
       .where('album_asset.albumId', '=', albumId)
       .stream();
@@ -314,6 +364,7 @@ class AlbumAssetExifSync extends BaseSync {
     return this.upsertQuery('asset_exif', options)
       .innerJoin('album_asset', 'album_asset.assetId', 'asset_exif.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('album_asset.updateId', '<=', albumToAssetAck.updateId) // Ensure we only send exif updates for assets that the client already knows about
       .innerJoin('album_user', 'album_user.albumId', 'album_asset.albumId')
@@ -328,6 +379,7 @@ class AlbumAssetExifSync extends BaseSync {
       .select('album_asset.updateId')
       .innerJoin('asset_exif', 'asset_exif.assetId', 'album_asset.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .innerJoin('album', 'album.id', 'album_asset.albumId')
       .leftJoin('album_user', 'album_user.albumId', 'album_asset.albumId')
       .where('album_user.userId', '=', userId)
@@ -440,6 +492,7 @@ class AssetSync extends BaseSync {
   getUpserts(options: SyncQueryOptions) {
     return this.upsertQuery('asset', options)
       .select(columns.syncAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select('asset.updateId')
       .where('ownerId', '=', options.userId)
       .stream();
@@ -503,7 +556,14 @@ class AssetFaceSync extends BaseSync {
     return this.auditQuery('asset_face_audit', options)
       .select(['asset_face_audit.id', 'assetFaceId'])
       .leftJoin('asset', 'asset.id', 'asset_face_audit.assetId')
-      .where('asset.ownerId', '=', options.userId)
+      .$if(options.faceScope !== 'cluster', (qb) => qb.where('asset.ownerId', '=', options.userId))
+      .$if(options.faceScope === 'cluster', (qb) =>
+        qb
+          .innerJoin('user as owner', 'owner.id', 'asset.ownerId')
+          .where('owner.clusterGroupId', '=', ({ selectFrom }) =>
+            selectFrom('user').select('clusterGroupId').where('id', '=', options.userId),
+          ),
+      )
       .stream();
   }
 
@@ -530,7 +590,14 @@ class AssetFaceSync extends BaseSync {
         'asset_face.updateId',
       ])
       .leftJoin('asset', 'asset.id', 'asset_face.assetId')
-      .where('asset.ownerId', '=', options.userId)
+      .$if(options.faceScope !== 'cluster', (qb) => qb.where('asset.ownerId', '=', options.userId))
+      .$if(options.faceScope === 'cluster', (qb) =>
+        qb
+          .innerJoin('user as owner', 'owner.id', 'asset.ownerId')
+          .where('owner.clusterGroupId', '=', ({ selectFrom }) =>
+            selectFrom('user').select('clusterGroupId').where('id', '=', options.userId),
+          ),
+      )
       .stream();
   }
 }
@@ -540,6 +607,7 @@ class AssetExifSync extends BaseSync {
   getUpserts(options: SyncQueryOptions) {
     return this.upsertQuery('asset_exif', options)
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('assetId', 'in', (eb) => eb.selectFrom('asset').select('id').where('ownerId', '=', options.userId))
       .stream();
@@ -611,7 +679,13 @@ class MemoryToAssetSync extends BaseSync {
   getDeletes(options: SyncQueryOptions) {
     return this.auditQuery('memory_asset_audit', options)
       .select(['id', 'memoryId', 'assetId'])
-      .where('memoryId', 'in', (eb) => eb.selectFrom('memory').select('id').where('ownerId', '=', options.userId))
+      .where('memoryId', 'in', (eb) =>
+        eb
+          .selectFrom('memory')
+          .select('id')
+          .where('ownerId', '=', options.userId)
+          .$if(!options.includeForkMemories, (qb) => qb.where('type', '=', MemoryType.OnThisDay)),
+      )
       .stream();
   }
 
@@ -623,8 +697,17 @@ class MemoryToAssetSync extends BaseSync {
   getUpserts(options: SyncQueryOptions) {
     return this.upsertQuery('memory_asset', options)
       .select(['memoriesId as memoryId', 'assetId as assetId'])
+      .$if(!options.includeForkMemories, (qb) =>
+        qb.where('assetId', 'in', (eb) => eb.selectFrom('asset').select('id').where('ownerId', '=', options.userId)),
+      )
       .select('updateId')
-      .where('memoriesId', 'in', (eb) => eb.selectFrom('memory').select('id').where('ownerId', '=', options.userId))
+      .where('memoriesId', 'in', (eb) =>
+        eb
+          .selectFrom('memory')
+          .select('id')
+          .where('ownerId', '=', options.userId)
+          .$if(!options.includeForkMemories, (qb) => qb.where('type', '=', MemoryType.OnThisDay)),
+      )
       .stream();
   }
 }
@@ -670,6 +753,7 @@ class PartnerAssetsSync extends BaseSync {
   getBackfill(options: SyncBackfillOptions, partnerId: string) {
     return this.backfillQuery('asset', options)
       .select(columns.syncPartnerAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select(sql.val(false).as('isFavorite'))
       .select('asset.updateId')
       .where('ownerId', '=', partnerId)
@@ -690,6 +774,7 @@ class PartnerAssetsSync extends BaseSync {
   getUpserts(options: SyncQueryOptions) {
     return this.upsertQuery('asset', options)
       .select(columns.syncPartnerAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select(sql.val(false).as('isFavorite'))
       .select('asset.updateId')
       .where('ownerId', 'in', (eb) =>
@@ -704,6 +789,7 @@ class PartnerAssetExifsSync extends BaseSync {
   getBackfill(options: SyncBackfillOptions, partnerId: string) {
     return this.backfillQuery('asset_exif', options)
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .innerJoin('asset', 'asset.id', 'asset_exif.assetId')
       .where('asset.ownerId', '=', partnerId)
@@ -714,6 +800,7 @@ class PartnerAssetExifsSync extends BaseSync {
   getUpserts(options: SyncQueryOptions) {
     return this.upsertQuery('asset_exif', options)
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('assetId', 'in', (eb) =>
         eb
@@ -1003,6 +1090,7 @@ export class SharedSpaceAssetSync extends BaseSync {
       this.backfillQuery('shared_space_asset', options)
         .innerJoin('asset', 'asset.id', 'shared_space_asset.assetId')
         .select(columns.syncSharedSpaceAsset)
+        .where(catalogAssetPresent(sql.ref('asset.id')))
         .select((eb) =>
           eb
             .case()
@@ -1034,6 +1122,7 @@ export class SharedSpaceAssetSync extends BaseSync {
       this.upsertQuery('shared_space_asset', options)
         .innerJoin('asset', 'asset.id', 'shared_space_asset.assetId')
         .select(columns.syncSharedSpaceAsset)
+        .where(catalogAssetPresent(sql.ref('asset.id')))
         .select((eb) =>
           eb
             .case()
@@ -1064,6 +1153,7 @@ export class SharedSpaceAssetSync extends BaseSync {
     return this.upsertQuery('asset', options)
       .innerJoin('shared_space_asset', 'shared_space_asset.assetId', 'asset.id')
       .select(columns.syncSharedSpaceAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -1091,6 +1181,7 @@ export class SharedSpaceAssetExifSync extends BaseSync {
         .innerJoin('asset_exif', 'asset_exif.assetId', 'shared_space_asset.assetId')
         .innerJoin('asset', 'asset.id', 'shared_space_asset.assetId')
         .select(columns.syncAssetExif)
+        .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
         .select('shared_space_asset.updateId')
         .where('shared_space_asset.spaceId', '=', spaceId)
         .where((eb) => spaceVisibilityGate(eb))
@@ -1108,6 +1199,7 @@ export class SharedSpaceAssetExifSync extends BaseSync {
         .innerJoin('asset_exif', 'asset_exif.assetId', 'shared_space_asset.assetId')
         .innerJoin('asset', 'asset.id', 'shared_space_asset.assetId')
         .select(columns.syncAssetExif)
+        .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
         .select('shared_space_asset.updateId')
         .where('shared_space_asset.spaceId', 'in', (eb) => accessibleSpaces(eb, options.userId))
         .where((eb) => spaceVisibilityGate(eb))
@@ -1124,6 +1216,7 @@ export class SharedSpaceAssetExifSync extends BaseSync {
       .innerJoin('shared_space_asset', 'shared_space_asset.assetId', 'asset_exif.assetId')
       .innerJoin('asset', 'asset.id', 'asset_exif.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('shared_space_asset.updateId', '<=', sharedSpaceToAssetAck.updateId)
       .where('shared_space_asset.spaceId', 'in', (eb) => accessibleSpaces(eb, options.userId))
@@ -1315,6 +1408,7 @@ export class LibraryAssetSync extends BaseSync {
     return (
       this.backfillQuery('asset', options)
         .select(columns.syncLibraryAsset)
+        .where(catalogAssetPresent(sql.ref('asset.id')))
         .select((eb) =>
           eb
             .case()
@@ -1352,6 +1446,7 @@ export class LibraryAssetSync extends BaseSync {
     const userId = options.userId;
     return this.upsertQuery('asset', options)
       .select(columns.syncLibraryAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -1444,6 +1539,7 @@ export class LibraryAssetExifSync extends BaseSync {
       this.backfillQuery('asset', options)
         .innerJoin('asset_exif', 'asset_exif.assetId', 'asset.id')
         .select(columns.syncAssetExif)
+        .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
         .select('asset.updateId')
         .where('asset.libraryId', '=', libraryId)
         // M-2: the non-owner (space-link) branch also excludes trashed assets; the owner keeps their own
@@ -1470,6 +1566,7 @@ export class LibraryAssetExifSync extends BaseSync {
     return this.upsertQuery('asset_exif', options)
       .innerJoin('asset', 'asset.id', 'asset_exif.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('asset.libraryId', 'is not', null)
       .where('asset.libraryId', 'in', (eb) => accessibleLibraries(eb, options.userId))
@@ -1788,6 +1885,7 @@ class SharedSpaceAlbumToAssetSync extends BaseSync {
     // album_asset arm — the album owner's own membership (unchanged).
     const albumAssetArm = this.db
       .selectFrom('album_asset')
+      .where(catalogRowPresent('album_asset'))
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .select(['album_asset.assetId as assetId', 'album_asset.albumId as albumId', 'album_asset.updateId'])
       .where('album_asset.albumId', '=', albumId)
@@ -1802,6 +1900,7 @@ class SharedSpaceAlbumToAssetSync extends BaseSync {
     // album_space_asset arm — cross-owner contributions (#764). Mechanical mirror keyed on updateId.
     const contributedArm = this.db
       .selectFrom('album_space_asset')
+      .where(catalogRowPresent('album_space_asset'))
       .innerJoin('asset', 'asset.id', 'album_space_asset.assetId')
       .select([
         'album_space_asset.assetId as assetId',
@@ -1871,6 +1970,7 @@ class SharedSpaceAlbumToAssetSync extends BaseSync {
     const { userId, nowId, ack } = options;
     const albumAssetArm = this.db
       .selectFrom('album_asset')
+      .where(catalogRowPresent('album_asset'))
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_asset.albumId')
       .select(['album_asset.assetId as assetId', 'album_asset.albumId as albumId', 'album_asset.updateId'])
@@ -1884,6 +1984,7 @@ class SharedSpaceAlbumToAssetSync extends BaseSync {
 
     const contributedArm = this.db
       .selectFrom('album_space_asset')
+      .where(catalogRowPresent('album_space_asset'))
       .innerJoin('asset', 'asset.id', 'album_space_asset.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_space_asset.albumId')
       .select([
@@ -1927,9 +2028,11 @@ class SharedSpaceAlbumAssetSync extends BaseSync {
     // album_asset arm — the album owner's own membership (unchanged).
     const albumAssetArm = this.db
       .selectFrom('album_asset')
+      .where(catalogRowPresent('album_asset'))
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .innerJoin('album', 'album.id', 'album_asset.albumId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -1952,9 +2055,11 @@ class SharedSpaceAlbumAssetSync extends BaseSync {
     // album_space_asset arm — cross-owner contributions (#764). Mechanical mirror keyed on updateId.
     const contributedArm = this.db
       .selectFrom('album_space_asset')
+      .where(catalogRowPresent('album_space_asset'))
       .innerJoin('asset', 'asset.id', 'album_space_asset.assetId')
       .innerJoin('album', 'album.id', 'album_space_asset.albumId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -1989,6 +2094,7 @@ class SharedSpaceAlbumAssetSync extends BaseSync {
       .innerJoin('album_asset', 'album_asset.assetId', 'asset.id')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_asset.albumId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -2012,6 +2118,7 @@ class SharedSpaceAlbumAssetSync extends BaseSync {
       .innerJoin('album_space_asset', 'album_space_asset.assetId', 'asset.id')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_space_asset.albumId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -2041,9 +2148,11 @@ class SharedSpaceAlbumAssetSync extends BaseSync {
     // album_asset arm — the album owner's own membership (unchanged).
     const albumAssetArm = this.db
       .selectFrom('album_asset')
+      .where(catalogRowPresent('album_asset'))
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_asset.albumId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -2065,9 +2174,11 @@ class SharedSpaceAlbumAssetSync extends BaseSync {
     // album_space_asset arm — cross-owner contributions (#764). Mechanical mirror keyed on updateId.
     const contributedArm = this.db
       .selectFrom('album_space_asset')
+      .where(catalogRowPresent('album_space_asset'))
       .innerJoin('asset', 'asset.id', 'album_space_asset.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_space_asset.albumId')
       .select(columns.syncAlbumAsset)
+      .where(catalogAssetPresent(sql.ref('asset.id')))
       .select((eb) =>
         eb
           .case()
@@ -2105,10 +2216,12 @@ class SharedSpaceAlbumAssetExifSync extends BaseSync {
     // album_asset arm — the album owner's own membership (unchanged).
     const albumAssetArm = this.db
       .selectFrom('album_asset')
+      .where(catalogRowPresent('album_asset'))
       .innerJoin('asset_exif', 'asset_exif.assetId', 'album_asset.assetId')
       .innerJoin('album', 'album.id', 'album_asset.albumId')
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('album_asset.updateId')
       .where('album_asset.albumId', '=', albumId)
       .where('album.deletedAt', 'is', null)
@@ -2122,10 +2235,12 @@ class SharedSpaceAlbumAssetExifSync extends BaseSync {
     // album_space_asset arm — cross-owner contributions (#764). Mechanical mirror keyed on updateId.
     const contributedArm = this.db
       .selectFrom('album_space_asset')
+      .where(catalogRowPresent('album_space_asset'))
       .innerJoin('asset_exif', 'asset_exif.assetId', 'album_space_asset.assetId')
       .innerJoin('album', 'album.id', 'album_space_asset.albumId')
       .innerJoin('asset', 'asset.id', 'album_space_asset.assetId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('album_space_asset.updateId')
       .where('album_space_asset.albumId', '=', albumId)
       .where('album.deletedAt', 'is', null)
@@ -2152,6 +2267,7 @@ class SharedSpaceAlbumAssetExifSync extends BaseSync {
       .innerJoin('asset', 'asset.id', 'asset_exif.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_asset.albumId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('asset_exif.updateId', '<', nowId)
       .$if(!!ack, (qb) => qb.where('asset_exif.updateId', '>', ack!.updateId))
@@ -2167,6 +2283,7 @@ class SharedSpaceAlbumAssetExifSync extends BaseSync {
       .innerJoin('asset', 'asset.id', 'asset_exif.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_space_asset.albumId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('asset_exif.updateId')
       .where('asset_exif.updateId', '<', nowId)
       .$if(!!ack, (qb) => qb.where('asset_exif.updateId', '>', ack!.updateId))
@@ -2187,10 +2304,12 @@ class SharedSpaceAlbumAssetExifSync extends BaseSync {
     // album_asset arm — the album owner's own membership (unchanged).
     const albumAssetArm = this.db
       .selectFrom('album_asset')
+      .where(catalogRowPresent('album_asset'))
       .innerJoin('asset_exif', 'asset_exif.assetId', 'album_asset.assetId')
       .innerJoin('asset', 'asset.id', 'album_asset.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_asset.albumId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('album_asset.updateId')
       .where('shared_space_album_user.userId', '=', userId)
       .where('album_asset.albumId', 'in', (eb) => accessibleSpaceAlbums(eb, userId))
@@ -2203,10 +2322,12 @@ class SharedSpaceAlbumAssetExifSync extends BaseSync {
     // album_space_asset arm — cross-owner contributions (#764). Mechanical mirror keyed on updateId.
     const contributedArm = this.db
       .selectFrom('album_space_asset')
+      .where(catalogRowPresent('album_space_asset'))
       .innerJoin('asset_exif', 'asset_exif.assetId', 'album_space_asset.assetId')
       .innerJoin('asset', 'asset.id', 'album_space_asset.assetId')
       .innerJoin('shared_space_album_user', 'shared_space_album_user.albumId', 'album_space_asset.albumId')
       .select(columns.syncAssetExif)
+      .where(catalogAssetPresent(sql.ref('asset_exif.assetId')))
       .select('album_space_asset.updateId')
       .where('shared_space_album_user.userId', '=', userId)
       .where('album_space_asset.albumId', 'in', (eb) => accessibleSpaceAlbums(eb, userId))

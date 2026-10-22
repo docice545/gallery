@@ -32,14 +32,15 @@ describe(SyncEntityType.AssetV2, () => {
         deletedAt: new Date('2026-10-05T00:00:00Z'),
       });
       const response = await ctx.syncStream(auth, [type]);
-      const event = response.find((event) => 'id' in event.data && event.data.id === asset.id);
-      expect(event).toBeDefined();
-      expect(event!.data).toMatchObject({
-        id: asset.id,
-        isTrashed: false,
-        deletedAt: new Date(asset.deletedAt!).toISOString(),
-      });
-      expect(event!.data).not.toHaveProperty('status');
+      expect(response).not.toContainEqual(expect.objectContaining({ data: expect.objectContaining({ id: asset.id }) }));
+      expect(response).not.toContainEqual(expect.objectContaining({ type: SyncEntityType.AssetDeleteV1 }));
+      const original = await defaultDatabase
+        .selectFrom('asset')
+        .select(['status', 'deletedAt', 'isOffline'])
+        .where('id', '=', asset.id)
+        .executeTakeFirstOrThrow();
+      expect(original).toMatchObject({ status: AssetStatus.Active, isOffline: true });
+      expect(new Date(original.deletedAt!).toISOString()).toBe('2026-10-05T00:00:00.000Z');
     });
   }
 

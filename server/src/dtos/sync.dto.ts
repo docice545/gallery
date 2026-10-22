@@ -40,6 +40,10 @@ const SyncAuthUserV1Schema = SyncUserV1Schema.merge(
   }),
 ).meta({ id: 'SyncAuthUserV1' });
 
+const SyncAuthUserV2Schema = SyncAuthUserV1Schema.extend({
+  oauthId: z.string().nullable().describe('User OAuth ID'),
+}).meta({ id: 'SyncAuthUserV2' });
+
 const SyncUserDeleteV1Schema = z.object({ userId: z.uuidv4().describe('User ID') }).meta({ id: 'SyncUserDeleteV1' });
 
 const SyncPartnerV1Schema = z
@@ -113,6 +117,8 @@ const SyncAssetV2Schema = z
 class SyncUserV1 extends createZodDto(SyncUserV1Schema) {}
 @ExtraModel()
 class SyncAuthUserV1 extends createZodDto(SyncAuthUserV1Schema) {}
+@ExtraModel()
+class SyncAuthUserV2 extends createZodDto(SyncAuthUserV2Schema) {}
 @ExtraModel()
 class SyncUserDeleteV1 extends createZodDto(SyncUserDeleteV1Schema) {}
 @ExtraModel()
@@ -301,6 +307,12 @@ const SyncMemoryV1Schema = z
   })
   .meta({ id: 'SyncMemoryV1' });
 
+// Official V2 supports birthday, but this fork stores on_this_day and rule.
+// Rule is deliberately not relabelled as an upstream memory type.
+const SyncMemoryV2Schema = SyncMemoryV1Schema.extend({
+  type: z.enum(['on_this_day', 'birthday']),
+}).meta({ id: 'SyncMemoryV2' });
+
 const SyncMemoryDeleteV1Schema = z
   .object({ memoryId: z.uuidv4().describe('Memory ID') })
   .meta({ id: 'SyncMemoryDeleteV1' });
@@ -372,6 +384,8 @@ const SyncAssetFaceV2Schema = SyncAssetFaceV1Schema.extend({
   isVisible: z.boolean().describe('Is the face visible in the asset'),
 }).meta({ id: 'SyncAssetFaceV2' });
 
+const SyncAssetFaceV3Schema = SyncAssetFaceV2Schema.meta({ id: 'SyncAssetFaceV3' });
+
 const SyncAssetFaceDeleteV1Schema = z
   .object({ assetFaceId: z.uuidv4().describe('Asset face ID') })
   .meta({ id: 'SyncAssetFaceDeleteV1' });
@@ -397,6 +411,8 @@ const SyncCompleteV1Schema = z.object({}).meta({ id: 'SyncCompleteV1' });
 
 @ExtraModel()
 class SyncMemoryV1 extends createZodDto(SyncMemoryV1Schema) {}
+@ExtraModel()
+class SyncMemoryV2 extends createZodDto(SyncMemoryV2Schema) {}
 @ExtraModel()
 class SyncMemoryDeleteV1 extends createZodDto(SyncMemoryDeleteV1Schema) {}
 @ExtraModel()
@@ -450,6 +466,8 @@ class SyncPersonDeleteV1 extends createZodDto(SyncPersonDeleteV1Schema) {}
 class SyncAssetFaceV1 extends createZodDto(SyncAssetFaceV1Schema) {}
 @ExtraModel()
 class SyncAssetFaceV2 extends createZodDto(SyncAssetFaceV2Schema) {}
+@ExtraModel()
+class SyncAssetFaceV3 extends createZodDto(SyncAssetFaceV3Schema) {}
 @ExtraModel()
 class SyncAssetFaceDeleteV1 extends createZodDto(SyncAssetFaceDeleteV1Schema) {}
 @ExtraModel()
@@ -670,6 +688,7 @@ export class SyncSharedSpaceAlbumFolderDeleteV1 extends createZodDto(SyncSharedS
 
 export type SyncItem = {
   [SyncEntityType.AuthUserV1]: SyncAuthUserV1;
+  [SyncEntityType.AuthUserV2]: SyncAuthUserV2;
   [SyncEntityType.UserV1]: SyncUserV1;
   [SyncEntityType.UserDeleteV1]: SyncUserDeleteV1;
   [SyncEntityType.PartnerV1]: SyncPartnerV1;
@@ -704,8 +723,10 @@ export type SyncItem = {
   [SyncEntityType.AlbumToAssetBackfillV1]: SyncAlbumToAssetV1;
   [SyncEntityType.AlbumToAssetDeleteV1]: SyncAlbumToAssetDeleteV1;
   [SyncEntityType.MemoryV1]: SyncMemoryV1;
+  [SyncEntityType.MemoryV2]: SyncMemoryV2;
   [SyncEntityType.MemoryDeleteV1]: SyncMemoryDeleteV1;
   [SyncEntityType.MemoryToAssetV1]: SyncMemoryAssetV1;
+  [SyncEntityType.MemoryToAssetV2]: SyncMemoryAssetV1;
   [SyncEntityType.MemoryToAssetDeleteV1]: SyncMemoryAssetDeleteV1;
   [SyncEntityType.StackV1]: SyncStackV1;
   [SyncEntityType.StackDeleteV1]: SyncStackDeleteV1;
@@ -716,6 +737,7 @@ export type SyncItem = {
   [SyncEntityType.PersonDeleteV1]: SyncPersonDeleteV1;
   [SyncEntityType.AssetFaceV1]: SyncAssetFaceV1;
   [SyncEntityType.AssetFaceV2]: SyncAssetFaceV2;
+  [SyncEntityType.AssetFaceV3]: SyncAssetFaceV3;
   [SyncEntityType.AssetFaceDeleteV1]: SyncAssetFaceDeleteV1;
   [SyncEntityType.UserMetadataV1]: SyncUserMetadataV1;
   [SyncEntityType.UserMetadataDeleteV1]: SyncUserMetadataDeleteV1;

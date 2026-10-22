@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Writable } from 'node:stream';
+import { AssetEditAction } from 'src/dtos/editing.dto.js';
+import { SyncStreamDto } from 'src/dtos/sync.dto.js';
 import { AlbumUserRole, AssetVisibility, MemoryType, SyncEntityType, SyncRequestType } from 'src/enum.js';
 import { SYNC_TYPES_ORDER, SyncService, send } from 'src/services/sync.service.js';
 import { ClientDisconnectedError } from 'src/utils/response.js';
@@ -205,10 +207,105 @@ describe(SyncService.name, () => {
   beforeEach(() => {
     ({ sut, mocks } = newTestService(SyncService));
     syncSubs = setupSyncMocks(mocks);
+    mocks.sync.hasIndexTombstoneChanges.mockResolvedValue(false);
     // These strict mocks need implementations since they're called in test paths
     mocks.syncCheckpoint.upsertAll.mockResolvedValue(undefined as any);
     mocks.syncCheckpoint.deleteAll.mockResolvedValue(undefined as any);
     mocks.session.resetSyncProgress.mockResolvedValue(undefined as any);
+  });
+
+  describe('official 3.3 sync contracts', () => {
+    beforeEach(() => {
+      mocks.session.isPendingSyncReset.mockResolvedValue(false);
+      mocks.syncCheckpoint.getAll.mockResolvedValue([]);
+      mocks.syncCheckpoint.getNow.mockResolvedValue({ nowId: newUuid() });
+    });
+
+    it('accepts actual official request types and still rejects unknown types', () => {
+      expect(
+        SyncStreamDto.schema.safeParse({
+          types: [
+            SyncRequestType.AuthUsersV2,
+            SyncRequestType.MemoriesV2,
+            SyncRequestType.MemoryToAssetsV2,
+            SyncRequestType.AssetFacesV3,
+          ],
+        }).success,
+      ).toBe(true);
+      expect(SyncStreamDto.schema.safeParse({ types: ['NotAProtocol'] }).success).toBe(false);
+    });
+
+    it('preserves nullable OAuth in V2 and normalizes V1, with separate checkpoint types', async () => {
+      syncSubs.authUser.getUpserts.mockImplementation(() =>
+        makeStream([{ updateId: newUuid(), oauthId: null, profileImagePath: '' }]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [SyncRequestType.AuthUsersV1, SyncRequestType.AuthUsersV2] });
+      const messages = parseChunks(chunks);
+      expect(messages.find((m) => m.type === SyncEntityType.AuthUserV1).data.oauthId).toBe('');
+      expect(messages.find((m) => m.type === SyncEntityType.AuthUserV2).data.oauthId).toBeNull();
+    });
+
+    it('streams V3 faces with the upstream cluster-scoped query', async () => {
+      syncSubs.assetFace.getUpserts.mockReturnValue(
+        makeStream([{ updateId: newUuid(), id: 'face', isVisible: true, deletedAt: null }]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [SyncRequestType.AssetFacesV3] });
+      expect(parseChunks(chunks).find((m) => m.type === SyncEntityType.AssetFaceV3).data.id).toBe('face');
+      expect(syncSubs.assetFace.getUpserts).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: authStub.user1.user.id, faceScope: 'cluster' }),
+      );
+    });
+
+    it('does not invent an official type for rule memories in V2 and ACKs skipped rows', async () => {
+      const ruleUpdateId = newUuid();
+      syncSubs.memory.getUpserts.mockReturnValue(
+        makeStream([
+          { updateId: newUuid(), id: 'day', type: MemoryType.OnThisDay },
+          { updateId: ruleUpdateId, id: 'rule', type: MemoryType.Rule },
+        ]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, {
+        types: [SyncRequestType.MemoriesV2, SyncRequestType.MemoryToAssetsV2],
+      });
+      const messages = parseChunks(chunks);
+      expect(messages.filter((m) => m.type === SyncEntityType.MemoryV2).map((m) => m.data.type)).toEqual([
+        MemoryType.OnThisDay,
+      ]);
+      expect(messages.some((m) => m.ack === toAck({ type: SyncEntityType.MemoryV2, updateId: ruleUpdateId }))).toBe(
+        true,
+      );
+      expect(syncSubs.memoryToAsset.getUpserts).toHaveBeenCalledWith(
+        expect.objectContaining({ includeForkMemories: false }),
+      );
+      expect(syncSubs.memoryToAsset.getDeletes).toHaveBeenCalledWith(
+        expect.objectContaining({ includeForkMemories: false }),
+      );
+    });
+
+    it.each([false, true])('filters trim only for official clients, fork aware=%s', async (forkAware) => {
+      const skippedId = newUuid();
+      syncSubs.assetEdit.getUpserts.mockReturnValue(
+        makeStream([
+          { updateId: newUuid(), action: AssetEditAction.Crop, assetId: 'a' },
+          { updateId: skippedId, action: AssetEditAction.Trim, assetId: 'v' },
+        ]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, {
+        types: [SyncRequestType.AssetEditsV1, ...(forkAware ? [SyncRequestType.SharedSpacesV1] : [])],
+      });
+      const messages = parseChunks(chunks);
+      expect(messages.filter((m) => m.type === SyncEntityType.AssetEditV1).map((m) => m.data.action)).toEqual(
+        forkAware ? ['crop', 'trim'] : ['crop'],
+      );
+      if (!forkAware)
+        expect(messages.some((m) => m.ack === toAck({ type: SyncEntityType.AssetEditV1, updateId: skippedId }))).toBe(
+          true,
+        );
+    });
   });
 
   it('should exist', () => {

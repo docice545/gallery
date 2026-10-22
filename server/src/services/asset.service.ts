@@ -833,7 +833,7 @@ export class AssetService extends BaseService {
     const { trash } = await this.getConfig({ withCache: true });
     const force = dto.force || !trash.enabled;
     if (force) {
-      const results = await this.permanentlyDelete(auth, ids, true);
+      const results = await this.permanentlyDelete(auth, ids, true, false);
       if (results.some((result) => result.state !== 'complete')) {
         throw new ConflictException(
           'Permanent deletion incomplete; inspect owner-scoped deletion status and retry only unresolved items.',

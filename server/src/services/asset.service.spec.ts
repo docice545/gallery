@@ -1488,7 +1488,7 @@ describe(AssetService.name, () => {
       mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
       const delegated = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([{ id: 'asset1', state: 'complete' }]);
       await sut.deleteAll(authStub.user1, { ids: ['asset1'] });
-      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1'], true);
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1'], true, false);
       expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
 
@@ -1500,9 +1500,23 @@ describe(AssetService.name, () => {
         { id: 'asset2', state: 'complete' },
       ]);
       await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true });
-      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2'], true);
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2'], true, false);
       expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
+
+    it.each([199, 200, 201, 1000])(
+      'legacy force delete of %s IDs never selects the asynchronous batch contract',
+      async (count) => {
+        const ids = Array.from({ length: count }, (_, i) => `asset-${i}`);
+        const delegated = vi
+          .spyOn(sut, 'permanentlyDelete')
+          .mockResolvedValue(ids.map((id) => ({ id, state: 'complete' })));
+        await sut.deleteAll(authStub.user1, { ids, force: true });
+        expect(delegated).toHaveBeenCalledWith(authStub.user1, ids, true, false);
+        expect(mocks.job.queue).not.toHaveBeenCalled();
+        expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
+      },
+    );
 
     it('should soft delete a batch of assets', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));
