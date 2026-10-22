@@ -1,0 +1,17 @@
+{
+  "acceptanceHeadInPRCommits": true,
+  "accepted": "2364b82e9246a08174ad6d5278bc7227388e8e31",
+  "baseRef": "codex/foto-build17-unified",
+  "baseSha": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "compareStatus": "identical",
+  "mergeable": true,
+  "mergeableState": "unstable",
+  "merged": false,
+  "missingCommits": [],
+  "pr7Head": "2364b82e9246a08174ad6d5278bc7227388e8e31",
+  "prerequisite": "PASS",
+  "publishedDestinationHead": "2364b82e9246a08174ad6d5278bc7227388e8e31",
+  "requiredAcceptanceCommits": 16,
+  "sourceRefHead": "2364b82e9246a08174ad6d5278bc7227388e8e31",
+  "state": "open"
+}

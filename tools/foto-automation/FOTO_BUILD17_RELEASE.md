@@ -16,8 +16,8 @@ launcher, systemd units, канонические progress/pending/manifest не
 | --------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске |
 | Редактор              | PR #6, `codex/foto-build17-editor-compact`, `5e84b5132427624d926abe28fad788d89ed2431c` | OPEN, незелёный CI             |
-| Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede`  | OPEN, незелёный CI             |
-| Код инструмента       | `codex/foto-build17-release`, `6a71b5abe532a0e2741987a15c9614f3c6dd13d5`               | 47 локальных проверок PASS     |
+| Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `c79c843b9b5efdc3620c1e026ec06edcfe4d8294`  | OPEN, незелёный CI             |
+| Код инструмента       | `codex/foto-build17-release`, `ba22b5936dcee2bf79c62fabc14a5a073034c1d3`               | 49 + 1 адресная проверка PASS  |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **Сейчас запуск
@@ -26,52 +26,81 @@ CI и не предлагает обход. Таблица — snapshot, не з
 
 Обязательные CI jobs заданы отдельно для editor и compatibility: редактору нужны
 mobile checks, совместимости — также server/medium/OpenAPI/schema/migration checks.
-Минимальный набор нельзя убрать через config. Необязательный skipped job не
+Минимальный набор нельзя убрать через config. Имена обязательных checks должны
+быть однозначны: даже две успешные записи одного имени требуют review, а не выбора
+по порядку API. Обязательны также строгие OpenAPI/mobile patch, web и E2E gates. Необязательный skipped job не
 считается тестом; любой красный, отменённый, незавершённый или неизвестный job
 блокирует допуск обоих PR. Проверка собственного rootless endpoint повторяется
 непосредственно перед запросами builder/image, включая повторный запуск.
 
 ## Установка инструмента (doctoriceadm, без изменения исходного checkout)
 
-Блок получает только отдельный tooling ref, создаёт отдельный detached worktree
-и устанавливает новую versioned директорию. `sudo` здесь — явное действие
-оператора для установки файлов; внутри конвейера sudo/runuser/systemd-run нет.
-Существующие файлы той же версии сравниваются, не заменяются; config не затирается.
+Блок получает пять файлов через GitHub API из точного опубликованного commit и
+проверяет SHA-256 **каждого** файла. Fetch, checkout и worktree add отсутствуют.
+Нужен уже настроенный `gh` под codex-gallery; токен в команды не подставляется.
+Выполняет **doctoriceadm** в обычной SSH-сессии; установка через sudo здесь —
+явное действие оператора, внутри конвейера sudo/runuser/systemd-run нет.
+Новый versioned config оставляет `approved=false`, не требует ключа для check
+и не заменяет существующие config/checkpoints. Архивы/образы/APK не скачиваются.
 
 ```bash
 set -euo pipefail
-REPO=/mnt/hp-data/codex-work/foto-build17-integration-review
-TOOLS_SHA=6a71b5abe532a0e2741987a15c9614f3c6dd13d5
-TOOL_WT=/mnt/hp-data/codex-work/foto-build17-release-tools-6a71b5abe
+umask 077
+TOOLS_SHA=ba22b5936dcee2bf79c62fabc14a5a073034c1d3
+STAGE=$(mktemp -d /tmp/foto17-release-install.XXXXXXXX)
 INSTALL=/usr/local/lib/foto-build17-release/$TOOLS_SHA
-CFG=/mnt/hp-data/codex-home/foto-build17-release.json
+CFG=/mnt/hp-data/codex-home/foto-build17-release-check-ba22b5936.json
+REPORT=$(mktemp /home/doctoriceadm/foto-build17-check-ba22b5936.XXXXXXXX.json)
+ERRORS=$REPORT.stderr
 
-sudo -u codex-gallery -H git -C "$REPO" fetch --no-tags --no-write-fetch-head origin \
-  refs/heads/codex/foto-build17-release:refs/foto-release-tools/pipeline
-if ! sudo -u codex-gallery test -e "$TOOL_WT/.git"; then
-  sudo -u codex-gallery -H git -C "$REPO" worktree add --detach "$TOOL_WT" "$TOOLS_SHA"
+for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
+  sudo -u codex-gallery -H gh api \
+    "repos/docice545/gallery/contents/tools/foto-automation/$f?ref=$TOOLS_SHA" \
+    --jq .content | base64 --decode > "$STAGE/$f"
+done
+cat > "$STAGE/SHA256SUMS" <<'SHA256SUMS'
+713438db5a9acf930a8f68bb7aa3977072bf559c17dc2ac5ba2a30fb232806d7  foto-build17-release
+520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
+f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
+afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
+adfd3177243b6ed2e28ac0a23ca6883bdffd16aa4c7cd9a21ab45ea411bc4f93  foto-build17-release.example.json
+SHA256SUMS
+(cd "$STAGE" && sha256sum --check SHA256SUMS)
+if sudo test -L "$INSTALL"; then
+  echo 'STOP INSTALL_DIRECTORY_IS_SYMLINK' >&2
+  exit 1
 fi
-test "$(sudo -u codex-gallery git -C "$TOOL_WT" rev-parse HEAD)" = "$TOOLS_SHA"
-test -z "$(sudo -u codex-gallery git -C "$TOOL_WT" status --porcelain=v1)"
 sudo install -d -m0755 "$INSTALL"
-for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh; do
-  if sudo test -e "$INSTALL/$f"; then
-    sudo cmp -s "$TOOL_WT/tools/foto-automation/$f" "$INSTALL/$f"
+for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
+  if sudo test -e "$INSTALL/$f" || sudo test -L "$INSTALL/$f"; then
+    sudo test ! -L "$INSTALL/$f"
+    sudo cmp -s "$STAGE/$f" "$INSTALL/$f"
   else
-    sudo install -m0755 "$TOOL_WT/tools/foto-automation/$f" "$INSTALL/$f"
+    MODE=0755
+    if [ "$f" = foto-build17-release.example.json ]; then MODE=0644; fi
+    sudo install -m "$MODE" "$STAGE/$f" "$INSTALL/$f"
   fi
 done
-if ! sudo -u codex-gallery test -e "$CFG"; then
-  sudo -u codex-gallery install -m0600 \
-    "$TOOL_WT/tools/foto-automation/foto-build17-release.example.json" "$CFG"
+if ! sudo test -e "$CFG" && ! sudo test -L "$CFG"; then
+  sudo -u codex-gallery install -m0600 "$INSTALL/foto-build17-release.example.json" "$CFG"
 fi
-sudo -u codex-gallery -H "$INSTALL/foto-build17-release" --config "$CFG" --check
+if sudo -u codex-gallery -H "$INSTALL/foto-build17-release" --config "$CFG" --check > "$REPORT" 2> "$ERRORS"; then
+  printf 'CHECK COMPLETED; inventory only, not release approval: %s\n' "$REPORT"
+else
+  printf 'CHECK BLOCKED; private report: %s; errors: %s\n' "$REPORT" "$ERRORS" >&2
+  exit 1
+fi
 ```
 
-Проверенный SHA-256 исполняемого файла:
-`6ede81d838d43e35601f400a72de22ead950a00bb4dc98612c4c83d6aff66d3b`.
-Сравнение можно выполнить обычным `sha256sum` после копирования. Инструкция
-закреплена на code commit, последующие documentation commits её не меняют.
+Блок не запускался на HP. Syntax/скачивание точных опубликованных bytes проверяются
+в Cloud; это не подтверждение HP toolchain. Не публикуйте private inventory без
+просмотра. Ошибка `QUERY_FAILED_GH` требует существующего доступа codex-gallery к
+репозиторию; не добавляйте токен в журнал. Ошибка rootless в JSON — основание для
+отдельной проверки, не разрешение переключиться на rootful Docker.
+
+`--check` не принимает PR и не проверяет реальную работу приложений. Он показывает
+инвентаризацию; даже exit 0 **не разрешает** prepare/test/build. Красные CI PR #6/#7,
+неизвестный существующий keystore и native/NAS/AI E2E остаются блокерами.
 
 ## Что подтвердить на HP перед первым prepare
 
@@ -104,7 +133,7 @@ Config не содержит произвольных shell-команд. Пут
 экспортом или каноническим automation state. После первого intent config считается
 неизменным: для нового PR SHA/настроек нужен **новый** release state; старый сохраняется.
 
-## Режимы и запуск с сохранением SSH-сессии
+## Справка о режимах после отдельной приёмки (не запускать сейчас)
 
 Все рабочие режимы исполняет codex-gallery. Не запускать через Codex launcher.
 Установите уже существующую toolchain в PATH этой сессии, не меняя системные лимиты.
@@ -116,8 +145,8 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/6a71b5abe532a0e2741987a15c9614f3c6dd13d5/foto-build17-release
-C=/mnt/hp-data/codex-home/foto-build17-release.json
+R=/usr/local/lib/foto-build17-release/ba22b5936dcee2bf79c62fabc14a5a073034c1d3/foto-build17-release
+C=/mnt/hp-data/codex-home/foto-build17-release-check-ba22b5936.json
 "$R" --config "$C" --check
 ```
 
@@ -180,17 +209,17 @@ DB/Redis/Immich env не передаются тестам. Выполнение
   fingerprints, command recipe, exit code, log/output SHA, image ID, APK/cert SHA.
   Файл DONE не используется. Канонические HP manifest/progress не записываются.
 
-| STOP                                                      | Действие                                                                                                                                                             |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CI_RED_PENDING_OR_UNKNOWN / REQUIRED_CI_NOT_SUCCESS       | Исправить или завершить конкретный GitHub job/PR; не менять gate.                                                                                                    |
-| HP_DIRTY_OR_UNTRACKED_PRESERVED                           | Сохранить и отдельно проверить локальную работу. Не применять reset/clean/stash.                                                                                     |
-| PR_HEAD_CHANGED / REMOTE_BASE_DIFFERS                     | Повторно принять точные новые SHA, создать отдельный config/state.                                                                                                   |
-| MERGE_FAILED / MERGE_INTERRUPTED                          | Сохранён конфликтный worktree и список conflicts в manifest. Не выполнять автоматический abort/resolve; исправление PR и новая проверенная интеграция отдельно.      |
-| STAGE_FAILED_*_EXIT_137 / DeadlineExceeded в логе         | Не перезапускать циклически. Проверить private log, memory/cgroup и builder status/history через check; определить причину. Лимиты/кеш/builder инструмент не меняет. |
-| BUILDKIT_ACTIVE / BUILDER_UNHEALTHY / HISTORY_UNAVAILABLE | Проверить существующий builder; никаких автоматических restart/bootstrap/create/prune.                                                                               |
-| UNSEALED_IMAGE_TAG_EXISTS                                 | Образ без завершённого receipt не перезаписывается и автоматически не объявляется успешной сборкой. Сохранить его для отдельной проверки.                            |
-| STAGE___CHANGED / CORRUPT__                               | Сохранить повреждённое состояние. Не править PASS вручную; новая проверенная интеграция/state.                                                                       |
-| SIGNING / APK_CERTIFICATE / PACKAGE_OR_VERSION            | Проверить существующие ключ/свойства/public pin/toolchain; новый ключ/debug-signature не принимаются.                                                                |
+| STOP                                                                              | Действие                                                                                                                                                             |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI_REQUIRED_CHECK_AMBIGUOUS / CI_RED_PENDING_OR_UNKNOWN / REQUIRED_CI_NOT_SUCCESS | Исправить или завершить конкретный GitHub job/PR; не менять gate.                                                                                                    |
+| HP_DIRTY_OR_UNTRACKED_PRESERVED                                                   | Сохранить и отдельно проверить локальную работу. Не применять reset/clean/stash.                                                                                     |
+| PR_HEAD_CHANGED / REMOTE_BASE_DIFFERS                                             | Повторно принять точные новые SHA, создать отдельный config/state.                                                                                                   |
+| MERGE_FAILED / MERGE_INTERRUPTED                                                  | Сохранён конфликтный worktree и список conflicts в manifest. Не выполнять автоматический abort/resolve; исправление PR и новая проверенная интеграция отдельно.      |
+| STAGE_FAILED_*_EXIT_137 / DeadlineExceeded в логе                                 | Не перезапускать циклически. Проверить private log, memory/cgroup и builder status/history через check; определить причину. Лимиты/кеш/builder инструмент не меняет. |
+| BUILDKIT_ACTIVE / BUILDER_UNHEALTHY / HISTORY_UNAVAILABLE                         | Проверить существующий builder; никаких автоматических restart/bootstrap/create/prune.                                                                               |
+| UNSEALED_IMAGE_TAG_EXISTS                                                         | Образ без завершённого receipt не перезаписывается и автоматически не объявляется успешной сборкой. Сохранить его для отдельной проверки.                            |
+| STAGE___CHANGED / CORRUPT__                                                       | Сохранить повреждённое состояние. Не править PASS вручную; новая проверенная интеграция/state.                                                                       |
+| SIGNING / APK_CERTIFICATE / PACKAGE_OR_VERSION                                    | Проверить существующие ключ/свойства/public pin/toolchain; новый ключ/debug-signature не принимаются.                                                                |
 
 После **фактической** диагностики разрешена одна попытка выбранного режима:
 
