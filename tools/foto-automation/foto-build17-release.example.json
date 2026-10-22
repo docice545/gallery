@@ -19,15 +19,18 @@
     }
   },
   "repo": "/mnt/hp-data/codex-work/foto-build17-integration-review",
-  "required_checks": [
-    "Test & Lint Server",
-    "Medium Tests (Server)",
-    "OpenAPI Clients",
-    "SQL Schema Checks",
-    "Verify migration ORDER",
-    "Unit Test Mobile",
-    "Run Dart Code Analysis"
-  ],
+  "required_checks": {
+    "compatibility": [
+      "Test & Lint Server",
+      "Medium Tests (Server)",
+      "OpenAPI Clients",
+      "SQL Schema Checks",
+      "Verify migration ORDER",
+      "Unit Test Mobile",
+      "Run Dart Code Analysis"
+    ],
+    "editor": ["Unit Test Mobile", "Run Dart Code Analysis"]
+  },
   "signing": {
     "certificate_sha256": "REPLACE_WITH_TRUSTED_EXISTING_CERTIFICATE_SHA256",
     "keystore": "/REPLACE_WITH_EXISTING_PRIVATE_KEY_PATH",

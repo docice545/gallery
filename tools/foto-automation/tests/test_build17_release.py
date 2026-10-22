@@ -51,7 +51,7 @@ class ReleaseTest(unittest.TestCase):
                            'export_dir': self.root / 'export'}.items():
             self.c[key] = str(value)
         self.c['expected_head'] = self.base
-        self.c['required_checks'] = ['Contract']
+        self.c['required_checks'] = {role: ['Contract'] for role in app.ROLES}
         for i, role in enumerate(app.ROLES, 1):
             self.c['prs'][role] = {'number': i, 'sha': self.heads[role], 'approved': True, 'approval_note': 'synthetic review'}
         for path in ('state', 'common', 'legacy'):
@@ -61,6 +61,7 @@ class ReleaseTest(unittest.TestCase):
         self.patches = [patch.object(app, 'api', side_effect=self.api),
                         patch.object(app, 'git', side_effect=self.git), patch.object(app, 'processes', return_value=[]),
                         patch.object(app, 'WORK_ROOT', self.root),
+                        patch.object(app, 'REQUIRED_CHECKS', {role: {'Contract'} for role in app.ROLES}),
                         patch.object(app, 'resources', return_value={
                             'memoryBytes': {'MemAvailable': 32 * 1024**3}, 'currentCgroup': {'memory.max': str(32 * 1024**3)}})]
         for p in self.patches:
@@ -177,6 +178,17 @@ class ReleaseTest(unittest.TestCase):
     def test_green_checks_accept_optional_skip_not_as_test(self):
         app.checks_green([{'name': 'Contract', 'status': 'completed', 'conclusion': 'success'},
                           {'name': 'Docs', 'status': 'completed', 'conclusion': 'skipped'}], ['Contract'])
+
+    def test_editor_gate_does_not_require_unchanged_server_job(self):
+        self.c['required_checks']['editor'] = ['Mobile']
+        original = self.api
+        def scoped(path):
+            if self.heads['editor'] in path and 'check-runs' in path:
+                return {'total_count': 1, 'check_runs': [{'name': 'Mobile', 'status': 'completed', 'conclusion': 'success'}]}
+            return original(path)
+        with patch.object(app, 'api', side_effect=scoped):
+            self.p.prepare()
+        self.assertTrue(self.p.manifest['prepared'])
 
     def test_changed_hp_sha_preserved(self):
         self.c['expected_head'] = 'f' * 40

@@ -31,6 +31,11 @@ WORK_ROOT = Path('/mnt/hp-data/codex-work')
 PUBLIC_EXPORT = Path('/var/tmp/foto-build17-release-artifacts')
 SHA = re.compile(r'[0-9a-f]{40}')
 ROLES = {'editor': 'codex/foto-build17-editor-compact', 'compatibility': 'codex/foto-build17-client-compat'}
+REQUIRED_CHECKS = {
+    'editor': {'Unit Test Mobile', 'Run Dart Code Analysis'},
+    'compatibility': {'Test & Lint Server', 'Medium Tests (Server)', 'OpenAPI Clients', 'SQL Schema Checks',
+                      'Verify migration ORDER', 'Unit Test Mobile', 'Run Dart Code Analysis'},
+}
 SUCCESS = {'success', 'neutral', 'skipped'}
 
 
@@ -96,7 +101,10 @@ def config(path):
     for role, item in value['prs'].items():
         need(set(item) == {'number', 'sha', 'approved', 'approval_note'} and isinstance(item['number'], int)
              and item['number'] > 0 and SHA.fullmatch(item['sha']), 'EXACT_PR_PIN_REQUIRED')
-    need(value['required_checks'] and all(isinstance(x, str) for x in value['required_checks']), 'CI_CHECKS_REQUIRED')
+    need(set(value['required_checks']) == set(ROLES), 'ROLE_SCOPED_CI_CHECKS_REQUIRED')
+    for role, checks in value['required_checks'].items():
+        need(checks and all(isinstance(x, str) for x in checks) and REQUIRED_CHECKS[role].issubset(checks),
+             'REQUIRED_CI_CANNOT_BE_REMOVED')
     need(set(value['signing']) == {'keystore', 'properties', 'certificate_sha256'}, 'SIGNING_CONFIG_INVALID')
     need(isinstance(value['min_free_gib'], int) and value['min_free_gib'] >= 20, 'SPACE_FLOOR_20_GIB_REQUIRED')
     repo, state, export = (Path(value[n]).resolve() for n in ('repo', 'state', 'export_dir'))
@@ -329,7 +337,7 @@ class Pipeline:
                  'PR_INCOMPLETE_OR_CONFLICTED')
             result = api(f"commits/{pin['sha']}/check-runs?per_page=100")
             need(result['total_count'] <= 100, 'CI_PAGINATION_REVIEW_REQUIRED')
-            checks_green(result['check_runs'], self.c['required_checks'])
+            checks_green(result['check_runs'], self.c['required_checks'][role])
             statuses = api(f"commits/{pin['sha']}/status")
             need(statuses['total_count'] == 0 or statuses['state'] == 'success', 'LEGACY_COMMIT_STATUS_NOT_GREEN')
             admitted.append({'role': role, **pin})
