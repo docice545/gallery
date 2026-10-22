@@ -6,12 +6,21 @@ select
 from
   "memory"
 where
-  (
+  not exists (
+    select
+      "id"
+    from
+      "memory_candidate"
+    where
+      "memory_candidate"."memoryId" = "memory"."id"
+      and "state" != $1
+  )
+  and (
     "showAt" is null
-    or "showAt" <= $1
+    or "showAt" <= $2
   )
   and "deletedAt" is null
-  and "ownerId" = $2
+  and "ownerId" = $3
 
 -- MemoryRepository.statistics (date filter)
 select
@@ -19,16 +28,25 @@ select
 from
   "memory"
 where
-  (
+  not exists (
+    select
+      "id"
+    from
+      "memory_candidate"
+    where
+      "memory_candidate"."memoryId" = "memory"."id"
+      and "state" != $1
+  )
+  and (
     "showAt" is null
-    or "showAt" <= $1
+    or "showAt" <= $2
   )
   and (
     "hideAt" is null
-    or "hideAt" >= $2
+    or "hideAt" >= $3
   )
   and "deletedAt" is null
-  and "ownerId" = $3
+  and "ownerId" = $4
 
 -- MemoryRepository.search
 select
@@ -65,12 +83,21 @@ select
 from
   "memory"
 where
-  (
+  not exists (
+    select
+      "id"
+    from
+      "memory_candidate"
+    where
+      "memory_candidate"."memoryId" = "memory"."id"
+      and "state" != $3
+  )
+  and (
     "showAt" is null
-    or "showAt" <= $3
+    or "showAt" <= $4
   )
   and "deletedAt" is null
-  and "ownerId" = $4
+  and "ownerId" = $5
 order by
   "showAt" desc nulls last,
   "memoryAt" desc
@@ -110,16 +137,25 @@ select
 from
   "memory"
 where
-  (
+  not exists (
+    select
+      "id"
+    from
+      "memory_candidate"
+    where
+      "memory_candidate"."memoryId" = "memory"."id"
+      and "state" != $3
+  )
+  and (
     "showAt" is null
-    or "showAt" <= $3
+    or "showAt" <= $4
   )
   and (
     "hideAt" is null
-    or "hideAt" >= $4
+    or "hideAt" >= $5
   )
   and "deletedAt" is null
-  and "ownerId" = $5
+  and "ownerId" = $6
 order by
   "showAt" desc nulls last,
   "memoryAt" desc
@@ -159,9 +195,18 @@ select
 from
   "memory"
 where
-  "showAt" > $3
+  not exists (
+    select
+      "id"
+    from
+      "memory_candidate"
+    where
+      "memory_candidate"."memoryId" = "memory"."id"
+      and "state" != $3
+  )
+  and "showAt" > $4
   and "deletedAt" is null
-  and "ownerId" = $4
+  and "ownerId" = $5
 order by
   "showAt" desc nulls last,
   "memoryAt" desc
@@ -201,12 +246,21 @@ select
 from
   "memory"
 where
-  (
+  not exists (
+    select
+      "id"
+    from
+      "memory_candidate"
+    where
+      "memory_candidate"."memoryId" = "memory"."id"
+      and "state" != $3
+  )
+  and (
     "showAt" is null
-    or "showAt" <= $3
+    or "showAt" <= $4
   )
   and "deletedAt" is null
-  and "ownerId" = $4
+  and "ownerId" = $5
 order by
   "showAt" desc nulls last,
   "memoryAt" desc
@@ -300,6 +354,12 @@ where
   and "deletedAt" is null
 
 -- MemoryRepository.update
+select
+  "state"
+from
+  "memory_candidate"
+where
+  "memoryId" = $1
 update "memory"
 set
   "ownerId" = $1,

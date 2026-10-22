@@ -56,6 +56,7 @@ run = [
 [tasks.open-api-typescript]
 run = [
   "oazapfts --optimistic --argumentStyle=object --useEnumType --allSchemas open-api/immich-openapi-specs.json packages/sdk/src/fetch-client.ts",
+  "pnpm exec prettier --write packages/sdk/src/fetch-client.ts",
   { task = ":sdk:install" },
   { task = ":sdk:build" },
 ]

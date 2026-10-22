@@ -646,21 +646,46 @@ from
   "asset"
 where
   "ownerId" = $1::uuid
-  and "checksum" in ($2)
+  and (
+    "libraryId" is null
+    or "status" = $2
+  )
+  and "checksum" in ($3)
 select
   "asset_duplicate_checksum"."assetId" as "id",
   "asset_duplicate_checksum"."checksum",
   "asset"."deletedAt"
 from
   "asset_duplicate_checksum"
-inner join "asset" on "asset"."id" = "asset_duplicate_checksum"."assetId"
+  inner join "asset" on "asset"."id" = "asset_duplicate_checksum"."assetId"
 where
   "asset_duplicate_checksum"."ownerId" = $1::uuid
-  and "asset_duplicate_checksum"."checksum" in ($2)
+  and "asset"."ownerId" = $2::uuid
+  and (
+    "asset"."libraryId" is null
+    or "asset"."status" = $3
+  )
+  and "asset_duplicate_checksum"."checksum" in ($4)
+select
+  "assetId" as "id",
+  "checksum",
+  "contentChecksum",
+  "aliases",
+  "createdAt" as "deletedAt"
+from
+  "asset_deletion_tombstone"
+where
+  "ownerId" = $1
+  and (
+    "checksum" in ($2)
+    or "contentChecksum" in ($3)
+    or aliases ?| $4::text[]
+  )
 
 -- AssetRepository.getUploadAssetIdByChecksum
 select
-  "id"
+  "id",
+  "duplicateId"
 from
   "asset"
 where
@@ -670,14 +695,32 @@ where
 limit
   $3
 select
-  "assetId"
+  "asset_duplicate_checksum"."assetId" as "assetId",
+  "asset"."duplicateId"
 from
   "asset_duplicate_checksum"
+  inner join "asset" on "asset"."id" = "asset_duplicate_checksum"."assetId"
 where
-  "ownerId" = $1::uuid
-  and "checksum" = $2
+  "asset_duplicate_checksum"."ownerId" = $1::uuid
+  and "asset"."ownerId" = $2::uuid
+  and (
+    "asset"."libraryId" is null
+    or "asset"."status" = $3
+  )
+  and "asset_duplicate_checksum"."checksum" = $4
 limit
-  $3
+  $5
+select
+  "assetId"
+from
+  "asset_deletion_tombstone"
+where
+  "ownerId" = $1
+  and (
+    "checksum" = $2
+    or "contentChecksum" = $3
+    or aliases ? $4
+  )
 
 -- AssetRepository.getChecksumsByIds
 select
@@ -823,10 +866,18 @@ with
       "asset"."duration",
       "asset"."id",
       "asset"."visibility",
-      asset."isFavorite"
-      and asset."ownerId" = $2 as "isFavorite",
+      exists (
+        select
+          1
+        from
+          asset_favorite
+        where
+          asset_favorite."assetId" = "asset"."id"
+          and asset_favorite."userId" = $2::uuid
+      ) as "isFavorite",
       asset.type = 'IMAGE' as "isImage",
       asset."deletedAt" is not null as "isTrashed",
+      "asset"."deletedAt",
       "asset"."livePhotoVideoId",
       extract(
         epoch
@@ -884,6 +935,7 @@ with
       coalesce(array_agg("isFavorite"), '{}') as "isFavorite",
       coalesce(array_agg("isImage"), '{}') as "isImage",
       coalesce(array_agg("isTrashed"), '{}') as "isTrashed",
+      coalesce(array_agg("deletedAt"), '{}') as "deletedAt",
       coalesce(array_agg("livePhotoVideoId"), '{}') as "livePhotoVideoId",
       coalesce(array_agg("fileCreatedAt"), '{}') as "fileCreatedAt",
       coalesce(array_agg("localOffsetHours"), '{}') as "localOffsetHours",
@@ -921,10 +973,18 @@ with
       "asset"."duration",
       "asset"."id",
       "asset"."visibility",
-      asset."isFavorite"
-      and asset."ownerId" = $2 as "isFavorite",
+      exists (
+        select
+          1
+        from
+          asset_favorite
+        where
+          asset_favorite."assetId" = "asset"."id"
+          and asset_favorite."userId" = $2::uuid
+      ) as "isFavorite",
       asset.type = 'IMAGE' as "isImage",
       asset."deletedAt" is not null as "isTrashed",
+      "asset"."deletedAt",
       "asset"."livePhotoVideoId",
       extract(
         epoch
@@ -969,6 +1029,7 @@ with
       coalesce(array_agg("isFavorite"), '{}') as "isFavorite",
       coalesce(array_agg("isImage"), '{}') as "isImage",
       coalesce(array_agg("isTrashed"), '{}') as "isTrashed",
+      coalesce(array_agg("deletedAt"), '{}') as "deletedAt",
       coalesce(array_agg("livePhotoVideoId"), '{}') as "livePhotoVideoId",
       coalesce(array_agg("fileCreatedAt"), '{}') as "fileCreatedAt",
       coalesce(array_agg("localOffsetHours"), '{}') as "localOffsetHours",
@@ -1005,10 +1066,18 @@ with
       "asset"."duration",
       "asset"."id",
       "asset"."visibility",
-      asset."isFavorite"
-      and asset."ownerId" = $2 as "isFavorite",
+      exists (
+        select
+          1
+        from
+          asset_favorite
+        where
+          asset_favorite."assetId" = "asset"."id"
+          and asset_favorite."userId" = $2::uuid
+      ) as "isFavorite",
       asset.type = 'IMAGE' as "isImage",
       asset."deletedAt" is not null as "isTrashed",
+      "asset"."deletedAt",
       "asset"."livePhotoVideoId",
       extract(
         epoch
@@ -1053,6 +1122,7 @@ with
       coalesce(array_agg("isFavorite"), '{}') as "isFavorite",
       coalesce(array_agg("isImage"), '{}') as "isImage",
       coalesce(array_agg("isTrashed"), '{}') as "isTrashed",
+      coalesce(array_agg("deletedAt"), '{}') as "deletedAt",
       coalesce(array_agg("livePhotoVideoId"), '{}') as "livePhotoVideoId",
       coalesce(array_agg("fileCreatedAt"), '{}') as "fileCreatedAt",
       coalesce(array_agg("localOffsetHours"), '{}') as "localOffsetHours",
@@ -1196,6 +1266,13 @@ where
       and "libraryId" = $2::uuid
       and "isExternal" = $3
   )
+select
+  "originalPath"
+from
+  "asset_deletion_tombstone"
+where
+  "libraryId" = $1
+  and "originalPath" in ($2)
 
 -- AssetRepository.getForOriginal
 select

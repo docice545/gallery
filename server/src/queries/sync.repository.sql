@@ -41,7 +41,8 @@ from
   "album" as "album"
   left join "album_user" as "album_users" on "album"."id" = "album_users"."albumId"
 where
-  "album"."updateId" < $1
+  true
+  and "album"."updateId" < $1
   and "album"."updateId" > $2
   and "album_users"."userId" = $3
 order by
@@ -69,6 +70,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -77,19 +79,44 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "album_asset"."updateId"
 from
   "album_asset" as "album_asset"
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
 where
-  "album_asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" < $3
   and "album_asset"."updateId" <= $4
   and "album_asset"."updateId" > $5
-  and "album_asset"."albumId" = $6
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $6
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."albumId" = $7
 order by
   "album_asset"."updateId" asc
 
@@ -106,6 +133,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -114,20 +142,45 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset" as "asset"
   inner join "album_asset" on "album_asset"."assetId" = "asset"."id"
   inner join "album_user" on "album_user"."albumId" = "album_asset"."albumId"
 where
-  "asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
   and "asset"."updateId" > $4
-  and "album_asset"."updateId" <= $5
-  and "album_user"."userId" = $6
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" <= $6
+  and "album_user"."userId" = $7
 order by
   "asset"."updateId" asc
 
@@ -145,6 +198,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -153,18 +207,43 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite"
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite"
 from
   "album_asset" as "album_asset"
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
   inner join "album_user" on "album_user"."albumId" = "album_asset"."albumId"
 where
-  "album_asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" < $3
   and "album_asset"."updateId" > $4
-  and "album_user"."userId" = $5
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_user"."userId" = $6
 order by
   "album_asset"."updateId" asc
 
@@ -200,10 +279,30 @@ from
   "album_asset" as "album_asset"
   inner join "asset_exif" on "asset_exif"."assetId" = "album_asset"."assetId"
 where
-  "album_asset"."updateId" < $1
-  and "album_asset"."updateId" <= $2
-  and "album_asset"."updateId" > $3
-  and "album_asset"."albumId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" < $2
+  and "album_asset"."updateId" <= $3
+  and "album_asset"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."albumId" = $6
 order by
   "album_asset"."updateId" asc
 
@@ -240,10 +339,30 @@ from
   inner join "album_asset" on "album_asset"."assetId" = "asset_exif"."assetId"
   inner join "album_user" on "album_user"."albumId" = "album_asset"."albumId"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" > $2
-  and "album_asset"."updateId" <= $3
-  and "album_user"."userId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" <= $5
+  and "album_user"."userId" = $6
 order by
   "asset_exif"."updateId" asc
 
@@ -281,9 +400,29 @@ from
   inner join "album" on "album"."id" = "album_asset"."albumId"
   left join "album_user" on "album_user"."albumId" = "album_asset"."albumId"
 where
-  "album_asset"."updateId" < $1
-  and "album_asset"."updateId" > $2
-  and "album_user"."userId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" < $2
+  and "album_asset"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_user"."userId" = $5
 order by
   "album_asset"."updateId" asc
 
@@ -295,10 +434,20 @@ select
 from
   "album_asset" as "album_asset"
 where
-  "album_asset"."updateId" < $1
-  and "album_asset"."updateId" <= $2
-  and "album_asset"."updateId" > $3
-  and "album_asset"."albumId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" < $2
+  and "album_asset"."updateId" <= $3
+  and "album_asset"."updateId" > $4
+  and "album_asset"."albumId" = $5
 order by
   "album_asset"."updateId" asc
 
@@ -332,9 +481,19 @@ from
   "album_asset" as "album_asset"
   inner join "album_user" on "album_user"."albumId" = "album_asset"."albumId"
 where
-  "album_asset"."updateId" < $1
-  and "album_asset"."updateId" > $2
-  and "album_user"."userId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."updateId" < $2
+  and "album_asset"."updateId" > $3
+  and "album_user"."userId" = $4
 order by
   "album_asset"."updateId" asc
 
@@ -347,7 +506,8 @@ select
 from
   "album_user" as "album_user"
 where
-  "album_user"."updateId" < $1
+  true
+  and "album_user"."updateId" < $1
   and "album_user"."updateId" <= $2
   and "album_user"."updateId" > $3
   and "albumId" = $4
@@ -384,7 +544,8 @@ select
 from
   "album_user" as "album_user"
 where
-  "album_user"."updateId" < $1
+  true
+  and "album_user"."updateId" < $1
   and "album_user"."updateId" > $2
   and "album_user"."albumId" in (
     select
@@ -423,6 +584,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."isFavorite",
   "asset"."visibility",
   "asset"."duration",
@@ -436,9 +598,29 @@ select
 from
   "asset" as "asset"
 where
-  "asset"."updateId" < $1
-  and "asset"."updateId" > $2
-  and "ownerId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $2
+  and "asset"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
+  and "ownerId" = $5
 order by
   "asset"."updateId" asc
 
@@ -473,15 +655,35 @@ select
 from
   "asset_exif" as "asset_exif"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
   and "assetId" in (
     select
       "id"
     from
       "asset"
     where
-      "ownerId" = $3
+      "ownerId" = $5
   )
 order by
   "asset_exif"."updateId" asc
@@ -512,11 +714,57 @@ from
   "asset_edit" as "asset_edit"
   inner join "asset" on "asset"."id" = "asset_edit"."assetId"
 where
-  "asset_edit"."updateId" < $1
-  and "asset_edit"."updateId" > $2
-  and "asset"."ownerId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_edit"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_edit"."updateId" < $2
+  and "asset_edit"."updateId" > $3
+  and "asset"."ownerId" = $4
 order by
   "asset_edit"."updateId" asc
+
+-- SyncRepository.assetFavorite.getDeletes
+select
+  "asset_favorite_audit"."id",
+  "asset_favorite_audit"."assetId"
+from
+  "asset_favorite_audit" as "asset_favorite_audit"
+where
+  "asset_favorite_audit"."id" < $1
+  and "asset_favorite_audit"."id" > $2
+  and "asset_favorite_audit"."userId" = $3
+order by
+  "asset_favorite_audit"."id" asc
+
+-- SyncRepository.assetFavorite.getUpserts
+select
+  "asset_favorite"."assetId",
+  "asset_favorite"."updateId"
+from
+  "asset_favorite" as "asset_favorite"
+where
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_favorite"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_favorite"."updateId" < $2
+  and "asset_favorite"."updateId" > $3
+  and "asset_favorite"."userId" = $4
+order by
+  "asset_favorite"."updateId" asc
 
 -- SyncRepository.assetFace.getDeletes
 select
@@ -551,9 +799,19 @@ from
   "asset_face" as "asset_face"
   left join "asset" on "asset"."id" = "asset_face"."assetId"
 where
-  "asset_face"."updateId" < $1
-  and "asset_face"."updateId" > $2
-  and "asset"."ownerId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_face"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_face"."updateId" < $2
+  and "asset_face"."updateId" > $3
+  and "asset"."ownerId" = $4
 order by
   "asset_face"."updateId" asc
 
@@ -582,9 +840,19 @@ from
   "asset_metadata" as "asset_metadata"
   inner join "asset" on "asset"."id" = "asset_metadata"."assetId"
 where
-  "asset_metadata"."updateId" < $1
-  and "asset_metadata"."updateId" > $2
-  and "asset"."ownerId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_metadata"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_metadata"."updateId" < $2
+  and "asset_metadata"."updateId" > $3
+  and "asset"."ownerId" = $4
 order by
   "asset_metadata"."updateId" asc
 
@@ -624,9 +892,19 @@ from
   "asset_ocr" as "asset_ocr"
   inner join "asset" on "asset"."id" = "asset_ocr"."assetId"
 where
-  "asset_ocr"."updateId" < $1
-  and "asset_ocr"."updateId" > $2
-  and "asset"."ownerId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_ocr"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_ocr"."updateId" < $2
+  and "asset_ocr"."updateId" > $3
+  and "asset"."ownerId" = $4
 order by
   "asset_ocr"."updateId" asc
 
@@ -649,7 +927,8 @@ select
 from
   "user" as "user"
 where
-  "user"."updateId" < $1
+  true
+  and "user"."updateId" < $1
   and "user"."updateId" > $2
   and "id" = $3
 order by
@@ -686,7 +965,8 @@ select
 from
   "memory" as "memory"
 where
-  "memory"."updateId" < $1
+  true
+  and "memory"."updateId" < $1
   and "memory"."updateId" > $2
   and "ownerId" = $3
 order by
@@ -709,6 +989,7 @@ where
       "memory"
     where
       "ownerId" = $3
+      and "type" = $4
   )
 order by
   "memory_asset_audit"."id" asc
@@ -721,15 +1002,34 @@ select
 from
   "memory_asset" as "memory_asset"
 where
-  "memory_asset"."updateId" < $1
-  and "memory_asset"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "memory_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "memory_asset"."updateId" < $2
+  and "memory_asset"."updateId" > $3
+  and "assetId" in (
+    select
+      "id"
+    from
+      "asset"
+    where
+      "ownerId" = $4
+  )
   and "memoriesId" in (
     select
       "id"
     from
       "memory"
     where
-      "ownerId" = $3
+      "ownerId" = $5
+      and "type" = $6
   )
 order by
   "memory_asset"."updateId" asc
@@ -773,7 +1073,8 @@ select
 from
   "partner" as "partner"
 where
-  "partner"."updateId" < $1
+  true
+  and "partner"."updateId" < $1
   and "partner"."updateId" > $2
   and (
     "sharedById" = $3
@@ -795,6 +1096,7 @@ select
   "asset"."createdAt",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -803,15 +1105,43 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  $1 as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset" as "asset"
 where
-  "asset"."updateId" < $2
-  and "asset"."updateId" <= $3
-  and "asset"."updateId" > $4
-  and "ownerId" = $5
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
+  and "asset"."updateId" <= $4
+  and "asset"."updateId" > $5
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $6
+      and index_tombstone."deletedAt" is not null
+  )
+  and "ownerId" = $7
 order by
   "asset"."updateId" asc
 
@@ -848,6 +1178,7 @@ select
   "asset"."createdAt",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -856,20 +1187,48 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  $1 as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset" as "asset"
 where
-  "asset"."updateId" < $2
-  and "asset"."updateId" > $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
+  and "asset"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
   and "ownerId" in (
     select
       "sharedById"
     from
       "partner"
     where
-      "sharedWithId" = $4
+      "sharedWithId" = $6
   )
 order by
   "asset"."updateId" asc
@@ -906,10 +1265,30 @@ from
   "asset_exif" as "asset_exif"
   inner join "asset" on "asset"."id" = "asset_exif"."assetId"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" <= $2
-  and "asset_exif"."updateId" > $3
-  and "asset"."ownerId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" <= $3
+  and "asset_exif"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."ownerId" = $6
 order by
   "asset_exif"."updateId" asc
 
@@ -944,8 +1323,28 @@ select
 from
   "asset_exif" as "asset_exif"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
   and "assetId" in (
     select
       "id"
@@ -958,7 +1357,7 @@ where
         from
           "partner"
         where
-          "sharedWithId" = $3
+          "sharedWithId" = $5
       )
   )
 order by
@@ -995,10 +1394,20 @@ select
 from
   "stack" as "stack"
 where
-  "stack"."updateId" < $1
-  and "stack"."updateId" <= $2
-  and "stack"."updateId" > $3
-  and "ownerId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "stack"."primaryAssetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "stack"."updateId" < $2
+  and "stack"."updateId" <= $3
+  and "stack"."updateId" > $4
+  and "ownerId" = $5
 order by
   "stack"."updateId" asc
 
@@ -1013,15 +1422,25 @@ select
 from
   "stack" as "stack"
 where
-  "stack"."updateId" < $1
-  and "stack"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "stack"."primaryAssetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "stack"."updateId" < $2
+  and "stack"."updateId" > $3
   and "ownerId" in (
     select
       "sharedById"
     from
       "partner"
     where
-      "sharedWithId" = $3
+      "sharedWithId" = $4
   )
 order by
   "stack"."updateId" asc
@@ -1055,7 +1474,8 @@ select
 from
   "person" as "person"
 where
-  "person"."updateId" < $1
+  true
+  and "person"."updateId" < $1
   and "person"."updateId" > $2
   and "ownerId" = $3
 order by
@@ -1085,9 +1505,19 @@ select
 from
   "stack" as "stack"
 where
-  "stack"."updateId" < $1
-  and "stack"."updateId" > $2
-  and "ownerId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "stack"."primaryAssetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "stack"."updateId" < $2
+  and "stack"."updateId" > $3
+  and "ownerId" = $4
 order by
   "stack"."updateId" asc
 
@@ -1116,7 +1546,8 @@ select
 from
   "user" as "user"
 where
-  "user"."updateId" < $1
+  true
+  and "user"."updateId" < $1
   and "user"."updateId" > $2
 order by
   "user"."updateId" asc
@@ -1144,7 +1575,8 @@ select
 from
   "user_metadata" as "user_metadata"
 where
-  "user_metadata"."updateId" < $1
+  true
+  and "user_metadata"."updateId" < $1
   and "user_metadata"."updateId" > $2
   and "userId" = $3
 order by
@@ -1194,7 +1626,8 @@ select
 from
   "shared_space" as "shared_space"
 where
-  "shared_space"."updateId" < $1
+  true
+  and "shared_space"."updateId" < $1
   and "shared_space"."updateId" > $2
   and "shared_space"."id" in (
     select
@@ -1225,7 +1658,8 @@ select
 from
   "shared_space_member" as "shared_space_member"
 where
-  "shared_space_member"."updateId" < $1
+  true
+  and "shared_space_member"."updateId" < $1
   and "shared_space_member"."updateId" <= $2
   and "shared_space_member"."updateId" > $3
   and "shared_space_member"."spaceId" = $4
@@ -1271,7 +1705,8 @@ select
 from
   "shared_space_member" as "shared_space_member"
 where
-  "shared_space_member"."updateId" < $1
+  true
+  and "shared_space_member"."updateId" < $1
   and "shared_space_member"."updateId" > $2
   and "shared_space_member"."spaceId" in (
     select
@@ -1304,6 +1739,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -1312,20 +1748,45 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "shared_space_asset"."updateId"
 from
   "shared_space_asset" as "shared_space_asset"
   inner join "asset" on "asset"."id" = "shared_space_asset"."assetId"
 where
-  "shared_space_asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "shared_space_asset"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" < $3
   and "shared_space_asset"."updateId" <= $4
   and "shared_space_asset"."updateId" > $5
-  and "shared_space_asset"."spaceId" = $6
-  and "asset"."visibility" in ($7, $8)
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $6
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."spaceId" = $7
+  and "asset"."visibility" in ($8, $9)
   and "asset"."deletedAt" is null
 order by
   "shared_space_asset"."updateId" asc
@@ -1343,6 +1804,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -1351,33 +1813,58 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "shared_space_asset"."updateId"
 from
   "shared_space_asset" as "shared_space_asset"
   inner join "asset" on "asset"."id" = "shared_space_asset"."assetId"
 where
-  "shared_space_asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "shared_space_asset"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" < $3
   and "shared_space_asset"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
   and "shared_space_asset"."spaceId" in (
     select
       "shared_space"."id"
     from
       "shared_space"
     where
-      "shared_space"."createdById" = $5
+      "shared_space"."createdById" = $6
     union
     select
       "shared_space_member"."spaceId" as "id"
     from
       "shared_space_member"
     where
-      "shared_space_member"."userId" = $6
+      "shared_space_member"."userId" = $7
   )
-  and "asset"."visibility" in ($7, $8)
+  and "asset"."visibility" in ($8, $9)
   and "asset"."deletedAt" is null
 order by
   "shared_space_asset"."updateId" asc
@@ -1395,6 +1882,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -1403,34 +1891,59 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset" as "asset"
   inner join "shared_space_asset" on "shared_space_asset"."assetId" = "asset"."id"
 where
-  "asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
   and "asset"."updateId" > $4
-  and "shared_space_asset"."updateId" <= $5
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" <= $6
   and "shared_space_asset"."spaceId" in (
     select
       "shared_space"."id"
     from
       "shared_space"
     where
-      "shared_space"."createdById" = $6
+      "shared_space"."createdById" = $7
     union
     select
       "shared_space_member"."spaceId" as "id"
     from
       "shared_space_member"
     where
-      "shared_space_member"."userId" = $7
+      "shared_space_member"."userId" = $8
   )
-  and "asset"."visibility" in ($8, $9)
+  and "asset"."visibility" in ($9, $10)
 order by
   "asset"."updateId" asc
 
@@ -1467,11 +1980,31 @@ from
   inner join "asset_exif" on "asset_exif"."assetId" = "shared_space_asset"."assetId"
   inner join "asset" on "asset"."id" = "shared_space_asset"."assetId"
 where
-  "shared_space_asset"."updateId" < $1
-  and "shared_space_asset"."updateId" <= $2
-  and "shared_space_asset"."updateId" > $3
-  and "shared_space_asset"."spaceId" = $4
-  and "asset"."visibility" in ($5, $6)
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "shared_space_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" < $2
+  and "shared_space_asset"."updateId" <= $3
+  and "shared_space_asset"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."spaceId" = $6
+  and "asset"."visibility" in ($7, $8)
   and "asset"."deletedAt" is null
 order by
   "shared_space_asset"."updateId" asc
@@ -1509,24 +2042,44 @@ from
   inner join "asset_exif" on "asset_exif"."assetId" = "shared_space_asset"."assetId"
   inner join "asset" on "asset"."id" = "shared_space_asset"."assetId"
 where
-  "shared_space_asset"."updateId" < $1
-  and "shared_space_asset"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "shared_space_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" < $2
+  and "shared_space_asset"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
   and "shared_space_asset"."spaceId" in (
     select
       "shared_space"."id"
     from
       "shared_space"
     where
-      "shared_space"."createdById" = $3
+      "shared_space"."createdById" = $5
     union
     select
       "shared_space_member"."spaceId" as "id"
     from
       "shared_space_member"
     where
-      "shared_space_member"."userId" = $4
+      "shared_space_member"."userId" = $6
   )
-  and "asset"."visibility" in ($5, $6)
+  and "asset"."visibility" in ($7, $8)
   and "asset"."deletedAt" is null
 order by
   "shared_space_asset"."updateId" asc
@@ -1564,25 +2117,45 @@ from
   inner join "shared_space_asset" on "shared_space_asset"."assetId" = "asset_exif"."assetId"
   inner join "asset" on "asset"."id" = "asset_exif"."assetId"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" > $2
-  and "shared_space_asset"."updateId" <= $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" <= $5
   and "shared_space_asset"."spaceId" in (
     select
       "shared_space"."id"
     from
       "shared_space"
     where
-      "shared_space"."createdById" = $4
+      "shared_space"."createdById" = $6
     union
     select
       "shared_space_member"."spaceId" as "id"
     from
       "shared_space_member"
     where
-      "shared_space_member"."userId" = $5
+      "shared_space_member"."userId" = $7
   )
-  and "asset"."visibility" in ($6, $7)
+  and "asset"."visibility" in ($8, $9)
 order by
   "asset_exif"."updateId" asc
 
@@ -1595,11 +2168,21 @@ from
   "shared_space_asset" as "shared_space_asset"
   inner join "asset" on "asset"."id" = "shared_space_asset"."assetId"
 where
-  "shared_space_asset"."updateId" < $1
-  and "shared_space_asset"."updateId" <= $2
-  and "shared_space_asset"."updateId" > $3
-  and "shared_space_asset"."spaceId" = $4
-  and "asset"."visibility" in ($5, $6)
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "shared_space_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" < $2
+  and "shared_space_asset"."updateId" <= $3
+  and "shared_space_asset"."updateId" > $4
+  and "shared_space_asset"."spaceId" = $5
+  and "asset"."visibility" in ($6, $7)
   and "asset"."deletedAt" is null
 order by
   "shared_space_asset"."updateId" asc
@@ -1641,24 +2224,34 @@ from
   "shared_space_asset" as "shared_space_asset"
   inner join "asset" on "asset"."id" = "shared_space_asset"."assetId"
 where
-  "shared_space_asset"."updateId" < $1
-  and "shared_space_asset"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "shared_space_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_asset"."updateId" < $2
+  and "shared_space_asset"."updateId" > $3
   and "shared_space_asset"."spaceId" in (
     select
       "shared_space"."id"
     from
       "shared_space"
     where
-      "shared_space"."createdById" = $3
+      "shared_space"."createdById" = $4
     union
     select
       "shared_space_member"."spaceId" as "id"
     from
       "shared_space_member"
     where
-      "shared_space_member"."userId" = $4
+      "shared_space_member"."userId" = $5
   )
-  and "asset"."visibility" in ($5, $6)
+  and "asset"."visibility" in ($6, $7)
 order by
   "shared_space_asset"."updateId" asc
 
@@ -1729,7 +2322,8 @@ select
 from
   "library" as "library"
 where
-  "library"."updateId" < $1
+  true
+  and "library"."updateId" < $1
   and "library"."updateId" > $2
   and "library"."id" in (
     select
@@ -1777,6 +2371,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -1785,22 +2380,47 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset" as "asset"
 where
-  "asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
   and "asset"."updateId" <= $4
   and "asset"."updateId" > $5
-  and "asset"."libraryId" = $6
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $6
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."libraryId" = $7
   and (
-    "asset"."ownerId" = $7
+    "asset"."ownerId" = $8
     or (
-      "asset"."visibility" in ($8, $9)
+      "asset"."visibility" in ($9, $10)
       and "asset"."deletedAt" is null
     )
   )
@@ -1820,6 +2440,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -1828,16 +2449,41 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset" as "asset"
 where
-  "asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
   and "asset"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
   and "asset"."libraryId" is not null
   and "asset"."libraryId" in (
     select
@@ -1845,7 +2491,7 @@ where
     from
       "library"
     where
-      "library"."ownerId" = $5
+      "library"."ownerId" = $6
       and "library"."deletedAt" is null
     union
     select
@@ -1859,19 +2505,19 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $6
+          "shared_space"."createdById" = $7
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $7
+          "shared_space_member"."userId" = $8
       )
   )
   and (
-    "asset"."ownerId" = $8
-    or "asset"."visibility" in ($9, $10)
+    "asset"."ownerId" = $9
+    or "asset"."visibility" in ($10, $11)
   )
 order by
   "asset"."updateId" asc
@@ -2000,14 +2646,34 @@ from
   "asset" as "asset"
   inner join "asset_exif" on "asset_exif"."assetId" = "asset"."id"
 where
-  "asset"."updateId" < $1
-  and "asset"."updateId" <= $2
-  and "asset"."updateId" > $3
-  and "asset"."libraryId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $2
+  and "asset"."updateId" <= $3
+  and "asset"."updateId" > $4
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $5
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."libraryId" = $6
   and (
-    "asset"."ownerId" = $5
+    "asset"."ownerId" = $7
     or (
-      "asset"."visibility" in ($6, $7)
+      "asset"."visibility" in ($8, $9)
       and "asset"."deletedAt" is null
     )
   )
@@ -2046,8 +2712,28 @@ from
   "asset_exif" as "asset_exif"
   inner join "asset" on "asset"."id" = "asset_exif"."assetId"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" > $2
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" > $3
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $4
+      and index_tombstone."deletedAt" is not null
+  )
   and "asset"."libraryId" is not null
   and "asset"."libraryId" in (
     select
@@ -2055,7 +2741,7 @@ where
     from
       "library"
     where
-      "library"."ownerId" = $3
+      "library"."ownerId" = $5
       and "library"."deletedAt" is null
     union
     select
@@ -2069,19 +2755,19 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $4
+          "shared_space"."createdById" = $6
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $5
+          "shared_space_member"."userId" = $7
       )
   )
   and (
-    "asset"."ownerId" = $6
-    or "asset"."visibility" in ($7, $8)
+    "asset"."ownerId" = $8
+    or "asset"."visibility" in ($9, $10)
   )
 order by
   "asset_exif"."updateId" asc
@@ -2097,7 +2783,8 @@ select
 from
   "shared_space_library" as "shared_space_library"
 where
-  "shared_space_library"."updateId" < $1
+  true
+  and "shared_space_library"."updateId" < $1
   and "shared_space_library"."updateId" <= $2
   and "shared_space_library"."updateId" > $3
   and "shared_space_library"."spaceId" = $4
@@ -2143,7 +2830,8 @@ select
 from
   "shared_space_library" as "shared_space_library"
 where
-  "shared_space_library"."updateId" < $1
+  true
+  and "shared_space_library"."updateId" < $1
   and "shared_space_library"."updateId" > $2
   and "shared_space_library"."spaceId" in (
     select
@@ -2227,7 +2915,8 @@ select distinct
 from
   "album" as "album"
 where
-  "album"."updateId" < $1
+  true
+  and "album"."updateId" < $1
   and "album"."updateId" > $2
   and "album"."id" in (
     select
@@ -2270,7 +2959,8 @@ from
   "shared_space_album" as "shared_space_album"
   inner join "album" on "album"."id" = "shared_space_album"."albumId"
 where
-  "shared_space_album"."updateId" < $1
+  true
+  and "shared_space_album"."updateId" < $1
   and "shared_space_album"."updateId" <= $2
   and "shared_space_album"."updateId" > $3
   and "shared_space_album"."spaceId" = $4
@@ -2320,7 +3010,8 @@ from
   "shared_space_album" as "shared_space_album"
   inner join "album" on "album"."id" = "shared_space_album"."albumId"
 where
-  "shared_space_album"."updateId" < $1
+  true
+  and "shared_space_album"."updateId" < $1
   and "shared_space_album"."updateId" > $2
   and "shared_space_album"."spaceId" in (
     select
@@ -2351,7 +3042,8 @@ from
   "shared_space_album_hidden" as "shared_space_album_hidden"
   inner join "album" on "album"."id" = "shared_space_album_hidden"."albumId"
 where
-  "shared_space_album_hidden"."updateId" < $1
+  true
+  and "shared_space_album_hidden"."updateId" < $1
   and "shared_space_album_hidden"."updateId" <= $2
   and "shared_space_album_hidden"."updateId" > $3
   and "shared_space_album_hidden"."spaceId" = $4
@@ -2385,7 +3077,8 @@ from
   "shared_space_album_hidden" as "shared_space_album_hidden"
   inner join "album" on "album"."id" = "shared_space_album_hidden"."albumId"
 where
-  "shared_space_album_hidden"."updateId" < $1
+  true
+  and "shared_space_album_hidden"."updateId" < $1
   and "shared_space_album_hidden"."updateId" > $2
   and "shared_space_album_hidden"."userId" = $3::uuid
   and "album"."deletedAt" is null
@@ -2404,7 +3097,8 @@ select
 from
   "shared_space_album_folder" as "shared_space_album_folder"
 where
-  "shared_space_album_folder"."updateId" < $1
+  true
+  and "shared_space_album_folder"."updateId" < $1
   and "shared_space_album_folder"."updateId" <= $2
   and "shared_space_album_folder"."updateId" > $3
   and "shared_space_album_folder"."spaceId" = $4
@@ -2451,7 +3145,8 @@ select
 from
   "shared_space_album_folder" as "shared_space_album_folder"
 where
-  "shared_space_album_folder"."updateId" < $1
+  true
+  and "shared_space_album_folder"."updateId" < $1
   and "shared_space_album_folder"."updateId" > $2
   and "shared_space_album_folder"."spaceId" in (
     select
@@ -2480,11 +3175,21 @@ from
   "album_asset"
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
 where
-  "album_asset"."albumId" = $1
-  and "album_asset"."updateId" < $2
-  and "album_asset"."updateId" <= $3
-  and "album_asset"."updateId" > $4
-  and "asset"."visibility" in ($5, $6)
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."albumId" = $2
+  and "album_asset"."updateId" < $3
+  and "album_asset"."updateId" <= $4
+  and "album_asset"."updateId" > $5
+  and "asset"."visibility" in ($6, $7)
   and "asset"."deletedAt" is null
 union
 select
@@ -2495,18 +3200,28 @@ from
   "album_space_asset"
   inner join "asset" on "asset"."id" = "album_space_asset"."assetId"
 where
-  "album_space_asset"."albumId" = $7
-  and "album_space_asset"."updateId" < $8
-  and "album_space_asset"."updateId" <= $9
-  and "album_space_asset"."updateId" > $10
-  and "asset"."visibility" in ($11, $12)
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_space_asset"."assetId"
+      and index_tombstone.status = $8
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_space_asset"."albumId" = $9
+  and "album_space_asset"."updateId" < $10
+  and "album_space_asset"."updateId" <= $11
+  and "album_space_asset"."updateId" > $12
+  and "asset"."visibility" in ($13, $14)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $13::uuid
+      and "shared_space_member"."userId" = $15::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
@@ -2632,7 +3347,17 @@ from
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_asset"."albumId"
 where
-  "shared_space_album_user"."userId" = $1
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_album_user"."userId" = $2
   and "album_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -2647,19 +3372,19 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $2
+          "shared_space"."createdById" = $3
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $3
+          "shared_space_member"."userId" = $4
       )
   )
-  and "album_asset"."updateId" < $4
-  and "album_asset"."updateId" > $5
-  and "asset"."visibility" in ($6, $7)
+  and "album_asset"."updateId" < $5
+  and "album_asset"."updateId" > $6
+  and "asset"."visibility" in ($7, $8)
 union
 select
   "album_space_asset"."assetId" as "assetId",
@@ -2670,7 +3395,17 @@ from
   inner join "asset" on "asset"."id" = "album_space_asset"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_space_asset"."albumId"
 where
-  "shared_space_album_user"."userId" = $8
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_space_asset"."assetId"
+      and index_tombstone.status = $9
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_album_user"."userId" = $10
   and "album_space_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -2685,26 +3420,26 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $9
+          "shared_space"."createdById" = $11
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $10
+          "shared_space_member"."userId" = $12
       )
   )
-  and "album_space_asset"."updateId" < $11
-  and "album_space_asset"."updateId" > $12
-  and "asset"."visibility" in ($13, $14)
+  and "album_space_asset"."updateId" < $13
+  and "album_space_asset"."updateId" > $14
+  and "asset"."visibility" in ($15, $16)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $15::uuid
+      and "shared_space_member"."userId" = $17::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
@@ -2725,6 +3460,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -2733,22 +3469,47 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "album_asset"."updateId"
 from
   "album_asset"
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
   inner join "album" on "album"."id" = "album_asset"."albumId"
 where
-  "album_asset"."albumId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $3
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."albumId" = $4
   and "album"."deletedAt" is null
-  and "album_asset"."updateId" < $4
-  and "album_asset"."updateId" <= $5
-  and "album_asset"."updateId" > $6
-  and "asset"."visibility" in ($7, $8)
+  and "album_asset"."updateId" < $5
+  and "album_asset"."updateId" <= $6
+  and "album_asset"."updateId" > $7
+  and "asset"."visibility" in ($8, $9)
   and "asset"."deletedAt" is null
 union
 select
@@ -2763,6 +3524,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -2771,29 +3533,54 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $9 then "asset"."isFavorite"
-    else $10
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $10::uuid
+  ) as "isFavorite",
   "album_space_asset"."updateId"
 from
   "album_space_asset"
   inner join "asset" on "asset"."id" = "album_space_asset"."assetId"
   inner join "album" on "album"."id" = "album_space_asset"."albumId"
 where
-  "album_space_asset"."albumId" = $11
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_space_asset"."assetId"
+      and index_tombstone.status = $11
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $12
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_space_asset"."albumId" = $13
   and "album"."deletedAt" is null
-  and "album_space_asset"."updateId" < $12
-  and "album_space_asset"."updateId" <= $13
-  and "album_space_asset"."updateId" > $14
-  and "asset"."visibility" in ($15, $16)
+  and "album_space_asset"."updateId" < $14
+  and "album_space_asset"."updateId" <= $15
+  and "album_space_asset"."updateId" > $16
+  and "asset"."visibility" in ($17, $18)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $17::uuid
+      and "shared_space_member"."userId" = $19::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
@@ -2815,6 +3602,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -2823,17 +3611,32 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset"
   inner join "album_asset" on "album_asset"."assetId" = "asset"."id"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_asset"."albumId"
 where
-  "asset"."updateId" < $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $3
   and "asset"."updateId" > $4
   and "album_asset"."updateId" <= $5
   and "shared_space_album_user"."userId" = $6
@@ -2875,6 +3678,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -2883,17 +3687,32 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $11 then "asset"."isFavorite"
-    else $12
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $11::uuid
+  ) as "isFavorite",
   "asset"."updateId"
 from
   "asset"
   inner join "album_space_asset" on "album_space_asset"."assetId" = "asset"."id"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_space_asset"."albumId"
 where
-  "asset"."updateId" < $13
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $12
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset"."updateId" < $13
   and "asset"."updateId" > $14
   and "album_space_asset"."updateId" <= $15
   and "shared_space_album_user"."userId" = $16
@@ -2949,6 +3768,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -2957,17 +3777,42 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $1 then "asset"."isFavorite"
-    else $2
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $1::uuid
+  ) as "isFavorite",
   "album_asset"."updateId"
 from
   "album_asset"
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_asset"."albumId"
 where
-  "shared_space_album_user"."userId" = $3
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $3
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_album_user"."userId" = $4
   and "album_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -2982,19 +3827,19 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $4
+          "shared_space"."createdById" = $5
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $5
+          "shared_space_member"."userId" = $6
       )
   )
-  and "album_asset"."updateId" < $6
-  and "album_asset"."updateId" > $7
-  and "asset"."visibility" in ($8, $9)
+  and "album_asset"."updateId" < $7
+  and "album_asset"."updateId" > $8
+  and "asset"."visibility" in ($9, $10)
   and "asset"."deletedAt" is null
 union
 select
@@ -3009,6 +3854,7 @@ select
   "asset"."localDateTime",
   "asset"."type",
   "asset"."deletedAt",
+  "asset"."status",
   "asset"."visibility",
   "asset"."duration",
   "asset"."livePhotoVideoId",
@@ -3017,17 +3863,42 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
-  case
-    when "asset"."ownerId" = $10 then "asset"."isFavorite"
-    else $11
-  end as "isFavorite",
+  exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $11::uuid
+  ) as "isFavorite",
   "album_space_asset"."updateId"
 from
   "album_space_asset"
   inner join "asset" on "asset"."id" = "album_space_asset"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_space_asset"."albumId"
 where
-  "shared_space_album_user"."userId" = $12
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_space_asset"."assetId"
+      and index_tombstone.status = $12
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset"."id"
+      and index_tombstone.status = $13
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_album_user"."userId" = $14
   and "album_space_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -3042,26 +3913,26 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $13
+          "shared_space"."createdById" = $15
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $14
+          "shared_space_member"."userId" = $16
       )
   )
-  and "album_space_asset"."updateId" < $15
-  and "album_space_asset"."updateId" > $16
-  and "asset"."visibility" in ($17, $18)
+  and "album_space_asset"."updateId" < $17
+  and "album_space_asset"."updateId" > $18
+  and "asset"."visibility" in ($19, $20)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $19::uuid
+      and "shared_space_member"."userId" = $21::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
@@ -3104,12 +3975,32 @@ from
   inner join "album" on "album"."id" = "album_asset"."albumId"
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
 where
-  "album_asset"."albumId" = $1
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_asset"."albumId" = $3
   and "album"."deletedAt" is null
-  and "album_asset"."updateId" < $2
-  and "album_asset"."updateId" <= $3
-  and "album_asset"."updateId" > $4
-  and "asset"."visibility" in ($5, $6)
+  and "album_asset"."updateId" < $4
+  and "album_asset"."updateId" <= $5
+  and "album_asset"."updateId" > $6
+  and "asset"."visibility" in ($7, $8)
   and "asset"."deletedAt" is null
 union
 select
@@ -3145,19 +4036,39 @@ from
   inner join "album" on "album"."id" = "album_space_asset"."albumId"
   inner join "asset" on "asset"."id" = "album_space_asset"."assetId"
 where
-  "album_space_asset"."albumId" = $7
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_space_asset"."assetId"
+      and index_tombstone.status = $9
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $10
+      and index_tombstone."deletedAt" is not null
+  )
+  and "album_space_asset"."albumId" = $11
   and "album"."deletedAt" is null
-  and "album_space_asset"."updateId" < $8
-  and "album_space_asset"."updateId" <= $9
-  and "album_space_asset"."updateId" > $10
-  and "asset"."visibility" in ($11, $12)
+  and "album_space_asset"."updateId" < $12
+  and "album_space_asset"."updateId" <= $13
+  and "album_space_asset"."updateId" > $14
+  and "asset"."visibility" in ($15, $16)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $13::uuid
+      and "shared_space_member"."userId" = $17::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
@@ -3200,10 +4111,20 @@ from
   inner join "asset" on "asset"."id" = "asset_exif"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_asset"."albumId"
 where
-  "asset_exif"."updateId" < $1
-  and "asset_exif"."updateId" > $2
-  and "album_asset"."updateId" <= $3
-  and "shared_space_album_user"."userId" = $4
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $2
+  and "asset_exif"."updateId" > $3
+  and "album_asset"."updateId" <= $4
+  and "shared_space_album_user"."userId" = $5
   and "album_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -3218,17 +4139,17 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $5
+          "shared_space"."createdById" = $6
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $6
+          "shared_space_member"."userId" = $7
       )
   )
-  and "asset"."visibility" in ($7, $8)
+  and "asset"."visibility" in ($8, $9)
 union
 select
   "asset_exif"."assetId",
@@ -3263,10 +4184,20 @@ from
   inner join "asset" on "asset"."id" = "asset_exif"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_space_asset"."albumId"
 where
-  "asset_exif"."updateId" < $9
-  and "asset_exif"."updateId" > $10
-  and "album_space_asset"."updateId" <= $11
-  and "shared_space_album_user"."userId" = $12
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $10
+      and index_tombstone."deletedAt" is not null
+  )
+  and "asset_exif"."updateId" < $11
+  and "asset_exif"."updateId" > $12
+  and "album_space_asset"."updateId" <= $13
+  and "shared_space_album_user"."userId" = $14
   and "album_space_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -3281,24 +4212,24 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $13
+          "shared_space"."createdById" = $15
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $14
+          "shared_space_member"."userId" = $16
       )
   )
-  and "asset"."visibility" in ($15, $16)
+  and "asset"."visibility" in ($17, $18)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $17::uuid
+      and "shared_space_member"."userId" = $19::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
@@ -3340,7 +4271,27 @@ from
   inner join "asset" on "asset"."id" = "album_asset"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_asset"."albumId"
 where
-  "shared_space_album_user"."userId" = $1
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_asset"."assetId"
+      and index_tombstone.status = $1
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $2
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_album_user"."userId" = $3
   and "album_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -3355,19 +4306,19 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $2
+          "shared_space"."createdById" = $4
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $3
+          "shared_space_member"."userId" = $5
       )
   )
-  and "album_asset"."updateId" < $4
-  and "album_asset"."updateId" > $5
-  and "asset"."visibility" in ($6, $7)
+  and "album_asset"."updateId" < $6
+  and "album_asset"."updateId" > $7
+  and "asset"."visibility" in ($8, $9)
   and "asset"."deletedAt" is null
 union
 select
@@ -3403,7 +4354,27 @@ from
   inner join "asset" on "asset"."id" = "album_space_asset"."assetId"
   inner join "shared_space_album_user" on "shared_space_album_user"."albumId" = "album_space_asset"."albumId"
 where
-  "shared_space_album_user"."userId" = $8
+  not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "album_space_asset"."assetId"
+      and index_tombstone.status = $10
+      and index_tombstone."deletedAt" is not null
+  )
+  and not exists (
+    select
+      1
+    from
+      asset as index_tombstone
+    where
+      index_tombstone.id = "asset_exif"."assetId"
+      and index_tombstone.status = $11
+      and index_tombstone."deletedAt" is not null
+  )
+  and "shared_space_album_user"."userId" = $12
   and "album_space_asset"."albumId" in (
     select
       "shared_space_album"."albumId" as "id"
@@ -3418,26 +4389,26 @@ where
         from
           "shared_space"
         where
-          "shared_space"."createdById" = $9
+          "shared_space"."createdById" = $13
         union
         select
           "shared_space_member"."spaceId" as "id"
         from
           "shared_space_member"
         where
-          "shared_space_member"."userId" = $10
+          "shared_space_member"."userId" = $14
       )
   )
-  and "album_space_asset"."updateId" < $11
-  and "album_space_asset"."updateId" > $12
-  and "asset"."visibility" in ($13, $14)
+  and "album_space_asset"."updateId" < $15
+  and "album_space_asset"."updateId" > $16
+  and "asset"."visibility" in ($17, $18)
   and exists (
     select
       1 as "one"
     from
       "shared_space_album"
       inner join "shared_space_member" on "shared_space_member"."spaceId" = "shared_space_album"."spaceId"
-      and "shared_space_member"."userId" = $15::uuid
+      and "shared_space_member"."userId" = $19::uuid
     where
       "shared_space_album"."albumId" = "album_space_asset"."albumId"
       and "shared_space_album"."spaceId" = "album_space_asset"."spaceId"
