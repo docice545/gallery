@@ -1,0 +1,321 @@
+{
+  "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "finalCodeChecks": [
+    {
+      "check": "eslint",
+      "exit": 0
+    },
+    {
+      "check": "typecheck",
+      "exit": 0
+    },
+    {
+      "check": "sdk-check",
+      "exit": 0
+    },
+    {
+      "check": "format",
+      "exit": 0
+    }
+  ],
+  "isolatedSharedSpaceRerun": {
+    "exit": 0,
+    "failed": 0,
+    "heapMiB": 6144,
+    "maxChildRSSKiB": 3621288,
+    "passed": 661,
+    "seconds": 12.71
+  },
+  "notVerified": [
+    "stock Android app E2E",
+    "all native iOS scenarios and App Store binary identity",
+    "unmodified Noodle Web browser E2E",
+    "real Synology NFS",
+    "AI/ML sidecar E2E",
+    "production restored DB upgrade",
+    "rollback image readiness",
+    "full repository test suite"
+  ],
+  "operations": {
+    "baseline": 403,
+    "changedExisting": [],
+    "current": 411,
+    "removed": []
+  },
+  "protectedSources": [
+    {
+      "path": "server/src/utils/authorized-deletion.ts",
+      "sha256": "2abda83aa10a445ea718255d5c5fc6c921acc3e017e61b7d32e2a15f784f3195",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/utils/deletion-recovery.ts",
+      "sha256": "d383fdd44fab0378c4621d1fdde7e9123d1274bbd8f62204cb8783485b9bb63b",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/cores/storage.core.ts",
+      "sha256": "3d8e8836ebbb89518aaf27082dbef4bd07e8ab1c23750e6c76594daa7936c43b",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/services/asset-media.service.ts",
+      "sha256": "81391c8ff74a47d3f5562f0077c479a4df14c888494a803d3f3a02666ebce690",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/services/library.service.ts",
+      "sha256": "7be7b1e92cff23a4c10c029a91fcdf3992e9500cf683ce9177eebe8876cb8daf",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/services/duplicate.service.ts",
+      "sha256": "834003275bcfe3c79e682b095a5ce4c3e212d796d8a2ea5305945389fb332b6b",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/repositories/access.repository.ts",
+      "sha256": "311de8464ef38cdc1ac8328b293a89b9a9bc028fd653b5024e8fb72e5a1fbfd4",
+      "unchanged": true
+    }
+  ],
+  "resultsAreOverlappingRunsNotUniqueTotals": true,
+  "scope": "backend contracts and synthetic unit/PostgreSQL/filesystem checks, no native or production E2E",
+  "testRuns": [
+    {
+      "log": "foto-compat-services-tests3.log",
+      "passedRun": true,
+      "sha256": "b3ae1f2ff954ee88c501470519ea5927aa635ecf73d15a78aef54ebf453b31fb",
+      "summary": ["Test Files  2 passed (2)", "Tests  306 passed (306)"]
+    },
+    {
+      "log": "foto-compat-medium.log",
+      "passedRun": true,
+      "sha256": "895f4018c261529cb34ab1c86e7601c716d7ff0ab8e3f0858cba62b66297d2ee",
+      "summary": ["Test Files  7 passed (7)", "Tests  37 passed (37)"]
+    },
+    {
+      "log": "foto-compat-favorite-unit2.log",
+      "passedRun": true,
+      "sha256": "1402e07f0fb6ed83cf8dd6129b51b856497a9d9d39d3dbfb6f970de53ed1a67d",
+      "summary": ["Test Files  3 passed (3)", "Tests  360 passed (360)"]
+    },
+    {
+      "log": "foto-compat-targeted-unit-final.log",
+      "passedRun": false,
+      "sha256": "4aa10a14425e63361454d91988eb929d7ba6746752171b49820d85f0bfadf960",
+      "summary": [
+        "Test Files  7 passed (8)",
+        "Tests  1288 passed (1319)",
+        "Errors  1 error"
+      ]
+    },
+    {
+      "log": "foto-compat-sharedspace-full.log",
+      "passedRun": true,
+      "sha256": "b6dfc16377a21c50ce309144ae11db0f408665ae57e14eea6df60d8797ffd943",
+      "summary": ["Test Files  1 passed (1)", "Tests  661 passed (661)"]
+    },
+    {
+      "log": "foto-compat-space-http-unit.log",
+      "passedRun": true,
+      "sha256": "8147861c48d2cd53d5cb4834670c72651846d3724bcd459d62ecf01cb465cfd0",
+      "summary": ["Test Files  1 passed (1)", "Tests  34 passed (34)"]
+    },
+    {
+      "log": "foto-compat-final-sync-timeline-unit.log",
+      "passedRun": true,
+      "sha256": "c87ac6ba47321b4690de63ad01f3c8cc28cb2ccfa88f361f519cc6c4f5c62fa5",
+      "summary": ["Test Files  2 passed (2)", "Tests  171 passed (171)"]
+    },
+    {
+      "log": "foto-compat-contract-tests.log",
+      "passedRun": true,
+      "sha256": "a33a068b13d4f98331c230488c2640cdf5d5ff1776bd5a3ef15446a29031f7ef",
+      "summary": ["Test Files  3 passed (3)", "Tests  231 passed (231)"]
+    },
+    {
+      "log": "foto-compat-storage-unit-final.log",
+      "passedRun": true,
+      "sha256": "d1800b9d237f259cf9f4403eec54186755c18bd5716d2d98b53d133765a4d296",
+      "summary": ["Test Files  6 passed (6)", "Tests  477 passed (477)"]
+    },
+    {
+      "log": "foto-compat-facebox-unit-final.log",
+      "passedRun": true,
+      "sha256": "9f9008fa5d10a70f78bc4b03ad8160a774260e832964c6900934dcad64482a57",
+      "summary": ["Test Files  1 passed (1)", "Tests  3 passed (3)"]
+    },
+    {
+      "log": "foto-compat-regression-medium.log",
+      "passedRun": true,
+      "sha256": "0448dd396914bc89d7169815aa29c841984e9899be766e99aa89c63f9fdfae20",
+      "summary": [
+        "Test Files  10 passed (10)",
+        "Tests  333 passed | 12 skipped (345)"
+      ]
+    },
+    {
+      "log": "foto-compat-new-routes-medium-final.log",
+      "passedRun": true,
+      "sha256": "611b71b279c7037c9481b4b47c99d2182e2c894df508c8324c73d85bd9cadb42",
+      "summary": ["Test Files  3 passed (3)", "Tests  9 passed (9)"]
+    },
+    {
+      "log": "foto-compat-final-cache-medium.log",
+      "passedRun": true,
+      "sha256": "8003a5ca67ce991d88a5253f781b3c27345fdc4d2ac21f0af067a7f9c9886b8b",
+      "summary": ["Test Files  2 passed (2)", "Tests  14 passed (14)"]
+    },
+    {
+      "log": "foto-compat-favorites-timeline-medium-exact-final.log",
+      "passedRun": true,
+      "sha256": "882a18162fc656d19c108f0747cddcdbe7b4b903da1a7cfd1c69fea6aa79acae",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed (1)"]
+    },
+    {
+      "log": "foto-compat-personal-search-medium-final.log",
+      "passedRun": true,
+      "sha256": "7c15fb3456a7d3ab0f971ddf7cbe00f2fa9c05bd36f58390e2aa454e5bda421f",
+      "summary": [
+        "Test Files  1 passed (1)",
+        "Tests  1 passed | 98 skipped (99)"
+      ]
+    },
+    {
+      "log": "foto-compat-upgrade-medium-final.log",
+      "passedRun": true,
+      "sha256": "1b53c5c88eadde78266cb890fdc764df87b872b33f06d6058bfefe43ef1bb619",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed (1)"]
+    },
+    {
+      "log": "foto-compat-partner-favorites-medium-final.log",
+      "passedRun": true,
+      "sha256": "9a4d72a84426fff332b01f162f04638476a7283935bfb67247e1f009c737df9d",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed | 5 skipped (6)"]
+    },
+    {
+      "log": "foto-compat-final-contract-unit.log",
+      "passedRun": true,
+      "sha256": "ed35270a388f5cc7a74b36ee218ba0662e5c2cbbd41e62fdb897fb208d4b16ff",
+      "summary": [
+        "Test Files  2 passed (2)",
+        "Tests  7 passed | 96 skipped (103)"
+      ]
+    },
+    {
+      "log": "foto-compat-final-medium-extensions.log",
+      "passedRun": false,
+      "resolution": "Fixture/assertion corrected; targeted passing rerun recorded separately, not counted as an overall pass.",
+      "sha256": "f84bd5f5f816aff046834654b490e89f3a7c1df86cb0a9f42d9ca328f82a31b1",
+      "summary": [
+        "Test Files  1 failed | 3 passed (4)",
+        "Tests  1 failed | 97 passed | 12 skipped (110)"
+      ]
+    },
+    {
+      "log": "foto-compat-partner-favorites-medium.log",
+      "passedRun": false,
+      "resolution": "Fixture/assertion corrected; targeted passing rerun recorded separately, not counted as an overall pass.",
+      "sha256": "3f155efeb9b6ff5272af5e8a5743c98d1f1f73e8ef1caead9fdaa23f1ff39465",
+      "summary": ["Test Files  1 failed (1)", "Tests  1 failed | 5 passed (6)"]
+    },
+    {
+      "log": "foto-compat-cache-unit.log",
+      "passedRun": false,
+      "resolution": "Fixture/assertion corrected; targeted passing rerun recorded separately, not counted as an overall pass.",
+      "sha256": "7092a1984b7fd8c0c82b84de69e2d411b8e7231751ae5354a973f3e0c4999bc6",
+      "summary": [
+        "Test Files  1 failed | 1 passed (2)",
+        "Tests  1 failed | 76 passed (77)"
+      ]
+    }
+  ],
+  "testedCodeCommit": "57006e191fb0f167d1211d977d9ab8ea15f87d8e",
+  "upstreams": {
+    "immich-3.3.5": {
+      "matchedMethodPath": 268,
+      "missing": [
+        {
+          "method": "delete",
+          "operationId": "deleteClusterGroupRequest",
+          "path": "/cluster-groups/requests/{id}"
+        },
+        {
+          "method": "delete",
+          "operationId": "removeUsersFromPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "get",
+          "operationId": "getClusterGroupRequests",
+          "path": "/cluster-groups/requests"
+        },
+        {
+          "method": "get",
+          "operationId": "getClusterGroupRequestsForGroup",
+          "path": "/cluster-groups/{id}/requests"
+        },
+        {
+          "method": "get",
+          "operationId": "getClusterGroupUsers",
+          "path": "/cluster-groups/{id}/users"
+        },
+        {
+          "method": "get",
+          "operationId": "getUsersForPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "post",
+          "operationId": "acceptClusterGroupRequest",
+          "path": "/cluster-groups/requests/{id}/accept"
+        },
+        {
+          "method": "post",
+          "operationId": "leaveClusterGroup",
+          "path": "/cluster-groups/{id}/leave"
+        },
+        {
+          "method": "post",
+          "operationId": "clusterGroupRegeneratePeople",
+          "path": "/cluster-groups/{id}/regenerate-people"
+        },
+        {
+          "method": "put",
+          "operationId": "createClusterGroupRequest",
+          "path": "/cluster-groups/{id}/requests"
+        },
+        {
+          "method": "put",
+          "operationId": "upsertPeopleUsers",
+          "path": "/people/users"
+        }
+      ],
+      "operationCount": 279,
+      "sourceCommit": "8303cb117e197c700332b33b61b45314c9cc5bb4"
+    },
+    "noodle-5.8.0": {
+      "matchedMethodPath": 379,
+      "missing": [
+        {
+          "method": "delete",
+          "operationId": "removeUsersFromPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "get",
+          "operationId": "getUsersForPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "put",
+          "operationId": "upsertPeopleUsers",
+          "path": "/people/users"
+        }
+      ],
+      "operationCount": 382,
+      "sourceCommit": "37aa54e632606cc6a62bc6bcbba14c62200147c4"
+    }
+  }
+}
