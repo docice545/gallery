@@ -125,7 +125,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               const LocalAlbumEntityCompanion(linkedRemoteAlbumId: Value(null)),
             );
             await _db.assetFaceEntity.deleteAll();
-            await _db.settingsEntity.deleteWhere((row) => row.key.startsWith(_memoryV2Journal));
+            await _db.settingsEntity.deleteWhere((row) => row.key.like('$_memoryV2Journal%'));
             await _db.memoryAssetEntity.deleteAll();
             await _db.memoryEntity.deleteAll();
             await _db.partnerEntity.deleteAll();
@@ -2226,7 +2226,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   Future<void> updateMemoryAssetsV2(Iterable<SyncMemoryAssetV1> data) async {
     final links = data.toList();
-    if (links.isEmpty) return;
+    if (links.isEmpty) {
+      return;
+    }
     await _db.transaction(() async {
       final scope = await _memoryV2Scope();
       await _db.batch((batch) {
@@ -2249,12 +2251,14 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   Future<List<({String key, String memoryId, String assetId})>> _memoryV2Pending() async {
     final anyPending =
         await (_db.settingsEntity.select()
-              ..where((row) => row.key.startsWith(_memoryV2Journal))
+              ..where((row) => row.key.like('$_memoryV2Journal%'))
               ..limit(1))
             .get();
-    if (anyPending.isEmpty) return [];
+    if (anyPending.isEmpty) {
+      return [];
+    }
     final scope = await _memoryV2Scope();
-    final rows = await (_db.settingsEntity.select()..where((row) => row.key.startsWith(scope.prefix))).get();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.like('${scope.prefix}%'))).get();
     return rows.map((row) {
       final value = jsonDecode(row.value!) as Map<String, dynamic>;
       final memoryId = value['memoryId'] as String;
@@ -2269,7 +2273,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   Future<void> flushDeferredMemoryAssetsV2() async {
     await _db.transaction(() async {
       final pending = await _memoryV2Pending();
-      if (pending.isEmpty) return;
+      if (pending.isEmpty) {
+        return;
+      }
       final scope = await _memoryV2Scope();
       for (var start = 0; start < pending.length; start += _memoryAssetLinkChunkSize) {
         final end = start + _memoryAssetLinkChunkSize;

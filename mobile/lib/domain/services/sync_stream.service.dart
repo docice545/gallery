@@ -282,7 +282,9 @@ class SyncStreamService {
       return;
     }
     await _handleSyncData(type, batch.map((e) => e.data));
-    if (isCancelled) return;
+    if (isCancelled) {
+      return;
+    }
     await _syncApiRepository.ack([batch.last.ack]);
     batch.clear();
   }

@@ -80,7 +80,7 @@ Future<void> parents(SyncStreamRepository repo, {String owner = 'owner'}) async 
 }
 
 Future<int> pending(Drift db) async =>
-    (await (db.settingsEntity.select()..where((row) => row.key.startsWith('sync.memory-links.v2.'))).get()).length;
+    (await (db.settingsEntity.select()..where((row) => row.key.like('sync.memory-links.v2.%'))).get()).length;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -227,7 +227,7 @@ void main() {
   test('PR7 durable V2 corrupt journal fails without consuming the receipt', () async {
     await repo.updateMemoryAssetsV2([event]);
     await parents(repo);
-    await (db.settingsEntity.update()..where((row) => row.key.startsWith('sync.memory-links.v2.'))).write(
+    await (db.settingsEntity.update()..where((row) => row.key.like('sync.memory-links.v2.%'))).write(
       const SettingsEntityCompanion(value: drift.Value('{incomplete')),
     );
     await expectLater(repo.flushDeferredMemoryAssetsV2(), throwsA(isA<FormatException>()));
