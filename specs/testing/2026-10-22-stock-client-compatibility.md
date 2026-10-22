@@ -9,6 +9,13 @@
 **NOT VERIFIED**. Это не релиз, не сертификат совместимости всех API и не
 разрешение на deployment. Production и пользовательские медиа не использовались.
 
+**Приёмка после публикации CLI-изменений:** PR #7 пока **BLOCKED**. На
+`8759f9bd9c8f94adfdf8df81dc67b158aaddbf90` подтверждены SQL CI PASS и полный
+medium CI **3447 PASS / 17 SKIPPED**, но OpenAPI enum gate остаётся красным,
+а Dart codegen обнаружил новый синтаксический дефект. Это не отменяет прежние
+backend passes и не является готовностью Android/iOS/Web. Подробности и границы
+отдельной ветки приёмки приведены в конце документа.
+
 **Итоговый B2:** возврат индекса online отслеживается узким server-only
 `catalog_projection_audit`, а не сбросом при любых external updates. Обычный
 library sync остаётся инкрементальным. Последняя проверка: 115/115 PostgreSQL,
@@ -547,3 +554,136 @@ binary сообщает 1.6.1) и Binaryen version_124; cache только в `/
 помечены в JSON. Valid red/green: `workflow-medium-exact-cwd-before` →
 `workflow-medium-final`. Новая полная CI-проверка до фактического завершения
 по-прежнему не объявляется зелёной. Остальные CI/native ограничения сохраняются.
+
+## Повторная приёмка PR #7 после CLI: CI и enum gate
+
+Проверены исходный PR HEAD `ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede` и
+опубликованный CLI HEAD `8759f9bd9c8f94adfdf8df81dc67b158aaddbf90`.
+Второй является потомком первого; в нём уже имеются обработчики шести sync
+типов, изменение CI image и попытки настройки oasdiff. Эти изменения не
+воссоздавались. `open-api/immich-openapi-specs.json` у двух HEAD побайтно одинаков.
+Исходная база PR остаётся `ace2eab962524479a61e6891410983a7f41ba0fa`.
+
+### Фактический CI и альтернативные журналы
+
+| HEAD        | Проверка              | Результат и доказательство                                                                                                                                                                                                                                                                                                                                                         |
+| ----------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ba92d21a4` | SQL Schema Checks     | **FAIL до checkout/migrations**: Initialize containers, Docker pull exit 1. [Job](https://github.com/docice545/gallery/actions/runs/39759865381/job/119761703401). Это не failed schema assertion.                                                                                                                                                                                 |
+| `ba92d21a4` | Medium Tests          | **FAIL до тестов**, global setup: `No such image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67`. Сообщение Vitest `No test files found` сопровождает ошибку setup; это не доказательство отсутствия spec-файлов. [Job](https://github.com/docice545/gallery/actions/runs/39759865381/job/119761819231). |
+| `8759f9bd9` | SQL Schema Checks     | **PASS**: контейнер, app build, migrations, schema reset, generation и changed-files steps. [Job](https://github.com/docice545/gallery/actions/runs/39808230021/job/119928694623).                                                                                                                                                                                                 |
+| `8759f9bd9` | Medium Tests          | **3447 PASS / 17 SKIPPED**; 199 passed files / 1 skipped, real GitHub testcontainers run. [Job](https://github.com/docice545/gallery/actions/runs/39808230021/job/119928796786). Никакого повторного полного прогона при приёмке не было.                                                                                                                                          |
+| `8759f9bd9` | OpenAPI Clients       | **PASS**, включая generation и changed-files check. [Job](https://github.com/docice545/gallery/actions/runs/39808230021/job/119928694421). Это отдельная проверка от breaking enum gate.                                                                                                                                                                                           |
+| `8759f9bd9` | OpenAPI breaking gate | **FAIL**, десять response enum diagnostics: шесть новых sync значений и четыре для уже имеющегося в base `AssetDeleteBatch`. [Job](https://github.com/docice545/gallery/actions/runs/39808230265/job/119927097106).                                                                                                                                                                |
+| `8759f9bd9` | Dart analysis/codegen | **FAIL до analysis**, parser: `sync_api.repository.dart:88:1 Expected to find ';'`. [Job](https://github.com/docice545/gallery/actions/runs/39808230071/job/119927525319). В объявлении строки 86 стояла завершающая запятая. Это подтверждённая source regression CLI, не инфраструктурная ошибка.                                                                                |
+
+Первая PostgreSQL image/digest ссылка **идентична в base и ba92**, поэтому
+недоступность image на runner не классифицирована как регрессия backend PR #7.
+CLI SQL image `14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23`
+подтверждён реально завершённым SQL job. Это не доказательство, что прежний image
+всегда несуществующий, или что смена SQL image исправила независимый medium job.
+Production image, Compose и данные не затрагивались.
+
+Прямые `/actions/jobs/<id>/logs` сейчас перенаправляют на недоступные Azure
+hosts (HTTP 403). Однако **архивы целых workflow через
+`/actions/runs/<id>/logs` доступны**. Из них извлечены medium/SQL/oasdiff/Dart
+журналы, включая указанные counts и parser errors. Check-run annotations, job
+steps и artifacts API использованы как дополнительные источники. Отдельного
+medium JUnit artifact в перечислении нет; E2E artifacts не выдаются за medium.
+В репозиторий сохранены только извлечённые факты и SHA-256 архивов/журналов,
+без signed download URLs, credentials или полных необработанных логов.
+
+### Причина enum gate и ограничение исправления
+
+1. В `check-openapi.yml` оба сравнения были привязаны к `main`, тогда как PR
+   направлен в unified. У проверенного `main` (`da5480ae42b77db9cae729f2447ec9b3079ba4a7`)
+   нет `JobName.AssetDeleteBatch`, а в unified он уже есть. Четыре queue
+   diagnostics относятся к baseline mismatch, не к изменениям этого PR.
+2. В `SyncEntityType` относительно **самой unified** добавлены `AuthUserV2`,
+   `MemoryV2`, `MemoryToAssetV2`, `AssetFaceV3`, `AssetFavoriteV1`,
+   `AssetFavoriteDeleteV1`. `SyncAckSchema.type` использует общий enum;
+   `SyncController.getSyncAck()` → `SyncService.getAcks()` возвращает все
+   checkpoints сессии. Поэтому response contract `GET /sync/ack` расширяется.
+   Это настоящий `response-property-enum-value-added`, а не инфраструктурный сбой.
+3. `err-ignore: enum-value-added.*` из CLI не совпадает с текстом diagnostic,
+   который начинается `in API GET ... added the new ...`; сам ID правила не
+   является этим текстом. Полный лог подтверждает и передачу ignore file в
+   action, и сохранение всех десяти ошибок. Подбирать более широкий regex,
+   отключать правило или менять severity до WARN не разрешено этой приёмкой.
+4. Исправление workflow в **отдельной acceptance-ветке** использует локальную
+   копию spec из точного `pull_request.base.sha` в обоих jobs. Ручной dispatch
+   требует явного `base_ref`, без fallback на main. Oasdiff по-прежнему
+   `fail-on: ERR`, без ignore/exclude. Это устраняет неверную базу, но **не
+   объявляет шесть настоящих enum additions безопасными**.
+
+Новые stream payloads выдаются только при соответствующем запросе, однако это
+само по себе не доказывает совместимость REST ACK со старым closed-enum SDK.
+Предыдущий source audit не нашёл вызовов `getSyncAck` в закреплённых stock
+clients; это граница evidence, а не разрешение на waiver. До явного решения о
+совместимом version/capability контракте ACK либо об ограничении поддерживаемого
+REST контракта шесть diagnostics остаются блокером приёмки. Подмена response
+schema на произвольную строку или молчаливое скрытие checkpoints не выполнялись.
+
+### Матрица после повторной приёмки
+
+| Клиент                | Backend contracts / SQL / medium                                                     | Новые данные этой приёмки                                                          | Реальное приложение                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Immich Android 3.3.5  | Ранее целевые PASS + MATCH по pinned caller paths; общий medium/SQL PASS на CLI HEAD | Response enum gate для REST ACK остаётся не закрытым; APK не менялся               | **NOT VERIFIED**: устройство, backup/retry/offline, Live Photos/HEIC                            |
+| Immich iOS 3.3.5      | Те же backend evidence, не Android E2E                                               | Никакого нового iOS подтверждения                                                  | **NOT VERIFIED**: PhotoKit, iCloud, background upload, Live Photos, HEIC/HEIF, network recovery |
+| Noodle Android 5.8.0  | Ранее MATCH по исходникам + backend evidence                                         | Generated SDK parity не равна закрытому breaking gate                              | **NOT VERIFIED**: Android/device lifecycle                                                      |
+| Noodle iOS 5.8.0      | Ранее MATCH по исходникам + backend evidence                                         | Android результаты не перенесены на iOS                                            | **NOT VERIFIED**: Apple Photos/iCloud/background/HEIC/Live Photos                               |
+| Noodle Web 5.8.0      | Ранее MATCH по caller paths, OpenAPI Clients PASS                                    | Произвольные legacy REST consumers не сертифицированы                              | **NOT VERIFIED**: browser E2E полного stock Web                                                 |
+| FOTO Android Build 17 | Ранее backend evidence сохранены                                                     | Найден и исправлен parser defect CLI в acceptance-ветке; нужен завершённый Dart CI | **NOT VERIFIED**: APK/device, новый V2 sync lifecycle и crash/ACK/replay                        |
+
+Ни backend CI, ни static enum comparison не доказывают AI E2E, работу настоящего
+Synology или поддержку физических Android/iOS устройств. Нет нового Docker
+образа, APK, deployment, merge или изменения PR #6/#8. Для сохранности параллельной
+CLI-работы исправления приёмки опубликованы отдельно в
+`codex/foto-build17-pr7-acceptance`, не записаны поверх PR #7 force-push.
+
+### Проверки acceptance-кандидата (без повторного SQL/medium)
+
+- `6b7f3db36efad590285209b9be61c72ee373e29c`:
+  [Check OpenAPI](https://github.com/docice545/gallery/actions/runs/39827596417)
+  сравнил с явным `base_ref=ace2eab962524479a61e6891410983a7f41ba0fa`.
+  `check-mobile-patches` **PASS**; breaking check **FAIL** с **ровно шестью**
+  `response-property-enum-value-added` для `/sync/ack`. Ни одной диагностики
+  `AssetDeleteBatch` больше нет. Это подтверждение исправления baseline,
+  **не PASS breaking gate**. Повтор mobile-patch check необходим из-за изменения
+  сравниваемой базы; успешные SQL/medium/OpenAPI Clients не повторялись.
+- [Dart analysis](https://github.com/docice545/gallery/actions/runs/39826683460)
+  того же code commit: codegen **PASS**, затем **FAIL** из-за отсутствующего
+  `toMemoryType` у нового generated `SyncMemoryV2TypeEnum` и двух новых lint
+  замечаний `prefer_const_constructors` в favorites handlers. Это следующий
+  выявленный дефект CLI, не замаскированный результатом parser fix.
+- `788f4b2c3c0c38ec692b25bb84cf7734f43b262b`: добавлено отдельное преобразование
+  generated enum для wire-значения `on_this_day` в существующий локальный тип;
+  birthday явно вызывает `UnsupportedError` до commit/ACK. Новый тип не
+  превращается в `rule` или фиктивный on-this-day. Исправлены оба const lint.
+  Добавлены три целевых регрессии: SQLite persistence + идемпотентный replay,
+  rollback смешанного пакета с birthday, отсутствие ACK при отказе и ACK после
+  успешного повтора (последняя — service test с mock repository, не crash E2E).
+  Ручной Static Code Analysis запускает только эти три теста после analysis,
+  последовательно, без нового image/APK или повторного полного backend suite.
+  [Запуск проверки](https://github.com/docice545/gallery/actions/runs/39828130854).
+  Результат до фактического завершения не объявлен успешным.
+
+Birthday остаётся **явным ограничением этого мобильного форка**, а не
+поддержанной функцией. Backend этого PR в V2 stream выдаёт только on_this_day;
+новый тест специально проверяет отказ на неожиданном birthday. Поведение
+остальных новых V2 handlers при потере процесса/поздних родительских rows и
+полный replay lifecycle требуют отдельной проверки CLI. В частности, V2 memory
+links всё ещё используют существующий in-memory deferred set; ACK раньше его
+устойчивого сохранения нельзя сертифицировать как crash-safe без такой проверки.
+
+Промежуточный результат `788f4b2c3`: codegen и Dart analysis **PASS** (`No issues
+found`); оба SQLite теста **PASS**, service ACK test **FAIL** ещё до вызова
+обработчика. Причина тестовой фикстуры — `fromJson` получил результат `toJson`
+с вложенным generated enum, ещё не преобразованным в строку JSON-кодером.
+Этот failed run сохранён, не выдан за успех продукта.
+
+В `43d1aa9f382ebf60019570c373ba2aa39032181c` исправлена только фикстура через
+настоящий `jsonEncode`/`jsonDecode` wire round trip. Ручной targeted step повторяет
+только неуспешный service test; два SQLite passes и неизменённая реализация
+repository сохранены. [Повтор failed test](https://github.com/docice545/gallery/actions/runs/39829279657)
+до завершения имеет статус **PENDING**. Setup/codegen в новом GitHub job нужен для
+компиляции исправленного test source; SQL, medium и OpenAPI Clients не запускались.

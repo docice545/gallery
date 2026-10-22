@@ -1,4 +1,209 @@
 {
+  "acceptanceAfterCLI": {
+    "acceptanceBranch": "codex/foto-build17-pr7-acceptance",
+    "acceptanceCodeCommit": "43d1aa9f382ebf60019570c373ba2aa39032181c",
+    "archiveEvidence": [
+      {
+        "bytes": 950916,
+        "localFile": "/tmp/pr7-original-test-logs.zip",
+        "sha256": "0d6c911d9858a791f14dd679d4a5c2522955d0d5fbe21f3378f64eb36e282df2"
+      },
+      {
+        "bytes": 894957,
+        "localFile": "/tmp/pr7-latest-test-logs.zip",
+        "sha256": "6ee14f43c6cc773b123fa26b7280cfb73d2c5b468ca19ae08bfa4a87ba24a2f7"
+      },
+      {
+        "bytes": 46929,
+        "localFile": "/tmp/pr7-latest-openapi-logs.zip",
+        "sha256": "cc2c907559b9a0d7ff55a64c7a8cc1a719c775fc9df1d920f89232c583b31461"
+      },
+      {
+        "bytes": 55244,
+        "localFile": "/tmp/pr7-latest-analysis-logs.zip",
+        "sha256": "c6e1a1970369aa33c1e34bb11d6e55f8ecc699d4c031f966bdf4d6bd15c38ca0"
+      },
+      {
+        "bytes": 37523,
+        "localFile": "/tmp/pr7-archive-medium.log",
+        "sha256": "fb7389bdd4f7192da55cc8fd467d67d4621f4f084621ddc70e66703a5daaec57"
+      },
+      {
+        "bytes": 349231,
+        "localFile": "/tmp/pr7-latest-archive-medium.log",
+        "sha256": "78f128da65a9b2c170171d81c9833416e69109945fffc1e7b38aaff6032cba8c"
+      },
+      {
+        "bytes": 144987,
+        "localFile": "/tmp/pr7-latest-archive-sql.log",
+        "sha256": "89196403347f59e4def6f55c8d27e183c47953232431b490f4a8d93df84a4f82"
+      },
+      {
+        "bytes": 26639,
+        "localFile": "/tmp/pr7-latest-archive-enum.log",
+        "sha256": "d8382014ca5ee9f4898bfaa5fa3ae342620de985342c4bcfc2b0e0bdfc6aac78"
+      },
+      {
+        "bytes": 456252,
+        "localFile": "/tmp/pr7-latest-archive-dart.log",
+        "sha256": "9aef34947fe5c1319520fede8195e0f4acb67c5e4f460a91dde973dda44830bf"
+      },
+      {
+        "bytes": 107525,
+        "localFile": "/tmp/pr7-acceptance-enum-logs.zip",
+        "sha256": "05c857fa4296fe4226f32d5d20d83b70be0b0f9405deb954b0728fcc20da2d3a"
+      },
+      {
+        "bytes": 101339,
+        "localFile": "/tmp/pr7-acceptance-dart-logs.zip",
+        "sha256": "569d62c5c06e3f23c7899d087461bdc5db2dbf3698ce57fa05dec642eb02ab67"
+      },
+      {
+        "bytes": 461925,
+        "localFile": "/tmp/pr7-acceptance-dart-analyze.log",
+        "sha256": "4cb0689e8871c9558a2020ef6c32e8a7ce1c80ec5ef2fb4753c7fb054ca8bb31"
+      },
+      {
+        "bytes": 99953,
+        "localFile": "/tmp/pr7-acceptance-dart-final-logs.zip",
+        "sha256": "0840b9f7fc86fac80b5ffb30ad1abf4f7eb42dc910d32796d95601a672d34a6e"
+      },
+      {
+        "bytes": 456835,
+        "localFile": "/tmp/pr7-acceptance-dart-final-analyze.log",
+        "sha256": "1b5ef1903d27b066d885b9a6bf0d6e3b428c76c946f27c48cdf3dc6fc9629dc8"
+      }
+    ],
+    "baselineCorrection": "Exact pull_request.base.sha in both jobs; explicit manual base_ref; fail-on ERR; no enum waivers",
+    "checks": [
+      {
+        "classification": "dependency/infrastructure; same image in base",
+        "head": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
+        "job": 119761703401,
+        "name": "SQL Schema Checks",
+        "phase": "Initialize containers; no migrations executed",
+        "result": "FAIL"
+      },
+      {
+        "assertionsExecuted": false,
+        "classification": "dependency/infrastructure; same image in base",
+        "head": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
+        "job": 119761819231,
+        "name": "Medium Tests (Server)",
+        "phase": "global setup; No such image",
+        "result": "FAIL"
+      },
+      {
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119928694623,
+        "name": "SQL Schema Checks",
+        "result": "PASS"
+      },
+      {
+        "filesPassed": 199,
+        "filesSkipped": 1,
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119928796786,
+        "name": "Medium Tests (Server)",
+        "passed": 3447,
+        "result": "PASS",
+        "skipped": 17
+      },
+      {
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119928694421,
+        "name": "OpenAPI Clients",
+        "result": "PASS"
+      },
+      {
+        "actualSyncResponseEnumAdditions": 6,
+        "baselineMismatch": 4,
+        "diagnostics": 10,
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119927097106,
+        "name": "check-openapi",
+        "result": "FAIL"
+      },
+      {
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119927525319,
+        "name": "Run Dart Code Analysis",
+        "phase": "codegen Dart parser",
+        "regression": "sync_api.repository.dart:88 missing semicolon; declaration ended in comma",
+        "result": "FAIL"
+      }
+    ],
+    "date": "2026-10-22",
+    "enumComparison": {
+      "baseEnumAdditions": [
+        "AssetFaceV3",
+        "AssetFavoriteDeleteV1",
+        "AssetFavoriteV1",
+        "AuthUserV2",
+        "MemoryToAssetV2",
+        "MemoryV2"
+      ],
+      "compared": {
+        "base": "ace2eab962524479a61e6891410983a7f41ba0fa",
+        "cli": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "main": "da5480ae42b77db9cae729f2447ec9b3079ba4a7",
+        "original": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede"
+      },
+      "specUnchangedByCLI": true
+    },
+    "fixedBaseEnumGate": {
+      "actualSyncEnumDiagnostics": 6,
+      "base": "ace2eab962524479a61e6891410983a7f41ba0fa",
+      "falseQueueDiagnostics": 0,
+      "head": "6b7f3db36efad590285209b9be61c72ee373e29c",
+      "mobilePatches": "PASS",
+      "result": "FAIL",
+      "run": 39827596417,
+      "waivers": false
+    },
+    "imagesOrAPKsBuilt": false,
+    "individualJobLogs": "HTTP 403; signed URLs omitted",
+    "mediumArtifact": "No dedicated medium artifact; E2E artifacts not used as medium evidence",
+    "newDartCheck": {
+      "analyzerError": "undefined_method SyncMemoryV2TypeEnum.toMemoryType",
+      "codegen": "PASS",
+      "head": "6b7f3db36efad590285209b9be61c72ee373e29c",
+      "lintInfos": 2,
+      "result": "FAIL",
+      "run": 39826683460
+    },
+    "newRuntimeLimitation": "Unexpected birthday MemoryV2 fails before write/ACK; not relabelled or silently skipped",
+    "notVerified": [
+      "native Android/iOS/Web E2E",
+      "AI E2E",
+      "Synology",
+      "new V2 sync ACK/crash/replay lifecycle"
+    ],
+    "originalHead": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
+    "pendingDartAndThreeTargetedTests": {
+      "analysis": "PASS; No issues found",
+      "codegen": "PASS",
+      "failure": "test fixture passed nested generated enum object to fromJson without JSON wire serialization; null check failure before handler invocation",
+      "head": "788f4b2c3c0c38ec692b25bb84cf7734f43b262b",
+      "repositorySQLiteTestsPassed": 2,
+      "result": "FAIL",
+      "run": 39828130854,
+      "serviceTestFailed": 1
+    },
+    "pendingFailedServiceTestRetry": {
+      "head": "43d1aa9f382ebf60019570c373ba2aa39032181c",
+      "result": "PENDING",
+      "run": 39829279657,
+      "scope": "single failed ACK/retry test only; prior 2 SQLite passes not repeated; codegen setup and analysis in fresh GitHub job"
+    },
+    "productionTouched": false,
+    "publishedPR7NotOverwritten": true,
+    "remainingSyncReview": "V2 memory links use existing in-memory deferred set; durable ACK/crash lifecycle NOT VERIFIED",
+    "reviewedCLIHead": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+    "status": "BLOCKED",
+    "successfulHeavyTestsRepeated": false,
+    "workflowArchiveLogs": "downloaded using canonical GitHub actions/runs/ID/logs API; parsed locally"
+  },
   "additionalFixtureCommit": "3021cbff08bcb59867d6547ffa9cd58fccbdb8aa",
   "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
   "codegenExactCwd": [
