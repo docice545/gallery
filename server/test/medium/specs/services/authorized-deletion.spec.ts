@@ -526,6 +526,31 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     },
   );
 
+  it.each([false, true])(
+    'deletes an uploaded companion within the already bound root (external=%s)',
+    async (external) => {
+      const f = await fixture(external);
+      await authorize(f);
+      const motionPath = join(root, 'uploaded-motion.mov');
+      await writeFile(motionPath, 'synthetic uploaded companion');
+      const { asset: motion } = await f.ctx.newAsset({
+        ownerId: f.user.id,
+        type: AssetType.Video,
+        originalPath: motionPath,
+        visibility: AssetVisibility.Hidden,
+        libraryId: f.asset.libraryId,
+        isExternal: external,
+      });
+      await db.updateTable('asset').set({ livePhotoVideoId: motion.id }).where('id', '=', f.asset.id).execute();
+      const { sut } = service(f);
+      expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toMatchObject([{ state: 'complete' }]);
+      await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
+      await expect(readFile(motionPath)).rejects.toHaveProperty('code', 'ENOENT');
+      const receipt = await f.repo.getDeletionReceipt(f.user.id, motion.id);
+      expect(receipt?.files[0].root).toBe(root);
+    },
+  );
+
   it('rebinds an encoded-video quarantine after a restart changes only mount identity', async () => {
     const f = await fixture(true);
     await externalConsent(f);
@@ -570,7 +595,7 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
   it('refuses a Live Photo motion original outside the owner encoded-video root', async () => {
     const f = await fixture();
     await authorize(f);
-    const motionPath = join(root, 'motion-outside.mp4');
+    const motionPath = join(encodedRoot, 'motion-outside-owner.mp4');
     await writeFile(motionPath, 'motion outside managed root');
     const { asset: motion } = await f.ctx.newAsset({
       ownerId: f.user.id,
@@ -695,7 +720,8 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
     await f.repo.preparePermanentDeletion(f.asset.id, f.user.id, snapshotOriginal);
     await f.repo.removeAuthorizedOriginals(f.asset.id, unlinkOriginal);
     await f.repo.removeForDeletion(f.asset);
-    expect((await f.repo.getUploadAssetIdByChecksum(f.user.id, alias))?.assetId).toBe(f.asset.id);
+    const suppressed = await f.repo.getUploadAssetIdByChecksum(f.user.id, alias);
+    expect(suppressed?.assetId).toBe(f.asset.id);
     const duplicates = await f.repo.getByChecksums(f.user.id, [alias]);
     expect(duplicates.some((item) => item.checksum.equals(alias) && item.deletedAt)).toBe(true);
     await expect(f.ctx.newAsset({ ownerId: f.user.id, checksum: alias })).rejects.toHaveProperty(
