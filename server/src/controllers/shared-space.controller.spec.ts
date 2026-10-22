@@ -24,6 +24,48 @@ describe(SharedSpaceController.name, () => {
     ctx.reset();
   });
 
+  describe('Noodle 5.8 face route contracts', () => {
+    const space = '00000000-0000-4000-8000-000000000001';
+    const person = '00000000-0000-4000-8000-000000000002';
+    const face = '00000000-0000-4000-8000-000000000003';
+    const asset = '00000000-0000-4000-8000-000000000004';
+    it('routes create person without treating people as a UUID', async () => {
+      service.createSpacePerson.mockResolvedValue({ id: person } as any);
+      await request(ctx.getHttpServer()).post(`/shared-spaces/${space}/people`).send({ name: 'Synthetic' }).expect(201);
+      expect(service.createSpacePerson).toHaveBeenCalledWith(undefined, space, { name: 'Synthetic' });
+    });
+    it('routes attach and detach with an explicit acted result', async () => {
+      service.attachFaceToSpacePerson.mockResolvedValue(true);
+      service.detachFaceFromSpacePerson.mockResolvedValue(false);
+      await request(ctx.getHttpServer())
+        .put(`/shared-spaces/${space}/people/${person}/faces/${face}`)
+        .expect(200, { acted: true });
+      await request(ctx.getHttpServer())
+        .delete(`/shared-spaces/${space}/people/${person}/faces/${face}`)
+        .expect(200, { acted: false });
+      expect(service.attachFaceToSpacePerson).toHaveBeenCalledWith(undefined, space, person, face);
+      expect(service.detachFaceFromSpacePerson).toHaveBeenCalledWith(undefined, space, person, face);
+    });
+    it('routes face read, draw and delete', async () => {
+      service.getSpaceAssetFaces.mockResolvedValue([]);
+      service.createSpaceAssetFace.mockResolvedValue({ id: face } as any);
+      service.deleteSpaceAssetFace.mockResolvedValue();
+      const box = { x: 10, y: 20, width: 30, height: 40, imageWidth: 100, imageHeight: 100, spacePersonId: person };
+      await request(ctx.getHttpServer()).get(`/shared-spaces/${space}/assets/${asset}/faces`).expect(200, []);
+      await request(ctx.getHttpServer()).post(`/shared-spaces/${space}/assets/${asset}/faces`).send(box).expect(201);
+      await request(ctx.getHttpServer()).delete(`/shared-spaces/${space}/faces/${face}`).expect(204);
+      expect(service.createSpaceAssetFace).toHaveBeenCalledWith(undefined, space, asset, box);
+      expect(service.deleteSpaceAssetFace).toHaveBeenCalledWith(undefined, space, face);
+    });
+    it('rejects invalid face geometry before calling the service', async () => {
+      await request(ctx.getHttpServer())
+        .post(`/shared-spaces/${space}/assets/${asset}/faces`)
+        .send({ x: 90, y: 0, width: 30, height: 10, imageWidth: 100, imageHeight: 100, spacePersonId: person })
+        .expect(400);
+      expect(service.createSpaceAssetFace).not.toHaveBeenCalled();
+    });
+  });
+
   describe('PUT /shared-spaces/:id/people/:personId', () => {
     it('should map an empty birthDate to null', async () => {
       const spaceId = factory.uuid();

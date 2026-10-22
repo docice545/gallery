@@ -167,6 +167,7 @@ export type AssetMapOptions = {
   stripMetadata?: boolean;
   withStack?: boolean;
   auth?: AuthDto;
+  favoriteAssetIds?: Set<string>;
 };
 
 const peopleFromFaces = (faces?: MaybeDehydrated<AssetFace>[]): PersonResponseDto[] => {
@@ -231,7 +232,9 @@ export function mapAsset(entity: MaybeDehydrated<MapAsset>, options: AssetMapOpt
     fileModifiedAt: asDateTimeString(entity.fileModifiedAt),
     localDateTime: asDateTimeString(entity.localDateTime),
     updatedAt: asDateTimeString(entity.updatedAt),
-    isFavorite: options.auth?.user.id === entity.ownerId && entity.isFavorite,
+    isFavorite:
+      !options.auth?.sharedLink &&
+      (options.favoriteAssetIds?.has(entity.id) ?? (options.auth?.user.id === entity.ownerId && entity.isFavorite)),
     isArchived: entity.visibility === AssetVisibility.Archive,
     isTrashed: entity.status !== AssetStatus.Active && !!entity.deletedAt,
     deletedAt: entity.status !== AssetStatus.Active && entity.deletedAt ? asDateTimeString(entity.deletedAt) : null,

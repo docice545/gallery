@@ -687,6 +687,8 @@ export class SyncSharedSpaceAlbumFolderV1 extends createZodDto(SyncSharedSpaceAl
 export class SyncSharedSpaceAlbumFolderDeleteV1 extends createZodDto(SyncSharedSpaceAlbumFolderDeleteV1Schema) {}
 
 export type SyncItem = {
+  [SyncEntityType.AssetFavoriteV1]: SyncAssetFavoriteV1;
+  [SyncEntityType.AssetFavoriteDeleteV1]: SyncAssetFavoriteDeleteV1;
   [SyncEntityType.AuthUserV1]: SyncAuthUserV1;
   [SyncEntityType.AuthUserV2]: SyncAuthUserV2;
   [SyncEntityType.UserV1]: SyncUserV1;
@@ -829,3 +831,10 @@ export class SyncStreamDto extends createZodDto(SyncStreamSchema) {}
 export class SyncAckDto extends createZodDto(SyncAckSchema) {}
 export class SyncAckSetDto extends createZodDto(SyncAckSetSchema) {}
 export class SyncAckDeleteDto extends createZodDto(SyncAckDeleteSchema) {}
+
+const SyncAssetFavoriteV1Schema = z.object({ assetId: z.uuidv4() }).meta({ id: 'SyncAssetFavoriteV1' });
+const SyncAssetFavoriteDeleteV1Schema = z.object({ assetId: z.uuidv4() }).meta({ id: 'SyncAssetFavoriteDeleteV1' });
+@ExtraModel()
+class SyncAssetFavoriteV1 extends createZodDto(SyncAssetFavoriteV1Schema) {}
+@ExtraModel()
+class SyncAssetFavoriteDeleteV1 extends createZodDto(SyncAssetFavoriteDeleteV1Schema) {}

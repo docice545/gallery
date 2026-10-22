@@ -378,7 +378,7 @@ export function mapPerson(person: MaybeDehydrated<Person>): PersonResponseDto {
 }
 
 function mapFacesWithoutPerson(
-  face: MaybeDehydrated<Selectable<AssetFaceTable>>,
+  face: MaybeDehydrated<Omit<Selectable<AssetFaceTable>, 'createdBy'>>,
   edits?: AssetEditActionItem[],
   assetDimensions?: ImageDimensions,
 ) {

@@ -7,7 +7,7 @@ import { SYNC_TYPES_ORDER, SyncService, send } from 'src/services/sync.service.j
 import { ClientDisconnectedError } from 'src/utils/response.js';
 import { serialize, toAck } from 'src/utils/sync.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
-import { newUuid } from 'test/small.factory.js';
+import { newUuid, newUuidV7 } from 'test/small.factory.js';
 import { ServiceMocks, makeStream, newTestService } from 'test/utils.js';
 
 type TestStream = {
@@ -162,6 +162,7 @@ const setupSyncMocks = (mocks: ServiceMocks) => {
     asset: makeSub(),
     assetExif: makeSub(),
     assetEdit: makeSub(),
+    assetFavorite: makeSub(),
     assetFace: makeSub(),
     assetMetadata: makeSub(),
     assetOcr: makeSub(),
@@ -208,10 +209,52 @@ describe(SyncService.name, () => {
     ({ sut, mocks } = newTestService(SyncService));
     syncSubs = setupSyncMocks(mocks);
     mocks.sync.hasIndexTombstoneChanges.mockResolvedValue(false);
+    mocks.sync.hasPersonalFavoriteChanges.mockResolvedValue(false);
     // These strict mocks need implementations since they're called in test paths
     mocks.syncCheckpoint.upsertAll.mockResolvedValue(undefined as any);
     mocks.syncCheckpoint.deleteAll.mockResolvedValue(undefined as any);
     mocks.session.resetSyncProgress.mockResolvedValue(undefined as any);
+  });
+
+  describe('compatibility cache invalidation', () => {
+    beforeEach(() => {
+      mocks.session.isPendingSyncReset.mockResolvedValue(false);
+      mocks.syncCheckpoint.getAll.mockResolvedValue([
+        {
+          type: SyncEntityType.SyncCompleteV1,
+          ack: toAck({ type: SyncEntityType.SyncCompleteV1, updateId: newUuidV7() }),
+        },
+      ]);
+      mocks.syncCheckpoint.getNow.mockResolvedValue({ nowId: newUuidV7() });
+    });
+    it('captures the watermark BEFORE checking invalidation to avoid skipping a racing change', async () => {
+      const order: string[] = [];
+      mocks.syncCheckpoint.getNow.mockImplementation(() => {
+        order.push('watermark');
+        return Promise.resolve({ nowId: newUuidV7() });
+      });
+      mocks.sync.hasIndexTombstoneChanges.mockImplementation(() => {
+        order.push('invalidation');
+        return Promise.resolve(false);
+      });
+      const { writable } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [] });
+      expect(order).toEqual(['watermark', 'invalidation']);
+    });
+    it('refreshes legacy fork caches on private favorites without a media-delete event', async () => {
+      mocks.sync.hasPersonalFavoriteChanges.mockResolvedValue(true);
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [SyncRequestType.SharedSpacesV1] });
+      expect(parseChunks(chunks).map((e) => e.type)).toEqual([SyncEntityType.SyncResetV1]);
+    });
+    it('keeps the incremental favorite protocol for Noodle 5.8 clients', async () => {
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, {
+        types: [SyncRequestType.SharedSpacesV1, SyncRequestType.AssetFavoritesV1],
+      });
+      expect(mocks.sync.hasPersonalFavoriteChanges).not.toHaveBeenCalled();
+      expect(parseChunks(chunks).some((e) => e.type === SyncEntityType.SyncResetV1)).toBe(false);
+    });
   });
 
   describe('official 3.3 sync contracts', () => {

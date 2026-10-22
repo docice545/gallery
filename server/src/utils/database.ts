@@ -49,6 +49,7 @@ import {
 } from 'src/repositories/search.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
+import { favoriteExistsFor } from 'src/utils/favorite.js';
 import { fromChecksum } from 'src/utils/request.js';
 import { spaceAssetPathBranches, spaceVisibilityGate } from 'src/utils/shared-space-album-scope.js';
 import { dateTruncUnitForTimeBucketSize } from 'src/utils/timeline-bucket.js';
@@ -847,6 +848,7 @@ export function searchAssetBuilderLegacy(kysely: Kysely<DB>, options: AssetSearc
   // Deliberately NOT merged into the options.userIds clauses elsewhere in this chain, which are the
   // owner SCOPING predicate — merging a contributor filter into userIds would widen the result set
   // instead of narrowing it.
+  const favoriteUserId = options.viewingUserId ?? options.userIds?.[0];
   return (
     kysely
       .withPlugin(joinDeduplicationPlugin)
@@ -1044,7 +1046,15 @@ export function searchAssetBuilderLegacy(kysely: Kysely<DB>, options: AssetSearc
           .where(() => sql`f_unaccent(ocr_search.text) %>> f_unaccent(${tokenizeForSearch(options.ocr!).join(' ')})`),
       )
       .$if(!!options.type, (qb) => qb.where('asset.type', '=', options.type!))
-      .$if(options.isFavorite !== undefined, (qb) => qb.where('asset.isFavorite', '=', options.isFavorite!))
+      .$if(options.isFavorite !== undefined, (qb) =>
+        qb.where((eb) =>
+          eb(
+            favoriteUserId ? favoriteExistsFor(eb, favoriteUserId) : eb.ref('asset.isFavorite'),
+            '=',
+            options.isFavorite!,
+          ),
+        ),
+      )
       .$if(options.isOffline !== undefined, (qb) => qb.where('asset.isOffline', '=', options.isOffline!))
       .$if(options.isEncoded !== undefined, (qb) =>
         qb.where((eb) => {

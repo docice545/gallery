@@ -4,8 +4,8 @@ import { DateTime, Duration } from 'luxon';
 import { Writable } from 'node:stream';
 import type { SyncAck } from 'src/types.js';
 import { OnJob } from 'src/decorators.js';
-import { AssetEditAction } from 'src/dtos/editing.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
+import { AssetEditAction } from 'src/dtos/editing.dto.js';
 import {
   SyncAckDeleteDto,
   SyncAckSetDto,
@@ -159,6 +159,7 @@ export const SYNC_TYPES_ORDER = [
   SyncRequestType.MemoriesV2,
   SyncRequestType.MemoryToAssetsV1,
   SyncRequestType.MemoryToAssetsV2,
+  SyncRequestType.AssetFavoritesV1,
 ];
 
 const throwSessionRequired = () => {
@@ -243,15 +244,26 @@ export class SyncService extends BaseService {
     const checkpoints = await this.syncCheckpointRepository.getAll(session.id);
     const checkpointMap: CheckpointMap = Object.fromEntries(checkpoints.map(({ type, ack }) => [type, fromAck(ack)]));
 
-    const completeAck = checkpointMap[SyncEntityType.SyncCompleteV1];
-    const indexChanged = completeAck && (await this.syncRepository.hasIndexTombstoneChanges(completeAck.updateId));
-    if (indexChanged || this.needsFullSync(checkpointMap)) {
+    if (this.needsFullSync(checkpointMap)) {
       await send(response, { type: SyncEntityType.SyncResetV1, ids: ['reset'], data: {} });
       response.end();
       return;
     }
 
     const { nowId } = await this.syncCheckpointRepository.getNow();
+    const completeAck = checkpointMap[SyncEntityType.SyncCompleteV1];
+    const legacyFork =
+      dto.types.includes(SyncRequestType.SharedSpacesV1) && !dto.types.includes(SyncRequestType.AssetFavoritesV1);
+    const compatibilityChanged =
+      completeAck &&
+      ((await this.syncRepository.hasIndexTombstoneChanges(completeAck.updateId)) ||
+        (legacyFork && (await this.syncRepository.hasPersonalFavoriteChanges(auth.user.id, completeAck.updateId))));
+    if (compatibilityChanged) {
+      await send(response, { type: SyncEntityType.SyncResetV1, ids: ['reset'], data: {} });
+      response.end();
+      return;
+    }
+
     const options: SyncQueryOptions = { nowId, userId: auth.user.id };
 
     // Gallery-fork-only memory types (e.g. rule-based "Smarter" memories) are sent verbatim in
@@ -277,6 +289,7 @@ export class SyncService extends BaseService {
       [SyncRequestType.PartnersV1]: () => this.syncPartnersV1(options, response, checkpointMap),
       [SyncRequestType.AssetsV2]: () => this.syncAssetsV2(options, response, checkpointMap),
       [SyncRequestType.AssetExifsV1]: () => this.syncAssetExifsV1(options, response, checkpointMap),
+      [SyncRequestType.AssetFavoritesV1]: () => this.syncAssetFavoritesV1(options, response, checkpointMap),
       [SyncRequestType.AssetEditsV1]: () => this.syncAssetEditsV1(options, response, checkpointMap, isForkAwareClient),
       [SyncRequestType.PartnerAssetsV2]: () => this.syncPartnerAssetsV2(options, response, checkpointMap, session.id),
       [SyncRequestType.AssetMetadataV1]: () => this.syncAssetMetadataV1(options, response, checkpointMap, auth),
@@ -361,6 +374,7 @@ export class SyncService extends BaseService {
     await this.syncRepository.assetFace.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.assetMetadata.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.assetEdit.cleanupAuditTable(pruneThreshold);
+    await this.syncRepository.assetFavorite.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.memory.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.memoryToAsset.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.partner.cleanupAuditTable(pruneThreshold);
@@ -2102,5 +2116,20 @@ export class SyncService extends BaseService {
         }),
       },
     ]);
+  }
+  private async syncAssetFavoritesV1(options: SyncQueryOptions, response: Writable, checkpointMap: CheckpointMap) {
+    const deleteType = SyncEntityType.AssetFavoriteDeleteV1;
+    const deletes = this.syncRepository.assetFavorite.getDeletes({ ...options, ack: checkpointMap[deleteType] });
+
+    for await (const { id, ...data } of deletes) {
+      await send(response, { type: deleteType, ids: [id], data });
+    }
+
+    const upsertType = SyncEntityType.AssetFavoriteV1;
+    const upserts = this.syncRepository.assetFavorite.getUpserts({ ...options, ack: checkpointMap[upsertType] });
+
+    for await (const { updateId, ...data } of upserts) {
+      await send(response, { type: upsertType, ids: [updateId], data });
+    }
   }
 }

@@ -93,6 +93,8 @@ export enum SharedSpaceActivityType {
   PersonMerge = 'person_merge',
   AlbumLink = 'album_link',
   AlbumUnlink = 'album_unlink',
+  PersonFaceAssign = 'person_face_assign',
+  PersonFaceDetach = 'person_face_detach',
 }
 
 export enum AssetOrder {
@@ -1152,6 +1154,7 @@ export enum SyncRequestType {
   AssetsV2 = 'AssetsV2',
   AssetExifsV1 = 'AssetExifsV1',
   AssetEditsV1 = 'AssetEditsV1',
+  AssetFavoritesV1 = 'AssetFavoritesV1',
   AssetMetadataV1 = 'AssetMetadataV1',
   AssetOcrV1 = 'AssetOcrV1',
   AuthUsersV1 = 'AuthUsersV1',
@@ -1282,6 +1285,8 @@ export enum SyncEntityType {
   AssetFaceV1 = 'AssetFaceV1',
   AssetFaceV2 = 'AssetFaceV2',
   AssetFaceV3 = 'AssetFaceV3',
+  AssetFavoriteV1 = 'AssetFavoriteV1',
+  AssetFavoriteDeleteV1 = 'AssetFavoriteDeleteV1',
   AssetFaceDeleteV1 = 'AssetFaceDeleteV1',
 
   UserMetadataV1 = 'UserMetadataV1',

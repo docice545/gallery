@@ -21,6 +21,7 @@ describe(SearchService.name, () => {
 
   beforeEach(() => {
     ({ sut, mocks } = newTestService(SearchService));
+    mocks.assetFavorite.getForAssets.mockResolvedValue(new Set());
     mocks.partner.getAll.mockResolvedValue([]);
     (mocks.faceIdentity as any).resolveScopedPersonTokens ??= vitest.fn();
     (mocks.faceIdentity as any).getAccessiblePersonFilterSuggestions ??= vitest.fn();
@@ -29,6 +30,14 @@ describe(SearchService.name, () => {
       people: [],
       hasUnnamedPeople: false,
     });
+  });
+
+  it('does not expose a link owners personal favorite filter to anonymous visitors', async () => {
+    await expect(sut.searchMetadata(authStub.adminSharedLink, { isFavorite: true } as any)).rejects.toThrow(
+      'Shared link',
+    );
+    expect(mocks.search.searchMetadata).not.toHaveBeenCalled();
+    expect(mocks.assetFavorite.getForAssets).not.toHaveBeenCalled();
   });
 
   it('should work', () => {

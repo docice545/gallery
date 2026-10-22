@@ -2,6 +2,7 @@ import { Kysely } from 'kysely';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
 import { AssetStatus, MemoryType, SyncEntityType, SyncRequestType } from 'src/enum.js';
 import { AssetEditRepository } from 'src/repositories/asset-edit.repository.js';
+import { SyncRepository } from 'src/repositories/sync.repository.js';
 import { DB } from 'src/schema/index.js';
 import { SyncTestContext } from 'test/medium.factory.js';
 import { getKyselyDB } from 'test/utils.js';
@@ -142,4 +143,50 @@ it('official trim filtering advances ACK while preserving persisted edits and fo
       data: expect.objectContaining({ action: AssetEditAction.Trim }),
     }),
   );
+});
+
+it('V3 faces follow the upstream cluster scope, while V2 remains owner-only', async () => {
+  const ctx = new SyncTestContext(db);
+  const { auth, user } = await ctx.newSyncAuthUser();
+  const { user: sameCluster } = await ctx.newSyncAuthUser();
+  const { user: unrelated } = await ctx.newSyncAuthUser();
+  await db.updateTable('user').set({ clusterGroupId: user.clusterGroupId }).where('id', '=', sameCluster.id).execute();
+  const own = await ctx.newAsset({ ownerId: user.id });
+  const shared = await ctx.newAsset({ ownerId: sameCluster.id });
+  const outside = await ctx.newAsset({ ownerId: unrelated.id });
+  const f1 = await ctx.newAssetFace({ assetId: own.asset.id });
+  const f2 = await ctx.newAssetFace({ assetId: shared.asset.id });
+  const f3 = await ctx.newAssetFace({ assetId: outside.asset.id });
+  const v3 = await ctx.syncStream(auth, [SyncRequestType.AssetFacesV3]);
+  const faceIds = v3.filter((e) => e.type === SyncEntityType.AssetFaceV3).map((e: any) => e.data.id);
+  expect(faceIds).toEqual(expect.arrayContaining([f1.assetFace.id, f2.assetFace.id]));
+  expect(faceIds).not.toContain(f3.assetFace.id);
+  const v2 = await ctx.syncStream(auth, [SyncRequestType.AssetFacesV2]);
+  expect(v2.filter((e) => e.type === SyncEntityType.AssetFaceV2).map((e: any) => e.data.id)).toEqual([f1.assetFace.id]);
+});
+
+it('does not acknowledge over an offline-index change racing the invalidation check', async () => {
+  const ctx = new SyncTestContext(db);
+  const { auth, user } = await ctx.newSyncAuthUser();
+  const { asset } = await ctx.newAsset({ ownerId: user.id });
+  await ctx.syncAckAll(auth, await ctx.syncStream(auth, [SyncRequestType.AssetsV2]));
+  const repo = ctx.get(SyncRepository);
+  const check = repo.hasIndexTombstoneChanges.bind(repo);
+  const spy = vi.spyOn(repo, 'hasIndexTombstoneChanges').mockImplementationOnce(async (after) => {
+    const result = await check(after);
+    await db
+      .updateTable('asset')
+      .set({ isOffline: true, status: AssetStatus.Active, deletedAt: new Date() })
+      .where('id', '=', asset.id)
+      .execute();
+    // Make the previously buggy getNow-after-check order acknowledge past this real DB update.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return result;
+  });
+  const raced = await ctx.syncStream(auth, [SyncRequestType.AssetsV2]);
+  spy.mockRestore();
+  await ctx.syncAckAll(auth, raced);
+  const next = await ctx.syncStream(auth, [SyncRequestType.AssetsV2]);
+  expect(next.map((e) => e.type)).toEqual([SyncEntityType.SyncResetV1]);
+  expect(raced.some((e) => e.type === SyncEntityType.AssetDeleteV1)).toBe(false);
 });

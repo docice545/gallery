@@ -1,6 +1,7 @@
 import { AssetResponseSchema, mapAsset } from 'src/dtos/asset-response.dto.js';
 import { AssetStatus } from 'src/enum.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
+import { authStub } from 'test/fixtures/auth.stub.js';
 import { getForAsset } from 'test/mappers.js';
 
 describe('asset deletion timestamps', () => {
@@ -46,5 +47,22 @@ describe('asset deletion timestamps', () => {
     const asset = AssetFactory.create({ deletedAt: new Date('2026-10-05T11:12:13.456Z') });
     const response = mapAsset(getForAsset(asset), { stripMetadata: true });
     expect(response).not.toHaveProperty('deletedAt');
+  });
+});
+
+describe('personal favorite response projection', () => {
+  it('uses the requesting users overlay even for an asset owned by somebody else', () => {
+    const asset = AssetFactory.create({ ownerId: authStub.admin.user.id, isFavorite: false });
+    const response = mapAsset(getForAsset(asset), { auth: authStub.user1, favoriteAssetIds: new Set([asset.id]) });
+    expect(response.isFavorite).toBe(true);
+    expect(asset.isFavorite).toBe(false);
+  });
+  it('does not reveal the link owners overlay to a shared-link visitor', () => {
+    const asset = AssetFactory.create({ ownerId: authStub.adminSharedLink.user.id, isFavorite: true });
+    const response = mapAsset(getForAsset(asset), {
+      auth: authStub.adminSharedLink,
+      favoriteAssetIds: new Set([asset.id]),
+    });
+    expect(response.isFavorite).toBe(false);
   });
 });

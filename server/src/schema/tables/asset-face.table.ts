@@ -16,6 +16,7 @@ import { asset_face_source_type } from 'src/schema/enums.js';
 import { asset_face_audit } from 'src/schema/functions.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 import { PersonGroupTable } from 'src/schema/tables/person-group.table.js';
+import { UserTable } from 'src/schema/tables/user.table.js';
 
 @Table({ name: 'asset_face' })
 @UpdatedAtTrigger('asset_face_updatedAt')
@@ -86,4 +87,6 @@ export class AssetFaceTable {
 
   @Column({ type: 'boolean', default: true })
   isVisible!: Generated<boolean>;
+  @ForeignKeyColumn(() => UserTable, { onDelete: 'SET NULL', nullable: true })
+  createdBy!: string | null;
 }

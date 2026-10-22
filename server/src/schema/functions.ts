@@ -1018,3 +1018,33 @@ export const gallery_lock_asset_file_path = registerFunction({
       RETURN NEW;
     END `,
 });
+
+export const asset_favorite_delete_audit = registerFunction({
+  name: 'asset_favorite_delete_audit',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      INSERT INTO asset_favorite_audit ("userId", "assetId")
+      SELECT "userId", "assetId" FROM "old";
+      RETURN NULL;
+    END`,
+});
+
+export const gallery_mirror_owner_favorite = registerFunction({
+  name: 'gallery_mirror_owner_favorite',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      IF TG_OP = 'UPDATE' AND OLD."isFavorite" IS NOT DISTINCT FROM NEW."isFavorite" THEN
+        RETURN NULL;
+      END IF;
+      IF NEW."isFavorite" THEN
+        INSERT INTO asset_favorite ("userId", "assetId") VALUES (NEW."ownerId", NEW.id) ON CONFLICT DO NOTHING;
+      ELSE
+        DELETE FROM asset_favorite WHERE "userId" = NEW."ownerId" AND "assetId" = NEW.id;
+      END IF;
+      RETURN NULL;
+    END`,
+});

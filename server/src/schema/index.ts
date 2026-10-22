@@ -46,6 +46,8 @@ import { AssetEditTable } from 'src/schema/tables/asset-edit.table.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
 import { AssetFaceAuditTable } from 'src/schema/tables/asset-face-audit.table.js';
 import { AssetFaceTable } from 'src/schema/tables/asset-face.table.js';
+import { AssetFavoriteAuditTable } from 'src/schema/tables/asset-favorite-audit.table.js';
+import { AssetFavoriteTable } from 'src/schema/tables/asset-favorite.table.js';
 import { AssetFileTable } from 'src/schema/tables/asset-file.table.js';
 import { AssetJobStatusTable } from 'src/schema/tables/asset-job-status.table.js';
 import { AssetMetadataAuditTable } from 'src/schema/tables/asset-metadata-audit.table.js';
@@ -166,6 +168,8 @@ export class ImmichDatabase {
     AssetOcrTable,
     AssetOcrAuditTable,
     AssetTable,
+    AssetFavoriteTable,
+    AssetFavoriteAuditTable,
     AssetFileTable,
     AssetExifTable,
     ClusterGroupTable,
@@ -300,6 +304,8 @@ export interface DB {
   api_key: ApiKeyTable;
 
   asset: AssetTable;
+  asset_favorite: AssetFavoriteTable;
+  asset_favorite_audit: AssetFavoriteAuditTable;
   asset_audit: AssetAuditTable;
   asset_deletion_policy: AssetDeletionPolicyTable;
   asset_deletion_tombstone: AssetDeletionTombstoneTable;
