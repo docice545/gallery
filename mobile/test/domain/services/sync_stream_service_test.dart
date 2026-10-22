@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
@@ -767,7 +768,7 @@ void main() {
     });
 
     test('PR7 V2 memory failed handler does not ACK and retry ACKs only after success', () async {
-      final memory = SyncMemoryV2.fromJson((SyncStreamStub.memoryV1.data as SyncMemoryV1).toJson())!;
+      final memory = SyncMemoryV2.fromJson(jsonDecode(jsonEncode(SyncStreamStub.memoryV1.data)))!;
       final events = [SyncEvent(type: SyncEntityType.memoryV2, data: memory, ack: 'memory-v2-ack')];
       when(() => mockSyncStreamRepo.updateMemoriesV2(any())).thenThrow(UnsupportedError('unsupported memory'));
       await expectLater(simulateEvents(events), throwsA(isA<UnsupportedError>()));
