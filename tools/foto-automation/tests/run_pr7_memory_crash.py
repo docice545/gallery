@@ -23,6 +23,10 @@ with tempfile.TemporaryDirectory(prefix='foto-pr7-crash-') as directory:
             os.killpg(child.pid, signal.SIGKILL)
             assert child.wait(timeout=30) == -signal.SIGKILL
             print('PASS actual SIGKILL after SQLite commit, before ACK; no graceful close', flush=True)
+        except BaseException:
+            log.flush()
+            print((Path(directory) / 'writer.log').read_text(errors='replace')[-16000:], flush=True)
+            raise
         finally:
             if child.poll() is None:
                 os.killpg(child.pid, signal.SIGKILL)

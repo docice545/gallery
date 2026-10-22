@@ -209,4 +209,28 @@ void main() {
     expect(await pending(db), 1);
     expect(await db.memoryAssetEntity.select().get(), isEmpty);
   });
+
+  test('PR7 durable V2 account switch cannot consume another account journal', () async {
+    await repo.updateMemoryAssetsV2([event]);
+    await parents(repo);
+    await db.authUserEntity.update().write(const AuthUserEntityCompanion(id: drift.Value('another-owner')));
+    await repo.flushDeferredMemoryAssetsV2();
+    expect(await pending(db), 1);
+    expect(await db.memoryAssetEntity.select().get(), isEmpty);
+    await db.authUserEntity.update().write(const AuthUserEntityCompanion(id: drift.Value('owner')));
+    await repo.flushDeferredMemoryAssetsV2();
+    expect(await pending(db), 0);
+    expect(await db.memoryAssetEntity.select().get(), hasLength(1));
+  });
+
+  test('PR7 durable V2 corrupt journal fails without consuming the receipt', () async {
+    await repo.updateMemoryAssetsV2([event]);
+    await parents(repo);
+    await (db.settingsEntity.update()..where((row) => row.key.startsWith('sync.memory-links.v2.'))).write(
+      const SettingsEntityCompanion(value: drift.Value('{incomplete')),
+    );
+    await expectLater(repo.flushDeferredMemoryAssetsV2(), throwsA(isA<FormatException>()));
+    expect(await pending(db), 1);
+    expect(await db.memoryAssetEntity.select().get(), isEmpty);
+  });
 }
