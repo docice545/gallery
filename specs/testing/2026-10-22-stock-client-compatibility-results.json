@@ -114,9 +114,9 @@
       "server/src/utils/recovery-evidence.spec.ts"
     ],
     "changelogLabel": "changelog:enhancement added",
-    "finalIndexAuditRerun": "Pending; earlier successful generated/SQL jobs remain pinned to their actual source heads.",
-    "generatedAPIContextFailure": "Server cwd ignore *.json skipped initial formatter; final explicit config/empty ignore path and SDK config reproduce exact artifacts twice. GitHub rerun not asserted yet.",
-    "generatedGatesLocalResolution": "Formatted codegen produces identical spec/SDK twice. Strict CLI drift empty and exact guards test passes. SQL snapshots regenerated. GitHub rerun not asserted green.",
+    "finalIndexAuditRerun": "Generated API, strict SQL schema and migration ORDER passed on b0d83c788. Full medium failed; annotations identify workflow fixture missing favorites dependency. Focused real WASM/PostgreSQL file passes after wiring; next full CI not asserted.",
+    "generatedAPIContextFailure": "Resolved: exact cwd/config/ignore path formatting reproduces artifacts; GitHub OpenAPI Clients PASS on b0d83c788.",
+    "generatedGatesLocalResolution": "Resolved locally and in actual GitHub API/SQL jobs pinned to b0d83c788; other global CI remains not green.",
     "imageAndMobileBuildRuns": "Cancelled because outside task scope",
     "initialHead": "d82dc7bc5989418d4fb66c9c4592cf1482ac21f1",
     "mediumFixtureFailure": "Corrected explicit favorites repository wiring; two files passed and stack file passed after focused rerun. Full CI rerun not asserted.",
@@ -125,15 +125,30 @@
     "shellcheckAndDart": "FAIL; exact cause NOT VERIFIED: annotations contain only exit status, full logs Forbidden",
     "verifiedGeneratedAPICheck": {
       "conclusion": "success",
-      "head": "44008b2761967d6039ca9d2651b640e93937c159",
-      "jobId": 119721187165,
-      "url": "https://github.com/docice545/gallery/actions/runs/39747885874/job/119721187165"
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119747911150,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963588/job/119747911150"
+    },
+    "verifiedMigrationOrderCheck": {
+      "conclusion": "success",
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119747911608,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963590/job/119747911608"
     },
     "verifiedSQLSchemaCheck": {
       "conclusion": "success",
-      "head": "44008b2761967d6039ca9d2651b640e93937c159",
-      "jobId": 119721187662,
-      "url": "https://github.com/docice545/gallery/actions/runs/39747885874/job/119721187662"
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119747911291,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963588/job/119747911291"
+    },
+    "workflowMediumFailure": {
+      "annotationEvidence": "10 published workflow assertions; total full-suite failure count unavailable from blocked blob logs",
+      "conclusion": "failure",
+      "focusedAfter": "22 passed / 0 failed; existing assertions preserved plus canonical favorite overlay checks",
+      "focusedBefore": "14 failed / 8 passed after building actual WASM and using server cwd",
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119748004434,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963588/job/119748004434"
     }
   },
   "immutableDeletionMigration": {
@@ -462,6 +477,33 @@
       "passedRun": true,
       "sha256": "6c0d42b220aa058186e56488d039999057e1a393d87f456dd9fc47173e6f95d2",
       "summary": ["Test Files  1 passed (1)", "Tests  6 passed (6)"]
+    },
+    {
+      "log": "foto-compat-workflow-medium-before.log",
+      "note": "Environment setup failure: absent core WASM and incorrect root cwd; not a reproduction of the CI defect.",
+      "sha256": "580923787e03a2705db21244e631e42f885711fd7340c6893ac6e4da59854fc3",
+      "summary": ["Test Files  1 failed (1)", "Tests  22 failed (22)"]
+    },
+    {
+      "log": "foto-compat-workflow-medium-with-wasm-before.log",
+      "note": "Environment setup failure: real WASM built, but root cwd still invalid for plugin/manifest paths; not a runtime compatibility failure.",
+      "sha256": "e3957bd1a052b00aaee2f9b736f975a8c7e94100b09c817bcfe29c97b234ec9e",
+      "summary": ["Test Files  1 failed (1)", "Tests  22 failed (22)"]
+    },
+    {
+      "log": "foto-compat-workflow-medium-exact-cwd-before.log",
+      "note": "Valid reproduction: real WASM, server cwd, undefined AssetFavoriteRepository at AssetService.get/updateFavorites.",
+      "sha256": "168c9d410629aaa373cf2f7c26001ccae8183f3e6564718666873e1ab2509b8e",
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  14 failed | 8 passed (22)"
+      ]
+    },
+    {
+      "log": "foto-compat-workflow-medium-final.log",
+      "note": "Real WASM core-plugin and disposable PostgreSQL14, no native mobile/NAS E2E. Real favorites repository wired into existing test context; no old assertions removed.",
+      "sha256": "2846de004b267bec75e1079cc9f45ee2d6d4fdfd97252af508d284f419683460",
+      "summary": ["Test Files  1 passed (1)", "Tests  22 passed (22)"]
     }
   ],
   "testedCodeCommit": "ab7f0217eb84668576b2035ee19a52daf1003572",
@@ -550,5 +592,24 @@
       "operationCount": 382,
       "sourceCommit": "37aa54e632606cc6a62bc6bcbba14c62200147c4"
     }
+  },
+  "workflowPluginValidation": {
+    "binaryen": "version_124",
+    "binaryenArchiveSHA256": "0290c3779fedf592b8da0ded3032ff55c41a2b7bfa2d6bf7b7bac6f0e6e28963",
+    "built": ["client SDK", "plugin SDK", "core plugin WASM"],
+    "codeChecks": {
+      "format": 0,
+      "lint": 0,
+      "types": 0
+    },
+    "command": "NODE_OPTIONS=--max-old-space-size=4096 node_modules/.bin/vitest run --config test/vitest.config.medium.mjs test/medium/specs/workflow/workflow-core-plugin.spec.ts --maxWorkers=1 --no-file-parallelism",
+    "compilerReportedVersion": "1.6.1",
+    "cwd": "server",
+    "extismArchiveSHA256": "63b72da2f5e88655522dc21477de549f238a2f40546a69ce4e0fce7e78654035",
+    "extismReleaseAsset": "v1.7.0/extism-js-x86_64-linux-v1.7.0.gz",
+    "fixturesOnly": true,
+    "productionImageBuilt": false,
+    "typescriptExit": 0,
+    "wasmSHA256": "f87daa2f73c68d588f515eadbc04c2d9cf85de285289f6fa4357059da673f7d3"
   }
 }

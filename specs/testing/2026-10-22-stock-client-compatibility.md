@@ -506,3 +506,44 @@ cache. Journal pruning использует существующий audit job �
 Прошлые 76 PASS относятся к промежуточному subset и не доказывали library
 incremental совместимость; их заменяет финальный 115-case результат. Состояние
 общего GitHub CI и native/NFS/AI E2E по-прежнему нельзя подменять этими passes.
+
+### Финальный CI и workflow-plugin fixture
+
+На опубликованном `b0d83c7881b7971fee1903dcc532a26e17fa0708` фактически прошли:
+
+- [OpenAPI Clients](https://github.com/docice545/gallery/actions/runs/39755963588/job/119747911150), включая generation и проверку generated diff.
+- [SQL Schema Checks](https://github.com/docice545/gallery/actions/runs/39755963588/job/119747911291), включая новую index-audit migration.
+- [Migration ORDER](https://github.com/docice545/gallery/actions/runs/39755963590/job/119747911608).
+- Web unit job также завершился success; это не browser/native E2E.
+
+Полный medium job на том HEAD **FAIL**, не PASS. Десять опубликованных annotations
+указывают на workflow assertions; total failed count всего job из недоступных blob
+logs не устанавливался. Реальное локальное воспроизведение с core-plugin WASM и
+cwd `server/`: **14 FAIL / 8 PASS**. Plugin host создаёт AssetService через
+BaseService.create из WorkflowExecutionService; explicit test context не передавал
+новый AssetFavoriteRepository. Точные ошибки: `getForAssets` / `addAll` у undefined.
+Production Nest DI уже регистрирует этот репозиторий; runtime не меняется ради теста.
+
+Исправлен только existing fixture: подключён **реальный** favorites repository.
+Прежние assertions сохранены; добавлена проверка canonical overlay после favorite
+и unfavorite, вместе с legacy owner flag. Весь файл: **22/22 PASS** на настоящем
+WASM core-plugin и disposable PostgreSQL14. Это не mock host execution и не Android,
+iOS, Synology либо AI E2E. Проверены ESLint, форматирование и TypeScript.
+
+Точная команда из `server/`:
+
+```bash
+NODE_OPTIONS=--max-old-space-size=4096 node_modules/.bin/vitest run \
+  --config test/vitest.config.medium.mjs \
+  test/medium/specs/workflow/workflow-core-plugin.spec.ts \
+  --maxWorkers=1 --no-file-parallelism
+```
+
+Перед тестом собраны client SDK, plugin SDK и core-plugin по фактическим scripts.
+Использованы checksum-verified release assets из mise.lock: Extism v1.7.0 (сам
+binary сообщает 1.6.1) и Binaryen version_124; cache только в `/tmp`. Бинарные
+артефакты и dependency links не коммитятся. Первые два локальных 22-failure запуска
+были ошибками подготовки/cwd, не воспроизведением CI; их логи сохранены и отдельно
+помечены в JSON. Valid red/green: `workflow-medium-exact-cwd-before` →
+`workflow-medium-final`. Новая полная CI-проверка до фактического завершения
+по-прежнему не объявляется зелёной. Остальные CI/native ограничения сохраняются.
