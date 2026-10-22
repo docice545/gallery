@@ -21,6 +21,15 @@ import { UserTable } from 'src/schema/tables/user.table.js';
 import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
 
 @Table('asset')
+// UPDATE OF is installed by the immutable deletion migration. Preserve its exact DDL.
+@Trigger({
+  name: 'gallery_block_deleted_asset',
+  timing: 'before',
+  actions: ['insert', 'update'],
+  scope: 'row',
+  functionName: gallery_block_deleted_asset.name,
+  synchronize: false,
+})
 @UpdatedAtTrigger('asset_updatedAt')
 @AfterDeleteTrigger({
   scope: 'statement',

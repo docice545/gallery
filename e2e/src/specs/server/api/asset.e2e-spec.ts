@@ -3,6 +3,7 @@ import {
   AssetMediaStatus,
   AssetTypeEnum,
   AssetVisibility,
+  downloadAsset,
   getAssetInfo,
   getMyUser,
   LoginResponseDto,
@@ -617,7 +618,9 @@ describe('/asset', () => {
       expect(status).toBe(409);
 
       await expect(utils.getAssetInfo(admin.accessToken, asset1)).resolves.toMatchObject({
-        id: asset1, livePhotoVideoId: motionId, isTrashed: false,
+        id: asset1,
+        livePhotoVideoId: motionId,
+        isTrashed: false,
       });
       await utils.waitForQueueFinish(admin.accessToken, 'backgroundTask');
 
@@ -627,10 +630,8 @@ describe('/asset', () => {
         livePhotoVideoId: motionId,
       });
       for (const id of [asset1, asset2, motionId]) {
-        const original = await request(app).get(`/assets/${id}/original`)
-          .set('Authorization', `Bearer ${admin.accessToken}`);
-        expect(original.status).toBe(200);
-        expect(original.body.length).toBeGreaterThan(0);
+        const original = await downloadAsset({ id }, { headers: asBearerAuth(admin.accessToken) });
+        expect(original.size).toBeGreaterThan(0);
       }
     });
   });
