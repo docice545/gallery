@@ -525,7 +525,7 @@ class ReleaseTest(unittest.TestCase):
                 self.assertIn('--maxConcurrency=1', cmd)
             if cmd[:2] == ['flutter', 'test']:
                 self.assertIn('--concurrency=1', cmd)
-            if cmd[-1] == 'build' and cmd[0] == 'pnpm':
+            if name in ('sdk-initial', 'plugin-sdk', 'plugin-core', 'plugin-gallery'):
                 self.assertEqual(cmd.count('--filter'), 1)
 
 
