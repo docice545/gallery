@@ -293,30 +293,30 @@ describe(TimelineService.name, () => {
         });
         await expect(response1).rejects.toBeInstanceOf(BadRequestException);
         await expect(response1).rejects.toThrow(
-          'withPartners is only supported for non-archived, non-trashed, non-favorited, non-locked assets',
+          'withPartners is only supported for non-archived, non-trashed, non-locked assets',
         );
 
         const response2 = sut.getTimeBuckets(auth, { bucketSize, withPartners: true });
         await expect(response2).rejects.toBeInstanceOf(BadRequestException);
         await expect(response2).rejects.toThrow(
-          'withPartners is only supported for non-archived, non-trashed, non-favorited, non-locked assets',
+          'withPartners is only supported for non-archived, non-trashed, non-locked assets',
         );
       },
     );
 
-    it('should return error if time bucket is requested with partners asset and favorite', async () => {
+    it('requires explicit timeline visibility for partner favorites', async () => {
       const { sut } = setup();
       const auth = factory.auth();
       const response1 = sut.getTimeBuckets(auth, { withPartners: true, isFavorite: false });
       await expect(response1).rejects.toBeInstanceOf(BadRequestException);
       await expect(response1).rejects.toThrow(
-        'withPartners is only supported for non-archived, non-trashed, non-favorited, non-locked assets',
+        'withPartners is only supported for non-archived, non-trashed, non-locked assets',
       );
 
       const response2 = sut.getTimeBuckets(auth, { withPartners: true, isFavorite: true });
       await expect(response2).rejects.toBeInstanceOf(BadRequestException);
       await expect(response2).rejects.toThrow(
-        'withPartners is only supported for non-archived, non-trashed, non-favorited, non-locked assets',
+        'withPartners is only supported for non-archived, non-trashed, non-locked assets',
       );
     });
 
@@ -328,7 +328,7 @@ describe(TimelineService.name, () => {
         const response = sut.getTimeBuckets(auth, { bucketSize, withPartners: true, isTrashed: true });
         await expect(response).rejects.toBeInstanceOf(BadRequestException);
         await expect(response).rejects.toThrow(
-          'withPartners is only supported for non-archived, non-trashed, non-favorited, non-locked assets',
+          'withPartners is only supported for non-archived, non-trashed, non-locked assets',
         );
       },
     );

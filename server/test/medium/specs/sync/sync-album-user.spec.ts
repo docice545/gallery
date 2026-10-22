@@ -144,6 +144,7 @@ describe(SyncRequestType.AlbumUsersV1, () => {
       const { auth, ctx } = await setup();
       const { user: user1 } = await ctx.newUser();
       const { album } = await ctx.newAlbum({ ownerId: user1.id });
+      await wait(2); // Distinct UUID-v7 millisecond before the editor membership ACK.
       const { albumUser } = await ctx.newAlbumUser({
         albumId: album.id,
         userId: auth.user.id,
