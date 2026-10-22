@@ -413,8 +413,19 @@ class ReleaseTest(unittest.TestCase):
         self.prepare()
         value = {'Config': {'Labels': {'org.opencontainers.image.revision': 'f' * 40}, 'Env': []},
                  'Id': 'sha256:' + 'a' * 64, 'Os': 'linux', 'Architecture': 'amd64'}
-        with patch.object(app, 'query', return_value=json.dumps([value])), self.assertRaisesRegex(app.Stop, 'SOURCE_MISMATCH'):
+        with patch.object(app, 'rootless', return_value='synthetic-own-socket'), \
+                patch.object(app, 'query', return_value=json.dumps([value])), self.assertRaisesRegex(app.Stop, 'SOURCE_MISMATCH'):
             self.p.image()
+
+    def test_artifact_helpers_recheck_rootless_before_contacting_daemon(self):
+        for operation in (app.builder_idle, self.p.image):
+            with patch.object(app, 'query', return_value=json.dumps([
+                {'Endpoints': {'docker': {'Host': 'tcp://production:2375'}}}
+            ])) as q:
+                with self.assertRaisesRegex(app.Stop, 'LOCAL_ROOTLESS'):
+                    operation()
+                self.assertEqual(q.call_count, 1)
+                self.assertEqual(q.call_args.args[0][:3], ['docker', 'context', 'inspect'])
 
     def test_foreign_docker_context_never_contacted(self):
         with patch.object(app, 'query', return_value=json.dumps([{'Endpoints': {'docker': {'Host': 'tcp://production:2375'}}}])) as q:
@@ -447,7 +458,8 @@ class ReleaseTest(unittest.TestCase):
                 tar.addfile(item, io.BytesIO(data))
             return subprocess.CompletedProcess([], 0, stdout=b.getvalue())
         for parallelism, status in ((1, 'completed'), (2, 'completed'), (1, 'running')):
-            with patch.object(app, 'query', side_effect=[json.dumps(node), json.dumps([record]), json.dumps({'Status': status})]):
+            with patch.object(app, 'rootless', return_value='synthetic-own-socket'), \
+                    patch.object(app, 'query', side_effect=[json.dumps(node), json.dumps([record]), json.dumps({'Status': status})]):
                 with patch.object(app.subprocess, 'run', return_value=archive(parallelism)):
                     if parallelism == 1 and status == 'completed':
                         app.builder_idle()
@@ -455,7 +467,8 @@ class ReleaseTest(unittest.TestCase):
                         with self.assertRaises(app.Stop):
                             app.builder_idle()
         record['HostConfig']['Memory'] = 9 * 1024**3
-        with patch.object(app, 'query', side_effect=[json.dumps(node), json.dumps([record])]):
+        with patch.object(app, 'rootless', return_value='synthetic-own-socket'), \
+                patch.object(app, 'query', side_effect=[json.dumps(node), json.dumps([record])]):
             with self.assertRaisesRegex(app.Stop, 'MEMORY_LIMITS'):
                 app.builder_idle()
 
@@ -518,6 +531,14 @@ class ReleaseTest(unittest.TestCase):
         cfg.write_text(json.dumps(self.c))
         cfg.chmod(0o600)
         with self.assertRaisesRegex(app.Stop, 'MUST_NOT_OVERLAP'):
+            app.config(cfg)
+
+    def test_required_ci_cannot_be_removed_from_config(self):
+        cfg = self.root / 'config.json'
+        self.c['required_checks']['compatibility'] = ['Optional']
+        cfg.write_text(json.dumps(self.c))
+        cfg.chmod(0o600)
+        with self.assertRaisesRegex(app.Stop, 'REQUIRED_CI_CANNOT_BE_REMOVED'):
             app.config(cfg)
 
     def test_no_mode_and_mutually_exclusive_modes(self):

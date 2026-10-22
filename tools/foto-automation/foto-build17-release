@@ -164,6 +164,7 @@ def rootless():
 
 
 def builder_idle():
+    rootless()
     data = query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited', '--format', '{{json .}}'])
     value = json.loads(data)
     need(value['Driver'] == 'docker-container' and len(value['Nodes']) == 1, 'EXISTING_SINGLE_BUILDER_REQUIRED')
@@ -504,6 +505,7 @@ class Pipeline:
         return result
 
     def image(self):
+        rootless()
         tag = 'foto-build17:' + self.manifest['head']
         value = json.loads(query(['docker', '--context', 'rootless', 'image', 'inspect', tag]))[0]
         need(value['Config']['Labels'].get('org.opencontainers.image.revision') == self.manifest['head'], 'IMAGE_SOURCE_MISMATCH')
