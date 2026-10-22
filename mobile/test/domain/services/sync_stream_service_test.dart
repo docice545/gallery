@@ -6,9 +6,11 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/main/table/user/auth_user.drift.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
+import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
@@ -104,6 +106,7 @@ void main() {
 
   setUp(() async {
     mockSyncStreamRepo = MockSyncStreamRepository();
+    when(() => mockSyncStreamRepo.flushDeferredMemoryAssetsV2()).thenAnswer((_) async {});
     when(() => mockSyncStreamRepo.getRestoreCandidates(any())).thenAnswer((_) async => []);
     mockSyncApiRepo = MockSyncApiRepository();
     mockLocalAssetRepo = MockLocalAssetRepository();
@@ -144,9 +147,8 @@ void main() {
     when(() => mockSyncApiRepo.deleteSyncAck(any())).thenAnswer((_) async => {});
 
     when(() => mockApi.serverInfoApi).thenReturn(mockServerApi);
-    when(
-      () => mockServerApi.getServerVersion(),
-    ).thenAnswer((_) async => ServerVersionResponseDto(major: 1, minor: 132, patch_: 0, prerelease: null));
+    when(() => mockServerApi.getServerVersion())
+        .thenAnswer((_) async => ServerVersionResponseDto(major: 1, minor: 132, patch_: 0, prerelease: null));
     // Default: a server that predates capability signalling (no syncRequestTypes field).
     when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => makeServerFeatures());
 
@@ -156,27 +158,22 @@ void main() {
     when(() => mockSyncStreamRepo.updatePartnerV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deletePartnerV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateAssetsV1(any())).thenAnswer(successHandler);
-    when(
-      () => mockSyncStreamRepo.updateAssetsV1(any(), debugLabel: any(named: 'debugLabel')),
-    ).thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.updateAssetsV1(any(), debugLabel: any(named: 'debugLabel')))
+        .thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteAssetsV1(any())).thenAnswer(successHandler);
-    when(
-      () => mockSyncStreamRepo.deleteAssetsV1(any(), debugLabel: any(named: 'debugLabel')),
-    ).thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.deleteAssetsV1(any(), debugLabel: any(named: 'debugLabel')))
+        .thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateAssetsExifV1(any())).thenAnswer(successHandler);
-    when(
-      () => mockSyncStreamRepo.updateAssetsExifV1(any(), debugLabel: any(named: 'debugLabel')),
-    ).thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.updateAssetsExifV1(any(), debugLabel: any(named: 'debugLabel')))
+        .thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateMemoriesV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteMemoriesV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateMemoryAssetsV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteMemoryAssetsV1(any())).thenAnswer(successHandler);
-    when(
-      () => mockSyncStreamRepo.updateStacksV1(any(), debugLabel: any(named: 'debugLabel')),
-    ).thenAnswer(successHandler);
-    when(
-      () => mockSyncStreamRepo.deleteStacksV1(any(), debugLabel: any(named: 'debugLabel')),
-    ).thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.updateStacksV1(any(), debugLabel: any(named: 'debugLabel')))
+        .thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.deleteStacksV1(any(), debugLabel: any(named: 'debugLabel')))
+        .thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateUserMetadatasV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteUserMetadatasV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updatePeopleV1(any())).thenAnswer(successHandler);
@@ -198,9 +195,8 @@ void main() {
     // dispatch tests can route a libraryV1/libraryDeleteV1 event without
     // falling through to the default case (which would log a warning).
     when(() => mockSyncStreamRepo.updateLibrariesV1(any())).thenAnswer(successHandler);
-    when(
-      () => mockSyncStreamRepo.deleteLibrariesV1(any(), currentUserId: any(named: 'currentUserId')),
-    ).thenAnswer(successHandler);
+    when(() => mockSyncStreamRepo.deleteLibrariesV1(any(), currentUserId: any(named: 'currentUserId')))
+        .thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateLibraryAssetsV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.deleteLibraryAssetsV1(any())).thenAnswer(successHandler);
     when(() => mockSyncStreamRepo.updateLibraryAssetExifsV1(any())).thenAnswer(successHandler);
@@ -348,9 +344,8 @@ void main() {
     });
 
     test('foreign-owner response fails closed without ACK', () async {
-      when(
-        () => assetsApi.getAssetInfo('remote-1'),
-      ).thenAnswer((_) async => currentAsset(isTrashed: false, ownerId: 'other-owner'));
+      when(() => assetsApi.getAssetInfo('remote-1'))
+          .thenAnswer((_) async => currentAsset(isTrashed: false, ownerId: 'other-owner'));
       await expectLater(simulateEvents([staleActive]), throwsStateError);
       verifyNever(() => mockSyncStreamRepo.updateAssetsV1(any()));
       verifyNever(() => mockSyncApiRepo.ack(any()));
@@ -765,6 +760,67 @@ void main() {
         () => mockSyncApiRepo.ack(["5"]),
       ]);
       verifyNever(() => mockAbortCallbackWrapper());
+    });
+
+    test('PR7 durable V2 real journal precedes ACK and survives an unknown ACK outcome', () async {
+      final journalDb = Drift(drift.DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
+      final journal = SyncStreamRepository(journalDb);
+      try {
+        await journalDb.authUserEntity.insertOne(
+          AuthUserEntityCompanion.insert(
+            id: 'owner',
+            name: 'Owner',
+            email: 'owner@test',
+            avatarColor: AvatarColor.primary,
+          ),
+        );
+        when(() => mockSyncStreamRepo.updateMemoryAssetsV2(any())).thenAnswer(
+          (invocation) =>
+              journal.updateMemoryAssetsV2(invocation.positionalArguments.first as Iterable<SyncMemoryAssetV1>),
+        );
+        final events = [
+          SyncEvent(
+            type: SyncEntityType.memoryToAssetV2,
+            data: SyncMemoryAssetV1(memoryId: 'memory', assetId: 'asset'),
+            ack: 'durable-ack',
+          ),
+        ];
+        // Unknown account scope fails before a durable receipt and before ACK.
+        await expectLater(simulateEvents(events), throwsA(isA<StateError>()));
+        verifyNever(() => mockSyncApiRepo.ack(any()));
+        expect(await journalDb.settingsEntity.select().get(), isEmpty);
+        await StoreRepository(journalDb).upsert(StoreKey.serverEndpoint, 'https://synthetic.invalid/api');
+        when(() => mockSyncApiRepo.ack(['durable-ack'])).thenAnswer((_) async {
+          expect(await journalDb.settingsEntity.select().get(), hasLength(1));
+          throw StateError('synthetic lost ACK response');
+        });
+        await expectLater(simulateEvents(events), throwsA(isA<StateError>()));
+        when(() => mockSyncApiRepo.ack(['durable-ack'])).thenAnswer((_) async {
+          expect(await journalDb.settingsEntity.select().get(), hasLength(1));
+        });
+        await simulateEvents(events); // duplicate delivery cannot create a second receipt
+        expect(await journalDb.settingsEntity.select().get(), hasLength(1));
+      } finally {
+        await journalDb.close();
+      }
+    });
+
+    test('PR7 durable V2 failed projection does not ACK SyncComplete and retries after GC', () async {
+      when(() => mockSyncStreamRepo.flushDeferredMemoryAssetsV1()).thenAnswer((_) async {});
+      when(() => mockSyncStreamRepo.pruneAssets()).thenAnswer((_) async {});
+      when(() => mockSyncStreamRepo.flushDeferredMemoryAssetsV2()).thenThrow(StateError('synthetic SQLite error'));
+      final events = [const SyncEvent(type: SyncEntityType.syncCompleteV1, data: 'complete', ack: 'complete-ack')];
+      await expectLater(simulateEvents(events), throwsA(isA<StateError>()));
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      when(() => mockSyncStreamRepo.flushDeferredMemoryAssetsV2()).thenAnswer((_) async {});
+      clearInteractions(mockSyncStreamRepo);
+      await simulateEvents(events);
+      verifyInOrder([
+        () => mockSyncStreamRepo.flushDeferredMemoryAssetsV1(),
+        () => mockSyncStreamRepo.pruneAssets(),
+        () => mockSyncStreamRepo.flushDeferredMemoryAssetsV2(),
+        () => mockSyncApiRepo.ack(['complete-ack']),
+      ]);
     });
 
     test('PR7 V2 memory failed handler does not ACK and retry ACKs only after success', () async {
@@ -1246,9 +1302,8 @@ void main() {
     });
     test('ensure that <2.5.0 migrations run', () async {
       await Store.put(StoreKey.syncMigrationStatus, "[]");
-      when(
-        () => mockServerApi.getServerVersion(),
-      ).thenAnswer((_) async => ServerVersionResponseDto(major: 2, minor: 4, patch_: 1, prerelease: null));
+      when(() => mockServerApi.getServerVersion())
+          .thenAnswer((_) async => ServerVersionResponseDto(major: 2, minor: 4, patch_: 1, prerelease: null));
 
       await sut.sync();
 
@@ -1274,9 +1329,8 @@ void main() {
     });
     test('ensure that >=2.5.0 migrations run', () async {
       await Store.put(StoreKey.syncMigrationStatus, "[]");
-      when(
-        () => mockServerApi.getServerVersion(),
-      ).thenAnswer((_) async => ServerVersionResponseDto(major: 2, minor: 5, patch_: 0, prerelease: null));
+      when(() => mockServerApi.getServerVersion())
+          .thenAnswer((_) async => ServerVersionResponseDto(major: 2, minor: 5, patch_: 0, prerelease: null));
       await sut.sync();
 
       verifyInOrder([
@@ -1304,9 +1358,8 @@ void main() {
         '["${SyncMigrationTask.v20260128_CopyExifWidthHeightToAsset.name}"]',
       );
 
-      when(
-        () => mockServerApi.getServerVersion(),
-      ).thenAnswer((_) async => ServerVersionResponseDto(major: 2, minor: 4, patch_: 1, prerelease: null));
+      when(() => mockServerApi.getServerVersion())
+          .thenAnswer((_) async => ServerVersionResponseDto(major: 2, minor: 4, patch_: 1, prerelease: null));
 
       await sut.sync();
 

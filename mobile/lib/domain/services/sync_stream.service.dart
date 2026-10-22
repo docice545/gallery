@@ -282,6 +282,7 @@ class SyncStreamService {
       return;
     }
     await _handleSyncData(type, batch.map((e) => e.data));
+    if (isCancelled) return;
     await _syncApiRepository.ack([batch.last.ack]);
     batch.clear();
   }
@@ -471,7 +472,8 @@ class SyncStreamService {
         // pruning afterwards keeps the existing semantics (a link to an unreachable asset is
         // cascade-removed along with the asset).
         await _syncStreamRepository.flushDeferredMemoryAssetsV1();
-        return _syncStreamRepository.pruneAssets();
+        await _syncStreamRepository.pruneAssets();
+        return _syncStreamRepository.flushDeferredMemoryAssetsV2();
       // Request to reset the client state. Clear everything related to remote entities
       case SyncEntityType.syncResetV1:
         return _syncStreamRepository.reset();

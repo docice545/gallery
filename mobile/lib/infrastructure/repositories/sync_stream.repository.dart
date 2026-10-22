@@ -125,6 +125,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               const LocalAlbumEntityCompanion(linkedRemoteAlbumId: Value(null)),
             );
             await _db.assetFaceEntity.deleteAll();
+            await _db.settingsEntity.deleteWhere((row) => row.key.startsWith(_memoryV2Journal));
             await _db.memoryAssetEntity.deleteAll();
             await _db.memoryEntity.deleteAll();
             await _db.partnerEntity.deleteAll();
@@ -1756,11 +1757,15 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   }
 
   Future<void> deleteMemoriesV1(Iterable<SyncMemoryDeleteV1> data) async {
+    final items = data.toList();
     try {
-      await _db.batch((batch) {
-        for (final memory in data) {
-          batch.deleteWhere(_db.memoryEntity, (row) => row.id.equals(memory.memoryId));
-        }
+      await _db.transaction(() async {
+        await _forgetMemoryV2(memories: items.map((item) => item.memoryId).toSet());
+        await _db.batch((batch) {
+          for (final memory in items) {
+            batch.deleteWhere(_db.memoryEntity, (row) => row.id.equals(memory.memoryId));
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: deleteMemoriesV1', error, stack);
@@ -1887,16 +1892,20 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   }
 
   Future<void> deleteMemoryAssetsV1(Iterable<SyncMemoryAssetDeleteV1> data) async {
+    final items = data.toList();
     try {
-      await _db.batch((batch) {
-        for (final asset in data) {
-          // A link deleted before it could be replayed must not be resurrected by the flush.
-          _deferredMemoryAssets.remove((asset.memoryId, asset.assetId));
-          batch.delete(
-            _db.memoryAssetEntity,
-            MemoryAssetEntityCompanion(memoryId: Value(asset.memoryId), assetId: Value(asset.assetId)),
-          );
-        }
+      await _db.transaction(() async {
+        await _forgetMemoryV2(links: items.map((item) => (item.memoryId, item.assetId)).toSet());
+        await _db.batch((batch) {
+          for (final asset in items) {
+            // A link deleted before it could be replayed must not be resurrected by the flush.
+            _deferredMemoryAssets.remove((asset.memoryId, asset.assetId));
+            batch.delete(
+              _db.memoryAssetEntity,
+              MemoryAssetEntityCompanion(memoryId: Value(asset.memoryId), assetId: Value(asset.assetId)),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: deleteMemoryAssetsV1', error, stack);
@@ -2199,16 +2208,95 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
+  static const _memoryV2Journal = 'sync.memory-links.v2.';
+
+  Future<({String prefix, String ownerId})> _memoryV2Scope() async {
+    final users = await _db.authUserEntity.select().get();
+    final endpoint = await _trashEndpoint();
+    if (users.length != 1 || endpoint.isEmpty) {
+      throw StateError('MemoryV2 journal requires an authenticated account and server endpoint');
+    }
+    final ownerId = users.single.id;
+    final hash = sha256.convert(utf8.encode(jsonEncode([endpoint, ownerId])));
+    return (prefix: '$_memoryV2Journal$hash/', ownerId: ownerId);
+  }
+
+  String _memoryV2Key(String prefix, String memoryId, String assetId) =>
+      '$prefix${Uri.encodeComponent(memoryId)}/${Uri.encodeComponent(assetId)}';
+
   Future<void> updateMemoryAssetsV2(Iterable<SyncMemoryAssetV1> data) async {
-    try {
-      final deferred = await _insertMemoryAssetLinks([for (final link in data) (link.memoryId, link.assetId)]);
-      if (deferred.isNotEmpty) {
-        _deferredMemoryAssets.addAll(deferred);
-        _logger.fine('Deferred ${deferred.length} memory asset link(s) until their memory/asset arrives');
+    final links = data.toList();
+    if (links.isEmpty) return;
+    await _db.transaction(() async {
+      final scope = await _memoryV2Scope();
+      await _db.batch((batch) {
+        for (final link in links) {
+          batch.insert(
+            _db.settingsEntity,
+            SettingsEntityCompanion.insert(
+              key: _memoryV2Key(scope.prefix, link.memoryId, link.assetId),
+              value: Value(jsonEncode({'memoryId': link.memoryId, 'assetId': link.assetId})),
+            ),
+            onConflict: DoNothing(),
+          );
+        }
+      });
+    });
+    // ACK can now advance: a restart replays this durable journal. Projection
+    // waits until SyncComplete, after all parents have arrived and GC has run.
+  }
+
+  Future<List<({String key, String memoryId, String assetId})>> _memoryV2Pending() async {
+    final anyPending =
+        await (_db.settingsEntity.select()
+              ..where((row) => row.key.startsWith(_memoryV2Journal))
+              ..limit(1))
+            .get();
+    if (anyPending.isEmpty) return [];
+    final scope = await _memoryV2Scope();
+    final rows = await (_db.settingsEntity.select()..where((row) => row.key.startsWith(scope.prefix))).get();
+    return rows.map((row) {
+      final value = jsonDecode(row.value!) as Map<String, dynamic>;
+      final memoryId = value['memoryId'] as String;
+      final assetId = value['assetId'] as String;
+      if (row.key != _memoryV2Key(scope.prefix, memoryId, assetId)) {
+        throw StateError('Corrupt MemoryV2 journal identity');
       }
-    } catch (error, stack) {
-      _logger.severe('Error: updateMemoryAssetsV2', error, stack);
-      rethrow;
+      return (key: row.key, memoryId: memoryId, assetId: assetId);
+    }).toList();
+  }
+
+  Future<void> flushDeferredMemoryAssetsV2() async {
+    await _db.transaction(() async {
+      final pending = await _memoryV2Pending();
+      if (pending.isEmpty) return;
+      final scope = await _memoryV2Scope();
+      for (var start = 0; start < pending.length; start += _memoryAssetLinkChunkSize) {
+        final end = start + _memoryAssetLinkChunkSize;
+        final chunk = pending.sublist(start, end > pending.length ? pending.length : end);
+        final memories =
+            await (_db.memoryEntity.select()..where((row) => row.id.isIn(chunk.map((link) => link.memoryId).toSet())))
+                .get();
+        if (memories.any((row) => row.ownerId != scope.ownerId)) {
+          throw StateError('MemoryV2 journal owner mismatch');
+        }
+        final unresolved = await _insertMemoryAssetLinks(chunk.map((link) => (link.memoryId, link.assetId)));
+        for (final link in chunk) {
+          if (!unresolved.contains((link.memoryId, link.assetId))) {
+            await _db.settingsEntity.deleteWhere((row) => row.key.equals(link.key));
+          }
+        }
+      }
+      // Link inserts and journal removals commit together. Missing parents stay
+      // durable across SyncComplete/ACK/restart; write failures propagate.
+    });
+  }
+
+  Future<void> _forgetMemoryV2({Set<String> memories = const {}, Set<(String, String)> links = const {}}) async {
+    for (final pending in await _memoryV2Pending()) {
+      if (memories.contains(pending.memoryId) || links.contains((pending.memoryId, pending.assetId))) {
+        await _db.settingsEntity.deleteWhere((row) => row.key.equals(pending.key));
+      }
     }
   }
 
