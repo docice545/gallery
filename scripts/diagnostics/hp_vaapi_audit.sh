@@ -44,7 +44,8 @@ inventory() {
   probe 'CPU' lscpu
   probe 'PCI display devices' sh -c "lspci -nnk | grep -A3 -Ei 'VGA|Display|3D controller'"
   probe 'i915 module' sh -c "lsmod | grep -E '^i915|^xe|^drm'"
-  probe 'DRM ownership and access as operator' sh -c '
+  probe 'DRM ownership and access as operator' sh -c "$(cat <<'FOTO_CHILD_SH'
+
     id
     getent group render video
     ls -l /dev/dri
@@ -53,24 +54,30 @@ inventory() {
       stat -c "%n uid=%u gid=%g mode=%a" "$p"
       if [ -r "$p" ] && [ -w "$p" ]; then echo "PASS: operator can read/write $p";
       else echo "UNVERIFIED: operator cannot read/write $p"; fi
-    done'
+    done
+FOTO_CHILD_SH
+)"
   probe 'Host installed media/compute drivers' sh -c "dpkg-query -W -f='\${binary:Package} \${Version}\n' 2>/dev/null | grep -Ei '^(intel-media|i965-va|libva|vainfo|mesa-va|intel-gpu|intel-opencl|libigc|libigdgmm|libmfx|libvpl|ffmpeg|linux-firmware)'"
   # Capability query only; never creates/transcodes a media file.
   probe 'Host VAAPI profiles (if vainfo is installed)' vainfo --display drm --device /dev/dri/renderD128
   probe 'Intel GPU inventory (if installed)' intel_gpu_top -L
-  probe 'GPU frequency/busy counters, if exposed by the running driver' sh -c '
+  probe 'GPU frequency/busy counters, if exposed by the running driver' sh -c "$(cat <<'FOTO_CHILD_SH'
+
     for p in /sys/class/drm/card*/device/gpu_busy_percent \
       /sys/class/drm/card*/gt/gt*/rps_act_freq_mhz /sys/class/drm/card*/gt/gt*/rps_cur_freq_mhz; do
       [ -r "$p" ] || continue
       printf "%s=" "$p"; cat "$p"
-    done'
+    done
+FOTO_CHILD_SH
+)"
   probe 'Memory/swap/load' sh -c 'free -h; swapon --show; uptime; vmstat 1 2'
   # Do not collect process arguments; external jobs can put keys and private paths there.
   probe 'Process resource snapshot, names only' sh -c 'ps -eo comm,pcpu,pmem,rss --sort=-pcpu | head -26'
   probe 'Disk inventory' lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS
   probe 'Mounted storage (no source credentials)' findmnt -rn -o TARGET,FSTYPE,MAJ:MIN
   probe 'Disk capacity (mount targets only)' df -h --output=target,fstype,size,used,avail,pcent
-  probe 'Known HP paths, mount identities only' sh -c '
+  probe 'Known HP paths, mount identities only' sh -c "$(cat <<'FOTO_CHILD_SH'
+
     for p in / /opt/gallery-fork /mnt/hp-data/gallery-fork /mnt/hp-data/immich \
       /mnt/hp-data/build-cache/gradle /mnt/hp-data/build-cache/pub-cache \
       /mnt/hp-data/codex-toolchain/gradle \
@@ -82,7 +89,9 @@ inventory() {
     done
     for p in "$HOME/.gradle" "$HOME/.pub-cache"; do
       [ -e "$p" ] && readlink -f "$p"
-    done'
+    done
+FOTO_CHILD_SH
+)"
   probe 'External Memories/maintenance service states, no unit contents' systemctl show \
     gallery-ai-daily.service gallery-ai-daily.timer gallery-memory-carousel.service \
     noodle-gallery-maintenance.service noodle-gallery-maintenance.timer \
@@ -107,7 +116,8 @@ inventory() {
     probe "Container $name metadata" "${docker_read[@]}" inspect --format \
       'name={{.Name}} image={{.Config.Image}} imageID={{.Image}} status={{.State.Status}} started={{.State.StartedAt}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} user={{.Config.User}} privileged={{.HostConfig.Privileged}} groups={{json .HostConfig.GroupAdd}} devices={{json .HostConfig.Devices}} deviceRequests={{json .HostConfig.DeviceRequests}} composeFiles={{index .Config.Labels "com.docker.compose.project.config_files"}} composeDir={{index .Config.Labels "com.docker.compose.project.working_dir"}} mounts={{json .Mounts}}' "$name"
     [[ "$name" =~ (server|microservices|machine[_-]learning|memories)$ ]] || continue
-    probe "Container $name DRM and FFmpeg inventory" "${docker_read[@]}" exec "$name" sh -c '
+    probe "Container $name DRM and FFmpeg inventory" "${docker_read[@]}" exec "$name" sh -c "$(cat <<'FOTO_CHILD_SH'
+
       id
       ls -l /dev/dri 2>/dev/null || true
       for p in /dev/dri/renderD*; do
@@ -128,7 +138,9 @@ inventory() {
         ffmpeg -hide_banner -filters 2>/dev/null | grep -Ei "vaapi|qsv|hw(upload|download)|tonemap|zscale"
       else echo "UNVERIFIED: ffmpeg is absent from container PATH"; fi
       if command -v vainfo >/dev/null; then vainfo --display drm --device /dev/dri/renderD128;
-      else echo "UNVERIFIED: container vainfo not installed"; fi'
+      else echo "UNVERIFIED: container vainfo not installed"; fi
+FOTO_CHILD_SH
+)"
   done <<< "$names"
 
   section 'Gallery configuration evidence (whitelisted keys only)'
@@ -146,9 +158,12 @@ inventory() {
     console.log(JSON.stringify({ source: "file overrides, not merged effective config", ffmpeg, job, trash: {enabled:c.trash?.enabled, days:c.trash?.days}, machineLearningEnabled: c.machineLearning?.enabled }, null, 2));'
   # One bounded SELECT. Connection credentials remain inside the existing container.
   # No tables/data/assets are changed; no credential value is read or printed.
-  probe 'Persisted server configuration overrides, read-only transaction' "${docker_read[@]}" exec immich_postgres sh -c '
+  probe 'Persisted server configuration overrides, read-only transaction' "${docker_read[@]}" exec immich_postgres sh -c "$(cat <<'FOTO_CHILD_SH'
+
     PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000" \
-    psql --no-psqlrc -w -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-immich}" -At -v ON_ERROR_STOP=1 -c "$1"' sh "
+    psql --no-psqlrc -w -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-immich}" -At -v ON_ERROR_STOP=1 -c "$1"
+FOTO_CHILD_SH
+)" sh "
     SELECT jsonb_build_object(
       'source', 'DB overrides, not merged effective config',
       'ffmpeg', jsonb_build_object(
