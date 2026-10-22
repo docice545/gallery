@@ -1048,3 +1048,17 @@ export const gallery_mirror_owner_favorite = registerFunction({
       RETURN NULL;
     END`,
 });
+
+export const gallery_index_projection_changed = registerFunction({
+  name: 'gallery_index_projection_changed',
+  returnType: 'TRIGGER',
+  language: 'PLPGSQL',
+  body: `
+    BEGIN
+      IF OLD.status = 'active' AND OLD."deletedAt" IS NOT NULL
+        AND NOT (NEW.status = 'active' AND NEW."deletedAt" IS NOT NULL) THEN
+        INSERT INTO catalog_projection_audit DEFAULT VALUES;
+      END IF;
+      RETURN NULL;
+    END`,
+});

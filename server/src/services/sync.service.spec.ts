@@ -1425,7 +1425,11 @@ describe(SyncService.name, () => {
 
   describe('onAuditTableCleanup', () => {
     it('should cleanup all audit tables', async () => {
+      mocks.sync.cleanupCatalogProjectionAudit.mockResolvedValue([]);
       await sut.onAuditTableCleanup();
+
+      expect(mocks.sync.cleanupCatalogProjectionAudit).toHaveBeenCalledWith(31);
+      expect(syncSubs.assetFavorite.cleanupAuditTable).toHaveBeenCalledWith(31);
 
       expect(syncSubs.album.cleanupAuditTable).toHaveBeenCalledWith(31);
       expect(syncSubs.albumUser.cleanupAuditTable).toHaveBeenCalledWith(31);

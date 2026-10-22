@@ -20,6 +20,7 @@ import {
   asset_delete_audit,
   asset_library_delete_audit,
   gallery_block_deleted_asset,
+  gallery_index_projection_changed,
   gallery_mirror_owner_favorite,
 } from 'src/schema/functions.js';
 import { LibraryTable } from 'src/schema/tables/library.table.js';
@@ -28,6 +29,13 @@ import { UserTable } from 'src/schema/tables/user.table.js';
 import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
 
 @Table('asset')
+@TriggerFunction({
+  name: 'gallery_index_projection_changed',
+  timing: 'after',
+  actions: ['update'],
+  scope: 'row',
+  function: gallery_index_projection_changed,
+})
 // The column-specific UPDATE OF guard is installed by the immutable deletion migration.
 // sql-tools cannot represent UPDATE OF; track its name without rewriting/removing its DDL.
 // schema-cli-compat.spec.ts verifies its exact enabled database definition.

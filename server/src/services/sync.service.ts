@@ -367,6 +367,8 @@ export class SyncService extends BaseService {
   async onAuditTableCleanup() {
     const pruneThreshold = MAX_DAYS + 1;
 
+    await this.syncRepository.cleanupCatalogProjectionAudit(pruneThreshold);
+
     await this.syncRepository.album.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.albumUser.cleanupAuditTable(pruneThreshold);
     await this.syncRepository.albumToAsset.cleanupAuditTable(pruneThreshold);

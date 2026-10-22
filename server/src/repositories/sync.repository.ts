@@ -84,22 +84,30 @@ const dummyQueryOptions = {
 @Injectable()
 export class SyncRepository {
   async hasIndexTombstoneChanges(afterUpdateId: string) {
-    // A reset is harmless for unrelated sessions. Global invalidation also covers every
-    // album/partner/space route without leaking which inaccessible asset changed.
-    // Also cover external indexes coming ONLINE: their old FK/EXIF rows did not
-    // advance while hidden. Conservatively refresh for active external updates;
-    // managed uploads remain incremental and no catalog/media data is mutated.
-    const row = await this.db
+    // Entering an offline index is visible in its current row; leaving it needs a
+    // durable marker because the old FK/EXIF watermarks have not advanced.
+    const index = await this.db
       .selectFrom('asset')
       .select('id')
       .where('status', '=', AssetStatus.Active)
-      .where((eb) =>
-        eb.or([eb('deletedAt', 'is not', null), eb('libraryId', 'is not', null), eb('isExternal', '=', true)]),
-      )
+      .where('deletedAt', 'is not', null)
       .where('updateId', '>', afterUpdateId)
       .limit(1)
       .executeTakeFirst();
-    return !!row;
+    if (index) return true;
+    return !!(await this.db
+      .selectFrom('catalog_projection_audit')
+      .select('id')
+      .where('id', '>', afterUpdateId)
+      .limit(1)
+      .executeTakeFirst());
+  }
+
+  cleanupCatalogProjectionAudit(days: number) {
+    return this.db
+      .deleteFrom('catalog_projection_audit')
+      .where('deletedAt', '<', sql<Date>`now() - (${days} * interval '1 day')`)
+      .execute();
   }
 
   async hasPersonalFavoriteChanges(userId: string, afterUpdateId: string) {

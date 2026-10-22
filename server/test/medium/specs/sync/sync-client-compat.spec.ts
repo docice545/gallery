@@ -220,10 +220,11 @@ it('rebuilds original album and metadata links when an external index returns on
   const hidden = await ctx.syncStream(auth, types);
   await ctx.syncAckAll(auth, hidden);
   await db.updateTable('asset').set({ deletedAt: null, isOffline: false }).where('id', '=', asset.id).execute();
-  let restored = await ctx.syncStream(auth, types);
+  const restarted = new SyncTestContext(db);
+  let restored = await restarted.syncStream(auth, types);
   if (restored.some((e) => e.type === SyncEntityType.SyncResetV1)) {
-    await ctx.syncAckAll(auth, restored);
-    restored = await ctx.syncStream(auth, types);
+    await restarted.syncAckAll(auth, restored);
+    restored = await restarted.syncStream(auth, types);
   }
   expect(restored).toContainEqual(
     expect.objectContaining({
@@ -240,4 +241,51 @@ it('rebuilds original album and metadata links when an external index returns on
       data: expect.objectContaining({ assetId: asset.id, albumId: album.id }),
     }),
   );
+});
+
+it('keeps ordinary external metadata updates incremental', async () => {
+  const ctx = new SyncTestContext(db);
+  const { auth, user } = await ctx.newSyncAuthUser();
+  const { library } = await ctx.newLibrary({ ownerId: user.id });
+  const { asset } = await ctx.newAsset({ ownerId: user.id, libraryId: library.id, isExternal: true });
+  const types = [SyncRequestType.AssetsV2];
+  await ctx.syncAckAll(auth, await ctx.syncStream(auth, types));
+  await db.updateTable('asset').set({ originalFileName: 'renamed.jpg' }).where('id', '=', asset.id).execute();
+  const next = await ctx.syncStream(auth, types);
+  expect(next.some((e) => e.type === SyncEntityType.SyncResetV1)).toBe(false);
+  expect(next).toContainEqual(
+    expect.objectContaining({
+      type: SyncEntityType.AssetV2,
+      data: expect.objectContaining({ id: asset.id, originalFileName: 'renamed.jpg' }),
+    }),
+  );
+});
+
+it('rolls back index recovery signals with the asset and retains fresh audit records', async () => {
+  const ctx = new SyncTestContext(db);
+  const { user } = await ctx.newSyncAuthUser();
+  const { asset } = await ctx.newAsset({
+    ownerId: user.id,
+    status: AssetStatus.Active,
+    deletedAt: new Date(),
+    isOffline: true,
+  });
+  const before = await db.selectFrom('catalog_projection_audit').select('id').orderBy('id').execute();
+  await expect(
+    db.transaction().execute(async (tx) => {
+      await tx.updateTable('asset').set({ deletedAt: null, isOffline: false }).where('id', '=', asset.id).execute();
+      const inside = await tx.selectFrom('catalog_projection_audit').select('id').execute();
+      expect(inside).toHaveLength(before.length + 1);
+      throw new Error('synthetic rollback');
+    }),
+  ).rejects.toThrow('synthetic rollback');
+  expect(await db.selectFrom('catalog_projection_audit').select('id').orderBy('id').execute()).toEqual(before);
+  const stillHidden = await db
+    .selectFrom('asset')
+    .select('deletedAt')
+    .where('id', '=', asset.id)
+    .executeTakeFirstOrThrow();
+  expect(stillHidden.deletedAt).not.toBeNull();
+  await ctx.get(SyncRepository).cleanupCatalogProjectionAudit(31);
+  expect(await db.selectFrom('catalog_projection_audit').select('id').orderBy('id').execute()).toEqual(before);
 });

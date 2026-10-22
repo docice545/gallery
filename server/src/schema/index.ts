@@ -55,6 +55,7 @@ import { AssetMetadataTable } from 'src/schema/tables/asset-metadata.table.js';
 import { AssetOcrAuditTable } from 'src/schema/tables/asset-ocr-audit.table.js';
 import { AssetOcrTable } from 'src/schema/tables/asset-ocr.table.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
+import { CatalogProjectionAuditTable } from 'src/schema/tables/catalog-projection-audit.table.js';
 import { ClusterGroupRequestTable } from 'src/schema/tables/cluster-group-request.table.js';
 import { ClusterGroupTable } from 'src/schema/tables/cluster-group.table.js';
 import { FaceIdentityFaceTable } from 'src/schema/tables/face-identity-face.table.js';
@@ -307,6 +308,7 @@ export interface DB {
   asset_favorite: AssetFavoriteTable;
   asset_favorite_audit: AssetFavoriteAuditTable;
   asset_audit: AssetAuditTable;
+  catalog_projection_audit: CatalogProjectionAuditTable;
   asset_deletion_policy: AssetDeletionPolicyTable;
   asset_deletion_tombstone: AssetDeletionTombstoneTable;
   asset_duplicate_checksum: AssetDuplicateChecksumTable;

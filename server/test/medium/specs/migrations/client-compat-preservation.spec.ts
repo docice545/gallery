@@ -7,6 +7,7 @@ import { DB } from 'src/schema/index.js';
 import { down as removeFavorites } from 'src/schema/migrations-gallery/1794000000000-AddAssetFavoriteTables.js';
 import { down as removeActorColumn } from 'src/schema/migrations-gallery/1796000000000-AddAssetFaceCreatedBy.js';
 import { down as removeOwnerMirror } from 'src/schema/migrations-gallery/1796000000200-MirrorOwnerFavorites.js';
+import { down as removeCatalogProjection } from 'src/schema/migrations-gallery/1796000000300-TrackCatalogIndexRecovery.js';
 import { SyncTestContext } from 'test/medium.factory.js';
 import { newUuidV7 } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
@@ -22,6 +23,7 @@ afterAll(async () => {
 it('upgrades representative existing metadata without converting indexes or losing IDs, albums or favorites', async () => {
   // Only this disposable cloned test DB is changed. Reverts construct the pre-extension
   // schema; they are NOT evidence that a production downgrade is safe.
+  await removeCatalogProjection(db);
   await removeOwnerMirror(db);
   await removeFavorites(db);
   await removeActorColumn(db);
@@ -32,6 +34,7 @@ it('upgrades representative existing metadata without converting indexes or losi
       '1796000000000-AddAssetFaceCreatedBy',
       '1796000000100-ResetCatalogSyncProjection',
       '1796000000200-MirrorOwnerFavorites',
+      '1796000000300-TrackCatalogIndexRecovery',
     ])
     .execute();
   const ctx = new SyncTestContext(db);
