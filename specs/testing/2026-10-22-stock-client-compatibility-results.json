@@ -236,6 +236,233 @@
     },
     "workflowArchiveLogs": "downloaded using canonical GitHub actions/runs/ID/logs API; parsed locally"
   },
+  "acceptanceTwoRemainingBlockers": {
+    "ackReadContract": {
+      "breakingRuleWaivers": false,
+      "getAckApplicationCallersInPinnedSources": 0,
+      "legacyEnum": "exact immutable unified baseline values in LegacySyncEntityType",
+      "mixedSessionLegacyRead": "HTTP 409, explicit GET /sync/ack/v2 requirement; no filtering/reset/mutation",
+      "remainingSDKLimitation": "Generic callers using a session with extended checkpoints must handle 409/use the versioned read; unconditional legacy 200 parity is not claimed",
+      "samePermissionAndSessionRequired": true,
+      "versionedRead": "GET /sync/ack/v2 returns all opaque checkpoints"
+    },
+    "backend": {
+      "build": "PASS",
+      "contractTests": 7,
+      "eslint": "PASS",
+      "head": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+      "job": 120019164484,
+      "result": "PASS",
+      "run": 39834512942,
+      "serviceTests": 81,
+      "totalTests": 88,
+      "typescript": "PASS"
+    },
+    "branch": "codex/foto-build17-pr7-acceptance",
+    "checkpoint": "e03963442f387a3c9aadfbdc05d7ecc6bc0f446b",
+    "cliBranchChanged": false,
+    "commitsSinceCheckpoint": [
+      {
+        "sha": "65bab619c729f0c8b9ea78bebd9cea458ead0a3b",
+        "subject": "fix(sync): version extended ACK reads and freeze the legacy response enum"
+      },
+      {
+        "sha": "1f28ca4a93c43a3da85610438114c9e2f8b18d1e",
+        "subject": "fix(sync): journal V2 memory links durably before acknowledging delivery"
+      },
+      {
+        "sha": "e4dc061abc5fb5b82a45feadba01b07ec5f75b7e",
+        "subject": "test(sync): isolate ACK contract generation and actual crash replay checks"
+      },
+      {
+        "sha": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+        "subject": "fix(sync): publish source-generated legacy and versioned ACK contracts"
+      },
+      {
+        "sha": "08812159f0781660e11ad29fc30b8e1de1361914",
+        "subject": "test(sync): cover journal account isolation and corrupt receipts"
+      },
+      {
+        "sha": "74465f1094d4f4b75c29cfc56a3c3af3558e63b9",
+        "subject": "test(sync): import generated settings companion for receipt corruption coverage"
+      },
+      {
+        "sha": "2dffd35d0ec4c58c102a87b09c26802c50a1382c",
+        "subject": "fix(sync): use supported Drift prefix predicates for the durable journal"
+      },
+      {
+        "sha": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+        "subject": "test(sync): require no ACK after cancellation and retry only failed cases"
+      }
+    ],
+    "confirmedRemainingBlockersInRequestedScope": [],
+    "durableJournal": {
+      "beforeAck": "transactional intent persisted before handler returns",
+      "delete": "pending link/memory intent cancelled in same transaction as projection delete",
+      "ownerMismatchOrCorruptJournal": "error without consumption",
+      "projection": "link insert and journal removal atomic after GC, before SyncComplete ACK",
+      "reset": "journal cleared with remote cache before full replay",
+      "schemaChanged": false,
+      "scope": "sha256(serverEndpoint + authenticated owner), memoryId, assetId",
+      "table": "existing SQLite settings",
+      "unresolvedParents": "durably retained across sync/restart"
+    },
+    "evidenceArchives": [
+      {
+        "name": "pr7-39833906605.zip",
+        "sha256": "938465ebf2e740dc7273d25255aea05585ac5d5e8227ee941c2d3dbddfc9818d"
+      },
+      {
+        "name": "pr7-39834512942.zip",
+        "sha256": "d8b69bb04611440cb9e70036096ad51f83d04db555c0c4e176b8408619b4cbab"
+      },
+      {
+        "name": "pr7-39834967702.zip",
+        "sha256": "63c2dc8f02fba47b900af61f35a7503c348515508af0823e693cdf4cea141a0d"
+      },
+      {
+        "name": "pr7-39838553606.zip",
+        "sha256": "753dd5042e138a007929a03760407e44fdb839edfc97b793f1b56cd049e3fde1"
+      },
+      {
+        "name": "pr7-39839592457.zip",
+        "sha256": "4d63f69258e6fa585e6998347ac108ec8c7975974d9cc08f8e7550145e39db4e"
+      },
+      {
+        "name": "pr7-39834516732.zip",
+        "sha256": "244f64898204fb1ac5e9a5a6f2e9a59d55957eaa527f346462a82d7be03b7780"
+      }
+    ],
+    "failedRunsPreserved": [
+      {
+        "head": "e4dc061abc5fb5b82a45feadba01b07ec5f75b7e",
+        "phase": "targeted ESLint import ordering after successful build/generation/TypeScript",
+        "result": "FAIL",
+        "run": 39833906605,
+        "testsExecuted": false
+      },
+      {
+        "head": "74465f1094d4f4b75c29cfc56a3c3af3558e63b9",
+        "phase": "Dart analyze: 5 unsupported Drift startsWith errors and 4 one-line control-body warnings; codegen PASS",
+        "result": "FAIL",
+        "run": 39834967702,
+        "testsExecuted": false
+      }
+    ],
+    "generatedArtifacts": {
+      "appliedFiles": [
+        "open-api/immich-openapi-specs.json",
+        "packages/sdk/src/fetch-client.ts"
+      ],
+      "hashes": {
+        "open-api/immich-openapi-specs.json": "ea5ba29219f0183fa4eb3a67d78ab1f08328c374935d7cbd933210c87752dd15",
+        "packages/sdk/src/fetch-client.ts": "764005bca07ed7e368a7eab13b118bab33c0212afcd7d6ac77801632b6e36f81"
+      },
+      "run": 39833906605,
+      "secondRunDownload": "HTTP 403 on artifact redirect host even after escalation; actual regenerated schema tested in run 39834512942",
+      "source": "e4dc061abc5fb5b82a45feadba01b07ec5f75b7e",
+      "sourceShaVerifiedOnDownload": true
+    },
+    "imagesOrAPKsBuilt": false,
+    "journalEndpointChangeLimitation": "A different endpoint/account does not consume the previous scope; pending rows remain durable until original scope returns or a deliberate full-cache reset/replay. Alias identity is not guessed.",
+    "mobile": {
+      "actualSigkillBeforeAck": "PASS; writer process group SIGKILL after SQLite commit without graceful close",
+      "analysis": "PASS: No issues found",
+      "cancellationRetryPassed": 2,
+      "codegen": "PASS",
+      "combined93TestRunClaimed": false,
+      "duplicateReplay": "exactly one projected link, no pending receipt",
+      "existingV1RegressionPassed": 8,
+      "format": "PASS; 914 files, 0 changed",
+      "head": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+      "job": 120036839194,
+      "newProcessReaderPassed": 1,
+      "prior91PassingCasesRepeated": false,
+      "result": "PASS",
+      "run": 39839592457,
+      "scope": "Only the 2 previously failed cancellation cases; unchanged 91 passes not repeated; then new V1 selection, actual SIGKILL driver, format"
+    },
+    "mobilePassingPartial": {
+      "analysis": "PASS: No issues found",
+      "failedTotal": 2,
+      "failure": "Existing cancellation tests still expected ACK after cancellation; runtime guard intentionally leaves the checkpoint for idempotent replay. Expectations strengthened to verifyNever(ack), other abort/handler assertions preserved.",
+      "head": "2dffd35d0ec4c58c102a87b09c26802c50a1382c",
+      "journalTests": 9,
+      "passedTotal": 91,
+      "run": 39838553606,
+      "runResult": "FAIL",
+      "serviceTests": 82
+    },
+    "nativeE2E": "NOT VERIFIED: Android/iOS/Web, PhotoKit, iCloud, codecs, background backup, Synology, AI",
+    "openapi": {
+      "exactBase": "ace2eab962524479a61e6891410983a7f41ba0fa",
+      "failOn": "ERR",
+      "gateJob": 120019179849,
+      "head": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+      "ignoreRules": false,
+      "mobilePatchesJob": 120019180142,
+      "result": "PASS",
+      "run": 39834516732
+    },
+    "pinnedAckClients": {
+      "FOTO Build17 base": {
+        "applicationGetSyncAckMatches": 0,
+        "commit": "ace2eab962524479a61e6891410983a7f41ba0fa",
+        "newTypesInPinnedSchema": {
+          "AssetFaceV3": false,
+          "AssetFavoriteDeleteV1": false,
+          "AssetFavoriteV1": false,
+          "AuthUserV2": false,
+          "MemoryToAssetV2": false,
+          "MemoryV2": false
+        },
+        "rawSyncAckApplicationMatches": 0,
+        "scope": "static source/schema; not installed-client E2E"
+      },
+      "Immich 3.3.5": {
+        "applicationGetSyncAckMatches": 0,
+        "commit": "8303cb117e197c700332b33b61b45314c9cc5bb4",
+        "newTypesInPinnedSchema": {
+          "AssetFaceV3": true,
+          "AssetFavoriteDeleteV1": false,
+          "AssetFavoriteV1": false,
+          "AuthUserV2": true,
+          "MemoryToAssetV2": true,
+          "MemoryV2": true
+        },
+        "rawSyncAckApplicationMatches": 0,
+        "scope": "static source/schema; not installed-client E2E"
+      },
+      "Noodle 5.8.0": {
+        "applicationGetSyncAckMatches": 0,
+        "commit": "37aa54e632606cc6a62bc6bcbba14c62200147c4",
+        "newTypesInPinnedSchema": {
+          "AssetFaceV3": true,
+          "AssetFavoriteDeleteV1": true,
+          "AssetFavoriteV1": true,
+          "AuthUserV2": true,
+          "MemoryToAssetV2": true,
+          "MemoryV2": true
+        },
+        "rawSyncAckApplicationMatches": 0,
+        "scope": "static source/schema; not installed-client E2E"
+      }
+    },
+    "priorBirthdayRejectionPreserved": true,
+    "productionTouched": false,
+    "publishedPR7HeadStill": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+    "safeTransfer": "Fetch both exact refs; separate clean review worktree; if CLI HEAD is ancestor, normal reviewed fast-forward/non-force push retains all acceptance SHAs including pre-e039 fixes; if diverged, separate integration branch and normal reviewed merge with conflict tests, never reset/rebase/force. Not executed here.",
+    "scope": "ACK response compatibility and durable MemoryV2 links only; not a production release",
+    "status": "READY_FOR_REVIEW_AND_TRANSFER_TO_PR7_NOT_PRODUCTION",
+    "successfulSQLAndMediumRepeated": false,
+    "testEvidenceBoundaries": "Service ACK uses mocks; journal tests real isolated SQLite; SIGKILL driver uses separate Flutter test processes, not a phone or production server",
+    "testedCodeCommit": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+    "unchangedSourceProof": {
+      "backendSpecSDKSince": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+      "mobileRuntimeSince": "2dffd35d0ec4c58c102a87b09c26802c50a1382c",
+      "verifiedWith": "git diff --exit-code over server/open-api/packages/sdk and mobile/lib; exit 0"
+    }
+  },
   "additionalFixtureCommit": "3021cbff08bcb59867d6547ffa9cd58fccbdb8aa",
   "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
   "codegenExactCwd": [

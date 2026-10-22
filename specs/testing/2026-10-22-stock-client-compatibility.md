@@ -9,13 +9,15 @@
 **NOT VERIFIED**. Это не релиз, не сертификат совместимости всех API и не
 разрешение на deployment. Production и пользовательские медиа не использовались.
 
-**Приёмка после публикации CLI-изменений:** PR #7 пока **BLOCKED**. На
-`8759f9bd9c8f94adfdf8df81dc67b158aaddbf90` подтверждены SQL CI PASS и полный
-medium CI **3447 PASS / 17 SKIPPED**, но OpenAPI enum gate остаётся красным,
-а Dart codegen обнаружил новый синтаксический дефект (исправлен и проверен в
-отдельном acceptance-кандидате, см. итог ниже). Это не отменяет прежние
-backend passes и не является готовностью Android/iOS/Web. Подробности и границы
-отдельной ветки приёмки приведены в конце документа.
+**Последняя приёмка:** **READY для переноса acceptance-изменений в PR #7**.
+Два оставшихся блокера устранены: strict OpenAPI enum gate PASS, durable
+MemoryV2 journal и настоящий SIGKILL/replay PASS. Проверенный code HEAD:
+`a3d51348003b5e1fd84aa26040161f071fc4d648`, ветка
+`codex/foto-build17-pr7-acceptance`. Подробные источники и ограничения — в
+последнем разделе. PR #7 **не обновлён автоматически** и остаётся на CLI HEAD
+`8759f9bd9c8f94adfdf8df81dc67b158aaddbf90`; его прежний SQL PASS и Medium
+**3447 PASS / 17 SKIPPED** не переисполнялись. Исторические FAIL/BLOCKED ниже
+сохранены. Это не production-ready release и не подтверждение native E2E.
 
 **Итоговый B2:** возврат индекса online отслеживается узким server-only
 `catalog_projection_audit`, а не сбросом при любых external updates. Обычный
@@ -183,8 +185,10 @@ Drawing требует проверяемых original dimensions, preview geome
 
 ## OpenAPI и оставшаяся неполнота upstream REST
 
-Generated spec: **411 операций** против 403 в базе. Ни один существующий
-method/path/operation definition не удалён и не изменён. Existing schemas
+Первоначальный generated spec этого PR: **411 операций** против 403 в базе.
+После versioned ACK read ниже — **412**. Ни один прежний method/path не удалён;
+для legacy ACK явно добавлен 409 и сохранён исходный closed enum через
+эквивалентную named schema. Прочие operation definitions и existing schemas
 сохранены, кроме расширения двух sync enum. Generated TypeScript SDK обновлён;
 typecheck выполнен. Пин wire shapes Immich хранится в
 `server/test/contracts/immich-3.3.5-sync-shapes.json`, fingerprint базы —
@@ -698,10 +702,188 @@ ACK/retry test и format (**914 файлов, 0 изменённых**) заве
 Неверная первая fixture и два прежних красных Dart прогона остаются в хронологии.
 Эти результаты не являются crash, Android или iOS E2E.
 
-Итоговый статус приёмки PR #7: **BLOCKED**, несмотря на исправленный Dart
+Исторический статус checkpoint `e03963442`: **BLOCKED**, несмотря на исправленный Dart
 кандидат. Настоящие шесть enum additions в ACK response всё ещё нарушают strict
 breaking gate; надёжность deferred V2 links после потери процесса требует
 подтверждения. Birthday явно не поддержан мобильной моделью форка. Native/AI/NFS
 E2E по-прежнему NOT VERIFIED. PR #7 остаётся на CLI HEAD `8759f9bd9`; новые
 приёмочные commits находятся отдельно и требуют обычного review/переноса CLI,
 без merge или force-push из этой сессии.
+
+## Закрытие двух оставшихся блокеров: ACK и durable MemoryV2
+
+Этот раздел продолжает checkpoint `e03963442f387a3c9aadfbdc05d7ecc6bc0f446b`.
+Предыдущие BLOCKED и неудачные запуски выше — исторические результаты, не
+подменённые зелёным статусом. CLI-ветка PR #7 не изменялась.
+
+### ACK: точное сопоставление шести расширений
+
+| Wire type | Immich 3.3.5 Android/iOS schema | Noodle 5.8.0 Android/iOS/Web schema | FOTO Build 17 base schema |
+| --- | --- | --- | --- |
+| `AuthUserV2` | Есть | Есть | Нет |
+| `MemoryV2` | Есть | Есть | Нет |
+| `MemoryToAssetV2` | Есть | Есть | Нет |
+| `AssetFaceV3` | Есть | Есть | Нет |
+| `AssetFavoriteV1` | Нет | Есть | Нет |
+| `AssetFavoriteDeleteV1` | Нет | Есть | Нет |
+
+Источник — `components.schemas.SyncEntityType.enum` в OpenAPI трёх точных
+upstream/base commits из первой таблицы этого документа. Это не предположение
+по номеру версии приложения. В `mobile/lib` и `web/src` каждого из этих commits
+поиск `getSyncAck` дал **0 application callers**. Наличие generated SDK
+операции не означает, что приложение вызывает её при синхронизации.
+Мобильный stream и ACK-запись используют отдельные endpoints; их DTO и
+поведение в этом исправлении не менялись.
+
+Исправлены `server/src/dtos/sync.dto.ts`, `controllers/sync.controller.ts`,
+`services/sync.service.ts`:
+
+- `GET /sync/ack`: прежний enum сохранён как `LegacySyncEntityType` **в точности
+  по неизменяемой unified fixture**, включая порядок значений.
+- Для сессии с расширенным checkpoint старый GET возвращает явный **409**:
+  `Extended sync checkpoints require GET /sync/ack/v2`. Он не возвращает
+  частичный список, не меняет type/opaque ACK и не сбрасывает progress.
+- Новый `GET /sync/ack/v2` возвращает полный список, включая все шесть типов.
+  Сохранён `Permission.SyncCheckpointRead`, обязательна пользовательская сессия;
+  API key не получает обхода защиты.
+- Unit cases проверяют каждый из шести типов вместе с legacy checkpoint,
+  точный отказ старого GET и полноту нового. Fingerprint contract допускает
+  только явно проверенный additive 409 и структурно идентичный named enum;
+  остальные definitions и immutable baseline hashes не заменены.
+- `check-openapi.yml` по-прежнему сравнивает точную base SHA и использует
+  `fail-on: ERR`, без waivers. Новый spec содержит **412 operations**.
+
+**Ограничение совместимости:** произвольный SDK consumer, который повторно
+использует сессию с V2 checkpoints и вызывает старый GET, должен обработать 409
+и читать V2 endpoint. Безусловная 200-parity старого GET для таких сессий **не
+заявляется**. Для закреплённых приложений этот GET не является найденным caller
+path; факт не заменяет native E2E. Новые stream events не отправляются старому
+клиенту вне его согласованного набора запросов.
+
+[Backend ACK CI](https://github.com/docice545/gallery/actions/runs/39834512942),
+source `82a92baf380c796feb8d528ca0a7b81a8e4e4eda`: **88/88 PASS** (81
+SyncService, 7 pinned contracts), server build, OpenAPI/TypeScript SDK generation,
+TypeScript и targeted ESLint PASS. Первый запуск `e4dc061ab` остановился на
+порядке одного импорта в ESLint после успешной компиляции/typecheck; исправлен,
+не объявлен успешным прогоном тестов.
+
+[Strict OpenAPI + mobile patches](https://github.com/docice545/gallery/actions/runs/39834516732)
+на том же backend/spec SHA: **оба PASS**. Шесть enum diagnostics устранены
+изменением реального контракта, а не подавлением gate.
+
+Source-generated artifact из первого CI скачан и проверен по `source.sha` =
+`e4dc061abc5fb5b82a45feadba01b07ec5f75b7e`; из него перенесены **только**
+OpenAPI spec и TypeScript SDK. Различия spec ограничены `/sync/ack`,
+`/sync/ack/v2` и тремя связанными schemas. SHA-256 spec:
+`ea5ba29219f0183fa4eb3a67d78ab1f08328c374935d7cbd933210c87752dd15`.
+Во втором CI actual regenerated spec прошёл pinned contract tests. Повторное
+скачивание второго artifact упёрлось в HTTP 403 на download host; это
+отдельное ограничение доставки, не отрицательный test assertion.
+
+### MemoryV2: durable journal, транзакции и ACK
+
+Предыдущее размещение V2 links в `_deferredMemoryAssets` было небезопасно:
+service подтверждал доставку после записи только в память процесса. Авария
+могла потерять связь, которую сервер уже считал подтверждённой.
+
+Исправление в `mobile/lib/infrastructure/repositories/sync_stream.repository.dart`
+использует существующую SQLite `SettingsEntity`, **без изменения схемы**:
+
+1. V2 link сохраняется транзакционно до возврата из handler и отправки ACK.
+   Ключ включает hash реального endpoint + authenticated owner и memory/asset
+   IDs. Нет ACK при отсутствии scope или ошибке SQLite.
+2. До получения родителей intent остаётся в БД. После SyncComplete и asset GC
+   связи применяются; вставка FK-связи и удаление journal row — одна транзакция.
+   Missing parents сохраняются для следующего sync/restart, не теряются с warning.
+3. Дублирующая доставка безопасна по ключу журнала и PK связи. Неизвестный исход
+   ACK-запроса не создаёт вторую связь.
+4. Удаление memory/link атомарно отменяет pending intent. Reset удаляет журнал
+   вместе с remote cache перед полным replay. Другой endpoint/account не может
+   потребить journal; foreign memory owner и повреждённая запись дают ошибку.
+5. Service flush после GC выполняется **до ACK SyncComplete**; ошибка
+   распространяется наверх. Cancellation после handler не подтверждает batch.
+   Существующий V1 механизм не переписан; его поведение проверяется отдельным
+   узким regression selection.
+
+`memory_v2_journal_test.dart` использует реальную file-backed SQLite с
+синтетическими parent rows. SQL triggers моделируют отказ journal INSERT и
+отказ DELETE во время commit projection. Отдельный Python driver запускает
+Flutter writer, ждёт durable SQLite commit, делает настоящий **SIGKILL группы
+процессов**, затем запускает reader заново. Это process/SQLite crash test;
+серверная HTTP ACK и мобильная ОС в нём не эмулируются как E2E. Порядок ACK и
+network retry отдельно проверяются service mocks с настоящим SQLite journal.
+
+### Итог новой проверки
+
+Первый запуск SQLite/service тестов на `2dffd35d0ec4c58c102a87b09c26802c50a1382c`
+прошёл analysis (`No issues found`), **9/9 новых real SQLite tests и 82 service
+cases**. Весь job **FAIL: 91 PASS / 2 FAIL**, потому что два прежних cancellation
+теста ожидали ACK после отмены сессии. Новая post-handler cancellation проверка
+намеренно оставляет checkpoint для replay. Обновлены именно эти два ожидания на
+`verifyNever(ack)`, сохранены проверки abort и запрета последующих handlers.
+Это изменение ожидаемой safety-семантики, не откат защиты ради зелёного CI.
+
+[Повтор только двух неуспешных cases и оставшихся этапов](https://github.com/docice545/gallery/actions/runs/39839592457)
+на `a3d51348003b5e1fd84aa26040161f071fc4d648`: **PASS**. Codegen и Dart analysis
+(`No issues found`) PASS; **2/2 cancellation tests**, **8/8 existing V1 memory-link
+regressions**, настоящий SIGKILL/replay и **1/1 reader test** PASS; format —
+**914 файлов, 0 изменённых**. Writer намеренно убит, не объявляется завершившимся
+unit test. В этом запуске 91 прежний PASS не повторялся. Все 84 service cases
+покрыты в двух запусках, а не заявлены одним общим green run.
+
+Runtime mobile source не менялся между `2dffd35d0` и финальным code HEAD `a3d513480`;
+между ними изменены только два cancellation test expectations и выбор manual
+retry. Backend/spec/SDK побайтно неизменны после проверенного `82a92baf3`.
+Именно проверка scope diff позволяет сохранить предыдущие passes.
+
+**Решение: READY для review/переноса acceptance-ветки в PR #7.** Подтверждённых
+блокеров этих двух исправлений не осталось. Это не разрешение на merge или
+production deployment и не подтверждение полного native/AI/NFS E2E. Финальный
+PR #7 result после переноса ещё должен пройти требуемый review/CI.
+
+| Клиент | ACK после исправления | Memory/restart evidence | Native runtime |
+| --- | --- | --- | --- |
+| Immich Android 3.3.5 | PASS backend/contract; GET caller не найден в pinned source | Stock client не изменён; его crash-recovery не тестировался | NOT VERIFIED |
+| Immich iOS 3.3.5 | То же wire evidence, отдельно от Android runtime | Stock local DB и Apple OS не тестировались | NOT VERIFIED |
+| Noodle Android 5.8.0 | Все 6 типов известны pinned schema; GET caller не найден | Stock journal/restart не изменён и не тестировался | NOT VERIFIED |
+| Noodle iOS 5.8.0 | То же source/schema evidence | iOS process/background behavior не тестировалось | NOT VERIFIED |
+| Noodle Web 5.8.0 | GET caller не найден; strict schema gate PASS | Flutter journal не относится к Web; browser не запускался | NOT VERIFIED |
+| FOTO Build 17 Flutter | Legacy response enum сохранён; новые handlers из CLI сохранены | Real SQLite + service ACK mocks + отдельный process crash test (итог выше) | Device E2E NOT VERIFIED |
+
+Endpoint/account switch не угадывает идентичность двух серверных aliases:
+прежние pending rows остаются в своей области до её возврата или явного
+полного reset/replay. Это предотвращает применение intent к другому серверу;
+такая смена не выдаётся за автоматический перенос локального кеша.
+
+SQL Schema Checks и Medium **3447 PASS / 17 SKIPPED** сохранены с CLI HEAD,
+повторно не запускались. Backend sync repository/schema/migrations не менялись.
+Ранее исправленные sync-request syntax, MemoryV2 conversion и unsupported
+birthday rejection **до записи/ACK** сохранены. Birthday остаётся явным
+неподдержанным типом локальной модели; наш backend выдаёт V2 on_this_day.
+Физические Android/iOS, PhotoKit/iCloud/HEIC/Live Photos/background backup,
+Synology, браузер и AI E2E по-прежнему **NOT VERIFIED**. Docker image и APK не
+собирались и не менялись, HP/production не использовались.
+
+### Передача всех acceptance commits в PR #7 без потери истории
+
+Все изменения находятся только в `codex/foto-build17-pr7-acceptance`, потомке
+CLI HEAD `8759f9bd9c8f94adfdf8df81dc67b158aaddbf90`. PR #7 по-прежнему указывает
+на `codex/foto-build17-client-compat`. Одного переноса последнего commit
+недостаточно: нужны также baseline/syntax/conversion fixes до checkpoint e039.
+
+Владелец интеграции сначала делает обычный fetch обеих веток и проверяет
+**фактические полные SHA**, чистоту отдельного review worktree и ancestry.
+Существующий dirty HP worktree и его untracked файлы не трогать.
+
+- Если текущий HEAD CLI-ветки является предком acceptance HEAD, в отдельном
+  review worktree допустим **fast-forward** CLI → точный проверенный acceptance
+  commit. После review обычный push обновит PR #7 без force и сохранит все SHA.
+- Если CLI-ветка продвинулась и разошлась с acceptance, не переписывать ни одну
+  ветку. Подготовить отдельную интеграционную ветку от нового CLI HEAD и обычный
+  review merge acceptance с ручной проверкой конфликтов. Повторить только
+  проверки затронутых разрешением конфликтов компонентов. Squash/cherry-pick
+  не сохранят исходные SHA и не являются эквивалентом переноса всей истории.
+
+В этой сессии ни fast-forward CLI-ветки, ни merge, ни force-push не выполнялись.
+PR #6/#8 не изменялись. После интеграции CI должен оценить **реальный PR #7 merge
+result**; результаты acceptance не следует приписывать будущему merge commit.
