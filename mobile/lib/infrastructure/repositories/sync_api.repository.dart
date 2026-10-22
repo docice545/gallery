@@ -120,6 +120,18 @@ class SyncApiRepository {
           SyncRequestType.libraryAssetsV1,
           SyncRequestType.libraryAssetExifsV1,
           SyncRequestType.sharedSpaceLibrariesV1,
+
+          // Pre-compute the space-album sync types so they can be spread conditionally
+          // inside a collection literal (collection-if allows only one expression).
+          final List<SyncRequestType> spaceAlbumTypes =
+              supportedSyncTypes != null
+                  ? [..._spaceAlbumSyncTypes, ..._coreSyncTypesV2]
+                        .where((type) => supportedSyncTypes.contains(type.toJson()))
+                        .toList()
+                  : serverVersion > const SemVer(major: 5, minor: 0, patch: 0)
+                      ? _legacySpaceAlbumSyncTypes
+                      : <SyncRequestType>[],
+
           // --- gallery-fork: shared-space album sync types (Phase 2B) ---
           //
           // mobile-1: gate the legacy 5 request types behind the fork-server version that
@@ -158,11 +170,7 @@ class SyncApiRepository {
           // it, by definition, since capability signalling shipped before the type
           // existed. That is why the fallback below sends _legacySpaceAlbumSyncTypes,
           // not the full _spaceAlbumSyncTypes list.
-          if (supportedSyncTypes != null)
-            ...(_spaceAlbumSyncTypes.where((type) => supportedSyncTypes.contains(type.toJson())))
-            ...(_coreSyncTypesV2.where((type) => supportedSyncTypes.contains(type.toJson())))
-          else if (serverVersion > const SemVer(major: 5, minor: 0, patch: 0))
-            ..._legacySpaceAlbumSyncTypes,
+          ...spaceAlbumTypes,
         ],
       ).toJson(),
     );
