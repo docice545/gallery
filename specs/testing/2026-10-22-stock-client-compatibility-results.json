@@ -45,6 +45,7 @@
       "unchanged": true
     }
   ],
+  "externalIndexReturn": "Advanced ACK regression failed without EXIF/album link, fixed by conservative invalidation on active external changes. Additional resync cost on real NAS NOT VERIFIED.",
   "finalCodeChecks": [
     {
       "check": "eslint",
@@ -72,6 +73,13 @@
     "tscAlias": 0,
     "typecheck": 0
   },
+  "finalConvergenceCodeChecks": {
+    "eslint": 0,
+    "migrationSync": 0,
+    "nestBuild": 0,
+    "tscAlias": 0,
+    "typecheck": 0
+  },
   "generatorSubcommandsOnly": "mise executable unavailable; exact Node, oazapfts and formatter commands executed; TOML parsed.",
   "githubCI": {
     "baseUnchangedFormatFailures": [
@@ -87,11 +95,17 @@
     "openapiGate": "FAIL: response enum additions; gate compares main rather than PR base. No rule disabled.",
     "overall": "NOT GREEN",
     "shellcheckAndDart": "FAIL; exact cause NOT VERIFIED: annotations contain only exit status, full logs Forbidden",
+    "verifiedGeneratedAPICheck": {
+      "conclusion": "success",
+      "head": "44008b2761967d6039ca9d2651b640e93937c159",
+      "jobId": 119721187165,
+      "url": "https://github.com/docice545/gallery/actions/runs/39747885874/job/119721187165"
+    },
     "verifiedSQLSchemaCheck": {
       "conclusion": "success",
-      "head": "3194ced8faa114d2567826ca753533fbdc7cc047",
-      "jobId": 119715287262,
-      "url": "https://github.com/docice545/gallery/actions/runs/39746061469/job/119715287262"
+      "head": "44008b2761967d6039ca9d2651b640e93937c159",
+      "jobId": 119721187662,
+      "url": "https://github.com/docice545/gallery/actions/runs/39747885874/job/119721187662"
     }
   },
   "immutableDeletionMigration": {
@@ -362,9 +376,24 @@
       "passedRun": true,
       "sha256": "fb71a77185373ed53c378262dddb3fc18ed8727af58f324b0cfd4da37a034c85",
       "summary": ["Test Files  1 passed (1)", "Tests  1 passed | 6 skipped (7)"]
+    },
+    {
+      "log": "foto-compat-index-return-regression-before-anchors.log",
+      "passedRun": false,
+      "sha256": "381949a18395324b2cf3a848de3a73003a107642e7fcd51bc44656a90b2e356c",
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 9 skipped (10)"
+      ]
+    },
+    {
+      "log": "foto-compat-medium-ci-convergence-final.log",
+      "passedRun": true,
+      "sha256": "f1717266cb33c7b88b7f4a90e7d628dcd120befd82543d9e7d168f13e8701466",
+      "summary": ["Test Files  4 passed (4)", "Tests  76 passed (76)"]
     }
   ],
-  "testedCodeCommit": "923d89de6cfa26467c3074d3ef1f7900d91db5fc",
+  "testedCodeCommit": "eeaee6952cddba305c3722af5e1ebd2a5a6f6114",
   "upstreams": {
     "immich-3.3.5": {
       "matchedMethodPath": 268,

@@ -310,7 +310,7 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm exec vitest \
 Машиночитаемые результаты, method/path comparison и SHA-256 неизменённых
 защитных исходников: [results.json](2026-10-22-stock-client-compatibility-results.json).
 Последний проверенный code commit:
-`923d89de6cfa26467c3074d3ef1f7900d91db5fc`. После первоначального 57006e191
+`eeaee6952cddba305c3722af5e1ebd2a5a6f6114`. После первоначального 57006e191
 исправлены explicit medium fixtures и schema metadata/generation; storage guard
 functions, применённые миграции и media workflows не изменены. Отчёты не заменяют native E2E.
 
@@ -425,3 +425,42 @@ overlay. Затем, как прежде, проверяет отказ в от�
 - Последний codegen context проверен в `923d89de6`; его GitHub rerun до получения
   фактического результата не объявляется успешным. Native E2E и прочие общие
   CI-ограничения выше сохраняются.
+
+### Финальная проверка восстановления индекса и medium convergence
+
+**OpenAPI Clients и SQL Schema Checks PASS в GitHub на `44008b276`**.
+Это реальный результат jobs, включая Dart generation/nullable-array test в
+первом и migration/reset/schema/SQL generation во втором, не только локальная
+проверка эквивалентных команд. App/native E2E этим не подтверждается.
+
+Полный medium job выявил следующие дополнительные случаи:
+
+- Shared-space Trash fixture ставил только deletedAt, оставляя статус Active:
+  это определение offline index, а не пользовательского Trash. Helper теперь
+  устанавливает настоящий `AssetStatus.Trashed`. Все прежние проверки запрета
+  backfill EXIF/GPS и доставки owner/convergence metadata сохранены.
+- Negative timeline tests сохранены (Archive/Trash/Locked/неявный scope по-прежнему
+  запрещены), обновлён только текст сообщения после легального personal favorite.
+- AlbumUser ordering fixture разделяет owner/editor creation двумя миллисекундами:
+  UUID-v7 в одном миллисекундном интервале не гарантирует ожидаемый тестом порядок.
+  Assertions порядка и ролей не заменены игнорирующим порядок сравнением.
+
+Новый поведенческий regression воспроизвёл отдельный B2 recovery defect:
+после advanced EXIF/link ACKs внешний index возвращался online, но выдавался
+только AssetV2, без прежних EXIF и album links (их собственные updateIds не
+изменились). Invalidation теперь консервативно учитывает изменения active external
+assets (`libraryId`/`isExternal`) и восстанавливает cache relations при повторном
+полном sync. Тест проверяет прежние ID и наличие asset/EXIF/album link, допускает
+корректный incremental или reset путь, не требует внутреннюю реализацию ради PASS.
+
+Tradeoff: metadata/new-asset изменения внешних библиотек тоже могут вызвать
+глобальный cache reset. Managed uploads остаются incremental. Это не меняет
+строки каталога, связи, файлы или permissions, но стоимость лишних resync на
+большой реальной NAS-медиатеке **NOT VERIFIED**.
+
+Целевой PostgreSQL rerun всех четырёх затронутых файлов: **76/76 PASS**
+(`foto-compat-medium-ci-convergence-final.log`). Включены index return, прежний
+invalidation race, album membership, true Trash и timeline проверки. Новый
+valid failing-before log: `foto-compat-index-return-regression-before-anchors.log`.
+ESLint, TypeScript и Nest compile после исправления PASS. Ранее успешные 333/12,
+477 и 661 заново не исполнялись.
