@@ -766,6 +766,21 @@ void main() {
       verifyNever(() => mockAbortCallbackWrapper());
     });
 
+    test('PR7 V2 memory failed handler does not ACK and retry ACKs only after success', () async {
+      final memory = SyncMemoryV2.fromJson((SyncStreamStub.memoryV1.data as SyncMemoryV1).toJson())!;
+      final events = [SyncEvent(type: SyncEntityType.memoryV2, data: memory, ack: 'memory-v2-ack')];
+      when(() => mockSyncStreamRepo.updateMemoriesV2(any())).thenThrow(UnsupportedError('unsupported memory'));
+      await expectLater(simulateEvents(events), throwsA(isA<UnsupportedError>()));
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+
+      when(() => mockSyncStreamRepo.updateMemoriesV2(any())).thenAnswer((_) async {});
+      await simulateEvents(events);
+      verifyInOrder([
+        () => mockSyncStreamRepo.updateMemoriesV2(any()),
+        () => mockSyncApiRepo.ack(['memory-v2-ack']),
+      ]);
+    });
+
     test("handles memory sync failure gracefully", () async {
       when(() => mockSyncStreamRepo.updateMemoriesV1(any())).thenThrow(Exception("Memory sync failed"));
 

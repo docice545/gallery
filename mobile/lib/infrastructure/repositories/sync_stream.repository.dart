@@ -2140,7 +2140,6 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-
   Future<void> updateAuthUsersV2(Iterable<SyncAuthUserV2> data) async {
     try {
       await _db.batch((batch) {
@@ -2250,7 +2249,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         for (final favorite in data) {
           batch.update(
             _db.remoteAssetEntity,
-            RemoteAssetEntityCompanion(isFavorite: const Value(true)),
+            const RemoteAssetEntityCompanion(isFavorite: Value(true)),
             where: (row) => row.id.equals(favorite.assetId),
           );
         }
@@ -2267,7 +2266,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         for (final favorite in data) {
           batch.update(
             _db.remoteAssetEntity,
-            RemoteAssetEntityCompanion(isFavorite: const Value(false)),
+            const RemoteAssetEntityCompanion(isFavorite: Value(false)),
             where: (row) => row.id.equals(favorite.assetId),
           );
         }
@@ -2362,6 +2361,17 @@ extension on MemoryType {
     MemoryType.onThisDay => MemoryTypeEnum.onThisDay,
     MemoryType.rule => MemoryTypeEnum.rule,
   };
+}
+
+extension on SyncMemoryV2TypeEnum {
+  MemoryTypeEnum toMemoryType() {
+    if (toJson() == 'on_this_day') {
+      return MemoryTypeEnum.onThisDay;
+    }
+    // This fork does not store birthday memories. Propagate before the batch
+    // commits and before SyncStreamService sends its ACK; never relabel or skip.
+    throw UnsupportedError('Unsupported MemoryV2 type: ${toJson()}');
+  }
 }
 
 extension on api.AlbumUserRole {

@@ -69,6 +69,13 @@ jobs:
       - name: Run analyze
         run: mise //mobile:analyze
 
+      - name: Targeted V2 memory persistence and ACK regression (manual acceptance)
+        if: github.event_name == 'workflow_dispatch'
+        run: >-
+          flutter test --no-pub --concurrency=1 --plain-name 'PR7 V2 memory'
+          test/domain/repositories/sync_stream_repository_test.dart
+          test/domain/services/sync_stream_service_test.dart
+
       - name: Run format
         run: mise //mobile:format
 
