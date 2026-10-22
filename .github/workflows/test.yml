@@ -804,6 +804,16 @@ jobs:
         run: |
           echo "ERROR: Generated files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
+          # Keep a bounded, public-source-only diff in the check annotations too:
+          # Actions blob logs are not reachable from every review environment.
+          python3 - <<'PY'
+          import subprocess
+          diff = subprocess.check_output([
+              "git", "diff", "--", "packages/sdk", "open-api/immich-openapi-specs.json",
+          ], text=True)
+          message = diff[:12000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Generated API differs after regeneration::{message}")
+          PY
           exit 1
 
   sql-schema-up-to-date:
