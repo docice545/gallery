@@ -42,16 +42,36 @@ describe('pinned client contracts', () => {
     const operations = Object.fromEntries(
       baseline.operationKeys.map((key: string) => {
         const [method, path] = key.split(' ', 2);
-        return [key, api.paths[path]?.[method]];
+        const operation = structuredClone(api.paths[path]?.[method]);
+        // Only an additive, explicitly tested error response is new to this
+        // legacy operation. Every pre-existing definition remains pinned.
+        if (key === 'get /sync/ack') delete operation.responses['409'];
+        return [key, operation];
       }),
     );
     expect(digest(operations)).toBe(baseline.operationsDigest);
   });
   it('preserves every existing schema except additive sync enum extensions', () => {
-    const schemas = Object.fromEntries(baseline.schemaKeys.map((key: string) => [key, api.components.schemas[key]]));
+    const schemas = Object.fromEntries(
+      baseline.schemaKeys.map((key: string) => [key, structuredClone(api.components.schemas[key])]),
+    );
+    // The new named enum is structurally identical to the old response enum,
+    // checked below against the immutable baseline rather than an updated hash.
+    schemas.SyncAckDto.properties.type.$ref = '#/components/schemas/SyncEntityType';
     expect(digest(schemas)).toBe(baseline.schemasDigest);
     for (const [key, values] of Object.entries(baseline.syncEnums))
       expect(api.components.schemas[key].enum).toEqual(expect.arrayContaining(values as string[]));
+  });
+  it('freezes the legacy ACK enum and exposes extensions only on the versioned read', () => {
+    expect(api.components.schemas.LegacySyncEntityType.enum).toEqual(baseline.syncEnums.SyncEntityType);
+    expect(api.components.schemas.SyncAckDto.properties.type.$ref).toBe('#/components/schemas/LegacySyncEntityType');
+    expect(api.paths['/sync/ack'].get.responses['409'].description).toBe(
+      'Extended sync checkpoints require GET /sync/ack/v2',
+    );
+    expect(api.paths['/sync/ack/v2'].get.responses['200'].content['application/json'].schema.items.$ref).toBe(
+      '#/components/schemas/SyncAckV2Dto',
+    );
+    expect(api.components.schemas.SyncAckV2Dto.properties.type.$ref).toBe('#/components/schemas/SyncEntityType');
   });
   it.each(Object.keys(official.schemas))('%s matches the pinned official Android/iOS wire schema', (key) => {
     expect(shape(api.components.schemas[key])).toEqual(official.schemas[key]);

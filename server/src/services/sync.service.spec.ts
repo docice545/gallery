@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Writable } from 'node:stream';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
 import { SyncStreamDto } from 'src/dtos/sync.dto.js';
@@ -369,6 +369,32 @@ describe(SyncService.name, () => {
 
       expect(result).toEqual(checkpoints);
       expect(mocks.syncCheckpoint.getAll).toHaveBeenCalledWith(sessionId);
+    });
+
+    it.each([
+      SyncEntityType.AuthUserV2,
+      SyncEntityType.MemoryV2,
+      SyncEntityType.MemoryToAssetV2,
+      SyncEntityType.AssetFaceV3,
+      SyncEntityType.AssetFavoriteV1,
+      SyncEntityType.AssetFavoriteDeleteV1,
+    ])('rejects legacy reads explicitly and returns every opaque checkpoint through V2: %s', async (type) => {
+      const checkpoints = [
+        { type: SyncEntityType.AssetV1, ack: 'AssetV1|unchanged' },
+        { type, ack: `${type}|opaque-checkpoint` },
+      ];
+      mocks.syncCheckpoint.getAll.mockResolvedValue(checkpoints);
+      await expect(sut.getAcks(authStub.user1)).rejects.toThrow(ConflictException);
+      await expect(sut.getAcks(authStub.user1)).rejects.toThrow('GET /sync/ack/v2');
+      expect(await sut.getAcksV2(authStub.user1)).toEqual(checkpoints);
+      expect(mocks.syncCheckpoint.getAll).toHaveBeenLastCalledWith(authStub.user1.session!.id);
+      expect(mocks.syncCheckpoint.upsertAll).not.toHaveBeenCalled();
+      expect(mocks.syncCheckpoint.deleteAll).not.toHaveBeenCalled();
+      expect(mocks.session.resetSyncProgress).not.toHaveBeenCalled();
+    });
+
+    it('rejects API key access to the versioned read, too', () => {
+      expect(() => sut.getAcksV2(authStub.admin)).toThrow(ForbiddenException);
     });
   });
 

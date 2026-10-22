@@ -808,9 +808,20 @@ const SyncStreamSchema = z
   })
   .meta({ id: 'SyncStreamDto' });
 
+// Freeze the existing REST response. New protocol checkpoints have a separate
+// read endpoint; extending this closed enum breaks already-generated clients.
+export const LegacySyncEntityTypeSchema = SyncEntityTypeSchema.exclude([
+  SyncEntityType.AuthUserV2,
+  SyncEntityType.MemoryV2,
+  SyncEntityType.MemoryToAssetV2,
+  SyncEntityType.AssetFaceV3,
+  SyncEntityType.AssetFavoriteV1,
+  SyncEntityType.AssetFavoriteDeleteV1,
+]).meta({ id: 'LegacySyncEntityType' });
+
 const SyncAckSchema = z
   .object({
-    type: SyncEntityTypeSchema,
+    type: LegacySyncEntityTypeSchema,
     ack: z.string().describe('Acknowledgment ID'),
   })
   .meta({ id: 'SyncAckDto' });
@@ -829,6 +840,9 @@ const SyncAckDeleteSchema = z
 
 export class SyncStreamDto extends createZodDto(SyncStreamSchema) {}
 export class SyncAckDto extends createZodDto(SyncAckSchema) {}
+export class SyncAckV2Dto extends createZodDto(
+  SyncAckSchema.extend({ type: SyncEntityTypeSchema }).meta({ id: 'SyncAckV2Dto' }),
+) {}
 export class SyncAckSetDto extends createZodDto(SyncAckSetSchema) {}
 export class SyncAckDeleteDto extends createZodDto(SyncAckDeleteSchema) {}
 

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { Insertable } from 'kysely';
 import { DateTime, Duration } from 'luxon';
 import { Writable } from 'node:stream';
@@ -13,6 +13,7 @@ import {
   SyncAssetV2,
   SyncItem,
   SyncStreamDto,
+  LegacySyncEntityTypeSchema,
   syncAlbumV2ToV1,
 } from 'src/dtos/sync.dto.js';
 import { AssetStatus, JobName, MemoryType, QueueName, SyncEntityType, SyncRequestType } from 'src/enum.js';
@@ -169,6 +170,17 @@ const throwSessionRequired = () => {
 @Injectable()
 export class SyncService extends BaseService {
   getAcks(auth: AuthDto) {
+    return this.getAcksV2(auth).then((checkpoints) => {
+      // Never discard, rename or reset a checkpoint to make it fit an older SDK.
+      // The complete session remains available through the versioned endpoint.
+      if (checkpoints.some(({ type }) => !LegacySyncEntityTypeSchema.safeParse(type).success)) {
+        throw new ConflictException('Extended sync checkpoints require GET /sync/ack/v2');
+      }
+      return checkpoints.map(({ type, ack }) => ({ type: LegacySyncEntityTypeSchema.parse(type), ack }));
+    });
+  }
+
+  getAcksV2(auth: AuthDto) {
     const sessionId = auth.session?.id;
     if (!sessionId) {
       return throwSessionRequired();
