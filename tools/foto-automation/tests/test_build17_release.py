@@ -355,6 +355,14 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(app.Stop, 'DIRTY'):
             self.stage()
 
+    def test_prepared_flag_does_not_authorize_another_worktree(self):
+        self.prepare()
+        self.p.manifest['worktree'] = str(self.repo)
+        self.p.manifest['head'] = self.base
+        self.p.manifest['branch'] = app.BASE_BRANCH
+        with self.assertRaisesRegex(app.Stop, 'OUTSIDE_PRIVATE_STATE'):
+            self.p.clean()
+
     def test_missing_signing_key_never_generated(self):
         with self.assertRaises(OSError):
             self.p.signing()
@@ -504,6 +512,21 @@ class ReleaseTest(unittest.TestCase):
         for args in ([], ['--test', '--build']):
             result = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True)
             self.assertEqual(result.returncode, 2)
+
+    def test_mandatory_recipes_are_serial_and_include_compact_layout(self):
+        with patch.object(Path, 'is_file', return_value=True):
+            recipes = app.recipes_for(self.repo)
+        commands = [cmd for _, _, cmd, _ in recipes]
+        self.assertTrue(any('test/pages/edit/editor_compact_layout_test.dart' in cmd for cmd in commands))
+        for name, _, cmd, _ in recipes:
+            if name.startswith(('unit-', 'medium-')):
+                self.assertIn('--maxWorkers=1', cmd)
+                self.assertIn('--no-file-parallelism', cmd)
+                self.assertIn('--maxConcurrency=1', cmd)
+            if cmd[:2] == ['flutter', 'test']:
+                self.assertIn('--concurrency=1', cmd)
+            if cmd[-1] == 'build' and cmd[0] == 'pnpm':
+                self.assertEqual(cmd.count('--filter'), 1)
 
 
 if __name__ == '__main__':

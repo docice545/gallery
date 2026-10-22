@@ -288,8 +288,21 @@ class Pipeline:
         return Path(self.manifest['worktree'])
 
     def clean(self):
+        need(self.source().resolve().parent == self.state.resolve() and not self.source().is_symlink(),
+             'INTEGRATION_WORKTREE_OUTSIDE_PRIVATE_STATE')
+        need(self.manifest['branch'].startswith('local/foto17-release-') and
+             git(self.source(), 'branch', '--show-current') == self.manifest['branch'], 'INTEGRATION_BRANCH_CHANGED')
         need(git(self.source(), 'rev-parse', 'HEAD') == self.manifest['head'], 'INTEGRATION_SHA_CHANGED')
         need(not git(self.source(), 'status', '--porcelain=v1'), 'INTEGRATION_DIRTY_PRESERVED')
+        if self.manifest.get('prepared'):
+            need(not self.manifest.get('mergeInFlight'), 'CORRUPT_PREPARED_CHECKPOINT')
+            need(git(self.source(), 'merge-base', '--is-ancestor', self.c['expected_head'], 'HEAD', optional=True) is not None,
+                 'INTEGRATION_BASE_ANCESTRY_CHANGED')
+            for pin in self.c['prs'].values():
+                if git(self.source(), 'merge-base', '--is-ancestor', pin['sha'], 'HEAD', optional=True) is None:
+                    base = git(self.source(), 'merge-base', 'HEAD', pin['sha'])
+                    patches = git(self.source(), 'cherry', 'HEAD', pin['sha'], base).splitlines()
+                    need(patches and all(p.startswith('-') for p in patches), 'PREPARED_PR_NOT_PRESENT')
 
     def gate(self):
         need(origin_ok(self.repo), 'UNEXPECTED_ORIGIN')
@@ -367,6 +380,7 @@ class Pipeline:
             self.manifest.pop('mergeInFlight')
             self.save('MERGED_' + item['role'])
         self.manifest['prepared'] = True
+        self.clean()
         self.save('PREPARED')
 
     def tools(self):
@@ -655,7 +669,8 @@ def recipes_for(repo):
               'services/build11-storage-deletion-lifecycle.spec.ts', 'sync/sync-library-asset.spec.ts',
               'sync/sync-memory.spec.ts', 'sync/sync-memory-asset.spec.ts', 'workflow/workflow-core-plugin.spec.ts',
               'schema-cli-compat.spec.ts', 'migrations/client-compat-preservation.spec.ts']
-    flutter = ['test/pages/edit/editor_acceptance_test.dart', 'test/pages/edit/editor_viewport_test.dart',
+    flutter = ['test/pages/edit/editor_acceptance_test.dart', 'test/pages/edit/editor_compact_layout_test.dart',
+               'test/pages/edit/editor_viewport_test.dart',
                'test/pages/edit/editor_color_pipeline_test.dart', 'test/pages/edit/editor_save_retry_test.dart',
                'test/pages/edit/magic_eraser_editor_integration_test.dart',
                'test/domain/services/sync_stream_service_test.dart', 'test/providers/backup/backup_provider_test.dart',
