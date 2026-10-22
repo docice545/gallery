@@ -10,7 +10,6 @@ import {
   Table,
   type Timestamp,
   Trigger,
-  TriggerFunction,
   UpdateDateColumn,
 } from '@immich/sql-tools';
 import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
@@ -19,7 +18,6 @@ import { asset_checksum_algorithm_enum, asset_visibility_enum, assets_status_enu
 import {
   asset_delete_audit,
   asset_library_delete_audit,
-  gallery_block_deleted_asset,
   gallery_index_projection_changed,
   gallery_mirror_owner_favorite,
 } from 'src/schema/functions.js';
@@ -29,13 +27,6 @@ import { UserTable } from 'src/schema/tables/user.table.js';
 import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
 
 @Table('asset')
-@TriggerFunction({
-  name: 'gallery_index_projection_changed',
-  timing: 'after',
-  actions: ['update'],
-  scope: 'row',
-  function: gallery_index_projection_changed,
-})
 // The column-specific UPDATE OF guard is installed by the immutable deletion migration.
 // sql-tools cannot represent UPDATE OF; track its name without rewriting/removing its DDL.
 // schema-cli-compat.spec.ts verifies its exact enabled database definition.
@@ -44,15 +35,8 @@ import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
   timing: 'before',
   actions: ['insert', 'update'],
   scope: 'row',
-  functionName: gallery_block_deleted_asset.name,
+  functionName: 'gallery_block_deleted_asset',
   synchronize: false,
-})
-@TriggerFunction({
-  name: 'gallery_mirror_owner_favorite',
-  timing: 'after',
-  actions: ['insert', 'update'],
-  scope: 'row',
-  function: gallery_mirror_owner_favorite,
 })
 @UpdatedAtTrigger('asset_updatedAt')
 @AfterDeleteTrigger({
@@ -104,6 +88,20 @@ import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
   where: `visibility = 'timeline' AND "deletedAt" IS NULL`,
 })
 // For all assets, each originalpath must be unique per user and library
+@Trigger({
+  name: 'gallery_index_projection_changed',
+  timing: 'after',
+  actions: ['update'],
+  scope: 'row',
+  functionName: gallery_index_projection_changed.name,
+})
+@Trigger({
+  name: 'gallery_mirror_owner_favorite',
+  timing: 'after',
+  actions: ['insert', 'update'],
+  scope: 'row',
+  functionName: gallery_mirror_owner_favorite.name,
+})
 export class AssetTable {
   @PrimaryGeneratedColumn()
   id!: Generated<string>;
