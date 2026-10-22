@@ -1,0 +1,34 @@
+{
+  "CI": "New fixture workflow pending publication; not claimed as passed",
+  "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "existingAutomationFilesModified": false,
+  "failed": 0,
+  "log": "/tmp/foto-build17-release-tests-final-44.log",
+  "logSHA256": "0031f708683f1c34dee7d1fc77ba45fb788906c623b5b47ad239b82ade3bc615",
+  "mocked": [
+    "GitHub PR/CI",
+    "Docker/BuildKit",
+    "OOM137/resource shortage",
+    "apksigner/aapt"
+  ],
+  "notVerified": [
+    "HP toolchain and actual builder JSON/limits",
+    "real Docker build",
+    "real APK/signing key",
+    "native Android/iOS/Web E2E",
+    "Synology",
+    "AI E2E"
+  ],
+  "passed": 44,
+  "python": "3.12.14",
+  "realFixtures": [
+    "temporary Git repositories/worktrees/merges/conflicts",
+    "local file hashes/copy/flock",
+    "Linux child TERM"
+  ],
+  "schema": 1,
+  "scriptSHA256": "ffd4c51db19927472da96beff38f86d904d5ac2f17bf4d893f9f8e320628933b",
+  "seconds": 7.692,
+  "testCommand": "python3 -m unittest discover -s tools/foto-automation/tests -p test_build17_release.py -v",
+  "testedCommit": "58cf4dbd8e04fc46d79e34761e4ec16214c91540"
+}
