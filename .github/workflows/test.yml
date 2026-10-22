@@ -361,6 +361,7 @@ jobs:
         run: |
           echo "ERROR: i18n files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
+          git diff -- packages/sdk open-api/immich-openapi-specs.json
           exit 1
 
   e2e-tests-lint:
