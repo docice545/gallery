@@ -8,13 +8,14 @@ import {
   Index,
   PrimaryGeneratedColumn,
   Table,
+  Trigger,
   type Timestamp,
   UpdateDateColumn,
 } from '@immich/sql-tools';
 import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
 import { AssetStatus, AssetType, AssetVisibility, ChecksumAlgorithm } from 'src/enum.js';
 import { asset_checksum_algorithm_enum, asset_visibility_enum, assets_status_enum } from 'src/schema/enums.js';
-import { asset_delete_audit, asset_library_delete_audit } from 'src/schema/functions.js';
+import { asset_delete_audit, asset_library_delete_audit, gallery_block_deleted_asset } from 'src/schema/functions.js';
 import { LibraryTable } from 'src/schema/tables/library.table.js';
 import { StackTable } from 'src/schema/tables/stack.table.js';
 import { UserTable } from 'src/schema/tables/user.table.js';
