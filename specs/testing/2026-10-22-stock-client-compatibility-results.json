@@ -72,6 +72,16 @@
         "bytes": 456835,
         "localFile": "/tmp/pr7-acceptance-dart-final-analyze.log",
         "sha256": "1b5ef1903d27b066d885b9a6bf0d6e3b428c76c946f27c48cdf3dc6fc9629dc8"
+      },
+      {
+        "bytes": 98778,
+        "localFile": "/tmp/pr7-acceptance-retry-final-logs.zip",
+        "sha256": "34986d7b81b66c3c8fda353cb1324d78694fc386f391fe68f4c898216fb3a66b"
+      },
+      {
+        "bytes": 454268,
+        "localFile": "/tmp/pr7-acceptance-retry-final.log",
+        "sha256": "7ded473c62b434d5221e176a877d58e3efb27b2ef4e557b9d61e80b650353eb2"
       }
     ],
     "baselineCorrection": "Exact pull_request.base.sha in both jobs; explicit manual base_ref; fail-on ERR; no enum waivers",
@@ -173,6 +183,24 @@
       "run": 39826683460
     },
     "newRuntimeLimitation": "Unexpected birthday MemoryV2 fails before write/ACK; not relabelled or silently skipped",
+    "newTestsEventuallyPassed": {
+      "SQLitePersistenceAndIdempotence": {
+        "realSQLite": true,
+        "result": "PASS",
+        "run": 39828130854
+      },
+      "SQLiteWholeBatchRollback": {
+        "realSQLite": true,
+        "result": "PASS",
+        "run": 39828130854
+      },
+      "ServiceNoAckAndRetry": {
+        "mockRepository": true,
+        "result": "PASS",
+        "run": 39829279657
+      },
+      "countsNotFromOneCombinedRun": true
+    },
     "notVerified": [
       "native Android/iOS/Web E2E",
       "AI E2E",
@@ -180,7 +208,23 @@
       "new V2 sync ACK/crash/replay lifecycle"
     ],
     "originalHead": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
-    "pendingDartAndThreeTargetedTests": {
+    "productionTouched": false,
+    "publishedPR7NotOverwritten": true,
+    "remainingSyncReview": "V2 memory links use existing in-memory deferred set; durable ACK/crash lifecycle NOT VERIFIED",
+    "reviewedCLIHead": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+    "serviceTestRetry": {
+      "analysis": "PASS; No issues found",
+      "codegen": "PASS",
+      "format": "PASS; 914 files, 0 changed",
+      "head": "43d1aa9f382ebf60019570c373ba2aa39032181c",
+      "result": "PASS",
+      "run": 39829279657,
+      "scope": "single failed ACK/retry test only; prior 2 SQLite passes not repeated; codegen setup and analysis in fresh GitHub job",
+      "targetedServiceTestsPassed": 1
+    },
+    "status": "BLOCKED",
+    "successfulSQLMediumAndOpenAPIClientsRepeated": false,
+    "v2MemoryCandidateFirstRun": {
       "analysis": "PASS; No issues found",
       "codegen": "PASS",
       "failure": "test fixture passed nested generated enum object to fromJson without JSON wire serialization; null check failure before handler invocation",
@@ -190,18 +234,6 @@
       "run": 39828130854,
       "serviceTestFailed": 1
     },
-    "pendingFailedServiceTestRetry": {
-      "head": "43d1aa9f382ebf60019570c373ba2aa39032181c",
-      "result": "PENDING",
-      "run": 39829279657,
-      "scope": "single failed ACK/retry test only; prior 2 SQLite passes not repeated; codegen setup and analysis in fresh GitHub job"
-    },
-    "productionTouched": false,
-    "publishedPR7NotOverwritten": true,
-    "remainingSyncReview": "V2 memory links use existing in-memory deferred set; durable ACK/crash lifecycle NOT VERIFIED",
-    "reviewedCLIHead": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
-    "status": "BLOCKED",
-    "successfulHeavyTestsRepeated": false,
     "workflowArchiveLogs": "downloaded using canonical GitHub actions/runs/ID/logs API; parsed locally"
   },
   "additionalFixtureCommit": "3021cbff08bcb59867d6547ffa9cd58fccbdb8aa",

@@ -12,7 +12,8 @@
 **Приёмка после публикации CLI-изменений:** PR #7 пока **BLOCKED**. На
 `8759f9bd9c8f94adfdf8df81dc67b158aaddbf90` подтверждены SQL CI PASS и полный
 medium CI **3447 PASS / 17 SKIPPED**, но OpenAPI enum gate остаётся красным,
-а Dart codegen обнаружил новый синтаксический дефект. Это не отменяет прежние
+а Dart codegen обнаружил новый синтаксический дефект (исправлен и проверен в
+отдельном acceptance-кандидате, см. итог ниже). Это не отменяет прежние
 backend passes и не является готовностью Android/iOS/Web. Подробности и границы
 отдельной ветки приёмки приведены в конце документа.
 
@@ -685,5 +686,22 @@ found`); оба SQLite теста **PASS**, service ACK test **FAIL** ещё д�
 настоящий `jsonEncode`/`jsonDecode` wire round trip. Ручной targeted step повторяет
 только неуспешный service test; два SQLite passes и неизменённая реализация
 repository сохранены. [Повтор failed test](https://github.com/docice545/gallery/actions/runs/39829279657)
-до завершения имеет статус **PENDING**. Setup/codegen в новом GitHub job нужен для
+в checkpoint `ab591a9b7` ещё имел статус **PENDING**; итог приведён ниже. Setup/codegen в новом GitHub job нужен для
 компиляции исправленного test source; SQL, medium и OpenAPI Clients не запускались.
+
+**Финальный результат кандидата `43d1aa9f382ebf60019570c373ba2aa39032181c`:**
+[Static Code Analysis](https://github.com/docice545/gallery/actions/runs/39829279657)
+**PASS**: codegen, analysis (`No issues found`), **1/1** исправленный service
+ACK/retry test и format (**914 файлов, 0 изменённых**) завершились успешно.
+Два SQLite PASS из запуска `788f4b2c3` сохранены; повторно они не исполнялись.
+Итого три новых теста прошли в двух отдельных прогонах, не в одном общем suite.
+Неверная первая fixture и два прежних красных Dart прогона остаются в хронологии.
+Эти результаты не являются crash, Android или iOS E2E.
+
+Итоговый статус приёмки PR #7: **BLOCKED**, несмотря на исправленный Dart
+кандидат. Настоящие шесть enum additions в ACK response всё ещё нарушают strict
+breaking gate; надёжность deferred V2 links после потери процесса требует
+подтверждения. Birthday явно не поддержан мобильной моделью форка. Native/AI/NFS
+E2E по-прежнему NOT VERIFIED. PR #7 остаётся на CLI HEAD `8759f9bd9`; новые
+приёмочные commits находятся отдельно и требуют обычного review/переноса CLI,
+без merge или force-push из этой сессии.
