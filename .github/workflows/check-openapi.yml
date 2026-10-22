@@ -27,7 +27,7 @@ jobs:
       - name: Create err-ignore file
         run: |
           cat > err-ignore.txt << 'EOL'
-          enum-value-added
+          enum-value-added.*
           EOL
 
       - name: Check for breaking API changes
