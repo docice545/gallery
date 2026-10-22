@@ -91,3 +91,18 @@ mock GitHub/Docker/build tools. **Не подтверждение работы H
   создаёт tooling worktree в HP repo. Каждый файл закреплён SHA-256.
 
 Документированная команда прошла `bash -n`; на HP не исполнялась.
+
+## Дополнение: исправление оставшихся CI-блокеров
+
+Сам release executable и четыре guard-минимума не ослаблялись. Пример config
+закрепляет новые source HEAD #6/#7, сохраняет `approved=false` и неизвестный
+существующий keystore/certificate. Добавлены **2** лёгкие scope-регрессии,
+исполненные в Cloud (0.029 s), отдельно от прежних 50 orchestration checks.
+Они проверяют отсутствие signing/self-hosted/registry мутаций на review refs и
+наличие обычных E2E checks #7/#8. Workflow теперь запускает оба набора: новый
+GitHub результат проверяется после публикации; не объявляется заранее PASS.
+
+Обязательные backend/mobile проверки не исполнялись на HP. Новые синтетические
+filesystem/PG cases находятся в `authorized-deletion.spec.ts`; metadata unit
+и настоящий browser E2E сохраняют проверку ручного тега после sidecar round-trip.
+До новых результатов эти cases не считаются PASS по старому прогону.

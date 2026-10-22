@@ -1,0 +1,89 @@
+# FOTO Build 17 — исправление оставшихся CI-блокеров
+
+Продолжение от PR6 `5e84b5132427624d926abe28fad788d89ed2431c`, PR7
+`c79c843b9b5efdc3620c1e026ec06edcfe4d8294`, PR8
+`7713ba765edb0994a905fd01a49c3bc9a67f65fa`. Изменения сохраняются небольшими
+коммитами в соответствующих ветках, обычный push с проверкой old remote SHA.
+Acceptance2364 и все 16 коммитов уже находились в PR7; повторного переноса нет.
+Unified/HP/production/БД/Redis/NAS/VPN/ключи/APK/существующие images не менялись.
+
+**На момент записи новые CI ещё выполняются; READY не заявляется заранее.**
+Финальные статусы и ссылки добавляются в PR comments после завершения, без
+повторного запуска успешно завершённых тяжёлых suites из-за одного отчёта.
+
+## Разбор исходных красных jobs
+
+| Проверка                                      | Причина / классификация                                                                                        | Исправление и границы                                                                                                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API: exclusive uploaded Live Photo returns409 | Реальный дефект admission: companion внутри bound Upload всё равно проверялся как SSD-generated                | После проверки DB-связи/owner/library/exclusive references используется уже разрешённый root. Новый SSD root не добавляется, snapshot/mount/inode/TOCTOU/revocation проверки сохранены. 2 новые medium filesystem/PG cases, managed+external |
+| API: shared motion returns409                 | Устаревший upstream test против явно принятой fail-closed fork-policy; существующий medium test требует отказа | Runtime guard не меняется. HTTP test проверяет отказ, сохранность обоих still/общего motion, ссылок и читаемых original bytes. Это документированное исключение политики, не разрешение удалять общий файл                                   |
+| API: quota response                           | Stale exact response fixture, не ошибка used quota                                                             | DTO уже объявляет additive nullable duplicateId; тест требует explicit null и сохраняет проверки201/quota. Дедупликация не меняется                                                                                                          |
+| API: server/features                          | Stale fixture двух существующих flags                                                                          | Exact response дополнен authorizedDeletion/ownerStorageDeletion. Объявление capabilities/runtime не меняется                                                                                                                                 |
+| API: offline empty/restore                    | Stale expectations смешивали external index invalidation с пользовательским Trash                              | Требуется isOffline=true, isTrashed=false до/после Empty/Restore; чтение synthetic original сохраняется. Не создаётся owner deletion intent                                                                                                  |
+| Web: reopen-tag missing                       | Реальный metadata bug: XMP не регистрировался при уже существующем thumbnail/preview                           | handleSidecarWrite проверяет отсутствие sidecarFile, а не пустоту всех files. 3 unit cases: thumbnail/preview/encoded video. Browser assertion сохранён; добавлены API preconditions и завершение sidecar/metadata queues                    |
+| Server format/lint                            | Наследованные import order / formatting / Unicorn errors                                                       | Целевые style fixes; recovery counts теперь требуют safe integer (строже). Нет отключения правил или ослабления proof                                                                                                                        |
+| ShellCheck                                    | 5 legacy scripts: intended child expansion и masking/status/mkdir warnings                                     | Quoted heredoc сохраняет literal child script; assignment/export раздельно; trap status объявлен; новые output directories создаются с umask077. Ни один diagnostic/deploy script не запускался                                              |
+| Upstream workflow tooling                     | Pilot flutter build появлялся до branding marker                                                               | Реальный branding step до pilot build, с сохранением source version/build. Validator не ослаблен, APK/pilot не запускались                                                                                                                   |
+| SQL schema #6/#8                              | Генератор предлагал удалить два migration-owned UPDATE OF guards, отсутствующих в code metadata                | Explicit @Trigger synchronize=false сохраняет точный immutable DDL; нет новой миграции и нет DROP guards                                                                                                                                     |
+| SQL golden #6/#8                              | 4 generated queries устарели относительно существующего source                                                 | Обновлены по фактическому CI git diff; patch применён с git apply --check. Это snapshots, не выполнение SQL на production                                                                                                                    |
+| OpenAPI #6/#8                                 | Generator output не форматировался; JSON полностью равен по данным                                             | Взяты существующие formatter recipes из PR7 и SDK config. Не заменяются schemas/contracts; semantic JSON equality VERIFIED по реальному generated artifact                                                                                   |
+| Publishing/signing cancellations              | Source-review refs отсутствовали в старом guard allowlist; возможен запуск self-hosted mich                    | Ограничения source review распространены на актуальные refs. E2E #7/#8 остаются включены (2 scope tests). Скipped publishing не считается runtime/build PASS                                                                                 |
+| Доступ к отдельным Actions logs               | Часть signed log URLs указывает на запрещённый policy host                                                     | Использованы официальные full-run ZIP/артефакты и доступные job logs; network policy не менялась, приватные download URLs не публикуются                                                                                                     |
+
+## Доказательства и промежуточные ошибки
+
+- Исходные failures взяты из завершённых runs39846822015 (PR7),39669332218
+  (PR6),39848333021 (PR8), не предположены из названия job.
+- Генерация PR6 run39872536914, artifact12467630026 содержит только OpenAPI JSON
+  и SDK; artifact привязан к PR head61678 через workflow, имя содержит GitHub
+  merge-ref SHA422d083496e100497ace69e84176af2d1f91bebd. JSON deep equality с
+  source — true. Mass replacement generated JSON не выполнялся.
+- SQL этого же run прошёл migrations/schema; затем сообщил stale
+  asset.job.repository.sql, asset.repository.sql, memory.repository.sql,
+  sync.repository.sql. Полный реальный diff497 lines сохранён в Cloud и применён
+  только к этим generated paths. Не выдан за выполнение production миграции.
+- Промежуточный e0af3 на #6 обнаружил мои пропущенные imports Trigger/function;
+  исправлены. Новый filesystem test первоначально читал files через status helper,
+  который их не возвращает; исправлен на typed query в disposable test DB.
+  Неудачные/отменённые прогоны сохранены в Actions, не посчитаны успешными.
+- Старые 3447/5017/6468 и 50 release PASS остаются historical evidence соответствующих
+  SHA. Свежие PASS нового HEAD фиксируются только после завершения новых CI.
+- Отменяются только superseded runs моих промежуточных heads, чтобы не тратить
+  runner slots; актуальные обязательные checks не отменяются и не пропускаются.
+
+## Согласованная локальная интеграция
+
+Проверяемые candidates: #6 `97377d908a275d3057c5cabdb2b0bf262c7e8dfe`, #7
+`e9bcf4ed7c2cadb90807c3801c1e2f06bf67dc90`, release code
+`ba84d19db42d3231caf6bb98804ef6960b94c5d6` (затем только документация).
+Git merge-tree #6+#7: tree9eb5d75b69fdbd833839d703b3592b437d96ec77,
+0 conflicts. С release code до обновления config/workflow:
+tree7b65d93835abece4ae163a0f6868e153c03b794e,0 conflicts.
+
+Guard annotations согласованы без переноса acceptance или feature-мержей:
+common migration-owned guard отделён от дополнительных catalog annotations.
+@Trigger с functionName эквивалентен тонкому upstream @TriggerFunction wrapper;
+условия/timing/actions/functions и immutable migration DDL сохранены. SQL CI нового
+HEAD обязан подтвердить отсутствие drift. Merge-tree не создаёт merge в ветке,
+не выполняет runtime и не заменяет приёмку клиентов.
+
+## Совместимость и безопасность
+
+Пинованные Immich3.3.5/Noodle5.8.0/FOTO contracts и acceptance MemoryV2 journal,
+ACK/SQLite crash-retry не менялись. Изменения backend не модифицируют оригинальные
+клиенты, редактор, Flutter sync или mobile backup. Legacy/signed recovery-proof,
+owner revocation, shared-file refusal, NFS identity, symlink/path guards сохранены.
+
+Физические Android/iOS, PhotoKit/iCloud/background/Live Photos/HEIC, stock Web,
+настоящий Synology и AI inference E2E — **NOT VERIFIED**. Тесты CI используют
+синтетические файлы, isolated PostgreSQL/Redis; это не production validation.
+Подписанный APK, HP builder, backup/rollback требуют отдельной локальной приёмки.
+Никакой skip publishing или PASS unit не объявляет эти требования выполненными.
+
+## Следующий безопасный шаг
+
+После нового CI: взять точные опубликованные SHA. Для HP пока только
+[versioned установка и --check](../../tools/foto-automation/FOTO_BUILD17_RELEASE.md#установка-инструмента-doctoriceadm-без-изменения-исходного-checkout).
+Config unapproved, старые state/history/keys/worktrees/cache сохраняются.
+Prepare/test/build/deployment не запускались и не следуют автоматически из check.
+При красном/неизвестном CI конвейер обязан блокировать интеграцию.
