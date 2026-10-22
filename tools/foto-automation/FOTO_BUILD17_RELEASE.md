@@ -17,12 +17,19 @@ launcher, systemd units, канонические progress/pending/manifest не
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске |
 | Редактор              | PR #6, `codex/foto-build17-editor-compact`, `5e84b5132427624d926abe28fad788d89ed2431c` | OPEN, незелёный CI             |
 | Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede`  | OPEN, незелёный CI             |
-| Код инструмента       | `codex/foto-build17-release`, `58cf4dbd8e04fc46d79e34761e4ec16214c91540`               | 44 локальные проверки PASS     |
+| Код инструмента       | `codex/foto-build17-release`, `6a71b5abe532a0e2741987a15c9614f3c6dd13d5`               | 47 локальных проверок PASS     |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **Сейчас запуск
 интеграции этих PR должен быть заблокирован.** Инструмент не исправляет их красный
 CI и не предлагает обход. Таблица — snapshot, не замена новым запросам GitHub.
+
+Обязательные CI jobs заданы отдельно для editor и compatibility: редактору нужны
+mobile checks, совместимости — также server/medium/OpenAPI/schema/migration checks.
+Минимальный набор нельзя убрать через config. Необязательный skipped job не
+считается тестом; любой красный, отменённый, незавершённый или неизвестный job
+блокирует допуск обоих PR. Проверка собственного rootless endpoint повторяется
+непосредственно перед запросами builder/image, включая повторный запуск.
 
 ## Установка инструмента (doctoriceadm, без изменения исходного checkout)
 
@@ -34,8 +41,8 @@ CI и не предлагает обход. Таблица — snapshot, не з
 ```bash
 set -euo pipefail
 REPO=/mnt/hp-data/codex-work/foto-build17-integration-review
-TOOLS_SHA=58cf4dbd8e04fc46d79e34761e4ec16214c91540
-TOOL_WT=/mnt/hp-data/codex-work/foto-build17-release-tools-58cf4dbd8
+TOOLS_SHA=6a71b5abe532a0e2741987a15c9614f3c6dd13d5
+TOOL_WT=/mnt/hp-data/codex-work/foto-build17-release-tools-6a71b5abe
 INSTALL=/usr/local/lib/foto-build17-release/$TOOLS_SHA
 CFG=/mnt/hp-data/codex-home/foto-build17-release.json
 
@@ -62,7 +69,7 @@ sudo -u codex-gallery -H "$INSTALL/foto-build17-release" --config "$CFG" --check
 ```
 
 Проверенный SHA-256 исполняемого файла:
-`ffd4c51db19927472da96beff38f86d904d5ac2f17bf4d893f9f8e320628933b`.
+`6ede81d838d43e35601f400a72de22ead950a00bb4dc98612c4c83d6aff66d3b`.
 Сравнение можно выполнить обычным `sha256sum` после копирования. Инструкция
 закреплена на code commit, последующие documentation commits её не меняют.
 
@@ -109,7 +116,7 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/58cf4dbd8e04fc46d79e34761e4ec16214c91540/foto-build17-release
+R=/usr/local/lib/foto-build17-release/6a71b5abe532a0e2741987a15c9614f3c6dd13d5/foto-build17-release
 C=/mnt/hp-data/codex-home/foto-build17-release.json
 "$R" --config "$C" --check
 ```
@@ -182,7 +189,7 @@ DB/Redis/Immich env не передаются тестам. Выполнение
 | STAGE_FAILED_*_EXIT_137 / DeadlineExceeded в логе         | Не перезапускать циклически. Проверить private log, memory/cgroup и builder status/history через check; определить причину. Лимиты/кеш/builder инструмент не меняет. |
 | BUILDKIT_ACTIVE / BUILDER_UNHEALTHY / HISTORY_UNAVAILABLE | Проверить существующий builder; никаких автоматических restart/bootstrap/create/prune.                                                                               |
 | UNSEALED_IMAGE_TAG_EXISTS                                 | Образ без завершённого receipt не перезаписывается и автоматически не объявляется успешной сборкой. Сохранить его для отдельной проверки.                            |
-| STAGE__*CHANGED / CORRUPT*_                               | Сохранить повреждённое состояние. Не править PASS вручную; новая проверенная интеграция/state.                                                                       |
+| STAGE___CHANGED / CORRUPT__                               | Сохранить повреждённое состояние. Не править PASS вручную; новая проверенная интеграция/state.                                                                       |
 | SIGNING / APK_CERTIFICATE / PACKAGE_OR_VERSION            | Проверить существующие ключ/свойства/public pin/toolchain; новый ключ/debug-signature не принимаются.                                                                |
 
 После **фактической** диагностики разрешена одна попытка выбранного режима:

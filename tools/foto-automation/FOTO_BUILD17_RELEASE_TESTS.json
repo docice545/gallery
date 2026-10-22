@@ -3,8 +3,8 @@
   "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
   "existingAutomationFilesModified": false,
   "failed": 0,
-  "log": "/tmp/foto-build17-release-tests-final-44.log",
-  "logSHA256": "0031f708683f1c34dee7d1fc77ba45fb788906c623b5b47ad239b82ade3bc615",
+  "log": "/tmp/foto-build17-release-tests-final-47.log",
+  "logSHA256": "3dde149e35a8eaf7c7b24848e17ebc5840dfd1cf31a5d276e0a528f133744633",
   "mocked": [
     "GitHub PR/CI",
     "Docker/BuildKit",
@@ -19,7 +19,7 @@
     "Synology",
     "AI E2E"
   ],
-  "passed": 44,
+  "passed": 47,
   "python": "3.12.14",
   "realFixtures": [
     "temporary Git repositories/worktrees/merges/conflicts",
@@ -27,8 +27,8 @@
     "Linux child TERM"
   ],
   "schema": 1,
-  "scriptSHA256": "ffd4c51db19927472da96beff38f86d904d5ac2f17bf4d893f9f8e320628933b",
-  "seconds": 7.692,
+  "scriptSHA256": "6ede81d838d43e35601f400a72de22ead950a00bb4dc98612c4c83d6aff66d3b",
+  "seconds": 7.781,
   "testCommand": "python3 -m unittest discover -s tools/foto-automation/tests -p test_build17_release.py -v",
-  "testedCommit": "58cf4dbd8e04fc46d79e34761e4ec16214c91540"
+  "testedCommit": "6a71b5abe532a0e2741987a15c9614f3c6dd13d5"
 }

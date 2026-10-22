@@ -1,6 +1,6 @@
 # Испытания foto-build17-release
 
-Дата: 22.10.2026. Код: `58cf4dbd8e04fc46d79e34761e4ec16214c91540`.
+Дата: 22.10.2026. Код: `6a71b5abe532a0e2741987a15c9614f3c6dd13d5`.
 Cloud, **не HP**. Production/NAS/реальные медиа не использованы.
 
 ```bash
@@ -8,8 +8,8 @@ python3 -m unittest discover -s tools/foto-automation/tests -p test_build17_rele
 python3 -m py_compile tools/foto-automation/foto-build17-release tools/foto-automation/tests/test_build17_release.py
 ```
 
-Итог: **44/44 PASS**, 7.692 s. Python syntax и git diff check: PASS.
-Лог запуска: `/tmp/foto-build17-release-tests-final-44.log` в Cloud. Число относится
+Итог: **47/47 PASS**, 7.781 s. Python syntax и git diff check: PASS.
+Лог запуска: `/tmp/foto-build17-release-tests-final-47.log` в Cloud. Число относится
 только к orchestration tests, не к backend/mobile тестам внутри будущего конвейера.
 Новый workflow `.github/workflows/foto-build17-release.yml` повторяет этот
 изолированный suite без Docker, Android SDK, моделей или HP.
@@ -24,6 +24,7 @@ python3 -m py_compile tools/foto-automation/foto-build17-release tools/foto-auto
 | Отсутствующий/draft/closed/unapproved PR                    | Mock GitHub; не принимается                                                 | PASS (mock)                  |
 | Другой owner repo/base/head / fetched SHA                   | Mock GitHub/fetch boundary + настоящие local refs                           | PASS                         |
 | Красный/пустой/pending/cancelled CI                         | Mock GitHub gates; required checks не допускают skip                        | PASS (mock)                  |
+| Required CI по ролям PR, запрет удаления обязательного job  | Mock GitHub + настоящий config; editor не требует неизменённый server job   | PASS (mock)                  |
 | Параллельный release и FOTO stage                           | Настоящий flock на temporary files                                          | PASS                         |
 | Активный Codex                                              | Mock process inventory, запуск блокируется                                  | PASS (mock)                  |
 | Повреждённый checkpoint / изменённый config                 | Реальные private JSON и immutable snapshots                                 | PASS                         |
@@ -37,6 +38,7 @@ python3 -m py_compile tools/foto-automation/foto-build17-release tools/foto-auto
 | Неверная/debug подпись, package/version                     | Synthetic zip, mock apksigner/aapt output; отказ                            | PASS (mock)                  |
 | Несоответствие image source                                 | Mock Docker image metadata; отказ                                           | PASS (mock)                  |
 | Чужой Docker endpoint                                       | Mock context; запрос к daemon не отправляется                               | PASS (mock)                  |
+| Повторная проверка endpoint в builder/image helpers         | Mock context после предыдущего этапа; ни одного daemon query                | PASS (mock)                  |
 | Память/parallelism/активная история builder                 | Mock Docker/tar config/history; отказ, без изменения builder                | PASS (mock)                  |
 | Versioned copy, повтор, подмена                             | Настоящее копирование synthetic bytes, atomic publish, 0644                 | PASS                         |
 | Неверный delivery user                                      | Отказ без sudo/escalation                                                   | PASS                         |
@@ -49,7 +51,7 @@ python3 -m py_compile tools/foto-automation/foto-build17-release tools/foto-auto
 
 Сохранённые development runs: первые 33 проверки прошли; при добавлении новых
 кейсов был один дефект размещения кода в самом тесте (38-case run: 1 error), он
-исправлен восстановлением assertions, затем 38/40/41/42-case runs PASS; новый recipe assertion в 43/44-case run ошибочно считал single-package `pnpm run build` параллельным. Исправлена область assertion, итоговый 44-case run PASS. Эти counts
+исправлен восстановлением assertions, затем 38/40/41/42-case runs PASS; новый recipe assertion в 43/44-case run ошибочно считал single-package `pnpm run build` параллельным. Исправлена область assertion, 44-case run PASS. После добавления role-scoped CI и повторной проверки Docker endpoint итоговый 47-case run PASS. Эти counts
 не складываются. Обработка OOM 137 — fault injection, не доказательство реального
 устранения OOM на HP. Локальные Git-тесты не выданы за GitHub или Android E2E.
 
