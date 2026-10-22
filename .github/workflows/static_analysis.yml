@@ -6,6 +6,10 @@ on:
         description: 'Run only changed backend ACK contracts and regenerate their artifacts'
         type: boolean
         default: false
+      retry_cancellation_tests:
+        description: 'Acceptance retry: only the two failed cancellation tests; retain prior passing sync/journal evidence'
+        type: boolean
+        default: false
   pull_request:
   push:
     branches: [main, 'release/*']
@@ -75,11 +79,17 @@ jobs:
         run: mise //mobile:analyze
 
       - name: Changed sync service and durable V2 journal regressions (manual acceptance)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.retry_cancellation_tests
         run: >-
           flutter test --no-pub --concurrency=1
           test/domain/services/sync_stream_service_test.dart
           test/infrastructure/repositories/memory_v2_journal_test.dart
+
+      - name: Previously failed cancellation regressions only
+        if: github.event_name == 'workflow_dispatch' && inputs.retry_cancellation_tests
+        run: >-
+          flutter test --no-pub --concurrency=1 --plain-name 'aborts and stops processing if cancelled'
+          test/domain/services/sync_stream_service_test.dart
 
       - name: Existing V1 memory-link behavior (changed delete path)
         if: github.event_name == 'workflow_dispatch'

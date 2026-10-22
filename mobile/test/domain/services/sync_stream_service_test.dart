@@ -666,7 +666,9 @@ void main() {
 
       verify(() => mockAbortCallbackWrapper()).called(1);
 
-      verify(() => mockSyncApiRepo.ack(["2"])).called(1);
+      // Cancellation after the handler must leave the checkpoint available for
+      // replay; successful persistence alone must not send through an aborted session.
+      verifyNever(() => mockSyncApiRepo.ack(any()));
     });
 
     test("aborts and stops processing if cancelled before processing batch", () async {
@@ -713,7 +715,7 @@ void main() {
 
       verifyNever(() => mockSyncStreamRepo.updateUsersV1(any()));
 
-      verify(() => mockSyncApiRepo.ack(["2"])).called(1);
+      verifyNever(() => mockSyncApiRepo.ack(any()));
     });
 
     test("processes memory sync events successfully", () async {
