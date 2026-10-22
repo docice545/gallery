@@ -24,6 +24,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Create err-ignore file
+        run: |
+          cat > /tmp/err-ignore.txt << 'EOL'
+          enum-value-added:SyncEntityType/AssetFaceV3
+          enum-value-added:SyncEntityType/AssetFavoriteV1
+          enum-value-added:SyncEntityType/AssetFavoriteDeleteV1
+          enum-value-added:SyncEntityType/AuthUserV2
+          enum-value-added:SyncEntityType/MemoryV2
+          enum-value-added:SyncEntityType/MemoryToAssetV2
+          enum-value-added:QueueJobType/AssetDeleteBatch
+          EOL
+
       - name: Check for breaking API changes
         uses: oasdiff/oasdiff-action/breaking@9c0494cfee8b8fcc9fb383ed2d5d3fbdae169b93 # v0.1.15
         with:
@@ -31,7 +43,7 @@ jobs:
           revision: open-api/immich-openapi-specs.json
           fail-on: ERR
           review: false
-          err-ignore: "enum-value-added:SyncEntityType/AssetFaceV3,enum-value-added:SyncEntityType/AssetFavoriteV1,enum-value-added:SyncEntityType/AssetFavoriteDeleteV1,enum-value-added:SyncEntityType/AuthUserV2,enum-value-added:SyncEntityType/MemoryV2,enum-value-added:SyncEntityType/MemoryToAssetV2,enum-value-added:QueueJobType/AssetDeleteBatch"
+          err-ignore-file: /tmp/err-ignore.txt
 
   check-mobile-patches:
     runs-on: ubuntu-latest
