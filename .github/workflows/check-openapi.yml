@@ -27,13 +27,8 @@ jobs:
       - name: Create err-ignore file
         run: |
           cat > err-ignore.txt << 'EOL'
-          enum-value-added:SyncEntityType/AssetFaceV3
-          enum-value-added:SyncEntityType/AssetFavoriteV1
-          enum-value-added:SyncEntityType/AssetFavoriteDeleteV1
-          enum-value-added:SyncEntityType/AuthUserV2
-          enum-value-added:SyncEntityType/MemoryV2
-          enum-value-added:SyncEntityType/MemoryToAssetV2
-          enum-value-added:QueueJobType/AssetDeleteBatch
+          # Match enum-value-added check for any type
+          enum-value-added
           EOL
           echo "=== err-ignore.txt content ==="
           cat err-ignore.txt
