@@ -2,11 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  createRecoveryProof,
-  type RecoveryEvidence,
-  verifyRecoveryProof,
-} from 'src/utils/recovery-evidence.js';
+import { createRecoveryProof, type RecoveryEvidence, verifyRecoveryProof } from 'src/utils/recovery-evidence.js';
 
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 

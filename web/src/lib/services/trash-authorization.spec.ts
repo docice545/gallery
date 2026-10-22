@@ -22,7 +22,7 @@ describe('Empty Trash scope authorization', () => {
       { scope: 'managed', count: 12, authorized: true },
       { scope: 'external', count: 3, authorized: false },
     ]);
-    await handleEmptyTrash(async () => [{ id: 'asset-1' } as never], vi.fn());
+    await handleEmptyTrash(() => Promise.resolve([{ id: 'asset-1' } as never]), vi.fn());
     expect(deleteAssets).not.toHaveBeenCalled();
     expect(toastManager.primary).toHaveBeenCalledWith(expect.stringContaining('external_deletion_blocked'));
   });
@@ -30,13 +30,13 @@ describe('Empty Trash scope authorization', () => {
     vi.mocked(deletionScopes).mockResolvedValue([{ scope: 'managed', count: 12, authorized: true }]);
     vi.mocked(deleteAssets).mockResolvedValue(true);
     const remove = vi.fn();
-    await handleEmptyTrash(async () => [{ id: 'asset-1' } as never], remove);
+    await handleEmptyTrash(() => Promise.resolve([{ id: 'asset-1' } as never]), remove);
     expect(deleteAssets).toHaveBeenCalledWith(true, remove, [{ id: 'asset-1' }]);
   });
 
   it('does not submit a mutation for an empty owner-scoped snapshot', async () => {
     vi.mocked(deletionScopes).mockResolvedValue([]);
-    await handleEmptyTrash(async () => [], vi.fn());
+    await handleEmptyTrash(() => Promise.resolve([]), vi.fn());
     expect(deleteAssets).not.toHaveBeenCalled();
     expect(toastManager.primary).toHaveBeenCalledWith(expect.stringContaining('assets_permanently_deleted_count'));
   });
