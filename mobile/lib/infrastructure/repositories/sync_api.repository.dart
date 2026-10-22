@@ -21,9 +21,7 @@ class SyncApiRepository {
   }
 
   Future<void> deleteSyncAck(List<SyncEntityType> types) {
-    return _api.syncApi.deleteSyncAck(
-      SyncAckDeleteDto(types: Optional.present(types)),
-    );
+    return _api.syncApi.deleteSyncAck(SyncAckDeleteDto(types: Optional.present(types)));
   }
 
   /// Core sync types introduced after capability signalling (M14). These must ONLY be sent
@@ -57,14 +55,10 @@ class SyncApiRepository {
   /// fallback, because no pre-declaration server can accept a type that didn't exist yet when
   /// its SyncRequestTypeSchema was built. A future type in this situation must join only this
   /// list, never `_legacySpaceAlbumSyncTypes`.
-  static const _spaceAlbumSyncTypes = [
-    ..._legacySpaceAlbumSyncTypes,
-    SyncRequestType.sharedSpaceAlbumFoldersV1,
-  ];
+  static const _spaceAlbumSyncTypes = [..._legacySpaceAlbumSyncTypes, SyncRequestType.sharedSpaceAlbumFoldersV1];
 
   Future<void> streamChanges(
-    Future<void> Function(List<SyncEvent>, Function() abort, Function() reset)
-    onData, {
+    Future<void> Function(List<SyncEvent>, Function() abort, Function() reset) onData, {
     required SemVer serverVersion,
     Set<String>? supportedSyncTypes,
     Function()? onReset,
@@ -76,16 +70,9 @@ class SyncApiRepository {
     final client = httpClient ?? NetworkRepository.client;
     final endpoint = "${_api.apiClient.basePath}/sync/stream";
 
-    final headers = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/jsonlines+json',
-    };
+    final headers = {'Content-Type': 'application/json', 'Accept': 'application/jsonlines+json'};
 
-    final request = http.AbortableRequest(
-      'POST',
-      Uri.parse(endpoint),
-      abortTrigger: abortSignal,
-    );
+    final request = http.AbortableRequest('POST', Uri.parse(endpoint), abortTrigger: abortSignal);
     request.headers.addAll(headers);
     // Pre-compute the space-album sync types so they can be spread conditionally
     // inside a collection literal (collection-if allows only one expression).
@@ -103,24 +90,16 @@ class SyncApiRepository {
         types: [
           SyncRequestType.authUsersV1,
           SyncRequestType.usersV1,
-          serverVersion.supports(.syncV2)
-              ? SyncRequestType.assetsV2
-              : SyncRequestType.assetsV1,
+          serverVersion.supports(.syncV2) ? SyncRequestType.assetsV2 : SyncRequestType.assetsV1,
           SyncRequestType.assetExifsV1,
           if (serverVersion.supports(.assetEdits)) SyncRequestType.assetEditsV1,
           SyncRequestType.assetMetadataV1,
           SyncRequestType.partnersV1,
-          serverVersion.supports(.syncV2)
-              ? SyncRequestType.partnerAssetsV2
-              : SyncRequestType.partnerAssetsV1,
+          serverVersion.supports(.syncV2) ? SyncRequestType.partnerAssetsV2 : SyncRequestType.partnerAssetsV1,
           SyncRequestType.partnerAssetExifsV1,
-          serverVersion.supports(.syncV2)
-              ? SyncRequestType.albumsV2
-              : SyncRequestType.albumsV1,
+          serverVersion.supports(.syncV2) ? SyncRequestType.albumsV2 : SyncRequestType.albumsV1,
           SyncRequestType.albumUsersV1,
-          serverVersion.supports(.syncV2)
-              ? SyncRequestType.albumAssetsV2
-              : SyncRequestType.albumAssetsV1,
+          serverVersion.supports(.syncV2) ? SyncRequestType.albumAssetsV2 : SyncRequestType.albumAssetsV1,
           SyncRequestType.albumAssetExifsV1,
           SyncRequestType.albumToAssetsV1,
           SyncRequestType.memoriesV1,
@@ -217,10 +196,7 @@ class SyncApiRepository {
 
       if (response.statusCode != 200) {
         final errorBody = await response.stream.bytesToString();
-        throw ApiException(
-          response.statusCode,
-          'Failed to get sync stream: $errorBody',
-        );
+        throw ApiException(response.statusCode, 'Failed to get sync stream: $errorBody');
       }
 
       await for (final chunk in response.stream.transform(utf8.decoder)) {
@@ -248,9 +224,7 @@ class SyncApiRepository {
       return Future.error(error, stack);
     }
     stopwatch.stop();
-    _logger.info(
-      "Remote Sync completed in ${stopwatch.elapsed.inMilliseconds}ms",
-    );
+    _logger.info("Remote Sync completed in ${stopwatch.elapsed.inMilliseconds}ms");
   }
 
   List<SyncEvent> _parseLines(List<String> lines) {
@@ -339,8 +313,7 @@ const _kResponseMap = <SyncEntityType, Function(Object)>{
   SyncEntityType.sharedSpaceDeleteV1: SyncSharedSpaceDeleteV1.fromJson,
   SyncEntityType.sharedSpaceMemberV1: SyncSharedSpaceMemberV1.fromJson,
   SyncEntityType.sharedSpaceMemberBackfillV1: SyncSharedSpaceMemberV1.fromJson,
-  SyncEntityType.sharedSpaceMemberDeleteV1:
-      SyncSharedSpaceMemberDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceMemberDeleteV1: SyncSharedSpaceMemberDeleteV1.fromJson,
   SyncEntityType.sharedSpaceAssetCreateV1: SyncAssetV1.fromJson,
   SyncEntityType.sharedSpaceAssetUpdateV1: SyncAssetV1.fromJson,
   SyncEntityType.sharedSpaceAssetBackfillV1: SyncAssetV1.fromJson,
@@ -348,10 +321,8 @@ const _kResponseMap = <SyncEntityType, Function(Object)>{
   SyncEntityType.sharedSpaceAssetExifUpdateV1: SyncAssetExifV1.fromJson,
   SyncEntityType.sharedSpaceAssetExifBackfillV1: SyncAssetExifV1.fromJson,
   SyncEntityType.sharedSpaceToAssetV1: SyncSharedSpaceToAssetV1.fromJson,
-  SyncEntityType.sharedSpaceToAssetBackfillV1:
-      SyncSharedSpaceToAssetV1.fromJson,
-  SyncEntityType.sharedSpaceToAssetDeleteV1:
-      SyncSharedSpaceToAssetDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceToAssetBackfillV1: SyncSharedSpaceToAssetV1.fromJson,
+  SyncEntityType.sharedSpaceToAssetDeleteV1: SyncSharedSpaceToAssetDeleteV1.fromJson,
   // --- gallery-fork: library sync types ---
   SyncEntityType.libraryV1: SyncLibraryV1.fromJson,
   SyncEntityType.libraryDeleteV1: SyncLibraryDeleteV1.fromJson,
@@ -361,29 +332,21 @@ const _kResponseMap = <SyncEntityType, Function(Object)>{
   SyncEntityType.libraryAssetExifCreateV1: SyncAssetExifV1.fromJson,
   SyncEntityType.libraryAssetExifBackfillV1: SyncAssetExifV1.fromJson,
   SyncEntityType.sharedSpaceLibraryV1: SyncSharedSpaceLibraryV1.fromJson,
-  SyncEntityType.sharedSpaceLibraryBackfillV1:
-      SyncSharedSpaceLibraryV1.fromJson,
-  SyncEntityType.sharedSpaceLibraryDeleteV1:
-      SyncSharedSpaceLibraryDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceLibraryBackfillV1: SyncSharedSpaceLibraryV1.fromJson,
+  SyncEntityType.sharedSpaceLibraryDeleteV1: SyncSharedSpaceLibraryDeleteV1.fromJson,
   // --- gallery-fork: shared-space album sync types (Phase 2B) ---
   SyncEntityType.sharedSpaceAlbumV1: SyncAlbumV2.fromJson,
   SyncEntityType.sharedSpaceAlbumBackfillV1: SyncAlbumV2.fromJson,
   SyncEntityType.sharedSpaceAlbumDeleteV1: SyncAlbumDeleteV1.fromJson,
   SyncEntityType.sharedSpaceAlbumLinkV1: SyncSharedSpaceAlbumLinkV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumLinkBackfillV1:
-      SyncSharedSpaceAlbumLinkV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumLinkDeleteV1:
-      SyncSharedSpaceAlbumLinkDeleteV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumFolderV1:
-      SyncSharedSpaceAlbumFolderV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumFolderBackfillV1:
-      SyncSharedSpaceAlbumFolderV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumFolderDeleteV1:
-      SyncSharedSpaceAlbumFolderDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumLinkBackfillV1: SyncSharedSpaceAlbumLinkV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumLinkDeleteV1: SyncSharedSpaceAlbumLinkDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumFolderV1: SyncSharedSpaceAlbumFolderV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumFolderBackfillV1: SyncSharedSpaceAlbumFolderV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumFolderDeleteV1: SyncSharedSpaceAlbumFolderDeleteV1.fromJson,
   SyncEntityType.sharedSpaceAlbumToAssetV1: SyncAlbumToAssetV1.fromJson,
   SyncEntityType.sharedSpaceAlbumToAssetBackfillV1: SyncAlbumToAssetV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumToAssetDeleteV1:
-      SyncAlbumToAssetDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumToAssetDeleteV1: SyncAlbumToAssetDeleteV1.fromJson,
   SyncEntityType.sharedSpaceAlbumAssetCreateV1: SyncAssetV2.fromJson,
   SyncEntityType.sharedSpaceAlbumAssetUpdateV1: SyncAssetV2.fromJson,
   SyncEntityType.sharedSpaceAlbumAssetBackfillV1: SyncAssetV2.fromJson,
@@ -391,12 +354,9 @@ const _kResponseMap = <SyncEntityType, Function(Object)>{
   SyncEntityType.sharedSpaceAlbumAssetExifUpdateV1: SyncAssetExifV1.fromJson,
   SyncEntityType.sharedSpaceAlbumAssetExifBackfillV1: SyncAssetExifV1.fromJson,
   // gallery-fork (#1041): per-member "hidden from my timeline" album rows.
-  SyncEntityType.sharedSpaceAlbumHiddenV1:
-      SyncSharedSpaceAlbumHiddenV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumHiddenBackfillV1:
-      SyncSharedSpaceAlbumHiddenV1.fromJson,
-  SyncEntityType.sharedSpaceAlbumHiddenDeleteV1:
-      SyncSharedSpaceAlbumHiddenDeleteV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumHiddenV1: SyncSharedSpaceAlbumHiddenV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumHiddenBackfillV1: SyncSharedSpaceAlbumHiddenV1.fromJson,
+  SyncEntityType.sharedSpaceAlbumHiddenDeleteV1: SyncSharedSpaceAlbumHiddenDeleteV1.fromJson,
   // --- gallery-fork: v2 sync types (previously unhandled) ---
   SyncEntityType.authUserV2: SyncAuthUserV2.fromJson,
   SyncEntityType.memoryV2: SyncMemoryV2.fromJson,
