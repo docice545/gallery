@@ -1,4 +1,5 @@
 {
+  "additionalFixtureCommit": "3021cbff08bcb59867d6547ffa9cd58fccbdb8aa",
   "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
   "finalCodeChecks": [
     {
@@ -18,6 +19,19 @@
       "exit": 0
     }
   ],
+  "githubCI": {
+    "baseUnchangedFormatFailures": [
+      "server/src/schema/migrations-gallery/1793400000000-FixMemoryCandidateSchema.ts",
+      "server/src/utils/recovery-evidence.spec.ts"
+    ],
+    "changelogLabel": "changelog:enhancement added",
+    "imageAndMobileBuildRuns": "Cancelled because outside task scope",
+    "initialHead": "d82dc7bc5989418d4fb66c9c4592cf1482ac21f1",
+    "mediumFixtureFailure": "Corrected explicit favorites repository wiring; two files passed and stack file passed after focused rerun. Full CI rerun not asserted.",
+    "openapiGate": "FAIL: response enum additions; gate compares main rather than PR base. No rule disabled.",
+    "overall": "NOT GREEN",
+    "shellcheckAndDart": "FAIL; exact cause NOT VERIFIED: annotations contain only exit status, full logs Forbidden"
+  },
   "isolatedSharedSpaceRerun": {
     "exit": 0,
     "failed": 0,
@@ -229,6 +243,21 @@
         "Test Files  1 failed | 1 passed (2)",
         "Tests  1 failed | 76 passed (77)"
       ]
+    },
+    {
+      "log": "foto-compat-ci-service-fixtures-medium.log",
+      "passedRun": false,
+      "sha256": "cb3f62b53304319f735ba0704afcff599d6f55d4b2505954a7307b6cdc84541b",
+      "summary": [
+        "Test Files  1 failed | 2 passed (3)",
+        "Tests  1 failed | 63 passed (64)"
+      ]
+    },
+    {
+      "log": "foto-compat-ci-stack-fixture-medium-final.log",
+      "passedRun": true,
+      "sha256": "e2053c607f064aeaf840ec4ca4992c33aee72d8ecd9ccacf929eb9ea79f2daa2",
+      "summary": ["Test Files  1 passed (1)", "Tests  8 passed (8)"]
     }
   ],
   "testedCodeCommit": "57006e191fb0f167d1211d977d9ab8ea15f87d8e",

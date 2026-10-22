@@ -310,9 +310,46 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm exec vitest \
 Машиночитаемые результаты, method/path comparison и SHA-256 неизменённых
 защитных исходников: [results.json](2026-10-22-stock-client-compatibility-results.json).
 Исходные файлы и tests относятся к code commit
-`57006e191fb0f167d1211d977d9ab8ea15f87d8e`; последующие изменения отчёта не меняют
-исполненный backend. Отчёты не заменяют native E2E.
+`57006e191fb0f167d1211d977d9ab8ea15f87d8e`. Дополнительные medium fixtures
+исправлены и проверены в `3021cbff08bcb59867d6547ffa9cd58fccbdb8aa`; runtime
+backend после 57006e191 не менялся. Отчёты не заменяют native E2E.
 
 Итог: конкретные backend блокеры B1–B7 закрыты целевыми проверками. Не выявлено
 нового blocker в рассмотренных caller paths; полная эксплуатационная
 совместимость Android/iOS/Web и production rollout **NOT VERIFIED**.
+
+## GitHub CI: состояние не скрывается
+
+PR: [docice545/gallery/pull/7](https://github.com/docice545/gallery/pull/7).
+Первый опубликованный HEAD `d82dc7bc5` **не получил зелёный общий CI**:
+
+- Medium CI обнаружил отсутствующий `AssetFavoriteRepository` в прежних explicit
+  fixtures `AssetService`. Добавлен реальный repository в два таких набора и
+  StackService fixture, вызывающий AssetService. Assertions не ослаблены.
+  Локальный запуск: два файла PASS (56 тестов); stack после исправления —
+  8/8 PASS. Первый смешанный запуск 63 PASS/1 FAIL сохранён как failed run,
+  а не выдан за полное прохождение.
+- `check-openapi` сравнивает с `main`, хотя base этого PR — unified. Аннотации
+  содержат шесть добавленных response enum значений в `GET /sync/ack` и четыре
+  предупреждения об `AssetDeleteBatch`, уже присутствующем в нашей base.
+  Pinned baseline contracts доказывают сохранение прежних operation definitions,
+  но **не отменяют** этот gate. Новые sync enums выданы только в соответствующих
+  запрошенных streams; ACK API возвращает checkpoints текущей session. В
+  закреплённых stock Web/mobile исходниках не найдены callers `getSyncAck`.
+  Полная REST parity и произвольные сторонние ACK consumers не заявляются.
+  Требуется review этого additive protocol extension; правило не отключено.
+- Общий server format локально воспроизводит FAIL в двух **неизменённых от base**
+  файлах: `src/schema/migrations-gallery/1793400000000-FixMemoryCandidateSchema.ts`
+  и `src/utils/recovery-evidence.spec.ts`. Все изменённые файлы проходят формат,
+  lint и typecheck. Старые миграции ради общего форматирования не переписаны.
+- ShellCheck и Dart analysis тоже завершились ошибкой. GitHub annotations содержат
+  только exit 1/3; полные job logs возвращают `Forbidden` при загрузке из Azure
+  Actions storage, в том числе после повторной попытки с разрешением. Точная
+  причина этих двух jobs **NOT VERIFIED**, не объявлена автоматически ошибкой base.
+- Недостающая changelog label добавлена через API (`changelog:enhancement`).
+- Автоматически запущенные PR workflows `Docker` и `Build Mobile` отменены:
+  сборка образа/APK и подпись вне этой задачи. Production не изменялся.
+
+Новые изменённые fixtures проверены отдельно; успешно пройденные тяжёлые наборы
+не перезапускались. Статус общего CI нужно читать отдельно от целевых backend
+PASS. **PR не следует объединять, считая общий CI или native E2E завершёнными.**
