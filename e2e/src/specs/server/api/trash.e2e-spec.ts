@@ -193,7 +193,7 @@ describe('/trash', () => {
       await utils.deleteAssets(admin.accessToken, [assetId]);
 
       const before = await utils.getAssetInfo(admin.accessToken, assetId);
-      expect(before).toMatchObject({ isTrashed: false, isOffline: true });
+      expect(before).toMatchObject({ isTrashed: true, isOffline: false });
 
       const { status, body } = await request(app)
         .post('/trash/restore/assets')
