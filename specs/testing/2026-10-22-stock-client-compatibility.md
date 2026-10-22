@@ -9,6 +9,12 @@
 **NOT VERIFIED**. Это не релиз, не сертификат совместимости всех API и не
 разрешение на deployment. Production и пользовательские медиа не использовались.
 
+**Итоговый B2:** возврат индекса online отслеживается узким server-only
+`catalog_projection_audit`, а не сбросом при любых external updates. Обычный
+library sync остаётся инкрементальным. Последняя проверка: 115/115 PostgreSQL,
+12/12 cache cases, 74/74 SyncService unit и 6/6 contracts; наборы перекрываются.
+Добавлена пятая additive migration `1796000000300-TrackCatalogIndexRecovery`.
+
 ## Источники и границы доказательств
 
 Использован предыдущий анализ от 21.10.2026, а не новая предполагаемая версия
@@ -310,7 +316,7 @@ NODE_OPTIONS=--max-old-space-size=4096 pnpm exec vitest \
 Машиночитаемые результаты, method/path comparison и SHA-256 неизменённых
 защитных исходников: [results.json](2026-10-22-stock-client-compatibility-results.json).
 Последний проверенный code commit:
-`eeaee6952cddba305c3722af5e1ebd2a5a6f6114`. После первоначального 57006e191
+`ab7f0217eb84668576b2035ee19a52daf1003572`. После первоначального 57006e191
 исправлены explicit medium fixtures и schema metadata/generation; storage guard
 functions, применённые миграции и media workflows не изменены. Отчёты не заменяют native E2E.
 
@@ -426,7 +432,7 @@ overlay. Затем, как прежде, проверяет отказ в от�
   фактического результата не объявляется успешным. Native E2E и прочие общие
   CI-ограничения выше сохраняются.
 
-### Финальная проверка восстановления индекса и medium convergence
+### Промежуточная проверка восстановления индекса (широкий вариант отклонён)
 
 **OpenAPI Clients и SQL Schema Checks PASS в GitHub на `44008b276`**.
 Это реальный результат jobs, включая Dart generation/nullable-array test в
@@ -464,3 +470,39 @@ invalidation race, album membership, true Trash и timeline проверки. Н
 valid failing-before log: `foto-compat-index-return-regression-before-anchors.log`.
 ESLint, TypeScript и Nest compile после исправления PASS. Ранее успешные 333/12,
 477 и 661 заново не исполнялись.
+
+### Итоговый узкий журнал восстановления индекса
+
+Широкий external-update reset был отклонён после отдельного необходимого rerun:
+**8 FAIL / 27 PASS** в прежних library tests. Assertions не ослаблены для принятия
+reset вместо обязательного incremental результата.
+
+Итоговая migration `1796000000300-TrackCatalogIndexRecovery` создаёт только
+маленький operational cache audit (`id`, timestamp), без asset/owner/path данных.
+AFTER UPDATE trigger пишет событие только при **выходе из Active + deletedAt**.
+При входе используется существующий current-index invalidation. При возврате
+online журнал сохраняет событие, когда текущая строка уже перестала быть index.
+Sync проверяет этот журнал по обычному UUID-v7 watermark, выдаёт `SyncReset` и
+восстанавливает прежние FK/EXIF rows. Нового wire type, ACK format или client
+изменения нет; обычные metadata/library изменения не пишут событие и не сбрасывают
+cache. Journal pruning использует существующий audit job и его 31-day window,
+не photo retention. Durable deletion evidence и signed recovery proof не затронуты.
+
+Проверено:
+
+- **115/115 PASS**, 10 PostgreSQL файлов: новые index-return cases, все ранее
+  сломанные library incrementals, true Trash, timeline, album ACK ordering,
+  строгий CLI schema diff, exact security guards и populated-schema upgrade.
+- **12/12 PASS** cache cases после дополнения: свежий service/repository context
+  видит persisted recovery; failed transaction откатывает и asset transition,
+  и journal insert; fresh audit rows не удаляются pruning; обычный external
+  metadata update остаётся incremental. Это не kill/restart процесса или NAS E2E.
+- **74/74 SyncService unit PASS**, включая проверку вызова нового audit cleanup
+  с 31-day window. Предыдущий strict mock failure (73/1) сохранён отдельно.
+- **6/6 pinned contracts PASS** после компиляции/генерации; spec/SDK SHA-256
+  прежние. ESLint, TypeScript, Nest build, aliases PASS; теперь **78** fork
+  migrations и прежние **2** compatibility aliases.
+
+Прошлые 76 PASS относятся к промежуточному subset и не доказывали library
+incremental совместимость; их заменяет финальный 115-case результат. Состояние
+общего GitHub CI и native/NFS/AI E2E по-прежнему нельзя подменять этими passes.

@@ -45,7 +45,7 @@
       "unchanged": true
     }
   ],
-  "externalIndexReturn": "Advanced ACK regression failed without EXIF/album link, fixed by conservative invalidation on active external changes. Additional resync cost on real NAS NOT VERIFIED.",
+  "externalIndexReturn": "Final: narrow server-only index-exit audit, no ordinary external-update resets. 115 PostgreSQL and 12 overlapping cache cases pass. Broad reset rejected after 8 library regressions; no assertions weakened.",
   "finalCodeChecks": [
     {
       "check": "eslint",
@@ -80,6 +80,33 @@
     "tscAlias": 0,
     "typecheck": 0
   },
+  "finalForkMigrationCount": 78,
+  "finalIndexAuditCodeChecks": [
+    {
+      "exit": 0,
+      "step": "lint"
+    },
+    {
+      "exit": 0,
+      "step": "unit"
+    },
+    {
+      "exit": 0,
+      "step": "types"
+    },
+    {
+      "exit": 0,
+      "step": "build"
+    },
+    {
+      "exit": 0,
+      "step": "aliases"
+    },
+    {
+      "exit": 0,
+      "step": "migration-sync"
+    }
+  ],
   "generatorSubcommandsOnly": "mise executable unavailable; exact Node, oazapfts and formatter commands executed; TOML parsed.",
   "githubCI": {
     "baseUnchangedFormatFailures": [
@@ -87,6 +114,7 @@
       "server/src/utils/recovery-evidence.spec.ts"
     ],
     "changelogLabel": "changelog:enhancement added",
+    "finalIndexAuditRerun": "Pending; earlier successful generated/SQL jobs remain pinned to their actual source heads.",
     "generatedAPIContextFailure": "Server cwd ignore *.json skipped initial formatter; final explicit config/empty ignore path and SDK config reproduce exact artifacts twice. GitHub rerun not asserted yet.",
     "generatedGatesLocalResolution": "Formatted codegen produces identical spec/SDK twice. Strict CLI drift empty and exact guards test passes. SQL snapshots regenerated. GitHub rerun not asserted green.",
     "imageAndMobileBuildRuns": "Cancelled because outside task scope",
@@ -121,6 +149,7 @@
     "passed": 661,
     "seconds": 12.71
   },
+  "newMigration": "1796000000300-TrackCatalogIndexRecovery",
   "notVerified": [
     "stock Android app E2E",
     "all native iOS scenarios and App Store binary identity",
@@ -391,9 +420,51 @@
       "passedRun": true,
       "sha256": "f1717266cb33c7b88b7f4a90e7d628dcd120befd82543d9e7d168f13e8701466",
       "summary": ["Test Files  4 passed (4)", "Tests  76 passed (76)"]
+    },
+    {
+      "log": "foto-compat-index-return-library-regression.log",
+      "passedRun": false,
+      "sha256": "561f3fc7473da83d7ebf4f6a3403334af76ce578ebd55719c50a948f082f7b9e",
+      "summary": [
+        "Test Files  2 failed | 1 passed (3)",
+        "Tests  8 failed | 27 passed (35)"
+      ]
+    },
+    {
+      "log": "foto-compat-final-index-audit-medium.log",
+      "passedRun": true,
+      "sha256": "12fa439aa428127540eba8bc0b714d3d733f442d74201a84c70199fc2ea70ccf",
+      "summary": ["Test Files  10 passed (10)", "Tests  115 passed (115)"]
+    },
+    {
+      "log": "foto-compat-final-catalog-audit-cases.log",
+      "passedRun": true,
+      "sha256": "0780499e74b4f63ef9a0e99a50ced406254d04d81522364ff85106e4753f16db",
+      "summary": ["Test Files  1 passed (1)", "Tests  12 passed (12)"]
+    },
+    {
+      "log": "foto-compat-index-audit-unit-before.log",
+      "passedRun": false,
+      "sha256": "7d730482fadd3c978c610026e81f57a0919396d915d2fa8820b63e13820820e6",
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 73 passed (74)"
+      ]
+    },
+    {
+      "log": "foto-compat-index-audit-unit.log",
+      "passedRun": true,
+      "sha256": "53f3eb1409d719b9087dfa39d59e5292a5fdf6281d0529c8227f5b4837a59ca3",
+      "summary": ["Test Files  1 passed (1)", "Tests  74 passed (74)"]
+    },
+    {
+      "log": "foto-compat-final-audit-contracts.log",
+      "passedRun": true,
+      "sha256": "6c0d42b220aa058186e56488d039999057e1a393d87f456dd9fc47173e6f95d2",
+      "summary": ["Test Files  1 passed (1)", "Tests  6 passed (6)"]
     }
   ],
-  "testedCodeCommit": "eeaee6952cddba305c3722af5e1ebd2a5a6f6114",
+  "testedCodeCommit": "ab7f0217eb84668576b2035ee19a52daf1003572",
   "upstreams": {
     "immich-3.3.5": {
       "matchedMethodPath": 268,
