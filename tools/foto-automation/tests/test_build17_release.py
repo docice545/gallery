@@ -335,6 +335,61 @@ class MemoryAdmissionTest(unittest.TestCase):
         with self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
             self.admit()
 
+    def test_memory_hp_launcher_embedded_syntax_pins_and_build_only(self):
+        text = SCRIPT.with_name('FOTO_BUILD17_FINAL_HP.md').read_text().split('```bash\n', 1)[1].split('```', 1)[0]
+        lines = text.rstrip().splitlines()
+        self.assertEqual((lines[0], lines[-1]), ("bash <<'BASH'", 'BASH'))
+        inner = self.root / 'launch.sh'
+        inner.write_text('\n'.join(lines[1:-1]) + '\n')
+        subprocess.run(['bash', '-n', str(inner)], check=True)
+        for name in app.re.findall(r"<<'(PY_[A-Z_]+)'", text):
+            code = text.split("<<'" + name + "'\n", 1)[1].split('\n' + name, 1)[0]
+            compile(code, name, 'exec')
+        build = text.split("<<'BUILD_ONLY'\n", 1)[1].split('\nBUILD_ONLY', 1)[0]
+        inner.write_text(build)
+        subprocess.run(['bash', '-n', str(inner)], check=True)
+        self.assertNotRegex(text, r'(?<![\w-])--(?:prepare|test|finalize)(?![\w-])')
+        self.assertLess(build.index(' --build'), build.index(' --verify'))
+        self.assertIn('testReceiptsSHA256', build)
+        pin = app.re.search(r'FOTO_TOOLS_SHA=([a-f0-9]{40})', text)[1]
+        hashes = text.split("<<'SHA256SUMS'\n", 1)[1].split('\nSHA256SUMS', 1)[0]
+        for line in hashes.splitlines():
+            digest, name = line.split()
+            raw = subprocess.check_output(['git', 'show', pin + ':tools/foto-automation/' + name], cwd=SCRIPT.parents[2])
+            self.assertEqual(app.runner.digest(raw), digest, name)
+            self.assertEqual(SCRIPT.with_name(name).read_bytes(), raw, name)
+
+    def test_memory_hp_launcher_checkpoint_guard_preserves_and_rejects_incomplete_state(self):
+        text = SCRIPT.with_name('FOTO_BUILD17_FINAL_HP.md').read_text()
+        code = text.split("<<'PY_CHECKPOINT'\n", 1)[1].split('\nPY_CHECKPOINT', 1)[0]
+        cfg = self.root / 'config.json'
+        state_dir = self.root / 'state'
+        state_dir.mkdir()
+        cfg.write_text(json.dumps({'state': str(state_dir)}))
+        path = state_dir / 'manifest.json'
+        head = 'e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2'
+        names = [f'synthetic-{i}' for i in range(50)]
+        original = {'prepared': True, 'mode': 'build', 'head': head, 'worktree': str(self.root / 'source'),
+                    'testsComplete': names, 'history': [{'event': 'BUILD_REQUESTED'}],
+                    'stages': {n: {'status': 'PASS', 'exitCode': 0, 'inputs': {'pipeline': app.REVIEWED_TEST_RUNTIME}} for n in names}}
+        cases = [original]
+        for key, value in (('mode', 'prepare'), ('prepared', False), ('testsComplete', names[:-1])):
+            changed = copy.deepcopy(original); changed[key] = value; cases.append(changed)
+        for key, value in (('status', 'FAIL'), ('exitCode', 137), ('inputs', {'pipeline': 'f' * 64})):
+            changed = copy.deepcopy(original); changed['stages'][names[0]][key] = value; cases.append(changed)
+        changed = copy.deepcopy(original); changed['stages']['backend-image'] = {}; cases.append(changed)
+        for i, state in enumerate(cases):
+            path.write_text(json.dumps(state))
+            before = path.read_bytes()
+            with self.subTest(case=i), patch.object(sys, 'argv', ['guard', str(cfg)]), \
+                    patch.object(subprocess, 'check_output', return_value=head), patch('sys.stdout', new=io.StringIO()):
+                if i == 0:
+                    exec(compile(code, 'HP_CHECKPOINT_GUARD', 'exec'), {})
+                else:
+                    with self.assertRaises(SystemExit):
+                        exec(compile(code, 'HP_CHECKPOINT_GUARD', 'exec'), {})
+            self.assertEqual(path.read_bytes(), before)
+
 
 class ReleaseTest(unittest.TestCase):
     def setUp(self):

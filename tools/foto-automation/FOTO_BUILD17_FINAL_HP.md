@@ -1,16 +1,33 @@
-# FOTO Build 17: продолжить остановленную сборку на HP
+# FOTO Build 17: продолжить сборку после memory gate на HP
 
 Это продолжение **уже подготовленного** backend image/APK release, **без deployment**.
-Запускает doctoriceadm. Обновление допускает единственное доказанное изменение
+Запускает doctoriceadm. В checkpoint подтверждены **50 обязательных PASS**, а не
+49 (исправлено оператором после чтения manifest). `testsComplete` содержит все
+50 имён; прежний runtime SHA256:
+`c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf`.
+Сборка остановилась **до** `backend-image`, без RUNNING/FAIL build receipt.
+
+Новый memory gate: backend требует `MemAvailable >= 10 GiB`, `MemTotal >= 14 GiB`
+(минимум 4 GiB физической RAM вне уже существующего потолка BuildKit10GiB),
+нулевые PSI some/full avg10/60/300 и минимум 10 GiB headroom относительно каждого
+конечного memory.max/memory.high текущего cgroup и всех видимых предков.
+Неполные/нечитаемые наблюдения — STOP. Swap не засчитывается как RAM.
+У остальных этапов прежние 5 GiB available / 6 GiB caller-limit floor.
+10 GiB BuildKit — потолок, не заранее выделенная память; это консервативная
+проверка допуска, **не доказательство устранения реального OOM**. Нагрузка после
+допуска может измениться. Лимиты10g/12g и max-parallelism1 остаются прежними.
+
+Обновление сохраняет единственное доказанное изменение
 config: `signing.certificate_sha256` из 32 hex-байтов с двоеточиями в 64 lowercase
 hex. Исходный приватный backup должен соответствовать прежнему hash checkpoint;
 весь остальной config должен совпасть. Исправления Buildx v0.35.0 (текстовый
 inspect и JSON history с `status`) сохраняются. Старые runners не перезаписываются.
 
-Оператор подтвердил checkpoint: `prepared=true`, `mode=prepare`, последнее событие
-`PREPARED`, HEAD `e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2`, тесты и сборки ещё
-не запускались. Блок ниже проверяет именно это состояние, включая пустой список
-этапов, и прекращает работу при отличии. Он не редактирует manifest/config,
+Оператор подтвердил checkpoint: `prepared=true`, HEAD
+`e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2`, все 50 тестовых этапов PASS.
+Опубликованный runner сохраняет `mode=build` / `BUILD_REQUESTED` до memory STOP.
+Блок ниже требует именно эту точку, полный список PASS и отсутствие build receipt.
+При отличии он останавливается. Он не правит вручную manifest/config,
 не выполняет повторный merge PR6/PR7 и не сбрасывает подготовленный worktree.
 Не запускайте Codex/другую сборку одновременно. Существующий config должен уже
 содержать проверенные PR6/PR7 SHA, approvals и реальные пути старого ключа и
@@ -50,9 +67,10 @@ repository pins требуют JDK21.0.2. Android SDK и кеши берутся
 bash <<'BASH'
 set -euo pipefail
 umask 077
-FOTO_TOOLS_SHA=c035601cf131ac4e3dfcf304581314e66d2180c0
+trap 's=$?; if [ "$s" -ne 0 ]; then printf "STOP exit=%s; private preflight reports: %s*; state not reset\n" "$s" "${FOTO_REPORT:-not-created}" >&2; fi' EXIT
+FOTO_TOOLS_SHA=da40b0b9f288ff9be96428edb728dbd437eff22d
 FOTO_INSTALL=/usr/local/lib/foto-build17-release/$FOTO_TOOLS_SHA
-FOTO_STAGE=$(mktemp -d /tmp/foto17-pin-format-install.XXXXXXXX)
+FOTO_STAGE=$(mktemp -d /tmp/foto17-memory-install.XXXXXXXX)
 FOTO_RELEASE_CONFIG=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 FOTO_PIN_FORMAT_PROOF=$FOTO_RELEASE_CONFIG.before-pin-normalization
 [[ "$FOTO_RELEASE_CONFIG" = /* ]]
@@ -87,8 +105,8 @@ foto_as_builder() {
       exec "$@"
     ' foto17-release "$@"
 }
-if sudo -u codex-gallery -H tmux -L foto17-pin-format list-sessions >/dev/null 2>&1; then
-  echo 'STOP: сессия foto17-pin-format уже существует; подключитесь к ней, не запускайте вторую.' >&2
+if sudo -u codex-gallery -H tmux -L foto17-memory-build list-sessions >/dev/null 2>&1; then
+  echo 'STOP: сессия foto17-memory-build уже существует; подключитесь к ней, не запускайте вторую.' >&2
   exit 1
 fi
 for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
@@ -97,7 +115,7 @@ for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-a
     --jq .content | base64 --decode > "$FOTO_STAGE/$f"
 done
 cat > "$FOTO_STAGE/SHA256SUMS" <<'SHA256SUMS'
-c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf  foto-build17-release
+1608ca69de6eafa1fa52d0a311c44a8fae6e016fa8b5845b09fc6515b57cc476  foto-build17-release
 520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
 f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
 afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
@@ -130,15 +148,21 @@ config = json.loads(pathlib.Path(sys.argv[1]).read_text())
 raw = (pathlib.Path(config['state']) / 'manifest.json').read_bytes()
 state = json.loads(raw)
 expected = 'e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2'
-if not (state.get('prepared') is True and state.get('mode') == 'prepare'
-        and state.get('head') == expected and state.get('stages') == {}
-        and state.get('history') and state['history'][-1].get('event') == 'PREPARED'):
-    raise SystemExit('STOP: checkpoint differs from confirmed PREPARED state; nothing reset')
+names, stages = state.get('testsComplete', []), state.get('stages', {})
+if not (state.get('prepared') is True and state.get('mode') == 'build'
+        and state.get('head') == expected and len(names) == 50 and len(set(names)) == 50
+        and set(stages) == set(names) and all(r.get('status') == 'PASS' and r.get('exitCode') == 0
+            and r.get('inputs', {}).get('pipeline') == 'c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf'
+            for r in stages.values()) and state.get('history')
+        and state['history'][-1].get('event') == 'BUILD_REQUESTED'):
+    raise SystemExit('STOP: checkpoint differs from confirmed 50 PASS / pre-backend state; nothing reset')
 head = subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-C', state['worktree'],
                                 'rev-parse', 'HEAD'], text=True).strip()
 if head != expected:
     raise SystemExit('STOP: prepared worktree HEAD differs; nothing reset')
-print(hashlib.sha256(raw).hexdigest())
+print(json.dumps({'manifestSHA256': hashlib.sha256(raw).hexdigest(), 'head': expected,
+                  'testNames': names, 'testReceiptsSHA256': hashlib.sha256(
+                      json.dumps(stages, sort_keys=True).encode()).hexdigest()}, sort_keys=True))
 PY_CHECKPOINT
 }
 FOTO_CHECKPOINT_BEFORE=$(foto_checkpoint)
@@ -160,42 +184,94 @@ PY_VALIDATION
   echo 'STOP: checkpoint changed during check; nothing reset' >&2
   exit 1
 }
-FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-pin-format-session.XXXXXXXX)
+FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-memory-session.XXXXXXXX)
+printf '%s\n' "$FOTO_CHECKPOINT_BEFORE" | \
+  sudo -u codex-gallery -H sh -c 'umask 077; cat > "$1"' sh "$FOTO_SESSION/accepted-tests.json"
+# Read-only admission: all receipts must already be PASS. No test/build command
+# can execute on this path; stage() verifies each existing receipt and returns.
+foto_as_builder python3 - "$FOTO_INSTALL/foto-build17-release" "$FOTO_RELEASE_CONFIG" "$FOTO_PIN_FORMAT_PROOF" \
+  > "$FOTO_REPORT.receipts" 2> "$FOTO_REPORT.receipts.stderr" <<'PY_ADMIT'
+import importlib.machinery, importlib.util, pathlib, sys
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader('foto_memory_admission', sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+app = importlib.util.module_from_spec(spec)
+loader.exec_module(app)
+p = app.Pipeline(app.config(pathlib.Path(sys.argv[2])), pin_format_proof=pathlib.Path(sys.argv[3]))
+p.read_checkpoint()
+recipes = app.recipes_for(p.source())
+app.need(p.manifest.get('testsComplete') == [x[0] for x in recipes] and len(recipes) == 50
+         and all(p.manifest['stages'].get(x[0], {}).get('status') == 'PASS' for x in recipes),
+         'MANDATORY_CHECKS_INCOMPLETE_NO_TESTS_RERUN')
+for name, folder, argv, outputs in recipes:
+    p.stage(name, p.source() / folder, argv, outputs)
+app.check_stage_memory('backend-image', app.resources())
+app.builder_idle()
+print('PASS memory admission and 50 receipts revalidated read-only; no test executed')
+PY_ADMIT
+tail -n 1 "$FOTO_REPORT.receipts"
+[[ "$(foto_checkpoint)" = "$FOTO_CHECKPOINT_BEFORE" ]]
 printf '%s\n' 'set-option -g remain-on-exit on' 'set-option -g history-limit 20000' | \
   sudo -u codex-gallery -H sh -c 'umask 077; cat > "$1"' sh "$FOTO_SESSION/tmux.conf"
-foto_as_builder tmux -L foto17-pin-format -f "$FOTO_SESSION/tmux.conf" \
-  new-session -d -s foto17-pin-format \
-  "$FOTO_INSTALL/foto-build17-release" --config "$FOTO_RELEASE_CONFIG" \
-  --certificate-pin-format-proof "$FOTO_PIN_FORMAT_PROOF" --finalize
+sudo -u codex-gallery -H sh -c 'umask 077; cat > "$1"' sh "$FOTO_SESSION/run-build.sh" <<'BUILD_ONLY'
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+exec > >(tee "$4/final-build.log") 2>&1
+"$1" --config "$2" --certificate-pin-format-proof "$3" --build
+"$1" --config "$2" --certificate-pin-format-proof "$3" --verify
+python3 - "$2" "$4/accepted-tests.json" <<'PY_PRESERVED'
+import hashlib, json, pathlib, sys
+c = json.loads(pathlib.Path(sys.argv[1]).read_text())
+state = json.loads((pathlib.Path(c['state']) / 'manifest.json').read_text())
+before = json.loads(pathlib.Path(sys.argv[2]).read_text())
+tests = {n: state['stages'][n] for n in before['testNames']}
+if (state['head'] != before['head'] or hashlib.sha256(json.dumps(tests, sort_keys=True).encode()).hexdigest()
+        != before['testReceiptsSHA256']):
+    raise SystemExit('STOP: original test receipts changed; preserve logs, do not reset')
+print('PASS original 50 receipts unchanged; backend image and signed APK verified; no deployment')
+print('Public artifact receipt:', state['exportReceipt'])
+PY_PRESERVED
+BUILD_ONLY
+foto_as_builder tmux -L foto17-memory-build -f "$FOTO_SESSION/tmux.conf" \
+  new-session -d -s foto17-memory-build /bin/bash "$FOTO_SESSION/run-build.sh" \
+  "$FOTO_INSTALL/foto-build17-release" "$FOTO_RELEASE_CONFIG" "$FOTO_PIN_FORMAT_PROOF" "$FOTO_SESSION"
 printf 'STARTED, не READY. Preflight: %s\n' "$FOTO_REPORT"
-printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-pin-format attach -t foto17-pin-format'
+printf 'Журнал сборки: %s/final-build.log\n' "$FOTO_SESSION"
+printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-memory-build attach -t foto17-memory-build'
 BASH
 ```
 
-`--check` — только inventory, даже exit0 не означает готовность к сборке.
-`--finalize` сам повторяет gates и сначала проверяет существующие signing files.
-Для уже подготовленного checkpoint `prepare()` только проверяет целостность и
-возвращается **без fetch/merge**. Затем впервые запускаются тесты и сборки.
-Обычный `--resume` при сохранённом `mode=prepare` не запускает следующие этапы,
-поэтому здесь выбран явный `--finalize`. SHA runner впервые фиксируется в
-квитанциях тестов; их пока нет. Формат manifest/checkpoint и проверки квитанций
-не изменены; уже выполненная интеграция сохраняется.
-Он держит common locks на всём пути prepare → test → build → verify.
-Повторный запуск не повторяет прошедшие этапы, если совпадают SHA входов,
-toolchain, журнала и outputs. Ошибка не запускает следующий этап или retry.
+`--check` — read-only inventory, exit0 сам по себе не означает готовность к сборке.
+Дополнительный read-only gate проверяет все 50 существующих PASS и их полные
+inputs/logs/outputs; никакая тестовая команда на этом пути не запускается.
+Только точный прежний SHA runtime и reviewed application tree допускают reuse.
+Путь прежнего `foto-mobile-codegen.sh` допускается только при совпадении SHA его
+байтов с новым helper и закреплённым SHA. Другие argv или runtimes запрещены.
+
+В tmux запускаются только `--build`, затем `--verify`. Нет `--prepare`, `--test`,
+`--finalize`, fetch, merge и автоматического retry. `build()` ещё раз проверяет
+receipt и выводит `PASS_REUSED`, без запуска тестов. Неполный/failed набор
+останавливается **до** этого цикла; отсутствующий receipt не запускает тест заново.
+У новых backend/APK receipts будет новый SHA runtime; прежние 50 JSON-объектов
+сохраняют все значения и остаются привязаны к старому SHA. Финальная проверка
+подтверждает их общий canonical JSON checksum. Manifest штатно получает новые build/verify
+события и неизменяемые snapshots, а не переписывает историю и результаты тестов.
+Каждый режим держит прежние common locks; конкурирующий запуск между режимами
+также приводит к STOP, не обходу блокировки. Ошибка build не запускает verify.
 
 ## Результат и повторное подключение
 
 После обрыва SSH подключиться:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-pin-format attach -t foto17-pin-format
+sudo -u codex-gallery -H tmux -L foto17-memory-build attach -t foto17-memory-build
 ```
 
 Сессия сохраняет pane после выхода программы. Exit status:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-pin-format display-message -p -t foto17-pin-format '#{pane_dead_status}'
+sudo -u codex-gallery -H tmux -L foto17-memory-build display-message -p -t foto17-memory-build '#{pane_dead_status}'
 ```
 
 Пустое значение означает, что процесс ещё не завершён. Exit0 вместе с финальной
@@ -209,6 +285,10 @@ Image получает тег `foto-build17:<полный integration SHA>`. APK
 
 Все объёмные stage logs и неизменяемые manifest snapshots остаются в исходном
 release state из config. Preflight TXT — приватный, не публикуйте без просмотра.
+`final-build.log` находится в новом session-каталоге, путь печатается при запуске.
+Docker ID `sha256:...` — identity локального образа. Registry RepoDigest не
+выдумывается: образ не публикуется в registry. APK проверяется `apksigner verify`,
+package/version/certificate pin и SHA256; реальное устройство этим не проверено.
 
 ## Если сборка остановилась
 
@@ -229,6 +309,12 @@ release state из config. Preflight TXT — приватный, не публи
   toolchain/config после локальной проверки. Новый ключ создавать запрещено.
 - OOM137/DeadlineExceeded: сохранить logs и установить причину. Автоповторов нет;
   `--retry-failed --diagnosis` применяется только после реальной диагностики.
+- `INSUFFICIENT_HOST_MEMORY_RESERVE` / `CALLER_CGROUP_MEMORY_RESERVE` /
+  `MEMORY_PRESSURE` / `MEMORY_PSI_UNKNOWN` / `BACKEND_MEMORY_OBSERVATIONS_UNAVAILABLE`:
+  не доказан запас RAM или отсутствие давления. Не менять лимиты и не останавливать
+  production. Сохранить private reports, продолжение запрещено до отдельной проверки.
+- `REVIEWED_PREDECESSOR_*` / `MANDATORY_CHECKS_INCOMPLETE`:
+  старый runtime/application/PASS набор отличается. Не переписывать SHA или PASS.
 
 Откат инструмента — использовать прежний versioned executable для read-only
 диагностики со старым config. Не пытаться продолжать новые receipts старым кодом.
@@ -270,7 +356,21 @@ Buildx v0.35.0 (`a319e5b15052cf6557ceb666eb8ff6e32380b782`, linux-amd64 SHA256
 
 ## Что подтверждено и что ещё нет
 
-Новая проверка config: 14 адресных тестов PASS на временном Git с подменёнными
+Memory/reuse/launcher update: 17 адресных тестов PASS (16 новых, один прежний memory test)
+и 12 связанных регрессий/сравнений с опубликованным предшественником PASS.
+Проверены границы10GiB/5GiB/host reserve4GiB, PSI обоих типов и всех окон,
+неизвестные/отсутствующие данные, max/high/current и конечные лимиты предков,
+запрет credit swap, STOP до build intent, reuse всех **50 синтетических** receipts
+без child execution и без записи, попытки подмены runtime/команд/config/toolchain/
+dependencies/logs/outputs/helper, отсутствие/failed receipt и restart/verify с
+certificate proof + старыми тестами + новыми build receipts. Генерация APK/image
+в этом regression-тесте подменена; это не настоящая сборка или подпись.
+Сравнение AST подтвердило прежние рецепты, signing/APK/gates/finalize и stage
+execution. В build изменён только более строгий допуск полного PASS набора.
+Файлы PSI/cgroup синтетические; настоящий HP OOM этим не воспроизводился.
+CI нового HEAD публикуется отдельно в PR9; исторические PASS не переносятся.
+
+Ранее проверка config: 14 адресных тестов PASS на временном Git с подменёнными
 внешними сервисами. Покрыты uppercase/lowercase colon pin, неверный сертификат,
 другие поля и типы JSON (включая `true` → `1`), изменённый backup, отсутствие,
 чужой UID, 0644, symlink, неподготовленный checkpoint, прерванный merge,

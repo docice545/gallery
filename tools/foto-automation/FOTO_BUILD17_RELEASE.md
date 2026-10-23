@@ -17,7 +17,7 @@ launcher, systemd units, канонические progress/pending/manifest не
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске  |
 | Редактор              | PR #6, `codex/foto-build17-editor-compact`, `df3e0daf14f7593808a039df080c32cd05a7a503` | OPEN; новый CI проверять по SHA |
 | Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `3cc9631b7a2a48d2889808da5db7a62cc1345fea`  | OPEN; новый CI проверять по SHA |
-| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `c035601cf131ac4e3dfcf304581314e66d2180c0`               | 14 targeted config-proof + 11 related regressions PASS; новый CI — отдельно |
+| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `da40b0b9f288ff9be96428edb728dbd437eff22d`               | 17 memory/reuse/launcher +12 related regressions/AST PASS; новый CI — отдельно |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **До завершения нового CI и ручной приёмки точных SHA интеграция заблокирована.** Инструмент не исправляет их красный
@@ -35,10 +35,12 @@ mobile checks, совместимости — также server/medium/OpenAPI/s
 ## Установка и продолжение остановленного релиза
 
 Используйте [один проверяемый блок установки и запуска на HP](FOTO_BUILD17_FINAL_HP.md).
-Он проверяет подтверждённый PREPARED checkpoint, Buildx v0.35 inspect/history status
-и доказанную эквивалентность единственного изменения certificate pin,
+Он проверяет подтверждённые prepared worktree и 50 PASS receipts перед backend-image,
+новый memory gate, Buildx v0.35 inspect/history status и доказанную эквивалентность
+единственного изменения certificate pin,
 устанавливает новые versioned bytes и сохраняет **тот же существующий config**,
-все worktrees и историю manifest и явно запускает `--finalize` в отдельном tmux.
+все worktrees и историю manifest. В отдельном tmux запускаются только `--build`
+и `--verify`: тесты и merge не повторяются.
 Новый config с угаданным ключом/approvals не создаётся. Причина старого
 `PARTIALLY_APPLIED_PR_REVIEW_REQUIRED` и узкая reviewed-проверка описаны в
 [отчёте](FOTO_BUILD17_RELEASE_OVERLAP.md).
@@ -89,7 +91,7 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/c035601cf131ac4e3dfcf304581314e66d2180c0/foto-build17-release
+R=/usr/local/lib/foto-build17-release/da40b0b9f288ff9be96428edb728dbd437eff22d/foto-build17-release
 C=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 "$R" --config "$C" --check
 ```
@@ -150,13 +152,27 @@ Backup читается как принадлежащий текущему uid r
 Ничего в config, backup или идентичности manifest не переписывается. Прежний
 config hash остаётся anchor для всех новых этапов; proof перечитывается при каждом
 сравнении входов. SHA runner/toolchain/logs/outputs и `apksigner verify` сохраняются.
-Смена runtime при уже выполненных stages по-прежнему требует проверки новых входов;
-у подтверждённого HP checkpoint stages пустые. После первого продолжения тот же
+Смена runtime по-прежнему требует проверки новых входов. Для memory-only update
+reviewed predecessor `c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf`
+допускается только у PASS test-рецептов точного reviewed application tree, с полной
+проверкой остальных inputs/log/output SHA; прежние receipts не переписываются.
+Новые backend/APK stages требуют новый runtime SHA. У подтверждённого HP checkpoint
+теперь 50 PASS (первоначальные 49 были ошибкой подсчёта). После продолжения тот же
 флаг обязателен для `--resume`/`--verify`. Примеры режимов выше относятся к обычному
 неизменённому config; для этого HP используйте полный блок `FOTO_BUILD17_FINAL_HP.md`,
 который дополнительно проверяет владельца backup и оба поля отчёта `--check`:
 `checkpointConfigValidation=PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT` и
 `builderValidation=PASS_READ_ONLY_LIMITS_AND_IDLE`.
+
+### Memory gate backend-image
+
+Минимум10GiB MemAvailable вместо12GiB, минимум14GiB MemTotal (4GiB вне потолка
+BuildKit10GiB), нулевые PSI some/full avg10/60/300 хоста и cgroup. Все видимые
+предки caller cgroup v2 проверяются по memory.max/high/current: при конечном
+лимите требуется10GiB headroom. Неизвестные/нечитаемые данные запрещают запуск.
+Swap не считается RAM. У остальных стадий прежний floor5GiB, cgroup max>=6GiB.
+Это проверка допуска, не гарантия отсутствия будущего OOM при изменении нагрузки.
+Лимиты и процессы production не меняются, память не резервируется принудительно.
 
 - Общие nonblocking locks release/session/heavy-stage/continue/legacy исключают
   конкуренцию с установленными FOTO launcher. Новые сессии Codex не запускаются.
@@ -164,7 +180,8 @@ config hash остаётся anchor для всех новых этапов; pro
   workers=1, parallel=false, daemon=false, Kotlin in-process; Node heap 4 GiB,
   Java heap 2 GiB; pnpm child/workspace concurrency=1; CPU affinity двух разрешённых CPU через существующий supervisor.
   Это настройки дочерних процессов, не изменение systemd/лимитов HP.
-- Дополнительный memory preflight: 5 GiB MemAvailable, 12 GiB перед image build;
+- Дополнительный memory preflight: 5 GiB MemAvailable, 10 GiB перед image build
+  с host/cgroup reserve и нулевым PSI, как описано выше;
   caller cgroup не меньше 6 GiB, если лимит доступен. BuildKit проверяется отдельно.
 - Сигналы завершают управляемое дерево. SIGKILL/OOM оставляет RUNNING intent;
   он не считается успехом. У daemon-side BuildKit дополнительно проверяется idle
@@ -246,9 +263,12 @@ Dart/static, SQL/OpenAPI и release fixtures проверяются отдель
 
 ## Явное завершение всей цепочки
 
-После установки и проверки прежнего config в tmux можно явно выбрать
+Справка для первоначального запуска с пустым checkpoint, не для нынешних 50 PASS:
+после установки и проверки прежнего config в tmux можно явно выбрать
 `"$R" --config "$C" --finalize`. Этот режим требует существующего ключа и
 последовательно делает prepare/test/build/verify под прежними common locks.
 Он не делает deployment и не запускает Codex. `--resume` сохраняет прежнюю
 семантику одного последнего этапа; для продолжения полной цепочки нужен явный
 `--finalize`. Никакой автоматический retry после ошибок не добавлен.
+Для текущего memory STOP используйте только блок `FOTO_BUILD17_FINAL_HP.md`:
+он не вызывает finalize/prepare/test, запускает build → verify и сохраняет 50 receipts.
