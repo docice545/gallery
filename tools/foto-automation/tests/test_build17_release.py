@@ -247,6 +247,139 @@ class ReleaseTest(unittest.TestCase):
         self.assertNotIn('MERGED_editor', events)
         self.assertTrue((self.p.source() / 'compatibility.txt').exists())
 
+    def overlapping_prs(self):
+        """Real temporary Git; only the review pins differ from the production review."""
+        self.run_git('switch', app.ROLES['editor'])
+        (self.repo / 'shared-fix.txt').write_text('one shared fix\n')
+        self.run_git('add', '.')
+        self.run_git('commit', '-m', 'shared synthetic fix')
+        shared = self.run_git('rev-parse', 'HEAD')
+        self.heads['editor'] = shared
+        self.run_git('switch', app.ROLES['compatibility'])
+        self.run_git('cherry-pick', shared)
+        (self.repo / 'compat-extra.txt').write_text('new compatibility work\n')
+        self.run_git('add', '.')
+        self.run_git('commit', '-m', 'additional compatibility work')
+        self.heads['compatibility'] = self.run_git('rev-parse', 'HEAD')
+        self.run_git('switch', app.BASE_BRANCH)
+        for role, head in self.heads.items():
+            self.c['prs'][role]['sha'] = head
+        return {'base': self.base, **self.heads,
+                'inputTree': self.run_git('rev-parse', shared + '^{tree}'),
+                'outputTree': self.run_git('merge-tree', '--write-tree', shared, self.heads['compatibility']),
+                'equivalentCount': 1, 'newCount': 2}
+
+    def test_unknown_partial_application_still_stops_and_preserves_work(self):
+        self.overlapping_prs()
+        with self.assertRaisesRegex(app.Stop, 'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED'):
+            self.p.prepare()
+        self.assertFalse(self.p.manifest['prepared'])
+        self.assertNotIn('mergeInFlight', self.p.manifest)
+        self.assertTrue((self.p.source() / 'editor.txt').is_file())
+        self.assertFalse((self.p.source() / 'compatibility.txt').exists())
+        self.assertEqual(self.run_git('rev-parse', 'HEAD'), self.base)
+
+    def test_reviewed_overlap_merges_full_history_and_exact_tree_once(self):
+        review = self.overlapping_prs()
+        with patch.object(app, 'REVIEWED_OVERLAP', review):
+            self.p.prepare()
+            head = self.p.manifest['head']
+            self.p.prepare()
+        source = self.p.source()
+        self.assertEqual(REAL_GIT(source, 'rev-parse', 'HEAD^{tree}'), review['outputTree'])
+        for role, sha in self.heads.items():
+            self.assertIsNotNone(REAL_GIT(source, 'merge-base', '--is-ancestor', sha, 'HEAD', optional=True))
+            self.assertEqual(sum(x['event'] == 'MERGED_' + role for x in self.p.manifest['history']), 1)
+        self.assertEqual(self.p.manifest['head'], head)
+        self.assertEqual((source / 'shared-fix.txt').read_text(), 'one shared fix\n')
+        self.assertTrue((source / 'compat-extra.txt').is_file())
+        self.assertEqual(len(self.p.manifest['overlapReview']['equivalentCommits']), 1)
+        self.assertEqual(self.run_git('rev-parse', 'HEAD'), self.base)
+
+    def test_old_partial_stop_resumes_same_state_without_erasing_history(self):
+        review = self.overlapping_prs()
+        with self.assertRaisesRegex(app.Stop, 'PARTIALLY_APPLIED'):
+            self.p.prepare()
+        before = {p.name: p.read_bytes() for p in self.p.state.glob('manifest-*.json')}
+        source, old_head = self.p.source(), self.p.manifest['head']
+        resumed = app.Pipeline(self.c)
+        with patch.object(app, 'REVIEWED_OVERLAP', review), resumed.locked():
+            resumed.prepare()
+        self.assertEqual(resumed.source(), source)
+        self.assertEqual(resumed.manifest['overlapReview']['previousHead'], old_head)
+        self.assertTrue(resumed.manifest['prepared'])
+        for name, data in before.items():
+            self.assertEqual((self.p.state / name).read_bytes(), data)
+        self.assertEqual(sum(x['event'] == 'MERGED_editor' for x in resumed.manifest['history']), 1)
+
+    def test_extra_or_reverted_commit_does_not_match_reviewed_frontier(self):
+        review = self.overlapping_prs()
+        with self.assertRaisesRegex(app.Stop, 'PARTIALLY_APPLIED'):
+            self.p.prepare()
+        source = self.p.source()
+        (source / 'shared-fix.txt').write_text('local reviewed change must survive\n')
+        REAL_GIT(source, 'add', 'shared-fix.txt')
+        REAL_GIT(source, '-c', 'user.name=Test', '-c', 'user.email=test@localhost',
+                 'commit', '-m', 'extra synthetic local commit')
+        self.p.manifest['head'] = REAL_GIT(source, 'rev-parse', 'HEAD')
+        with patch.object(app, 'REVIEWED_OVERLAP', review), self.assertRaisesRegex(app.Stop, 'PARTIALLY_APPLIED'):
+            self.p.prepare()
+        self.assertEqual((source / 'shared-fix.txt').read_text(), 'local reviewed change must survive\n')
+        self.assertNotIn('mergeInFlight', self.p.manifest)
+
+    def test_reviewed_tree_mismatch_stops_before_mutating_worktree(self):
+        review = self.overlapping_prs()
+        review['outputTree'] = 'f' * 40
+        with patch.object(app, 'REVIEWED_OVERLAP', review), self.assertRaisesRegex(app.Stop, 'OVERLAP_TREE_DIFFERS'):
+            self.p.prepare()
+        self.assertFalse((self.p.source() / 'compat-extra.txt').exists())
+        self.assertEqual(REAL_GIT(self.p.source(), 'status', '--porcelain'), '')
+        self.assertNotIn('mergeInFlight', self.p.manifest)
+
+    def test_reviewed_preview_conflict_does_not_start_merge(self):
+        review = self.overlapping_prs()
+        original = self.git
+        def conflict(repo, *args, **kwargs):
+            return None if args[0] == 'merge-tree' else original(repo, *args, **kwargs)
+        with patch.object(app, 'REVIEWED_OVERLAP', review), patch.object(app, 'git', side_effect=conflict):
+            with self.assertRaisesRegex(app.Stop, 'OVERLAP_TREE_DIFFERS'):
+                self.p.prepare()
+        self.assertNotIn('mergeInFlight', self.p.manifest)
+        self.assertFalse((self.p.source() / 'compatibility.txt').exists())
+
+    def test_reviewed_actual_result_mismatch_keeps_inflight_evidence(self):
+        review = self.overlapping_prs()
+        original = self.git
+        def mismatch(repo, *args, **kwargs):
+            if args == ('rev-parse', 'HEAD^{tree}') and REAL_GIT(
+                    repo, 'merge-base', '--is-ancestor', self.heads['compatibility'], 'HEAD', optional=True) is not None:
+                return 'f' * 40
+            return original(repo, *args, **kwargs)
+        with patch.object(app, 'REVIEWED_OVERLAP', review), patch.object(app, 'git', side_effect=mismatch):
+            with self.assertRaisesRegex(app.Stop, 'MERGE_RESULT_DIFFERS'):
+                self.p.prepare()
+        self.assertEqual(self.p.manifest['mergeInFlight'], self.heads['compatibility'])
+        self.assertFalse(self.p.manifest['prepared'])
+        self.assertIn('rejectedMerge', self.p.manifest)
+        with self.assertRaisesRegex(app.Stop, 'MERGE_INTERRUPTED'):
+            self.p.prepare()
+
+    def test_crash_after_overlap_review_recomputes_proof_on_resume(self):
+        review = self.overlapping_prs()
+        original = self.p.save
+        def crash(event):
+            original(event)
+            if event == 'REVIEWED_OVERLAP_compatibility':
+                raise RuntimeError('synthetic process crash before merge intent')
+        with patch.object(app, 'REVIEWED_OVERLAP', review), patch.object(self.p, 'save', side_effect=crash):
+            with self.assertRaisesRegex(RuntimeError, 'synthetic process crash'):
+                self.p.prepare()
+        resumed = app.Pipeline(self.c)
+        with patch.object(app, 'REVIEWED_OVERLAP', review), resumed.locked():
+            resumed.prepare()
+        self.assertTrue(resumed.manifest['prepared'])
+        self.assertEqual(REAL_GIT(resumed.source(), 'rev-parse', 'HEAD^{tree}'), review['outputTree'])
+
     def test_merged_pr_requires_verified_local_ancestry(self):
         self.run_git('merge', '--no-ff', '--no-edit', self.heads['editor'])
         self.c['expected_head'] = self.run_git('rev-parse', 'HEAD')

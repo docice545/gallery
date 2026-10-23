@@ -41,6 +41,17 @@ REQUIRED_CHECKS = {
                       'check-openapi', 'check-mobile-patches', 'Test Web', 'Lint Web', 'End-to-End Tests Success'},
 }
 SUCCESS = {'success', 'neutral', 'skipped'}
+# Reviewed on real published Git objects, not a general partial-application bypass.
+# Unknown heads/trees still require operator review. See FOTO_BUILD17_RELEASE.md.
+REVIEWED_OVERLAP = {
+    'base': 'ace2eab962524479a61e6891410983a7f41ba0fa',
+    'editor': 'df3e0daf14f7593808a039df080c32cd05a7a503',
+    'compatibility': '3cc9631b7a2a48d2889808da5db7a62cc1345fea',
+    'inputTree': '5102fc271d555b8ab02f35c56cb717f0502aebdc',
+    'outputTree': '09e791c093d10927c434c85787328ebabcace5bd',
+    'equivalentCount': 11,
+    'newCount': 57,
+}
 
 
 def need(value, code):
@@ -351,6 +362,30 @@ class Pipeline:
             admitted.append({'role': role, **pin})
         return admitted
 
+    def reviewed_overlap(self, item, cherry):
+        review = REVIEWED_OVERLAP
+        # Only the exact, clean merge of base + the approved editor is eligible.
+        # A reverted/reworked equivalent patch or any extra commit needs review.
+        need(item['role'] == 'compatibility' and self.c['expected_head'] == review['base'] and
+             all(self.c['prs'][role]['sha'] == review[role] for role in ROLES),
+             'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+        parents = git(self.source(), 'rev-list', '--parents', '-n', '1', 'HEAD').split()
+        need(parents == [self.manifest['head'], review['base'], review['editor']] and
+             git(self.source(), 'rev-parse', 'HEAD^{tree}') == review['inputTree'] and
+             sum(line.startswith('- ') for line in cherry) == review['equivalentCount'] and
+             sum(line.startswith('+ ') for line in cherry) == review['newCount'],
+             'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+        # Read-only three-way preview; no checkout, cherry-pick or conflict resolution.
+        tree = git(self.source(), 'merge-tree', '--write-tree', '--no-messages',
+                   'HEAD', item['sha'], optional=True)
+        need(tree == review['outputTree'], 'REVIEWED_OVERLAP_TREE_DIFFERS_WORKTREE_PRESERVED')
+        self.manifest['overlapReview'] = {
+            'previousHead': self.manifest['head'], 'incomingHead': item['sha'],
+            'expectedTree': tree, 'equivalentCommits': [line[2:] for line in cherry if line.startswith('- ')],
+        }
+        self.save('REVIEWED_OVERLAP_' + item['role'])
+        return tree
+
     def prepare(self):
         admitted = self.gate()
         if self.manifest and self.manifest.get('prepared'):
@@ -382,7 +417,7 @@ class Pipeline:
             if cherry and all(line.startswith('-') for line in cherry):
                 self.save('PATCH_EQUIVALENT_' + item['role'])
                 continue
-            need(not any(line.startswith('-') for line in cherry), 'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+            reviewed_tree = self.reviewed_overlap(item, cherry) if any(line.startswith('-') for line in cherry) else None
             self.manifest['mergeInFlight'] = item['sha']
             self.save('MERGE_INTENT_' + item['role'])
             try:
@@ -392,6 +427,14 @@ class Pipeline:
                 self.manifest['conflicts'] = git(self.source(), 'diff', '--name-only', '--diff-filter=U').splitlines()
                 self.save('MERGE_FAILED_PRESERVED')
                 raise Stop('MERGE_FAILED_REVIEW_PRESERVED_WORKTREE_' + str(self.source())) from None
+            if reviewed_tree:
+                actual_tree = git(self.source(), 'rev-parse', 'HEAD^{tree}')
+                parents = git(self.source(), 'rev-list', '--parents', '-n', '1', 'HEAD').split()
+                if actual_tree != reviewed_tree or parents[1:] != [self.manifest['head'], item['sha']]:
+                    self.manifest['rejectedMerge'] = {'head': git(self.source(), 'rev-parse', 'HEAD'),
+                                                      'expectedTree': reviewed_tree, 'actualTree': actual_tree}
+                    self.save('MERGE_RESULT_REJECTED_PRESERVED')
+                    raise Stop('REVIEWED_MERGE_RESULT_DIFFERS_WORKTREE_PRESERVED')
             self.manifest['head'] = git(self.source(), 'rev-parse', 'HEAD')
             self.manifest.pop('mergeInFlight')
             self.save('MERGED_' + item['role'])
