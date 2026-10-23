@@ -318,8 +318,9 @@ def origin_ok(repo):
 
 
 class Pipeline:
-    def __init__(self, c, retry=False, diagnosis=''):
+    def __init__(self, c, retry=False, diagnosis='', pin_format_proof=None):
         self.c, self.retry, self.diagnosis = c, retry, diagnosis
+        self.pin_format_proof = Path(pin_format_proof) if pin_format_proof is not None else None
         self.state = Path(c['state'])
         self.repo = Path(c['repo'])
         self.path = self.state / 'manifest.json'
@@ -328,6 +329,8 @@ class Pipeline:
 
     @contextlib.contextmanager
     def locked(self):
+        if self.pin_format_proof is not None:
+            need(self.path.is_file() and not self.path.is_symlink(), 'PIN_FORMAT_PROOF_REQUIRES_PREPARED_CHECKPOINT')
         runner.private_dir(self.state)
         common = Path(self.c['automation_state'])
         need(common.is_dir(), 'EXISTING_AUTOMATION_STATE_REQUIRED')
@@ -339,17 +342,42 @@ class Pipeline:
                 self.fds.append(runner.lock(path, legacy=path == Path(self.c['legacy_lock'])))
             need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
             if self.path.exists() or self.path.is_symlink():
-                self.manifest = runner.read_json(self.path)
-                need(self.manifest.get('schema') == 1 and isinstance(self.manifest.get('history'), list), 'CORRUPT_MANIFEST')
-                need(self.manifest['configSHA256'] == self.config_sha(), 'CONFIG_CHANGED_USE_NEW_STATE')
+                self.read_checkpoint()
             yield
         finally:
             for fd in reversed(self.fds):
                 os.close(fd)
             self.fds.clear()
 
+    def read_checkpoint(self):
+        self.manifest = runner.read_json(self.path)
+        need(self.manifest.get('schema') == 1 and isinstance(self.manifest.get('history'), list), 'CORRUPT_MANIFEST')
+        need(self.manifest['configSHA256'] == self.config_sha(), 'CONFIG_CHANGED_USE_NEW_STATE')
+        if self.pin_format_proof is not None:
+            self.clean()
+
     def config_sha(self):
-        return runner.digest(json.dumps(self.c, sort_keys=True).encode())
+        current = runner.digest(json.dumps(self.c, sort_keys=True).encode())
+        if self.pin_format_proof is None:
+            return current
+        need(self.manifest and self.manifest.get('prepared') is True and not self.manifest.get('mergeInFlight'),
+             'PIN_FORMAT_PROOF_REQUIRES_PREPARED_CHECKPOINT')
+        need(self.pin_format_proof.is_absolute() and '..' not in self.pin_format_proof.parts,
+             'ABSOLUTE_PRIVATE_PIN_FORMAT_PROOF_REQUIRED')
+        # Re-read the owned 0600 original on every identity check. Its canonical
+        # hash must match the existing checkpoint; a filename alone is no proof.
+        original = config(self.pin_format_proof)
+        anchor = runner.digest(json.dumps(original, sort_keys=True).encode())
+        need(anchor == self.manifest['configSHA256'], 'CONFIG_CHANGED_USE_NEW_STATE')
+        old_pin, new_pin = original['signing']['certificate_sha256'], self.c['signing']['certificate_sha256']
+        need(isinstance(old_pin, str) and re.fullmatch(r'(?:[0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2}', old_pin) and
+             isinstance(new_pin, str) and re.fullmatch(r'[0-9a-f]{64}', new_pin) and
+             old_pin.replace(':', '').lower() == new_pin, 'CONFIG_CHANGED_USE_NEW_STATE')
+        original['signing']['certificate_sha256'] = new_pin  # Detached in-memory proof, never a file write.
+        need(runner.digest(json.dumps(original, sort_keys=True).encode()) == current, 'CONFIG_CHANGED_USE_NEW_STATE')
+        # Keep the original identity and all receipts intact. No config/manifest
+        # migration, and no exemption from stage/log/output/signature checks.
+        return anchor
 
     def save(self, event):
         old = sha(self.path) if self.path.exists() else None
@@ -843,6 +871,8 @@ def main():
     modes.add_argument('--receive-apk', type=Path, metavar='PUBLIC_RECEIPT')
     parser.add_argument('--retry-failed', action='store_true', help='Explicit one-attempt retry of failed/interrupted stages')
     parser.add_argument('--diagnosis', default='', help='Sanitized operator diagnosis; never a command or password')
+    parser.add_argument('--certificate-pin-format-proof', type=Path, metavar='ORIGINAL_CONFIG',
+                        help='Read-only owned 0600 original matching the checkpoint; admit only colon/case pin normalization')
     args = parser.parse_args()
     if args.receive_apk:
         receive(args.receive_apk)
@@ -853,12 +883,17 @@ def main():
          'RUN_AS_CODEX_GALLERY_NO_AUTOMATIC_PRIVILEGE_ESCALATION')
     if args.finalize:
         need(os.environ.get('TMUX'), 'FINALIZE_REQUIRES_TMUX')
+    p = Pipeline(c, args.retry_failed, args.diagnosis, args.certificate_pin_format_proof)
     if args.check:
         # Intentionally no mkdir, locks, fetch, codegen, tool installation or state writes.
-        print(json.dumps(inventory(c), indent=2))
+        result = {}
+        if args.certificate_pin_format_proof:
+            p.read_checkpoint()
+            result['checkpointConfigValidation'] = 'PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT'
+        result.update(inventory(c))
+        print(json.dumps(result, indent=2))
         return
     snapshot = inventory(c)
-    p = Pipeline(c, args.retry_failed, args.diagnosis)
     with p.locked():
         runner.atomic_json(p.state / ('inventory-' + uuid.uuid4().hex + '.json'), snapshot)
         mode = next(x for x in ('prepare', 'test', 'build', 'verify', 'resume', 'finalize') if getattr(args, x))

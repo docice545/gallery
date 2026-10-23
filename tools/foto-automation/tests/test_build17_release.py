@@ -652,6 +652,220 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'), app.Pipeline(changed).locked():
             self.fail('entered')
 
+    def pin_format_fixture(self, old_pin=None):
+        normalized = '0123456789abcdef' * 4
+        self.c['signing']['certificate_sha256'] = old_pin if old_pin is not None else ':'.join(
+            normalized[i:i + 2] for i in range(0, 64, 2)).upper()
+        self.prepare()
+        self.p.manifest.pop('toolchain')
+        # Construct the exact synthetic legacy identity, including malformed
+        # original pins in the negative cases; do not fail those on a stale hash.
+        self.p.manifest['configSHA256'] = self.p.config_sha()
+        self.p.save('PREPARED')
+        backup = self.root / 'config.json.before-pin-normalization'
+        backup.write_text(json.dumps(self.c))
+        backup.chmod(0o600)
+        self.c['signing']['certificate_sha256'] = normalized
+        cfg = self.root / 'config.json'
+        cfg.write_text(json.dumps(self.c))
+        cfg.chmod(0o600)
+        return backup, cfg
+
+    def test_pin_format_proof_keeps_original_identity_files_and_prepared_merge(self):
+        backup, cfg = self.pin_format_fixture()
+        files = {p: p.read_bytes() for p in (backup, cfg, self.p.path, *self.p.state.glob('manifest-*.json'))}
+        head = self.p.manifest['head']
+        anchor = self.p.manifest['configSHA256']
+        self.calls.clear()
+        resumed = app.Pipeline(self.c, pin_format_proof=backup)
+        with resumed.locked():
+            self.assertEqual(resumed.config_sha(), anchor)
+            resumed.prepare()
+        self.assertEqual(resumed.manifest['head'], head)
+        self.assertFalse(any(c[0] in ('fetch', 'merge') for c in self.calls))
+        for p, data in files.items():
+            self.assertEqual(p.read_bytes(), data)
+
+    def test_pin_format_proof_accepts_lowercase_colon_original(self):
+        normalized = '0123456789abcdef' * 4
+        backup, cfg = self.pin_format_fixture(':'.join(normalized[i:i + 2] for i in range(0, 64, 2)))
+        resumed = app.Pipeline(self.c, pin_format_proof=backup)
+        with resumed.locked():
+            self.assertEqual(resumed.config_sha(), self.p.manifest['configSHA256'])
+
+    def test_pin_format_change_without_explicit_proof_still_fails(self):
+        self.pin_format_fixture()
+        with self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'), app.Pipeline(self.c).locked():
+            self.fail('entered')
+
+    def test_pin_format_proof_cannot_admit_any_other_config_change(self):
+        backup, cfg = self.pin_format_fixture()
+        cases = []
+        for name in ('repo', 'state', 'automation_state', 'legacy_lock', 'export_dir'):
+            c = copy.deepcopy(self.c)
+            c[name] += '-changed'
+            cases.append((name, c))
+        for name in ('expected_head', 'min_free_gib'):
+            c = copy.deepcopy(self.c)
+            c[name] = 'f' * 40 if name == 'expected_head' else c[name] + 1
+            cases.append((name, c))
+        for name in ('keystore', 'properties'):
+            c = copy.deepcopy(self.c)
+            c['signing'][name] += '-changed'
+            cases.append((name, c))
+        for role in app.ROLES:
+            for name, value in (('sha', 'f' * 40), ('number', 999), ('approved', 1), ('approval_note', 'changed')):
+                c = copy.deepcopy(self.c)
+                c['prs'][role][name] = value
+                cases.append((role + '-' + name, c))
+            c = copy.deepcopy(self.c)
+            c['required_checks'][role].append('Another gate')
+            cases.append((role + '-checks', c))
+        before = self.p.path.read_bytes()
+        for name, c in cases:
+            with self.subTest(field=name), self.assertRaises(app.Stop), app.Pipeline(c, pin_format_proof=backup).locked():
+                self.fail('entered')
+        self.assertEqual(self.p.path.read_bytes(), before)
+
+    def test_pin_format_proof_rejects_changed_certificate_and_noncanonical_target(self):
+        backup, cfg = self.pin_format_fixture()
+        for pin in ('ff' + self.c['signing']['certificate_sha256'][2:],
+                    self.c['signing']['certificate_sha256'].upper(), 'bad', None):
+            c = copy.deepcopy(self.c)
+            c['signing']['certificate_sha256'] = pin
+            with self.subTest(pin=pin), self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'), \
+                    app.Pipeline(c, pin_format_proof=backup).locked():
+                self.fail('entered')
+
+    def test_pin_format_proof_requires_the_original_checkpoint_hash(self):
+        backup, cfg = self.pin_format_fixture()
+        original = json.loads(backup.read_text())
+        original['min_free_gib'] += 1
+        backup.write_text(json.dumps(original))
+        with self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'), app.Pipeline(self.c, pin_format_proof=backup).locked():
+            self.fail('entered')
+
+    def test_pin_format_proof_rejects_unreviewed_original_fingerprint_formats(self):
+        for pin in ('01:23', 'SHA256:' + ':'.join(['ab'] * 32), 'ab' * 32, ':'.join(['zz'] * 32)):
+            with self.subTest(pin=pin):
+                backup, cfg = self.pin_format_fixture(pin)
+                with self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'), app.Pipeline(self.c, pin_format_proof=backup).locked():
+                    self.fail('entered')
+
+    def test_pin_format_proof_rejects_missing_public_symlink_or_relative_backup(self):
+        backup, cfg = self.pin_format_fixture()
+        with self.assertRaises(OSError), app.Pipeline(self.c, pin_format_proof=backup.with_name('missing')).locked():
+            self.fail('entered')
+        backup.chmod(0o644)
+        with self.assertRaisesRegex(app.Stop, 'PRIVATE'), app.Pipeline(self.c, pin_format_proof=backup).locked():
+            self.fail('entered')
+        backup.chmod(0o600)
+        real_lstat = Path.lstat
+        def foreign_owner(path, *args, **kwargs):
+            s = real_lstat(path, *args, **kwargs)
+            if path == backup:
+                fields = list(s)
+                fields[app.stat.ST_UID] = s.st_uid + 1
+                return os.stat_result(fields)
+            return s
+        with patch.object(Path, 'lstat', foreign_owner), self.assertRaisesRegex(app.Stop, 'PRIVATE'), \
+                app.Pipeline(self.c, pin_format_proof=backup).locked():
+            self.fail('entered')
+        link = self.root / 'proof-link'
+        link.symlink_to(backup)
+        with self.assertRaisesRegex(app.Stop, 'PRIVATE'), app.Pipeline(self.c, pin_format_proof=link).locked():
+            self.fail('entered')
+        with self.assertRaisesRegex(app.Stop, 'ABSOLUTE'), app.Pipeline(self.c, pin_format_proof=Path('relative')).locked():
+            self.fail('entered')
+
+    def test_pin_format_proof_requires_existing_prepared_checkpoint(self):
+        with self.assertRaisesRegex(app.Stop, 'PREPARED_CHECKPOINT'), \
+                app.Pipeline(self.c, pin_format_proof=self.root / 'missing').locked():
+            self.fail('entered')
+        backup, cfg = self.pin_format_fixture()
+        for key, value in (('prepared', False), ('mergeInFlight', 'f' * 40)):
+            self.p.manifest[key] = value
+            self.p.save('SYNTHETIC_INVALID_STATE')
+            with self.assertRaisesRegex(app.Stop, 'PREPARED_CHECKPOINT'), app.Pipeline(self.c, pin_format_proof=backup).locked():
+                self.fail('entered')
+            self.p.manifest[key] = True if key == 'prepared' else None
+
+    def test_pin_format_proof_is_revalidated_before_stage_identity(self):
+        backup, cfg = self.pin_format_fixture()
+        resumed = app.Pipeline(self.c, pin_format_proof=backup)
+        with resumed.locked():
+            original = json.loads(backup.read_text())
+            original['min_free_gib'] += 1
+            backup.write_text(json.dumps(original))
+            with self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'):
+                resumed.config_sha()
+
+    def test_pin_format_proof_allows_later_valid_stage_resume_without_rewriting_receipts(self):
+        backup, cfg = self.pin_format_fixture()
+        initial = {p: p.read_bytes() for p in (backup, cfg, *self.p.state.glob('manifest-*.json'))}
+        anchor = self.p.manifest['configSHA256']
+        resumed = app.Pipeline(self.c, pin_format_proof=backup)
+        with resumed.locked(), patch.object(resumed, 'environment', return_value={}), self.fake_stage() as execute:
+            resumed.manifest['toolchain'] = 'synthetic-tool-fingerprint'
+            resumed.manifest['mode'] = 'test'
+            resumed.save('TEST_REQUESTED')
+            resumed.stage('unit-0', resumed.source(), ['/synthetic/check'], ['.ignored/output'])
+            self.assertEqual(execute.call_count, 1)
+        receipt = copy.deepcopy(resumed.manifest['stages']['unit-0'])
+        again = app.Pipeline(self.c, pin_format_proof=backup)
+        with again.locked(), patch.object(again, 'environment', return_value={}), self.fake_stage() as execute:
+            again.stage('unit-0', again.source(), ['/synthetic/check'], ['.ignored/output'])
+            execute.assert_not_called()
+            self.assertEqual(again.manifest['stages']['unit-0'], receipt)
+            self.assertEqual(again.manifest['configSHA256'], anchor)
+        for p, data in initial.items():
+            self.assertEqual(p.read_bytes(), data)
+
+    def test_pin_format_proof_check_is_read_only_and_requires_both_validations(self):
+        backup, cfg = self.pin_format_fixture()
+        before = {p: p.read_bytes() for p in (backup, cfg, self.p.path, *self.p.state.glob('manifest-*.json'))}
+        self.calls.clear()
+        with fake_buildx035(history_raw=BUILDX035_HISTORY), \
+                patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+                patch('sys.stdout', new=io.StringIO()) as stdout, \
+                patch.object(sys, 'argv', [str(SCRIPT), '--config', str(cfg),
+                    '--certificate-pin-format-proof', str(backup), '--check']):
+            app.main()
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(result['checkpointConfigValidation'], 'PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT')
+        self.assertEqual(result['docker']['builderValidation'], 'PASS_READ_ONLY_LIMITS_AND_IDLE')
+        self.assertFalse(any(c[0] in ('merge', 'fetch') for c in self.calls))
+        for p, data in before.items():
+            self.assertEqual(p.read_bytes(), data)
+
+    def test_pin_format_proof_failed_check_preserves_files_and_does_not_probe_docker(self):
+        backup, cfg = self.pin_format_fixture()
+        original = json.loads(backup.read_text())
+        original['min_free_gib'] += 1
+        backup.write_text(json.dumps(original))
+        before = {p: p.read_bytes() for p in (backup, cfg, self.p.path, *self.p.state.glob('manifest-*.json'))}
+        with patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+                patch.object(app, 'inventory') as inventory, \
+                patch.object(sys, 'argv', [str(SCRIPT), '--config', str(cfg),
+                    '--certificate-pin-format-proof', str(backup), '--check']), \
+                self.assertRaisesRegex(app.Stop, 'CONFIG_CHANGED'):
+            app.main()
+        inventory.assert_not_called()
+        for p, data in before.items():
+            self.assertEqual(p.read_bytes(), data)
+
+    def test_pin_format_proof_does_not_authorize_another_apk_certificate(self):
+        backup, cfg = self.pin_format_fixture()
+        (self.root / 'sdk/build-tools/36.0.0').mkdir(parents=True)
+        apk = self.root / 'synthetic.apk'
+        with zipfile.ZipFile(apk, 'w') as z:
+            z.writestr('AndroidManifest.xml', b'synthetic')
+        resumed = app.Pipeline(self.c, pin_format_proof=backup)
+        with resumed.locked(), patch.dict(os.environ, ANDROID_HOME=str(self.root / 'sdk')), \
+                patch.object(app, 'query', return_value='Signer #1 certificate SHA-256 digest: ' + 'b' * 64), \
+                self.assertRaisesRegex(app.Stop, 'CERTIFICATE_MISMATCH'):
+            resumed.apk_metadata(apk)
+
     def test_stage_reuse_requires_log_and_output_hashes(self):
         source = self.prepare()
         with self.fake_stage() as execute:
