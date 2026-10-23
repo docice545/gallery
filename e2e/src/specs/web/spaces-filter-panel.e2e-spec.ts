@@ -42,10 +42,11 @@ test.describe('Spaces FilterPanel', () => {
 
   // ─── Helper: navigate to a space page with auth ───
   test.afterEach(() => {
-    if (websocket) {
-      utils.disconnectWebsocket(websocket);
-      websocket = undefined;
+    if (!websocket) {
+      return;
     }
+    utils.disconnectWebsocket(websocket);
+    websocket = undefined;
   });
 
   async function gotoSpace(
