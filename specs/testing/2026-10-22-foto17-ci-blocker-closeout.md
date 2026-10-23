@@ -87,3 +87,50 @@ owner revocation, shared-file refusal, NFS identity, symlink/path guards сох�
 Config unapproved, старые state/history/keys/worktrees/cache сохраняются.
 Prepare/test/build/deployment не запускались и не следуют автоматически из check.
 При красном/неизвестном CI конвейер обязан блокировать интеграцию.
+
+## Уточнение по новым завершённым CI (23 октября, UTC)
+
+Исторические runs39873567046 (#6),39873570471 (#7),39874117896 (#8)
+выявили следующие дополнительные проблемы. Их исправления не считаются PASS
+до нового обязательного CI актуального HEAD.
+
+- #7 API:1388 PASS/1 FAIL. Единственный отказ — моя ошибочная массовая замена
+  precondition обычного Restore. Исправлено: только обычный пользовательский Trash
+  требует isTrashed=true/isOffline=false; offline index остаётся false/true.
+  Исходные шесть API-отказов в этом прогоне уже отсутствуют.
+- #7 Web:401 PASS/2 FAIL/7 SKIPPED в browser suite,110 PASS/6 FAIL/4 SKIPPED в
+  mock UI. Старый reopen-tag проходит. Два rating-теста зависели от момента
+  metadata enqueue; теперь ожидаются реальные upload-success события и явно
+  проверяются три rating=3 через API. Ожидания «3 results» сохранены.
+- Mock UI Trash пропускал обязательный deletedAt в columnar ответе; production
+  getOrderingDate правильно отказывается выдумывать дату. Исправлен только
+  синтетический генератор; добавлены два адресных теста aligned timestamps и
+  soft-delete/restore. Это не доказательство удаления настоящих файлов.
+- Medium: album_user ACK order предполагал порядок вставки внутри одной ms.
+  immich_uuid_v7 содержит random bits. Теперь exact ожидаемые ACK строятся по
+  независимо прочитанным persisted updateId и сортируются в порядке протокола;
+  роли/userId/число записей/replay сохраняют проверки. Migration test проверяет
+  новую идентичность и реальные millisecond timestamps, не лексический random tail.
+  Генератор UUID и migration DDL не менялись.
+- #7 server unit: scanner принимал точный column-metadata literal за asset read;
+  узкое anchored исключение покрыто положительным/двумя отрицательными случаями.
+  revert-to-immich manifest дополнен фактическими fork-таблицами/functions/пятью
+  migration IDs. Ранний запрет при наличии deletion tombstones сохранён; SQL не
+  исполнялся. Конвертация с потерей fork-only overlays не является FOTO rollback.
+- Адресный Cloud запуск только двух filesystem guard-specs: **43/43 PASS**,971ms.
+  PostgreSQL, browser, native clients и тяжёлые backend suites этим не проверялись.
+  Первый запуск из неверного cwd не обнаружил imports и не считается PASS.
+- Release fixtures run39874118024: **50/50 PASS +2/2 source-scope PASS** на
+  опубликованном ea6c9121fbd583f3f29087b0bd8e37038cdf38c1. Новый HEAD требует
+  собственного CI. Основной release executable/locks/rootless/checkpoint/signing
+  enforcement не изменён; все примеры approvals по-прежнему false.
+
+Актуальные code candidates после этих исправлений:
+
+- PR6 `ed8cd06773d8cc46dedc935f65c8a08ee60c4eae`
+- PR7 `2c13d3588aa5ed56b8b508080f46adb4ac35a1c5`
+- PR8 code/config `10a9d2d58a925f5a29806a17f145a2308beb902b` (документация следующим коммитом)
+
+Окончательные CI результаты публикуются в PR comments по точному новому HEAD.
+Красный/неизвестный/отменённый обязательный check блокирует локальную интеграцию.
+Нельзя выдавать previous PASS или skipped publishing за новый successful build.

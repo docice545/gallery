@@ -15,9 +15,9 @@ launcher, systemd units, канонические progress/pending/manifest не
 | Назначение            | Ref / SHA                                                                              | Состояние                       |
 | --------------------- | -------------------------------------------------------------------------------------- | ------------------------------- |
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске  |
-| Редактор              | PR #6, `codex/foto-build17-editor-compact`, `97377d908a275d3057c5cabdb2b0bf262c7e8dfe` | OPEN; новый CI проверять по SHA |
-| Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `e9bcf4ed7c2cadb90807c3801c1e2f06bf67dc90`  | OPEN; новый CI проверять по SHA |
-| Код инструмента       | `codex/foto-build17-release`, `ba84d19db42d3231caf6bb98804ef6960b94c5d6`               | 49 + 1 адресная проверка PASS   |
+| Редактор              | PR #6, `codex/foto-build17-editor-compact`, `ed8cd06773d8cc46dedc935f65c8a08ee60c4eae` | OPEN; новый CI проверять по SHA |
+| Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `2c13d3588aa5ed56b8b508080f46adb4ac35a1c5`  | OPEN; новый CI проверять по SHA |
+| Код инструмента       | `codex/foto-build17-release`, `10a9d2d58a925f5a29806a17f145a2308beb902b`               | 49 + 1 адресная проверка PASS   |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **До завершения нового CI и ручной приёмки точных SHA интеграция заблокирована.** Инструмент не исправляет их красный
@@ -45,11 +45,11 @@ mobile checks, совместимости — также server/medium/OpenAPI/s
 ```bash
 set -euo pipefail
 umask 077
-TOOLS_SHA=ba84d19db42d3231caf6bb98804ef6960b94c5d6
+TOOLS_SHA=10a9d2d58a925f5a29806a17f145a2308beb902b
 STAGE=$(mktemp -d /tmp/foto17-release-install.XXXXXXXX)
 INSTALL=/usr/local/lib/foto-build17-release/$TOOLS_SHA
-CFG=/mnt/hp-data/codex-home/foto-build17-release-check-ba84d19db.json
-REPORT=$(mktemp /home/doctoriceadm/foto-build17-check-ba84d19db.XXXXXXXX.json)
+CFG=/mnt/hp-data/codex-home/foto-build17-release-check-10a9d2d58.json
+REPORT=$(mktemp /home/doctoriceadm/foto-build17-check-10a9d2d58.XXXXXXXX.json)
 ERRORS=$REPORT.stderr
 
 for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
@@ -62,7 +62,7 @@ cat > "$STAGE/SHA256SUMS" <<'SHA256SUMS'
 520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
 f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
 afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
-e4d9c638dfe3f3d164cf00bf8c919d2560271dbf6078713b095bdb57e2298673  foto-build17-release.example.json
+461b7ab18741ecba0dfe84829f344f991cb3f49c10ec6b34475c0b273fdb710e  foto-build17-release.example.json
 SHA256SUMS
 (cd "$STAGE" && sha256sum --check SHA256SUMS)
 if sudo test -L "$INSTALL"; then
@@ -144,8 +144,8 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/ba84d19db42d3231caf6bb98804ef6960b94c5d6/foto-build17-release
-C=/mnt/hp-data/codex-home/foto-build17-release-check-ba84d19db.json
+R=/usr/local/lib/foto-build17-release/10a9d2d58a925f5a29806a17f145a2308beb902b/foto-build17-release
+C=/mnt/hp-data/codex-home/foto-build17-release-check-10a9d2d58.json
 "$R" --config "$C" --check
 ```
 
