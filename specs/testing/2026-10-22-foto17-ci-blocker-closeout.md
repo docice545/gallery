@@ -161,3 +161,13 @@ Release tool/config pin `1a29751ff3faffc92d28aa9e1a23b06105fa5d06`; послед
 До завершения собственного обязательного CI новых HEAD статус **BLOCKED**.
 Точные terminal statuses/ссылки дописываются в PR body/comments без doc-only
 повтора тяжёлых suites. Runtime/mobile/immutable migrations этим раундом не менялись.
+
+Финальный AST-only preflight изменённых E2E fixture-файлов с upstream recommended
+Unicorn/TypeScript rules (type-aware no-floating-promises остаётся за CI) — PASS;
+Prettier — PASS. Новый afterEach требовал prefer-early-return; исправлено по
+реальному логу End-to-End Lint120174202061. Правила ESLint не менялись.
+
+Опубликованные candidates для окончательного CI:
+PR6 `6f5c1bf66d261e95ea59584fd82aba8cba92ba73`,
+PR7 `8e555e3449365120729df29d9eb5beab6bb76bc0`;
+release code/config pin `4ce5e145e9ab75c47438dd2f5c79486ce695586f`. Старые snapshots выше — история, не статус нового HEAD.
