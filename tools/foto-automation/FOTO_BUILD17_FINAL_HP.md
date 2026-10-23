@@ -1,9 +1,11 @@
 # FOTO Build 17: продолжить остановленную сборку на HP
 
 Это продолжение **уже подготовленного** backend image/APK release, **без deployment**.
-Запускает doctoriceadm. Обновление исправляет вторую несовместимость Buildx v0.35.0:
-JSON history содержит `status`, а не Go-template поле `.Status`. Ранее исправленный
-текстовый inspect сохраняется. Старые установленные runners и их файлы сохраняются.
+Запускает doctoriceadm. Обновление допускает единственное доказанное изменение
+config: `signing.certificate_sha256` из 32 hex-байтов с двоеточиями в 64 lowercase
+hex. Исходный приватный backup должен соответствовать прежнему hash checkpoint;
+весь остальной config должен совпасть. Исправления Buildx v0.35.0 (текстовый
+inspect и JSON history с `status`) сохраняются. Старые runners не перезаписываются.
 
 Оператор подтвердил checkpoint: `prepared=true`, `mode=prepare`, последнее событие
 `PREPARED`, HEAD `e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2`, тесты и сборки ещё
@@ -16,6 +18,20 @@ key.properties с доверенным fingerprint сертификата. Кл�
 и не публикуются. Подтверждённый оператором прежний config:
 `/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json`.
 Инструкция использует его без изменения и не создаёт заменяющий config/state.
+
+Подтверждённый backup:
+`/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json.before-pin-normalization`.
+Новый явный аргумент `--certificate-pin-format-proof` читает его при каждой проверке
+идентичности. Требуются regular file, без symlink, владелец codex-gallery и ровно
+0600. Владелец проверяется на HP; доступность чтения сама по себе недостаточна.
+Блок ничего не chmod/chown в config/backup. При отличии владельца/прав — STOP;
+backup не надо «чинить» или пересоздавать для обхода проверки.
+
+Hash исходного config в manifest остаётся прежним. Никакие файлы config, backup,
+прежние snapshots или stage receipts не переписываются. Новые события выполнения
+сохраняются обычным append/snapshot механизмом runner. После первого запуска
+этот же backup и флаг нужны также для `--resume` / `--verify`: отсутствие доказательства,
+смена сертификата, любого другого поля/типа config или SHA входов запрещают reuse.
 
 Блок активирует **уже установленную** toolchain через `mise env` из существующего
 checkout. Он не запускает Codex launcher и не наследует его старый JDK17:
@@ -34,12 +50,22 @@ repository pins требуют JDK21.0.2. Android SDK и кеши берутся
 bash <<'BASH'
 set -euo pipefail
 umask 077
-FOTO_TOOLS_SHA=6a948e3fe6cf9d80d1e65e171c28ca0c90024893
+FOTO_TOOLS_SHA=c035601cf131ac4e3dfcf304581314e66d2180c0
 FOTO_INSTALL=/usr/local/lib/foto-build17-release/$FOTO_TOOLS_SHA
-FOTO_STAGE=$(mktemp -d /tmp/foto17-buildx035-history-install.XXXXXXXX)
+FOTO_STAGE=$(mktemp -d /tmp/foto17-pin-format-install.XXXXXXXX)
 FOTO_RELEASE_CONFIG=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
+FOTO_PIN_FORMAT_PROOF=$FOTO_RELEASE_CONFIG.before-pin-normalization
 [[ "$FOTO_RELEASE_CONFIG" = /* ]]
 sudo -u codex-gallery -H test -f "$FOTO_RELEASE_CONFIG"
+sudo -u codex-gallery -H python3 - "$FOTO_PIN_FORMAT_PROOF" <<'PY_PRIVATE_PROOF'
+import os, pathlib, stat, sys
+proof = pathlib.Path(sys.argv[1])
+s = proof.lstat()
+if not (stat.S_ISREG(s.st_mode) and s.st_uid == os.getuid()
+        and stat.S_IMODE(s.st_mode) == 0o600):
+    raise SystemExit('STOP: original backup must already be owned by codex-gallery, regular and 0600; unchanged')
+print('PASS original backup owner/type/mode (read-only)')
+PY_PRIVATE_PROOF
 foto_as_builder() {
   sudo -u codex-gallery -H env \
     PATH="/mnt/hp-data/codex-home/.npm-global/bin:/mnt/hp-data/codex-toolchain/flutter/bin:/mnt/hp-data/codex-toolchain/gradle/gradle-8.14/bin:/mnt/hp-data/codex-toolchain/node/bin:/mnt/hp-data/codex-toolchain/node/lib/node_modules/corepack/shims:/mnt/hp-data/codex-toolchain/bun/bin:/mnt/hp-data/codex-toolchain/android-sdk/cmdline-tools/latest/bin:/usr/local/bin:/usr/bin:/bin" \
@@ -61,8 +87,8 @@ foto_as_builder() {
       exec "$@"
     ' foto17-release "$@"
 }
-if sudo -u codex-gallery -H tmux -L foto17-buildx035-history list-sessions >/dev/null 2>&1; then
-  echo 'STOP: сессия foto17-buildx035-history уже существует; подключитесь к ней, не запускайте вторую.' >&2
+if sudo -u codex-gallery -H tmux -L foto17-pin-format list-sessions >/dev/null 2>&1; then
+  echo 'STOP: сессия foto17-pin-format уже существует; подключитесь к ней, не запускайте вторую.' >&2
   exit 1
 fi
 for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
@@ -71,7 +97,7 @@ for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-a
     --jq .content | base64 --decode > "$FOTO_STAGE/$f"
 done
 cat > "$FOTO_STAGE/SHA256SUMS" <<'SHA256SUMS'
-90b0ac3488f19fc5a754d87d2aee26ff89b47a81ade0909cd4bee87922101287  foto-build17-release
+c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf  foto-build17-release
 520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
 f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
 afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
@@ -118,26 +144,31 @@ PY_CHECKPOINT
 FOTO_CHECKPOINT_BEFORE=$(foto_checkpoint)
 FOTO_REPORT=$(mktemp /home/doctoriceadm/FOTO17-final-preflight.XXXXXXXX.txt)
 foto_as_builder "$FOTO_INSTALL/foto-build17-release" \
-  --config "$FOTO_RELEASE_CONFIG" --check > "$FOTO_REPORT" 2> "$FOTO_REPORT.stderr"
+  --config "$FOTO_RELEASE_CONFIG" --certificate-pin-format-proof "$FOTO_PIN_FORMAT_PROOF" \
+  --check > "$FOTO_REPORT" 2> "$FOTO_REPORT.stderr"
 python3 - "$FOTO_REPORT" <<'PY_VALIDATION'
 import json, pathlib, sys
 report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if report.get('checkpointConfigValidation') != 'PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT':
+    raise SystemExit('STOP: config equivalence not proved; checkpoint/backup unchanged')
 if report.get('docker', {}).get('builderValidation') != 'PASS_READ_ONLY_LIMITS_AND_IDLE':
     raise SystemExit('STOP: builderValidation is not PASS; inspect the private preflight report')
 print('PASS builderValidation=PASS_READ_ONLY_LIMITS_AND_IDLE')
+print('PASS checkpointConfigValidation=PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT')
 PY_VALIDATION
 [[ "$(foto_checkpoint)" = "$FOTO_CHECKPOINT_BEFORE" ]] || {
   echo 'STOP: checkpoint changed during check; nothing reset' >&2
   exit 1
 }
-FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-buildx035-history-session.XXXXXXXX)
+FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-pin-format-session.XXXXXXXX)
 printf '%s\n' 'set-option -g remain-on-exit on' 'set-option -g history-limit 20000' | \
   sudo -u codex-gallery -H sh -c 'umask 077; cat > "$1"' sh "$FOTO_SESSION/tmux.conf"
-foto_as_builder tmux -L foto17-buildx035-history -f "$FOTO_SESSION/tmux.conf" \
-  new-session -d -s foto17-buildx035-history \
-  "$FOTO_INSTALL/foto-build17-release" --config "$FOTO_RELEASE_CONFIG" --finalize
+foto_as_builder tmux -L foto17-pin-format -f "$FOTO_SESSION/tmux.conf" \
+  new-session -d -s foto17-pin-format \
+  "$FOTO_INSTALL/foto-build17-release" --config "$FOTO_RELEASE_CONFIG" \
+  --certificate-pin-format-proof "$FOTO_PIN_FORMAT_PROOF" --finalize
 printf 'STARTED, не READY. Preflight: %s\n' "$FOTO_REPORT"
-printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-buildx035-history attach -t foto17-buildx035-history'
+printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-pin-format attach -t foto17-pin-format'
 BASH
 ```
 
@@ -158,13 +189,13 @@ toolchain, журнала и outputs. Ошибка не запускает сл�
 После обрыва SSH подключиться:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-buildx035-history attach -t foto17-buildx035-history
+sudo -u codex-gallery -H tmux -L foto17-pin-format attach -t foto17-pin-format
 ```
 
 Сессия сохраняет pane после выхода программы. Exit status:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-buildx035-history display-message -p -t foto17-buildx035-history '#{pane_dead_status}'
+sudo -u codex-gallery -H tmux -L foto17-pin-format display-message -p -t foto17-pin-format '#{pane_dead_status}'
 ```
 
 Пустое значение означает, что процесс ещё не завершён. Exit0 вместе с финальной
@@ -188,7 +219,12 @@ release state из config. Preflight TXT — приватный, не публи
 - `MERGE_INTERRUPTED...`: реальный merge был прерван; этот patch не разрешает
   автоматически чинить его. Не удалять MERGE_HEAD/checkpoint.
 - `CONFIG_CHANGED_USE_NEW_STATE` / `STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED`:
-  старые receipts принадлежат другим входам. Сохранить state; не подменять hashes.
+  доказательство config не совпало, либо старые receipts принадлежат другим входам.
+  Сохранить backup/state; не подменять hashes. Этот patch принимает только точное
+  преобразование pin; другие изменения запрещены. Без proof-флага по-прежнему STOP.
+- `PRIVATE_0600_OWNED_FILE_REQUIRED` / `PIN_FORMAT_PROOF_REQUIRES_PREPARED_CHECKPOINT`:
+  исходный backup/подготовленный checkpoint не доказан. Ничего не пересоздавать,
+  не править права/manifest и не повторять merge; сохранить приватный отчёт.
 - `MISSING_TOOL_*` / JDK / signing error: исправить только указанную существующую
   toolchain/config после локальной проверки. Новый ключ создавать запрещено.
 - OOM137/DeadlineExceeded: сохранить logs и установить причину. Автоповторов нет;
@@ -233,6 +269,19 @@ Buildx v0.35.0 (`a319e5b15052cf6557ceb666eb8ff6e32380b782`, linux-amd64 SHA256
 с Docker daemon. Реальная проверка builder/продолжение выполняется только HP-блоком.
 
 ## Что подтверждено и что ещё нет
+
+Новая проверка config: 14 адресных тестов PASS на временном Git с подменёнными
+внешними сервисами. Покрыты uppercase/lowercase colon pin, неверный сертификат,
+другие поля и типы JSON (включая `true` → `1`), изменённый backup, отсутствие,
+чужой UID, 0644, symlink, неподготовленный checkpoint, прерванный merge,
+повторная проверка proof, неизменность файлов `--check`, resume/reuse receipt
+после успешного этапа и отказ APK с другим сертификатом. Ещё 11 существующих
+адресных регрессий PASS: manifest history, stage/input/output integrity, read-only
+inventory, resume/finalize и подпись/package APK. Внешние Docker/Android ответы
+в этих тестах синтетические. Логика signing/APK, этапов, gates, merge, image,
+save/snapshots и checksums не изменена (проверено сравнением AST с предыдущим HEAD).
+Прежние CI результаты ниже/в PR остаются историческими; CI нового HEAD указывается
+отдельно в PR, без переноса старых PASS на новый запуск.
 
 Git overlap/resume, целостность истории и отказы проверяются на временном real Git.
 Backend/API/migration content равен проверенному PR7; editor content равен PR6.
