@@ -108,7 +108,7 @@ docker info >/dev/null
 [[ ! -e "$output" ]] || { echo 'FAIL output already exists; nothing overwritten'; exit 1; }
 context="$(mktemp -d)"
 trap 'rm -rf -- "$context"' EXIT
-mkdir -m 700 -p "$output"
+(umask 077; mkdir -p -- "$output")
 output="$(realpath "$output")"
 # Build a committed tree, never local signing files, generated files or .env.
 git archive --format=tar "$release_sha" | tar -x -C "$context"

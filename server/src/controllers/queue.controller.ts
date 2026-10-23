@@ -3,8 +3,8 @@ import { ApiTags } from '@nestjs/swagger';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
 import {
-  QueueDeleteDto,
   HistoricalDeletionJobsAuditDto,
+  QueueDeleteDto,
   QueueJobResponseDto,
   QueueJobSearchDto,
   QueueNameParamDto,

@@ -1,0 +1,414 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 96.0.0 (110.0.0 available)
+  analyzer 10.2.0 (14.6.0 available)
+  archive 4.0.9 (4.5.2 available)
+  auto_route 11.1.0 (11.2.0 available)
+  auto_route_generator 10.5.0 (10.6.0 available)
+  background_downloader 9.5.7 (9.6.4 available)
+! bonsoir 5.1.11 (overridden) (7.1.5 available)
+  bonsoir_android 5.1.6 (7.1.3 available)
+  bonsoir_darwin 5.1.3 (7.1.1 available)
+  bonsoir_linux 5.1.3 (7.1.0 available)
+  bonsoir_platform_interface 5.1.3 (7.0.0 available)
+  bonsoir_windows 5.1.5 (7.3.0 available)
+  build 4.0.7 (5.0.0 available)
+  build_config 1.3.0 (1.4.0 available)
+  build_daemon 4.1.1 (4.1.7 available)
+  build_runner 2.15.1 (2.17.1 available)
+  built_collection 5.1.1 (5.1.2 available)
+  built_value 8.12.6 (8.13.0 available)
+  cli_util 0.4.2 (0.6.0 available)
+  clock 1.1.2 (1.1.3 available)
+  code_assets 1.2.1 (2.1.0 available)
+  code_builder 4.11.1 (4.13.0 available)
+  connectivity_plus 7.3.0 (7.3.2 available)
+  cross_file 0.3.5+2 (0.4.0 available)
+  dart_style 3.1.7 (3.1.14 available)
+  dbus 0.7.13 (0.8.0 available)
+  desktop_webview_window 0.3.0 (0.4.0 available)
+  device_info_plus 12.4.0 (13.3.0 available)
+  device_info_plus_platform_interface 7.0.3 (8.1.0 available)
+  drift 2.34.0 (2.35.2 available)
+  drift_dev 2.34.0 (2.35.1 available)
+  dynamic_color 1.8.1 (2.1.0 available)
+  file_selector_linux 0.9.4 (0.9.4+1 available)
+  file_selector_macos 0.9.5 (0.9.5+2 available)
+  file_selector_windows 0.9.3+5 (0.9.3+6 available)
+  flutter_local_notifications 17.2.4 (22.3.2 available)
+  flutter_local_notifications_linux 4.0.1 (8.0.2 available)
+  flutter_local_notifications_platform_interface 7.2.0 (12.2.0 available)
+  flutter_riverpod 2.6.1 (3.4.3 available)
+  flutter_secure_storage 9.2.4 (11.2.0 available)
+  flutter_secure_storage_linux 1.2.3 (3.0.3 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.1.1 available)
+  flutter_secure_storage_web 1.2.1 (2.1.1 available)
+  flutter_secure_storage_windows 3.1.2 (4.2.2 available)
+  flutter_web_auth_2 5.0.3 (5.1.0 available)
+  fluttertoast 8.2.14 (10.0.2 available)
+  freezed 3.2.5 (4.0.3 available)
+  frontend_server_client 4.0.0 (4.2.0 available)
+  geolocator 14.0.2 (14.1.2 available)
+  geolocator_android 5.0.2 (5.2.1 available)
+  geolocator_apple 2.3.13 (2.4.2 available)
+  geolocator_linux 0.2.3 (0.2.6 available)
+  geolocator_platform_interface 4.2.6 (4.4.1 available)
+  geolocator_web 4.1.3 (4.1.4 available)
+  glob 2.1.3 (2.2.0 available)
+  gsettings 0.2.8 (0.2.9 available)
+  home_widget 0.9.3 (0.10.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  hooks_riverpod 2.6.1 (3.4.3 available)
+  html 0.15.6 (0.15.7 available)
+  http_multi_server 3.2.2 (3.2.3 available)
+  image 4.9.1 (4.12.0 available)
+  image_picker 1.2.3 (1.2.4 available)
+  image_picker_android 0.8.13+19 (0.8.13+25 available)
+  image_picker_ios 0.8.13+6 (0.8.13+12 available)
+  image_picker_platform_interface 2.11.1 (2.11.2 available)
+  io 1.0.5 (1.1.0 available)
+  jni 0.15.2 (1.1.0 available)
+  js 0.6.7 (0.7.2 available)
+  lean_builder 0.1.10 (1.2.2 available)
+  local_auth 2.3.0 (3.0.2 available)
+  local_auth_android 1.0.56 (2.3.0 available)
+  local_auth_darwin 1.6.1 (2.0.5 available)
+  local_auth_windows 1.0.11 (2.0.2 available)
+  maplibre_gl 0.27.0 (0.27.1 available)
+  maplibre_gl_platform_interface 0.27.0 (0.27.1 available)
+  maplibre_gl_web 0.27.0 (0.27.1 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  native_toolchain_c 0.19.1 (0.19.5 available)
+  network_info_plus 6.1.4 (8.2.2 available)
+  network_info_plus_platform_interface 2.0.2 (3.1.0 available)
+  nm 0.5.0 (0.6.0 available)
+! objective_c 9.4.1 from git https://github.com/mertalev/native at 291555 in pkgs/objective_c (overridden)
+  octo_image 2.1.0 (2.1.2 available)
+  package_config 2.2.0 (3.0.0 available)
+  package_info_plus 8.3.1 (10.2.2 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  path_provider_android 2.2.23 (2.3.1 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  permission_handler 11.4.0 (13.0.2 available)
+  permission_handler_android 12.1.0 (14.1.0 available)
+  permission_handler_apple 9.4.9 (9.6.2 available)
+  permission_handler_html 0.1.3+5 (0.1.4+1 available)
+  permission_handler_platform_interface 4.3.0 (4.4.1 available)
+  permission_handler_windows 0.2.1 (0.2.2 available)
+  petitparser 7.0.2 (7.1.0 available)
+  photo_manager 3.9.0 (3.12.0 available)
+  pigeon 27.3.0 (29.0.11 available)
+  pinput 5.0.2 (7.0.0 available)
+  platform 3.1.6 (3.2.0 available)
+  pool 1.5.2 (1.5.3 available)
+  posix 6.5.0 (6.5.2 available)
+  process 5.0.5 (5.0.6 available)
+  protobuf 3.1.0 (6.1.0 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  pubspec_parse 1.5.0 (1.6.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  riverpod 2.6.1 (3.4.3 available)
+  share_plus 10.1.4 (13.3.1 available)
+  share_plus_platform_interface 5.0.2 (7.2.0 available)
+  shared_preferences 2.5.5 (2.5.6 available)
+  shared_preferences_android 2.4.25 (2.5.1 available)
+  shared_preferences_foundation 2.5.6 (2.6.0 available)
+  shelf 1.4.2 (1.4.3 available)
+  source_gen 4.2.3 (4.3.1 available)
+  sqlite3 3.4.0 (3.7.1 available)
+  sqlite3_connection_pool 0.2.7 (0.2.12 available)
+  sqlite3_web 0.8.1 (0.9.5 available)
+  sqlite_async 0.14.2 (0.14.6 available)
+  sqlparser 0.44.4 (0.45.0 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  stream_transform 2.1.1 (2.1.2 available)
+  test_api 0.7.12 (0.7.15 available)
+  timezone 0.9.4 (0.11.2 available)
+  url_launcher 6.3.2 (6.3.3 available)
+  url_launcher_android 6.3.32 (6.3.33 available)
+  url_launcher_ios 6.4.1 (6.4.2 available)
+  url_launcher_linux 3.2.2 (3.2.3 available)
+  url_launcher_macos 3.2.5 (3.2.6 available)
+  url_launcher_windows 3.1.5 (3.1.6 available)
+  vector_graphics 1.2.2 (1.2.4 available)
+  vector_graphics_compiler 1.2.5 (1.3.2 available)
+  vector_math 2.4.2 (2.4.3 available)
+  vm_service 15.2.0 (15.4.0 available)
+  wakelock_plus 1.3.3 (1.8.1 available)
+  wakelock_plus_platform_interface 1.5.1 (1.7.0 available)
+  webdriver 3.1.0 (3.2.0 available)
+  win32 5.15.0 (6.4.0 available)
+  win32_registry 2.1.0 (3.0.3 available)
+  window_to_front 0.0.3 (1.0.0 available)
+  xml 7.0.1 (7.1.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+144 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart
+00:00 +0: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: normalizes stroke thickness against the image side
+00:00 +1: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: draws a normalized stroke and supports tool changes
+00:00 +2: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: eraser removes the topmost annotation under the gesture
+00:00 +3: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: a second pointer cancels an in-progress stroke until both fingers lift
+00:00 +4: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: pointer cancellation discards the unfinished annotation
+00:00 +5: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: adding a second finger cancels AnnotationTool.eraser without changing the document or undo history
+00:00 +6: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: adding a second finger cancels AnnotationTool.move without changing the document or undo history
+00:00 +7: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: resizing during a single-finger stroke discards the unfinished stroke
+00:00 +8: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_canvas_test.dart: eraser follows a drag across multiple geometries and records one undo snapshot
+00:00 +9: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart
+00:01 +9: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: curved stroke hits its middle segments and leaves empty enclosed space untouched
+00:02 +10: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: AnnotationTool.rectangle empty center does not erase its outline
+00:02 +11: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: AnnotationTool.ellipse empty center does not erase its outline
+00:02 +12: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: arrow wing beyond the shaft tolerance is erasable
+00:02 +13: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: stroke eraser preserves long multiline text at the end of its actual layout
+00:02 +14: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: tap removes only the top overlapping element, and undo restores its order
+00:02 +15: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_eraser_geometry_test.dart: eraser uses transformed coordinates after pinch, pan, rotation and reflection
+00:02 +16: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart
+00:02 +16: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:03 +17: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:03 +18: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.ellipse keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:03 +19: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.ellipse keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:03 +20: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.arrow keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:03 +21: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.arrow keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:03 +22: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.text keeps its size and visible bounds when moved to Offset(0.0, 0.0)
+00:03 +23: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.text keeps its size and visible bounds when moved to Offset(1.0, 1.0)
+00:03 +24: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle resizes about its first point and commits one undo entry
+00:03 +25: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.ellipse resizes about its first point and commits one undo entry
+00:03 +26: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.arrow resizes about its first point and commits one undo entry
+00:03 +27: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: a reversed arrow keeps its first endpoint fixed when resizing
+00:03 +28: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: text "Foto" shares bounds with selection and scales without moving its anchor
+00:03 +29: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: text "A long caption that wraps across several lines" shares bounds with selection and scales without moving its anchor
+00:03 +30: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: capture hides selection; a surface resize preserves resized text coordinates and font size
+00:03 +31: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: cancel discards resize without changing the document or history
+00:03 +32: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: second pointer discards resize without changing the document or history
+00:03 +33: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: surface resize discards resize without changing the document or history
+00:03 +34: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.rectangle move and resize use image coordinates after pinch, rotation and reflection
+00:03 +35: /workspace/gallery-editor-compact/mobile/test/pages/edit/annotation_resize_test.dart: AnnotationTool.text move and resize use image coordinates after pinch, rotation and reflection
+00:04 +36: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart
+00:04 +36: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: catalog contains original plus 32 effects and validates out-of-range access
+00:04 +37: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible brightness correction and preserves original pixels
+00:04 +38: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible contrast correction and preserves original pixels
+00:04 +39: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible saturation correction and preserves original pixels
+00:04 +40: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible exposure correction and preserves original pixels
+00:04 +41: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible temperature correction and preserves original pixels
+00:04 +42: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible shadows correction and preserves original pixels
+00:04 +43: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible highlights correction and preserves original pixels
+00:04 +44: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: renders a visible hue correction and preserves original pixels
+00:04 +45: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 1 at partial intensity
+00:04 +46: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 2 at partial intensity
+00:04 +47: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 3 at partial intensity
+00:04 +48: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 4 at partial intensity
+00:04 +49: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 5 at partial intensity
+00:04 +50: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 6 at partial intensity
+00:04 +51: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 7 at partial intensity
+00:04 +52: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 8 at partial intensity
+00:05 +53: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 9 at partial intensity
+00:05 +54: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 10 at partial intensity
+00:05 +55: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 11 at partial intensity
+00:05 +56: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 12 at partial intensity
+00:05 +57: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 13 at partial intensity
+00:05 +58: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 14 at partial intensity
+00:05 +59: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 15 at partial intensity
+00:05 +60: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 16 at partial intensity
+00:05 +61: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 17 at partial intensity
+00:05 +62: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 18 at partial intensity
+00:05 +63: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 19 at partial intensity
+00:05 +64: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 20 at partial intensity
+00:05 +65: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 21 at partial intensity
+00:05 +66: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 22 at partial intensity
+00:05 +67: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 23 at partial intensity
+00:05 +68: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 24 at partial intensity
+00:05 +69: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 25 at partial intensity
+00:05 +70: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 26 at partial intensity
+00:05 +71: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 27 at partial intensity
+00:05 +72: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 28 at partial intensity
+00:05 +73: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 29 at partial intensity
+00:05 +74: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 30 at partial intensity
+00:05 +75: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 31 at partial intensity
+00:05 +76: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_color_pipeline_test.dart: preview and exported pixels agree for filter 32 at partial intensity
+00:05 +77: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_crop_history_test.dart
+00:06 +77: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_crop_history_test.dart: aspect 1:1 withExif=true forms one reversible pixel-crop history step
+00:08 +78: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_crop_history_test.dart: aspect 16:9 withExif=true forms one reversible pixel-crop history step
+00:08 +79: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_crop_history_test.dart: aspect Original withExif=true forms one reversible pixel-crop history step
+00:08 +80: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_crop_history_test.dart: aspect Original withExif=false forms one reversible pixel-crop history step
+00:09 +81: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart
+00:10 +81: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: pixel-space object transforms invert exactly on a non-square source
+00:10 +82: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: style, transform and reorder remain immutable and undoable
+00:10 +83: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: two-finger object move/scale/rotate commits once without zooming the photo or resuming a stroke
+00:10 +84: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: pointer cancellation discards the object draft and permits a clean retry
+00:10 +85: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: rotated scaled sticker is selectable through its inverse source transform
+00:10 +86: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: stroke eraser removes only ink under overlapping text and sticker layers
+00:10 +87: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: styled text object renders identically in the real canvas and exported PNG
+00:10 +88: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: styled star object renders identically in the real canvas and exported PNG
+00:10 +89: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: styled heart object renders identically in the real canvas and exported PNG
+00:10 +90: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: styled smile object renders identically in the real canvas and exported PNG
+00:11 +91: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_objects_test.dart: styled 🙂 object renders identically in the real canvas and exported PNG
+00:11 +92: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_viewport_test.dart
+00:11 +92: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_viewport_test.dart: zoom and pan stay bounded; cancelled touches release the navigation lock
+00:11 +93: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart
+00:12 +93: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: (setUpAll)
+00:12 +93: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.android Size(393.0, 852.0) (variant: TargetPlatform.android)
+00:13 +94: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.android Size(320.0, 720.0) (variant: TargetPlatform.android)
+00:13 +95: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.android Size(852.0, 393.0) (variant: TargetPlatform.android)
+00:14 +96: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.iOS Size(393.0, 852.0) (variant: TargetPlatform.iOS)
+00:14 +97: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.iOS Size(320.0, 720.0) (variant: TargetPlatform.iOS)
+00:14 +98: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.iOS Size(852.0, 393.0) (variant: TargetPlatform.iOS)
+00:14 +99: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: initial controls do not reserve half of the photo viewport
+00:14 +100: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: drawing settings expand and collapse without losing the document
+00:14 +101: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: drawing survives settings, undo/redo and orientation on TargetPlatform.android (variant: TargetPlatform.android)
+00:15 +102: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rotation between layouts preserves crop controller and history on TargetPlatform.android (variant: TargetPlatform.android)
+00:15 +103: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: keyboard insets resize once without changing the document on TargetPlatform.android (variant: TargetPlatform.android)
+00:15 +104: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: drawing survives settings, undo/redo and orientation on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:16 +105: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rotation between layouts preserves crop controller and history on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:16 +106: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: keyboard insets resize once without changing the document on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:16 +107: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rendered compact portrait fixture on android_portrait (variant: TargetPlatform.android)
+00:16 +108: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rendered compact portrait fixture on ios_portrait (variant: TargetPlatform.iOS)
+00:16 +109: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rendered compact portrait fixture on landscape (variant: TargetPlatform.android)
+00:17 +110: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: (tearDownAll)
+00:17 +110: loading /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart
+00:17 +110: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: undo and redo traverse geometry, corrections, filters and styled markup in order
+00:17 +111: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: one continuous slider gesture is one undo step and redo restores the final value
+00:17 +112: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: no-op interactions do not consume history or discard redo
+00:17 +113: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: a new edit after undo invalidates redo
+00:17 +114: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: reset is one reversible document change including annotations
+00:17 +115: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: four turns and zero-intensity effects are clean
+00:17 +116: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: history retains at most 100 immutable snapshots
+00:17 +117: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: saving locks all document mutations, undo and redo
+00:17 +118: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_document_history_test.dart: invalid geometry and non-finite corrections fail without changing the document
+00:17 +119: loading /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart
+00:18 +119: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider initial state has default values
+00:18 +120: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment adds adjustment to state
+00:18 +121: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment clamps value to [-1, 1]
+00:18 +122: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setAdjustment removes key when value is 0
+00:18 +123: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter updates filter index and intensity
+00:18 +124: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter clamps index to valid range
+00:18 +125: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider setFilter clamps intensity to [0, 1]
+00:18 +126: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider resetEdits resets adjustments and filter
+00:18 +127: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider hasUnsavedEdits reflects adjustment changes
+00:18 +128: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider hasUnsavedEdits reflects filter changes
+00:18 +129: /workspace/gallery-editor-compact/mobile/test/unit/providers/editor_provider_test.dart: EditorProvider init loads baseline adjustments from edits
+00:18 +130: loading /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart
+00:19 +130: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle no edits
+00:19 +131: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single 90° rotation
+00:19 +132: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single 180° rotation
+00:19 +133: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single 270° rotation
+00:19 +134: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single horizontal mirror
+00:19 +135: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle a single vertical mirror
+00:19 +136: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 90° rotation + horizontal mirror
+00:19 +137: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 90° rotation + vertical mirror
+00:19 +138: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 90° rotation + both mirrors
+00:19 +139: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 180° rotation + horizontal mirror
+00:19 +140: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 180° rotation + vertical mirror
+00:19 +141: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 180° rotation + both mirrors
+00:19 +142: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 270° rotation + horizontal mirror
+00:19 +143: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 270° rotation + vertical mirror
+00:19 +144: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle 270° rotation + both mirrors
+00:19 +145: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle horizontal mirror + 90° rotation
+00:19 +146: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle horizontal mirror + 180° rotation
+00:19 +147: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle horizontal mirror + 270° rotation
+00:19 +148: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle vertical mirror + 90° rotation
+00:19 +149: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle vertical mirror + 180° rotation
+00:19 +150: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle vertical mirror + 270° rotation
+00:19 +151: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle both mirrors + 90° rotation
+00:19 +152: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle both mirrors + 180° rotation
+00:19 +153: /workspace/gallery-editor-compact/mobile/test/unit/utils/editor_test.dart: normalizeEdits should handle both mirrors + 270° rotation
+00:19 +154: loading /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart
+00:19 +154: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(2.0, 2.0) preserves every relative point and style
+00:19 +155: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(-2.0, -2.0) preserves every relative point and style
+00:19 +156: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(-2.0, 2.0) preserves every relative point and style
+00:19 +157: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: moving to boundary Offset(2.0, -2.0) preserves every relative point and style
+00:19 +158: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: records strokes and supports undo and redo
+00:19 +159: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: a new mutation clears redo and moving preserves style
+00:19 +160: /workspace/gallery-editor-compact/mobile/test/utils/annotation_editor_test.dart: remove and clear are undoable and unknown ids are harmless
+00:19 +161: loading /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart
+00:20 +161: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: keeps source dimensions and pixels without editor viewport dependence
+00:20 +162: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: applies a source-relative crop and preserves pixel dimensions
+00:20 +163: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: rotates and flips pixels in the same output coordinate system
+00:20 +164: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: paints annotations into source pixels before cropping and transformation
+00:20 +165: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=false vertical=false
+00:20 +166: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=false vertical=true
+00:20 +167: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=true vertical=false
+00:20 +168: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=0 horizontal=true vertical=true
+00:20 +169: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=false vertical=false
+00:20 +170: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=false vertical=true
+00:20 +171: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=true vertical=false
+00:20 +172: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=1 horizontal=true vertical=true
+00:20 +173: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=false vertical=false
+00:20 +174: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=false vertical=true
+00:20 +175: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=true vertical=false
+00:20 +176: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=2 horizontal=true vertical=true
+00:20 +177: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=false vertical=false
+00:20 +178: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=false vertical=true
+00:20 +179: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=true vertical=false
+00:20 +180: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=false turn=3 horizontal=true vertical=true
+00:20 +181: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=false vertical=false
+00:20 +182: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=false vertical=true
+00:20 +183: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=true vertical=false
+00:20 +184: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=0 horizontal=true vertical=true
+00:20 +185: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=false vertical=false
+00:20 +186: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=false vertical=true
+00:20 +187: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=true vertical=false
+00:20 +188: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=1 horizontal=true vertical=true
+00:20 +189: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=false vertical=false
+00:20 +190: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=false vertical=true
+00:20 +191: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=true vertical=false
+00:20 +192: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=2 horizontal=true vertical=true
+00:20 +193: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=false vertical=false
+00:20 +194: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=false vertical=true
+00:20 +195: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=true vertical=false
+00:20 +196: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: source pixels and markup: crop=true turn=3 horizontal=true vertical=true
+00:20 +197: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: normalizes rotation -450 like the preview quarter-turn
+00:20 +198: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: normalizes rotation -90 like the preview quarter-turn
+00:20 +199: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_exporter_test.dart: normalizes rotation 630 like the preview quarter-turn
+00:20 +200: loading /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart
+00:21 +200: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart: owns the decoded handle and detaches after a delayed image
+00:21 +201: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart: owns the decoded handle and detaches after a cached image
+00:21 +202: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart: propagates decoding failure and detaches so a new source can be retried
+00:21 +203: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart: times out at the default deadline, detaches, and ignores late images during a retry
+00:21 +204: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart: cancel detaches a stalled decoder immediately and a late frame cannot affect retry
+00:21 +205: /workspace/gallery-editor-compact/mobile/test/utils/edited_image_loader_test.dart: export dimensions are bounded without allocating an oversized raster
+00:21 +206: loading /workspace/gallery-editor-compact/mobile/test/utils/editor_formats_test.dart
+00:22 +206: /workspace/gallery-editor-compact/mobile/test/utils/editor_formats_test.dart: decodes sample.png with correct orientation and exports a new raster without changing source bytes
+00:22 +207: /workspace/gallery-editor-compact/mobile/test/utils/editor_formats_test.dart: decodes orientation-6.jpg with correct orientation and exports a new raster without changing source bytes
+00:22 +208: loading /workspace/gallery-editor-compact/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart
+00:25 +208: /workspace/gallery-editor-compact/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart: photo has no duplicate editor entry in the expanded top menu
+00:26 +209: /workspace/gallery-editor-compact/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart: Live/Motion photo has no duplicate editor entry in the expanded top menu
+00:26 +210: /workspace/gallery-editor-compact/mobile/test/presentation/widgets/asset_viewer/editor_entry_test.dart: video has no duplicate editor entry in the expanded top menu
+00:26 +211: loading /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart
+00:27 +211: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke snapshots normalized points without allowing later input or output mutation
+00:27 +212: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke accepts boundary coordinates and the largest supported brush
+00:27 +213: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke rejects a brush outside the normalized image or nonfinite coordinates
+00:27 +214: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke rejects empty or excessively sampled gestures
+00:27 +215: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke rejects zero, negative, excessive and nonfinite brush sizes
+00:27 +216: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke records erasing as a mask operation without changing the original gesture
+00:27 +217: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserStroke sends normalized mask instructions rather than source image bytes
+00:27 +218: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask starts with no selection or history
+00:27 +219: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask eraser-only gestures do not permit an inpainting request
+00:27 +220: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask add, undo and redo preserve the previous immutable snapshots
+00:27 +221: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask a new gesture after undo discards redo rather than reviving a removed object mask
+00:27 +222: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask undoing all gestures removes the selection and preserves redo ordering
+00:27 +223: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask reset removes both mask and redo history without modifying existing snapshots
+00:27 +224: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask snapshots constructor input and exposes an immutable mask
+00:27 +225: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask limits gesture count without modifying the accepted mask
+00:27 +226: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserMask limits total sample count even when every individual gesture is valid
+00:27 +227: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserJob reads processing lifecycle states without inventing an edited asset
+00:27 +228: /workspace/gallery-editor-compact/mobile/test/unit/domain/models/magic_eraser_test.dart: MagicEraserJob reads a saved copy and a failure code distinctly
+00:27 +229: loading /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart
+00:28 +229: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: allows an owned Live/Motion still into the editor without relaxing its transform-edit eligibility
+00:29 +230: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not expose editing of another owners Live Photo
+00:29 +231: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not offer a server editor without a selected photo
+00:29 +232: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not treat a local asset as an owned server photo (remoteId: null)
+00:29 +233: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not treat a local asset as an owned server photo (remoteId: backed-up-photo)
+00:29 +234: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: offers editing for an owned remote photo with a matching on-device original
+00:29 +235: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing local
+00:29 +236: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing shared
+00:29 +237: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing video
+00:29 +238: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not silently choose one photo from a mixed selection containing animated
+00:29 +239: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not offer editing for a trashed photo
+00:29 +240: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: does not offer editing for a remote index tombstone
+00:29 +241: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: keeps ordinary videos and animated images outside the photo eraser entry point
+00:29 +242: /workspace/gallery-editor-compact/mobile/test/unit/presentation/actions/magic_eraser_edit_action_test.dart: the editor loads a bounded unedited preview even when an original exists locally
+00:29 +243: All tests passed!

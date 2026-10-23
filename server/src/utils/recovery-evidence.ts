@@ -1,8 +1,8 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
-import type { FileHandle } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import type { FileHandle } from 'node:fs/promises';
 import { DeletionError } from 'src/utils/authorized-deletion.js';
 
 /**
@@ -122,7 +122,7 @@ const parseProof = (proof: string): unknown => {
   if (!isString(proof) || proof.length > MAX_PROOF_LENGTH) {
     fail('RECOVERY_EVIDENCE_FORMAT_INVALID');
   }
-  const parts = proof.split('.');
+  const parts = proof.split('.', 3);
   if (parts.length !== 3 || parts[0] !== RECOVERY_PROOF_PREFIX || !SHA256.test(parts[2])) {
     fail('RECOVERY_EVIDENCE_FORMAT_INVALID');
   }
@@ -190,7 +190,7 @@ const parseEvidence = (raw: unknown): RecoveryEvidence => {
   if (record.version !== 1 || !Array.isArray(record.roots) || record.roots.length === 0 || record.roots.length > 128) {
     return fail('RECOVERY_ROOT_EVIDENCE_INVALID');
   }
-  const roots = record.roots.map(rootEvidence);
+  const roots = record.roots.map((root) => rootEvidence(root));
   const backup = fileEvidence(record.backup, 'RECOVERY_BACKUP_EVIDENCE_INVALID');
   const restore = isRecord(record.restore) ? record.restore : fail('RECOVERY_RESTORE_NOT_VERIFIED');
   if (restore.verified !== true || restore.validation !== 'PASS_ISOLATED_SQL_TRANSACTION') {
@@ -325,7 +325,7 @@ export const verifyRecoveryProof = async (proof: string, authorizedRoots: string
     if (absoluteRoot === '/' || (await fs.realpath(absoluteRoot).catch(() => '')) !== absoluteRoot) {
       fail('RECOVERY_ROOT_UNAVAILABLE');
     }
-    const stat = await fs.stat(absoluteRoot, { bigint: true }).catch(() => undefined);
+    const stat = await fs.stat(absoluteRoot, { bigint: true }).catch(() => null);
     if (!stat) {
       return fail('RECOVERY_ROOT_UNAVAILABLE');
     }
@@ -380,10 +380,10 @@ export const verifyRecoveryProof = async (proof: string, authorizedRoots: string
     typeof receipt.postgresImage !== 'string' ||
     receipt.postgresImage.length === 0 ||
     typeof receipt.assetCount !== 'number' ||
-    !Number.isInteger(receipt.assetCount) ||
+    !Number.isSafeInteger(receipt.assetCount) ||
     receipt.assetCount <= 0 ||
     typeof receipt.migrationCount !== 'number' ||
-    !Number.isInteger(receipt.migrationCount) ||
+    !Number.isSafeInteger(receipt.migrationCount) ||
     receipt.migrationCount <= 0 ||
     receipt.productionChanged !== false
   ) {
@@ -406,6 +406,6 @@ export const isRecoveryProofFormat = (proof: unknown): proof is string => {
   if (!isString(proof) || proof.length > MAX_PROOF_LENGTH) {
     return false;
   }
-  const [prefix, encoded, checksum] = proof.split('.');
+  const [prefix, encoded, checksum] = proof.split('.', 3);
   return prefix === RECOVERY_PROOF_PREFIX && !!encoded && !!checksum && SHA256.test(checksum);
 };

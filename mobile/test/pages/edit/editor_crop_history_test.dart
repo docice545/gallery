@@ -44,6 +44,8 @@ void main() {
         await tester.pump();
       }
       expect(find.byType(CropImage), findsOneWidget);
+      await tester.tap(find.byKey(const Key('editor-mode-crop')));
+      await tester.pumpAndSettle();
       final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
       final notifier = container.read(editorStateProvider.notifier);
       if (withExif) {

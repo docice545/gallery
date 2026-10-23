@@ -110,6 +110,8 @@ describe('/server', () => {
         search: true,
         sidecar: true,
         trash: true,
+        authorizedDeletion: true,
+        ownerStorageDeletion: true,
         email: false,
         peopleStatistics: false,
         // The full list mirrors the SyncRequestType enum; pin the fork's space-album types,

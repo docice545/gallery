@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   Table,
   type Timestamp,
+  Trigger,
   UpdateDateColumn,
 } from '@immich/sql-tools';
 import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
@@ -21,6 +22,17 @@ import { UserTable } from 'src/schema/tables/user.table.js';
 import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
 
 @Table('asset')
+// The column-specific UPDATE OF guard is installed by the immutable deletion migration.
+// sql-tools cannot represent UPDATE OF; track its name without rewriting/removing its DDL.
+// schema-cli-compat.spec.ts verifies its exact enabled database definition.
+@Trigger({
+  name: 'gallery_block_deleted_asset',
+  timing: 'before',
+  actions: ['insert', 'update'],
+  scope: 'row',
+  functionName: 'gallery_block_deleted_asset',
+  synchronize: false,
+})
 @UpdatedAtTrigger('asset_updatedAt')
 @AfterDeleteTrigger({
   scope: 'statement',

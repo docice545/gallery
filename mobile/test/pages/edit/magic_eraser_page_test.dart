@@ -11,6 +11,7 @@ import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/widgets/common/transparent_image.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:openapi/api.dart' as api;
 
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
@@ -85,9 +86,7 @@ void main() {
   MemoryImage displayedImage(WidgetTester tester) =>
       tester.widget<Image>(find.descendant(of: canvas, matching: find.byType(Image))).image as MemoryImage;
 
-  testWidgets('an older or disabled server leaves the feature unavailable without requesting an original', (
-    tester,
-  ) async {
+  testWidgets('a disabled AI service stays unavailable without requesting an original', (tester) async {
     when(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => false);
 
     await pumpEditor(tester);
@@ -95,7 +94,50 @@ void main() {
     expect(canvas, findsNothing);
     expect(remove, findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('The AI eraser service is unavailable. Please try again later.'), findsOneWidget);
     verifyNever(() => repository.source(any(), abortTrigger: any(named: 'abortTrigger')));
+  });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final (error, message) in <(Object, String)>[
+      (
+        const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unsupportedBackend),
+        'This server does not provide the magic eraser API.',
+      ),
+      (
+        const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unavailablePhoto),
+        'This photo is unavailable, offline or in Trash.',
+      ),
+      (api.ApiException(503, 'Private details'), 'The AI eraser service is unavailable. Please try again later.'),
+      (
+        api.ApiException(500, 'Private details'),
+        'Could not check magic eraser availability. Check your connection and retry.',
+      ),
+    ]) {
+      testWidgets('AI page keeps the availability reason on $platform: $message', (tester) async {
+        when(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).thenThrow(error);
+        await pumpEditor(tester);
+        expect(find.text(message), findsOneWidget);
+        expect(find.textContaining('Private'), findsNothing);
+        expect(find.text('Retry'), findsOneWidget);
+        expect(canvas, findsNothing);
+        verifyNever(() => repository.source(any(), abortTrigger: any(named: 'abortTrigger')));
+        verifyNever(() => repository.create(any(), any()));
+        expect(tester.takeException(), isNull);
+      }, variant: TargetPlatformVariant({platform}));
+    }
+  }
+
+  testWidgets('AI service failure after a successful capability check is not a photo eligibility failure', (
+    tester,
+  ) async {
+    when(
+      () => repository.source(asset.id, abortTrigger: any(named: 'abortTrigger')),
+    ).thenThrow(api.ApiException(503, 'Private details'));
+    await pumpEditor(tester);
+    expect(find.text('The AI eraser service is unavailable. Please try again later.'), findsOneWidget);
+    expect(canvas, findsNothing);
+    verifyNever(() => repository.create(any(), any()));
   });
 
   testWidgets('a server-only source displays without inpainting or importing an asset automatically', (tester) async {
