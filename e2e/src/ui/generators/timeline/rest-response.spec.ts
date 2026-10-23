@@ -23,7 +23,7 @@ describe('timeline e2e rest response bucket grouping', () => {
 
   it('supplies deletion timestamps after a mock soft-delete and clears them after restore', () => {
     const asset = { id: 'photo', fileCreatedAt: '2024-01-02T10:00:00.000Z', isTrashed: false };
-    const data = { buckets: new Map([['2024-01', [asset]]]) } as never;
+    const data = { buckets: new Map([['2024-01-01', [asset]]]) } as never;
     const trashed = getTimeBucket(data, '2024-01-01', true, undefined, undefined, undefined, {
       ...changes,
       assetDeletions: [asset.id],
