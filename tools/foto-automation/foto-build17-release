@@ -41,6 +41,10 @@ REQUIRED_CHECKS = {
                       'check-openapi', 'check-mobile-patches', 'Test Web', 'Lint Web', 'End-to-End Tests Success'},
 }
 SUCCESS = {'success', 'neutral', 'skipped'}
+# Reviewed predecessor: only its completed test recipes remain reusable after
+# this memory-admission-only update. Build receipts must use the current runner.
+REVIEWED_TEST_RUNTIME = 'c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf'
+CODEGEN_HELPER_SHA = 'f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e'
 # Reviewed on real published Git objects, not a general partial-application bypass.
 # Unknown heads/trees still require operator review. See FOTO_BUILD17_RELEASE.md.
 REVIEWED_OVERLAP = {
@@ -169,6 +173,66 @@ def resources():
                 p = directory / name
                 limits[name] = p.read_text().strip() if p.is_file() else 'unavailable'
     return {'memoryBytes': memory, 'currentCgroup': limits}
+
+
+def memory_pressure_idle(text):
+    records = {}
+    for line in text.splitlines():
+        fields = line.split()
+        need(len(fields) == 5 and fields[0] in ('some', 'full') and fields[0] not in records,
+             'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+        pairs = [field.split('=') for field in fields[1:]]
+        need(all(len(pair) == 2 for pair in pairs) and
+             [pair[0] for pair in pairs] == ['avg10', 'avg60', 'avg300', 'total'],
+             'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+        values = [pair[1] for pair in pairs]
+        need(all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', value) for value in values[:3])
+             and values[3].isdigit(), 'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+        need(all(float(value) == 0 for value in values[:3]), 'MEMORY_PRESSURE_NO_LIMITS_CHANGED')
+        records[fields[0]] = values
+    need(set(records) == {'some', 'full'}, 'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+
+
+def backend_memory_reserve(proc=Path('/proc'), cgroups=Path('/sys/fs/cgroup')):
+    memory_pressure_idle((proc / 'pressure/memory').read_text())
+    entries = [line[3:] for line in (proc / 'self/cgroup').read_text().splitlines() if line.startswith('0::')]
+    need(len(entries) == 1 and entries[0].startswith('/') and '..' not in Path(entries[0]).parts,
+         'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+    root = cgroups.resolve()
+    directory = (root / entries[0].lstrip('/')).resolve()
+    need(directory.is_relative_to(root), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+    # Every visible ancestor can impose a tighter limit than the leaf. No swap
+    # is credited as RAM, and neither limits nor memory.high are modified.
+    while True:
+        current = (directory / 'memory.current').read_text().strip()
+        need(current.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+        for name in ('memory.max', 'memory.high'):
+            limit = (directory / name).read_text().strip()
+            need(limit == 'max' or limit.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            need(limit == 'max' or int(limit) - int(current) >= 10 * 1024**3,
+                 'CALLER_CGROUP_MEMORY_RESERVE_NO_LIMITS_CHANGED')
+        memory_pressure_idle((directory / 'memory.pressure').read_text())
+        if directory == root:
+            break
+        directory = directory.parent
+
+
+def check_stage_memory(name, available):
+    gib = 1024**3
+    minimum = (10 if name == 'backend-image' else 5) * gib
+    need(available['memoryBytes']['MemAvailable'] >= minimum, 'INSUFFICIENT_AVAILABLE_MEMORY_NO_LIMITS_CHANGED')
+    limit = available['currentCgroup'].get('memory.max', 'unavailable')
+    need(not limit.isdigit() or int(limit) >= 6 * gib, 'CALLER_CGROUP_TOO_SMALL_NO_LIMITS_CHANGED')
+    if name == 'backend-image':
+        # 10 GiB is the already-enforced BuildKit ceiling, not a reservation.
+        # Require >=4 GiB physical RAM outside that ceiling for host services,
+        # plus zero recent PSI and >=10 GiB headroom at every finite cgroup.
+        need(available['memoryBytes'].get('MemTotal', 0) >= 14 * gib,
+             'INSUFFICIENT_HOST_MEMORY_RESERVE_NO_LIMITS_CHANGED')
+        try:
+            backend_memory_reserve()
+        except OSError:
+            raise Stop('BACKEND_MEMORY_OBSERVATIONS_UNAVAILABLE_NO_LIMITS_CHANGED') from None
 
 
 def rootless():
@@ -550,9 +614,7 @@ class Pipeline:
                    '-Dkotlin.daemon.enabled=false', DOCKER_HOST=rootless(), TESTCONTAINERS_HOST_OVERRIDE='127.0.0.1')
         return env
 
-    def stage(self, name, cwd, argv, outputs=()):
-        self.clean()
-        need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
+    def stage_inputs(self, name, cwd, argv):
         inputs = {'head': self.manifest['head'], 'config': self.config_sha(), 'toolchain': self.manifest['toolchain'],
                   'pipeline': sha(Path(__file__)), 'runner': sha(HERE / 'foto-stage-runner.py'),
                   'argv': argv, 'cwd': str(cwd)}
@@ -566,6 +628,33 @@ class Pipeline:
                 p = 'mobile/.dart_tool/package_config.json'
                 inputs['dependencies'][p] = sha(self.source() / p)
         previous = self.manifest['stages'].get(name)
+        if previous and previous.get('inputs', {}).get('pipeline') == REVIEWED_TEST_RUNTIME:
+            recipes = {x[0]: x[3] for x in recipes_for(self.source())}
+            need(previous.get('status') == 'PASS' and name in recipes,
+                 'REVIEWED_PREDECESSOR_TEST_PASS_REQUIRED')
+            need(set(previous.get('outputs', {})) == set(recipes[name]), 'CORRUPT_STAGE_RECEIPT')
+            need(git(self.source(), 'rev-parse', 'HEAD^{tree}') == REVIEWED_OVERLAP['outputTree'] and
+                 self.c['expected_head'] == REVIEWED_OVERLAP['base'] and
+                 all(self.c['prs'][role]['sha'] == REVIEWED_OVERLAP[role] for role in ROLES),
+                 'REVIEWED_PREDECESSOR_APPLICATION_DIFFERS')
+            inputs['pipeline'] = REVIEWED_TEST_RUNTIME
+            if name == 'flutter-codegen':
+                # The versioned installation path changed, but this helper did
+                # not. Prove exact bytes, never waive an arbitrary argv change.
+                old = previous['inputs']['argv']
+                need(len(old) == 2 and old[0] == '/bin/bash', 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+                helper = Path(old[1])
+                need(helper.is_absolute() and helper.name == 'foto-mobile-codegen.sh' and
+                     sha(helper) == sha(HERE / helper.name) == CODEGEN_HELPER_SHA,
+                     'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+                inputs['argv'] = ['/bin/bash', str(helper)]
+        return inputs
+
+    def stage(self, name, cwd, argv, outputs=()):
+        self.clean()
+        need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
+        inputs = self.stage_inputs(name, cwd, argv)
+        previous = self.manifest['stages'].get(name)
         if previous:
             need(previous['inputs'] == inputs, 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
             if previous['status'] == 'PASS':
@@ -576,11 +665,7 @@ class Pipeline:
                 print('PASS_REUSED', name, flush=True)
                 return
             need(self.retry and self.diagnosis.strip(), 'FAILED_OR_INTERRUPTED_EXPLICIT_RETRY_AND_DIAGNOSIS_REQUIRED')
-        available = resources()
-        minimum = (12 if name == 'backend-image' else 5) * 1024**3
-        need(available['memoryBytes']['MemAvailable'] >= minimum, 'INSUFFICIENT_AVAILABLE_MEMORY_NO_LIMITS_CHANGED')
-        limit = available['currentCgroup'].get('memory.max', 'unavailable')
-        need(not limit.isdigit() or int(limit) >= 6 * 1024**3, 'CALLER_CGROUP_TOO_SMALL_NO_LIMITS_CHANGED')
+        check_stage_memory(name, resources())
         logname = name + '-' + uuid.uuid4().hex + '.log'
         attempt = {'inputs': inputs, 'status': 'RUNNING', 'log': logname, 'outputs': {}, 'startedAt': time.time()}
         self.manifest['stages'][name] = attempt
@@ -657,7 +742,10 @@ class Pipeline:
     def build(self):
         self.gate()
         self.clean()
-        need(self.manifest.get('testsComplete') == [x[0] for x in recipes_for(self.source())], 'MANDATORY_CHECKS_INCOMPLETE')
+        recipes = recipes_for(self.source())
+        need(self.manifest.get('testsComplete') == [x[0] for x in recipes] and
+             all(self.manifest['stages'].get(x[0], {}).get('status') == 'PASS' for x in recipes),
+             'MANDATORY_CHECKS_INCOMPLETE')
         need(self.tools() == self.manifest['toolchain'], 'TOOLCHAIN_CHANGED_NEW_STATE_REQUIRED')
         # Revalidate every successful receipt, outputs and logs, without repeating tests.
         for name, folder, argv, outputs in recipes_for(self.source()):
@@ -728,10 +816,16 @@ class Pipeline:
         need(self.image() == self.manifest['image'], 'IMAGE_ID_CHANGED')
         source = self.source() / 'mobile/build/app/outputs/flutter-apk/app-release.apk'
         need(self.apk_metadata(source) == self.manifest['apk'], 'APK_IDENTITY_CHANGED')
-        for stage in self.manifest['stages'].values():
+        recipes = {name: (self.source() / folder, argv) for name, folder, argv, _ in recipes_for(self.source())}
+        for name, stage in self.manifest['stages'].items():
             inputs = stage['inputs']
+            expected_pipeline = sha(Path(__file__))
+            if name in recipes:
+                expected = self.stage_inputs(name, *recipes[name])
+                need(inputs == expected, 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+                expected_pipeline = expected['pipeline']
             need(inputs['head'] == self.manifest['head'] and inputs['config'] == self.config_sha()
-                 and inputs['pipeline'] == sha(Path(__file__)) and inputs['runner'] == sha(HERE / 'foto-stage-runner.py')
+                 and inputs['pipeline'] == expected_pipeline and inputs['runner'] == sha(HERE / 'foto-stage-runner.py')
                  and inputs['toolchain'] == self.manifest['toolchain'], 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
             need(all(sha(self.source() / p) == value for p, value in inputs.get('dependencies', {}).items()),
                  'INSTALLED_DEPENDENCIES_CHANGED')

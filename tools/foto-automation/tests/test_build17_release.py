@@ -1,5 +1,6 @@
 """Release orchestration tests. Real temporary Git/files; mocked GitHub/Docker/Android, never HP."""
 import copy
+import ast
 import contextlib
 import importlib.machinery
 import importlib.util
@@ -233,6 +234,108 @@ class BuildxHistory035Test(unittest.TestCase):
                 app.validate_builder_history(json.dumps({'status': status}))
 
 
+IDLE_PSI = 'some avg10=0.00 avg60=0.00 avg300=0.00 total=123\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=45\n'
+
+
+class MemoryAdmissionTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.proc, self.cg = self.root / 'proc', self.root / 'cgroup'
+        (self.proc / 'pressure').mkdir(parents=True)
+        (self.proc / 'self').mkdir()
+        (self.proc / 'pressure/memory').write_text(IDLE_PSI)
+        (self.proc / 'self/cgroup').write_text('0::/session\n')
+        for path in (self.cg, self.cg / 'session'):
+            path.mkdir(parents=True, exist_ok=True)
+            for key, value in {'memory.max': 'max', 'memory.high': 'max',
+                               'memory.current': str(1024**3), 'memory.pressure': IDLE_PSI}.items():
+                (path / key).write_text(value)
+        actual = app.backend_memory_reserve
+        observer = patch.object(app, 'backend_memory_reserve', side_effect=lambda: actual(self.proc, self.cg))
+        self.observer = observer.start()
+        self.addCleanup(observer.stop)
+
+    def admit(self, available=10 * 1024**3, total=15 * 1024**3, name='backend-image', limit='max'):
+        app.check_stage_memory(name, {'memoryBytes': {'MemAvailable': available, 'MemTotal': total},
+                                     'currentCgroup': {'memory.max': limit}})
+
+    def test_memory_backend_boundary_and_confirmed_hp_values(self):
+        for value in (10 * 1024**3, int(11.4 * 1024**3), 12 * 1024**3):
+            with self.subTest(available=value):
+                self.admit(value)
+        with self.assertRaisesRegex(app.Stop, 'AVAILABLE_MEMORY'):
+            self.admit(10 * 1024**3 - 1)
+
+    def test_memory_host_reserve_boundary_swap_not_credited(self):
+        self.admit(total=14 * 1024**3)
+        with self.assertRaisesRegex(app.Stop, 'HOST_MEMORY_RESERVE'):
+            self.admit(total=14 * 1024**3 - 1)
+        with self.assertRaisesRegex(app.Stop, 'HOST_MEMORY_RESERVE'):
+            self.admit(total=0)
+        with self.assertRaisesRegex(app.Stop, 'AVAILABLE_MEMORY'):
+            app.check_stage_memory('backend-image', {'memoryBytes': {
+                'MemAvailable': 10 * 1024**3 - 1, 'MemTotal': 15 * 1024**3, 'SwapFree': 1024**4},
+                'currentCgroup': {'memory.max': 'max'}})
+
+    def test_memory_other_stages_keep_five_gib_and_six_gib_cgroup_floor(self):
+        for name in ('unit-0', 'types', 'android-apk', 'flutter-0'):
+            with self.subTest(name=name):
+                self.admit(5 * 1024**3, name=name, limit=str(6 * 1024**3))
+                with self.assertRaisesRegex(app.Stop, 'AVAILABLE_MEMORY'):
+                    self.admit(5 * 1024**3 - 1, name=name)
+                with self.assertRaisesRegex(app.Stop, 'CGROUP_TOO_SMALL'):
+                    self.admit(name=name, limit=str(6 * 1024**3 - 1))
+        self.observer.assert_not_called()
+
+    def test_memory_psi_all_windows_and_both_kinds_reject_pressure(self):
+        for kind in ('some', 'full'):
+            for window in ('avg10', 'avg60', 'avg300'):
+                for path in (self.proc / 'pressure/memory', self.cg / 'memory.pressure', self.cg / 'session/memory.pressure'):
+                    lines = IDLE_PSI.splitlines()
+                    index = 0 if kind == 'some' else 1
+                    lines[index] = lines[index].replace(window + '=0.00', window + '=0.01')
+                    path.write_text('\n'.join(lines) + '\n')
+                    with self.subTest(path=path, kind=kind, window=window), self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+                        self.admit()
+                    path.write_text(IDLE_PSI)
+
+    def test_memory_missing_malformed_or_nonfinite_psi_is_not_idle(self):
+        for text in ('', IDLE_PSI.splitlines()[0], IDLE_PSI + IDLE_PSI,
+                     IDLE_PSI.replace('avg10=0.00', 'avg10=nan'), IDLE_PSI.replace('avg60=0.00', 'avg60=inf'),
+                     IDLE_PSI.replace('avg300=0.00', 'avg300=-1'), IDLE_PSI.replace('total=123', 'total=x')):
+            with self.subTest(text=text), self.assertRaises(app.Stop):
+                app.memory_pressure_idle(text)
+        (self.proc / 'pressure/memory').unlink()
+        with self.assertRaisesRegex(app.Stop, 'MEMORY_OBSERVATIONS_UNAVAILABLE'):
+            self.admit()
+
+    def test_memory_cgroup_max_high_current_and_ancestor_reserve(self):
+        for directory in (self.cg, self.cg / 'session'):
+            for key in ('memory.max', 'memory.high'):
+                path = directory / key
+                path.write_text(str(11 * 1024**3))  # current=1 GiB; exact 10 GiB headroom
+                self.admit()
+                path.write_text(str(11 * 1024**3 - 1))
+                with self.subTest(directory=directory, key=key), self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_RESERVE'):
+                    self.admit()
+                path.write_text('max')
+        (self.cg / 'session/memory.current').write_text('unknown')
+        with self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
+            self.admit()
+
+    def test_memory_unknown_cgroup_or_path_escape_fails_closed(self):
+        for membership in ('', '0::/../../host\n', '0::relative\n', '0::/session\n0::/other\n'):
+            (self.proc / 'self/cgroup').write_text(membership)
+            with self.subTest(membership=membership), self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
+                self.admit()
+        (self.proc / 'self/cgroup').write_text('0::/session\n')
+        (self.cg / 'session/memory.max').write_text('unknown')
+        with self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
+            self.admit()
+
+
 class ReleaseTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -273,8 +376,10 @@ class ReleaseTest(unittest.TestCase):
                         patch.object(app, 'git', side_effect=self.git), patch.object(app, 'processes', return_value=[]),
                         patch.object(app, 'WORK_ROOT', self.root),
                         patch.object(app, 'REQUIRED_CHECKS', {role: {'Contract'} for role in app.ROLES}),
+                        patch.object(app, 'backend_memory_reserve'),
                         patch.object(app, 'resources', return_value={
-                            'memoryBytes': {'MemAvailable': 32 * 1024**3}, 'currentCgroup': {'memory.max': str(32 * 1024**3)}})]
+                            'memoryBytes': {'MemAvailable': 32 * 1024**3, 'MemTotal': 64 * 1024**3},
+                            'currentCgroup': {'memory.max': str(32 * 1024**3)}})]
         for p in self.patches:
             p.start()
         self.fd = None
@@ -898,6 +1003,189 @@ class ReleaseTest(unittest.TestCase):
             with self.fake_stage() as child, self.assertRaisesRegex(app.Stop, 'AVAILABLE_MEMORY'):
                 self.stage()
             child.assert_not_called()
+
+    def test_memory_backend_stop_keeps_all_receipts_and_has_no_build_intent(self):
+        self.prepare()
+        before = self.p.path.read_bytes()
+        with patch.object(app, 'resources', return_value={
+                'memoryBytes': {'MemAvailable': 10 * 1024**3 - 1}, 'currentCgroup': {}}), \
+                self.fake_stage() as child, self.assertRaisesRegex(app.Stop, 'AVAILABLE_MEMORY'):
+            self.p.stage('backend-image', self.p.source(), ['docker', 'synthetic-build'])
+        child.assert_not_called()
+        self.assertNotIn('backend-image', self.p.manifest['stages'])
+        self.assertEqual(self.p.path.read_bytes(), before)
+
+    def reviewed_test_receipts(self):
+        source = self.prepare()
+        # Only construct the actual recipe definitions, not run their tools.
+        with patch.object(app, 'need'):
+            recipes = app.recipes_for(source)
+        self.assertEqual(len(recipes), 50)
+        ignored = REAL_GIT(source, 'rev-parse', '--git-path', 'info/exclude')
+        with Path(ignored).open('a') as f:
+            for _, _, _, outputs in recipes:
+                f.writelines('/' + name + '\n' for name in outputs)
+        for name, folder, argv, outputs in recipes:
+            (source / folder).mkdir(parents=True, exist_ok=True)
+            def child(command, cwd, log, *args, **kwargs):
+                log.write(b'synthetic passing stage, no real tool execution\n')
+                for path in outputs:
+                    p = source / path
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_text('synthetic output for ' + path)
+                return 0
+            with patch.object(self.p, 'environment', return_value={}), patch.object(app.runner, 'supervise', side_effect=child):
+                self.p.stage(name, source / folder, argv, outputs)
+            self.p.manifest['stages'][name]['inputs']['pipeline'] = app.REVIEWED_TEST_RUNTIME
+        helper = self.root / 'old-tools/foto-mobile-codegen.sh'
+        helper.parent.mkdir()
+        helper.write_bytes(SCRIPT.with_name(helper.name).read_bytes())
+        self.p.manifest['stages']['flutter-codegen']['inputs']['argv'][1] = str(helper)
+        self.p.manifest['testsComplete'] = [x[0] for x in recipes]
+        self.p.manifest['mode'] = 'build'
+        self.p.save('SYNTHETIC_ALL_TESTS_PASSED_BUILD_ADMISSION_STOP')
+        review = {'base': self.base, **self.heads, 'outputTree': REAL_GIT(source, 'rev-parse', 'HEAD^{tree}')}
+        return recipes, review, helper
+
+    def test_reviewed_memory_update_reuses_all_test_receipts_without_execution_or_rewriting(self):
+        recipes, review, helper = self.reviewed_test_receipts()
+        snapshots = {p: p.read_bytes() for p in (self.p.path, *self.p.state.glob('manifest-*.json'))}
+        receipts = copy.deepcopy(self.p.manifest['stages'])
+        with patch.object(app, 'recipes_for', return_value=recipes), patch.object(app, 'REVIEWED_OVERLAP', review), \
+                self.fake_stage() as child, patch('sys.stdout', new=io.StringIO()) as stdout:
+            for name, folder, argv, outputs in recipes:
+                self.p.stage(name, self.p.source() / folder, argv, outputs)
+        child.assert_not_called()
+        self.assertEqual(stdout.getvalue().count('PASS_REUSED '), len(recipes))
+        self.assertEqual(self.p.manifest['stages'], receipts)
+        for path, raw in snapshots.items():
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_reviewed_memory_update_still_rejects_recipe_runtime_log_output_and_dependency_tamper(self):
+        recipes, review, helper = self.reviewed_test_receipts()
+        source = self.p.source()
+        recipe = next(x for x in recipes if x[0] == 'unit-0')
+        with patch.object(app, 'recipes_for', return_value=recipes), patch.object(app, 'REVIEWED_OVERLAP', review):
+            compiled = self.p.manifest['stages']['compile']
+            outputs = compiled['outputs']
+            compiled['outputs'] = {}
+            with self.assertRaisesRegex(app.Stop, 'CORRUPT_STAGE_RECEIPT'):
+                self.p.stage('compile', source / 'server', ['pnpm', 'run', 'build'])
+            compiled['outputs'] = outputs
+            for field, value in (('argv', ['fake-test']), ('cwd', str(source / 'other')),
+                                 ('config', 'f' * 64), ('toolchain', 'changed'), ('head', 'f' * 40),
+                                 ('runner', 'f' * 64), ('pipeline', 'f' * 64)):
+                previous = self.p.manifest['stages']['unit-0']['inputs']
+                before = copy.deepcopy(previous)
+                previous[field] = value
+                with self.subTest(field=field), self.assertRaisesRegex(app.Stop, 'INPUT_CHANGED'):
+                    self.p.stage('unit-0', source / 'server', recipe[2])
+                previous.clear(); previous.update(before)
+            for path, code in ((self.p.state / self.p.manifest['stages']['unit-0']['log'], 'LOG_CHANGED'),
+                               (source / 'server/node_modules/vitest/package.json', 'INPUT_CHANGED'),
+                               (source / 'server/dist/main.js', 'OUTPUT_CHANGED'),
+                               (helper, 'INPUT_CHANGED')):
+                raw = path.read_bytes()
+                path.write_bytes(b'tampered')
+                target = 'compile' if code == 'OUTPUT_CHANGED' else 'flutter-codegen' if path == helper else recipe[0]
+                item = next(x for x in recipes if x[0] == target)
+                with self.subTest(path=path), self.assertRaisesRegex(app.Stop, code):
+                    self.p.stage(item[0], source / item[1], item[2], item[3])
+                path.write_bytes(raw)
+
+    def test_reviewed_memory_update_never_accepts_old_build_failed_or_unreviewed_application(self):
+        recipes, review, helper = self.reviewed_test_receipts()
+        source = self.p.source()
+        with patch.object(app, 'recipes_for', return_value=recipes), patch.object(app, 'REVIEWED_OVERLAP', review):
+            self.p.manifest['stages']['backend-image'] = copy.deepcopy(self.p.manifest['stages']['unit-0'])
+            with self.assertRaisesRegex(app.Stop, 'PREDECESSOR_TEST_PASS_REQUIRED'):
+                self.p.stage('backend-image', source, ['docker', 'synthetic-build'])
+            self.p.manifest['stages']['unit-0']['status'] = 'FAIL'
+            with self.assertRaisesRegex(app.Stop, 'PREDECESSOR_TEST_PASS_REQUIRED'):
+                self.p.stage('unit-0', source / 'server', ['synthetic'])
+            self.p.manifest['stages']['unit-0']['status'] = 'PASS'
+            review['outputTree'] = 'f' * 40
+            with self.assertRaisesRegex(app.Stop, 'PREDECESSOR_APPLICATION_DIFFERS'):
+                self.p.stage('unit-0', source / 'server', ['synthetic'])
+
+    def test_reviewed_memory_update_missing_or_failed_test_receipt_never_reexecutes_tests(self):
+        recipes, review, helper = self.reviewed_test_receipts()
+        for value in (None, {'status': 'FAIL'}):
+            if value is None:
+                self.p.manifest['stages'].pop('plugin-sdk')
+            else:
+                self.p.manifest['stages']['plugin-sdk'] = value
+            with self.subTest(receipt=value), patch.object(app, 'recipes_for', return_value=recipes), \
+                    patch.object(self.p, 'stage') as stage, patch.object(app, 'builder_idle') as builder, \
+                    self.assertRaisesRegex(app.Stop, 'MANDATORY_CHECKS_INCOMPLETE'):
+                self.p.build()
+            stage.assert_not_called()
+            builder.assert_not_called()
+
+    def test_reviewed_memory_update_pin_proof_restart_and_verify_old_tests_new_builds(self):
+        backup, cfg = self.pin_format_fixture()
+        self.p = app.Pipeline(self.c, pin_format_proof=backup)
+        self.p.read_checkpoint()
+        os.close(self.fd)
+        self.fd = None
+        recipes, review, helper = self.reviewed_test_receipts()
+        original_files = {p: p.read_bytes() for p in (backup, cfg, *self.p.state.glob('manifest-*.json'))}
+        source = self.p.source()
+        apk = 'mobile/build/app/outputs/flutter-apk/app-release.apk'
+        with Path(REAL_GIT(source, 'rev-parse', '--git-path', 'info/exclude')).open('a') as f:
+            f.write('/' + apk + '\n')
+        (source / apk).parent.mkdir(parents=True)
+        with zipfile.ZipFile(source / apk, 'w') as z:
+            z.writestr('AndroidManifest.xml', b'synthetic')
+        with self.fake_stage(), patch.object(self.p, 'environment', return_value={}):
+            self.p.stage('backend-image', source, ['docker', 'synthetic-build'])
+            self.p.stage('android-apk', source / 'mobile', ['synthetic-apk-build'], [apk])
+        for name in ('backend-image', 'android-apk'):
+            self.assertEqual(self.p.manifest['stages'][name]['inputs']['pipeline'], app.sha(SCRIPT))
+        self.p.manifest.update(image={'tag': 'synthetic', 'id': 'sha256:' + 'a' * 64},
+                               apk={'sha256': app.sha(source / apk), 'bytes': (source / apk).stat().st_size})
+        self.p.save('SYNTHETIC_BUILD_COMPLETE')
+        stages = copy.deepcopy(self.p.manifest['stages'])
+        resumed = app.Pipeline(self.c, pin_format_proof=backup)
+        resumed.read_checkpoint()
+        with patch.object(app, 'recipes_for', return_value=recipes), patch.object(app, 'REVIEWED_OVERLAP', review), \
+                patch.object(app, 'rootless', return_value='synthetic'), \
+                patch.object(resumed, 'tools', return_value=resumed.manifest['toolchain']), \
+                patch.object(resumed, 'image', return_value=resumed.manifest['image']), \
+                patch.object(resumed, 'apk_metadata', return_value=resumed.manifest['apk']), \
+                patch('sys.stdout', new=io.StringIO()):
+            resumed.verify()
+        self.assertEqual(resumed.manifest['stages'], stages)
+        self.assertEqual(resumed.manifest['configSHA256'], self.p.manifest['configSHA256'])
+        self.assertTrue(Path(resumed.manifest['exportReceipt']).is_file())
+        for p, data in original_files.items():
+            self.assertEqual(p.read_bytes(), data)
+
+    def test_reviewed_memory_update_definitions_match_the_exact_published_predecessor(self):
+        old = subprocess.check_output(['git', 'show', 'c035601cf131ac4e3dfcf304581314e66d2180c0:tools/foto-automation/foto-build17-release'], cwd=SCRIPT.parents[2])
+        self.assertEqual(app.runner.digest(old), app.REVIEWED_TEST_RUNTIME)
+        def definitions(raw):
+            tree = ast.parse(raw)
+            result = {node.name: ast.dump(node) for node in tree.body if isinstance(node, ast.FunctionDef)}
+            result.update({node.name: ast.dump(node) for cls in tree.body if isinstance(cls, ast.ClassDef)
+                           and cls.name == 'Pipeline' for node in cls.body if isinstance(node, ast.FunctionDef)})
+            return result
+        before, after = definitions(old), definitions(SCRIPT.read_bytes())
+        for name in ('recipes_for', 'config', 'config_sha', 'signing', 'apk_metadata', 'finalize',
+                     'gate', 'clean', 'save', 'environment', 'rootless', 'builder_idle', 'main'):
+            self.assertEqual(before[name], after[name], name)
+        def method(raw, name):
+            return next(node for cls in ast.parse(raw).body if isinstance(cls, ast.ClassDef) and cls.name == 'Pipeline'
+                        for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name)
+        old_build, new_build = method(old, 'build').body, method(SCRIPT.read_bytes(), 'build').body
+        self.assertEqual([ast.dump(x) for x in old_build[:2] + old_build[3:]],
+                         [ast.dump(x) for x in new_build[:2] + new_build[4:]])
+        def execution_tail(raw):
+            body = method(raw, 'stage').body
+            index = next(i for i, node in enumerate(body) if isinstance(node, ast.Assign)
+                         and any(isinstance(t, ast.Name) and t.id == 'logname' for t in node.targets))
+            return [ast.dump(x) for x in body[index:]]
+        self.assertEqual(execution_tail(old), execution_tail(SCRIPT.read_bytes()))
 
     def test_log_tamper_blocks(self):
         self.prepare()
