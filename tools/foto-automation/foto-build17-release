@@ -181,15 +181,47 @@ def rootless():
     return endpoint
 
 
+def validate_builder_inspect(data):
+    # Buildx v0.35.0 has no inspect --format. Its tabwriter output has unindented
+    # builder/node fields; nested device/GC/label fields must not masquerade as nodes.
+    header, nodes, current = {}, [], None
+    in_nodes, section = False, None
+    for line in data.splitlines():
+        if not line.strip():
+            continue
+        if line[0].isspace():
+            nested_key = line.lstrip().partition(':')[0]
+            need(nested_key not in ('Name', 'Driver', 'Nodes', 'Endpoint', 'Status', 'Error') or
+                 section == 'Labels' or section == 'Devices' and nested_key == 'Name',
+                 'BUILDER_INSPECT_TEXT_INVALID')
+            continue
+        key, separator, value = line.partition(':')
+        need(separator, 'BUILDER_INSPECT_TEXT_INVALID')
+        section = key
+        value = value.strip()
+        need(key != 'Error', 'BUILDER_INSPECT_ERROR')
+        if key == 'Nodes':
+            need(not in_nodes and not value, 'BUILDER_INSPECT_TEXT_INVALID')
+            in_nodes = True
+        elif key == 'Name' and in_nodes:
+            current = {'Name': value}
+            nodes.append(current)
+        elif key in ('Name', 'Driver', 'Endpoint', 'Status'):
+            fields = current if in_nodes else header
+            need(fields is not None and key not in fields and
+                 (key in ('Endpoint', 'Status') if in_nodes else key in ('Name', 'Driver')),
+                 'BUILDER_INSPECT_TEXT_INVALID')
+            fields[key] = value
+    need(header == {'Name': 'foto17-limited', 'Driver': 'docker-container'} and in_nodes and len(nodes) == 1,
+         'EXISTING_SINGLE_BUILDER_REQUIRED')
+    need(nodes[0] == {'Name': 'foto17-limited0', 'Endpoint': 'rootless', 'Status': 'running'},
+         'BUILDER_ENDPOINT_OR_STATUS_CHANGED')
+
+
 def builder_idle():
     rootless()
-    data = query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited', '--format', '{{json .}}'])
-    value = json.loads(data)
-    need(value['Driver'] == 'docker-container' and len(value['Nodes']) == 1, 'EXISTING_SINGLE_BUILDER_REQUIRED')
-    node = value['Nodes'][0]
-    need(node['Endpoint'] in ('rootless', f'unix:///run/user/{os.getuid()}/docker.sock') and
-         re.fullmatch(r'foto17-limited[0-9]+', node['Name']), 'BUILDER_ENDPOINT_CHANGED')
-    container = 'buildx_buildkit_' + node['Name']
+    validate_builder_inspect(query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited']))
+    container = 'buildx_buildkit_foto17-limited0'
     record = json.loads(query(['docker', '--context', 'rootless', 'inspect', container]))[0]
     host = record['HostConfig']
     need(host['Memory'] == 10 * 1024**3 and host['MemorySwap'] == 12 * 1024**3, 'BUILDER_MEMORY_LIMITS_CHANGED')

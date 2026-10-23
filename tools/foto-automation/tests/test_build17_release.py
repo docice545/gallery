@@ -22,6 +22,142 @@ app = importlib.util.module_from_spec(spec)
 loader.exec_module(app)
 REAL_GIT = app.git
 REAL_REQUIRED_CHECKS = copy.deepcopy(app.REQUIRED_CHECKS)
+# Representative output of the v0.35.0 commands/inspect.go tabwriter, not an HP capture.
+BUILDX035_INSPECT = '''Name:          foto17-limited
+Driver:        docker-container
+Last Activity: 2026-10-23 09:00:00 +0000 UTC
+
+Nodes:
+Name:             foto17-limited0
+Endpoint:         rootless
+Driver Options:   memory="10g" memory-swap="12g"
+Status:           running
+BuildKit version: v0.28.0
+Platforms:        linux/amd64, linux/386
+Labels:
+ org.mobyproject.buildkit.worker.executor: oci
+Devices:
+ Name: synthetic-nested-device-not-a-node
+GC Policy rule#0:
+ All:           false
+ Keep Duration: 48h0m0s
+'''
+
+
+@contextlib.contextmanager
+def fake_buildx035(**changes):
+    """A subprocess CLI fixture, no real Docker daemon or host connection."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        data = {'inspect': BUILDX035_INSPECT, 'memory': 10 * 1024**3, 'swap': 12 * 1024**3,
+                'parallelism': 1, 'running': True, 'oom': False, 'history': 'completed',
+                'endpoint': f'unix:///run/user/{os.getuid()}/docker.sock'}
+        data.update(changes)
+        (root / 'data.json').write_text(json.dumps(data))
+        executable = root / 'docker'
+        executable.write_text('#!' + sys.executable + '\n' + '''
+import io, json, os, pathlib, sys, tarfile
+root = pathlib.Path(os.environ['FOTO_BUILDX_TEST_FIXTURE'])
+data = json.loads((root / 'data.json').read_text())
+argv = sys.argv[1:]
+with (root / 'calls.jsonl').open('a') as log:
+    log.write(json.dumps(argv) + '\\n')
+if argv == ['context', 'inspect', 'rootless']:
+    print(json.dumps([{'Endpoints': {'docker': {'Host': data['endpoint']}}}]))
+elif argv == ['--context', 'rootless', 'info', '--format', '{{json .}}']:
+    print(json.dumps({'SecurityOptions': ['name=rootless']}))
+elif argv[:5] == ['--context', 'rootless', 'buildx', 'inspect', 'foto17-limited']:
+    if len(argv) != 5:
+        print('unknown flag: --format', file=sys.stderr)
+        sys.exit(125)
+    print(data['inspect'])
+elif argv == ['--context', 'rootless', 'inspect', 'buildx_buildkit_foto17-limited0']:
+    print(json.dumps([{'HostConfig': {'Memory': data['memory'], 'MemorySwap': data['swap']},
+                      'State': {'Running': data['running'], 'OOMKilled': data['oom']}}]))
+elif argv == ['--context', 'rootless', 'cp', 'buildx_buildkit_foto17-limited0:/etc/buildkit/buildkitd.toml', '-']:
+    content = ('[worker.oci]\\nmax-parallelism = ' + str(data['parallelism']) + '\\n').encode()
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode='w') as tar:
+        item = tarfile.TarInfo('buildkitd.toml')
+        item.size = len(content)
+        tar.addfile(item, io.BytesIO(content))
+    sys.stdout.buffer.write(buffer.getvalue())
+elif argv == ['--context', 'rootless', 'buildx', 'history', 'ls', '--builder', 'foto17-limited', '--format', '{{json .}}']:
+    if data['history'] is None:
+        sys.exit(1)
+    print(json.dumps({'Status': data['history']}))
+else:
+    print('unsupported fixture command', file=sys.stderr)
+    sys.exit(99)
+''')
+        executable.chmod(0o700)
+        with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                        FOTO_BUILDX_TEST_FIXTURE=str(root)):
+            yield root
+
+
+class Buildx035Test(unittest.TestCase):
+    def test_text_accepts_real_field_layout_and_nested_device_name(self):
+        for data in (BUILDX035_INSPECT, BUILDX035_INSPECT.replace('        ', '\t')):
+            with self.subTest(data=data):
+                app.validate_builder_inspect(data)
+
+    def test_text_rejects_missing_duplicate_wrong_or_extra_critical_fields(self):
+        replacements = (
+            ('docker-container', 'docker'), ('foto17-limited\n', 'other-builder\n'),
+            ('foto17-limited0', 'foto17-limited1'), ('rootless', 'default'),
+            ('rootless', f'unix:///run/user/{os.getuid()}/docker.sock'),
+            ('running', 'stopped'), ('running', 'inactive'),
+            ('Status:           running\n', ''), ('Endpoint:         rootless\n', ''),
+            ('Name:             foto17-limited0\n', ''), ('Nodes:\n', ''),
+            ('Driver:        docker-container\n', ''),
+            ('Driver:        docker-container', 'Driver: docker-container\nDriver: docker-container'),
+            ('Endpoint:         rootless', 'Endpoint: rootless\nEndpoint: rootless'),
+            ('Status:           running', 'Status: running\nStatus: running'),
+            ('Nodes:', 'Nodes:\nNodes:'),
+            ('Endpoint:         rootless', ' Endpoint: rootless'),
+            ('Status:           running', ' Status: running'),
+            ('Status:           running', 'Status: running\nError: unavailable'),
+        )
+        bad = [BUILDX035_INSPECT.replace(old, new) for old, new in replacements]
+        bad += ['', '{}', 'unknown flag: --format',
+                BUILDX035_INSPECT + '\n Name: foto17-limited1\n Endpoint: rootless\n Status: running\n',
+                BUILDX035_INSPECT + '\nName: foto17-limited0\nEndpoint: rootless\nStatus: running\n',
+                BUILDX035_INSPECT.split('Nodes:', 1)[0] + 'Nodes:\n',
+                BUILDX035_INSPECT.replace('Name:             foto17-limited0\n', 'Endpoint: rootless\nName: foto17-limited0\n')]
+        for data in bad:
+            with self.subTest(data=data), self.assertRaises(app.Stop):
+                app.validate_builder_inspect(data)
+
+    def test_v035_cli_rejects_original_flag_and_accepts_corrected_read_only_guard(self):
+        with fake_buildx035() as root:
+            legacy = subprocess.run(['docker', '--context', 'rootless', 'buildx', 'inspect',
+                                     'foto17-limited', '--format', '{{json .}}'], capture_output=True)
+            self.assertNotEqual(legacy.returncode, 0)
+            self.assertIn(b'unknown flag: --format', legacy.stderr)
+            (root / 'calls.jsonl').write_text('')
+            app.builder_idle()
+            calls = [json.loads(line) for line in (root / 'calls.jsonl').read_text().splitlines()]
+        self.assertEqual(len(calls), 6)
+        self.assertEqual(calls[2], ['--context', 'rootless', 'buildx', 'inspect', 'foto17-limited'])
+        self.assertEqual(calls[3], ['--context', 'rootless', 'inspect', 'buildx_buildkit_foto17-limited0'])
+        self.assertEqual(calls[-1][2:5], ['buildx', 'history', 'ls'])
+
+    def test_v035_cli_retains_all_daemon_resource_and_idle_guards(self):
+        cases = (
+            ({'endpoint': 'tcp://production:2375'}, 'LOCAL_ROOTLESS_SOCKET_REQUIRED'),
+            ({'memory': 9 * 1024**3}, 'BUILDER_MEMORY_LIMITS_CHANGED'),
+            ({'swap': 13 * 1024**3}, 'BUILDER_MEMORY_LIMITS_CHANGED'),
+            ({'oom': True}, 'BUILDER_UNHEALTHY_OR_OOM'),
+            ({'running': False}, 'BUILDER_UNHEALTHY_OR_OOM'),
+            ({'parallelism': 2}, 'BUILDKIT_PARALLELISM_NOT_ONE'),
+            ({'history': 'running'}, 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY'),
+            ({'history': 'unknown'}, 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY'),
+            ({'history': None}, 'BUILDX_HISTORY_UNAVAILABLE'),
+        )
+        for changes, reason in cases:
+            with self.subTest(changes=changes), fake_buildx035(**changes), self.assertRaisesRegex(app.Stop, reason):
+                app.builder_idle()
 
 
 class ReleaseTest(unittest.TestCase):
@@ -599,7 +735,6 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn('org.gradle.daemon=false', env['GRADLE_OPTS'])
 
     def test_builder_limits_and_running_history(self):
-        node = {'Driver': 'docker-container', 'Nodes': [{'Endpoint': 'rootless', 'Name': 'foto17-limited0'}]}
         record = {'HostConfig': {'Memory': 10 * 1024**3, 'MemorySwap': 12 * 1024**3},
                   'State': {'Running': True, 'OOMKilled': False}}
         def archive(parallelism):
@@ -612,7 +747,7 @@ class ReleaseTest(unittest.TestCase):
             return subprocess.CompletedProcess([], 0, stdout=b.getvalue())
         for parallelism, status in ((1, 'completed'), (2, 'completed'), (1, 'running')):
             with patch.object(app, 'rootless', return_value='synthetic-own-socket'), \
-                    patch.object(app, 'query', side_effect=[json.dumps(node), json.dumps([record]), json.dumps({'Status': status})]):
+                    patch.object(app, 'query', side_effect=[BUILDX035_INSPECT, json.dumps([record]), json.dumps({'Status': status})]):
                 with patch.object(app.subprocess, 'run', return_value=archive(parallelism)):
                     if parallelism == 1 and status == 'completed':
                         app.builder_idle()
@@ -621,9 +756,29 @@ class ReleaseTest(unittest.TestCase):
                             app.builder_idle()
         record['HostConfig']['Memory'] = 9 * 1024**3
         with patch.object(app, 'rootless', return_value='synthetic-own-socket'), \
-                patch.object(app, 'query', side_effect=[json.dumps(node), json.dumps([record])]):
+                patch.object(app, 'query', side_effect=[BUILDX035_INSPECT, json.dumps([record])]):
             with self.assertRaisesRegex(app.Stop, 'MEMORY_LIMITS'):
                 app.builder_idle()
+
+    def test_prepared_checkpoint_survives_runner_upgrade_without_merge_or_fetch(self):
+        self.prepare()
+        self.p.manifest.pop('toolchain')  # HP stopped at PREPARED, before any tests.
+        self.p.save('PREPARED')
+        original = self.p.path.read_bytes()
+        snapshots = {p.name: p.read_bytes() for p in self.p.state.glob('manifest-*.json')}
+        head = REAL_GIT(self.p.source(), 'rev-parse', 'HEAD')
+        self.calls.clear()
+        # The recorded runner digest is deliberately absent at PREPARED. A new
+        # install is allowed without changing config, state, receipts or Git.
+        reloaded = app.Pipeline(self.c)
+        with reloaded.locked():
+            reloaded.prepare()
+        self.assertEqual(reloaded.manifest['head'], head)
+        self.assertEqual(reloaded.manifest['stages'], {})
+        self.assertEqual(self.p.path.read_bytes(), original)
+        self.assertFalse(any(c[0] in ('merge', 'fetch', 'worktree') for c in self.calls))
+        for name, data in snapshots.items():
+            self.assertEqual((self.p.state / name).read_bytes(), data)
 
     def test_copy_versioned_no_overwrite(self):
         source, target = self.root / 'source.apk', self.root / 'target.apk'
@@ -661,6 +816,46 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual((self.run_git('status', '--porcelain'), list(self.p.state.iterdir())), before)
         self.assertFalse(any(c[0] == 'fetch' for c in self.calls))
         self.assertEqual(result['worktrees'][0]['head'], self.base)
+
+    def test_check_with_v035_cli_preserves_prepared_state_and_reports_builder_validation(self):
+        self.prepare()
+        self.p.manifest.pop('toolchain')
+        self.p.save('PREPARED')
+        cfg = self.root / 'config.json'
+        cfg.write_text(json.dumps(self.c))
+        cfg.chmod(0o600)
+        before = {p.name: p.read_bytes() for p in self.p.state.glob('*.json')}
+        head = REAL_GIT(self.p.source(), 'rev-parse', 'HEAD')
+        self.calls.clear()
+        with fake_buildx035(), patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+                patch('sys.stdout', new=io.StringIO()) as stdout, \
+                patch.object(sys, 'argv', [str(SCRIPT), '--config', str(cfg), '--check']):
+            app.main()
+        self.assertEqual(json.loads(stdout.getvalue())['docker']['builderValidation'], 'PASS_READ_ONLY_LIMITS_AND_IDLE')
+        self.assertEqual({p.name: p.read_bytes() for p in self.p.state.glob('*.json')}, before)
+        self.assertEqual(REAL_GIT(self.p.source(), 'rev-parse', 'HEAD'), head)
+        self.assertFalse(any(c[0] in ('fetch', 'merge') for c in self.calls))
+
+    def test_resume_prepared_v035_checkpoint_never_repeats_integration(self):
+        self.prepare()
+        self.p.manifest.pop('toolchain')
+        self.p.save('PREPARED')
+        cfg = self.root / 'config.json'
+        cfg.write_text(json.dumps(self.c))
+        cfg.chmod(0o600)
+        snapshots = {p.name: p.read_bytes() for p in self.p.state.glob('manifest-*.json')}
+        head = self.p.manifest['head']
+        self.calls.clear()
+        with fake_buildx035(), patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+                patch.object(sys, 'argv', [str(SCRIPT), '--config', str(cfg), '--resume']):
+            app.main()
+        saved = json.loads(self.p.path.read_text())
+        self.assertEqual(saved['head'], head)
+        self.assertTrue(saved['prepared'])
+        self.assertEqual(saved['stages'], {})
+        self.assertFalse(any(c[0] in ('fetch', 'merge') for c in self.calls))
+        for name, data in snapshots.items():
+            self.assertEqual((self.p.state / name).read_bytes(), data)
 
     def test_resume_only_last_selected_mode(self):
         cfg = self.root / 'config.json'
