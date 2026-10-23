@@ -89,10 +89,13 @@ describe('library_user migration backfill', () => {
       .where('userId', '=', peer.id)
       .where('libraryId', '=', library.id)
       .executeTakeFirstOrThrow();
-    // Fresh createId, strictly greater than the pre-backfill marker AND the
-    // library's original createId. Pass 2 does not propagate library.createId.
-    expect(peerRow.createId > backfillStart).toBe(true);
-    expect(peerRow.createId > library.createId).toBe(true);
+    // immich_uuid_v7 uses random bits within the same millisecond. A fresh
+    // allocation is not necessarily lexically greater than a synthetic marker.
+    // Check its actual timestamp and reject copying the library's identity.
+    const millis = (id: string) => Number.parseInt(id.replaceAll('-', '').slice(0, 12), 16);
+    expect(peerRow.createId).not.toBe(library.createId);
+    expect(millis(peerRow.createId)).toBeGreaterThanOrEqual(millis(backfillStart));
+    expect(millis(peerRow.createId)).toBeGreaterThanOrEqual(millis(library.createId));
   });
 
   it('Pass 2 preserves owner rows via ON CONFLICT DO NOTHING', async () => {
