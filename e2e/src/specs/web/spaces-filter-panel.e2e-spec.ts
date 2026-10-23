@@ -40,8 +40,9 @@ test.describe('Spaces FilterPanel', () => {
     websocket = await utils.connectWebsocket(admin.accessToken);
   });
 
-  // ─── Helper: navigate to a space page with auth ───
-  test.afterEach(() => {
+  // The suite shares its admin and canonical duplicate uploads. Keep the event
+  // cache/channel alive until all tests finish; duplicates do not emit new uploads.
+  test.afterAll(() => {
     if (!websocket) {
       return;
     }
