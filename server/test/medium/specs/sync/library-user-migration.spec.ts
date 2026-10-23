@@ -42,6 +42,8 @@ beforeAll(async () => {
   defaultDatabase = await getKyselyDB();
 });
 
+const millis = (id: string) => Number.parseInt(id.replaceAll('-', '').slice(0, 12), 16);
+
 describe('library_user migration backfill', () => {
   it('owner rows use library.createId and createdAt (Pass 1)', async () => {
     const { ctx, db } = setup();
@@ -92,7 +94,6 @@ describe('library_user migration backfill', () => {
     // immich_uuid_v7 uses random bits within the same millisecond. A fresh
     // allocation is not necessarily lexically greater than a synthetic marker.
     // Check its actual timestamp and reject copying the library's identity.
-    const millis = (id: string) => Number.parseInt(id.replaceAll('-', '').slice(0, 12), 16);
     expect(peerRow.createId).not.toBe(library.createId);
     expect(millis(peerRow.createId)).toBeGreaterThanOrEqual(millis(backfillStart));
     expect(millis(peerRow.createId)).toBeGreaterThanOrEqual(millis(library.createId));
