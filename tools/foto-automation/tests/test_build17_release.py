@@ -22,6 +22,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 app = importlib.util.module_from_spec(spec)
 loader.exec_module(app)
 REAL_GIT = app.git
+REAL_BACKEND_MEMORY_RESERVE = app.backend_memory_reserve
 REAL_REQUIRED_CHECKS = copy.deepcopy(app.REQUIRED_CHECKS)
 # Representative output of the v0.35.0 commands/inspect.go tabwriter, not an HP capture.
 BUILDX035_INSPECT = '''Name:          foto17-limited
@@ -238,6 +239,28 @@ IDLE_PSI = 'some avg10=0.00 avg60=0.00 avg300=0.00 total=123\nfull avg10=0.00 av
 HP_LOW_PSI = 'some avg10=0.00 avg60=0.03 avg300=0.02 total=123\nfull avg10=0.00 avg60=0.01 avg300=0.00 total=45\n'
 
 
+def unaccounted_root_fixture(proc, cg):
+    """Synthetic Ubuntu v2 root/three nested scopes, not a real HP observation."""
+    (proc / 'pressure').mkdir(parents=True, exist_ok=True)
+    (proc / 'self').mkdir(exist_ok=True)
+    (proc / 'pressure/memory').write_text(HP_LOW_PSI)
+    membership = 'user.slice/user-1000.slice/session-2055.scope'
+    (proc / 'self/cgroup').write_text('0::/' + membership + '\n')
+    leaf = cg / membership
+    leaf.mkdir(parents=True, exist_ok=True)
+    directory = leaf
+    while directory != cg:
+        for name, value in {'memory.current': str(1024**3), 'memory.max': 'max',
+                            'memory.high': 'max', 'memory.pressure': HP_LOW_PSI}.items():
+            (directory / name).write_text(value)
+        directory = directory.parent
+    for name in ('memory.current', 'memory.max', 'memory.high'):
+        (cg / name).unlink(missing_ok=True)
+    (cg / 'memory.pressure').write_text(HP_LOW_PSI)
+    (cg / 'memory.stat').write_text('anon 123\n')
+    return (leaf, leaf.parent, leaf.parent.parent)
+
+
 class MemoryAdmissionTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -368,6 +391,84 @@ class MemoryAdmissionTest(unittest.TestCase):
         (self.cg / 'session/memory.max').write_text('unknown')
         with self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
             self.admit()
+
+    def test_memory_unaccounted_root_and_nested_hp_layout_are_read_only(self):
+        unaccounted_root_fixture(self.proc, self.cg)
+        before = {p: p.read_bytes() for directory in (self.proc, self.cg) for p in directory.rglob('*') if p.is_file()}
+        self.admit(int(11.11 * 1024**3))
+        self.assertEqual(before, {p: p.read_bytes() for directory in (self.proc, self.cg)
+                                  for p in directory.rglob('*') if p.is_file()})
+        # Root membership itself also lacks limits, but still requires host/root PSI.
+        (self.proc / 'self/cgroup').write_text('0::/\n')
+        self.admit()
+
+    def test_memory_unaccounted_root_still_requires_root_psi(self):
+        unaccounted_root_fixture(self.proc, self.cg)
+        path = self.cg / 'memory.pressure'
+        path.write_text(IDLE_PSI.replace('full avg10=0.00', 'full avg10=0.11'))
+        with self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+            self.admit()
+        path.unlink()
+        with self.assertRaisesRegex(app.Stop, 'MEMORY_OBSERVATIONS_UNAVAILABLE'):
+            self.admit()
+
+    def test_memory_root_exception_never_skips_nested_current_limits_or_pressure(self):
+        for directory in unaccounted_root_fixture(self.proc, self.cg):
+            for name in ('memory.current', 'memory.max', 'memory.high', 'memory.pressure'):
+                path = directory / name
+                value = path.read_text()
+                path.unlink()
+                with self.subTest(directory=directory, name=name), self.assertRaises(app.Stop):
+                    self.admit()
+                path.write_text(value)
+            for name in ('memory.max', 'memory.high'):
+                path = directory / name
+                path.write_text(str(11 * 1024**3 - 1))
+                with self.subTest(directory=directory, name=name), self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_RESERVE'):
+                    self.admit()
+                path.write_text('max')
+            path = directory / 'memory.pressure'
+            path.write_text(IDLE_PSI.replace('avg60=0.00', 'avg60=0.51', 1))
+            with self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+                self.admit()
+            path.write_text(HP_LOW_PSI)
+
+    def test_memory_unaccounted_root_rejects_partial_limits_dangling_links_and_bad_current(self):
+        unaccounted_root_fixture(self.proc, self.cg)
+        for name in ('memory.max', 'memory.high'):
+            path = self.cg / name
+            for value in ('max', str(20 * 1024**3), 'unknown'):
+                path.write_text(value)
+                with self.subTest(name=name, value=value), self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
+                    self.admit()
+            path.unlink()
+        for name in ('memory.current', 'memory.max', 'memory.high'):
+            path = self.cg / name
+            path.symlink_to(self.cg / 'missing')
+            with self.subTest(name=name), self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
+                self.admit()
+            path.unlink()
+        (self.cg / 'memory.current').write_text('unknown')
+        with self.assertRaisesRegex(app.Stop, 'CGROUP_MEMORY_UNKNOWN'):
+            self.admit()
+
+    def test_memory_root_permission_error_is_not_absence(self):
+        unaccounted_root_fixture(self.proc, self.cg)
+        actual = Path.read_text
+        for name in ('memory.current', 'memory.max', 'memory.high', 'memory.pressure'):
+            unaccounted_root_fixture(self.proc, self.cg)
+            path = self.cg / name
+            if name in ('memory.max', 'memory.high'):
+                (self.cg / 'memory.current').write_text(str(1024**3))
+                for limit in ('memory.max', 'memory.high'):
+                    (self.cg / limit).write_text('max')
+            def read(p, *args, **kwargs):
+                if p == path:
+                    raise PermissionError('synthetic unreadable cgroup file')
+                return actual(p, *args, **kwargs)
+            with self.subTest(name=name), patch.object(Path, 'read_text', read), \
+                    self.assertRaisesRegex(app.Stop, 'MEMORY_OBSERVATIONS_UNAVAILABLE'):
+                self.admit()
 
     def test_memory_hp_launcher_embedded_syntax_pins_and_build_only(self):
         raw = SCRIPT.with_name('foto-build17-release-hp.sh').read_bytes()
@@ -1168,6 +1269,31 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(self.p.manifest['stages'], receipts)
         for path, raw in snapshots.items():
             self.assertEqual(path.read_bytes(), raw)
+
+    def test_root_cgroup_fix_preserves_all_50_reviewed_pass_receipts_and_files(self):
+        recipes, review, helper = self.reviewed_test_receipts()
+        proc, cg = self.root / 'proc', self.root / 'cgroup'
+        unaccounted_root_fixture(proc, cg)
+        paths = {p for p in self.p.state.rglob('*') if p.is_file()} | {helper}
+        paths.update(self.p.source() / output for _, _, _, outputs in recipes for output in outputs)
+        before = {p: p.read_bytes() for p in paths}
+        receipts = copy.deepcopy(self.p.manifest['stages'])
+        head = REAL_GIT(self.p.source(), 'rev-parse', 'HEAD')
+        with patch.object(app, 'backend_memory_reserve', side_effect=lambda: REAL_BACKEND_MEMORY_RESERVE(proc, cg)), \
+                patch.object(app, 'recipes_for', return_value=recipes), patch.object(app, 'REVIEWED_OVERLAP', review), \
+                self.fake_stage() as child, patch('sys.stdout', new=io.StringIO()) as stdout:
+            app.check_stage_memory('backend-image', {'memoryBytes': {
+                'MemAvailable': int(11.11 * 1024**3), 'MemTotal': 15 * 1024**3},
+                'currentCgroup': {'memory.max': 'max'}})
+            for name, folder, argv, outputs in recipes:
+                self.p.stage(name, self.p.source() / folder, argv, outputs)
+        child.assert_not_called()
+        self.assertEqual(stdout.getvalue().count('PASS_REUSED '), 50)
+        self.assertEqual(self.p.manifest['stages'], receipts)
+        self.assertTrue(all(r['inputs']['pipeline'] == app.REVIEWED_TEST_RUNTIME for r in receipts.values()))
+        self.assertEqual(REAL_GIT(self.p.source(), 'rev-parse', 'HEAD'), head)
+        for path, raw in before.items():
+            self.assertEqual(path.read_bytes(), raw, str(path))
 
     def test_reviewed_memory_update_still_rejects_recipe_runtime_log_output_and_dependency_tamper(self):
         recipes, review, helper = self.reviewed_test_receipts()

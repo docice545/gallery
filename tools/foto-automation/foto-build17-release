@@ -209,13 +209,27 @@ def backend_memory_reserve(proc=Path('/proc'), cgroups=Path('/sys/fs/cgroup')):
     # Every visible ancestor can impose a tighter limit than the leaf. No swap
     # is credited as RAM, and neither limits nor memory.high are modified.
     while True:
-        current = (directory / 'memory.current').read_text().strip()
-        need(current.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
-        for name in ('memory.max', 'memory.high'):
-            limit = (directory / name).read_text().strip()
-            need(limit == 'max' or limit.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
-            need(limit == 'max' or int(limit) - int(current) >= 10 * 1024**3,
-                 'CALLER_CGROUP_MEMORY_RESERVE_NO_LIMITS_CHANGED')
+        try:
+            current = (directory / 'memory.current').read_text().strip()
+        except FileNotFoundError:
+            # The real cgroup v2 root has no accounting/limit files. Only that
+            # complete absence is allowed; unreadable files, dangling symlinks,
+            # partial observations and missing nested files remain failures.
+            need(directory == root, 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            for name in ('memory.current', 'memory.max', 'memory.high'):
+                try:
+                    (directory / name).lstat()
+                except FileNotFoundError:
+                    continue
+                raise Stop('CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            current = None
+        if current is not None:
+            need(current.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            for name in ('memory.max', 'memory.high'):
+                limit = (directory / name).read_text().strip()
+                need(limit == 'max' or limit.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+                need(limit == 'max' or int(limit) - int(current) >= 10 * 1024**3,
+                     'CALLER_CGROUP_MEMORY_RESERVE_NO_LIMITS_CHANGED')
         check_memory_pressure((directory / 'memory.pressure').read_text())
         if directory == root:
             break
