@@ -11,7 +11,14 @@
 (минимум 4 GiB физической RAM вне уже существующего потолка BuildKit10GiB),
 ограниченные PSI some/full (таблица ниже) и минимум 10 GiB headroom относительно каждого
 конечного memory.max/memory.high текущего cgroup и всех видимых предков.
-Неполные/нечитаемые наблюдения — STOP. Swap не засчитывается как RAM.
+Единственное исключение: настоящий корень `/sys/fs/cgroup` на Ubuntu24.04 может
+не иметь `memory.current`, `memory.max`, `memory.high`. Только полное отсутствие
+всех трёх файлов в корне допустимо; его `memory.pressure` остаётся обязательным.
+Во всех вложенных cgroup (включая user.slice/user-1000.slice/session scope)
+по-прежнему обязательны current/max/high/pressure. Частично существующие root
+лимиты без current, symlink вместо отсутствующего файла и ошибки доступа — STOP.
+Если root current существует, проверяются и его лимиты. Иные неполные/нечитаемые
+наблюдения — STOP. Swap не засчитывается как RAM.
 У остальных этапов прежние 5 GiB available / 6 GiB caller-limit floor.
 10 GiB BuildKit — потолок, не заранее выделенная память; это консервативная
 проверка допуска, **не доказательство устранения реального OOM**. Нагрузка после
@@ -91,9 +98,9 @@ bash <<'HP'
 set -euo pipefail
 umask 077
 FOTO_LAUNCH=$(mktemp /tmp/foto17-psi-launch.XXXXXXXX.sh)
-FOTO_REF=4fd26568d5352eb822a01c241f7d858e37bce974
+FOTO_REF=d1ffb9153872f9da720f34c430ffe9bc02f726ee
 FOTO_PATH=tools/foto-automation/foto-build17-release-hp.sh
-FOTO_LAUNCH_SHA=075d7f723123b50bfa34863ac281a6109a853b9a1657c63742ff8019c38b8188
+FOTO_LAUNCH_SHA=1451b0d02c1193494fe67c338630d8c972f3ae344a9ea9d1005f8370a58c34f4
 sudo -u codex-gallery -H gh api "repos/docice545/gallery/contents/$FOTO_PATH?ref=$FOTO_REF" --jq .content | base64 --decode > "$FOTO_LAUNCH"
 echo "$FOTO_LAUNCH_SHA  $FOTO_LAUNCH" | sha256sum --check -
 bash -n "$FOTO_LAUNCH"
@@ -215,7 +222,28 @@ Buildx v0.35.0 (`a319e5b15052cf6557ceb666eb8ff6e32380b782`, linux-amd64 SHA256
 
 ## Что подтверждено и что ещё нет
 
-PSI follow-up: 6 адресных тестов PASS, включая подтверждённый низкий профиль HP
+Root-cgroup follow-up: 21 адресная fixture-проверка PASS (6 новых, остальные —
+затронутые memory/reuse/integrity/launcher проверки). Проверены настоящий формат
+иерархии HP на временных файлах, root без current/max/high с обязательным PSI,
+отказ при отсутствии любого nested файла, конечных лимитах каждого предка,
+повышенном PSI, частичных root данных, symlink и PermissionError.
+Отдельная проверка создаёт **50 синтетических** PASS receipts старого runtime,
+проводит реальный memory probe по этой файловой фикстуре и получает ровно50
+`PASS_REUSED`, не исполняя ни одной тестовой команды. Manifest, snapshots, все
+логи, outputs, helper, receipt inputs и Git HEAD остаются побайтно прежними.
+Существующие отрицательные тесты SHA inputs/log/output/dependencies также PASS.
+Сравнение AST с `31a081349238d01d60b02d1d046748af17346c9e` подтверждает, что
+из runtime-функций изменена **только** `backend_memory_reserve`; весь Pipeline,
+reuse/signing, PSI-пороги и BuildKit gates идентичны. Bash syntax, все5 вложенных
+Python heredoc, внутренний BUILD_ONLY, pins и ShellCheck0.11.0 — PASS.
+Runner: `9743a191e50ffc373abd848e45ab3fd97f61bbfa`, SHA256
+`cf6d5e60365942bbf7fa28a020a3e7e19611fdc4d9ffbee72d62d7472ae6c21a`.
+Launcher: `d1ffb9153872f9da720f34c430ffe9bc02f726ee`, SHA256
+`1451b0d02c1193494fe67c338630d8c972f3ae344a9ea9d1005f8370a58c34f4`.
+Новый CI публикуется в PR9 отдельно. На HP этот код из Cloud не запускался:
+50 настоящих PASS не перечитывались и не менялись, сборка образа/APK не выполнялась.
+
+Предыдущий PSI follow-up: 6 адресных тестов PASS, включая подтверждённый низкий профиль HP
 при 11.11GiB available на синтетических host/cgroup файлах, точные границы всех
 шести лимитов и превышение на0.000001, различие some/full, malformed/NaN/Inf,
 давление в отдельном предке/cgroup, перечитывание наблюдений и STOP до child/build

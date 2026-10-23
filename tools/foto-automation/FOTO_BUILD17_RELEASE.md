@@ -17,7 +17,7 @@ launcher, systemd units, канонические progress/pending/manifest не
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске  |
 | Редактор              | PR #6, `codex/foto-build17-editor-compact`, `df3e0daf14f7593808a039df080c32cd05a7a503` | OPEN; новый CI проверять по SHA |
 | Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `3cc9631b7a2a48d2889808da5db7a62cc1345fea`  | OPEN; новый CI проверять по SHA |
-| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `95b4d75fb0834df8804489f78816921ea2bddeb1`               | 6 targeted PSI +2 launcher PASS; новый CI — отдельно |
+| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `9743a191e50ffc373abd848e45ab3fd97f61bbfa`               | 21 targeted root-cgroup/reuse/launcher PASS; новый CI — отдельно |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **До завершения нового CI и ручной приёмки точных SHA интеграция заблокирована.** Инструмент не исправляет их красный
@@ -91,7 +91,7 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/95b4d75fb0834df8804489f78816921ea2bddeb1/foto-build17-release
+R=/usr/local/lib/foto-build17-release/9743a191e50ffc373abd848e45ab3fd97f61bbfa/foto-build17-release
 C=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 "$R" --config "$C" --check
 ```
@@ -169,7 +169,11 @@ reviewed predecessor `c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b7
 Минимум10GiB MemAvailable вместо12GiB, минимум14GiB MemTotal (4GiB вне потолка
 BuildKit10GiB), ограниченные PSI some/full хоста и cgroup: some <=1.00/0.50/0.25%, full <=0.10/0.05/0.02% (avg10/60/300). Все видимые
 предки caller cgroup v2 проверяются по memory.max/high/current: при конечном
-лимите требуется10GiB headroom. Неизвестные/нечитаемые данные запрещают запуск.
+лимите требуется10GiB headroom. Только в самом корне `/sys/fs/cgroup` допустимо
+полное отсутствие current/max/high, как на Ubuntu24.04; root PSI всё равно
+обязателен. Если current существует, max/high обязательны и проверяются.
+Отсутствие nested файлов, частичные root данные, dangling symlink, ошибки доступа
+и другие неизвестные/нечитаемые данные запрещают запуск.
 Swap не считается RAM. У остальных стадий прежний floor5GiB, cgroup max>=6GiB.
 Это проверка допуска, не гарантия отсутствия будущего OOM при изменении нагрузки.
 Лимиты и процессы production не меняются, память не резервируется принудительно.
