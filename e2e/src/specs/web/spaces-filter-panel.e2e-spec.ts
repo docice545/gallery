@@ -31,14 +31,23 @@ async function selectPageSort(page: import('@playwright/test').Page, label: 'New
 
 test.describe('Spaces FilterPanel', () => {
   let admin: LoginResponseDto;
+  let websocket: Awaited<ReturnType<typeof utils.connectWebsocket>> | undefined;
 
   test.beforeAll(async () => {
     utils.initSdk();
     await utils.resetDatabase();
     admin = await utils.adminSetup();
+    websocket = await utils.connectWebsocket(admin.accessToken);
   });
 
   // ─── Helper: navigate to a space page with auth ───
+  test.afterEach(() => {
+    if (websocket) {
+      utils.disconnectWebsocket(websocket);
+      websocket = undefined;
+    }
+  });
+
   async function gotoSpace(
     context: import('@playwright/test').BrowserContext,
     page: import('@playwright/test').Page,
