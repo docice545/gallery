@@ -1,8 +1,9 @@
 # FOTO Build 17: продолжить остановленную сборку на HP
 
 Это продолжение **уже подготовленного** backend image/APK release, **без deployment**.
-Запускает doctoriceadm. Обновление исправляет только несовместимость inspect с
-Buildx v0.35.0. Старый установленный runner и его файлы сохраняются.
+Запускает doctoriceadm. Обновление исправляет вторую несовместимость Buildx v0.35.0:
+JSON history содержит `status`, а не Go-template поле `.Status`. Ранее исправленный
+текстовый inspect сохраняется. Старые установленные runners и их файлы сохраняются.
 
 Оператор подтвердил checkpoint: `prepared=true`, `mode=prepare`, последнее событие
 `PREPARED`, HEAD `e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2`, тесты и сборки ещё
@@ -33,9 +34,9 @@ repository pins требуют JDK21.0.2. Android SDK и кеши берутся
 bash <<'BASH'
 set -euo pipefail
 umask 077
-FOTO_TOOLS_SHA=e603d937ef9f73da33abf85482bf2fd3f5f83395
+FOTO_TOOLS_SHA=6a948e3fe6cf9d80d1e65e171c28ca0c90024893
 FOTO_INSTALL=/usr/local/lib/foto-build17-release/$FOTO_TOOLS_SHA
-FOTO_STAGE=$(mktemp -d /tmp/foto17-buildx035-install.XXXXXXXX)
+FOTO_STAGE=$(mktemp -d /tmp/foto17-buildx035-history-install.XXXXXXXX)
 FOTO_RELEASE_CONFIG=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 [[ "$FOTO_RELEASE_CONFIG" = /* ]]
 sudo -u codex-gallery -H test -f "$FOTO_RELEASE_CONFIG"
@@ -60,8 +61,8 @@ foto_as_builder() {
       exec "$@"
     ' foto17-release "$@"
 }
-if sudo -u codex-gallery -H tmux -L foto17-buildx035 list-sessions >/dev/null 2>&1; then
-  echo 'STOP: сессия foto17-buildx035 уже существует; подключитесь к ней, не запускайте вторую.' >&2
+if sudo -u codex-gallery -H tmux -L foto17-buildx035-history list-sessions >/dev/null 2>&1; then
+  echo 'STOP: сессия foto17-buildx035-history уже существует; подключитесь к ней, не запускайте вторую.' >&2
   exit 1
 fi
 for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
@@ -70,7 +71,7 @@ for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-a
     --jq .content | base64 --decode > "$FOTO_STAGE/$f"
 done
 cat > "$FOTO_STAGE/SHA256SUMS" <<'SHA256SUMS'
-63aa0d934eac3229469ebaee863c5a46238c72107c822e5eea9d05859b85b014  foto-build17-release
+90b0ac3488f19fc5a754d87d2aee26ff89b47a81ade0909cd4bee87922101287  foto-build17-release
 520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
 f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
 afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
@@ -129,14 +130,14 @@ PY_VALIDATION
   echo 'STOP: checkpoint changed during check; nothing reset' >&2
   exit 1
 }
-FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-buildx035-session.XXXXXXXX)
+FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-buildx035-history-session.XXXXXXXX)
 printf '%s\n' 'set-option -g remain-on-exit on' 'set-option -g history-limit 20000' | \
   sudo -u codex-gallery -H sh -c 'umask 077; cat > "$1"' sh "$FOTO_SESSION/tmux.conf"
-foto_as_builder tmux -L foto17-buildx035 -f "$FOTO_SESSION/tmux.conf" \
-  new-session -d -s foto17-buildx035 \
+foto_as_builder tmux -L foto17-buildx035-history -f "$FOTO_SESSION/tmux.conf" \
+  new-session -d -s foto17-buildx035-history \
   "$FOTO_INSTALL/foto-build17-release" --config "$FOTO_RELEASE_CONFIG" --finalize
 printf 'STARTED, не READY. Preflight: %s\n' "$FOTO_REPORT"
-printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-buildx035 attach -t foto17-buildx035'
+printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-buildx035-history attach -t foto17-buildx035-history'
 BASH
 ```
 
@@ -157,13 +158,13 @@ toolchain, журнала и outputs. Ошибка не запускает сл�
 После обрыва SSH подключиться:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-buildx035 attach -t foto17-buildx035
+sudo -u codex-gallery -H tmux -L foto17-buildx035-history attach -t foto17-buildx035-history
 ```
 
 Сессия сохраняет pane после выхода программы. Exit status:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-buildx035 display-message -p -t foto17-buildx035 '#{pane_dead_status}'
+sudo -u codex-gallery -H tmux -L foto17-buildx035-history display-message -p -t foto17-buildx035-history '#{pane_dead_status}'
 ```
 
 Пустое значение означает, что процесс ещё не завершён. Exit0 вместе с финальной
@@ -211,9 +212,20 @@ GC policy и вложенные device names не считаются nodes.
 контейнера BuildKit, Running/noOOM, worker max-parallelism=1 и отсутствия активных
 сборок не изменены. Нет bootstrap/create/restart/prune и новых builders.
 
-В Cloud выполнены 8 адресных тестов: текстовый формат, отказы, все прежние guards,
+History читается как JSONL с обязательным строковым `status` нижнего регистра.
+`Completed`, `Completed`, `Error` принимаются. `Running`, неизвестные/нестроковые
+состояния, отсутствие поля, верхний `Status` вместо `status`, повреждённый JSON,
+дублирующие ключи, пустая/недоступная история запрещают сборку. Прежние разрешённые
+терминальные `Canceled`/`Cancelled` сохраняются. Никаких предположений «нет строк —
+значит idle» нет. Поля сверены с `lsContext.MarshalJSON()` тега v0.35.0.
+
+В Cloud выполнены 15 адресных тестов: JSON history, текстовый inspect, отказы, все прежние guards,
 `--check` с `builderValidation=PASS_READ_ONLY_LIMITS_AND_IDLE`, сохранность байтов
-checkpoint и возобновление PREPARED без повторного merge. Docker/HP сервисы в
+checkpoint и возобновление PREPARED без повторного merge. Настоящий старый код
+`e603d937ef9f73da33abf85482bf2fd3f5f83395` воспроизводит STOP на JSON fixture
+с корректными полями v0.35.0; новый код принимает те же данные. В fixture используются
+синтетические refs/время и подтверждённая оператором последовательность состояний,
+это не публикация production history и не фактический NFS/Docker E2E. Docker/HP сервисы в
 фикстурах подменены — это **не реальный HP E2E**. Подлинный release binary
 Buildx v0.35.0 (`a319e5b15052cf6557ceb666eb8ff6e32380b782`, linux-amd64 SHA256
 `d41ece72044243b4f58b343441ae37446d9c29a7d6b5e11c61847bbcf8f7dfda`)

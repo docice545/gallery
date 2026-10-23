@@ -17,7 +17,7 @@ launcher, systemd units, канонические progress/pending/manifest не
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске  |
 | Редактор              | PR #6, `codex/foto-build17-editor-compact`, `df3e0daf14f7593808a039df080c32cd05a7a503` | OPEN; новый CI проверять по SHA |
 | Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `3cc9631b7a2a48d2889808da5db7a62cc1345fea`  | OPEN; новый CI проверять по SHA |
-| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `e603d937ef9f73da33abf85482bf2fd3f5f83395`               | 8 targeted Buildx/resume PASS; CI нового HEAD проверять отдельно   |
+| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `6a948e3fe6cf9d80d1e65e171c28ca0c90024893`               | 15 targeted Buildx/history/resume PASS; CI нового HEAD проверять отдельно   |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **До завершения нового CI и ручной приёмки точных SHA интеграция заблокирована.** Инструмент не исправляет их красный
@@ -35,7 +35,7 @@ mobile checks, совместимости — также server/medium/OpenAPI/s
 ## Установка и продолжение остановленного релиза
 
 Используйте [один проверяемый блок установки и запуска на HP](FOTO_BUILD17_FINAL_HP.md).
-Он проверяет подтверждённый PREPARED checkpoint, исправляет Buildx v0.35 inspect,
+Он проверяет подтверждённый PREPARED checkpoint, исправляет Buildx v0.35 inspect/history status,
 устанавливает новые versioned bytes и сохраняет **тот же существующий config**,
 все worktrees и историю manifest и явно запускает `--finalize` в отдельном tmux.
 Новый config с угаданным ключом/approvals не создаётся. Причина старого
@@ -64,7 +64,7 @@ mobile checks, совместимости — также server/medium/OpenAPI/s
    полный JDK с javac. Автоматической установки системных инструментов нет.
 5. Rootless socket `/run/user/<uid>/docker.sock`, builder `foto17-limited`,
    его фактические memory=10 GiB / memory-swap=12 GiB и активные workers с
-   max-parallelism=1. Нужен buildx с JSON inspect/history. Если формат отличается
+   max-parallelism=1. Нужен buildx с текстовым inspect и JSONL history (`status` нижнего регистра). Если формат отличается
    или история недоступна, конвейер остановится; новый builder не создаётся.
 6. Свободное место (пример требует 60 GiB на SSD), память, отсутствие активных
    Codex/build процессов и существующие каталоги shared locks:
@@ -88,7 +88,7 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/e603d937ef9f73da33abf85482bf2fd3f5f83395/foto-build17-release
+R=/usr/local/lib/foto-build17-release/6a948e3fe6cf9d80d1e65e171c28ca0c90024893/foto-build17-release
 C=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 "$R" --config "$C" --check
 ```
