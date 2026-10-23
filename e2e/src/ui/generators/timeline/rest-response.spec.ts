@@ -2,7 +2,7 @@ import { TimeBucketSize } from '@immich/sdk';
 import { describe, expect, it } from 'vitest';
 
 import type { Changes } from './rest-response.js';
-import { getTimeBucketCovers, getTimeBuckets } from './rest-response.js';
+import { getTimeBucket, getTimeBucketCovers, getTimeBuckets, toColumnarFormat } from './rest-response.js';
 
 const changes: Changes = {
   albumAdditions: [],
@@ -12,6 +12,29 @@ const changes: Changes = {
 };
 
 describe('timeline e2e rest response bucket grouping', () => {
+  it('aligns upload and deletion timestamps with every synthetic asset column', () => {
+    const first = { id: 'active', fileCreatedAt: '2024-01-03T10:00:00.000Z', isTrashed: false };
+    const second = { id: 'trashed', fileCreatedAt: '2024-01-02T10:00:00.000Z', isTrashed: true };
+    const result = toColumnarFormat([first, second] as never);
+    expect(result.id).toEqual(['active', 'trashed']);
+    expect(result.createdAt).toEqual([first.fileCreatedAt, second.fileCreatedAt]);
+    expect(result.deletedAt).toEqual([null, second.fileCreatedAt]);
+  });
+
+  it('supplies deletion timestamps after a mock soft-delete and clears them after restore', () => {
+    const asset = { id: 'photo', fileCreatedAt: '2024-01-02T10:00:00.000Z', isTrashed: false };
+    const data = { buckets: new Map([['2024-01', [asset]]]) } as never;
+    const trashed = getTimeBucket(data, '2024-01-01', true, undefined, undefined, undefined, {
+      ...changes,
+      assetDeletions: [asset.id],
+    });
+    expect(trashed.id).toEqual([asset.id]);
+    expect(trashed.deletedAt).toEqual([asset.fileCreatedAt]);
+    const restored = getTimeBucket(data, '2024-01-01', false, undefined, undefined, undefined, changes);
+    expect(restored.id).toEqual([asset.id]);
+    expect(restored.deletedAt).toEqual([null]);
+  });
+
   it('aggregates mock buckets by year — counts only, no representative fields', () => {
     const data = {
       buckets: new Map([
