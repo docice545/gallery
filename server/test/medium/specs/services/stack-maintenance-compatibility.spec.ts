@@ -1,6 +1,7 @@
 import { Kysely } from 'kysely';
 import { AssetType, AssetVisibility } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
+import { AssetFavoriteRepository } from 'src/repositories/asset-favorite.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
 import { JobRepository } from 'src/repositories/job.repository.js';
@@ -20,7 +21,7 @@ let database: Kysely<DB>;
 const setup = () => {
   const { sut, ctx } = newMediumService(StackService, {
     database,
-    real: [AccessRepository, AssetRepository, SharedSpaceRepository, StackRepository],
+    real: [AccessRepository, AssetFavoriteRepository, AssetRepository, SharedSpaceRepository, StackRepository],
     mock: [EventRepository, JobRepository, LoggingRepository, StorageRepository],
   });
   ctx.getMock(EventRepository).emit.mockResolvedValue();

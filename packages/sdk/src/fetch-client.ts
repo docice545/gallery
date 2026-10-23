@@ -1559,6 +1559,18 @@ export type PermanentDeletionResultDto = {
   scope?: string;
   state: State;
 };
+export type AssetEditableDto = {
+  assetIds: string[];
+};
+export type AssetEditableResponseDto = {
+  editableAssetIds: string[];
+};
+export type AssetFavoriteUpdateDto = {
+  /** Asset IDs */
+  ids: string[];
+  /** Favorite state for the requesting user */
+  isFavorite: boolean;
+};
 export type AssetJobsDto = {
   /** Asset IDs */
   assetIds: string[];
@@ -4088,6 +4100,44 @@ export type SharedSpaceAssetLinkedAlbumDto = {
   /** Album name */
   albumName: string;
 };
+export type SpaceAssetFaceResponseDto = {
+  /** Bounding box X1 */
+  boundingBoxX1: number;
+  /** Bounding box X2 */
+  boundingBoxX2: number;
+  /** Bounding box Y1 */
+  boundingBoxY1: number;
+  /** Bounding box Y2 */
+  boundingBoxY2: number;
+  /** Asset face ID */
+  id: string;
+  /** Original image height */
+  imageHeight: number;
+  /** Original image width */
+  imageWidth: number;
+  /** Whether this face box was drawn by a space Owner/Editor, and so may be deleted by one */
+  isEditorDrawn: boolean;
+  /** Space person ID this face is attached to, if any */
+  spacePersonId: string | null;
+  /** Space person name this face is attached to, if any */
+  spacePersonName: string | null;
+};
+export type SpaceAssetFaceCreateDto = {
+  /** Face bounding box height */
+  height: number;
+  /** Image height in pixels (of the preview the box was drawn on) */
+  imageHeight: number;
+  /** Image width in pixels (of the preview the box was drawn on) */
+  imageWidth: number;
+  /** Space person ID this face will be attached to */
+  spacePersonId: string;
+  /** Face bounding box width */
+  width: number;
+  /** Face bounding box X coordinate */
+  x: number;
+  /** Face bounding box Y coordinate */
+  y: number;
+};
 export type SharedSpaceLibraryLinkDto = {
   /** Library ID */
   libraryId: string;
@@ -4145,6 +4195,12 @@ export type SharedSpacePersonResponseDto = {
   type?: string;
   /** Last update date */
   updatedAt: string;
+};
+export type SharedSpacePersonCreateDto = {
+  /** Seed face to attach to the new person */
+  assetFaceId?: string;
+  /** Person name */
+  name?: string;
 };
 export type SharedSpacePeopleStatisticsResponseDto = {
   /** Number of detected faces in the shared-space people scope */
@@ -4233,11 +4289,16 @@ export type SyncAckDeleteDto = {
 export type SyncAckDto = {
   /** Acknowledgment ID */
   ack: string;
-  type: SyncEntityType;
+  type: LegacySyncEntityType;
 };
 export type SyncAckSetDto = {
   /** Acknowledgment IDs (max 1000) */
   acks: string[];
+};
+export type SyncAckV2Dto = {
+  /** Acknowledgment ID */
+  ack: string;
+  type: SyncEntityType;
 };
 export type SyncStreamDto = {
   /** Reset sync state */
@@ -4727,6 +4788,13 @@ export type SyncAssetFaceV2 = {
   /** Source type */
   sourceType: string;
 };
+export type SyncAssetFaceV3 = SyncAssetFaceV2;
+export type SyncAssetFavoriteDeleteV1 = {
+  assetId: string;
+};
+export type SyncAssetFavoriteV1 = {
+  assetId: string;
+};
 export type SyncAssetMetadataDeleteV1 = {
   /** Asset ID */
   assetId: string;
@@ -4892,6 +4960,33 @@ export type SyncAuthUserV1 = {
   /** User storage label */
   storageLabel: string | null;
 };
+export type SyncAuthUserV2 = {
+  avatarColor?: UserAvatarColor | null;
+  /** User deleted at */
+  deletedAt: string | null;
+  /** User email */
+  email: string;
+  /** User has profile image */
+  hasProfileImage: boolean;
+  /** User ID */
+  id: string;
+  /** User is admin */
+  isAdmin: boolean;
+  /** User name */
+  name: string;
+  /** User OAuth ID */
+  oauthId: string | null;
+  /** User pin code */
+  pinCode: string | null;
+  /** User profile changed at */
+  profileChangedAt: string;
+  /** Quota size in bytes */
+  quotaSizeInBytes: number | null;
+  /** Quota usage in bytes */
+  quotaUsageInBytes: number;
+  /** User storage label */
+  storageLabel: string | null;
+};
 export type SyncCompleteV1 = {};
 export type SyncLibraryAssetDeleteV1 = {
   /** Asset ID */
@@ -4953,6 +5048,33 @@ export type SyncMemoryV1 = {
   /** Show at */
   showAt: string | null;
   type: MemoryType;
+  /** Updated at */
+  updatedAt: string;
+};
+export type SyncMemoryV2 = {
+  /** Created at */
+  createdAt: string;
+  /** Data */
+  data: {
+    [key: string]: any;
+  };
+  /** Deleted at */
+  deletedAt: string | null;
+  /** Hide at */
+  hideAt: string | null;
+  /** Memory ID */
+  id: string;
+  /** Is saved */
+  isSaved: boolean;
+  /** Memory at */
+  memoryAt: string;
+  /** Owner ID */
+  ownerId: string;
+  /** Seen at */
+  seenAt: string | null;
+  /** Show at */
+  showAt: string | null;
+  type: Type3;
   /** Updated at */
   updatedAt: string;
 };
@@ -7231,6 +7353,53 @@ export function deletionStatuses(
         ...opts,
         method: 'POST',
         body: bulkIdsDto,
+      }),
+    ),
+  );
+}
+/**
+ * Resolve editable asset IDs
+ */
+export function getEditableAssets(
+  {
+    assetEditableDto,
+  }: {
+    assetEditableDto: AssetEditableDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: AssetEditableResponseDto;
+    }>(
+      '/assets/editable',
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: assetEditableDto,
+      }),
+    ),
+  );
+}
+/**
+ * Set personal favorite state
+ */
+export function updateAssetFavorites(
+  {
+    assetFavoriteUpdateDto,
+  }: {
+    assetFavoriteUpdateDto: AssetFavoriteUpdateDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchText(
+      '/assets/favorites',
+      oazapfts.json({
+        ...opts,
+        method: 'PUT',
+        body: assetFavoriteUpdateDto,
       }),
     ),
   );
@@ -12462,6 +12631,83 @@ export function getSharedSpaceAssetLinkedAlbums(
   );
 }
 /**
+ * Get the faces on an asset, space-scoped
+ */
+export function getSpaceAssetFaces(
+  {
+    assetId,
+    id,
+  }: {
+    assetId: string;
+    id: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: SpaceAssetFaceResponseDto[];
+    }>(
+      `/shared-spaces/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}/faces`,
+      {
+        ...opts,
+      },
+    ),
+  );
+}
+/**
+ * Draw a face box on an asset, space-scoped
+ */
+export function createSpaceAssetFace(
+  {
+    assetId,
+    id,
+    spaceAssetFaceCreateDto,
+  }: {
+    assetId: string;
+    id: string;
+    spaceAssetFaceCreateDto: SpaceAssetFaceCreateDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: SpaceAssetFaceResponseDto;
+    }>(
+      `/shared-spaces/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}/faces`,
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: spaceAssetFaceCreateDto,
+      }),
+    ),
+  );
+}
+/**
+ * Delete a face box an editor drew in a shared space
+ */
+export function deleteSpaceAssetFace(
+  {
+    assetFaceId,
+    id,
+  }: {
+    assetFaceId: string;
+    id: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchText(
+      `/shared-spaces/${encodeURIComponent(id)}/faces/${encodeURIComponent(assetFaceId)}`,
+      {
+        ...opts,
+        method: 'DELETE',
+      },
+    ),
+  );
+}
+/**
  * Link a library to a shared space
  */
 export function linkLibrary(
@@ -12757,6 +13003,33 @@ export function getSpacePeople(
       {
         ...opts,
       },
+    ),
+  );
+}
+/**
+ * Create a person in a shared space
+ */
+export function createSpacePerson(
+  {
+    id,
+    sharedSpacePersonCreateDto,
+  }: {
+    id: string;
+    sharedSpacePersonCreateDto: SharedSpacePersonCreateDto;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 201;
+      data: SharedSpacePersonResponseDto;
+    }>(
+      `/shared-spaces/${encodeURIComponent(id)}/people`,
+      oazapfts.json({
+        ...opts,
+        method: 'POST',
+        body: sharedSpacePersonCreateDto,
+      }),
     ),
   );
 }
@@ -13208,6 +13481,62 @@ export function getSpacePersonFaces(
       )}`,
       {
         ...opts,
+      },
+    ),
+  );
+}
+/**
+ * Detach a face from a person in a shared space
+ */
+export function detachSpacePersonFace(
+  {
+    assetFaceId,
+    id,
+    personId,
+  }: {
+    assetFaceId: string;
+    id: string;
+    personId: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: FaceSuggestionActionResponseDto;
+    }>(
+      `/shared-spaces/${encodeURIComponent(id)}/people/${encodeURIComponent(personId)}/faces/${encodeURIComponent(assetFaceId)}`,
+      {
+        ...opts,
+        method: 'DELETE',
+      },
+    ),
+  );
+}
+/**
+ * Assign a face to a person in a shared space
+ */
+export function attachSpacePersonFace(
+  {
+    assetFaceId,
+    id,
+    personId,
+  }: {
+    assetFaceId: string;
+    id: string;
+    personId: string;
+  },
+  opts?: Oazapfts.RequestOpts,
+) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: FaceSuggestionActionResponseDto;
+    }>(
+      `/shared-spaces/${encodeURIComponent(id)}/people/${encodeURIComponent(personId)}/faces/${encodeURIComponent(assetFaceId)}`,
+      {
+        ...opts,
+        method: 'PUT',
       },
     ),
   );
@@ -13672,10 +14001,15 @@ export function deleteSyncAck(
  */
 export function getSyncAck(opts?: Oazapfts.RequestOpts) {
   return oazapfts.ok(
-    oazapfts.fetchJson<{
-      status: 200;
-      data: SyncAckDto[];
-    }>('/sync/ack', {
+    oazapfts.fetchJson<
+      | {
+          status: 200;
+          data: SyncAckDto[];
+        }
+      | {
+          status: 409;
+        }
+    >('/sync/ack', {
       ...opts,
     }),
   );
@@ -13700,6 +14034,19 @@ export function sendSyncAck(
         body: syncAckSetDto,
       }),
     ),
+  );
+}
+/**
+ * Retrieve acknowledgements including extended sync protocols
+ */
+export function getSyncAckV2(opts?: Oazapfts.RequestOpts) {
+  return oazapfts.ok(
+    oazapfts.fetchJson<{
+      status: 200;
+      data: SyncAckV2Dto[];
+    }>('/sync/ack/v2', {
+      ...opts,
+    }),
   );
 }
 /**
@@ -15905,6 +16252,118 @@ export enum StorageMigrationDirection {
 }
 export enum SyncEntityType {
   AuthUserV1 = 'AuthUserV1',
+  AuthUserV2 = 'AuthUserV2',
+  UserV1 = 'UserV1',
+  UserDeleteV1 = 'UserDeleteV1',
+  AssetV1 = 'AssetV1',
+  AssetV2 = 'AssetV2',
+  AssetDeleteV1 = 'AssetDeleteV1',
+  AssetExifV1 = 'AssetExifV1',
+  AssetEditV1 = 'AssetEditV1',
+  AssetEditDeleteV1 = 'AssetEditDeleteV1',
+  AssetMetadataV1 = 'AssetMetadataV1',
+  AssetMetadataDeleteV1 = 'AssetMetadataDeleteV1',
+  AssetOcrV1 = 'AssetOcrV1',
+  AssetOcrDeleteV1 = 'AssetOcrDeleteV1',
+  PartnerV1 = 'PartnerV1',
+  PartnerDeleteV1 = 'PartnerDeleteV1',
+  PartnerAssetV1 = 'PartnerAssetV1',
+  PartnerAssetV2 = 'PartnerAssetV2',
+  PartnerAssetBackfillV1 = 'PartnerAssetBackfillV1',
+  PartnerAssetBackfillV2 = 'PartnerAssetBackfillV2',
+  PartnerAssetDeleteV1 = 'PartnerAssetDeleteV1',
+  PartnerAssetExifV1 = 'PartnerAssetExifV1',
+  PartnerAssetExifBackfillV1 = 'PartnerAssetExifBackfillV1',
+  PartnerStackBackfillV1 = 'PartnerStackBackfillV1',
+  PartnerStackDeleteV1 = 'PartnerStackDeleteV1',
+  PartnerStackV1 = 'PartnerStackV1',
+  AlbumV1 = 'AlbumV1',
+  AlbumV2 = 'AlbumV2',
+  AlbumDeleteV1 = 'AlbumDeleteV1',
+  AlbumUserV1 = 'AlbumUserV1',
+  AlbumUserBackfillV1 = 'AlbumUserBackfillV1',
+  AlbumUserDeleteV1 = 'AlbumUserDeleteV1',
+  AlbumAssetCreateV1 = 'AlbumAssetCreateV1',
+  AlbumAssetCreateV2 = 'AlbumAssetCreateV2',
+  AlbumAssetUpdateV1 = 'AlbumAssetUpdateV1',
+  AlbumAssetUpdateV2 = 'AlbumAssetUpdateV2',
+  AlbumAssetBackfillV1 = 'AlbumAssetBackfillV1',
+  AlbumAssetBackfillV2 = 'AlbumAssetBackfillV2',
+  AlbumAssetExifCreateV1 = 'AlbumAssetExifCreateV1',
+  AlbumAssetExifUpdateV1 = 'AlbumAssetExifUpdateV1',
+  AlbumAssetExifBackfillV1 = 'AlbumAssetExifBackfillV1',
+  AlbumToAssetV1 = 'AlbumToAssetV1',
+  AlbumToAssetDeleteV1 = 'AlbumToAssetDeleteV1',
+  AlbumToAssetBackfillV1 = 'AlbumToAssetBackfillV1',
+  MemoryV1 = 'MemoryV1',
+  MemoryV2 = 'MemoryV2',
+  MemoryDeleteV1 = 'MemoryDeleteV1',
+  MemoryToAssetV1 = 'MemoryToAssetV1',
+  MemoryToAssetV2 = 'MemoryToAssetV2',
+  MemoryToAssetDeleteV1 = 'MemoryToAssetDeleteV1',
+  StackV1 = 'StackV1',
+  StackDeleteV1 = 'StackDeleteV1',
+  PersonV1 = 'PersonV1',
+  PersonDeleteV1 = 'PersonDeleteV1',
+  AssetFaceV1 = 'AssetFaceV1',
+  AssetFaceV2 = 'AssetFaceV2',
+  AssetFaceV3 = 'AssetFaceV3',
+  AssetFavoriteV1 = 'AssetFavoriteV1',
+  AssetFavoriteDeleteV1 = 'AssetFavoriteDeleteV1',
+  AssetFaceDeleteV1 = 'AssetFaceDeleteV1',
+  UserMetadataV1 = 'UserMetadataV1',
+  UserMetadataDeleteV1 = 'UserMetadataDeleteV1',
+  SharedSpaceV1 = 'SharedSpaceV1',
+  SharedSpaceDeleteV1 = 'SharedSpaceDeleteV1',
+  SharedSpaceMemberV1 = 'SharedSpaceMemberV1',
+  SharedSpaceMemberDeleteV1 = 'SharedSpaceMemberDeleteV1',
+  SharedSpaceMemberBackfillV1 = 'SharedSpaceMemberBackfillV1',
+  SharedSpaceAssetCreateV1 = 'SharedSpaceAssetCreateV1',
+  SharedSpaceAssetUpdateV1 = 'SharedSpaceAssetUpdateV1',
+  SharedSpaceAssetBackfillV1 = 'SharedSpaceAssetBackfillV1',
+  SharedSpaceAssetExifCreateV1 = 'SharedSpaceAssetExifCreateV1',
+  SharedSpaceAssetExifUpdateV1 = 'SharedSpaceAssetExifUpdateV1',
+  SharedSpaceAssetExifBackfillV1 = 'SharedSpaceAssetExifBackfillV1',
+  SharedSpaceToAssetV1 = 'SharedSpaceToAssetV1',
+  SharedSpaceToAssetDeleteV1 = 'SharedSpaceToAssetDeleteV1',
+  SharedSpaceToAssetBackfillV1 = 'SharedSpaceToAssetBackfillV1',
+  LibraryV1 = 'LibraryV1',
+  LibraryDeleteV1 = 'LibraryDeleteV1',
+  LibraryAssetCreateV1 = 'LibraryAssetCreateV1',
+  LibraryAssetDeleteV1 = 'LibraryAssetDeleteV1',
+  LibraryAssetBackfillV1 = 'LibraryAssetBackfillV1',
+  LibraryAssetExifCreateV1 = 'LibraryAssetExifCreateV1',
+  LibraryAssetExifBackfillV1 = 'LibraryAssetExifBackfillV1',
+  SharedSpaceLibraryV1 = 'SharedSpaceLibraryV1',
+  SharedSpaceLibraryDeleteV1 = 'SharedSpaceLibraryDeleteV1',
+  SharedSpaceLibraryBackfillV1 = 'SharedSpaceLibraryBackfillV1',
+  SharedSpaceAlbumV1 = 'SharedSpaceAlbumV1',
+  SharedSpaceAlbumDeleteV1 = 'SharedSpaceAlbumDeleteV1',
+  SharedSpaceAlbumBackfillV1 = 'SharedSpaceAlbumBackfillV1',
+  SharedSpaceAlbumLinkV1 = 'SharedSpaceAlbumLinkV1',
+  SharedSpaceAlbumLinkDeleteV1 = 'SharedSpaceAlbumLinkDeleteV1',
+  SharedSpaceAlbumLinkBackfillV1 = 'SharedSpaceAlbumLinkBackfillV1',
+  SharedSpaceAlbumHiddenV1 = 'SharedSpaceAlbumHiddenV1',
+  SharedSpaceAlbumHiddenDeleteV1 = 'SharedSpaceAlbumHiddenDeleteV1',
+  SharedSpaceAlbumHiddenBackfillV1 = 'SharedSpaceAlbumHiddenBackfillV1',
+  SharedSpaceAlbumFolderV1 = 'SharedSpaceAlbumFolderV1',
+  SharedSpaceAlbumFolderDeleteV1 = 'SharedSpaceAlbumFolderDeleteV1',
+  SharedSpaceAlbumFolderBackfillV1 = 'SharedSpaceAlbumFolderBackfillV1',
+  SharedSpaceAlbumToAssetV1 = 'SharedSpaceAlbumToAssetV1',
+  SharedSpaceAlbumToAssetDeleteV1 = 'SharedSpaceAlbumToAssetDeleteV1',
+  SharedSpaceAlbumToAssetBackfillV1 = 'SharedSpaceAlbumToAssetBackfillV1',
+  SharedSpaceAlbumAssetCreateV1 = 'SharedSpaceAlbumAssetCreateV1',
+  SharedSpaceAlbumAssetUpdateV1 = 'SharedSpaceAlbumAssetUpdateV1',
+  SharedSpaceAlbumAssetBackfillV1 = 'SharedSpaceAlbumAssetBackfillV1',
+  SharedSpaceAlbumAssetExifCreateV1 = 'SharedSpaceAlbumAssetExifCreateV1',
+  SharedSpaceAlbumAssetExifUpdateV1 = 'SharedSpaceAlbumAssetExifUpdateV1',
+  SharedSpaceAlbumAssetExifBackfillV1 = 'SharedSpaceAlbumAssetExifBackfillV1',
+  SyncAckV1 = 'SyncAckV1',
+  SyncResetV1 = 'SyncResetV1',
+  SyncCompleteV1 = 'SyncCompleteV1',
+}
+export enum LegacySyncEntityType {
+  AuthUserV1 = 'AuthUserV1',
   UserV1 = 'UserV1',
   UserDeleteV1 = 'UserDeleteV1',
   AssetV1 = 'AssetV1',
@@ -16021,11 +16480,15 @@ export enum SyncRequestType {
   AssetsV2 = 'AssetsV2',
   AssetExifsV1 = 'AssetExifsV1',
   AssetEditsV1 = 'AssetEditsV1',
+  AssetFavoritesV1 = 'AssetFavoritesV1',
   AssetMetadataV1 = 'AssetMetadataV1',
   AssetOcrV1 = 'AssetOcrV1',
   AuthUsersV1 = 'AuthUsersV1',
+  AuthUsersV2 = 'AuthUsersV2',
   MemoriesV1 = 'MemoriesV1',
+  MemoriesV2 = 'MemoriesV2',
   MemoryToAssetsV1 = 'MemoryToAssetsV1',
+  MemoryToAssetsV2 = 'MemoryToAssetsV2',
   PartnersV1 = 'PartnersV1',
   PartnerAssetsV1 = 'PartnerAssetsV1',
   PartnerAssetsV2 = 'PartnerAssetsV2',
@@ -16036,6 +16499,7 @@ export enum SyncRequestType {
   PeopleV1 = 'PeopleV1',
   AssetFacesV1 = 'AssetFacesV1',
   AssetFacesV2 = 'AssetFacesV2',
+  AssetFacesV3 = 'AssetFacesV3',
   UserMetadataV1 = 'UserMetadataV1',
   SharedSpacesV1 = 'SharedSpacesV1',
   SharedSpaceMembersV1 = 'SharedSpaceMembersV1',
@@ -16077,6 +16541,10 @@ export enum ReleaseType {
   Patch = 'patch',
   Prepatch = 'prepatch',
   Prerelease = 'prerelease',
+}
+export enum Type3 {
+  OnThisDay = 'on_this_day',
+  Birthday = 'birthday',
 }
 export enum UserMetadataKey {
   Preferences = 'preferences',

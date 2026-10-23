@@ -46,6 +46,9 @@ describe(AssetService.name, () => {
 
   beforeEach(() => {
     ({ sut, mocks } = newTestService(AssetService));
+    mocks.assetFavorite.getForAssets.mockResolvedValue(new Set());
+    mocks.assetFavorite.addAll.mockResolvedValue();
+    mocks.assetFavorite.removeAll.mockResolvedValue();
 
     // handleAssetDeletion now captures affected shared-space people before delete
     // (faces F5); default to empty so unrelated deletion tests don't break.
@@ -647,6 +650,40 @@ describe(AssetService.name, () => {
     });
   });
 
+  describe('editability compatibility', () => {
+    it('uses the existing metadata write authority without granting viewer writes', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['own']));
+      mocks.access.asset.checkSpaceEditAccess.mockResolvedValue(new Set(['editor']));
+      expect(await sut.getEditable(authStub.user1, { assetIds: ['own', 'editor', 'viewer', 'other'] })).toEqual({
+        editableAssetIds: ['own', 'editor'],
+      });
+      expect(mocks.asset.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('personal favorites compatibility', () => {
+    it('refuses anonymous shared-link writes in the link owner identity', async () => {
+      await expect(sut.updateFavorites(authStub.adminSharedLink, { ids: ['a'], isFavorite: true })).rejects.toThrow(
+        'Shared link',
+      );
+      expect(mocks.assetFavorite.addAll).not.toHaveBeenCalled();
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+    });
+    it('read access lets a viewer favorite personally without metadata-edit access', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set());
+      mocks.access.asset.checkSpaceAccess.mockResolvedValue(new Set(['shared']));
+      await sut.updateFavorites(authStub.user1, { ids: ['shared'], isFavorite: true });
+      expect(mocks.assetFavorite.addAll).toHaveBeenCalledWith(authStub.user1.user.id, ['shared']);
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+      expect(mocks.asset.update).not.toHaveBeenCalled();
+    });
+    it('fails the whole mixed selection before a favorite write on inaccessible IDs', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['own']));
+      await expect(sut.updateFavorites(authStub.user1, { ids: ['own', 'other'], isFavorite: true })).rejects.toThrow();
+      expect(mocks.assetFavorite.addAll).not.toHaveBeenCalled();
+    });
+  });
+
   describe('update', () => {
     it('should require asset write access for the id', async () => {
       await expect(
@@ -665,7 +702,8 @@ describe(AssetService.name, () => {
 
       await sut.update(authStub.admin, asset.id, { isFavorite: true });
 
-      expect(mocks.asset.update).toHaveBeenCalledWith({ id: asset.id, isFavorite: true });
+      expect(mocks.assetFavorite.addAll).toHaveBeenCalledWith(authStub.admin.user.id, [asset.id]);
+      expect(mocks.asset.update).toHaveBeenCalledWith({ id: asset.id });
     });
 
     it('should update the exif description', async () => {
@@ -1102,11 +1140,13 @@ describe(AssetService.name, () => {
       const auth = AuthFactory.create();
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set());
       mocks.access.asset.checkSpaceEditAccess.mockResolvedValue(new Set(['asset-2']));
+      mocks.access.asset.checkSpaceAccess.mockResolvedValue(new Set(['asset-2']));
 
       await sut.updateAll(auth, { ids: ['asset-2'], isFavorite: true });
 
       // No visibility → owner-split guard never runs → editor keeps their metadata-edit capability.
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset-2'], { isFavorite: true });
+      expect(mocks.assetFavorite.addAll).toHaveBeenCalledWith(auth.user.id, ['asset-2']);
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
     });
 
     it('should not update Assets table if no relevant fields are provided', async () => {
@@ -1162,7 +1202,8 @@ describe(AssetService.name, () => {
         duplicateId: undefined,
         rating: undefined,
       });
-      expect(mocks.asset.updateAll).toHaveBeenCalled();
+      expect(mocks.assetFavorite.removeAll).toHaveBeenCalledWith(authStub.admin.user.id, ['asset-1']);
+      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
       expect(mocks.asset.updateAllExif).toHaveBeenCalledWith(['asset-1'], {
         dateTimeOriginal,
         latitude: 30,
@@ -1488,7 +1529,7 @@ describe(AssetService.name, () => {
       mocks.systemMetadata.get.mockResolvedValue({ trash: { enabled: false, days: 30 } });
       const delegated = vi.spyOn(sut, 'permanentlyDelete').mockResolvedValue([{ id: 'asset1', state: 'complete' }]);
       await sut.deleteAll(authStub.user1, { ids: ['asset1'] });
-      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1'], true);
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1'], true, false);
       expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
 
@@ -1500,9 +1541,23 @@ describe(AssetService.name, () => {
         { id: 'asset2', state: 'complete' },
       ]);
       await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true });
-      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2'], true);
+      expect(delegated).toHaveBeenCalledWith(authStub.user1, ['asset1', 'asset2'], true, false);
       expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
     });
+
+    it.each([199, 200, 201, 1000])(
+      'legacy force delete of %s IDs never selects the asynchronous batch contract',
+      async (count) => {
+        const ids = Array.from({ length: count }, (_, i) => `asset-${i}`);
+        const delegated = vi
+          .spyOn(sut, 'permanentlyDelete')
+          .mockResolvedValue(ids.map((id) => ({ id, state: 'complete' })));
+        await sut.deleteAll(authStub.user1, { ids, force: true });
+        expect(delegated).toHaveBeenCalledWith(authStub.user1, ids, true, false);
+        expect(mocks.job.queue).not.toHaveBeenCalled();
+        expect(mocks.asset.markDeletionState).not.toHaveBeenCalled();
+      },
+    );
 
     it('should soft delete a batch of assets', async () => {
       mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset1', 'asset2']));

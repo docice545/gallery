@@ -30,10 +30,16 @@ import {
 import {
   SharedSpacePeopleStatisticsResponseDto,
   SharedSpacePersonAliasDto,
+  SharedSpacePersonCreateDto,
   SharedSpacePersonMergeDto,
   SharedSpacePersonResponseDto,
   SharedSpacePersonUpdateDto,
+  SpaceAssetFaceCreateDto,
+  SpaceAssetFaceResponseDto,
+  SpaceAssetFacesParamsDto,
+  SpaceFaceParamsDto,
   SpacePeopleQueryDto,
+  SpacePersonFaceParamsDto,
   SpacePersonFaceSuggestionParamsDto,
   SpacePersonParamsDto,
   SpaceRepresentativeFaceUpdateDto,
@@ -854,5 +860,99 @@ export class SharedSpaceController {
     @Body() dto: SharedSpaceAlbumFolderMoveAlbumDto,
   ): Promise<void> {
     return this.service.setAlbumFolder(auth, id, albumId, dto);
+  }
+  @Post(':id/people')
+  @Authenticated({ permission: Permission.SharedSpaceUpdate })
+  @Endpoint({
+    summary: 'Create a person in a shared space',
+    description:
+      'Create a new space person, optionally attaching a seed face. When the seed face already ' +
+      'carries an identity shared by an existing space person, the existing person is returned instead.',
+    history: new HistoryBuilder().added('v2').stable('v2'),
+  })
+  createSpacePerson(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: SharedSpacePersonCreateDto,
+  ): Promise<SharedSpacePersonResponseDto> {
+    return this.service.createSpacePerson(auth, id, dto);
+  }
+
+  @Put(':id/people/:personId/faces/:assetFaceId')
+  @Authenticated({ permission: Permission.SharedSpaceUpdate })
+  @HttpCode(HttpStatus.OK)
+  @Endpoint({
+    summary: 'Assign a face to a person in a shared space',
+    description: 'Attach the face to the space person. Idempotent — the response reports whether it acted.',
+    history: new HistoryBuilder().added('v2').stable('v2'),
+  })
+  async attachSpacePersonFace(
+    @Auth() auth: AuthDto,
+    @Param() { id, personId, assetFaceId }: SpacePersonFaceParamsDto,
+  ): Promise<FaceSuggestionActionResponseDto> {
+    return { acted: await this.service.attachFaceToSpacePerson(auth, id, personId, assetFaceId) };
+  }
+
+  @Delete(':id/people/:personId/faces/:assetFaceId')
+  @Authenticated({ permission: Permission.SharedSpaceUpdate })
+  @HttpCode(HttpStatus.OK)
+  @Endpoint({
+    summary: 'Detach a face from a person in a shared space',
+    description:
+      'Remove the face from the space person. Only the space projection row is removed -- the ' +
+      "face's global identity is left untouched. Response reports whether it acted.",
+    history: new HistoryBuilder().added('v2').stable('v2'),
+  })
+  async detachSpacePersonFace(
+    @Auth() auth: AuthDto,
+    @Param() { id, personId, assetFaceId }: SpacePersonFaceParamsDto,
+  ): Promise<FaceSuggestionActionResponseDto> {
+    return { acted: await this.service.detachFaceFromSpacePerson(auth, id, personId, assetFaceId) };
+  }
+
+  @Get(':id/assets/:assetId/faces')
+  @Authenticated({ permission: Permission.SharedSpaceRead })
+  @Endpoint({
+    summary: 'Get the faces on an asset, space-scoped',
+    description:
+      'Retrieve the face boxes on an asset for a shared space, joined to the space person holding each one, if any.',
+    history: new HistoryBuilder().added('v2').stable('v2'),
+  })
+  getSpaceAssetFaces(
+    @Auth() auth: AuthDto,
+    @Param() { id, assetId }: SpaceAssetFacesParamsDto,
+  ): Promise<SpaceAssetFaceResponseDto[]> {
+    return this.service.getSpaceAssetFaces(auth, id, assetId);
+  }
+
+  @Post(':id/assets/:assetId/faces')
+  @Authenticated({ permission: Permission.SharedSpaceUpdate })
+  @Endpoint({
+    summary: 'Draw a face box on an asset, space-scoped',
+    description:
+      'Create a face box on an asset for a shared space and attach it to a space person. Coordinates are given ' +
+      'in the (possibly edited) preview image the client rendered and are converted to original-image space.',
+    history: new HistoryBuilder().added('v2').stable('v2'),
+  })
+  createSpaceAssetFace(
+    @Auth() auth: AuthDto,
+    @Param() { id, assetId }: SpaceAssetFacesParamsDto,
+    @Body() dto: SpaceAssetFaceCreateDto,
+  ): Promise<SpaceAssetFaceResponseDto> {
+    return this.service.createSpaceAssetFace(auth, id, assetId, dto);
+  }
+
+  @Delete(':id/faces/:assetFaceId')
+  @Authenticated({ permission: Permission.SharedSpaceUpdate })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Endpoint({
+    summary: 'Delete a face box an editor drew in a shared space',
+    description:
+      'Permanently delete a face box drawn by a space Owner/Editor. Refused for a detected face -- FaceDelete ' +
+      'stays owner-only for those.',
+    history: new HistoryBuilder().added('v2').stable('v2'),
+  })
+  deleteSpaceAssetFace(@Auth() auth: AuthDto, @Param() { id, assetFaceId }: SpaceFaceParamsDto): Promise<void> {
+    return this.service.deleteSpaceAssetFace(auth, id, assetFaceId);
   }
 }

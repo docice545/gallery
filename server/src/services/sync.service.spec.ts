@@ -1,11 +1,13 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Writable } from 'node:stream';
+import { AssetEditAction } from 'src/dtos/editing.dto.js';
+import { SyncStreamDto } from 'src/dtos/sync.dto.js';
 import { AlbumUserRole, AssetVisibility, MemoryType, SyncEntityType, SyncRequestType } from 'src/enum.js';
 import { SYNC_TYPES_ORDER, SyncService, send } from 'src/services/sync.service.js';
 import { ClientDisconnectedError } from 'src/utils/response.js';
 import { serialize, toAck } from 'src/utils/sync.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
-import { newUuid } from 'test/small.factory.js';
+import { newUuid, newUuidV7 } from 'test/small.factory.js';
 import { ServiceMocks, makeStream, newTestService } from 'test/utils.js';
 
 type TestStream = {
@@ -160,6 +162,7 @@ const setupSyncMocks = (mocks: ServiceMocks) => {
     asset: makeSub(),
     assetExif: makeSub(),
     assetEdit: makeSub(),
+    assetFavorite: makeSub(),
     assetFace: makeSub(),
     assetMetadata: makeSub(),
     assetOcr: makeSub(),
@@ -205,10 +208,147 @@ describe(SyncService.name, () => {
   beforeEach(() => {
     ({ sut, mocks } = newTestService(SyncService));
     syncSubs = setupSyncMocks(mocks);
+    mocks.sync.hasIndexTombstoneChanges.mockResolvedValue(false);
+    mocks.sync.hasPersonalFavoriteChanges.mockResolvedValue(false);
     // These strict mocks need implementations since they're called in test paths
     mocks.syncCheckpoint.upsertAll.mockResolvedValue(undefined as any);
     mocks.syncCheckpoint.deleteAll.mockResolvedValue(undefined as any);
     mocks.session.resetSyncProgress.mockResolvedValue(undefined as any);
+  });
+
+  describe('compatibility cache invalidation', () => {
+    beforeEach(() => {
+      mocks.session.isPendingSyncReset.mockResolvedValue(false);
+      mocks.syncCheckpoint.getAll.mockResolvedValue([
+        {
+          type: SyncEntityType.SyncCompleteV1,
+          ack: toAck({ type: SyncEntityType.SyncCompleteV1, updateId: newUuidV7() }),
+        },
+      ]);
+      mocks.syncCheckpoint.getNow.mockResolvedValue({ nowId: newUuidV7() });
+    });
+    it('captures the watermark BEFORE checking invalidation to avoid skipping a racing change', async () => {
+      const order: string[] = [];
+      mocks.syncCheckpoint.getNow.mockImplementation(() => {
+        order.push('watermark');
+        return Promise.resolve({ nowId: newUuidV7() });
+      });
+      mocks.sync.hasIndexTombstoneChanges.mockImplementation(() => {
+        order.push('invalidation');
+        return Promise.resolve(false);
+      });
+      const { writable } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [] });
+      expect(order).toEqual(['watermark', 'invalidation']);
+    });
+    it('refreshes legacy fork caches on private favorites without a media-delete event', async () => {
+      mocks.sync.hasPersonalFavoriteChanges.mockResolvedValue(true);
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [SyncRequestType.SharedSpacesV1] });
+      expect(parseChunks(chunks).map((e) => e.type)).toEqual([SyncEntityType.SyncResetV1]);
+    });
+    it('keeps the incremental favorite protocol for Noodle 5.8 clients', async () => {
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, {
+        types: [SyncRequestType.SharedSpacesV1, SyncRequestType.AssetFavoritesV1],
+      });
+      expect(mocks.sync.hasPersonalFavoriteChanges).not.toHaveBeenCalled();
+      expect(parseChunks(chunks).some((e) => e.type === SyncEntityType.SyncResetV1)).toBe(false);
+    });
+  });
+
+  describe('official 3.3 sync contracts', () => {
+    beforeEach(() => {
+      mocks.session.isPendingSyncReset.mockResolvedValue(false);
+      mocks.syncCheckpoint.getAll.mockResolvedValue([]);
+      mocks.syncCheckpoint.getNow.mockResolvedValue({ nowId: newUuid() });
+    });
+
+    it('accepts actual official request types and still rejects unknown types', () => {
+      expect(
+        SyncStreamDto.schema.safeParse({
+          types: [
+            SyncRequestType.AuthUsersV2,
+            SyncRequestType.MemoriesV2,
+            SyncRequestType.MemoryToAssetsV2,
+            SyncRequestType.AssetFacesV3,
+          ],
+        }).success,
+      ).toBe(true);
+      expect(SyncStreamDto.schema.safeParse({ types: ['NotAProtocol'] }).success).toBe(false);
+    });
+
+    it('preserves nullable OAuth in V2 and normalizes V1, with separate checkpoint types', async () => {
+      syncSubs.authUser.getUpserts.mockImplementation(() =>
+        makeStream([{ updateId: newUuid(), oauthId: null, profileImagePath: '' }]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [SyncRequestType.AuthUsersV1, SyncRequestType.AuthUsersV2] });
+      const messages = parseChunks(chunks);
+      expect(messages.find((m) => m.type === SyncEntityType.AuthUserV1).data.oauthId).toBe('');
+      expect(messages.find((m) => m.type === SyncEntityType.AuthUserV2).data.oauthId).toBeNull();
+    });
+
+    it('streams V3 faces with the upstream cluster-scoped query', async () => {
+      syncSubs.assetFace.getUpserts.mockReturnValue(
+        makeStream([{ updateId: newUuid(), id: 'face', isVisible: true, deletedAt: null }]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, { types: [SyncRequestType.AssetFacesV3] });
+      expect(parseChunks(chunks).find((m) => m.type === SyncEntityType.AssetFaceV3).data.id).toBe('face');
+      expect(syncSubs.assetFace.getUpserts).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: authStub.user1.user.id, faceScope: 'cluster' }),
+      );
+    });
+
+    it('does not invent an official type for rule memories in V2 and ACKs skipped rows', async () => {
+      const ruleUpdateId = newUuid();
+      syncSubs.memory.getUpserts.mockReturnValue(
+        makeStream([
+          { updateId: newUuid(), id: 'day', type: MemoryType.OnThisDay },
+          { updateId: ruleUpdateId, id: 'rule', type: MemoryType.Rule },
+        ]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, {
+        types: [SyncRequestType.MemoriesV2, SyncRequestType.MemoryToAssetsV2],
+      });
+      const messages = parseChunks(chunks);
+      expect(messages.filter((m) => m.type === SyncEntityType.MemoryV2).map((m) => m.data.type)).toEqual([
+        MemoryType.OnThisDay,
+      ]);
+      expect(messages.some((m) => m.ack === toAck({ type: SyncEntityType.MemoryV2, updateId: ruleUpdateId }))).toBe(
+        true,
+      );
+      expect(syncSubs.memoryToAsset.getUpserts).toHaveBeenCalledWith(
+        expect.objectContaining({ includeForkMemories: false }),
+      );
+      expect(syncSubs.memoryToAsset.getDeletes).toHaveBeenCalledWith(
+        expect.objectContaining({ includeForkMemories: false }),
+      );
+    });
+
+    it.each([false, true])('filters trim only for official clients, fork aware=%s', async (forkAware) => {
+      const skippedId = newUuid();
+      syncSubs.assetEdit.getUpserts.mockReturnValue(
+        makeStream([
+          { updateId: newUuid(), action: AssetEditAction.Crop, assetId: 'a' },
+          { updateId: skippedId, action: AssetEditAction.Trim, assetId: 'v' },
+        ]),
+      );
+      const { writable, chunks } = makeWritable();
+      await sut.stream(authStub.user1, writable, {
+        types: [SyncRequestType.AssetEditsV1, ...(forkAware ? [SyncRequestType.SharedSpacesV1] : [])],
+      });
+      const messages = parseChunks(chunks);
+      expect(messages.filter((m) => m.type === SyncEntityType.AssetEditV1).map((m) => m.data.action)).toEqual(
+        forkAware ? ['crop', 'trim'] : ['crop'],
+      );
+      if (!forkAware)
+        expect(messages.some((m) => m.ack === toAck({ type: SyncEntityType.AssetEditV1, updateId: skippedId }))).toBe(
+          true,
+        );
+    });
   });
 
   it('should exist', () => {
@@ -229,6 +369,32 @@ describe(SyncService.name, () => {
 
       expect(result).toEqual(checkpoints);
       expect(mocks.syncCheckpoint.getAll).toHaveBeenCalledWith(sessionId);
+    });
+
+    it.each([
+      SyncEntityType.AuthUserV2,
+      SyncEntityType.MemoryV2,
+      SyncEntityType.MemoryToAssetV2,
+      SyncEntityType.AssetFaceV3,
+      SyncEntityType.AssetFavoriteV1,
+      SyncEntityType.AssetFavoriteDeleteV1,
+    ])('rejects legacy reads explicitly and returns every opaque checkpoint through V2: %s', async (type) => {
+      const checkpoints = [
+        { type: SyncEntityType.AssetV1, ack: 'AssetV1|unchanged' },
+        { type, ack: `${type}|opaque-checkpoint` },
+      ];
+      mocks.syncCheckpoint.getAll.mockResolvedValue(checkpoints);
+      await expect(sut.getAcks(authStub.user1)).rejects.toThrow(ConflictException);
+      await expect(sut.getAcks(authStub.user1)).rejects.toThrow('GET /sync/ack/v2');
+      expect(await sut.getAcksV2(authStub.user1)).toEqual(checkpoints);
+      expect(mocks.syncCheckpoint.getAll).toHaveBeenLastCalledWith(authStub.user1.session!.id);
+      expect(mocks.syncCheckpoint.upsertAll).not.toHaveBeenCalled();
+      expect(mocks.syncCheckpoint.deleteAll).not.toHaveBeenCalled();
+      expect(mocks.session.resetSyncProgress).not.toHaveBeenCalled();
+    });
+
+    it('rejects API key access to the versioned read, too', () => {
+      expect(() => sut.getAcksV2(authStub.admin)).toThrow(ForbiddenException);
     });
   });
 
@@ -1285,7 +1451,11 @@ describe(SyncService.name, () => {
 
   describe('onAuditTableCleanup', () => {
     it('should cleanup all audit tables', async () => {
+      mocks.sync.cleanupCatalogProjectionAudit.mockResolvedValue([]);
       await sut.onAuditTableCleanup();
+
+      expect(mocks.sync.cleanupCatalogProjectionAudit).toHaveBeenCalledWith(31);
+      expect(syncSubs.assetFavorite.cleanupAuditTable).toHaveBeenCalledWith(31);
 
       expect(syncSubs.album.cleanupAuditTable).toHaveBeenCalledWith(31);
       expect(syncSubs.albumUser.cleanupAuditTable).toHaveBeenCalledWith(31);

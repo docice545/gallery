@@ -45,15 +45,23 @@ where
   "asset"."fileCreatedAt" >= $1
   and "asset_exif"."lensModel" = $2
   and "asset"."ownerId" = any ($3::uuid[])
-  and "asset"."isFavorite" = $4
+  and exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $4::uuid
+  ) = $5
   and "asset"."deletedAt" is null
 order by
   "asset"."fileCreatedAt" desc,
   "asset"."id" desc
 limit
-  $5
-offset
   $6
+offset
+  $7
 
 -- SearchRepository.searchMetadata (identity-filter)
 select
@@ -178,7 +186,15 @@ where
   "asset"."fileCreatedAt" >= $1
   and "asset_exif"."lensModel" = $2
   and "asset"."ownerId" = any ($3::uuid[])
-  and "asset"."isFavorite" = $4
+  and exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $4::uuid
+  ) = $5
   and "asset"."deletedAt" is null
 
 -- SearchRepository.searchRandom
@@ -218,12 +234,20 @@ where
   "asset"."fileCreatedAt" >= $1
   and "asset_exif"."lensModel" = $2
   and "asset"."ownerId" = any ($3::uuid[])
-  and "asset"."isFavorite" = $4
+  and exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $4::uuid
+  ) = $5
   and "asset"."deletedAt" is null
 order by
   random()
 limit
-  $5
+  $6
 
 -- SearchRepository.searchLargeAssets
 select
@@ -263,13 +287,21 @@ where
   "asset"."fileCreatedAt" >= $1
   and "asset_exif"."lensModel" = $2
   and "asset"."ownerId" = any ($3::uuid[])
-  and "asset"."isFavorite" = $4
+  and exists (
+    select
+      1
+    from
+      asset_favorite
+    where
+      asset_favorite."assetId" = "asset"."id"
+      and asset_favorite."userId" = $4::uuid
+  ) = $5
   and "asset"."deletedAt" is null
-  and "asset_exif"."fileSizeInByte" > $5
+  and "asset_exif"."fileSizeInByte" > $6
 order by
   "asset_exif"."fileSizeInByte" desc
 limit
-  $6
+  $7
 
 -- SearchRepository.searchSmart
 begin
@@ -355,21 +387,29 @@ from
       )
       and "asset"."fileCreatedAt" >= $11
       and "asset_exif"."lensModel" = $12
-      and "asset"."isFavorite" = $13
+      and exists (
+        select
+          1
+        from
+          asset_favorite
+        where
+          asset_favorite."assetId" = "asset"."id"
+          and asset_favorite."userId" = $13::uuid
+      ) = $14
       and "asset"."deletedAt" is null
-      and (smart_search.embedding <=> $14) <= $15
+      and (smart_search.embedding <=> $15) <= $16
     order by
-      smart_search.embedding <=> $16
+      smart_search.embedding <=> $17
     limit
-      $17
+      $18
   ) as "candidates"
 order by
   "candidates"."fileCreatedAt" desc nulls last,
   "candidates"."id"
 limit
-  $18
-offset
   $19
+offset
+  $20
 commit
 
 -- SearchRepository.getSmartSearchFacets

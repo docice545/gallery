@@ -805,6 +805,16 @@ jobs:
         run: |
           echo "ERROR: Generated files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
+          # Keep a bounded, public-source-only diff in the check annotations too:
+          # Actions blob logs are not reachable from every review environment.
+          python3 - <<'PY'
+          import subprocess
+          diff = subprocess.check_output([
+              "git", "diff", "--", "packages/sdk", "open-api/immich-openapi-specs.json",
+          ], text=True)
+          message = diff[:12000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Generated API differs after regeneration::{message}")
+          PY
           exit 1
 
       - name: Preserve generated contracts when the drift gate fails
@@ -825,7 +835,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67
+        image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres

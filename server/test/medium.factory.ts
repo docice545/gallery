@@ -27,6 +27,7 @@ import { AlbumUserRepository } from 'src/repositories/album-user.repository.js';
 import { AlbumRepository } from 'src/repositories/album.repository.js';
 import { ApiKeyRepository } from 'src/repositories/api-key.repository.js';
 import { AssetEditRepository } from 'src/repositories/asset-edit.repository.js';
+import { AssetFavoriteRepository } from 'src/repositories/asset-favorite.repository.js';
 import { AssetFileRepository } from 'src/repositories/asset-file.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
@@ -573,6 +574,7 @@ export class ExifTestContext extends MediumTestContext<typeof MetadataService> {
       database,
       real: [
         AssetRepository,
+        AssetFavoriteRepository,
         AssetJobRepository,
         MediaRepository,
         MetadataRepository,
@@ -627,6 +629,7 @@ const newRealRepository = <T extends BaseServiceDeps[number]>(key: T, db: Kysely
     case ActivityRepository:
     case ApiKeyRepository:
     case AssetRepository:
+    case AssetFavoriteRepository:
     case AssetEditRepository:
     case AssetFileRepository:
     case AssetJobRepository:

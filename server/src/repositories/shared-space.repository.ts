@@ -24,6 +24,7 @@ import { SharedSpacePersonFaceTable } from 'src/schema/tables/shared-space-perso
 import { SharedSpacePersonTable } from 'src/schema/tables/shared-space-person.table.js';
 import { SharedSpaceTable } from 'src/schema/tables/shared-space.table.js';
 import { anyUuid, asUuid, retryOnDeadlock, searchAssetBuilderLegacy } from 'src/utils/database.js';
+import { reviewableAssetVisibility } from 'src/utils/face-review.js';
 import { retargetVerdictSpacePersonId } from 'src/utils/face-verdict-merge.js';
 import {
   spaceAlbumAssetExists,
@@ -182,6 +183,19 @@ export type SpaceFaceAssignment = {
   personId: string;
   identityId: string | null;
   type: string;
+};
+
+export type SpaceAssetFace = {
+  id: string;
+  boundingBoxX1: number;
+  boundingBoxY1: number;
+  boundingBoxX2: number;
+  boundingBoxY2: number;
+  imageWidth: number;
+  imageHeight: number;
+  spacePersonId: string | null;
+  spacePersonName: string | null;
+  isEditorDrawn: boolean;
 };
 
 @Injectable()
@@ -3006,8 +3020,8 @@ export class SharedSpaceRepository {
       .execute();
   }
 
-  createPerson(values: Insertable<SharedSpacePersonTable>) {
-    return this.db.insertInto('shared_space_person').values(values).returningAll().executeTakeFirstOrThrow();
+  createPerson(values: Insertable<SharedSpacePersonTable>, db: Kysely<DB> | Transaction<DB> = this.db) {
+    return db.insertInto('shared_space_person').values(values).returningAll().executeTakeFirstOrThrow();
   }
 
   // Race-safe insert-or-get for the `(spaceId, identityId)` unique index. Concurrent
@@ -3017,8 +3031,9 @@ export class SharedSpaceRepository {
   // committed row instead of throwing.
   async createOrGetPersonForIdentity(
     values: Insertable<SharedSpacePersonTable> & { spaceId: string; identityId: string },
+    db: Kysely<DB> | Transaction<DB> = this.db,
   ) {
-    const inserted = await this.db
+    const inserted = await db
       .insertInto('shared_space_person')
       .values(values)
       .onConflict((oc) => oc.columns(['spaceId', 'identityId']).where('identityId', 'is not', null).doNothing())
@@ -3028,7 +3043,7 @@ export class SharedSpaceRepository {
       return inserted;
     }
 
-    return this.db
+    return db
       .selectFrom('shared_space_person')
       .selectAll()
       .where('spaceId', '=', values.spaceId)
@@ -3374,8 +3389,8 @@ export class SharedSpaceRepository {
   }
 
   @GenerateSql({ params: [DummyValue.UUID, { name: 'Updated Person' }] })
-  updatePerson(id: string, values: Updateable<SharedSpacePersonTable>) {
-    return this.db
+  updatePerson(id: string, values: Updateable<SharedSpacePersonTable>, db: Kysely<DB> | Transaction<DB> = this.db) {
+    return db
       .updateTable('shared_space_person')
       .set(values)
       .where('id', '=', id)
@@ -4714,8 +4729,12 @@ export class SharedSpaceRepository {
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
-  async removePersonFaceAssignmentsForSpaceFace(spaceId: string, assetFaceId: string): Promise<string[]> {
-    const assignments = await this.db
+  async removePersonFaceAssignmentsForSpaceFace(
+    spaceId: string,
+    assetFaceId: string,
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<string[]> {
+    const assignments = await db
       .selectFrom('shared_space_person_face')
       .innerJoin('shared_space_person', 'shared_space_person.id', 'shared_space_person_face.personId')
       .select('shared_space_person_face.personId')
@@ -4729,7 +4748,7 @@ export class SharedSpaceRepository {
       return [];
     }
 
-    await this.db
+    await db
       .deleteFrom('shared_space_person_face')
       .where('assetFaceId', '=', assetFaceId)
       .where('personId', 'in', personIds)
@@ -4849,5 +4868,81 @@ export class SharedSpaceRepository {
       .select('combined.spaceId')
       .limit(1)
       .executeTakeFirst();
+  }
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  async getAssetFacesForSpace(spaceId: string, assetId: string): Promise<SpaceAssetFace[]> {
+    const rows = await this.db
+      .selectFrom('asset_face')
+      .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+      .leftJoin('person', 'person.personGroupId', 'asset_face.personGroupId')
+      // Hoisted above the derived join below on purpose: `reviewableAssetVisibility` takes an
+      // ExpressionBuilder over `DB` itself, and the aliased subquery widens that to `DB & {
+      // space_person }`. Where a predicate sits in the chain has no effect on the SQL.
+      .where((eb) => reviewableAssetVisibility(eb))
+      .leftJoin(
+        (eb) =>
+          eb
+            .selectFrom('shared_space_person_face')
+            .innerJoin('shared_space_person', 'shared_space_person.id', 'shared_space_person_face.personId')
+            .select([
+              'shared_space_person_face.assetFaceId',
+              'shared_space_person.id',
+              'shared_space_person.name',
+              'shared_space_person.isHidden',
+            ])
+            .where('shared_space_person.spaceId', '=', spaceId)
+            .as('space_person'),
+        (join) => join.onRef('space_person.assetFaceId', '=', 'asset_face.id'),
+      )
+      .select([
+        'asset_face.id',
+        'asset_face.boundingBoxX1',
+        'asset_face.boundingBoxY1',
+        'asset_face.boundingBoxX2',
+        'asset_face.boundingBoxY2',
+        'asset_face.imageWidth',
+        'asset_face.imageHeight',
+        'asset_face.createdBy',
+        'space_person.id as spacePersonId',
+        'space_person.name as spacePersonName',
+      ])
+      .where('asset_face.assetId', '=', assetId)
+      .where('asset_face.deletedAt', 'is', null)
+      .where('asset_face.isVisible', '=', true)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.isOffline', '=', false)
+      .where((eb) => eb.or([eb('person.personGroupId', 'is', null), eb('person.isHidden', '=', false)]))
+      .where((eb) => eb.or([eb('space_person.id', 'is', null), eb('space_person.isHidden', '=', false)]))
+      .orderBy('asset_face.id')
+      .execute();
+
+    return rows.map(({ createdBy, ...row }) => ({ ...row, isEditorDrawn: createdBy !== null }));
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async getPersonIdsHoldingFace(assetFaceId: string, db: Kysely<DB> | Transaction<DB> = this.db): Promise<string[]> {
+    const rows = await db
+      .selectFrom('shared_space_person_face')
+      .select('personId')
+      .where('assetFaceId', '=', assetFaceId)
+      .execute();
+    return rows.map(({ personId }) => personId);
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  async removePersonFace(
+    personId: string,
+    assetFaceId: string,
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<void> {
+    const result = await db
+      .deleteFrom('shared_space_person_face')
+      .where('personId', '=', personId)
+      .where('assetFaceId', '=', assetFaceId)
+      .executeTakeFirst();
+
+    if (Number(result.numDeletedRows ?? 0n) > 0) {
+      await this.recountPersons([personId], db);
+    }
   }
 }

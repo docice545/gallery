@@ -13,6 +13,7 @@ import { BaseService } from 'src/services/base.service.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
 import { getAlbumSpaceIds } from 'src/utils/album-space-ids.js';
 import { getMyPartnerIds } from 'src/utils/asset.util.js';
+import { rejectSharedLinkFavoriteFilter } from 'src/utils/favorite.js';
 import { timelineHiddenScopeIsEmpty } from 'src/utils/shared-space-album-scope.js';
 import { normalizeTimeBucketForBucketSize } from 'src/utils/timeline-bucket.js';
 
@@ -176,6 +177,7 @@ export class TimelineService extends BaseService {
   }
 
   private async timeBucketChecks(auth: AuthDto, dto: Partial<TimeBucketDto>) {
+    rejectSharedLinkFavoriteFilter(auth, dto.isFavorite);
     if (dto.orderBy === AssetOrderBy.DeletedAt && dto.isTrashed !== true) {
       throw new BadRequestException('deletedAt ordering requires isTrashed=true');
     }
@@ -245,25 +247,21 @@ export class TimelineService extends BaseService {
     if (dto.withPartners) {
       const isRequestedLocked = dto.visibility === AssetVisibility.Locked;
       const isRequestedArchived = dto.visibility === AssetVisibility.Archive || dto.visibility === undefined;
-      const isRequestedFavorite = dto.isFavorite === true || dto.isFavorite === false;
       const isRequestedTrash = dto.isTrashed === true;
 
-      if (isRequestedLocked || isRequestedArchived || isRequestedFavorite || isRequestedTrash) {
+      if (isRequestedLocked || isRequestedArchived || isRequestedTrash) {
         throw new BadRequestException(
-          'withPartners is only supported for non-archived, non-trashed, non-favorited, non-locked assets',
+          'withPartners is only supported for non-archived, non-trashed, non-locked assets',
         );
       }
     }
 
     if (dto.withSharedSpaces) {
       const requestedArchived = dto.visibility === AssetVisibility.Archive || dto.visibility === undefined;
-      const requestedFavorite = dto.isFavorite === true || dto.isFavorite === false;
       const requestedTrash = dto.isTrashed === true;
 
-      if (requestedArchived || requestedFavorite || requestedTrash) {
-        throw new BadRequestException(
-          'withSharedSpaces is only supported for non-archived, non-trashed, non-favorited assets',
-        );
+      if (requestedArchived || requestedTrash) {
+        throw new BadRequestException('withSharedSpaces is only supported for non-archived, non-trashed assets');
       }
     }
   }

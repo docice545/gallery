@@ -1926,6 +1926,7 @@ rollback
 begin
 select
   "id",
+  "spaceId",
   "identityId",
   "type",
   "representativeFaceId"
@@ -2082,3 +2083,11 @@ where
     where
       "sourceType" = $1
   )
+
+-- FaceIdentityRepository.getIdentityIdForFace
+select
+  "identityId"
+from
+  "face_identity_face"
+where
+  "assetFaceId" = $1

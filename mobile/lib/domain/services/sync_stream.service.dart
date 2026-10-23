@@ -282,6 +282,9 @@ class SyncStreamService {
       return;
     }
     await _handleSyncData(type, batch.map((e) => e.data));
+    if (isCancelled) {
+      return;
+    }
     await _syncApiRepository.ack([batch.last.ack]);
     batch.clear();
   }
@@ -364,6 +367,8 @@ class SyncStreamService {
     switch (type) {
       case SyncEntityType.authUserV1:
         return _syncStreamRepository.updateAuthUsersV1(data.cast());
+      case SyncEntityType.authUserV2:
+        return _syncStreamRepository.updateAuthUsersV2(data.cast());
       case SyncEntityType.userV1:
         return _syncStreamRepository.updateUsersV1(data.cast());
       case SyncEntityType.userDeleteV1:
@@ -469,18 +474,23 @@ class SyncStreamService {
         // pruning afterwards keeps the existing semantics (a link to an unreachable asset is
         // cascade-removed along with the asset).
         await _syncStreamRepository.flushDeferredMemoryAssetsV1();
-        return _syncStreamRepository.pruneAssets();
+        await _syncStreamRepository.pruneAssets();
+        return _syncStreamRepository.flushDeferredMemoryAssetsV2();
       // Request to reset the client state. Clear everything related to remote entities
       case SyncEntityType.syncResetV1:
         return _syncStreamRepository.reset();
       case SyncEntityType.memoryV1:
         return _syncStreamRepository.updateMemoriesV1(data.cast());
+      case SyncEntityType.memoryV2:
+        return _syncStreamRepository.updateMemoriesV2(data.cast());
       case SyncEntityType.memoryDeleteV1:
         return _syncStreamRepository.deleteMemoriesV1(data.cast());
       case SyncEntityType.memoryToAssetV1:
         return _syncStreamRepository.updateMemoryAssetsV1(data.cast());
       case SyncEntityType.memoryToAssetDeleteV1:
         return _syncStreamRepository.deleteMemoryAssetsV1(data.cast());
+      case SyncEntityType.memoryToAssetV2:
+        return _syncStreamRepository.updateMemoryAssetsV2(data.cast());
       case SyncEntityType.stackV1:
         return _syncStreamRepository.updateStacksV1(data.cast());
       case SyncEntityType.stackDeleteV1:
@@ -503,12 +513,18 @@ class SyncStreamService {
         return _syncStreamRepository.updateAssetFacesV1(data.cast());
       case SyncEntityType.assetFaceV2:
         return _syncStreamRepository.updateAssetFacesV2(data.cast());
+      case SyncEntityType.assetFaceV3:
+        return _syncStreamRepository.updateAssetFacesV3(data.cast());
       case SyncEntityType.assetFaceDeleteV1:
         return _syncStreamRepository.deleteAssetFacesV1(data.cast());
       case SyncEntityType.assetOcrV1:
         return _syncStreamRepository.updateAssetOcrV1(data.cast());
       case SyncEntityType.assetOcrDeleteV1:
         return _syncStreamRepository.deleteAssetOcrV1(data.cast());
+      case SyncEntityType.assetFavoriteV1:
+        return _syncStreamRepository.updateAssetFavoritesV1(data.cast());
+      case SyncEntityType.assetFavoriteDeleteV1:
+        return _syncStreamRepository.deleteAssetFavoritesV1(data.cast());
       // --- gallery-fork: shared-space sync dispatch ---
       case SyncEntityType.sharedSpaceV1:
         return _syncStreamRepository.updateSharedSpacesV1(data.cast());

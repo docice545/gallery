@@ -3370,3 +3370,63 @@ from
   ) as "combined"
 limit
   $6
+
+-- SharedSpaceRepository.getAssetFacesForSpace
+select
+  "asset_face"."id",
+  "asset_face"."boundingBoxX1",
+  "asset_face"."boundingBoxY1",
+  "asset_face"."boundingBoxX2",
+  "asset_face"."boundingBoxY2",
+  "asset_face"."imageWidth",
+  "asset_face"."imageHeight",
+  "asset_face"."createdBy",
+  "space_person"."id" as "spacePersonId",
+  "space_person"."name" as "spacePersonName"
+from
+  "asset_face"
+  inner join "asset" on "asset"."id" = "asset_face"."assetId"
+  left join "person" on "person"."personGroupId" = "asset_face"."personGroupId"
+  left join (
+    select
+      "shared_space_person_face"."assetFaceId",
+      "shared_space_person"."id",
+      "shared_space_person"."name",
+      "shared_space_person"."isHidden"
+    from
+      "shared_space_person_face"
+      inner join "shared_space_person" on "shared_space_person"."id" = "shared_space_person_face"."personId"
+    where
+      "shared_space_person"."spaceId" = $1
+  ) as "space_person" on "space_person"."assetFaceId" = "asset_face"."id"
+where
+  "asset"."visibility" in ($2, $3)
+  and "asset_face"."assetId" = $4
+  and "asset_face"."deletedAt" is null
+  and "asset_face"."isVisible" = $5
+  and "asset"."deletedAt" is null
+  and "asset"."isOffline" = $6
+  and (
+    "person"."personGroupId" is null
+    or "person"."isHidden" = $7
+  )
+  and (
+    "space_person"."id" is null
+    or "space_person"."isHidden" = $8
+  )
+order by
+  "asset_face"."id"
+
+-- SharedSpaceRepository.getPersonIdsHoldingFace
+select
+  "personId"
+from
+  "shared_space_person_face"
+where
+  "assetFaceId" = $1
+
+-- SharedSpaceRepository.removePersonFace
+delete from "shared_space_person_face"
+where
+  "personId" = $1
+  and "assetFaceId" = $2

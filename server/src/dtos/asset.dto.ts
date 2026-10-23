@@ -193,3 +193,19 @@ export class AssetMetadataResponseDto extends createZodDto(AssetMetadataResponse
 export class AssetMetadataBulkResponseDto extends createZodDto(AssetMetadataBulkResponseSchema) {}
 export class AssetCopyDto extends createZodDto(AssetCopySchema) {}
 export class AssetDownloadOriginalDto extends createZodDto(AssetDownloadOriginalSchema) {}
+
+const AssetFavoriteUpdateSchema = z
+  .object({
+    ids: z.array(z.uuidv4()).min(1).max(1000).describe('Asset IDs'),
+    isFavorite: z.boolean().describe('Favorite state for the requesting user'),
+  })
+  .meta({ id: 'AssetFavoriteUpdateDto' });
+
+export class AssetFavoriteUpdateDto extends createZodDto(AssetFavoriteUpdateSchema) {}
+
+const AssetEditableSchema = z.object({ assetIds: z.array(z.uuidv4()) }).meta({ id: 'AssetEditableDto' });
+const AssetEditableResponseSchema = z
+  .object({ editableAssetIds: z.array(z.string()) })
+  .meta({ id: 'AssetEditableResponseDto' });
+export class AssetEditableDto extends createZodDto(AssetEditableSchema) {}
+export class AssetEditableResponseDto extends createZodDto(AssetEditableResponseSchema) {}

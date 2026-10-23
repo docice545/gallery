@@ -22,6 +22,25 @@ describe(TimelineService.name, () => {
     });
   });
 
+  it('accepts the exact original Noodle 5.8 favorites-page flags with caller-scoped filtering', async () => {
+    mocks.partner.getAll.mockResolvedValue([]);
+    mocks.sharedSpace.getSpaceIdsForTimeline.mockResolvedValue([]);
+    mocks.asset.getTimeBuckets.mockResolvedValue([]);
+    await expect(
+      sut.getTimeBuckets(authStub.admin, {
+        isFavorite: true,
+        withStacked: true,
+        withPartners: true,
+        withSharedSpaces: true,
+        visibility: AssetVisibility.Timeline,
+      }),
+    ).resolves.toEqual([]);
+    expect(mocks.asset.getTimeBuckets).toHaveBeenCalledWith(
+      expect.objectContaining({ isFavorite: true, callerId: authStub.admin.user.id }),
+      authStub.admin,
+    );
+  });
+
   describe('deletion date ordering', () => {
     it.each([undefined, false])(
       'rejects non-trash deletion ordering before accessing repositories (%s)',

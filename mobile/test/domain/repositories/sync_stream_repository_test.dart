@@ -161,6 +161,44 @@ void main() {
     await db.close();
   });
 
+  group('PR7 V2 memory', () {
+    SyncMemoryV2 memory(String id, String type) => SyncMemoryV2.fromJson({
+      'id': id,
+      'ownerId': 'user-1',
+      'createdAt': '2026-04-23T00:00:00.000Z',
+      'updatedAt': '2026-04-23T00:00:00.000Z',
+      'deletedAt': null,
+      'type': type,
+      'data': {'year': 2025},
+      'isSaved': false,
+      'memoryAt': '2026-04-23T00:00:00.000Z',
+      'seenAt': null,
+      'showAt': null,
+      'hideAt': null,
+    })!;
+
+    test('on_this_day persists and replay is idempotent', () async {
+      await sut.updateUsersV1([_createUser()]);
+      final event = memory('memory-v2', 'on_this_day');
+      await sut.updateMemoriesV2([event]);
+      await sut.updateMemoriesV2([event]);
+      final rows = await db.memoryEntity.select().get();
+      expect(rows, hasLength(1));
+      expect(rows.single.id, 'memory-v2');
+      expect(rows.single.ownerId, 'user-1');
+      expect(rows.single.type, MemoryTypeEnum.onThisDay);
+    });
+
+    test('unsupported birthday aborts the whole batch without partial writes', () async {
+      await sut.updateUsersV1([_createUser()]);
+      await expectLater(
+        sut.updateMemoriesV2([memory('supported', 'on_this_day'), memory('unsupported', 'birthday')]),
+        throwsA(isA<UnsupportedError>()),
+      );
+      expect(await db.memoryEntity.select().get(), isEmpty);
+    });
+  });
+
   group('SyncStreamRepository - Dimension swapping based on orientation', () {
     test('swaps dimensions for asset with rotated orientation', () async {
       final flippedOrientations = ['5', '6', '7', '8', '90', '-90'];
