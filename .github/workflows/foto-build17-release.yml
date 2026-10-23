@@ -1,0 +1,32 @@
+name: FOTO release pipeline fixtures
+on:
+  pull_request:
+    paths:
+      - 'tools/foto-automation/foto-build17-release*'
+      - 'tools/foto-automation/foto-stage-runner.py'
+      - 'tools/foto-automation/tests/test_build17_release.py'
+      - '.github/workflows/foto-build17-release.yml'
+      - '.github/workflows/docker.yml'
+      - '.github/workflows/build-mobile.yml'
+      - '.github/workflows/gallery-build-mobile.yml'
+      - 'tools/foto-automation/tests/test_release_review_scope.py'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fixtures:
+    name: FOTO release pipeline fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test orchestration on temporary Git and mocked services
+        run: python3 -m unittest discover -s tools/foto-automation/tests -p test_build17_release.py -v
+      - name: Keep source reviews off signing runners while preserving E2E
+        run: python3 -m unittest discover -s tools/foto-automation/tests -p test_release_review_scope.py -v
+      - name: Check Python syntax
+        run: python3 -m py_compile tools/foto-automation/foto-build17-release tools/foto-automation/tests/test_build17_release.py

@@ -1,0 +1,45 @@
+{
+  "automation_state": "/mnt/hp-data/codex-work/foto-integration-state",
+  "expected_head": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "export_dir": "/var/tmp/foto-build17-release-artifacts",
+  "legacy_lock": "/mnt/hp-data/codex-work/gallery-build15-auto/auto.lock",
+  "min_free_gib": 60,
+  "prs": {
+    "compatibility": {
+      "approval_note": "",
+      "approved": false,
+      "number": 7,
+      "sha": "3cc9631b7a2a48d2889808da5db7a62cc1345fea"
+    },
+    "editor": {
+      "approval_note": "",
+      "approved": false,
+      "number": 6,
+      "sha": "df3e0daf14f7593808a039df080c32cd05a7a503"
+    }
+  },
+  "repo": "/mnt/hp-data/codex-work/foto-build17-integration-review",
+  "required_checks": {
+    "compatibility": [
+      "Test & Lint Server",
+      "Medium Tests (Server)",
+      "OpenAPI Clients",
+      "SQL Schema Checks",
+      "Verify migration ORDER",
+      "Unit Test Mobile",
+      "Run Dart Code Analysis",
+      "check-openapi",
+      "check-mobile-patches",
+      "Test Web",
+      "Lint Web",
+      "End-to-End Tests Success"
+    ],
+    "editor": ["Unit Test Mobile", "Run Dart Code Analysis"]
+  },
+  "signing": {
+    "certificate_sha256": "REPLACE_WITH_TRUSTED_EXISTING_CERTIFICATE_SHA256",
+    "keystore": "/REPLACE_WITH_EXISTING_PRIVATE_KEY_PATH",
+    "properties": "/REPLACE_WITH_EXISTING_PRIVATE_KEY_PROPERTIES_PATH"
+  },
+  "state": "/mnt/hp-data/codex-work/foto-build17-release-state"
+}

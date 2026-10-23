@@ -361,6 +361,7 @@ jobs:
         run: |
           echo "ERROR: i18n files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
+          git diff -- packages/sdk open-api/immich-openapi-specs.json
           exit 1
 
   e2e-tests-lint:
@@ -805,6 +806,17 @@ jobs:
           echo "ERROR: Generated files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
           exit 1
+
+      - name: Preserve generated contracts when the drift gate fails
+        if: ${{ failure() && steps.verify-changed-files.outputs.files_changed == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: openapi-generated-${{ github.sha }}
+          path: |
+            open-api/immich-openapi-specs.json
+            packages/sdk/src/fetch-client.ts
+          retention-days: 3
+          if-no-files-found: error
 
   sql-schema-up-to-date:
     name: SQL Schema Checks

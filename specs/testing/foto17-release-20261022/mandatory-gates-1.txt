@@ -1,0 +1,6 @@
+test_protocol_web_and_e2e_gates_cannot_be_removed (test_build17_release.ReleaseTest.test_protocol_web_and_e2e_gates_cannot_be_removed) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.047s
+
+OK

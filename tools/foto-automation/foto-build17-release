@@ -1,0 +1,777 @@
+#!/usr/bin/env python3
+"""HP-only source integration/build pipeline. No deployment, Codex or automatic retries."""
+import argparse
+import contextlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import tomllib
+import uuid
+import zipfile
+
+# Startup and --check must not create __pycache__ beside a versioned install.
+sys.dont_write_bytecode = True
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location('foto_release_stage_runner', HERE / 'foto-stage-runner.py')
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+Stop = runner.Stop
+REPOSITORY = 'docice545/gallery'
+BASE_BRANCH = 'codex/foto-build17-unified'
+WORK_ROOT = Path('/mnt/hp-data/codex-work')
+PUBLIC_EXPORT = Path('/var/tmp/foto-build17-release-artifacts')
+SHA = re.compile(r'[0-9a-f]{40}')
+ROLES = {'editor': 'codex/foto-build17-editor-compact', 'compatibility': 'codex/foto-build17-client-compat'}
+REQUIRED_CHECKS = {
+    'editor': {'Unit Test Mobile', 'Run Dart Code Analysis'},
+    'compatibility': {'Test & Lint Server', 'Medium Tests (Server)', 'OpenAPI Clients', 'SQL Schema Checks',
+                      'Verify migration ORDER', 'Unit Test Mobile', 'Run Dart Code Analysis',
+                      'check-openapi', 'check-mobile-patches', 'Test Web', 'Lint Web', 'End-to-End Tests Success'},
+}
+SUCCESS = {'success', 'neutral', 'skipped'}
+
+
+def need(value, code):
+    if not value:
+        raise Stop(code)
+
+
+def private_file(path):
+    s = Path(path).lstat()
+    need(stat.S_ISREG(s.st_mode) and s.st_uid == os.getuid() and stat.S_IMODE(s.st_mode) == 0o600,
+         'PRIVATE_0600_OWNED_FILE_REQUIRED')
+
+
+def sha(path):
+    need(Path(path).is_file() and not Path(path).is_symlink(), 'REGULAR_OUTPUT_REQUIRED')
+    return runner.file_digest(Path(path))
+
+
+def query(argv, cwd=None, optional=False):
+    # No shell, argv/environment dumps, remote credentials, or command output in errors.
+    env = dict(os.environ, GIT_OPTIONAL_LOCKS='0')
+    result = subprocess.run(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if result.returncode:
+        if optional:
+            return None
+        raise Stop('QUERY_FAILED_' + Path(argv[0]).name.upper())
+    return result.stdout.decode().strip()
+
+
+def git(repo, *args, optional=False):
+    # Local integration must not trigger a checkout/merge hook with deployment side effects.
+    return query(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(repo), *args], optional=optional)
+
+
+def api(path):
+    return json.loads(query(['gh', 'api', f'repos/{REPOSITORY}/{path}']))
+
+
+def checks_green(checks, required):
+    need(checks, 'CI_UNKNOWN')
+    for name in required:
+        matching = [c for c in checks if c['name'] == name]
+        # API order is not an attempt selector. Never let an older success mask
+        # a skipped/unknown required attempt; ambiguous names need review.
+        need(len(matching) <= 1, 'CI_REQUIRED_CHECK_AMBIGUOUS')
+        need(matching and matching[0]['status'] == 'completed' and matching[0]['conclusion'] == 'success',
+             'REQUIRED_CI_NOT_SUCCESS')
+    # Skipped optional jobs are not counted as tests. Cancelled or red jobs block admission.
+    need(all(c['status'] == 'completed' and c['conclusion'] in SUCCESS for c in checks), 'CI_RED_PENDING_OR_UNKNOWN')
+
+
+def config(path):
+    private_file(path)
+    value = runner.read_json(Path(path))
+    allowed = {'repo', 'expected_head', 'state', 'automation_state', 'legacy_lock', 'export_dir',
+               'prs', 'required_checks', 'signing', 'min_free_gib'}
+    need(set(value) == allowed, 'CONFIG_KEYS_INVALID')
+    need(SHA.fullmatch(value['expected_head']), 'EXACT_BASE_SHA_REQUIRED')
+    for name in ('repo', 'state', 'automation_state', 'legacy_lock', 'export_dir'):
+        p = Path(value[name])
+        need(p.is_absolute() and '..' not in p.parts and
+             (p.resolve().is_relative_to(WORK_ROOT.resolve()) or name == 'export_dir' and p == PUBLIC_EXPORT),
+             'HP_CODEX_WORK_PATH_REQUIRED')
+    need(set(value['prs']) == set(ROLES), 'BOTH_PR_ROLES_REQUIRED')
+    for role, item in value['prs'].items():
+        need(set(item) == {'number', 'sha', 'approved', 'approval_note'} and isinstance(item['number'], int)
+             and item['number'] > 0 and SHA.fullmatch(item['sha']), 'EXACT_PR_PIN_REQUIRED')
+    need(set(value['required_checks']) == set(ROLES), 'ROLE_SCOPED_CI_CHECKS_REQUIRED')
+    for role, checks in value['required_checks'].items():
+        need(checks and all(isinstance(x, str) for x in checks) and REQUIRED_CHECKS[role].issubset(checks),
+             'REQUIRED_CI_CANNOT_BE_REMOVED')
+    need(set(value['signing']) == {'keystore', 'properties', 'certificate_sha256'}, 'SIGNING_CONFIG_INVALID')
+    need(isinstance(value['min_free_gib'], int) and value['min_free_gib'] >= 20, 'SPACE_FLOOR_20_GIB_REQUIRED')
+    repo, state, export = (Path(value[n]).resolve() for n in ('repo', 'state', 'export_dir'))
+    need(not state.is_relative_to(repo) and not export.is_relative_to(repo) and state != export,
+         'STATE_AND_EXPORT_MUST_BE_SEPARATE_FROM_SOURCE')
+    directories = (repo, state, export, Path(value['automation_state']).resolve())
+    need(all(not a.is_relative_to(b) and not b.is_relative_to(a)
+             for i, a in enumerate(directories) for b in directories[i + 1:]),
+         'SOURCE_RELEASE_EXPORT_AND_CANONICAL_STATE_MUST_NOT_OVERLAP')
+    return value
+
+
+def processes():
+    result = []
+    for p in Path('/proc').iterdir():
+        if not p.name.isdigit() or int(p.name) == os.getpid():
+            continue
+        try:
+            if p.stat().st_uid != os.getuid():
+                continue
+            args = (p / 'cmdline').read_bytes().split(b'\0')
+            text = b' '.join(args).decode(errors='replace')
+            executable = Path(os.fsdecode(args[0])).name if args and args[0] else ''
+            if (executable in ('codex', 'flutter', 'dart', 'gradle', 'gradlew', 'tsc', 'vitest',
+                               'esbuild', 'extism-js', 'wasm-opt', 'wasm-merge') or
+                    re.search(r'(vitest\.mjs|GradleDaemon|GradleWrapperMain|[ /]tsc(?: |$)|buildx build|foto-stage-runner\.py|/codex\.js)', text)):
+                result.append({'pid': int(p.name), 'executable': executable})
+        except (OSError, ValueError):
+            pass
+    return result
+
+
+def resources():
+    memory = {}
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        key, value = line.split(':', 1)
+        if key in ('MemTotal', 'MemAvailable', 'SwapFree'):
+            memory[key] = int(value.split()[0]) * 1024
+    limits = {}
+    for line in Path('/proc/self/cgroup').read_text().splitlines():
+        if line.startswith('0::'):
+            directory = Path('/sys/fs/cgroup') / line[3:].lstrip('/')
+            for name in ('memory.max', 'memory.swap.max', 'cpu.max'):
+                p = directory / name
+                limits[name] = p.read_text().strip() if p.is_file() else 'unavailable'
+    return {'memoryBytes': memory, 'currentCgroup': limits}
+
+
+def rootless():
+    # Never use the default/production context or an inherited DOCKER_HOST selector.
+    context = json.loads(query(['docker', 'context', 'inspect', 'rootless']))[0]
+    endpoint = context['Endpoints']['docker']['Host']
+    need(endpoint == f'unix:///run/user/{os.getuid()}/docker.sock', 'LOCAL_ROOTLESS_SOCKET_REQUIRED')
+    info = json.loads(query(['docker', '--context', 'rootless', 'info', '--format', '{{json .}}']))
+    need(any('rootless' in x for x in info.get('SecurityOptions', [])), 'ROOTLESS_DAEMON_REQUIRED')
+    return endpoint
+
+
+def builder_idle():
+    rootless()
+    data = query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited', '--format', '{{json .}}'])
+    value = json.loads(data)
+    need(value['Driver'] == 'docker-container' and len(value['Nodes']) == 1, 'EXISTING_SINGLE_BUILDER_REQUIRED')
+    node = value['Nodes'][0]
+    need(node['Endpoint'] in ('rootless', f'unix:///run/user/{os.getuid()}/docker.sock') and
+         re.fullmatch(r'foto17-limited[0-9]+', node['Name']), 'BUILDER_ENDPOINT_CHANGED')
+    container = 'buildx_buildkit_' + node['Name']
+    record = json.loads(query(['docker', '--context', 'rootless', 'inspect', container]))[0]
+    host = record['HostConfig']
+    need(host['Memory'] == 10 * 1024**3 and host['MemorySwap'] == 12 * 1024**3, 'BUILDER_MEMORY_LIMITS_CHANGED')
+    need(record['State']['Running'] and not record['State'].get('OOMKilled'), 'BUILDER_UNHEALTHY_OR_OOM')
+    # Read only the existing builder's configuration; no exec, create, bootstrap or modification.
+    archive = subprocess.run(['docker', '--context', 'rootless', 'cp',
+                              container + ':/etc/buildkit/buildkitd.toml', '-'],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    need(archive.returncode == 0, 'BUILDKIT_CONFIG_UNREADABLE')
+    import io
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+        members = [m for m in tar.getmembers() if m.isfile()]
+        need(len(members) == 1 and members[0].size < 65536, 'BUILDKIT_CONFIG_INVALID')
+        settings = tomllib.loads(tar.extractfile(members[0]).read().decode())
+    workers = [w for w in settings.get('worker', {}).values() if w.get('enabled') is not False]
+    need(workers and all(w.get('max-parallelism') == 1 for w in workers), 'BUILDKIT_PARALLELISM_NOT_ONE')
+    history = query(['docker', '--context', 'rootless', 'buildx', 'history', 'ls',
+                     '--builder', 'foto17-limited', '--format', '{{json .}}'], optional=True)
+    need(history is not None, 'BUILDX_HISTORY_UNAVAILABLE_NO_AUTOMATIC_BOOTSTRAP')
+    for line in history.splitlines():
+        item = json.loads(line)
+        need(str(item.get('Status', '')).lower() in ('completed', 'error', 'canceled', 'cancelled'),
+             'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+
+
+def inventory(c):
+    repo = Path(c['repo'])
+    paths = [line[9:] for line in git(repo, 'worktree', 'list', '--porcelain').splitlines()
+             if line.startswith('worktree ')]
+    worktrees = []
+    for p in paths:
+        worktrees.append({'path': p, 'head': git(p, 'rev-parse', 'HEAD'),
+                          'branch': git(p, 'branch', '--show-current'),
+                          'status': git(p, 'status', '--porcelain=v1'),
+                          'tracking': git(p, 'for-each-ref', '--format=%(refname:short) %(upstream:short) %(upstream:track)', 'refs/heads')})
+    prs = {}
+    for role, item in c['prs'].items():
+        pr = api(f"pulls/{item['number']}")
+        checks = api(f"commits/{pr['head']['sha']}/check-runs?per_page=100")
+        need(checks['total_count'] <= 100, 'CI_PAGINATION_REVIEW_REQUIRED')
+        prs[role] = {'number': item['number'], 'sha': pr['head']['sha'], 'branch': pr['head']['ref'],
+                     'base': pr['base']['ref'], 'baseSHA': pr['base']['sha'], 'state': pr['state'],
+                     'draft': pr['draft'], 'mergeable': pr['mergeable'],
+                     'checks': [{k: x.get(k) for k in ('name', 'status', 'conclusion', 'html_url')}
+                                for x in checks['check_runs']],
+                     'localMergeBase': git(repo, 'merge-base', 'HEAD', pr['head']['sha'], optional=True),
+                     'localAheadBehind': git(repo, 'rev-list', '--left-right', '--count',
+                                            'HEAD...' + pr['head']['sha'], optional=True)}
+    docker = {'contexts': query(['docker', 'context', 'ls', '--format', '{{.Name}}'], optional=True)}
+    try:
+        docker['validatedEndpoint'] = rootless()
+    except (Stop, OSError, ValueError, KeyError):
+        docker['rootlessValidation'] = 'UNAVAILABLE_OR_UNSAFE; daemon inventory not attempted'
+    for name, args in {'builders': ['--context', 'rootless', 'buildx', 'ls'],
+                       'images': ['--context', 'rootless', 'image', 'ls', '--no-trunc'],
+                       'cache': ['--context', 'rootless', 'system', 'df']}.items():
+        if 'validatedEndpoint' in docker:
+            docker[name] = query(['docker', *args], optional=True)
+    if 'validatedEndpoint' in docker:
+        try:
+            builder_idle()
+            docker['builderValidation'] = 'PASS_READ_ONLY_LIMITS_AND_IDLE'
+        except (Stop, OSError, ValueError, KeyError) as error:
+            docker['builderValidation'] = str(error) if isinstance(error, Stop) else 'UNAVAILABLE'
+    return {'worktrees': worktrees, 'prs': prs, 'processes': processes(), 'docker': docker,
+            'remoteMatches': origin_ok(repo),
+            'remoteNames': git(repo, 'remote').splitlines(), 'resources': resources(),
+            'remoteHeads': git(repo, 'ls-remote', 'origin', 'refs/heads/' + BASE_BRANCH,
+                               *('refs/heads/' + b for b in ROLES.values())),
+            'tools': {t: shutil.which(t) for t in ('git', 'gh', 'node', 'pnpm', 'mise', 'flutter', 'dart', 'java', 'javac', 'tmux')},
+            'freeGiB': shutil.disk_usage(repo).free // 1024**3,
+            'signingFiles': {k: Path(c['signing'][k]).is_file() for k in ('keystore', 'properties')}}
+
+
+def origin_ok(repo):
+    value = git(repo, 'remote', 'get-url', 'origin')
+    return value in (f'https://github.com/{REPOSITORY}.git', f'https://github.com/{REPOSITORY}',
+                     f'git@github.com:{REPOSITORY}.git')
+
+
+class Pipeline:
+    def __init__(self, c, retry=False, diagnosis=''):
+        self.c, self.retry, self.diagnosis = c, retry, diagnosis
+        self.state = Path(c['state'])
+        self.repo = Path(c['repo'])
+        self.path = self.state / 'manifest.json'
+        self.manifest = None
+        self.fds = []
+
+    @contextlib.contextmanager
+    def locked(self):
+        runner.private_dir(self.state)
+        common = Path(self.c['automation_state'])
+        need(common.is_dir(), 'EXISTING_AUTOMATION_STATE_REQUIRED')
+        runner.private_dir(common)
+        try:
+            for path in (self.state / 'release.lock', common / 'codex-session.lock', common / 'heavy-stage.lock',
+                         common / 'continue.lock', Path(self.c['legacy_lock'])):
+                need(path.parent.is_dir(), 'EXISTING_LEGACY_LOCK_DIRECTORY_REQUIRED')
+                self.fds.append(runner.lock(path, legacy=path == Path(self.c['legacy_lock'])))
+            need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
+            if self.path.exists() or self.path.is_symlink():
+                self.manifest = runner.read_json(self.path)
+                need(self.manifest.get('schema') == 1 and isinstance(self.manifest.get('history'), list), 'CORRUPT_MANIFEST')
+                need(self.manifest['configSHA256'] == self.config_sha(), 'CONFIG_CHANGED_USE_NEW_STATE')
+            yield
+        finally:
+            for fd in reversed(self.fds):
+                os.close(fd)
+            self.fds.clear()
+
+    def config_sha(self):
+        return runner.digest(json.dumps(self.c, sort_keys=True).encode())
+
+    def save(self, event):
+        old = sha(self.path) if self.path.exists() else None
+        self.manifest['history'].append({'event': event, 'at': time.time(), 'previousManifestSHA256': old})
+        # Also keep immutable snapshots, not just the most recent manifest.
+        runner.atomic_json(self.state / ('manifest-' + uuid.uuid4().hex + '.json'), self.manifest)
+        runner.atomic_json(self.path, self.manifest)
+
+    def source(self):
+        return Path(self.manifest['worktree'])
+
+    def clean(self):
+        need(self.source().resolve().parent == self.state.resolve() and not self.source().is_symlink(),
+             'INTEGRATION_WORKTREE_OUTSIDE_PRIVATE_STATE')
+        need(self.manifest['branch'].startswith('local/foto17-release-') and
+             git(self.source(), 'branch', '--show-current') == self.manifest['branch'], 'INTEGRATION_BRANCH_CHANGED')
+        need(git(self.source(), 'rev-parse', 'HEAD') == self.manifest['head'], 'INTEGRATION_SHA_CHANGED')
+        need(not git(self.source(), 'status', '--porcelain=v1'), 'INTEGRATION_DIRTY_PRESERVED')
+        if self.manifest.get('prepared'):
+            need(not self.manifest.get('mergeInFlight'), 'CORRUPT_PREPARED_CHECKPOINT')
+            need(git(self.source(), 'merge-base', '--is-ancestor', self.c['expected_head'], 'HEAD', optional=True) is not None,
+                 'INTEGRATION_BASE_ANCESTRY_CHANGED')
+            for pin in self.c['prs'].values():
+                if git(self.source(), 'merge-base', '--is-ancestor', pin['sha'], 'HEAD', optional=True) is None:
+                    base = git(self.source(), 'merge-base', 'HEAD', pin['sha'])
+                    patches = git(self.source(), 'cherry', 'HEAD', pin['sha'], base).splitlines()
+                    need(patches and all(p.startswith('-') for p in patches), 'PREPARED_PR_NOT_PRESENT')
+
+    def gate(self):
+        need(origin_ok(self.repo), 'UNEXPECTED_ORIGIN')
+        need(not git(self.repo, 'config', '--get-regexp', r'^merge\..*\.driver$', optional=True),
+             'CUSTOM_MERGE_DRIVER_REVIEW_REQUIRED')
+        need(git(self.repo, 'branch', '--show-current') == BASE_BRANCH, 'HP_BASE_BRANCH_CHANGED')
+        need(git(self.repo, 'rev-parse', 'HEAD') == self.c['expected_head'], 'HP_BASE_SHA_CHANGED')
+        need(not git(self.repo, 'status', '--porcelain=v1'), 'HP_DIRTY_OR_UNTRACKED_PRESERVED')
+        remote = git(self.repo, 'ls-remote', 'origin', 'refs/heads/' + BASE_BRANCH).split()
+        need(remote and remote[0] == self.c['expected_head'], 'REMOTE_BASE_DIFFERS_REVIEW_REQUIRED')
+        admitted = []
+        for role in ROLES:
+            pin = self.c['prs'][role]
+            need(pin['approved'] is True and pin['approval_note'].strip(), 'EXACT_PR_NOT_OPERATOR_APPROVED')
+            pr = api(f"pulls/{pin['number']}")
+            need(pr['head']['repo']['full_name'] == REPOSITORY and pr['base']['repo']['full_name'] == REPOSITORY,
+                 'FOREIGN_PR_REPOSITORY')
+            need(pr['head']['sha'] == pin['sha'] and pr['head']['ref'] == ROLES[role], 'PR_HEAD_CHANGED')
+            merged_here = (pr['state'] == 'closed' and pr.get('merged') is True and
+                           git(self.repo, 'merge-base', '--is-ancestor', pin['sha'], 'HEAD', optional=True) is not None)
+            need(pr['base']['ref'] == BASE_BRANCH and (merged_here or pr['base']['sha'] == self.c['expected_head']),
+                 'WRONG_PR_BASE')
+            need(not pr['draft'] and (merged_here or pr['state'] == 'open' and pr['mergeable'] is True),
+                 'PR_INCOMPLETE_OR_CONFLICTED')
+            result = api(f"commits/{pin['sha']}/check-runs?per_page=100")
+            need(result['total_count'] <= 100, 'CI_PAGINATION_REVIEW_REQUIRED')
+            checks_green(result['check_runs'], self.c['required_checks'][role])
+            statuses = api(f"commits/{pin['sha']}/status")
+            need(statuses['total_count'] == 0 or statuses['state'] == 'success', 'LEGACY_COMMIT_STATUS_NOT_GREEN')
+            admitted.append({'role': role, **pin})
+        return admitted
+
+    def prepare(self):
+        admitted = self.gate()
+        if self.manifest and self.manifest.get('prepared'):
+            self.clean()
+            need(self.manifest['prs'] == admitted, 'PR_APPROVAL_CHANGED')
+            return
+        if not self.manifest:
+            run_id = time.strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
+            self.manifest = {'schema': 1, 'configSHA256': self.config_sha(), 'prs': admitted,
+                             'worktree': str(self.state / ('source-' + run_id)),
+                             'branch': 'local/foto17-release-' + run_id, 'head': self.c['expected_head'],
+                             'prepared': False, 'history': [], 'stages': {}, 'mode': 'prepare'}
+            self.save('PREPARE_INTENT')
+        need(self.manifest['prs'] == admitted, 'PR_APPROVAL_CHANGED')
+        need(not self.manifest.get('mergeInFlight'), 'MERGE_INTERRUPTED_REVIEW_PRESERVED_WORKTREE')
+        for item in admitted:
+            ref = 'refs/foto-release/' + self.manifest['branch'].split('/')[-1] + '/' + item['role']
+            git(self.repo, 'fetch', '--no-tags', '--no-write-fetch-head', 'origin',
+                f"refs/pull/{item['number']}/head:{ref}")
+            need(git(self.repo, 'rev-parse', ref) == item['sha'], 'FETCHED_PR_SHA_MISMATCH')
+        if not self.source().exists():
+            git(self.repo, 'worktree', 'add', '-b', self.manifest['branch'], str(self.source()), self.manifest['head'])
+        self.clean()
+        for item in admitted:
+            if git(self.source(), 'merge-base', '--is-ancestor', item['sha'], 'HEAD', optional=True) is not None:
+                continue
+            ancestor = git(self.source(), 'merge-base', 'HEAD', item['sha'])
+            cherry = git(self.source(), 'cherry', 'HEAD', item['sha'], ancestor).splitlines()
+            if cherry and all(line.startswith('-') for line in cherry):
+                self.save('PATCH_EQUIVALENT_' + item['role'])
+                continue
+            need(not any(line.startswith('-') for line in cherry), 'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+            self.manifest['mergeInFlight'] = item['sha']
+            self.save('MERGE_INTENT_' + item['role'])
+            try:
+                git(self.source(), '-c', 'user.name=FOTO Local Release', '-c', 'user.email=local-release@localhost',
+                    'merge', '--no-ff', '--no-edit', item['sha'])
+            except Stop:
+                self.manifest['conflicts'] = git(self.source(), 'diff', '--name-only', '--diff-filter=U').splitlines()
+                self.save('MERGE_FAILED_PRESERVED')
+                raise Stop('MERGE_FAILED_REVIEW_PRESERVED_WORKTREE_' + str(self.source())) from None
+            self.manifest['head'] = git(self.source(), 'rev-parse', 'HEAD')
+            self.manifest.pop('mergeInFlight')
+            self.save('MERGED_' + item['role'])
+        self.manifest['prepared'] = True
+        self.clean()
+        self.save('PREPARED')
+
+    def tools(self):
+        values = {}
+        need(re.search(r'^version:\s*5\.7\.3\+17\s*$', (self.source() / 'mobile/pubspec.yaml').read_text(), re.M),
+             'FOTO_BUILD17_VERSION_CHANGED')
+        for tool, args in (('node', ['--version']), ('pnpm', ['--version']), ('flutter', ['--version', '--machine']),
+                           ('java', ['--version']), ('mise', ['--version'])):
+            path = shutil.which(tool)
+            need(path, 'MISSING_TOOL_' + tool.upper())
+            values[tool] = {'path': str(Path(path).resolve()), 'version': query([path, *args])}
+        tools_pin = tomllib.loads((self.source() / 'mise.toml').read_text())['tools']
+        mobile = tomllib.loads((self.source() / 'mobile/mise.toml').read_text())['tools']
+        need(values['node']['version'].lstrip('v') == tools_pin['node'], 'NODE_PIN_MISMATCH')
+        package = json.loads((self.source() / 'package.json').read_text())['packageManager'].split('@')[-1]
+        need(values['pnpm']['version'] == package, 'PNPM_PIN_MISMATCH')
+        need(json.loads(values['flutter']['version'])['frameworkVersion'] == mobile['aqua:flutter/flutter']['version'],
+             'FLUTTER_PIN_MISMATCH')
+        need(re.search(r'\b' + re.escape(mobile['java']) + r'\b', values['java']['version']), 'JDK_PIN_MISMATCH')
+        return runner.digest(json.dumps(values, sort_keys=True).encode())
+
+    def environment(self):
+        env = {k: v for k, v in os.environ.items() if k in {
+            'PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TZ', 'JAVA_HOME', 'ANDROID_HOME',
+            'ANDROID_SDK_ROOT', 'FLUTTER_ROOT', 'PUB_CACHE', 'GRADLE_USER_HOME', 'HTTPS_PROXY', 'HTTP_PROXY',
+            'https_proxy', 'http_proxy', 'NO_PROXY', 'no_proxy', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'}}
+        env.update(NODE_OPTIONS='--max-old-space-size=4096', CI='true', MAKEFLAGS='-j1',
+                   CMAKE_BUILD_PARALLEL_LEVEL='1', UV_THREADPOOL_SIZE='2', VIPS_CONCURRENCY='2', GOMAXPROCS='2',
+                   npm_config_child_concurrency='1', npm_config_workspace_concurrency='1',
+                   MISE_JOBS='1', JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=2 -Xmx2048m',
+                   GRADLE_OPTS='-Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false -Dorg.gradle.daemon=false '
+                   '-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process '
+                   '-Dkotlin.daemon.enabled=false', DOCKER_HOST=rootless(), TESTCONTAINERS_HOST_OVERRIDE='127.0.0.1')
+        return env
+
+    def stage(self, name, cwd, argv, outputs=()):
+        self.clean()
+        need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
+        inputs = {'head': self.manifest['head'], 'config': self.config_sha(), 'toolchain': self.manifest['toolchain'],
+                  'pipeline': sha(Path(__file__)), 'runner': sha(HERE / 'foto-stage-runner.py'),
+                  'argv': argv, 'cwd': str(cwd)}
+        if ((name.startswith(('unit-', 'medium-', 'flutter-')) and name not in ('flutter-deps', 'flutter-codegen'))
+                or name in ('types', 'lint', 'backend-image', 'android-apk')):
+            inputs['dependencies'] = {str(p): sha(self.source() / p) for p in (
+                'server/node_modules/vitest/package.json',
+                'server/node_modules/typescript/package.json',
+            ) if (self.source() / p).is_file()}
+            if cwd == self.source() / 'mobile' and name != 'flutter-codegen':
+                p = 'mobile/.dart_tool/package_config.json'
+                inputs['dependencies'][p] = sha(self.source() / p)
+        previous = self.manifest['stages'].get(name)
+        if previous:
+            need(previous['inputs'] == inputs, 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+            if previous['status'] == 'PASS':
+                need(previous.get('exitCode') == 0, 'CORRUPT_STAGE_RECEIPT')
+                need(sha(self.state / previous['log']) == previous['logSHA256'], 'STAGE_LOG_CHANGED')
+                need(all(sha(self.source() / path) == value for path, value in previous['outputs'].items()),
+                     'STAGE_OUTPUT_CHANGED')
+                print('PASS_REUSED', name, flush=True)
+                return
+            need(self.retry and self.diagnosis.strip(), 'FAILED_OR_INTERRUPTED_EXPLICIT_RETRY_AND_DIAGNOSIS_REQUIRED')
+        available = resources()
+        minimum = (12 if name == 'backend-image' else 5) * 1024**3
+        need(available['memoryBytes']['MemAvailable'] >= minimum, 'INSUFFICIENT_AVAILABLE_MEMORY_NO_LIMITS_CHANGED')
+        limit = available['currentCgroup'].get('memory.max', 'unavailable')
+        need(not limit.isdigit() or int(limit) >= 6 * 1024**3, 'CALLER_CGROUP_TOO_SMALL_NO_LIMITS_CHANGED')
+        logname = name + '-' + uuid.uuid4().hex + '.log'
+        attempt = {'inputs': inputs, 'status': 'RUNNING', 'log': logname, 'outputs': {}, 'startedAt': time.time()}
+        self.manifest['stages'][name] = attempt
+        self.save('STAGE_INTENT_' + name)
+        with (self.state / logname).open('xb') as log:
+            os.chmod(log.name, 0o600)
+            rc = runner.supervise(argv, cwd, log, self.fds[0], self.environment(), additional_fds=tuple(self.fds[1:]))
+            log.flush()
+            os.fsync(log.fileno())
+        attempt.update(status='FAIL', exitCode=rc, logSHA256=sha(self.state / logname), finishedAt=time.time())
+        if self.retry:
+            attempt['diagnosis'] = self.diagnosis
+        self.save('STAGE_EXIT_' + name)
+        need(rc == 0, f'STAGE_FAILED_{name}_EXIT_{rc}_NO_AUTOMATIC_RETRY')
+        self.clean()
+        attempt['outputs'] = {str(p): sha(self.source() / p) for p in outputs}
+        attempt['status'] = 'PASS'
+        self.save('STAGE_PASS_' + name)
+        print('PASS', name, flush=True)
+
+    def test(self):
+        self.gate()
+        self.clean()
+        fingerprint = self.tools()
+        if 'toolchain' in self.manifest:
+            need(self.manifest['toolchain'] == fingerprint, 'TOOLCHAIN_CHANGED_NEW_STATE_REQUIRED')
+        self.manifest['toolchain'] = fingerprint
+        self.manifest['mode'] = 'test'
+        self.save('TEST_REQUESTED')
+        recipes = recipes_for(self.source())
+        for name, folder, command, outputs in recipes:
+            self.stage(name, self.source() / folder, command, outputs)
+        self.manifest['testsComplete'] = [x[0] for x in recipes]
+        self.save('TESTS_COMPLETE_BACKEND_AND_CONTRACTS_NOT_NATIVE_E2E')
+
+    def signing(self):
+        result = {}
+        for key in ('keystore', 'properties'):
+            p = Path(self.c['signing'][key])
+            need(p.is_absolute(), 'ABSOLUTE_SIGNING_PATH_REQUIRED')
+            private_file(p)
+            s = p.stat()
+            need(s.st_size > 0, 'EMPTY_SIGNING_FILE')
+            result[key] = [s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns]
+        need(re.fullmatch('[0-9a-f]{64}', self.c['signing']['certificate_sha256']), 'TRUSTED_CERTIFICATE_PIN_REQUIRED')
+        need((Path(os.environ.get('JAVA_HOME', '/nonexistent')) / 'bin/javac').is_file(), 'EXISTING_FULL_JDK_REQUIRED')
+        return result
+
+    def image(self):
+        rootless()
+        tag = 'foto-build17:' + self.manifest['head']
+        value = json.loads(query(['docker', '--context', 'rootless', 'image', 'inspect', tag]))[0]
+        need(value['Config']['Labels'].get('org.opencontainers.image.revision') == self.manifest['head'], 'IMAGE_SOURCE_MISMATCH')
+        need('IMMICH_SOURCE_COMMIT=' + self.manifest['head'] in value['Config']['Env'], 'IMAGE_COMPILED_SOURCE_ENV_MISMATCH')
+        need(value['Os'] == 'linux' and value['Architecture'] == 'amd64', 'IMAGE_PLATFORM_MISMATCH')
+        return {'tag': tag, 'id': value['Id']}
+
+    def apk_metadata(self, apk):
+        with zipfile.ZipFile(apk) as z:
+            need(z.testzip() is None and 'AndroidManifest.xml' in z.namelist(), 'APK_CORRUPT')
+        sdk = Path(os.environ.get('ANDROID_HOME', os.environ.get('ANDROID_SDK_ROOT', '/nonexistent')))
+        dirs = sorted((sdk / 'build-tools').glob('*'), key=lambda p: tuple(int(x) for x in re.findall(r'\d+', p.name)))
+        need(dirs, 'ANDROID_BUILD_TOOLS_REQUIRED')
+        tool = dirs[-1]
+        cert = query([str(tool / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)])
+        hashes = re.findall(r'Signer #[0-9]+ certificate SHA-256 digest: ([0-9a-fA-F]+)', cert)
+        need(len(hashes) == 1 and hashes[0].lower() == self.c['signing']['certificate_sha256'], 'APK_CERTIFICATE_MISMATCH')
+        badging = query([str(tool / 'aapt'), 'dump', 'badging', str(apk)])
+        match = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging)
+        need(match and match.groups() == ('de.opennoodle.gallery', '17', '5.7.3'), 'APK_PACKAGE_OR_VERSION_MISMATCH')
+        return {'sha256': sha(apk), 'bytes': apk.stat().st_size, 'package': match[1],
+                'versionCode': 17, 'versionName': '5.7.3', 'certificateSHA256': hashes[0].lower()}
+
+    def build(self):
+        self.gate()
+        self.clean()
+        need(self.manifest.get('testsComplete') == [x[0] for x in recipes_for(self.source())], 'MANDATORY_CHECKS_INCOMPLETE')
+        need(self.tools() == self.manifest['toolchain'], 'TOOLCHAIN_CHANGED_NEW_STATE_REQUIRED')
+        # Revalidate every successful receipt, outputs and logs, without repeating tests.
+        for name, folder, argv, outputs in recipes_for(self.source()):
+            self.stage(name, self.source() / folder, argv, outputs)
+        keys = self.signing()
+        need(shutil.disk_usage(self.state).free >= self.c['min_free_gib'] * 1024**3, 'INSUFFICIENT_FREE_SPACE')
+        builder_idle()
+        self.manifest['mode'] = 'build'
+        self.save('BUILD_REQUESTED')
+        tag = 'foto-build17:' + self.manifest['head']
+        if self.manifest['stages'].get('backend-image', {}).get('status') != 'PASS':
+            need(query(['docker', '--context', 'rootless', 'image', 'inspect', tag], optional=True) is None,
+                 'UNSEALED_IMAGE_TAG_EXISTS_NOT_OVERWRITTEN')
+        argv = ['docker', '--context', 'rootless', 'buildx', 'build', '--builder', 'foto17-limited',
+                '--platform', 'linux/amd64', '--load', '--progress', 'plain', '--tag', tag,
+                '--label', 'org.opencontainers.image.revision=' + self.manifest['head'],
+                '--build-arg', 'BUILD_SOURCE_COMMIT=' + self.manifest['head'],
+                '--build-arg', 'BUILD_SOURCE_REF=' + self.manifest['branch'],
+                '--build-arg', 'BUILD_REPOSITORY=' + REPOSITORY, '--build-arg', 'BUILD_VERSION=5.7.3',
+                '-f', 'server/Dockerfile', '.']
+        self.stage('backend-image', self.source(), argv)
+        actual = self.image()
+        if 'image' in self.manifest:
+            need(actual == self.manifest['image'], 'IMAGE_ID_CHANGED')
+        self.manifest['image'] = actual
+        self.save('IMAGE_VERIFIED_NOT_RUNTIME_SMOKE')
+        links = {'key.jks': self.c['signing']['keystore'], 'key.properties': self.c['signing']['properties']}
+        for name, target in links.items():
+            path = self.source() / 'mobile/android' / name
+            if not path.is_symlink() and not path.exists():
+                path.symlink_to(target)
+            need(path.is_symlink() and path.readlink() == Path(target), 'EXISTING_SIGNING_PATH_NOT_REPLACED')
+        apk = 'mobile/build/app/outputs/flutter-apk/app-release.apk'
+        try:
+            self.stage('android-apk', self.source() / 'mobile',
+                       ['/bin/bash', str(HERE / 'foto-android-build.sh')], [apk])
+            need(self.signing() == keys, 'SIGNING_INPUT_CHANGED')
+            self.manifest['apk'] = self.apk_metadata(self.source() / apk)
+            self.save('SIGNED_APK_VERIFIED_NOT_DEVICE_TESTED')
+        finally:
+            # Remove only links made by this pipeline, never keys or existing files.
+            for name, target in links.items():
+                path = self.source() / 'mobile/android' / name
+                if path.is_symlink() and path.readlink() == Path(target):
+                    path.unlink()
+
+    def verify(self):
+        self.gate()
+        self.clean()
+        rootless()
+        need(self.manifest.get('image') and self.manifest.get('apk'), 'ARTIFACTS_INCOMPLETE')
+        expected = [x[0] for x in recipes_for(self.source())]
+        need(self.manifest.get('testsComplete') == expected and
+             set(self.manifest['stages']) == {*expected, 'backend-image', 'android-apk'}, 'MANDATORY_CHECKS_INCOMPLETE')
+        need(self.tools() == self.manifest['toolchain'], 'TOOLCHAIN_CHANGED_NEW_STATE_REQUIRED')
+        need(self.image() == self.manifest['image'], 'IMAGE_ID_CHANGED')
+        source = self.source() / 'mobile/build/app/outputs/flutter-apk/app-release.apk'
+        need(self.apk_metadata(source) == self.manifest['apk'], 'APK_IDENTITY_CHANGED')
+        for stage in self.manifest['stages'].values():
+            inputs = stage['inputs']
+            need(inputs['head'] == self.manifest['head'] and inputs['config'] == self.config_sha()
+                 and inputs['pipeline'] == sha(Path(__file__)) and inputs['runner'] == sha(HERE / 'foto-stage-runner.py')
+                 and inputs['toolchain'] == self.manifest['toolchain'], 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+            need(all(sha(self.source() / p) == value for p, value in inputs.get('dependencies', {}).items()),
+                 'INSTALLED_DEPENDENCIES_CHANGED')
+            need(stage['status'] == 'PASS' and stage['exitCode'] == 0 and
+                 sha(self.state / stage['log']) == stage['logSHA256'], 'INVALID_STAGE_RECEIPT')
+            need(all(sha(self.source() / p) == value for p, value in stage['outputs'].items()), 'STAGE_OUTPUT_CHANGED')
+        export = Path(self.c['export_dir'])
+        export.mkdir(mode=0o755, parents=False, exist_ok=True)
+        s = export.lstat()
+        need(stat.S_ISDIR(s.st_mode) and s.st_uid == os.getuid() and not s.st_mode & 0o022, 'EXPORT_DIRECTORY_UNSAFE')
+        need(shutil.disk_usage(export).free > source.stat().st_size * 2, 'EXPORT_FILESYSTEM_INSUFFICIENT_SPACE')
+        name = 'FOTO-5.7.3-build17-' + self.manifest['head'][:12] + '-' + self.manifest['apk']['sha256'][:12] + '.apk'
+        copy_verified(source, export / name, self.manifest['apk']['sha256'])
+        receipt = {'schema': 1, 'sourceSHA': self.manifest['head'], 'apk': {**self.manifest['apk'], 'file': name},
+                   'image': self.manifest['image'], 'nativeAndroidE2E': 'NOT VERIFIED', 'nativeIOSE2E': 'NOT VERIFIED',
+                   'SynologyE2E': 'NOT VERIFIED', 'deployment': 'NOT PERFORMED'}
+        target = export / (name + '.json')
+        if target.exists():
+            need(json.loads(target.read_text()) == receipt and not target.is_symlink(), 'EXPORT_RECEIPT_CHANGED')
+        else:
+            runner.atomic_json(target, receipt)
+            target.chmod(0o644)
+        self.manifest['exportReceipt'] = str(target)
+        self.save('ARTIFACTS_VERIFIED_READY_FOR_MANUAL_DEVICE_ACCEPTANCE_NOT_DEPLOYMENT')
+        print(json.dumps(receipt, indent=2))
+        print('APK delivery: run as doctoriceadm:', str(Path(__file__)), '--receive-apk', str(target))
+
+
+def copy_verified(source, target, expected):
+    if target.exists() or target.is_symlink():
+        need(sha(target) == expected, 'EXISTING_DESTINATION_NOT_OVERWRITTEN')
+        return
+    fd, name = tempfile.mkstemp(prefix='.foto-release-', dir=target.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as dst, Path(source).open('rb') as src:
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+            dst.flush()
+            os.fsync(dst.fileno())
+            need(sha(temporary) == expected, 'DELIVERY_SHA_MISMATCH')
+            os.fchmod(dst.fileno(), 0o644)
+        try:
+            os.link(temporary, target, follow_symlinks=False)
+        except FileExistsError:
+            need(sha(target) == expected, 'EXISTING_DESTINATION_NOT_OVERWRITTEN')
+        directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def receive(path):
+    need(pwd.getpwuid(os.getuid()).pw_name == 'doctoriceadm', 'DELIVERY_REQUIRES_DOCTORICEADM_NO_AUTO_SUDO')
+    data = json.loads(Path(path).read_text())
+    apk = data['apk']
+    need(Path(apk['file']).name == apk['file'] and re.fullmatch('[0-9a-f]{64}', apk['sha256']), 'INVALID_DELIVERY_RECEIPT')
+    source = Path(path).parent / apk['file']
+    need(sha(source) == apk['sha256'], 'DELIVERY_SOURCE_CHANGED')
+    for p in (Path(path), source, source.parent):
+        s = p.lstat()
+        need(s.st_uid == pwd.getpwnam('codex-gallery').pw_uid and not s.st_mode & 0o022 and not p.is_symlink(),
+             'UNTRUSTED_DELIVERY_OWNER')
+    target = Path('/home/doctoriceadm') / apk['file']
+    copy_verified(source, target, apk['sha256'])
+    need(target.stat().st_uid == os.getuid() and stat.S_IMODE(target.stat().st_mode) == 0o644, 'DELIVERY_OWNER_OR_MODE_INVALID')
+    print('COPIED_VERIFIED_APK', target, apk['sha256'])
+
+
+def recipes_for(repo):
+    unit = ['src/utils/client-contracts.spec.ts', 'src/services/sync.service.spec.ts',
+            'src/services/asset.service.spec.ts', 'src/services/asset-media.service.spec.ts',
+            'src/services/duplicate.service.spec.ts', 'src/services/library.service.spec.ts',
+            'src/services/shared-space.service.spec.ts', 'src/services/search.service.spec.ts',
+            'src/services/timeline.service.spec.ts', 'src/utils/authorized-deletion.spec.ts',
+            'src/utils/deletion-recovery.spec.ts']
+    medium = ['sync/sync-client-compat.spec.ts', 'sync/sync-personal-favorites-compat.spec.ts',
+              'services/noodle-favorites-timeline-compat.spec.ts', 'services/noodle-space-faces-compat.spec.ts',
+              'services/foto-duplicate-admission.spec.ts', 'services/authorized-deletion.spec.ts',
+              'services/build11-storage-deletion-lifecycle.spec.ts', 'sync/sync-library-asset.spec.ts',
+              'sync/sync-memory.spec.ts', 'sync/sync-memory-asset.spec.ts', 'workflow/workflow-core-plugin.spec.ts',
+              'schema-cli-compat.spec.ts', 'migrations/client-compat-preservation.spec.ts']
+    flutter = ['test/pages/edit/editor_acceptance_test.dart', 'test/pages/edit/editor_compact_layout_test.dart',
+               'test/pages/edit/editor_viewport_test.dart',
+               'test/pages/edit/editor_color_pipeline_test.dart', 'test/pages/edit/editor_save_retry_test.dart',
+               'test/pages/edit/magic_eraser_editor_integration_test.dart',
+               'test/domain/services/sync_stream_service_test.dart', 'test/providers/backup/backup_provider_test.dart',
+               'test/infrastructure/repositories/memory_v2_journal_test.dart',
+               'test/infrastructure/repositories/trash_pending_operations_test.dart',
+               'test/infrastructure/repositories/trash_sync_visibility_test.dart']
+    for name in [*('server/' + x for x in unit), *('server/test/medium/specs/' + x for x in medium),
+                 *('mobile/' + x for x in flutter)]:
+        need((repo / name).is_file(), 'MANDATORY_TEST_MISSING_' + name)
+    result = [
+        ('dependencies', '.', ['pnpm', 'install', '--frozen-lockfile', '--child-concurrency=1'], ['server/node_modules/vitest/package.json']),
+        ('sdk-initial', '.', ['pnpm', '--filter', '@immich/sdk', 'build'], ['packages/sdk/build/index.js']),
+        ('workspace-links', '.', ['pnpm', '--filter', '@immich/sdk', '--filter', '@immich/plugin-sdk',
+                                  '--filter', '@immich/plugin-core', '--filter', '@immich/plugin-gallery',
+                                  'install', '--frozen-lockfile', '--child-concurrency=1'], []),
+        ('plugin-sdk', '.', ['pnpm', '--filter', '@immich/plugin-sdk', 'build'], ['packages/plugin-sdk/dist/index.js']),
+        ('plugin-core', '.', ['pnpm', '--filter', '@immich/plugin-core', 'build'], ['packages/plugin-core/dist/plugin.wasm']),
+        ('plugin-gallery', '.', ['pnpm', '--filter', '@immich/plugin-gallery', 'build'], ['packages/plugin-gallery/dist/plugin.wasm']),
+        ('compile', 'server', ['pnpm', 'run', 'build'], ['server/dist/main.js']),
+        ('openapi', 'server', ['mise', '--jobs', '1', 'run', 'sync-open-api'], ['open-api/immich-openapi-specs.json']),
+        ('sdk', '.', ['mise', '--jobs', '1', 'run', 'open-api-typescript'], ['packages/sdk/src/fetch-client.ts']),
+        ('dart-api', 'open-api', ['/bin/bash', 'bin/generate-dart-sdk.sh'],
+         ['mobile/generated/openapi/lib/api_client.dart']),
+        ('flutter-deps', 'mobile', ['flutter', 'pub', 'get', '--enforce-lockfile'], ['mobile/.dart_tool/package_config.json']),
+        ('flutter-codegen', 'mobile', ['/bin/bash', str(HERE / 'foto-mobile-codegen.sh')],
+         ['mobile/lib/presentation/pages/edit/editor.provider.freezed.dart']),
+        ('types', 'server', ['pnpm', 'exec', 'tsc', '--noEmit'], []),
+        ('lint', 'server', ['pnpm', 'run', 'lint'], []),
+    ]
+    for i, name in enumerate(unit):
+        result.append((f'unit-{i}', 'server', ['pnpm', 'exec', 'vitest', 'run', '--config', 'test/vitest.config.mjs',
+                                              name, '--maxWorkers=1', '--no-file-parallelism', '--maxConcurrency=1'], []))
+    for i, name in enumerate(medium):
+        result.append((f'medium-{i}', 'server', ['pnpm', 'exec', 'vitest', 'run', '--config', 'test/vitest.config.medium.mjs',
+                                                'test/medium/specs/' + name, '--maxWorkers=1', '--no-file-parallelism',
+                                                '--maxConcurrency=1'], []))
+    result.append(('flutter-analysis', 'mobile', ['flutter', 'analyze', '--no-pub'], []))
+    for i, name in enumerate(flutter):
+        result.append((f'flutter-{i}', 'mobile', ['flutter', 'test', '--no-pub', '--concurrency=1', name], []))
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, epilog='No stage runs without an explicit mode. No automatic sudo/retry/deployment.')
+    parser.add_argument('--config', type=Path, help='Owned 0600 JSON; required except --receive-apk')
+    modes = parser.add_mutually_exclusive_group(required=True)
+    for mode in ('check', 'prepare', 'test', 'build', 'verify', 'resume'):
+        modes.add_argument('--' + mode, action='store_true')
+    modes.add_argument('--receive-apk', type=Path, metavar='PUBLIC_RECEIPT')
+    parser.add_argument('--retry-failed', action='store_true', help='Explicit one-attempt retry of failed/interrupted stages')
+    parser.add_argument('--diagnosis', default='', help='Sanitized operator diagnosis; never a command or password')
+    args = parser.parse_args()
+    if args.receive_apk:
+        receive(args.receive_apk)
+        return
+    need(args.config, 'CONFIG_REQUIRED')
+    c = config(args.config)
+    need(pwd.getpwuid(os.getuid()).pw_name == 'codex-gallery' and os.getuid() != 0,
+         'RUN_AS_CODEX_GALLERY_NO_AUTOMATIC_PRIVILEGE_ESCALATION')
+    if args.check:
+        # Intentionally no mkdir, locks, fetch, codegen, tool installation or state writes.
+        print(json.dumps(inventory(c), indent=2))
+        return
+    snapshot = inventory(c)
+    p = Pipeline(c, args.retry_failed, args.diagnosis)
+    with p.locked():
+        runner.atomic_json(p.state / ('inventory-' + uuid.uuid4().hex + '.json'), snapshot)
+        mode = next(x for x in ('prepare', 'test', 'build', 'verify', 'resume') if getattr(args, x))
+        if mode == 'resume':
+            need(p.manifest, 'NO_CHECKPOINT_TO_RESUME')
+            mode = p.manifest['mode']
+        if mode == 'prepare':
+            p.prepare()
+        else:
+            need(p.manifest and p.manifest.get('prepared'), 'PREPARE_REQUIRED')
+            p.manifest['mode'] = mode
+            p.save(mode.upper() + '_SELECTED')
+            getattr(p, mode)()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (Stop, OSError, ValueError, KeyError, TypeError, AttributeError, tarfile.TarError, zipfile.BadZipFile) as error:
+        # Never echo subprocess output, configuration contents, passwords or tokens.
+        print('STOP', str(error) if isinstance(error, Stop) else type(error).__name__ + '_SEE_PRIVATE_STATE', file=sys.stderr)
+        sys.exit(1)

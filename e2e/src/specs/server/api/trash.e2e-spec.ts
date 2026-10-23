@@ -63,7 +63,7 @@ describe('/trash', () => {
       expect(existsSync(before.originalPath)).toBe(false);
     });
 
-    it('should remove offline assets', async () => {
+    it('keeps offline external indexes out of user Trash and leaves originals untouched', async () => {
       const library = await utils.createLibrary(admin.accessToken, {
         ownerId: admin.userId,
         importPaths: [`${testAssetDirInternal}/temp/offline`],
@@ -82,7 +82,8 @@ describe('/trash', () => {
       await utils.scan(admin.accessToken, library.id);
 
       const assetBefore = await utils.getAssetInfo(admin.accessToken, asset.id);
-      expect(assetBefore).toMatchObject({ isTrashed: true, isOffline: true });
+      // Index invalidation is not an owner deletion request.
+      expect(assetBefore).toMatchObject({ isTrashed: false, isOffline: true });
 
       utils.createImageFile(`${testAssetDir}/temp/offline/offline.png`);
 
@@ -92,7 +93,11 @@ describe('/trash', () => {
       await utils.waitForQueueFinish(admin.accessToken, 'backgroundTask');
 
       const assetAfter = await utils.getAssetInfo(admin.accessToken, asset.id);
-      expect(assetAfter).toMatchObject({ isTrashed: true, isOffline: true });
+      expect(assetAfter).toMatchObject({ isTrashed: false, isOffline: true });
+      const original = await request(app)
+        .get(`/assets/${asset.id}/original`)
+        .set('Authorization', `Bearer ${admin.accessToken}`);
+      expect(original.status).toBe(200);
     });
 
     it.skip('should not delete offline assets from disk', async () => {
@@ -188,7 +193,7 @@ describe('/trash', () => {
       await utils.deleteAssets(admin.accessToken, [assetId]);
 
       const before = await utils.getAssetInfo(admin.accessToken, assetId);
-      expect(before.isTrashed).toBe(true);
+      expect(before).toMatchObject({ isTrashed: true, isOffline: false });
 
       const { status, body } = await request(app)
         .post('/trash/restore/assets')
@@ -222,7 +227,7 @@ describe('/trash', () => {
       await utils.waitForQueueFinish(admin.accessToken, 'library');
 
       const before = await utils.getAssetInfo(admin.accessToken, assetId);
-      expect(before.isTrashed).toBe(true);
+      expect(before).toMatchObject({ isTrashed: false, isOffline: true });
 
       const { status } = await request(app)
         .post('/trash/restore/assets')
@@ -231,7 +236,7 @@ describe('/trash', () => {
       expect(status).toBe(200);
 
       const after = await utils.getAssetInfo(admin.accessToken, assetId);
-      expect(after.isTrashed).toBe(true);
+      expect(after).toMatchObject({ isTrashed: false, isOffline: true });
 
       utils.removeImageFile(`${testAssetDir}/temp/offline/offline.png`);
     });

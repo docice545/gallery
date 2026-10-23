@@ -2631,6 +2631,30 @@ describe(MetadataService.name, () => {
       expect(mocks.asset.unlockProperties).toHaveBeenCalledWith(asset.id, ['rating']);
     });
 
+    it.each([AssetFileType.Thumbnail, AssetFileType.Preview, AssetFileType.EncodedVideo])(
+      'registers written tags when a non-sidecar file already exists (%s)',
+      async (type) => {
+        const asset = AssetFactory.from()
+          .file({ type })
+          .exif({ tags: ['reopen-tag'] })
+          .build();
+        mocks.assetJob.getLockedPropertiesForMetadataExtraction.mockResolvedValue(['tags']);
+        mocks.assetJob.getForSidecarWriteJob.mockResolvedValue(getForSidecarWrite(asset));
+
+        await expect(sut.handleSidecarWrite({ id: asset.id })).resolves.toBe(JobStatus.Success);
+
+        expect(mocks.metadata.writeTags).toHaveBeenCalledWith(`${asset.originalPath}.xmp`, {
+          TagsList: ['reopen-tag'],
+        });
+        expect(mocks.asset.upsertFile).toHaveBeenCalledWith({
+          assetId: asset.id,
+          type: AssetFileType.Sidecar,
+          path: `${asset.originalPath}.xmp`,
+        });
+        expect(mocks.asset.unlockProperties).toHaveBeenCalledWith(asset.id, ['tags']);
+      },
+    );
+
     it('should create a sidecar file entry when asset has no files', async () => {
       const asset = factory.jobAssets.sidecarWrite();
       asset.files = [];

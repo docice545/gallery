@@ -1,0 +1,60 @@
+test_actual_inventory_is_read_only_with_mocked_remote_services (test_build17_release.ReleaseTest.test_actual_inventory_is_read_only_with_mocked_remote_services) ... ok
+test_artifact_helpers_recheck_rootless_before_contacting_daemon (test_build17_release.ReleaseTest.test_artifact_helpers_recheck_rootless_before_contacting_daemon) ... ok
+test_bad_image_source_rejected (test_build17_release.ReleaseTest.test_bad_image_source_rejected) ... ok
+test_builder_limits_and_running_history (test_build17_release.ReleaseTest.test_builder_limits_and_running_history) ... ok
+test_canonical_state_cannot_be_overwritten (test_build17_release.ReleaseTest.test_canonical_state_cannot_be_overwritten) ... ok
+test_changed_hp_sha_preserved (test_build17_release.ReleaseTest.test_changed_hp_sha_preserved) ... ok
+test_changed_request_not_reused (test_build17_release.ReleaseTest.test_changed_request_not_reused) ... PASS unit-0
+ok
+test_changed_source_sha_not_reused (test_build17_release.ReleaseTest.test_changed_source_sha_not_reused) ... ok
+test_child_environment_has_no_production_or_signing_secrets (test_build17_release.ReleaseTest.test_child_environment_has_no_production_or_signing_secrets) ... ok
+test_cli_startup_does_not_write_beside_versioned_install (test_build17_release.ReleaseTest.test_cli_startup_does_not_write_beside_versioned_install) ... ok
+test_conflict_preserved_no_auto_resolution (test_build17_release.ReleaseTest.test_conflict_preserved_no_auto_resolution) ... ok
+test_copy_versioned_no_overwrite (test_build17_release.ReleaseTest.test_copy_versioned_no_overwrite) ... ok
+test_corrupt_checkpoint_not_repaired (test_build17_release.ReleaseTest.test_corrupt_checkpoint_not_repaired) ... ok
+test_dirty_and_untracked_are_preserved (test_build17_release.ReleaseTest.test_dirty_and_untracked_are_preserved) ... ok
+test_editor_gate_does_not_require_unchanged_server_job (test_build17_release.ReleaseTest.test_editor_gate_does_not_require_unchanged_server_job) ... ok
+test_existing_codex_process_blocks (test_build17_release.ReleaseTest.test_existing_codex_process_blocks) ... ok
+test_false_pass_flag_rejected (test_build17_release.ReleaseTest.test_false_pass_flag_rejected) ... PASS unit-0
+ok
+test_fetch_sha_revalidated (test_build17_release.ReleaseTest.test_fetch_sha_revalidated) ... ok
+test_foreign_docker_context_never_contacted (test_build17_release.ReleaseTest.test_foreign_docker_context_never_contacted) ... ok
+test_green_checks_accept_optional_skip_not_as_test (test_build17_release.ReleaseTest.test_green_checks_accept_optional_skip_not_as_test) ... ok
+test_heap_failure_no_automatic_retry (test_build17_release.ReleaseTest.test_heap_failure_no_automatic_retry) ... PASS unit-0
+ok
+test_history_preserved_and_config_change_rejected (test_build17_release.ReleaseTest.test_history_preserved_and_config_change_rejected) ... ok
+test_interrupted_stage_requires_explicit_retry (test_build17_release.ReleaseTest.test_interrupted_stage_requires_explicit_retry) ... ok
+test_log_tamper_blocks (test_build17_release.ReleaseTest.test_log_tamper_blocks) ... PASS unit-0
+ok
+test_low_memory_stops_without_execution (test_build17_release.ReleaseTest.test_low_memory_stops_without_execution) ... ok
+test_mandatory_recipes_are_serial_and_include_compact_layout (test_build17_release.ReleaseTest.test_mandatory_recipes_are_serial_and_include_compact_layout) ... ok
+test_merged_pr_requires_verified_local_ancestry (test_build17_release.ReleaseTest.test_merged_pr_requires_verified_local_ancestry) ... ok
+test_missing_pr_stops_before_fetch (test_build17_release.ReleaseTest.test_missing_pr_stops_before_fetch) ... ok
+test_missing_signing_key_never_generated (test_build17_release.ReleaseTest.test_missing_signing_key_never_generated) ... ok
+test_mock_apk_metadata_valid_and_wrong_package (test_build17_release.ReleaseTest.test_mock_apk_metadata_valid_and_wrong_package) ... ok
+test_no_debug_signature_accepted (test_build17_release.ReleaseTest.test_no_debug_signature_accepted) ... ok
+test_no_mode_and_mutually_exclusive_modes (test_build17_release.ReleaseTest.test_no_mode_and_mutually_exclusive_modes) ... ok
+test_parallel_release_and_common_lock (test_build17_release.ReleaseTest.test_parallel_release_and_common_lock) ... ok
+test_patch_equivalent_pr_not_merged_twice (test_build17_release.ReleaseTest.test_patch_equivalent_pr_not_merged_twice) ... ok
+test_pr_rejections (test_build17_release.ReleaseTest.test_pr_rejections) ... ok
+test_prepare_repeated_does_not_merge_again (test_build17_release.ReleaseTest.test_prepare_repeated_does_not_merge_again) ... ok
+test_prepared_flag_does_not_authorize_another_worktree (test_build17_release.ReleaseTest.test_prepared_flag_does_not_authorize_another_worktree) ... ok
+test_read_only_check_does_not_write_state (test_build17_release.ReleaseTest.test_read_only_check_does_not_write_state) ... ok
+test_real_child_signal_is_recorded_not_success (test_build17_release.ReleaseTest.test_real_child_signal_is_recorded_not_success) ... ok
+test_real_git_isolated_merge_keeps_base (test_build17_release.ReleaseTest.test_real_git_isolated_merge_keeps_base) ... ok
+test_red_pending_empty_and_missing_checks (test_build17_release.ReleaseTest.test_red_pending_empty_and_missing_checks) ... ok
+test_remote_base_drift (test_build17_release.ReleaseTest.test_remote_base_drift) ... ok
+test_required_check_duplicates_cannot_hide_a_skipped_attempt (test_build17_release.ReleaseTest.test_required_check_duplicates_cannot_hide_a_skipped_attempt) ... ok
+test_required_ci_cannot_be_removed_from_config (test_build17_release.ReleaseTest.test_required_ci_cannot_be_removed_from_config) ... ok
+test_resume_only_last_selected_mode (test_build17_release.ReleaseTest.test_resume_only_last_selected_mode) ... ok
+test_stage_reuse_requires_log_and_output_hashes (test_build17_release.ReleaseTest.test_stage_reuse_requires_log_and_output_hashes) ... PASS unit-0
+PASS_REUSED unit-0
+ok
+test_unapproved_pr_blocked (test_build17_release.ReleaseTest.test_unapproved_pr_blocked) ... ok
+test_wrong_delivery_user_no_escalation (test_build17_release.ReleaseTest.test_wrong_delivery_user_no_escalation) ... ok
+test_wrong_head_base_foreign_repo (test_build17_release.ReleaseTest.test_wrong_head_base_foreign_repo) ... ok
+
+----------------------------------------------------------------------
+Ran 49 tests in 8.399s
+
+OK

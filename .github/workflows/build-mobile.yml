@@ -77,7 +77,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: mich
 
     steps:
@@ -190,7 +190,7 @@ jobs:
     permissions:
       contents: read
     # Run on main branch or workflow_dispatch, or on PRs/other branches (build only, no upload)
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && !github.event.pull_request.head.repo.fork && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && !github.event.pull_request.head.repo.fork && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: macos-26
 
     steps:

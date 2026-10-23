@@ -324,6 +324,7 @@ select
   "asset"."width",
   "asset"."height",
   "asset"."isEdited",
+  "asset"."duplicateId",
   (
     select
       coalesce(json_agg(agg), '[]')
@@ -545,6 +546,17 @@ from
   "asset"
 where
   "asset"."id" = any ($1::uuid[])
+
+-- AssetJobRepository.setOnlineForLibrarySync
+update "asset"
+set
+  "isOffline" = $1,
+  "deletedAt" = case
+    when "status" = $2 then null
+    else "deletedAt"
+  end
+where
+  "id" = any ($3::uuid[])
 
 -- AssetJobRepository.getForAssetDeletion
 select
