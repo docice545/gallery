@@ -370,11 +370,12 @@ class MemoryAdmissionTest(unittest.TestCase):
             self.admit()
 
     def test_memory_hp_launcher_embedded_syntax_pins_and_build_only(self):
-        text = SCRIPT.with_name('FOTO_BUILD17_FINAL_HP.md').read_text().split('```bash\n', 1)[1].split('```', 1)[0]
-        lines = text.rstrip().splitlines()
-        self.assertEqual((lines[0], lines[-1]), ("bash <<'BASH'", 'BASH'))
+        raw = SCRIPT.with_name('foto-build17-release-hp.sh').read_bytes()
+        self.assertTrue(raw.startswith(b'#!/usr/bin/env bash\n'))
+        self.assertNotIn(b'\r', raw)
+        text = raw.decode()
         inner = self.root / 'launch.sh'
-        inner.write_text('\n'.join(lines[1:-1]) + '\n')
+        inner.write_text(text)
         subprocess.run(['bash', '-n', str(inner)], check=True)
         for name in app.re.findall(r"<<'(PY_[A-Z_]+)'", text):
             code = text.split("<<'" + name + "'\n", 1)[1].split('\n' + name, 1)[0]
@@ -394,7 +395,7 @@ class MemoryAdmissionTest(unittest.TestCase):
             self.assertEqual(SCRIPT.with_name(name).read_bytes(), raw, name)
 
     def test_memory_hp_launcher_checkpoint_guard_preserves_and_rejects_incomplete_state(self):
-        text = SCRIPT.with_name('FOTO_BUILD17_FINAL_HP.md').read_text()
+        text = SCRIPT.with_name('foto-build17-release-hp.sh').read_text()
         code = text.split("<<'PY_CHECKPOINT'\n", 1)[1].split('\nPY_CHECKPOINT', 1)[0]
         cfg = self.root / 'config.json'
         state_dir = self.root / 'state'
