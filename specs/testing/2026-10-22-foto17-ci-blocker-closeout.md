@@ -171,3 +171,24 @@ Prettier — PASS. Новый afterEach требовал prefer-early-return; и
 PR6 `6f5c1bf66d261e95ea59584fd82aba8cba92ba73`,
 PR7 `8e555e3449365120729df29d9eb5beab6bb76bc0`;
 release code/config pin `4ce5e145e9ab75c47438dd2f5c79486ce695586f`. Старые snapshots выше — история, не статус нового HEAD.
+
+## Уточнение lifecycle общей browser suite
+
+На 6f5c1bf66 PR6 обязательный CI завершился:6903 server unit PASS,
+3420 medium PASS,6468 web unit PASS (существующие expected-fail/skipped/todo
+не объявляются выполненными). На 8e555e344 PR7 server/medium/mobile и обе API
+платформы также PASS; Web оставался незавершённым. Это исторические результаты,
+не окончательный CI следующего HEAD.
+
+Разбор реальных hooks spaces-filter-panel выявил мою ошибку: suite создаёт admin
+и websocket в beforeAll, а я ошибочно закрывал канал после первого теста.
+Повторные canonical duplicate uploads не генерируют новое upload событие,
+и disconnect дополнительно стирал event-cache. Правильная пара — beforeAll /
+afterAll; канал и уже принятые события сохраняются на всю suite. Ранее написанное
+здесь утверждение «подключение в beforeEach» было неверным и исправлено этим
+уточнением. Runtime и проверяемые UI/API ожидания не меняются. Адресные AST lint
+и Prettier PASS; новые CI ещё обязательны. Неудачные/отменённые runs сохранены.
+
+Candidates: PR6 `df3e0daf14f7593808a039df080c32cd05a7a503`,
+PR7 `3cc9631b7a2a48d2889808da5db7a62cc1345fea`.
+Installer code/config pin `0bd44fb68de8cc2d9e7db76c504d9ee9c086684d`; docs следующим commit.
