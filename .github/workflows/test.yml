@@ -85,7 +85,7 @@ jobs:
               - 'packages/**'
             .github:
               - '.github/**'
-          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && '- .github/workflows/test.yml' || '' }}
+          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release-reviewed-overlap')) && '- .github/workflows/test.yml' || '' }}
 
           force-events: 'workflow_dispatch'
 

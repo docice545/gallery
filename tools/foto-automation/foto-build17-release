@@ -41,6 +41,25 @@ REQUIRED_CHECKS = {
                       'check-openapi', 'check-mobile-patches', 'Test Web', 'Lint Web', 'End-to-End Tests Success'},
 }
 SUCCESS = {'success', 'neutral', 'skipped'}
+# Reviewed predecessor: only its completed test recipes remain reusable after
+# this memory-admission-only update. Build receipts must use the current runner.
+REVIEWED_TEST_RUNTIME = 'c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf'
+CODEGEN_HELPER_SHA = 'f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e'
+# PSI values are percentages, not fractions. Tolerate brief partial stalls,
+# while all-task stalls and sustained pressure have much tighter budgets.
+# Each tuple is (avg10, avg60, avg300); these are ceilings, not bypass flags.
+MEMORY_PSI_LIMITS = {'some': (1.00, 0.50, 0.25), 'full': (0.10, 0.05, 0.02)}
+# Reviewed on real published Git objects, not a general partial-application bypass.
+# Unknown heads/trees still require operator review. See FOTO_BUILD17_RELEASE.md.
+REVIEWED_OVERLAP = {
+    'base': 'ace2eab962524479a61e6891410983a7f41ba0fa',
+    'editor': 'df3e0daf14f7593808a039df080c32cd05a7a503',
+    'compatibility': '3cc9631b7a2a48d2889808da5db7a62cc1345fea',
+    'inputTree': '5102fc271d555b8ab02f35c56cb717f0502aebdc',
+    'outputTree': '09e791c093d10927c434c85787328ebabcace5bd',
+    'equivalentCount': 11,
+    'newCount': 57,
+}
 
 
 def need(value, code):
@@ -160,6 +179,81 @@ def resources():
     return {'memoryBytes': memory, 'currentCgroup': limits}
 
 
+def check_memory_pressure(text):
+    records = {}
+    for line in text.splitlines():
+        fields = line.split()
+        need(len(fields) == 5 and fields[0] in ('some', 'full') and fields[0] not in records,
+             'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+        pairs = [field.split('=') for field in fields[1:]]
+        need(all(len(pair) == 2 for pair in pairs) and
+             [pair[0] for pair in pairs] == ['avg10', 'avg60', 'avg300', 'total'],
+             'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+        values = [pair[1] for pair in pairs]
+        need(all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', value) for value in values[:3])
+             and values[3].isdigit(), 'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+        need(all(float(value) <= limit for value, limit in zip(values[:3], MEMORY_PSI_LIMITS[fields[0]])),
+             'MEMORY_PRESSURE_NO_LIMITS_CHANGED')
+        records[fields[0]] = values
+    need(set(records) == {'some', 'full'}, 'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
+
+
+def backend_memory_reserve(proc=Path('/proc'), cgroups=Path('/sys/fs/cgroup')):
+    check_memory_pressure((proc / 'pressure/memory').read_text())
+    entries = [line[3:] for line in (proc / 'self/cgroup').read_text().splitlines() if line.startswith('0::')]
+    need(len(entries) == 1 and entries[0].startswith('/') and '..' not in Path(entries[0]).parts,
+         'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+    root = cgroups.resolve()
+    directory = (root / entries[0].lstrip('/')).resolve()
+    need(directory.is_relative_to(root), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+    # Every visible ancestor can impose a tighter limit than the leaf. No swap
+    # is credited as RAM, and neither limits nor memory.high are modified.
+    while True:
+        try:
+            current = (directory / 'memory.current').read_text().strip()
+        except FileNotFoundError:
+            # The real cgroup v2 root has no accounting/limit files. Only that
+            # complete absence is allowed; unreadable files, dangling symlinks,
+            # partial observations and missing nested files remain failures.
+            need(directory == root, 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            for name in ('memory.current', 'memory.max', 'memory.high'):
+                try:
+                    (directory / name).lstat()
+                except FileNotFoundError:
+                    continue
+                raise Stop('CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            current = None
+        if current is not None:
+            need(current.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+            for name in ('memory.max', 'memory.high'):
+                limit = (directory / name).read_text().strip()
+                need(limit == 'max' or limit.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
+                need(limit == 'max' or int(limit) - int(current) >= 10 * 1024**3,
+                     'CALLER_CGROUP_MEMORY_RESERVE_NO_LIMITS_CHANGED')
+        check_memory_pressure((directory / 'memory.pressure').read_text())
+        if directory == root:
+            break
+        directory = directory.parent
+
+
+def check_stage_memory(name, available):
+    gib = 1024**3
+    minimum = (10 if name == 'backend-image' else 5) * gib
+    need(available['memoryBytes']['MemAvailable'] >= minimum, 'INSUFFICIENT_AVAILABLE_MEMORY_NO_LIMITS_CHANGED')
+    limit = available['currentCgroup'].get('memory.max', 'unavailable')
+    need(not limit.isdigit() or int(limit) >= 6 * gib, 'CALLER_CGROUP_TOO_SMALL_NO_LIMITS_CHANGED')
+    if name == 'backend-image':
+        # 10 GiB is the already-enforced BuildKit ceiling, not a reservation.
+        # Require >=4 GiB physical RAM outside that ceiling for host services,
+        # plus bounded PSI and >=10 GiB headroom at every finite cgroup.
+        need(available['memoryBytes'].get('MemTotal', 0) >= 14 * gib,
+             'INSUFFICIENT_HOST_MEMORY_RESERVE_NO_LIMITS_CHANGED')
+        try:
+            backend_memory_reserve()
+        except OSError:
+            raise Stop('BACKEND_MEMORY_OBSERVATIONS_UNAVAILABLE_NO_LIMITS_CHANGED') from None
+
+
 def rootless():
     # Never use the default/production context or an inherited DOCKER_HOST selector.
     context = json.loads(query(['docker', 'context', 'inspect', 'rootless']))[0]
@@ -170,15 +264,66 @@ def rootless():
     return endpoint
 
 
+def validate_builder_inspect(data):
+    # Buildx v0.35.0 has no inspect --format. Its tabwriter output has unindented
+    # builder/node fields; nested device/GC/label fields must not masquerade as nodes.
+    header, nodes, current = {}, [], None
+    in_nodes, section = False, None
+    for line in data.splitlines():
+        if not line.strip():
+            continue
+        if line[0].isspace():
+            nested_key = line.lstrip().partition(':')[0]
+            need(nested_key not in ('Name', 'Driver', 'Nodes', 'Endpoint', 'Status', 'Error') or
+                 section == 'Labels' or section == 'Devices' and nested_key == 'Name',
+                 'BUILDER_INSPECT_TEXT_INVALID')
+            continue
+        key, separator, value = line.partition(':')
+        need(separator, 'BUILDER_INSPECT_TEXT_INVALID')
+        section = key
+        value = value.strip()
+        need(key != 'Error', 'BUILDER_INSPECT_ERROR')
+        if key == 'Nodes':
+            need(not in_nodes and not value, 'BUILDER_INSPECT_TEXT_INVALID')
+            in_nodes = True
+        elif key == 'Name' and in_nodes:
+            current = {'Name': value}
+            nodes.append(current)
+        elif key in ('Name', 'Driver', 'Endpoint', 'Status'):
+            fields = current if in_nodes else header
+            need(fields is not None and key not in fields and
+                 (key in ('Endpoint', 'Status') if in_nodes else key in ('Name', 'Driver')),
+                 'BUILDER_INSPECT_TEXT_INVALID')
+            fields[key] = value
+    need(header == {'Name': 'foto17-limited', 'Driver': 'docker-container'} and in_nodes and len(nodes) == 1,
+         'EXISTING_SINGLE_BUILDER_REQUIRED')
+    need(nodes[0] == {'Name': 'foto17-limited0', 'Endpoint': 'rootless', 'Status': 'running'},
+         'BUILDER_ENDPOINT_OR_STATUS_CHANGED')
+
+
+def validate_builder_history(history):
+    need(isinstance(history, str) and history.strip(), 'BUILDX_HISTORY_UNAVAILABLE_NO_AUTOMATIC_BOOTSTRAP')
+
+    def unique_fields(pairs):
+        need(len(dict(pairs)) == len(pairs), 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+        return dict(pairs)
+
+    for line in history.splitlines():
+        try:
+            item = json.loads(line, object_pairs_hook=unique_fields)
+        except ValueError:
+            raise Stop('BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY') from None
+        # Buildx v0.35.0 MarshalJSON uses lowercase keys; .Status is only its
+        # Go-template field. Never fall back to it or accept ambiguous records.
+        need(isinstance(item, dict) and 'Status' not in item and isinstance(item.get('status'), str) and
+             item['status'].lower() in ('completed', 'error', 'canceled', 'cancelled'),
+             'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+
+
 def builder_idle():
     rootless()
-    data = query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited', '--format', '{{json .}}'])
-    value = json.loads(data)
-    need(value['Driver'] == 'docker-container' and len(value['Nodes']) == 1, 'EXISTING_SINGLE_BUILDER_REQUIRED')
-    node = value['Nodes'][0]
-    need(node['Endpoint'] in ('rootless', f'unix:///run/user/{os.getuid()}/docker.sock') and
-         re.fullmatch(r'foto17-limited[0-9]+', node['Name']), 'BUILDER_ENDPOINT_CHANGED')
-    container = 'buildx_buildkit_' + node['Name']
+    validate_builder_inspect(query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited']))
+    container = 'buildx_buildkit_foto17-limited0'
     record = json.loads(query(['docker', '--context', 'rootless', 'inspect', container]))[0]
     host = record['HostConfig']
     need(host['Memory'] == 10 * 1024**3 and host['MemorySwap'] == 12 * 1024**3, 'BUILDER_MEMORY_LIMITS_CHANGED')
@@ -197,11 +342,7 @@ def builder_idle():
     need(workers and all(w.get('max-parallelism') == 1 for w in workers), 'BUILDKIT_PARALLELISM_NOT_ONE')
     history = query(['docker', '--context', 'rootless', 'buildx', 'history', 'ls',
                      '--builder', 'foto17-limited', '--format', '{{json .}}'], optional=True)
-    need(history is not None, 'BUILDX_HISTORY_UNAVAILABLE_NO_AUTOMATIC_BOOTSTRAP')
-    for line in history.splitlines():
-        item = json.loads(line)
-        need(str(item.get('Status', '')).lower() in ('completed', 'error', 'canceled', 'cancelled'),
-             'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+    validate_builder_history(history)
 
 
 def inventory(c):
@@ -260,8 +401,9 @@ def origin_ok(repo):
 
 
 class Pipeline:
-    def __init__(self, c, retry=False, diagnosis=''):
+    def __init__(self, c, retry=False, diagnosis='', pin_format_proof=None):
         self.c, self.retry, self.diagnosis = c, retry, diagnosis
+        self.pin_format_proof = Path(pin_format_proof) if pin_format_proof is not None else None
         self.state = Path(c['state'])
         self.repo = Path(c['repo'])
         self.path = self.state / 'manifest.json'
@@ -270,6 +412,8 @@ class Pipeline:
 
     @contextlib.contextmanager
     def locked(self):
+        if self.pin_format_proof is not None:
+            need(self.path.is_file() and not self.path.is_symlink(), 'PIN_FORMAT_PROOF_REQUIRES_PREPARED_CHECKPOINT')
         runner.private_dir(self.state)
         common = Path(self.c['automation_state'])
         need(common.is_dir(), 'EXISTING_AUTOMATION_STATE_REQUIRED')
@@ -281,17 +425,42 @@ class Pipeline:
                 self.fds.append(runner.lock(path, legacy=path == Path(self.c['legacy_lock'])))
             need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
             if self.path.exists() or self.path.is_symlink():
-                self.manifest = runner.read_json(self.path)
-                need(self.manifest.get('schema') == 1 and isinstance(self.manifest.get('history'), list), 'CORRUPT_MANIFEST')
-                need(self.manifest['configSHA256'] == self.config_sha(), 'CONFIG_CHANGED_USE_NEW_STATE')
+                self.read_checkpoint()
             yield
         finally:
             for fd in reversed(self.fds):
                 os.close(fd)
             self.fds.clear()
 
+    def read_checkpoint(self):
+        self.manifest = runner.read_json(self.path)
+        need(self.manifest.get('schema') == 1 and isinstance(self.manifest.get('history'), list), 'CORRUPT_MANIFEST')
+        need(self.manifest['configSHA256'] == self.config_sha(), 'CONFIG_CHANGED_USE_NEW_STATE')
+        if self.pin_format_proof is not None:
+            self.clean()
+
     def config_sha(self):
-        return runner.digest(json.dumps(self.c, sort_keys=True).encode())
+        current = runner.digest(json.dumps(self.c, sort_keys=True).encode())
+        if self.pin_format_proof is None:
+            return current
+        need(self.manifest and self.manifest.get('prepared') is True and not self.manifest.get('mergeInFlight'),
+             'PIN_FORMAT_PROOF_REQUIRES_PREPARED_CHECKPOINT')
+        need(self.pin_format_proof.is_absolute() and '..' not in self.pin_format_proof.parts,
+             'ABSOLUTE_PRIVATE_PIN_FORMAT_PROOF_REQUIRED')
+        # Re-read the owned 0600 original on every identity check. Its canonical
+        # hash must match the existing checkpoint; a filename alone is no proof.
+        original = config(self.pin_format_proof)
+        anchor = runner.digest(json.dumps(original, sort_keys=True).encode())
+        need(anchor == self.manifest['configSHA256'], 'CONFIG_CHANGED_USE_NEW_STATE')
+        old_pin, new_pin = original['signing']['certificate_sha256'], self.c['signing']['certificate_sha256']
+        need(isinstance(old_pin, str) and re.fullmatch(r'(?:[0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2}', old_pin) and
+             isinstance(new_pin, str) and re.fullmatch(r'[0-9a-f]{64}', new_pin) and
+             old_pin.replace(':', '').lower() == new_pin, 'CONFIG_CHANGED_USE_NEW_STATE')
+        original['signing']['certificate_sha256'] = new_pin  # Detached in-memory proof, never a file write.
+        need(runner.digest(json.dumps(original, sort_keys=True).encode()) == current, 'CONFIG_CHANGED_USE_NEW_STATE')
+        # Keep the original identity and all receipts intact. No config/manifest
+        # migration, and no exemption from stage/log/output/signature checks.
+        return anchor
 
     def save(self, event):
         old = sha(self.path) if self.path.exists() else None
@@ -351,6 +520,30 @@ class Pipeline:
             admitted.append({'role': role, **pin})
         return admitted
 
+    def reviewed_overlap(self, item, cherry):
+        review = REVIEWED_OVERLAP
+        # Only the exact, clean merge of base + the approved editor is eligible.
+        # A reverted/reworked equivalent patch or any extra commit needs review.
+        need(item['role'] == 'compatibility' and self.c['expected_head'] == review['base'] and
+             all(self.c['prs'][role]['sha'] == review[role] for role in ROLES),
+             'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+        parents = git(self.source(), 'rev-list', '--parents', '-n', '1', 'HEAD').split()
+        need(parents == [self.manifest['head'], review['base'], review['editor']] and
+             git(self.source(), 'rev-parse', 'HEAD^{tree}') == review['inputTree'] and
+             sum(line.startswith('- ') for line in cherry) == review['equivalentCount'] and
+             sum(line.startswith('+ ') for line in cherry) == review['newCount'],
+             'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+        # Read-only three-way preview; no checkout, cherry-pick or conflict resolution.
+        tree = git(self.source(), 'merge-tree', '--write-tree', '--no-messages',
+                   'HEAD', item['sha'], optional=True)
+        need(tree == review['outputTree'], 'REVIEWED_OVERLAP_TREE_DIFFERS_WORKTREE_PRESERVED')
+        self.manifest['overlapReview'] = {
+            'previousHead': self.manifest['head'], 'incomingHead': item['sha'],
+            'expectedTree': tree, 'equivalentCommits': [line[2:] for line in cherry if line.startswith('- ')],
+        }
+        self.save('REVIEWED_OVERLAP_' + item['role'])
+        return tree
+
     def prepare(self):
         admitted = self.gate()
         if self.manifest and self.manifest.get('prepared'):
@@ -382,7 +575,7 @@ class Pipeline:
             if cherry and all(line.startswith('-') for line in cherry):
                 self.save('PATCH_EQUIVALENT_' + item['role'])
                 continue
-            need(not any(line.startswith('-') for line in cherry), 'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED')
+            reviewed_tree = self.reviewed_overlap(item, cherry) if any(line.startswith('-') for line in cherry) else None
             self.manifest['mergeInFlight'] = item['sha']
             self.save('MERGE_INTENT_' + item['role'])
             try:
@@ -392,6 +585,14 @@ class Pipeline:
                 self.manifest['conflicts'] = git(self.source(), 'diff', '--name-only', '--diff-filter=U').splitlines()
                 self.save('MERGE_FAILED_PRESERVED')
                 raise Stop('MERGE_FAILED_REVIEW_PRESERVED_WORKTREE_' + str(self.source())) from None
+            if reviewed_tree:
+                actual_tree = git(self.source(), 'rev-parse', 'HEAD^{tree}')
+                parents = git(self.source(), 'rev-list', '--parents', '-n', '1', 'HEAD').split()
+                if actual_tree != reviewed_tree or parents[1:] != [self.manifest['head'], item['sha']]:
+                    self.manifest['rejectedMerge'] = {'head': git(self.source(), 'rev-parse', 'HEAD'),
+                                                      'expectedTree': reviewed_tree, 'actualTree': actual_tree}
+                    self.save('MERGE_RESULT_REJECTED_PRESERVED')
+                    raise Stop('REVIEWED_MERGE_RESULT_DIFFERS_WORKTREE_PRESERVED')
             self.manifest['head'] = git(self.source(), 'rev-parse', 'HEAD')
             self.manifest.pop('mergeInFlight')
             self.save('MERGED_' + item['role'])
@@ -432,9 +633,7 @@ class Pipeline:
                    '-Dkotlin.daemon.enabled=false', DOCKER_HOST=rootless(), TESTCONTAINERS_HOST_OVERRIDE='127.0.0.1')
         return env
 
-    def stage(self, name, cwd, argv, outputs=()):
-        self.clean()
-        need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
+    def stage_inputs(self, name, cwd, argv):
         inputs = {'head': self.manifest['head'], 'config': self.config_sha(), 'toolchain': self.manifest['toolchain'],
                   'pipeline': sha(Path(__file__)), 'runner': sha(HERE / 'foto-stage-runner.py'),
                   'argv': argv, 'cwd': str(cwd)}
@@ -448,6 +647,33 @@ class Pipeline:
                 p = 'mobile/.dart_tool/package_config.json'
                 inputs['dependencies'][p] = sha(self.source() / p)
         previous = self.manifest['stages'].get(name)
+        if previous and previous.get('inputs', {}).get('pipeline') == REVIEWED_TEST_RUNTIME:
+            recipes = {x[0]: x[3] for x in recipes_for(self.source())}
+            need(previous.get('status') == 'PASS' and name in recipes,
+                 'REVIEWED_PREDECESSOR_TEST_PASS_REQUIRED')
+            need(set(previous.get('outputs', {})) == set(recipes[name]), 'CORRUPT_STAGE_RECEIPT')
+            need(git(self.source(), 'rev-parse', 'HEAD^{tree}') == REVIEWED_OVERLAP['outputTree'] and
+                 self.c['expected_head'] == REVIEWED_OVERLAP['base'] and
+                 all(self.c['prs'][role]['sha'] == REVIEWED_OVERLAP[role] for role in ROLES),
+                 'REVIEWED_PREDECESSOR_APPLICATION_DIFFERS')
+            inputs['pipeline'] = REVIEWED_TEST_RUNTIME
+            if name == 'flutter-codegen':
+                # The versioned installation path changed, but this helper did
+                # not. Prove exact bytes, never waive an arbitrary argv change.
+                old = previous['inputs']['argv']
+                need(len(old) == 2 and old[0] == '/bin/bash', 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+                helper = Path(old[1])
+                need(helper.is_absolute() and helper.name == 'foto-mobile-codegen.sh' and
+                     sha(helper) == sha(HERE / helper.name) == CODEGEN_HELPER_SHA,
+                     'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+                inputs['argv'] = ['/bin/bash', str(helper)]
+        return inputs
+
+    def stage(self, name, cwd, argv, outputs=()):
+        self.clean()
+        need(not processes(), 'EXISTING_CODEX_OR_BUILD_PROCESS')
+        inputs = self.stage_inputs(name, cwd, argv)
+        previous = self.manifest['stages'].get(name)
         if previous:
             need(previous['inputs'] == inputs, 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
             if previous['status'] == 'PASS':
@@ -458,11 +684,7 @@ class Pipeline:
                 print('PASS_REUSED', name, flush=True)
                 return
             need(self.retry and self.diagnosis.strip(), 'FAILED_OR_INTERRUPTED_EXPLICIT_RETRY_AND_DIAGNOSIS_REQUIRED')
-        available = resources()
-        minimum = (12 if name == 'backend-image' else 5) * 1024**3
-        need(available['memoryBytes']['MemAvailable'] >= minimum, 'INSUFFICIENT_AVAILABLE_MEMORY_NO_LIMITS_CHANGED')
-        limit = available['currentCgroup'].get('memory.max', 'unavailable')
-        need(not limit.isdigit() or int(limit) >= 6 * 1024**3, 'CALLER_CGROUP_TOO_SMALL_NO_LIMITS_CHANGED')
+        check_stage_memory(name, resources())
         logname = name + '-' + uuid.uuid4().hex + '.log'
         attempt = {'inputs': inputs, 'status': 'RUNNING', 'log': logname, 'outputs': {}, 'startedAt': time.time()}
         self.manifest['stages'][name] = attempt
@@ -539,7 +761,10 @@ class Pipeline:
     def build(self):
         self.gate()
         self.clean()
-        need(self.manifest.get('testsComplete') == [x[0] for x in recipes_for(self.source())], 'MANDATORY_CHECKS_INCOMPLETE')
+        recipes = recipes_for(self.source())
+        need(self.manifest.get('testsComplete') == [x[0] for x in recipes] and
+             all(self.manifest['stages'].get(x[0], {}).get('status') == 'PASS' for x in recipes),
+             'MANDATORY_CHECKS_INCOMPLETE')
         need(self.tools() == self.manifest['toolchain'], 'TOOLCHAIN_CHANGED_NEW_STATE_REQUIRED')
         # Revalidate every successful receipt, outputs and logs, without repeating tests.
         for name, folder, argv, outputs in recipes_for(self.source()):
@@ -586,6 +811,18 @@ class Pipeline:
                 if path.is_symlink() and path.readlink() == Path(target):
                     path.unlink()
 
+    def finalize(self):
+        # An explicit operator choice, under the existing common locks. Fail
+        # before integration/tests if the existing signing identity is unavailable.
+        self.signing()
+        self.prepare()
+        self.save('FINALIZE_REQUESTED_BUILD_ONLY_NO_DEPLOYMENT')
+        self.test()
+        self.build()
+        self.manifest['mode'] = 'verify'
+        self.save('VERIFY_SELECTED')
+        self.verify()
+
     def verify(self):
         self.gate()
         self.clean()
@@ -598,10 +835,16 @@ class Pipeline:
         need(self.image() == self.manifest['image'], 'IMAGE_ID_CHANGED')
         source = self.source() / 'mobile/build/app/outputs/flutter-apk/app-release.apk'
         need(self.apk_metadata(source) == self.manifest['apk'], 'APK_IDENTITY_CHANGED')
-        for stage in self.manifest['stages'].values():
+        recipes = {name: (self.source() / folder, argv) for name, folder, argv, _ in recipes_for(self.source())}
+        for name, stage in self.manifest['stages'].items():
             inputs = stage['inputs']
+            expected_pipeline = sha(Path(__file__))
+            if name in recipes:
+                expected = self.stage_inputs(name, *recipes[name])
+                need(inputs == expected, 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
+                expected_pipeline = expected['pipeline']
             need(inputs['head'] == self.manifest['head'] and inputs['config'] == self.config_sha()
-                 and inputs['pipeline'] == sha(Path(__file__)) and inputs['runner'] == sha(HERE / 'foto-stage-runner.py')
+                 and inputs['pipeline'] == expected_pipeline and inputs['runner'] == sha(HERE / 'foto-stage-runner.py')
                  and inputs['toolchain'] == self.manifest['toolchain'], 'STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED')
             need(all(sha(self.source() / p) == value for p, value in inputs.get('dependencies', {}).items()),
                  'INSTALLED_DEPENDENCIES_CHANGED')
@@ -736,9 +979,13 @@ def main():
     modes = parser.add_mutually_exclusive_group(required=True)
     for mode in ('check', 'prepare', 'test', 'build', 'verify', 'resume'):
         modes.add_argument('--' + mode, action='store_true')
+    modes.add_argument('--finalize', action='store_true',
+                       help='Explicit prepare/test/build/verify in tmux; existing key only, no deployment or automatic retry')
     modes.add_argument('--receive-apk', type=Path, metavar='PUBLIC_RECEIPT')
     parser.add_argument('--retry-failed', action='store_true', help='Explicit one-attempt retry of failed/interrupted stages')
     parser.add_argument('--diagnosis', default='', help='Sanitized operator diagnosis; never a command or password')
+    parser.add_argument('--certificate-pin-format-proof', type=Path, metavar='ORIGINAL_CONFIG',
+                        help='Read-only owned 0600 original matching the checkpoint; admit only colon/case pin normalization')
     args = parser.parse_args()
     if args.receive_apk:
         receive(args.receive_apk)
@@ -747,20 +994,27 @@ def main():
     c = config(args.config)
     need(pwd.getpwuid(os.getuid()).pw_name == 'codex-gallery' and os.getuid() != 0,
          'RUN_AS_CODEX_GALLERY_NO_AUTOMATIC_PRIVILEGE_ESCALATION')
+    if args.finalize:
+        need(os.environ.get('TMUX'), 'FINALIZE_REQUIRES_TMUX')
+    p = Pipeline(c, args.retry_failed, args.diagnosis, args.certificate_pin_format_proof)
     if args.check:
         # Intentionally no mkdir, locks, fetch, codegen, tool installation or state writes.
-        print(json.dumps(inventory(c), indent=2))
+        result = {}
+        if args.certificate_pin_format_proof:
+            p.read_checkpoint()
+            result['checkpointConfigValidation'] = 'PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT'
+        result.update(inventory(c))
+        print(json.dumps(result, indent=2))
         return
     snapshot = inventory(c)
-    p = Pipeline(c, args.retry_failed, args.diagnosis)
     with p.locked():
         runner.atomic_json(p.state / ('inventory-' + uuid.uuid4().hex + '.json'), snapshot)
-        mode = next(x for x in ('prepare', 'test', 'build', 'verify', 'resume') if getattr(args, x))
+        mode = next(x for x in ('prepare', 'test', 'build', 'verify', 'resume', 'finalize') if getattr(args, x))
         if mode == 'resume':
             need(p.manifest, 'NO_CHECKPOINT_TO_RESUME')
             mode = p.manifest['mode']
-        if mode == 'prepare':
-            p.prepare()
+        if mode in ('prepare', 'finalize'):
+            getattr(p, mode)()
         else:
             need(p.manifest and p.manifest.get('prepared'), 'PREPARE_REQUIRED')
             p.manifest['mode'] = mode

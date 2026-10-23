@@ -24,9 +24,62 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Test orchestration on temporary Git and mocked services
+        env:
+          FOTO17_PINNED_GIT_REPLAY_REPO: ${{ github.workspace }}
         run: python3 -m unittest discover -s tools/foto-automation/tests -p test_build17_release.py -v
       - name: Keep source reviews off signing runners while preserving E2E
         run: python3 -m unittest discover -s tools/foto-automation/tests -p test_release_review_scope.py -v
       - name: Check Python syntax
         run: python3 -m py_compile tools/foto-automation/foto-build17-release tools/foto-automation/tests/test_build17_release.py
+  combined-mobile:
+    name: Combined FOTO17 editor and sync
+    needs: fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      MISE_JOBS: '1'
+      JAVA_TOOL_OPTIONS: '-Xmx2048m -XX:ActiveProcessorCount=2'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prepare only the reviewed application tree in the disposable runner
+        run: |
+          cp tools/foto-automation/foto-mobile-codegen.sh "$RUNNER_TEMP/foto-mobile-codegen.sh"
+          git switch -c validation/foto17-combined ace2eab962524479a61e6891410983a7f41ba0fa
+          git -c user.name='FOTO CI' -c user.email=ci@localhost merge --no-ff --no-edit df3e0daf14f7593808a039df080c32cd05a7a503
+          git -c user.name='FOTO CI' -c user.email=ci@localhost merge --no-ff --no-edit 3cc9631b7a2a48d2889808da5db7a62cc1345fea
+          test "$(git rev-parse 'HEAD^{tree}')" = 09e791c093d10927c434c85787328ebabcace5bd
+          git diff --exit-code 3cc9631b7a2a48d2889808da5db7a62cc1345fea HEAD -- server web open-api packages/sdk pnpm-lock.yaml package.json mobile/pubspec.yaml mobile/pubspec.lock
+          git diff --exit-code df3e0daf14f7593808a039df080c32cd05a7a503 HEAD -- mobile/lib/presentation/pages/edit mobile/test/pages/edit mobile/lib/repositories/magic_eraser.repository.dart
+      - name: Setup the existing pinned mobile toolchain
+        uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Install frozen dependencies and generate the combined OpenAPI client
+        run: mise --jobs 1 run //mobile:install:ci
+      - name: Generate Flutter code sequentially
+        working-directory: ./mobile
+        run: mise exec -- bash "$RUNNER_TEMP/foto-mobile-codegen.sh"
+      - name: Analyze the combined Flutter client
+        working-directory: ./mobile
+        run: mise exec -- flutter analyze --no-pub
+      - name: Test editor, backup, sync, SQLite journals and Trash sequentially
+        working-directory: ./mobile
+        run: |
+          mise exec -- flutter test --no-pub --concurrency=1 \
+            test/pages/edit \
+            test/repositories/magic_eraser_repository_test.dart \
+            test/domain/services/sync_stream_service_test.dart \
+            test/domain/repositories/sync_stream_repository_test.dart \
+            test/infrastructure/repositories/sync_api_repository_test.dart \
+            test/infrastructure/repositories/memory_v2_journal_test.dart \
+            test/infrastructure/repositories/trash_pending_operations_test.dart \
+            test/infrastructure/repositories/trash_sync_visibility_test.dart \
+            test/providers/backup/backup_provider_test.dart
+      - name: Refuse tracked generated-code drift
+        run: git diff --exit-code

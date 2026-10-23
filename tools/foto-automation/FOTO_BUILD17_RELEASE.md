@@ -10,14 +10,14 @@ deletion intents и не меняет production. Существующий об�
 `foto-mobile-codegen.sh` и `foto-android-build.sh`. Их исходники, существующие
 launcher, systemd units, канонические progress/pending/manifest не изменяются.
 
-## Проверенное состояние GitHub, 22.10.2026
+## Проверенное состояние GitHub, 23.10.2026
 
 | Назначение            | Ref / SHA                                                                              | Состояние                       |
 | --------------------- | -------------------------------------------------------------------------------------- | ------------------------------- |
 | База HP               | `codex/foto-build17-unified`, `ace2eab962524479a61e6891410983a7f41ba0fa`               | Проверяется заново при запуске  |
 | Редактор              | PR #6, `codex/foto-build17-editor-compact`, `df3e0daf14f7593808a039df080c32cd05a7a503` | OPEN; новый CI проверять по SHA |
 | Backend compatibility | PR #7, `codex/foto-build17-client-compat`, `3cc9631b7a2a48d2889808da5db7a62cc1345fea`  | OPEN; новый CI проверять по SHA |
-| Код инструмента       | `codex/foto-build17-release`, `0bd44fb68de8cc2d9e7db76c504d9ee9c086684d`               | 49 + 1 адресная проверка PASS   |
+| Код инструмента       | `codex/foto-build17-release-reviewed-overlap`, `9743a191e50ffc373abd848e45ab3fd97f61bbfa`               | 21 targeted root-cgroup/reuse/launcher PASS; новый CI — отдельно |
 
 Пример config намеренно содержит `approved=false` и не содержит реальных путей
 к ключу/свойствам или выдуманного certificate fingerprint. **До завершения нового CI и ручной приёмки точных SHA интеграция заблокирована.** Инструмент не исправляет их красный
@@ -32,74 +32,21 @@ mobile checks, совместимости — также server/medium/OpenAPI/s
 блокирует допуск обоих PR. Проверка собственного rootless endpoint повторяется
 непосредственно перед запросами builder/image, включая повторный запуск.
 
-## Установка инструмента (doctoriceadm, без изменения исходного checkout)
+## Установка и продолжение остановленного релиза
 
-Блок получает пять файлов через GitHub API из точного опубликованного commit и
-проверяет SHA-256 **каждого** файла. Fetch, checkout и worktree add отсутствуют.
-Нужен уже настроенный `gh` под codex-gallery; токен в команды не подставляется.
-Выполняет **doctoriceadm** в обычной SSH-сессии; установка через sudo здесь —
-явное действие оператора, внутри конвейера sudo/runuser/systemd-run нет.
-Новый versioned config оставляет `approved=false`, не требует ключа для check
-и не заменяет существующие config/checkpoints. Архивы/образы/APK не скачиваются.
+Используйте [один проверяемый блок установки и запуска на HP](FOTO_BUILD17_FINAL_HP.md).
+Он проверяет подтверждённые prepared worktree и 50 PASS receipts перед backend-image,
+новый memory gate, Buildx v0.35 inspect/history status и доказанную эквивалентность
+единственного изменения certificate pin,
+устанавливает новые versioned bytes и сохраняет **тот же существующий config**,
+все worktrees и историю manifest. В отдельном tmux запускаются только `--build`
+и `--verify`: тесты и merge не повторяются.
+Новый config с угаданным ключом/approvals не создаётся. Причина старого
+`PARTIALLY_APPLIED_PR_REVIEW_REQUIRED` и узкая reviewed-проверка описаны в
+[отчёте](FOTO_BUILD17_RELEASE_OVERLAP.md).
 
-```bash
-set -euo pipefail
-umask 077
-TOOLS_SHA=0bd44fb68de8cc2d9e7db76c504d9ee9c086684d
-STAGE=$(mktemp -d /tmp/foto17-release-install.XXXXXXXX)
-INSTALL=/usr/local/lib/foto-build17-release/$TOOLS_SHA
-CFG=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
-REPORT=$(mktemp /home/doctoriceadm/foto-build17-check-0bd44fb68.XXXXXXXX.json)
-ERRORS=$REPORT.stderr
-
-for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
-  sudo -u codex-gallery -H gh api \
-    "repos/docice545/gallery/contents/tools/foto-automation/$f?ref=$TOOLS_SHA" \
-    --jq .content | base64 --decode > "$STAGE/$f"
-done
-cat > "$STAGE/SHA256SUMS" <<'SHA256SUMS'
-713438db5a9acf930a8f68bb7aa3977072bf559c17dc2ac5ba2a30fb232806d7  foto-build17-release
-520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
-f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
-afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
-2459818bce7f57d6e9692220473d8ca23db34ac78d7de7f55cae299ac25e15a9  foto-build17-release.example.json
-SHA256SUMS
-(cd "$STAGE" && sha256sum --check SHA256SUMS)
-if sudo test -L "$INSTALL"; then
-  echo 'STOP INSTALL_DIRECTORY_IS_SYMLINK' >&2
-  exit 1
-fi
-sudo install -d -m0755 "$INSTALL"
-for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
-  if sudo test -e "$INSTALL/$f" || sudo test -L "$INSTALL/$f"; then
-    sudo test ! -L "$INSTALL/$f"
-    sudo cmp -s "$STAGE/$f" "$INSTALL/$f"
-  else
-    MODE=0755
-    if [ "$f" = foto-build17-release.example.json ]; then MODE=0644; fi
-    sudo install -m "$MODE" "$STAGE/$f" "$INSTALL/$f"
-  fi
-done
-if ! sudo test -e "$CFG" && ! sudo test -L "$CFG"; then
-  sudo -u codex-gallery install -m0600 "$INSTALL/foto-build17-release.example.json" "$CFG"
-fi
-if sudo -u codex-gallery -H "$INSTALL/foto-build17-release" --config "$CFG" --check > "$REPORT" 2> "$ERRORS"; then
-  printf 'CHECK COMPLETED; inventory only, not release approval: %s\n' "$REPORT"
-else
-  printf 'CHECK BLOCKED; private report: %s; errors: %s\n' "$REPORT" "$ERRORS" >&2
-  exit 1
-fi
-```
-
-Блок не запускался на HP. Syntax/скачивание точных опубликованных bytes проверяются
-в Cloud; это не подтверждение HP toolchain. Не публикуйте private inventory без
-просмотра. Ошибка `QUERY_FAILED_GH` требует существующего доступа codex-gallery к
-репозиторию; не добавляйте токен в журнал. Ошибка rootless в JSON — основание для
-отдельной проверки, не разрешение переключиться на rootful Docker.
-
-`--check` не принимает PR и не проверяет реальную работу приложений. Он показывает
-инвентаризацию; даже exit 0 **не разрешает** prepare/test/build. Красные CI PR #6/#7,
-неизвестный существующий keystore и native/NAS/AI E2E остаются блокерами.
+Старый install pin0bd44fb68 не содержит этого исправления. Он сохраняется на HP,
+но не используется для повторной попытки подготовки этой пары PR.
 
 ## Что подтвердить на HP перед первым prepare
 
@@ -120,7 +67,7 @@ fi
    полный JDK с javac. Автоматической установки системных инструментов нет.
 5. Rootless socket `/run/user/<uid>/docker.sock`, builder `foto17-limited`,
    его фактические memory=10 GiB / memory-swap=12 GiB и активные workers с
-   max-parallelism=1. Нужен buildx с JSON inspect/history. Если формат отличается
+   max-parallelism=1. Нужен buildx с текстовым inspect и JSONL history (`status` нижнего регистра). Если формат отличается
    или история недоступна, конвейер остановится; новый builder не создаётся.
 6. Свободное место (пример требует 60 GiB на SSD), память, отсутствие активных
    Codex/build процессов и существующие каталоги shared locks:
@@ -144,7 +91,7 @@ sudo -u codex-gallery -H tmux new-session -s foto17-release
 Внутри tmux:
 
 ```bash
-R=/usr/local/lib/foto-build17-release/0bd44fb68de8cc2d9e7db76c504d9ee9c086684d/foto-build17-release
+R=/usr/local/lib/foto-build17-release/9743a191e50ffc373abd848e45ab3fd97f61bbfa/foto-build17-release
 C=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 "$R" --config "$C" --check
 ```
@@ -189,13 +136,56 @@ DB/Redis/Immich env не передаются тестам. Выполнение
 
 ## Ресурсы, checkpoints и ошибки
 
+### Единственное форматное изменение certificate pin
+
+При `CONFIG_CHANGED_USE_NEW_STATE` стандартная проверка hash не ослаблена.
+Для подтверждённого HP checkpoint `e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2`
+доступен явный аргумент:
+`--certificate-pin-format-proof "$C.before-pin-normalization"`.
+Он допустим только с существующим prepared checkpoint без merge-in-flight.
+Backup читается как принадлежащий текущему uid regular 0600 файл без symlink.
+Его полный canonical JSON hash обязан равняться исходному manifest.configSHA256.
+После единственной замены `signing.certificate_sha256` весь JSON обязан совпасть
+с текущим config, включая типы. Старый pin — ровно 32 hex-байта через двоеточия,
+новый — 64 lowercase hex, сертификат тот же. Другие изменения запрещены.
+
+Ничего в config, backup или идентичности manifest не переписывается. Прежний
+config hash остаётся anchor для всех новых этапов; proof перечитывается при каждом
+сравнении входов. SHA runner/toolchain/logs/outputs и `apksigner verify` сохраняются.
+Смена runtime по-прежнему требует проверки новых входов. Для memory-only update
+reviewed predecessor `c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf`
+допускается только у PASS test-рецептов точного reviewed application tree, с полной
+проверкой остальных inputs/log/output SHA; прежние receipts не переписываются.
+Новые backend/APK stages требуют новый runtime SHA. У подтверждённого HP checkpoint
+теперь 50 PASS (первоначальные 49 были ошибкой подсчёта). После продолжения тот же
+флаг обязателен для `--resume`/`--verify`. Примеры режимов выше относятся к обычному
+неизменённому config; для этого HP используйте полный блок `FOTO_BUILD17_FINAL_HP.md`,
+который дополнительно проверяет владельца backup и оба поля отчёта `--check`:
+`checkpointConfigValidation=PASS_CERTIFICATE_PIN_FORMAT_EQUIVALENT` и
+`builderValidation=PASS_READ_ONLY_LIMITS_AND_IDLE`.
+
+### Memory gate backend-image
+
+Минимум10GiB MemAvailable вместо12GiB, минимум14GiB MemTotal (4GiB вне потолка
+BuildKit10GiB), ограниченные PSI some/full хоста и cgroup: some <=1.00/0.50/0.25%, full <=0.10/0.05/0.02% (avg10/60/300). Все видимые
+предки caller cgroup v2 проверяются по memory.max/high/current: при конечном
+лимите требуется10GiB headroom. Только в самом корне `/sys/fs/cgroup` допустимо
+полное отсутствие current/max/high, как на Ubuntu24.04; root PSI всё равно
+обязателен. Если current существует, max/high обязательны и проверяются.
+Отсутствие nested файлов, частичные root данные, dangling symlink, ошибки доступа
+и другие неизвестные/нечитаемые данные запрещают запуск.
+Swap не считается RAM. У остальных стадий прежний floor5GiB, cgroup max>=6GiB.
+Это проверка допуска, не гарантия отсутствия будущего OOM при изменении нагрузки.
+Лимиты и процессы production не меняются, память не резервируется принудительно.
+
 - Общие nonblocking locks release/session/heavy-stage/continue/legacy исключают
   конкуренцию с установленными FOTO launcher. Новые сессии Codex не запускаются.
 - Vitest workers/file-parallelism/concurrency=1; Flutter concurrency=1; Gradle
   workers=1, parallel=false, daemon=false, Kotlin in-process; Node heap 4 GiB,
   Java heap 2 GiB; pnpm child/workspace concurrency=1; CPU affinity двух разрешённых CPU через существующий supervisor.
   Это настройки дочерних процессов, не изменение systemd/лимитов HP.
-- Дополнительный memory preflight: 5 GiB MemAvailable, 12 GiB перед image build;
+- Дополнительный memory preflight: 5 GiB MemAvailable, 10 GiB перед image build
+  с host/cgroup reserve и ограниченными PSI, как описано выше;
   caller cgroup не меньше 6 GiB, если лимит доступен. BuildKit проверяется отдельно.
 - Сигналы завершают управляемое дерево. SIGKILL/OOM оставляет RUNNING intent;
   он не считается успехом. У daemon-side BuildKit дополнительно проверяется idle
@@ -274,3 +264,15 @@ registry retag. Это ограничения мутаций, не отключ�
 Dart/static, SQL/OpenAPI и release fixtures проверяются отдельно; skipped build
 не считается собранным APK или backend runtime. Старая acceptance-история не
 переносилась повторно. Final CI evidence публикуется в PR #6/#7/#8 на точных SHA.
+
+## Явное завершение всей цепочки
+
+Справка для первоначального запуска с пустым checkpoint, не для нынешних 50 PASS:
+после установки и проверки прежнего config в tmux можно явно выбрать
+`"$R" --config "$C" --finalize`. Этот режим требует существующего ключа и
+последовательно делает prepare/test/build/verify под прежними common locks.
+Он не делает deployment и не запускает Codex. `--resume` сохраняет прежнюю
+семантику одного последнего этапа; для продолжения полной цепочки нужен явный
+`--finalize`. Никакой автоматический retry после ошибок не добавлен.
+Для текущего memory STOP используйте только блок `FOTO_BUILD17_FINAL_HP.md`:
+он не вызывает finalize/prepare/test, запускает build → verify и сохраняет 50 receipts.
