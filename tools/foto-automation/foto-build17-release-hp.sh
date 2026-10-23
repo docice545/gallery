@@ -2,7 +2,13 @@
 # HP-only pinned build/verify launcher; never deploys or reruns completed tests.
 set -euo pipefail
 umask 077
-trap 's=$?; if [ "$s" -ne 0 ]; then printf "STOP exit=%s; private preflight reports: %s*; state not reset\n" "$s" "${FOTO_REPORT:-not-created}" >&2; fi' EXIT
+foto_launch_exit() {
+  local FOTO_EXIT_STATUS=$1
+  if [ "$FOTO_EXIT_STATUS" -ne 0 ]; then
+    printf 'STOP exit=%s; private preflight reports: %s*; state not reset\n' "$FOTO_EXIT_STATUS" "${FOTO_REPORT:-not-created}" >&2
+  fi
+}
+trap 'foto_launch_exit "$?"' EXIT
 FOTO_TOOLS_SHA=95b4d75fb0834df8804489f78816921ea2bddeb1
 FOTO_INSTALL=/usr/local/lib/foto-build17-release/$FOTO_TOOLS_SHA
 FOTO_STAGE=$(mktemp -d /tmp/foto17-psi-install.XXXXXXXX)

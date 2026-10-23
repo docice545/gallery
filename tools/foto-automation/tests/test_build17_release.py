@@ -377,6 +377,11 @@ class MemoryAdmissionTest(unittest.TestCase):
         inner = self.root / 'launch.sh'
         inner.write_text(text)
         subprocess.run(['bash', '-n', str(inner)], check=True)
+        prelude = text.split('FOTO_TOOLS_SHA=', 1)[0]
+        for status in (0, 7):
+            result = subprocess.run(['bash', '-c', prelude + '\nexit ' + str(status)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, status)
+            self.assertEqual('STOP exit=7' in result.stderr, status == 7)
         for name in app.re.findall(r"<<'(PY_[A-Z_]+)'", text):
             code = text.split("<<'" + name + "'\n", 1)[1].split('\n' + name, 1)[0]
             compile(code, name, 'exec')
