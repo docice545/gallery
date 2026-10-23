@@ -235,6 +235,7 @@ class BuildxHistory035Test(unittest.TestCase):
 
 
 IDLE_PSI = 'some avg10=0.00 avg60=0.00 avg300=0.00 total=123\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=45\n'
+HP_LOW_PSI = 'some avg10=0.00 avg60=0.03 avg300=0.02 total=123\nfull avg10=0.00 avg60=0.01 avg300=0.00 total=45\n'
 
 
 class MemoryAdmissionTest(unittest.TestCase):
@@ -290,12 +291,13 @@ class MemoryAdmissionTest(unittest.TestCase):
         self.observer.assert_not_called()
 
     def test_memory_psi_all_windows_and_both_kinds_reject_pressure(self):
+        excessive = {'some': ('1.01', '0.51', '0.26'), 'full': ('0.11', '0.06', '0.03')}
         for kind in ('some', 'full'):
-            for window in ('avg10', 'avg60', 'avg300'):
+            for window, value in zip(('avg10', 'avg60', 'avg300'), excessive[kind]):
                 for path in (self.proc / 'pressure/memory', self.cg / 'memory.pressure', self.cg / 'session/memory.pressure'):
                     lines = IDLE_PSI.splitlines()
                     index = 0 if kind == 'some' else 1
-                    lines[index] = lines[index].replace(window + '=0.00', window + '=0.01')
+                    lines[index] = lines[index].replace(window + '=0.00', window + '=' + value)
                     path.write_text('\n'.join(lines) + '\n')
                     with self.subTest(path=path, kind=kind, window=window), self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
                         self.admit()
@@ -306,10 +308,42 @@ class MemoryAdmissionTest(unittest.TestCase):
                      IDLE_PSI.replace('avg10=0.00', 'avg10=nan'), IDLE_PSI.replace('avg60=0.00', 'avg60=inf'),
                      IDLE_PSI.replace('avg300=0.00', 'avg300=-1'), IDLE_PSI.replace('total=123', 'total=x')):
             with self.subTest(text=text), self.assertRaises(app.Stop):
-                app.memory_pressure_idle(text)
+                app.check_memory_pressure(text)
         (self.proc / 'pressure/memory').unlink()
         with self.assertRaisesRegex(app.Stop, 'MEMORY_OBSERVATIONS_UNAVAILABLE'):
             self.admit()
+
+    def test_memory_psi_confirmed_low_hp_pressure_is_admitted_without_writes(self):
+        paths = (self.proc / 'pressure/memory', self.cg / 'memory.pressure', self.cg / 'session/memory.pressure')
+        for path in paths:
+            path.write_text(HP_LOW_PSI)
+        before = {p: p.read_bytes() for directory in (self.proc, self.cg) for p in directory.rglob('*') if p.is_file()}
+        self.admit(int(11.11 * 1024**3))
+        for path, raw in before.items():
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_memory_psi_percentage_boundaries_and_distinct_some_full_budgets(self):
+        bounds = {'some': ('1.00', '0.50', '0.25'), 'full': ('0.10', '0.05', '0.02')}
+        lines = [kind + ' ' + ' '.join(key + '=' + value for key, value in zip(('avg10', 'avg60', 'avg300'), values))
+                 + ' total=987654321' for kind, values in bounds.items()]
+        app.check_memory_pressure('\n'.join(lines))  # Inclusive ceilings; total is historical, not recent PSI.
+        for index, kind in enumerate(('some', 'full')):
+            for key, bound in zip(('avg10', 'avg60', 'avg300'), bounds[kind]):
+                changed = lines.copy()
+                changed[index] = changed[index].replace(key + '=' + bound, key + '=' + str(float(bound) + 0.000001))
+                with self.subTest(kind=kind, key=key), self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+                    app.check_memory_pressure('\n'.join(changed))
+        app.check_memory_pressure(IDLE_PSI.replace('some avg10=0.00', 'some avg10=0.20'))
+        with self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+            app.check_memory_pressure(IDLE_PSI.replace('full avg10=0.00', 'full avg10=0.20'))
+
+    def test_memory_psi_observations_are_reloaded_between_gate_calls(self):
+        for path in (self.proc / 'pressure/memory', self.cg / 'memory.pressure', self.cg / 'session/memory.pressure'):
+            path.write_text(HP_LOW_PSI)
+        self.admit(int(11.11 * 1024**3))
+        (self.cg / 'session/memory.pressure').write_text(IDLE_PSI.replace('full avg10=0.00', 'full avg10=0.11'))
+        with self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+            self.admit(int(11.11 * 1024**3))
 
     def test_memory_cgroup_max_high_current_and_ancestor_reserve(self):
         for directory in (self.cg, self.cg / 'session'):
@@ -1067,6 +1101,19 @@ class ReleaseTest(unittest.TestCase):
                 self.fake_stage() as child, self.assertRaisesRegex(app.Stop, 'AVAILABLE_MEMORY'):
             self.p.stage('backend-image', self.p.source(), ['docker', 'synthetic-build'])
         child.assert_not_called()
+        self.assertNotIn('backend-image', self.p.manifest['stages'])
+        self.assertEqual(self.p.path.read_bytes(), before)
+
+    def test_psi_pressure_after_preflight_stops_backend_before_child_or_intent(self):
+        self.prepare()
+        pressure = [HP_LOW_PSI]
+        before = self.p.path.read_bytes()
+        with patch.object(app, 'backend_memory_reserve', side_effect=lambda: app.check_memory_pressure(pressure[0])):
+            app.check_stage_memory('backend-image', app.resources())
+            pressure[0] = IDLE_PSI.replace('full avg10=0.00', 'full avg10=0.11')
+            with self.fake_stage() as child, self.assertRaisesRegex(app.Stop, 'MEMORY_PRESSURE'):
+                self.p.stage('backend-image', self.p.source(), ['docker', 'synthetic-build'])
+            child.assert_not_called()
         self.assertNotIn('backend-image', self.p.manifest['stages'])
         self.assertEqual(self.p.path.read_bytes(), before)
 

@@ -45,6 +45,10 @@ SUCCESS = {'success', 'neutral', 'skipped'}
 # this memory-admission-only update. Build receipts must use the current runner.
 REVIEWED_TEST_RUNTIME = 'c460031cab860039d7017459d1fa42ee13261e9ddb35fe75c637ee96b795e7bf'
 CODEGEN_HELPER_SHA = 'f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e'
+# PSI values are percentages, not fractions. Tolerate brief partial stalls,
+# while all-task stalls and sustained pressure have much tighter budgets.
+# Each tuple is (avg10, avg60, avg300); these are ceilings, not bypass flags.
+MEMORY_PSI_LIMITS = {'some': (1.00, 0.50, 0.25), 'full': (0.10, 0.05, 0.02)}
 # Reviewed on real published Git objects, not a general partial-application bypass.
 # Unknown heads/trees still require operator review. See FOTO_BUILD17_RELEASE.md.
 REVIEWED_OVERLAP = {
@@ -175,7 +179,7 @@ def resources():
     return {'memoryBytes': memory, 'currentCgroup': limits}
 
 
-def memory_pressure_idle(text):
+def check_memory_pressure(text):
     records = {}
     for line in text.splitlines():
         fields = line.split()
@@ -188,13 +192,14 @@ def memory_pressure_idle(text):
         values = [pair[1] for pair in pairs]
         need(all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', value) for value in values[:3])
              and values[3].isdigit(), 'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
-        need(all(float(value) == 0 for value in values[:3]), 'MEMORY_PRESSURE_NO_LIMITS_CHANGED')
+        need(all(float(value) <= limit for value, limit in zip(values[:3], MEMORY_PSI_LIMITS[fields[0]])),
+             'MEMORY_PRESSURE_NO_LIMITS_CHANGED')
         records[fields[0]] = values
     need(set(records) == {'some', 'full'}, 'MEMORY_PSI_UNKNOWN_NO_LIMITS_CHANGED')
 
 
 def backend_memory_reserve(proc=Path('/proc'), cgroups=Path('/sys/fs/cgroup')):
-    memory_pressure_idle((proc / 'pressure/memory').read_text())
+    check_memory_pressure((proc / 'pressure/memory').read_text())
     entries = [line[3:] for line in (proc / 'self/cgroup').read_text().splitlines() if line.startswith('0::')]
     need(len(entries) == 1 and entries[0].startswith('/') and '..' not in Path(entries[0]).parts,
          'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
@@ -211,7 +216,7 @@ def backend_memory_reserve(proc=Path('/proc'), cgroups=Path('/sys/fs/cgroup')):
             need(limit == 'max' or limit.isdigit(), 'CALLER_CGROUP_MEMORY_UNKNOWN_NO_LIMITS_CHANGED')
             need(limit == 'max' or int(limit) - int(current) >= 10 * 1024**3,
                  'CALLER_CGROUP_MEMORY_RESERVE_NO_LIMITS_CHANGED')
-        memory_pressure_idle((directory / 'memory.pressure').read_text())
+        check_memory_pressure((directory / 'memory.pressure').read_text())
         if directory == root:
             break
         directory = directory.parent
@@ -226,7 +231,7 @@ def check_stage_memory(name, available):
     if name == 'backend-image':
         # 10 GiB is the already-enforced BuildKit ceiling, not a reservation.
         # Require >=4 GiB physical RAM outside that ceiling for host services,
-        # plus zero recent PSI and >=10 GiB headroom at every finite cgroup.
+        # plus bounded PSI and >=10 GiB headroom at every finite cgroup.
         need(available['memoryBytes'].get('MemTotal', 0) >= 14 * gib,
              'INSUFFICIENT_HOST_MEMORY_RESERVE_NO_LIMITS_CHANGED')
         try:
