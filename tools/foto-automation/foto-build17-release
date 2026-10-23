@@ -218,6 +218,25 @@ def validate_builder_inspect(data):
          'BUILDER_ENDPOINT_OR_STATUS_CHANGED')
 
 
+def validate_builder_history(history):
+    need(isinstance(history, str) and history.strip(), 'BUILDX_HISTORY_UNAVAILABLE_NO_AUTOMATIC_BOOTSTRAP')
+
+    def unique_fields(pairs):
+        need(len(dict(pairs)) == len(pairs), 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+        return dict(pairs)
+
+    for line in history.splitlines():
+        try:
+            item = json.loads(line, object_pairs_hook=unique_fields)
+        except ValueError:
+            raise Stop('BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY') from None
+        # Buildx v0.35.0 MarshalJSON uses lowercase keys; .Status is only its
+        # Go-template field. Never fall back to it or accept ambiguous records.
+        need(isinstance(item, dict) and 'Status' not in item and isinstance(item.get('status'), str) and
+             item['status'].lower() in ('completed', 'error', 'canceled', 'cancelled'),
+             'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+
+
 def builder_idle():
     rootless()
     validate_builder_inspect(query(['docker', '--context', 'rootless', 'buildx', 'inspect', 'foto17-limited']))
@@ -240,11 +259,7 @@ def builder_idle():
     need(workers and all(w.get('max-parallelism') == 1 for w in workers), 'BUILDKIT_PARALLELISM_NOT_ONE')
     history = query(['docker', '--context', 'rootless', 'buildx', 'history', 'ls',
                      '--builder', 'foto17-limited', '--format', '{{json .}}'], optional=True)
-    need(history is not None, 'BUILDX_HISTORY_UNAVAILABLE_NO_AUTOMATIC_BOOTSTRAP')
-    for line in history.splitlines():
-        item = json.loads(line)
-        need(str(item.get('Status', '')).lower() in ('completed', 'error', 'canceled', 'cancelled'),
-             'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY')
+    validate_builder_history(history)
 
 
 def inventory(c):

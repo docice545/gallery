@@ -42,6 +42,14 @@ GC Policy rule#0:
  All:           false
  Keep Duration: 48h0m0s
 '''
+# Exact v0.35.0 lsContext.MarshalJSON field names, synthetic refs/timestamps.
+# The Completed/Completed/Error sequence was confirmed by the HP operator;
+# this fixture is not a captured production history or a real-daemon test.
+BUILDX035_HISTORY = '\n'.join(json.dumps({
+    'ref': f'foto17-limited/foto17-limited0/synthetic-{i}', 'name': 'synthetic build',
+    'status': status, 'created_at': '2026-10-23T00:00:00Z', 'completed_at': '2026-10-23T00:00:01Z',
+    'total_steps': 3, 'completed_steps': 3, 'cached_steps': 0,
+}) for i, status in enumerate(('Completed', 'Completed', 'Error')))
 
 
 @contextlib.contextmanager
@@ -50,7 +58,7 @@ def fake_buildx035(**changes):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         data = {'inspect': BUILDX035_INSPECT, 'memory': 10 * 1024**3, 'swap': 12 * 1024**3,
-                'parallelism': 1, 'running': True, 'oom': False, 'history': 'completed',
+                'parallelism': 1, 'running': True, 'oom': False, 'history': 'Completed',
                 'endpoint': f'unix:///run/user/{os.getuid()}/docker.sock'}
         data.update(changes)
         (root / 'data.json').write_text(json.dumps(data))
@@ -85,7 +93,10 @@ elif argv == ['--context', 'rootless', 'cp', 'buildx_buildkit_foto17-limited0:/e
 elif argv == ['--context', 'rootless', 'buildx', 'history', 'ls', '--builder', 'foto17-limited', '--format', '{{json .}}']:
     if data['history'] is None:
         sys.exit(1)
-    print(json.dumps({'Status': data['history']}))
+    if 'history_raw' in data:
+        sys.stdout.write(data['history_raw'])
+    else:
+        print(json.dumps({'status': data['history']}))
 else:
     print('unsupported fixture command', file=sys.stderr)
     sys.exit(99)
@@ -158,6 +169,68 @@ class Buildx035Test(unittest.TestCase):
         for changes, reason in cases:
             with self.subTest(changes=changes), fake_buildx035(**changes), self.assertRaisesRegex(app.Stop, reason):
                 app.builder_idle()
+
+
+class BuildxHistory035Test(unittest.TestCase):
+    def test_actual_previous_runner_rejects_lowercase_fixture_corrected_runner_accepts(self):
+        source = subprocess.check_output(['git', '-C', str(SCRIPT.parents[2]), 'show',
+            'e603d937ef9f73da33abf85482bf2fd3f5f83395:tools/foto-automation/foto-build17-release'])
+        self.assertEqual(app.runner.digest(source), '63aa0d934eac3229469ebaee863c5a46238c72107c822e5eea9d05859b85b014')
+        with tempfile.TemporaryDirectory() as directory:
+            old = Path(directory) / 'old-release'
+            old.write_bytes(source)
+            (old.parent / 'foto-stage-runner.py').write_bytes(SCRIPT.with_name('foto-stage-runner.py').read_bytes())
+            loader = importlib.machinery.SourceFileLoader('foto17_legacy_buildx_history', str(old))
+            module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+            loader.exec_module(module)
+            with fake_buildx035(history_raw=BUILDX035_HISTORY):
+                with self.assertRaisesRegex(module.Stop, 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY'):
+                    module.builder_idle()
+                app.builder_idle()
+
+    def test_lowercase_json_records_accept_operator_confirmed_terminal_sequence(self):
+        app.validate_builder_history(BUILDX035_HISTORY)
+        with fake_buildx035(history_raw=BUILDX035_HISTORY):
+            app.builder_idle()
+
+    def test_running_in_any_position_blocks_even_among_completed_and_error_rows(self):
+        rows = BUILDX035_HISTORY.splitlines()
+        for i in range(len(rows) + 1):
+            history = '\n'.join([*rows[:i], '{"status":"Running"}', *rows[i:]])
+            with self.subTest(position=i), fake_buildx035(history_raw=history), \
+                    self.assertRaisesRegex(app.Stop, 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY'):
+                app.builder_idle()
+
+    def test_missing_uppercase_ambiguous_unknown_or_wrong_type_status_fails_closed(self):
+        bad = [{}, {'Status': 'Completed'}, {'status': 'Completed', 'Status': 'Running'}]
+        bad += [{'status': x} for x in ('Running', 'running', 'RUNNING', 'Pending', 'Unknown', '',
+                                      ' Completed ', None, False, 1, ['Completed'], {})]
+        for item in bad:
+            with self.subTest(item=item), self.assertRaisesRegex(app.Stop, 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY'):
+                app.validate_builder_history(json.dumps(item))
+
+    def test_unavailable_empty_or_whitespace_history_is_never_proof_of_idle(self):
+        for history in (None, '', ' \n\t'):
+            with self.subTest(history=history), self.assertRaisesRegex(app.Stop, 'BUILDX_HISTORY_UNAVAILABLE'):
+                app.validate_builder_history(history)
+        for history in ('', ' \n\t'):
+            with fake_buildx035(history_raw=history), self.assertRaisesRegex(app.Stop, 'BUILDX_HISTORY_UNAVAILABLE'):
+                app.builder_idle()
+
+    def test_corrupt_non_object_or_duplicate_status_json_fails_closed(self):
+        bad = ['null', '[]', '[{"status":"Completed"}]', '1', '"Completed"',
+               '{"status":', '{"status":"Completed"} trailing',
+               '{"status":"Running","status":"Completed"}',
+               '{"status":"Completed","status":"Running"}',
+               '{"status":"Completed"}\n\n{"status":"Error"}']
+        for history in bad:
+            with self.subTest(history=history), self.assertRaisesRegex(app.Stop, 'BUILDKIT_ACTIVE_OR_UNKNOWN_HISTORY'):
+                app.validate_builder_history(history)
+
+    def test_previously_allowed_terminal_cancellation_states_remain_allowed(self):
+        for status in ('Completed', 'Error', 'Canceled', 'Cancelled'):
+            with self.subTest(status=status):
+                app.validate_builder_history(json.dumps({'status': status}))
 
 
 class ReleaseTest(unittest.TestCase):
@@ -747,7 +820,7 @@ class ReleaseTest(unittest.TestCase):
             return subprocess.CompletedProcess([], 0, stdout=b.getvalue())
         for parallelism, status in ((1, 'completed'), (2, 'completed'), (1, 'running')):
             with patch.object(app, 'rootless', return_value='synthetic-own-socket'), \
-                    patch.object(app, 'query', side_effect=[BUILDX035_INSPECT, json.dumps([record]), json.dumps({'Status': status})]):
+                    patch.object(app, 'query', side_effect=[BUILDX035_INSPECT, json.dumps([record]), json.dumps({'status': status})]):
                 with patch.object(app.subprocess, 'run', return_value=archive(parallelism)):
                     if parallelism == 1 and status == 'completed':
                         app.builder_idle()
@@ -827,7 +900,7 @@ class ReleaseTest(unittest.TestCase):
         before = {p.name: p.read_bytes() for p in self.p.state.glob('*.json')}
         head = REAL_GIT(self.p.source(), 'rev-parse', 'HEAD')
         self.calls.clear()
-        with fake_buildx035(), patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+        with fake_buildx035(history_raw=BUILDX035_HISTORY), patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
                 patch('sys.stdout', new=io.StringIO()) as stdout, \
                 patch.object(sys, 'argv', [str(SCRIPT), '--config', str(cfg), '--check']):
             app.main()
@@ -846,7 +919,7 @@ class ReleaseTest(unittest.TestCase):
         snapshots = {p.name: p.read_bytes() for p in self.p.state.glob('manifest-*.json')}
         head = self.p.manifest['head']
         self.calls.clear()
-        with fake_buildx035(), patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+        with fake_buildx035(history_raw=BUILDX035_HISTORY), patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
                 patch.object(sys, 'argv', [str(SCRIPT), '--config', str(cfg), '--resume']):
             app.main()
         saved = json.loads(self.p.path.read_text())
