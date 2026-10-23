@@ -1,6 +1,14 @@
 # FOTO Build 17: продолжить остановленную сборку на HP
 
-Это подготовка backend image и APK, **без deployment**. Запускает doctoriceadm.
+Это продолжение **уже подготовленного** backend image/APK release, **без deployment**.
+Запускает doctoriceadm. Обновление исправляет только несовместимость inspect с
+Buildx v0.35.0. Старый установленный runner и его файлы сохраняются.
+
+Оператор подтвердил checkpoint: `prepared=true`, `mode=prepare`, последнее событие
+`PREPARED`, HEAD `e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2`, тесты и сборки ещё
+не запускались. Блок ниже проверяет именно это состояние, включая пустой список
+этапов, и прекращает работу при отличии. Он не редактирует manifest/config,
+не выполняет повторный merge PR6/PR7 и не сбрасывает подготовленный worktree.
 Не запускайте Codex/другую сборку одновременно. Существующий config должен уже
 содержать проверенные PR6/PR7 SHA, approvals и реальные пути старого ключа и
 key.properties с доверенным fingerprint сертификата. Ключи/пароли не копируются
@@ -25,9 +33,9 @@ repository pins требуют JDK21.0.2. Android SDK и кеши берутся
 bash <<'BASH'
 set -euo pipefail
 umask 077
-FOTO_TOOLS_SHA=2b30c7620047b63e3a7cd193f4ef18600b2d44ff
+FOTO_TOOLS_SHA=e603d937ef9f73da33abf85482bf2fd3f5f83395
 FOTO_INSTALL=/usr/local/lib/foto-build17-release/$FOTO_TOOLS_SHA
-FOTO_STAGE=$(mktemp -d /tmp/foto17-final-install.XXXXXXXX)
+FOTO_STAGE=$(mktemp -d /tmp/foto17-buildx035-install.XXXXXXXX)
 FOTO_RELEASE_CONFIG=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
 [[ "$FOTO_RELEASE_CONFIG" = /* ]]
 sudo -u codex-gallery -H test -f "$FOTO_RELEASE_CONFIG"
@@ -52,8 +60,8 @@ foto_as_builder() {
       exec "$@"
     ' foto17-release "$@"
 }
-if sudo -u codex-gallery -H tmux -L foto17-final list-sessions >/dev/null 2>&1; then
-  echo 'STOP: сессия foto17-final уже существует; подключитесь к ней, не запускайте вторую.' >&2
+if sudo -u codex-gallery -H tmux -L foto17-buildx035 list-sessions >/dev/null 2>&1; then
+  echo 'STOP: сессия foto17-buildx035 уже существует; подключитесь к ней, не запускайте вторую.' >&2
   exit 1
 fi
 for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-android-build.sh foto-build17-release.example.json; do
@@ -62,7 +70,7 @@ for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-a
     --jq .content | base64 --decode > "$FOTO_STAGE/$f"
 done
 cat > "$FOTO_STAGE/SHA256SUMS" <<'SHA256SUMS'
-6452cbdcb58912971836bf031b813b823d15c3ba2d7d61d691201862a70caa89  foto-build17-release
+63aa0d934eac3229469ebaee863c5a46238c72107c822e5eea9d05859b85b014  foto-build17-release
 520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
 f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
 afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
@@ -88,22 +96,58 @@ for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-a
     sudo install -m "$MODE" "$FOTO_STAGE/$f" "$FOTO_INSTALL/$f"
   fi
 done
+foto_checkpoint() {
+  sudo -u codex-gallery -H python3 - "$FOTO_RELEASE_CONFIG" <<'PY_CHECKPOINT'
+import hashlib, json, pathlib, subprocess, sys
+config = json.loads(pathlib.Path(sys.argv[1]).read_text())
+raw = (pathlib.Path(config['state']) / 'manifest.json').read_bytes()
+state = json.loads(raw)
+expected = 'e5883358c48a76a82fe7db29b5cd5ac0b1fc76e2'
+if not (state.get('prepared') is True and state.get('mode') == 'prepare'
+        and state.get('head') == expected and state.get('stages') == {}
+        and state.get('history') and state['history'][-1].get('event') == 'PREPARED'):
+    raise SystemExit('STOP: checkpoint differs from confirmed PREPARED state; nothing reset')
+head = subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-C', state['worktree'],
+                                'rev-parse', 'HEAD'], text=True).strip()
+if head != expected:
+    raise SystemExit('STOP: prepared worktree HEAD differs; nothing reset')
+print(hashlib.sha256(raw).hexdigest())
+PY_CHECKPOINT
+}
+FOTO_CHECKPOINT_BEFORE=$(foto_checkpoint)
 FOTO_REPORT=$(mktemp /home/doctoriceadm/FOTO17-final-preflight.XXXXXXXX.txt)
 foto_as_builder "$FOTO_INSTALL/foto-build17-release" \
   --config "$FOTO_RELEASE_CONFIG" --check > "$FOTO_REPORT" 2> "$FOTO_REPORT.stderr"
-FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-final-session.XXXXXXXX)
+python3 - "$FOTO_REPORT" <<'PY_VALIDATION'
+import json, pathlib, sys
+report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if report.get('docker', {}).get('builderValidation') != 'PASS_READ_ONLY_LIMITS_AND_IDLE':
+    raise SystemExit('STOP: builderValidation is not PASS; inspect the private preflight report')
+print('PASS builderValidation=PASS_READ_ONLY_LIMITS_AND_IDLE')
+PY_VALIDATION
+[[ "$(foto_checkpoint)" = "$FOTO_CHECKPOINT_BEFORE" ]] || {
+  echo 'STOP: checkpoint changed during check; nothing reset' >&2
+  exit 1
+}
+FOTO_SESSION=$(sudo -u codex-gallery -H mktemp -d /mnt/hp-data/codex-work/foto17-buildx035-session.XXXXXXXX)
 printf '%s\n' 'set-option -g remain-on-exit on' 'set-option -g history-limit 20000' | \
   sudo -u codex-gallery -H sh -c 'umask 077; cat > "$1"' sh "$FOTO_SESSION/tmux.conf"
-foto_as_builder tmux -L foto17-final -f "$FOTO_SESSION/tmux.conf" \
-  new-session -d -s foto17-final \
+foto_as_builder tmux -L foto17-buildx035 -f "$FOTO_SESSION/tmux.conf" \
+  new-session -d -s foto17-buildx035 \
   "$FOTO_INSTALL/foto-build17-release" --config "$FOTO_RELEASE_CONFIG" --finalize
 printf 'STARTED, не READY. Preflight: %s\n' "$FOTO_REPORT"
-printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-final attach -t foto17-final'
+printf '%s\n' 'Ход/результат: sudo -u codex-gallery -H tmux -L foto17-buildx035 attach -t foto17-buildx035'
 BASH
 ```
 
 `--check` — только inventory, даже exit0 не означает готовность к сборке.
 `--finalize` сам повторяет gates и сначала проверяет существующие signing files.
+Для уже подготовленного checkpoint `prepare()` только проверяет целостность и
+возвращается **без fetch/merge**. Затем впервые запускаются тесты и сборки.
+Обычный `--resume` при сохранённом `mode=prepare` не запускает следующие этапы,
+поэтому здесь выбран явный `--finalize`. SHA runner впервые фиксируется в
+квитанциях тестов; их пока нет. Формат manifest/checkpoint и проверки квитанций
+не изменены; уже выполненная интеграция сохраняется.
 Он держит common locks на всём пути prepare → test → build → verify.
 Повторный запуск не повторяет прошедшие этапы, если совпадают SHA входов,
 toolchain, журнала и outputs. Ошибка не запускает следующий этап или retry.
@@ -113,13 +157,13 @@ toolchain, журнала и outputs. Ошибка не запускает сл�
 После обрыва SSH подключиться:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-final attach -t foto17-final
+sudo -u codex-gallery -H tmux -L foto17-buildx035 attach -t foto17-buildx035
 ```
 
 Сессия сохраняет pane после выхода программы. Exit status:
 
 ```bash
-sudo -u codex-gallery -H tmux -L foto17-final display-message -p -t foto17-final '#{pane_dead_status}'
+sudo -u codex-gallery -H tmux -L foto17-buildx035 display-message -p -t foto17-buildx035 '#{pane_dead_status}'
 ```
 
 Пустое значение означает, что процесс ещё не завершён. Exit0 вместе с финальной
@@ -154,6 +198,27 @@ release state из config. Preflight TXT — приватный, не публи
 Откат integration source не требует reset: исходная unified-ветка и её рабочая
 копия вообще не изменяются. Новые локальные merge commits/state сохраняются для
 разбора. Production rollback/deployment не входят в этот сценарий.
+
+## Проверка Buildx v0.35.0
+
+Runner использует поддерживаемый текстовый `docker --context rootless buildx inspect
+foto17-limited`. Требуются Driver `docker-container`, ровно один node
+`foto17-limited0`, Endpoint `rootless`, Status `running`. Отсутствующие,
+дублированные, неоднозначные поля и Error отвергаются. Дополнительные labels,
+GC policy и вложенные device names не считаются nodes.
+
+Отдельные проверки точного rootless socket, фактических memory10GiB/swap12GiB
+контейнера BuildKit, Running/noOOM, worker max-parallelism=1 и отсутствия активных
+сборок не изменены. Нет bootstrap/create/restart/prune и новых builders.
+
+В Cloud выполнены 8 адресных тестов: текстовый формат, отказы, все прежние guards,
+`--check` с `builderValidation=PASS_READ_ONLY_LIMITS_AND_IDLE`, сохранность байтов
+checkpoint и возобновление PREPARED без повторного merge. Docker/HP сервисы в
+фикстурах подменены — это **не реальный HP E2E**. Подлинный release binary
+Buildx v0.35.0 (`a319e5b15052cf6557ceb666eb8ff6e32380b782`, linux-amd64 SHA256
+`d41ece72044243b4f58b343441ae37446d9c29a7d6b5e11c61847bbcf8f7dfda`)
+проверен на `version`, `inspect --help` и отказ старого `--format` без контакта
+с Docker daemon. Реальная проверка builder/продолжение выполняется только HP-блоком.
 
 ## Что подтверждено и что ещё нет
 
