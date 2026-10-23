@@ -11,13 +11,13 @@ import {
   mapQueuesLegacy,
 } from 'src/dtos/queue-legacy.dto.js';
 import {
+  HistoricalDeletionJobsAuditDto,
   QueueCommandDto,
   QueueDeleteDto,
   QueueJobResponseDto,
   QueueJobSearchDto,
   QueueResponseDto,
   QueueUpdateDto,
-  HistoricalDeletionJobsAuditDto,
 } from 'src/dtos/queue.dto.js';
 import {
   BootstrapEventPriority,

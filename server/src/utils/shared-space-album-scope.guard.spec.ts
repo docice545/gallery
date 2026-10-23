@@ -287,6 +287,7 @@ const VIS_GATE_MARKER =
 
 // Lines that reference a space marker but are NOT an asset-read scoping arm.
 const VIS_BENIGN_LINE = [
+  /^shared_space_asset:\s*['"]assetId['"],?$/, // column metadata only; anchored to exclude executable suffixes
   /(insertInto|deleteFrom|updateTable|backfillQuery|upsertQuery|auditQuery)\(\s*['"]shared_space/, // CRUD / sync
   /^'shared_space[^']+\.\w+',?$/, // column-list entry
   /shared_space_(asset|library|album)_audit/, // audit tables (tombstones, not reads)
@@ -450,6 +451,20 @@ const findVisibilityOrphans = (source: string, file: string) => {
   }
   return orphans;
 };
+
+describe('space visibility scanner column metadata regressions', () => {
+  it('does not interpret the catalog key mapping as a data read', () => {
+    expect(findVisibilityOrphans("const keys = {\n  shared_space_asset: 'assetId',\n};", 'fixture.ts')).toEqual([]);
+  });
+  it('still rejects a real read after a key mapping', () => {
+    const source = "const keys = {\n  shared_space_asset: 'assetId',\n};\ndb.selectFrom('shared_space_asset');";
+    expect(findVisibilityOrphans(source, 'fixture.ts')).toHaveLength(1);
+  });
+  it('cannot hide an executable read on a mapping line', () => {
+    const source = "shared_space_asset: 'assetId', read: db.selectFrom('shared_space_asset')";
+    expect(findVisibilityOrphans(source, 'fixture.ts')).toHaveLength(1);
+  });
+});
 
 describe('space visibility scanner import regressions', () => {
   const imports = `import {

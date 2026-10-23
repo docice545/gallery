@@ -1,0 +1,1079 @@
+{
+  "acceptanceAfterCLI": {
+    "acceptanceBranch": "codex/foto-build17-pr7-acceptance",
+    "acceptanceCodeCommit": "43d1aa9f382ebf60019570c373ba2aa39032181c",
+    "archiveEvidence": [
+      {
+        "bytes": 950916,
+        "localFile": "/tmp/pr7-original-test-logs.zip",
+        "sha256": "0d6c911d9858a791f14dd679d4a5c2522955d0d5fbe21f3378f64eb36e282df2"
+      },
+      {
+        "bytes": 894957,
+        "localFile": "/tmp/pr7-latest-test-logs.zip",
+        "sha256": "6ee14f43c6cc773b123fa26b7280cfb73d2c5b468ca19ae08bfa4a87ba24a2f7"
+      },
+      {
+        "bytes": 46929,
+        "localFile": "/tmp/pr7-latest-openapi-logs.zip",
+        "sha256": "cc2c907559b9a0d7ff55a64c7a8cc1a719c775fc9df1d920f89232c583b31461"
+      },
+      {
+        "bytes": 55244,
+        "localFile": "/tmp/pr7-latest-analysis-logs.zip",
+        "sha256": "c6e1a1970369aa33c1e34bb11d6e55f8ecc699d4c031f966bdf4d6bd15c38ca0"
+      },
+      {
+        "bytes": 37523,
+        "localFile": "/tmp/pr7-archive-medium.log",
+        "sha256": "fb7389bdd4f7192da55cc8fd467d67d4621f4f084621ddc70e66703a5daaec57"
+      },
+      {
+        "bytes": 349231,
+        "localFile": "/tmp/pr7-latest-archive-medium.log",
+        "sha256": "78f128da65a9b2c170171d81c9833416e69109945fffc1e7b38aaff6032cba8c"
+      },
+      {
+        "bytes": 144987,
+        "localFile": "/tmp/pr7-latest-archive-sql.log",
+        "sha256": "89196403347f59e4def6f55c8d27e183c47953232431b490f4a8d93df84a4f82"
+      },
+      {
+        "bytes": 26639,
+        "localFile": "/tmp/pr7-latest-archive-enum.log",
+        "sha256": "d8382014ca5ee9f4898bfaa5fa3ae342620de985342c4bcfc2b0e0bdfc6aac78"
+      },
+      {
+        "bytes": 456252,
+        "localFile": "/tmp/pr7-latest-archive-dart.log",
+        "sha256": "9aef34947fe5c1319520fede8195e0f4acb67c5e4f460a91dde973dda44830bf"
+      },
+      {
+        "bytes": 107525,
+        "localFile": "/tmp/pr7-acceptance-enum-logs.zip",
+        "sha256": "05c857fa4296fe4226f32d5d20d83b70be0b0f9405deb954b0728fcc20da2d3a"
+      },
+      {
+        "bytes": 101339,
+        "localFile": "/tmp/pr7-acceptance-dart-logs.zip",
+        "sha256": "569d62c5c06e3f23c7899d087461bdc5db2dbf3698ce57fa05dec642eb02ab67"
+      },
+      {
+        "bytes": 461925,
+        "localFile": "/tmp/pr7-acceptance-dart-analyze.log",
+        "sha256": "4cb0689e8871c9558a2020ef6c32e8a7ce1c80ec5ef2fb4753c7fb054ca8bb31"
+      },
+      {
+        "bytes": 99953,
+        "localFile": "/tmp/pr7-acceptance-dart-final-logs.zip",
+        "sha256": "0840b9f7fc86fac80b5ffb30ad1abf4f7eb42dc910d32796d95601a672d34a6e"
+      },
+      {
+        "bytes": 456835,
+        "localFile": "/tmp/pr7-acceptance-dart-final-analyze.log",
+        "sha256": "1b5ef1903d27b066d885b9a6bf0d6e3b428c76c946f27c48cdf3dc6fc9629dc8"
+      },
+      {
+        "bytes": 98778,
+        "localFile": "/tmp/pr7-acceptance-retry-final-logs.zip",
+        "sha256": "34986d7b81b66c3c8fda353cb1324d78694fc386f391fe68f4c898216fb3a66b"
+      },
+      {
+        "bytes": 454268,
+        "localFile": "/tmp/pr7-acceptance-retry-final.log",
+        "sha256": "7ded473c62b434d5221e176a877d58e3efb27b2ef4e557b9d61e80b650353eb2"
+      }
+    ],
+    "baselineCorrection": "Exact pull_request.base.sha in both jobs; explicit manual base_ref; fail-on ERR; no enum waivers",
+    "checks": [
+      {
+        "classification": "dependency/infrastructure; same image in base",
+        "head": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
+        "job": 119761703401,
+        "name": "SQL Schema Checks",
+        "phase": "Initialize containers; no migrations executed",
+        "result": "FAIL"
+      },
+      {
+        "assertionsExecuted": false,
+        "classification": "dependency/infrastructure; same image in base",
+        "head": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
+        "job": 119761819231,
+        "name": "Medium Tests (Server)",
+        "phase": "global setup; No such image",
+        "result": "FAIL"
+      },
+      {
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119928694623,
+        "name": "SQL Schema Checks",
+        "result": "PASS"
+      },
+      {
+        "filesPassed": 199,
+        "filesSkipped": 1,
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119928796786,
+        "name": "Medium Tests (Server)",
+        "passed": 3447,
+        "result": "PASS",
+        "skipped": 17
+      },
+      {
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119928694421,
+        "name": "OpenAPI Clients",
+        "result": "PASS"
+      },
+      {
+        "actualSyncResponseEnumAdditions": 6,
+        "baselineMismatch": 4,
+        "diagnostics": 10,
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119927097106,
+        "name": "check-openapi",
+        "result": "FAIL"
+      },
+      {
+        "head": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "job": 119927525319,
+        "name": "Run Dart Code Analysis",
+        "phase": "codegen Dart parser",
+        "regression": "sync_api.repository.dart:88 missing semicolon; declaration ended in comma",
+        "result": "FAIL"
+      }
+    ],
+    "date": "2026-10-22",
+    "enumComparison": {
+      "baseEnumAdditions": [
+        "AssetFaceV3",
+        "AssetFavoriteDeleteV1",
+        "AssetFavoriteV1",
+        "AuthUserV2",
+        "MemoryToAssetV2",
+        "MemoryV2"
+      ],
+      "compared": {
+        "base": "ace2eab962524479a61e6891410983a7f41ba0fa",
+        "cli": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+        "main": "da5480ae42b77db9cae729f2447ec9b3079ba4a7",
+        "original": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede"
+      },
+      "specUnchangedByCLI": true
+    },
+    "fixedBaseEnumGate": {
+      "actualSyncEnumDiagnostics": 6,
+      "base": "ace2eab962524479a61e6891410983a7f41ba0fa",
+      "falseQueueDiagnostics": 0,
+      "head": "6b7f3db36efad590285209b9be61c72ee373e29c",
+      "mobilePatches": "PASS",
+      "result": "FAIL",
+      "run": 39827596417,
+      "waivers": false
+    },
+    "imagesOrAPKsBuilt": false,
+    "individualJobLogs": "HTTP 403; signed URLs omitted",
+    "mediumArtifact": "No dedicated medium artifact; E2E artifacts not used as medium evidence",
+    "newDartCheck": {
+      "analyzerError": "undefined_method SyncMemoryV2TypeEnum.toMemoryType",
+      "codegen": "PASS",
+      "head": "6b7f3db36efad590285209b9be61c72ee373e29c",
+      "lintInfos": 2,
+      "result": "FAIL",
+      "run": 39826683460
+    },
+    "newRuntimeLimitation": "Unexpected birthday MemoryV2 fails before write/ACK; not relabelled or silently skipped",
+    "newTestsEventuallyPassed": {
+      "SQLitePersistenceAndIdempotence": {
+        "realSQLite": true,
+        "result": "PASS",
+        "run": 39828130854
+      },
+      "SQLiteWholeBatchRollback": {
+        "realSQLite": true,
+        "result": "PASS",
+        "run": 39828130854
+      },
+      "ServiceNoAckAndRetry": {
+        "mockRepository": true,
+        "result": "PASS",
+        "run": 39829279657
+      },
+      "countsNotFromOneCombinedRun": true
+    },
+    "notVerified": [
+      "native Android/iOS/Web E2E",
+      "AI E2E",
+      "Synology",
+      "new V2 sync ACK/crash/replay lifecycle"
+    ],
+    "originalHead": "ba92d21a4ec1b5fe045ccdb2da3387a4ad76cede",
+    "productionTouched": false,
+    "publishedPR7NotOverwritten": true,
+    "remainingSyncReview": "V2 memory links use existing in-memory deferred set; durable ACK/crash lifecycle NOT VERIFIED",
+    "reviewedCLIHead": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+    "serviceTestRetry": {
+      "analysis": "PASS; No issues found",
+      "codegen": "PASS",
+      "format": "PASS; 914 files, 0 changed",
+      "head": "43d1aa9f382ebf60019570c373ba2aa39032181c",
+      "result": "PASS",
+      "run": 39829279657,
+      "scope": "single failed ACK/retry test only; prior 2 SQLite passes not repeated; codegen setup and analysis in fresh GitHub job",
+      "targetedServiceTestsPassed": 1
+    },
+    "status": "BLOCKED",
+    "successfulSQLMediumAndOpenAPIClientsRepeated": false,
+    "v2MemoryCandidateFirstRun": {
+      "analysis": "PASS; No issues found",
+      "codegen": "PASS",
+      "failure": "test fixture passed nested generated enum object to fromJson without JSON wire serialization; null check failure before handler invocation",
+      "head": "788f4b2c3c0c38ec692b25bb84cf7734f43b262b",
+      "repositorySQLiteTestsPassed": 2,
+      "result": "FAIL",
+      "run": 39828130854,
+      "serviceTestFailed": 1
+    },
+    "workflowArchiveLogs": "downloaded using canonical GitHub actions/runs/ID/logs API; parsed locally"
+  },
+  "acceptanceTwoRemainingBlockers": {
+    "ackReadContract": {
+      "breakingRuleWaivers": false,
+      "getAckApplicationCallersInPinnedSources": 0,
+      "legacyEnum": "exact immutable unified baseline values in LegacySyncEntityType",
+      "mixedSessionLegacyRead": "HTTP 409, explicit GET /sync/ack/v2 requirement; no filtering/reset/mutation",
+      "remainingSDKLimitation": "Generic callers using a session with extended checkpoints must handle 409/use the versioned read; unconditional legacy 200 parity is not claimed",
+      "samePermissionAndSessionRequired": true,
+      "versionedRead": "GET /sync/ack/v2 returns all opaque checkpoints"
+    },
+    "backend": {
+      "build": "PASS",
+      "contractTests": 7,
+      "eslint": "PASS",
+      "head": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+      "job": 120019164484,
+      "result": "PASS",
+      "run": 39834512942,
+      "serviceTests": 81,
+      "totalTests": 88,
+      "typescript": "PASS"
+    },
+    "branch": "codex/foto-build17-pr7-acceptance",
+    "checkpoint": "e03963442f387a3c9aadfbdc05d7ecc6bc0f446b",
+    "cliBranchChanged": false,
+    "commitsSinceCheckpoint": [
+      {
+        "sha": "65bab619c729f0c8b9ea78bebd9cea458ead0a3b",
+        "subject": "fix(sync): version extended ACK reads and freeze the legacy response enum"
+      },
+      {
+        "sha": "1f28ca4a93c43a3da85610438114c9e2f8b18d1e",
+        "subject": "fix(sync): journal V2 memory links durably before acknowledging delivery"
+      },
+      {
+        "sha": "e4dc061abc5fb5b82a45feadba01b07ec5f75b7e",
+        "subject": "test(sync): isolate ACK contract generation and actual crash replay checks"
+      },
+      {
+        "sha": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+        "subject": "fix(sync): publish source-generated legacy and versioned ACK contracts"
+      },
+      {
+        "sha": "08812159f0781660e11ad29fc30b8e1de1361914",
+        "subject": "test(sync): cover journal account isolation and corrupt receipts"
+      },
+      {
+        "sha": "74465f1094d4f4b75c29cfc56a3c3af3558e63b9",
+        "subject": "test(sync): import generated settings companion for receipt corruption coverage"
+      },
+      {
+        "sha": "2dffd35d0ec4c58c102a87b09c26802c50a1382c",
+        "subject": "fix(sync): use supported Drift prefix predicates for the durable journal"
+      },
+      {
+        "sha": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+        "subject": "test(sync): require no ACK after cancellation and retry only failed cases"
+      }
+    ],
+    "confirmedRemainingBlockersInRequestedScope": [],
+    "durableJournal": {
+      "beforeAck": "transactional intent persisted before handler returns",
+      "delete": "pending link/memory intent cancelled in same transaction as projection delete",
+      "ownerMismatchOrCorruptJournal": "error without consumption",
+      "projection": "link insert and journal removal atomic after GC, before SyncComplete ACK",
+      "reset": "journal cleared with remote cache before full replay",
+      "schemaChanged": false,
+      "scope": "sha256(serverEndpoint + authenticated owner), memoryId, assetId",
+      "table": "existing SQLite settings",
+      "unresolvedParents": "durably retained across sync/restart"
+    },
+    "evidenceArchives": [
+      {
+        "name": "pr7-39833906605.zip",
+        "sha256": "938465ebf2e740dc7273d25255aea05585ac5d5e8227ee941c2d3dbddfc9818d"
+      },
+      {
+        "name": "pr7-39834512942.zip",
+        "sha256": "d8b69bb04611440cb9e70036096ad51f83d04db555c0c4e176b8408619b4cbab"
+      },
+      {
+        "name": "pr7-39834967702.zip",
+        "sha256": "63c2dc8f02fba47b900af61f35a7503c348515508af0823e693cdf4cea141a0d"
+      },
+      {
+        "name": "pr7-39838553606.zip",
+        "sha256": "753dd5042e138a007929a03760407e44fdb839edfc97b793f1b56cd049e3fde1"
+      },
+      {
+        "name": "pr7-39839592457.zip",
+        "sha256": "4d63f69258e6fa585e6998347ac108ec8c7975974d9cc08f8e7550145e39db4e"
+      },
+      {
+        "name": "pr7-39834516732.zip",
+        "sha256": "244f64898204fb1ac5e9a5a6f2e9a59d55957eaa527f346462a82d7be03b7780"
+      }
+    ],
+    "failedRunsPreserved": [
+      {
+        "head": "e4dc061abc5fb5b82a45feadba01b07ec5f75b7e",
+        "phase": "targeted ESLint import ordering after successful build/generation/TypeScript",
+        "result": "FAIL",
+        "run": 39833906605,
+        "testsExecuted": false
+      },
+      {
+        "head": "74465f1094d4f4b75c29cfc56a3c3af3558e63b9",
+        "phase": "Dart analyze: 5 unsupported Drift startsWith errors and 4 one-line control-body warnings; codegen PASS",
+        "result": "FAIL",
+        "run": 39834967702,
+        "testsExecuted": false
+      }
+    ],
+    "generatedArtifacts": {
+      "appliedFiles": [
+        "open-api/immich-openapi-specs.json",
+        "packages/sdk/src/fetch-client.ts"
+      ],
+      "hashes": {
+        "open-api/immich-openapi-specs.json": "ea5ba29219f0183fa4eb3a67d78ab1f08328c374935d7cbd933210c87752dd15",
+        "packages/sdk/src/fetch-client.ts": "764005bca07ed7e368a7eab13b118bab33c0212afcd7d6ac77801632b6e36f81"
+      },
+      "run": 39833906605,
+      "secondRunDownload": "HTTP 403 on artifact redirect host even after escalation; actual regenerated schema tested in run 39834512942",
+      "source": "e4dc061abc5fb5b82a45feadba01b07ec5f75b7e",
+      "sourceShaVerifiedOnDownload": true
+    },
+    "imagesOrAPKsBuilt": false,
+    "journalEndpointChangeLimitation": "A different endpoint/account does not consume the previous scope; pending rows remain durable until original scope returns or a deliberate full-cache reset/replay. Alias identity is not guessed.",
+    "mobile": {
+      "actualSigkillBeforeAck": "PASS; writer process group SIGKILL after SQLite commit without graceful close",
+      "analysis": "PASS: No issues found",
+      "cancellationRetryPassed": 2,
+      "codegen": "PASS",
+      "combined93TestRunClaimed": false,
+      "duplicateReplay": "exactly one projected link, no pending receipt",
+      "existingV1RegressionPassed": 8,
+      "format": "PASS; 914 files, 0 changed",
+      "head": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+      "job": 120036839194,
+      "newProcessReaderPassed": 1,
+      "prior91PassingCasesRepeated": false,
+      "result": "PASS",
+      "run": 39839592457,
+      "scope": "Only the 2 previously failed cancellation cases; unchanged 91 passes not repeated; then new V1 selection, actual SIGKILL driver, format"
+    },
+    "mobilePassingPartial": {
+      "analysis": "PASS: No issues found",
+      "failedTotal": 2,
+      "failure": "Existing cancellation tests still expected ACK after cancellation; runtime guard intentionally leaves the checkpoint for idempotent replay. Expectations strengthened to verifyNever(ack), other abort/handler assertions preserved.",
+      "head": "2dffd35d0ec4c58c102a87b09c26802c50a1382c",
+      "journalTests": 9,
+      "passedTotal": 91,
+      "run": 39838553606,
+      "runResult": "FAIL",
+      "serviceTests": 82
+    },
+    "nativeE2E": "NOT VERIFIED: Android/iOS/Web, PhotoKit, iCloud, codecs, background backup, Synology, AI",
+    "openapi": {
+      "exactBase": "ace2eab962524479a61e6891410983a7f41ba0fa",
+      "failOn": "ERR",
+      "gateJob": 120019179849,
+      "head": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+      "ignoreRules": false,
+      "mobilePatchesJob": 120019180142,
+      "result": "PASS",
+      "run": 39834516732
+    },
+    "pinnedAckClients": {
+      "FOTO Build17 base": {
+        "applicationGetSyncAckMatches": 0,
+        "commit": "ace2eab962524479a61e6891410983a7f41ba0fa",
+        "newTypesInPinnedSchema": {
+          "AssetFaceV3": false,
+          "AssetFavoriteDeleteV1": false,
+          "AssetFavoriteV1": false,
+          "AuthUserV2": false,
+          "MemoryToAssetV2": false,
+          "MemoryV2": false
+        },
+        "rawSyncAckApplicationMatches": 0,
+        "scope": "static source/schema; not installed-client E2E"
+      },
+      "Immich 3.3.5": {
+        "applicationGetSyncAckMatches": 0,
+        "commit": "8303cb117e197c700332b33b61b45314c9cc5bb4",
+        "newTypesInPinnedSchema": {
+          "AssetFaceV3": true,
+          "AssetFavoriteDeleteV1": false,
+          "AssetFavoriteV1": false,
+          "AuthUserV2": true,
+          "MemoryToAssetV2": true,
+          "MemoryV2": true
+        },
+        "rawSyncAckApplicationMatches": 0,
+        "scope": "static source/schema; not installed-client E2E"
+      },
+      "Noodle 5.8.0": {
+        "applicationGetSyncAckMatches": 0,
+        "commit": "37aa54e632606cc6a62bc6bcbba14c62200147c4",
+        "newTypesInPinnedSchema": {
+          "AssetFaceV3": true,
+          "AssetFavoriteDeleteV1": true,
+          "AssetFavoriteV1": true,
+          "AuthUserV2": true,
+          "MemoryToAssetV2": true,
+          "MemoryV2": true
+        },
+        "rawSyncAckApplicationMatches": 0,
+        "scope": "static source/schema; not installed-client E2E"
+      }
+    },
+    "priorBirthdayRejectionPreserved": true,
+    "productionTouched": false,
+    "publishedPR7HeadStill": "8759f9bd9c8f94adfdf8df81dc67b158aaddbf90",
+    "safeTransfer": "Fetch both exact refs; separate clean review worktree; if CLI HEAD is ancestor, normal reviewed fast-forward/non-force push retains all acceptance SHAs including pre-e039 fixes; if diverged, separate integration branch and normal reviewed merge with conflict tests, never reset/rebase/force. Not executed here.",
+    "scope": "ACK response compatibility and durable MemoryV2 links only; not a production release",
+    "status": "READY_FOR_REVIEW_AND_TRANSFER_TO_PR7_NOT_PRODUCTION",
+    "successfulSQLAndMediumRepeated": false,
+    "testEvidenceBoundaries": "Service ACK uses mocks; journal tests real isolated SQLite; SIGKILL driver uses separate Flutter test processes, not a phone or production server",
+    "testedCodeCommit": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+    "unchangedSourceProof": {
+      "backendSpecSDKSince": "82a92baf380c796feb8d528ca0a7b81a8e4e4eda",
+      "mobileRuntimeSince": "2dffd35d0ec4c58c102a87b09c26802c50a1382c",
+      "verifiedWith": "git diff --exit-code over server/open-api/packages/sdk and mobile/lib; exit 0"
+    }
+  },
+  "additionalFixtureCommit": "3021cbff08bcb59867d6547ffa9cd58fccbdb8aa",
+  "baseCommit": "ace2eab962524479a61e6891410983a7f41ba0fa",
+  "codegenExactCwd": [
+    {
+      "explicitFormatterConfig": true,
+      "explicitIgnorePath": "/dev/null",
+      "iteration": 1,
+      "sdkFormatterConfig": "packages/sdk/.prettierrc",
+      "serverCwd": "server",
+      "sha256": {
+        "open-api/immich-openapi-specs.json": "12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243",
+        "packages/sdk/src/fetch-client.ts": "f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f"
+      },
+      "unchanged": true
+    },
+    {
+      "explicitFormatterConfig": true,
+      "explicitIgnorePath": "/dev/null",
+      "iteration": 2,
+      "sdkFormatterConfig": "packages/sdk/.prettierrc",
+      "serverCwd": "server",
+      "sha256": {
+        "open-api/immich-openapi-specs.json": "12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243",
+        "packages/sdk/src/fetch-client.ts": "f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f"
+      },
+      "unchanged": true
+    }
+  ],
+  "codegenReproducibility": [
+    {
+      "iteration": 1,
+      "sha256": {
+        "open-api/immich-openapi-specs.json": "12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243",
+        "packages/sdk/src/fetch-client.ts": "f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f"
+      },
+      "unchanged": true
+    },
+    {
+      "iteration": 2,
+      "sha256": {
+        "open-api/immich-openapi-specs.json": "12b0dd2cdb19a71344de79335a75e3d3c7a9ba0a9e4968cf4f32c0b43803c243",
+        "packages/sdk/src/fetch-client.ts": "f014a9f7cf92e71d618a49f9f0b745f4279f538ef8f3063d98141e21845a0a4f"
+      },
+      "unchanged": true
+    }
+  ],
+  "externalIndexReturn": "Final: narrow server-only index-exit audit, no ordinary external-update resets. 115 PostgreSQL and 12 overlapping cache cases pass. Broad reset rejected after 8 library regressions; no assertions weakened.",
+  "finalCodeChecks": [
+    {
+      "check": "eslint",
+      "exit": 0
+    },
+    {
+      "check": "typecheck",
+      "exit": 0
+    },
+    {
+      "check": "sdk-check",
+      "exit": 0
+    },
+    {
+      "check": "format",
+      "exit": 0
+    }
+  ],
+  "finalCodeChecksAfterSchemaMetadata": {
+    "compatibilityAliases": 2,
+    "eslint": 0,
+    "forkMigrations": 77,
+    "migrationSync": 0,
+    "nestBuild": 0,
+    "tscAlias": 0,
+    "typecheck": 0
+  },
+  "finalConvergenceCodeChecks": {
+    "eslint": 0,
+    "migrationSync": 0,
+    "nestBuild": 0,
+    "tscAlias": 0,
+    "typecheck": 0
+  },
+  "finalForkMigrationCount": 78,
+  "finalIndexAuditCodeChecks": [
+    {
+      "exit": 0,
+      "step": "lint"
+    },
+    {
+      "exit": 0,
+      "step": "unit"
+    },
+    {
+      "exit": 0,
+      "step": "types"
+    },
+    {
+      "exit": 0,
+      "step": "build"
+    },
+    {
+      "exit": 0,
+      "step": "aliases"
+    },
+    {
+      "exit": 0,
+      "step": "migration-sync"
+    }
+  ],
+  "generatorSubcommandsOnly": "mise executable unavailable; exact Node, oazapfts and formatter commands executed; TOML parsed.",
+  "githubCI": {
+    "baseUnchangedFormatFailures": [
+      "server/src/schema/migrations-gallery/1793400000000-FixMemoryCandidateSchema.ts",
+      "server/src/utils/recovery-evidence.spec.ts"
+    ],
+    "changelogLabel": "changelog:enhancement added",
+    "finalIndexAuditRerun": "Generated API, strict SQL schema and migration ORDER passed on b0d83c788. Full medium failed; annotations identify workflow fixture missing favorites dependency. Focused real WASM/PostgreSQL file passes after wiring; next full CI not asserted.",
+    "generatedAPIContextFailure": "Resolved: exact cwd/config/ignore path formatting reproduces artifacts; GitHub OpenAPI Clients PASS on b0d83c788.",
+    "generatedGatesLocalResolution": "Resolved locally and in actual GitHub API/SQL jobs pinned to b0d83c788; other global CI remains not green.",
+    "imageAndMobileBuildRuns": "Cancelled because outside task scope",
+    "initialHead": "d82dc7bc5989418d4fb66c9c4592cf1482ac21f1",
+    "mediumFixtureFailure": "Corrected explicit favorites repository wiring; two files passed and stack file passed after focused rerun. Full CI rerun not asserted.",
+    "openapiGate": "FAIL: response enum additions; gate compares main rather than PR base. No rule disabled.",
+    "overall": "NOT GREEN",
+    "shellcheckAndDart": "FAIL; exact cause NOT VERIFIED: annotations contain only exit status, full logs Forbidden",
+    "verifiedGeneratedAPICheck": {
+      "conclusion": "success",
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119747911150,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963588/job/119747911150"
+    },
+    "verifiedMigrationOrderCheck": {
+      "conclusion": "success",
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119747911608,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963590/job/119747911608"
+    },
+    "verifiedSQLSchemaCheck": {
+      "conclusion": "success",
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119747911291,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963588/job/119747911291"
+    },
+    "workflowMediumFailure": {
+      "annotationEvidence": "10 published workflow assertions; total full-suite failure count unavailable from blocked blob logs",
+      "conclusion": "failure",
+      "focusedAfter": "22 passed / 0 failed; existing assertions preserved plus canonical favorite overlay checks",
+      "focusedBefore": "14 failed / 8 passed after building actual WASM and using server cwd",
+      "head": "b0d83c7881b7971fee1903dcc532a26e17fa0708",
+      "jobId": 119748004434,
+      "url": "https://github.com/docice545/gallery/actions/runs/39755963588/job/119748004434"
+    }
+  },
+  "immutableDeletionMigration": {
+    "path": "server/src/schema/migrations-gallery/1793600000000-AddAuthorizedAssetDeletion.ts",
+    "sha256": "f1ed34ff663fd4bdcc90a7cf73ddc3104a1b3fd10a13c424fd1ab8adfcba4804",
+    "unchanged": true
+  },
+  "isolatedSharedSpaceRerun": {
+    "exit": 0,
+    "failed": 0,
+    "heapMiB": 6144,
+    "maxChildRSSKiB": 3621288,
+    "passed": 661,
+    "seconds": 12.71
+  },
+  "newMigration": "1796000000300-TrackCatalogIndexRecovery",
+  "notVerified": [
+    "stock Android app E2E",
+    "all native iOS scenarios and App Store binary identity",
+    "unmodified Noodle Web browser E2E",
+    "real Synology NFS",
+    "AI/ML sidecar E2E",
+    "production restored DB upgrade",
+    "rollback image readiness",
+    "full repository test suite"
+  ],
+  "operations": {
+    "baseline": 403,
+    "changedExisting": [],
+    "current": 411,
+    "removed": []
+  },
+  "protectedSources": [
+    {
+      "path": "server/src/utils/authorized-deletion.ts",
+      "sha256": "2abda83aa10a445ea718255d5c5fc6c921acc3e017e61b7d32e2a15f784f3195",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/utils/deletion-recovery.ts",
+      "sha256": "d383fdd44fab0378c4621d1fdde7e9123d1274bbd8f62204cb8783485b9bb63b",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/cores/storage.core.ts",
+      "sha256": "3d8e8836ebbb89518aaf27082dbef4bd07e8ab1c23750e6c76594daa7936c43b",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/services/asset-media.service.ts",
+      "sha256": "81391c8ff74a47d3f5562f0077c479a4df14c888494a803d3f3a02666ebce690",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/services/library.service.ts",
+      "sha256": "7be7b1e92cff23a4c10c029a91fcdf3992e9500cf683ce9177eebe8876cb8daf",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/services/duplicate.service.ts",
+      "sha256": "834003275bcfe3c79e682b095a5ce4c3e212d796d8a2ea5305945389fb332b6b",
+      "unchanged": true
+    },
+    {
+      "path": "server/src/repositories/access.repository.ts",
+      "sha256": "311de8464ef38cdc1ac8328b293a89b9a9bc028fd653b5024e8fb72e5a1fbfd4",
+      "unchanged": true
+    }
+  ],
+  "rbacAndRollbackFixtureResolution": "Real favorites dependency wired into remaining explicit SearchService fixture. 90 passed in mixed two-file run; original deletion-boundary fixture fixed and its failed test passed separately (6 filtered). Latest downgrade is not claimed safe.",
+  "rbacFixtureCodeChecks": {
+    "eslint": 0,
+    "typecheck": 0
+  },
+  "resultsAreOverlappingRunsNotUniqueTotals": true,
+  "schemaCliComparison": {
+    "human": [],
+    "sql": []
+  },
+  "schemaGuardRegistration": "Migration-owned UPDATE OF names registered without DDL synchronization; independent real PostgreSQL test asserts exact enabled DDL of both guards.",
+  "scope": "backend contracts and synthetic unit/PostgreSQL/filesystem checks, no native or production E2E",
+  "testRuns": [
+    {
+      "log": "foto-compat-services-tests3.log",
+      "passedRun": true,
+      "sha256": "b3ae1f2ff954ee88c501470519ea5927aa635ecf73d15a78aef54ebf453b31fb",
+      "summary": ["Test Files  2 passed (2)", "Tests  306 passed (306)"]
+    },
+    {
+      "log": "foto-compat-medium.log",
+      "passedRun": true,
+      "sha256": "895f4018c261529cb34ab1c86e7601c716d7ff0ab8e3f0858cba62b66297d2ee",
+      "summary": ["Test Files  7 passed (7)", "Tests  37 passed (37)"]
+    },
+    {
+      "log": "foto-compat-favorite-unit2.log",
+      "passedRun": true,
+      "sha256": "1402e07f0fb6ed83cf8dd6129b51b856497a9d9d39d3dbfb6f970de53ed1a67d",
+      "summary": ["Test Files  3 passed (3)", "Tests  360 passed (360)"]
+    },
+    {
+      "log": "foto-compat-targeted-unit-final.log",
+      "passedRun": false,
+      "sha256": "4aa10a14425e63361454d91988eb929d7ba6746752171b49820d85f0bfadf960",
+      "summary": [
+        "Test Files  7 passed (8)",
+        "Tests  1288 passed (1319)",
+        "Errors  1 error"
+      ]
+    },
+    {
+      "log": "foto-compat-sharedspace-full.log",
+      "passedRun": true,
+      "sha256": "b6dfc16377a21c50ce309144ae11db0f408665ae57e14eea6df60d8797ffd943",
+      "summary": ["Test Files  1 passed (1)", "Tests  661 passed (661)"]
+    },
+    {
+      "log": "foto-compat-space-http-unit.log",
+      "passedRun": true,
+      "sha256": "8147861c48d2cd53d5cb4834670c72651846d3724bcd459d62ecf01cb465cfd0",
+      "summary": ["Test Files  1 passed (1)", "Tests  34 passed (34)"]
+    },
+    {
+      "log": "foto-compat-final-sync-timeline-unit.log",
+      "passedRun": true,
+      "sha256": "c87ac6ba47321b4690de63ad01f3c8cc28cb2ccfa88f361f519cc6c4f5c62fa5",
+      "summary": ["Test Files  2 passed (2)", "Tests  171 passed (171)"]
+    },
+    {
+      "log": "foto-compat-contract-tests.log",
+      "passedRun": true,
+      "sha256": "a33a068b13d4f98331c230488c2640cdf5d5ff1776bd5a3ef15446a29031f7ef",
+      "summary": ["Test Files  3 passed (3)", "Tests  231 passed (231)"]
+    },
+    {
+      "log": "foto-compat-storage-unit-final.log",
+      "passedRun": true,
+      "sha256": "d1800b9d237f259cf9f4403eec54186755c18bd5716d2d98b53d133765a4d296",
+      "summary": ["Test Files  6 passed (6)", "Tests  477 passed (477)"]
+    },
+    {
+      "log": "foto-compat-facebox-unit-final.log",
+      "passedRun": true,
+      "sha256": "9f9008fa5d10a70f78bc4b03ad8160a774260e832964c6900934dcad64482a57",
+      "summary": ["Test Files  1 passed (1)", "Tests  3 passed (3)"]
+    },
+    {
+      "log": "foto-compat-regression-medium.log",
+      "passedRun": true,
+      "sha256": "0448dd396914bc89d7169815aa29c841984e9899be766e99aa89c63f9fdfae20",
+      "summary": [
+        "Test Files  10 passed (10)",
+        "Tests  333 passed | 12 skipped (345)"
+      ]
+    },
+    {
+      "log": "foto-compat-new-routes-medium-final.log",
+      "passedRun": true,
+      "sha256": "611b71b279c7037c9481b4b47c99d2182e2c894df508c8324c73d85bd9cadb42",
+      "summary": ["Test Files  3 passed (3)", "Tests  9 passed (9)"]
+    },
+    {
+      "log": "foto-compat-final-cache-medium.log",
+      "passedRun": true,
+      "sha256": "8003a5ca67ce991d88a5253f781b3c27345fdc4d2ac21f0af067a7f9c9886b8b",
+      "summary": ["Test Files  2 passed (2)", "Tests  14 passed (14)"]
+    },
+    {
+      "log": "foto-compat-favorites-timeline-medium-exact-final.log",
+      "passedRun": true,
+      "sha256": "882a18162fc656d19c108f0747cddcdbe7b4b903da1a7cfd1c69fea6aa79acae",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed (1)"]
+    },
+    {
+      "log": "foto-compat-personal-search-medium-final.log",
+      "passedRun": true,
+      "sha256": "7c15fb3456a7d3ab0f971ddf7cbe00f2fa9c05bd36f58390e2aa454e5bda421f",
+      "summary": [
+        "Test Files  1 passed (1)",
+        "Tests  1 passed | 98 skipped (99)"
+      ]
+    },
+    {
+      "log": "foto-compat-upgrade-medium-final.log",
+      "passedRun": true,
+      "sha256": "1b53c5c88eadde78266cb890fdc764df87b872b33f06d6058bfefe43ef1bb619",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed (1)"]
+    },
+    {
+      "log": "foto-compat-partner-favorites-medium-final.log",
+      "passedRun": true,
+      "sha256": "9a4d72a84426fff332b01f162f04638476a7283935bfb67247e1f009c737df9d",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed | 5 skipped (6)"]
+    },
+    {
+      "log": "foto-compat-final-contract-unit.log",
+      "passedRun": true,
+      "sha256": "ed35270a388f5cc7a74b36ee218ba0662e5c2cbbd41e62fdb897fb208d4b16ff",
+      "summary": [
+        "Test Files  2 passed (2)",
+        "Tests  7 passed | 96 skipped (103)"
+      ]
+    },
+    {
+      "log": "foto-compat-final-medium-extensions.log",
+      "passedRun": false,
+      "resolution": "Fixture/assertion corrected; targeted passing rerun recorded separately, not counted as an overall pass.",
+      "sha256": "f84bd5f5f816aff046834654b490e89f3a7c1df86cb0a9f42d9ca328f82a31b1",
+      "summary": [
+        "Test Files  1 failed | 3 passed (4)",
+        "Tests  1 failed | 97 passed | 12 skipped (110)"
+      ]
+    },
+    {
+      "log": "foto-compat-partner-favorites-medium.log",
+      "passedRun": false,
+      "resolution": "Fixture/assertion corrected; targeted passing rerun recorded separately, not counted as an overall pass.",
+      "sha256": "3f155efeb9b6ff5272af5e8a5743c98d1f1f73e8ef1caead9fdaa23f1ff39465",
+      "summary": ["Test Files  1 failed (1)", "Tests  1 failed | 5 passed (6)"]
+    },
+    {
+      "log": "foto-compat-cache-unit.log",
+      "passedRun": false,
+      "resolution": "Fixture/assertion corrected; targeted passing rerun recorded separately, not counted as an overall pass.",
+      "sha256": "7092a1984b7fd8c0c82b84de69e2d411b8e7231751ae5354a973f3e0c4999bc6",
+      "summary": [
+        "Test Files  1 failed | 1 passed (2)",
+        "Tests  1 failed | 76 passed (77)"
+      ]
+    },
+    {
+      "log": "foto-compat-ci-service-fixtures-medium.log",
+      "passedRun": false,
+      "sha256": "cb3f62b53304319f735ba0704afcff599d6f55d4b2505954a7307b6cdc84541b",
+      "summary": [
+        "Test Files  1 failed | 2 passed (3)",
+        "Tests  1 failed | 63 passed (64)"
+      ]
+    },
+    {
+      "log": "foto-compat-ci-stack-fixture-medium-final.log",
+      "passedRun": true,
+      "sha256": "e2053c607f064aeaf840ec4ca4992c33aee72d8ecd9ccacf929eb9ea79f2daa2",
+      "summary": ["Test Files  1 passed (1)", "Tests  8 passed (8)"]
+    },
+    {
+      "log": "foto-compat-cli-schema-guards-final.log",
+      "passedRun": true,
+      "sha256": "028ecac12d1e49e812aedae6040554046de0ec6d354cdc367c2b43c36fc6d5c8",
+      "summary": ["Test Files  1 passed (1)", "Tests  2 passed (2)"]
+    },
+    {
+      "log": "foto-compat-codegen-contract-final.log",
+      "passedRun": true,
+      "sha256": "5ca432a0c84cf09ee4e398e56ee29401a7e8628a2a420bc6754e88319075117e",
+      "summary": ["Test Files  1 passed (1)", "Tests  6 passed (6)"]
+    },
+    {
+      "log": "foto-compat-ci-rbac-migrations-medium-final.log",
+      "passedRun": false,
+      "sha256": "00940ecd2e78655df756d999d86348314d81c8e85b0794179d3c41db09185022",
+      "summary": [
+        "Test Files  1 failed | 1 passed (2)",
+        "Tests  1 failed | 90 passed (91)"
+      ]
+    },
+    {
+      "log": "foto-compat-ci-deletion-boundary-medium-final.log",
+      "passedRun": true,
+      "sha256": "fb71a77185373ed53c378262dddb3fc18ed8727af58f324b0cfd4da37a034c85",
+      "summary": ["Test Files  1 passed (1)", "Tests  1 passed | 6 skipped (7)"]
+    },
+    {
+      "log": "foto-compat-index-return-regression-before-anchors.log",
+      "passedRun": false,
+      "sha256": "381949a18395324b2cf3a848de3a73003a107642e7fcd51bc44656a90b2e356c",
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 9 skipped (10)"
+      ]
+    },
+    {
+      "log": "foto-compat-medium-ci-convergence-final.log",
+      "passedRun": true,
+      "sha256": "f1717266cb33c7b88b7f4a90e7d628dcd120befd82543d9e7d168f13e8701466",
+      "summary": ["Test Files  4 passed (4)", "Tests  76 passed (76)"]
+    },
+    {
+      "log": "foto-compat-index-return-library-regression.log",
+      "passedRun": false,
+      "sha256": "561f3fc7473da83d7ebf4f6a3403334af76ce578ebd55719c50a948f082f7b9e",
+      "summary": [
+        "Test Files  2 failed | 1 passed (3)",
+        "Tests  8 failed | 27 passed (35)"
+      ]
+    },
+    {
+      "log": "foto-compat-final-index-audit-medium.log",
+      "passedRun": true,
+      "sha256": "12fa439aa428127540eba8bc0b714d3d733f442d74201a84c70199fc2ea70ccf",
+      "summary": ["Test Files  10 passed (10)", "Tests  115 passed (115)"]
+    },
+    {
+      "log": "foto-compat-final-catalog-audit-cases.log",
+      "passedRun": true,
+      "sha256": "0780499e74b4f63ef9a0e99a50ced406254d04d81522364ff85106e4753f16db",
+      "summary": ["Test Files  1 passed (1)", "Tests  12 passed (12)"]
+    },
+    {
+      "log": "foto-compat-index-audit-unit-before.log",
+      "passedRun": false,
+      "sha256": "7d730482fadd3c978c610026e81f57a0919396d915d2fa8820b63e13820820e6",
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  1 failed | 73 passed (74)"
+      ]
+    },
+    {
+      "log": "foto-compat-index-audit-unit.log",
+      "passedRun": true,
+      "sha256": "53f3eb1409d719b9087dfa39d59e5292a5fdf6281d0529c8227f5b4837a59ca3",
+      "summary": ["Test Files  1 passed (1)", "Tests  74 passed (74)"]
+    },
+    {
+      "log": "foto-compat-final-audit-contracts.log",
+      "passedRun": true,
+      "sha256": "6c0d42b220aa058186e56488d039999057e1a393d87f456dd9fc47173e6f95d2",
+      "summary": ["Test Files  1 passed (1)", "Tests  6 passed (6)"]
+    },
+    {
+      "log": "foto-compat-workflow-medium-before.log",
+      "note": "Environment setup failure: absent core WASM and incorrect root cwd; not a reproduction of the CI defect.",
+      "sha256": "580923787e03a2705db21244e631e42f885711fd7340c6893ac6e4da59854fc3",
+      "summary": ["Test Files  1 failed (1)", "Tests  22 failed (22)"]
+    },
+    {
+      "log": "foto-compat-workflow-medium-with-wasm-before.log",
+      "note": "Environment setup failure: real WASM built, but root cwd still invalid for plugin/manifest paths; not a runtime compatibility failure.",
+      "sha256": "e3957bd1a052b00aaee2f9b736f975a8c7e94100b09c817bcfe29c97b234ec9e",
+      "summary": ["Test Files  1 failed (1)", "Tests  22 failed (22)"]
+    },
+    {
+      "log": "foto-compat-workflow-medium-exact-cwd-before.log",
+      "note": "Valid reproduction: real WASM, server cwd, undefined AssetFavoriteRepository at AssetService.get/updateFavorites.",
+      "sha256": "168c9d410629aaa373cf2f7c26001ccae8183f3e6564718666873e1ab2509b8e",
+      "summary": [
+        "Test Files  1 failed (1)",
+        "Tests  14 failed | 8 passed (22)"
+      ]
+    },
+    {
+      "log": "foto-compat-workflow-medium-final.log",
+      "note": "Real WASM core-plugin and disposable PostgreSQL14, no native mobile/NAS E2E. Real favorites repository wired into existing test context; no old assertions removed.",
+      "sha256": "2846de004b267bec75e1079cc9f45ee2d6d4fdfd97252af508d284f419683460",
+      "summary": ["Test Files  1 passed (1)", "Tests  22 passed (22)"]
+    }
+  ],
+  "testedCodeCommit": "ab7f0217eb84668576b2035ee19a52daf1003572",
+  "upstreams": {
+    "immich-3.3.5": {
+      "matchedMethodPath": 268,
+      "missing": [
+        {
+          "method": "delete",
+          "operationId": "deleteClusterGroupRequest",
+          "path": "/cluster-groups/requests/{id}"
+        },
+        {
+          "method": "delete",
+          "operationId": "removeUsersFromPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "get",
+          "operationId": "getClusterGroupRequests",
+          "path": "/cluster-groups/requests"
+        },
+        {
+          "method": "get",
+          "operationId": "getClusterGroupRequestsForGroup",
+          "path": "/cluster-groups/{id}/requests"
+        },
+        {
+          "method": "get",
+          "operationId": "getClusterGroupUsers",
+          "path": "/cluster-groups/{id}/users"
+        },
+        {
+          "method": "get",
+          "operationId": "getUsersForPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "post",
+          "operationId": "acceptClusterGroupRequest",
+          "path": "/cluster-groups/requests/{id}/accept"
+        },
+        {
+          "method": "post",
+          "operationId": "leaveClusterGroup",
+          "path": "/cluster-groups/{id}/leave"
+        },
+        {
+          "method": "post",
+          "operationId": "clusterGroupRegeneratePeople",
+          "path": "/cluster-groups/{id}/regenerate-people"
+        },
+        {
+          "method": "put",
+          "operationId": "createClusterGroupRequest",
+          "path": "/cluster-groups/{id}/requests"
+        },
+        {
+          "method": "put",
+          "operationId": "upsertPeopleUsers",
+          "path": "/people/users"
+        }
+      ],
+      "operationCount": 279,
+      "sourceCommit": "8303cb117e197c700332b33b61b45314c9cc5bb4"
+    },
+    "noodle-5.8.0": {
+      "matchedMethodPath": 379,
+      "missing": [
+        {
+          "method": "delete",
+          "operationId": "removeUsersFromPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "get",
+          "operationId": "getUsersForPeople",
+          "path": "/people/users"
+        },
+        {
+          "method": "put",
+          "operationId": "upsertPeopleUsers",
+          "path": "/people/users"
+        }
+      ],
+      "operationCount": 382,
+      "sourceCommit": "37aa54e632606cc6a62bc6bcbba14c62200147c4"
+    }
+  },
+  "workflowPluginValidation": {
+    "binaryen": "version_124",
+    "binaryenArchiveSHA256": "0290c3779fedf592b8da0ded3032ff55c41a2b7bfa2d6bf7b7bac6f0e6e28963",
+    "built": ["client SDK", "plugin SDK", "core plugin WASM"],
+    "codeChecks": {
+      "format": 0,
+      "lint": 0,
+      "types": 0
+    },
+    "command": "NODE_OPTIONS=--max-old-space-size=4096 node_modules/.bin/vitest run --config test/vitest.config.medium.mjs test/medium/specs/workflow/workflow-core-plugin.spec.ts --maxWorkers=1 --no-file-parallelism",
+    "compilerReportedVersion": "1.6.1",
+    "cwd": "server",
+    "extismArchiveSHA256": "63b72da2f5e88655522dc21477de549f238a2f40546a69ce4e0fce7e78654035",
+    "extismReleaseAsset": "v1.7.0/extism-js-x86_64-linux-v1.7.0.gz",
+    "fixturesOnly": true,
+    "productionImageBuilt": false,
+    "typescriptExit": 0,
+    "wasmSHA256": "f87daa2f73c68d588f515eadbc04c2d9cf85de285289f6fa4357059da673f7d3"
+  }
+}

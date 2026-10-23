@@ -81,6 +81,7 @@ import {
   withTags,
 } from 'src/utils/database.js';
 import { verifyRecoveryEvidence } from 'src/utils/deletion-recovery.js';
+import { favoriteExistsFor } from 'src/utils/favorite.js';
 import { globToPostgresRegex } from 'src/utils/misc.js';
 import {
   type TimelineHiddenScope,
@@ -411,6 +412,7 @@ export function withTimeBucketAssetFilters<O>(
   // plain owner check.
   viewerId?: string,
 ): SelectQueryBuilder<DB, 'asset', O> {
+  const favoriteUserId = viewerId ?? options.callerId ?? options.userIds?.[0];
   return (
     qb
       .$if(!!options.forceEmptyResult, (qb) => qb.where(sql<SqlBool>`false`))
@@ -648,7 +650,15 @@ export function withTimeBucketAssetFilters<O>(
           ]),
         ),
       )
-      .$if(options.isFavorite !== undefined, (qb) => qb.where('asset.isFavorite', '=', options.isFavorite!))
+      .$if(options.isFavorite !== undefined, (qb) =>
+        qb.where((eb) =>
+          eb(
+            favoriteUserId ? favoriteExistsFor(eb, favoriteUserId) : eb.ref('asset.isFavorite'),
+            '=',
+            options.isFavorite!,
+          ),
+        ),
+      )
       .$if(!!options.assetType, (qb) => qb.where('asset.type', '=', options.assetType!))
       .$if(options.isDuplicate !== undefined, (qb) =>
         qb.where('asset.duplicateId', options.isDuplicate ? 'is not' : 'is', null),
@@ -2715,6 +2725,11 @@ export class AssetRepository {
       throw new DeletionError('MOTION_SCOPE_MISMATCH');
     }
 
+    // Uploaded companions already live inside the owner's bound upload/library
+    // root. Only a generated companion outside those roots needs SSD admission.
+    // snapshotOriginal still verifies the bound root and every path component.
+    if (roots.some((root) => below(root.path, target.originalPath))) return roots;
+
     const encodedRoot = StorageCore.getFolderLocation(StorageFolder.EncodedVideo, target.ownerId);
     if (!below(encodedRoot, target.originalPath)) {
       throw new DeletionError('MOTION_ORIGINAL_OUTSIDE_MANAGED_ROOT');
@@ -3107,7 +3122,9 @@ export class AssetRepository {
             'asset.duration',
             'asset.id',
             'asset.visibility',
-            sql`asset."isFavorite" and asset."ownerId" = ${auth.user.id}`.as('isFavorite'),
+            auth.sharedLink
+              ? sql<boolean>`false`.as('isFavorite')
+              : favoriteExistsFor(eb, auth.user.id).as('isFavorite'),
             sql`asset.type = 'IMAGE'`.as('isImage'),
             sql`asset."deletedAt" is not null`.as('isTrashed'),
             'asset.deletedAt',

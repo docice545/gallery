@@ -31,14 +31,25 @@ async function selectPageSort(page: import('@playwright/test').Page, label: 'New
 
 test.describe('Spaces FilterPanel', () => {
   let admin: LoginResponseDto;
+  let websocket: Awaited<ReturnType<typeof utils.connectWebsocket>> | undefined;
 
   test.beforeAll(async () => {
     utils.initSdk();
     await utils.resetDatabase();
     admin = await utils.adminSetup();
+    websocket = await utils.connectWebsocket(admin.accessToken);
   });
 
-  // ─── Helper: navigate to a space page with auth ───
+  // The suite shares its admin and canonical duplicate uploads. Keep the event
+  // cache/channel alive until all tests finish; duplicates do not emit new uploads.
+  test.afterAll(() => {
+    if (!websocket) {
+      return;
+    }
+    utils.disconnectWebsocket(websocket);
+    websocket = undefined;
+  });
+
   async function gotoSpace(
     context: import('@playwright/test').BrowserContext,
     page: import('@playwright/test').Page,
@@ -92,7 +103,13 @@ test.describe('Spaces FilterPanel', () => {
         filename: 'canon.jpg',
       },
     });
-    await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
+    // Queue emptiness can precede the upload job's metadata enqueue. Wait for
+    // each actual upload projection before applying manual ratings/tags.
+    for (const asset of [asset1, asset2, asset3, asset4, video, gpsAsset, cameraAsset]) {
+      await utils.waitForWebsocketEvent({ event: 'assetUpload', id: asset.id });
+    }
+    const importedCamera = await utils.getAssetInfo(admin.accessToken, cameraAsset.id);
+    expect(importedCamera.exifInfo?.rating).toBe(3);
 
     await utils.addSpaceAssets(admin.accessToken, space.id, [
       asset1.id,
@@ -119,6 +136,12 @@ test.describe('Spaces FilterPanel', () => {
       { headers: asBearerAuth(admin.accessToken) },
     );
     await updateAsset({ id: video.id, updateAssetDto: { rating: 3 } }, { headers: asBearerAuth(admin.accessToken) });
+    await utils.waitForQueueFinish(admin.accessToken, 'sidecar');
+    await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
+    for (const asset of [asset1, video, cameraAsset]) {
+      const detail = await utils.getAssetInfo(admin.accessToken, asset.id);
+      expect(detail.exifInfo?.rating).toBe(3);
+    }
 
     // Albums needs BOTH sides — some filed, some not.
     await utils.createAlbum(admin.accessToken, { albumName: `#910 space album ${space.id}`, assetIds: [video.id] });

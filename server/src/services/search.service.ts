@@ -33,6 +33,7 @@ import { AssetSearchScope } from 'src/repositories/search.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
 import { getMyPartnerIds } from 'src/utils/asset.util.js';
+import { rejectSharedLinkFavoriteFilter } from 'src/utils/favorite.js';
 import { isSmartSearchEnabled } from 'src/utils/misc.js';
 import { decodeSearchCursor, encodeSearchCursor } from 'src/utils/search-cursor.js';
 import { applyLockedVisibilityPolicy, collectFilterIds } from 'src/utils/search-filter.js';
@@ -187,6 +188,7 @@ export class SearchService extends BaseService {
   }
 
   async searchMetadata(auth: AuthDto, dto: MetadataSearchDto): Promise<SearchResponseDto> {
+    rejectSharedLinkFavoriteFilter(auth, dto.isFavorite);
     if (isNewShapeRequest(dto)) {
       throw newShapeUnsupported();
     }
@@ -819,11 +821,20 @@ export class SearchService extends BaseService {
     };
   }
 
-  private mapResponse(
+  private async mapResponse(
     assets: MapAsset[],
     options: AssetMapOptions,
     page: { nextPage?: string | null; nextCursor?: string | null } = {},
-  ): SearchResponseDto {
+  ): Promise<SearchResponseDto> {
+    if (options.auth && !options.auth.sharedLink) {
+      options = {
+        ...options,
+        favoriteAssetIds: await this.assetFavoriteRepository.getForAssets(
+          options.auth.user.id,
+          assets.map((asset) => asset.id),
+        ),
+      };
+    }
     return {
       albums: { total: 0, count: 0, items: [], facets: [] },
       assets: {

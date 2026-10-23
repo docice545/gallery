@@ -6,7 +6,7 @@
 // an already-synced device learns to hide/purge a newly-trashed asset (the asset.updateId bump
 // rides through). Sync-side sibling of H-1.
 import { Kysely } from 'kysely';
-import { AssetVisibility, SharedSpaceRole, SyncEntityType } from 'src/enum.js';
+import { AssetStatus, AssetVisibility, SharedSpaceRole, SyncEntityType } from 'src/enum.js';
 import { SyncRepository } from 'src/repositories/sync.repository.js';
 import { DB } from 'src/schema/index.js';
 import { SyncTestContext } from 'test/medium.factory.js';
@@ -25,7 +25,11 @@ const collect = async (stream: AsyncIterable<unknown>): Promise<any[]> => {
 };
 
 const trash = (db: Kysely<DB>, assetId: string) =>
-  db.updateTable('asset').set({ deletedAt: new Date() }).where('id', '=', assetId).execute();
+  db
+    .updateTable('asset')
+    .set({ deletedAt: new Date(), status: AssetStatus.Trashed })
+    .where('id', '=', assetId)
+    .execute();
 
 beforeAll(async () => {
   defaultDatabase = await getKyselyDB();

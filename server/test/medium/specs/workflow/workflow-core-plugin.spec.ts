@@ -5,6 +5,7 @@ import { PluginManifestDto } from 'src/dtos/plugin-manifest.dto.js';
 import { AssetType, AssetVisibility, LogLevel } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AlbumRepository } from 'src/repositories/album.repository.js';
+import { AssetFavoriteRepository } from 'src/repositories/asset-favorite.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { CryptoRepository } from 'src/repositories/crypto.repository.js';
@@ -32,6 +33,7 @@ class WorkflowTestContext extends MediumTestContext<typeof WorkflowExecutionServ
       real: [
         AccessRepository,
         AlbumRepository,
+        AssetFavoriteRepository,
         AssetRepository,
         CryptoRepository,
         DatabaseRepository,
@@ -224,6 +226,9 @@ describe('core plugin', () => {
       await expect(ctx.sut.handleAssetTrigger({ workflowId: workflow.id, assetId: asset.id })).resolves.toBeUndefined();
 
       await expect(ctx.get(AssetRepository).getById(asset.id)).resolves.toMatchObject({ isFavorite: true });
+      await expect(ctx.get(AssetFavoriteRepository).getForAssets(user.id, [asset.id])).resolves.toEqual(
+        new Set([asset.id]),
+      );
     });
 
     it('should unfavorite an asset', async () => {
@@ -239,6 +244,7 @@ describe('core plugin', () => {
       await expect(ctx.sut.handleAssetTrigger({ workflowId: workflow.id, assetId: asset.id })).resolves.toBeUndefined();
 
       await expect(ctx.get(AssetRepository).getById(asset.id)).resolves.toMatchObject({ isFavorite: false });
+      await expect(ctx.get(AssetFavoriteRepository).getForAssets(user.id, [asset.id])).resolves.toEqual(new Set());
     });
   });
 

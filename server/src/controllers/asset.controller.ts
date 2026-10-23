@@ -33,6 +33,9 @@ import {
   AssetBulkDeleteDto,
   AssetBulkUpdateDto,
   AssetCopyDto,
+  AssetEditableDto,
+  AssetEditableResponseDto,
+  AssetFavoriteUpdateDto,
   AssetJobsDto,
   AssetMetadataBulkDeleteDto,
   AssetMetadataBulkResponseDto,
@@ -308,6 +311,22 @@ export class AssetController {
   })
   deleteBulkAssetMetadata(@Auth() auth: AuthDto, @Body() dto: AssetMetadataBulkDeleteDto): Promise<void> {
     return this.service.deleteBulkMetadata(auth, dto);
+  }
+
+  @Post('editable')
+  @Authenticated({ permission: Permission.AssetRead })
+  @HttpCode(HttpStatus.OK)
+  @Endpoint({ summary: 'Resolve editable asset IDs', history: new HistoryBuilder().added('v2').stable('v2') })
+  getEditableAssets(@Auth() auth: AuthDto, @Body() dto: AssetEditableDto): Promise<AssetEditableResponseDto> {
+    return this.service.getEditable(auth, dto);
+  }
+
+  @Put('favorites')
+  @Authenticated({ permission: Permission.AssetRead })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Endpoint({ summary: 'Set personal favorite state', history: new HistoryBuilder().added('v1').beta('v1') })
+  updateAssetFavorites(@Auth() auth: AuthDto, @Body() dto: AssetFavoriteUpdateDto): Promise<void> {
+    return this.service.updateFavorites(auth, dto);
   }
 
   @Put(':id')

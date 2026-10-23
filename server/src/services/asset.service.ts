@@ -24,6 +24,9 @@ import {
   AssetBulkDeleteDto,
   AssetBulkUpdateDto,
   AssetCopyDto,
+  AssetEditableDto,
+  AssetEditableResponseDto,
+  AssetFavoriteUpdateDto,
   AssetJobName,
   AssetJobsDto,
   AssetMetadataBulkDeleteDto,
@@ -172,6 +175,10 @@ export class AssetService extends BaseService {
       }
     }
 
+    const favoriteIds = auth.sharedLink
+      ? new Set<string>()
+      : await this.assetFavoriteRepository.getForAssets(auth.user.id, [id]);
+    data.isFavorite = favoriteIds.has(id);
     return data;
   }
 
@@ -232,6 +239,19 @@ export class AssetService extends BaseService {
     }
   }
 
+  async getEditable(auth: AuthDto, dto: AssetEditableDto): Promise<AssetEditableResponseDto> {
+    const editable = await this.checkAccess({ auth, permission: Permission.AssetUpdate, ids: dto.assetIds });
+    return { editableAssetIds: [...editable] };
+  }
+
+  async updateFavorites(auth: AuthDto, dto: AssetFavoriteUpdateDto): Promise<void> {
+    if (auth.sharedLink) throw new BadRequestException('Shared link sessions cannot set favorites');
+    await this.requireAccess({ auth, permission: Permission.AssetRead, ids: dto.ids });
+    await (dto.isFavorite
+      ? this.assetFavoriteRepository.addAll(auth.user.id, dto.ids)
+      : this.assetFavoriteRepository.removeAll(auth.user.id, dto.ids));
+  }
+
   async update(auth: AuthDto, id: string, dto: UpdateAssetDto): Promise<AssetResponseDto> {
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
 
@@ -247,7 +267,8 @@ export class AssetService extends BaseService {
       }
     }
 
-    const { description, dateTimeOriginal, latitude, longitude, rating, ...rest } = dto;
+    const { description, dateTimeOriginal, latitude, longitude, rating, isFavorite, ...rest } = dto;
+    if (isFavorite !== undefined) await this.updateFavorites(auth, { ids: [id], isFavorite });
     const repos = { asset: this.assetRepository, event: this.eventRepository };
 
     let previousMotion: { id: string } | null = null;
@@ -350,7 +371,8 @@ export class AssetService extends BaseService {
       }
     }
 
-    const assetDto = omitBy({ isFavorite, visibility, duplicateId }, isUndefined);
+    if (isFavorite !== undefined) await this.updateFavorites(auth, { ids, isFavorite });
+    const assetDto = omitBy({ visibility, duplicateId }, isUndefined);
 
     // When latitude/longitude are updated in bulk, reverse-geocode once so country/state/city
     // stay in sync across all selected assets. See updateExif() for the rationale.
@@ -833,7 +855,7 @@ export class AssetService extends BaseService {
     const { trash } = await this.getConfig({ withCache: true });
     const force = dto.force || !trash.enabled;
     if (force) {
-      const results = await this.permanentlyDelete(auth, ids, true);
+      const results = await this.permanentlyDelete(auth, ids, true, false);
       if (results.some((result) => result.state !== 'complete')) {
         throw new ConflictException(
           'Permanent deletion incomplete; inspect owner-scoped deletion status and retry only unresolved items.',

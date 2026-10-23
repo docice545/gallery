@@ -1771,14 +1771,14 @@ export class PersonRepository {
       .executeTakeFirst();
   }
 
-  async createAssetFace(face: Insertable<AssetFaceTable>): Promise<string> {
-    const result = await this.db.insertInto('asset_face').values(face).returning('id').executeTakeFirstOrThrow();
+  async createAssetFace(face: Insertable<AssetFaceTable>, db: Kysely<DB> | Transaction<DB> = this.db): Promise<string> {
+    const result = await db.insertInto('asset_face').values(face).returning('id').executeTakeFirstOrThrow();
     return result.id;
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  async deleteAssetFace(id: string): Promise<void> {
-    await this.db.deleteFrom('asset_face').where('asset_face.id', '=', id).execute();
+  async deleteAssetFace(id: string, db: Kysely<DB> | Transaction<DB> = this.db): Promise<void> {
+    await db.deleteFrom('asset_face').where('asset_face.id', '=', id).execute();
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
@@ -1839,5 +1839,63 @@ export class PersonRepository {
       .where('person.personGroupId', 'in', personGroupIds)
       .orderBy('person.ownerId')
       .execute();
+  }
+  async getOrCreateOwnerPersonForIdentity(
+    input: { ownerId: string; identityId: string; name: string; type: string },
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<{ personGroupId: string }> {
+    const find = () =>
+      db
+        .selectFrom('person')
+        .select('personGroupId')
+        .where('ownerId', '=', input.ownerId)
+        .where('identityId', '=', input.identityId)
+        .executeTakeFirst();
+
+    const existing = await find();
+    if (existing) {
+      return existing;
+    }
+
+    const group = await db
+      .insertInto('person_group')
+      .columns(['clusterGroupId'])
+      .expression((eb) => eb.selectFrom('user').select('user.clusterGroupId').where('user.id', '=', input.ownerId))
+      .returning('id')
+      .executeTakeFirstOrThrow();
+
+    const inserted = await db
+      .insertInto('person')
+      .values({
+        ownerId: input.ownerId,
+        personGroupId: group.id,
+        identityId: input.identityId,
+        name: input.name,
+        type: input.type,
+      })
+      .onConflict((oc) => oc.doNothing())
+      .returning('personGroupId')
+      .executeTakeFirst();
+
+    return inserted ?? ((await find()) as { personGroupId: string });
+  }
+
+  async setFaceOwnerPerson(
+    input: { assetFaceId: string; personGroupId: string | null; expectedPersonGroupId?: string | null },
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<void> {
+    let query = db
+      .updateTable('asset_face')
+      .set({ personGroupId: input.personGroupId })
+      .where('id', '=', input.assetFaceId);
+
+    if (input.expectedPersonGroupId !== undefined) {
+      query =
+        input.expectedPersonGroupId === null
+          ? query.where('personGroupId', 'is', null)
+          : query.where('personGroupId', '=', input.expectedPersonGroupId);
+    }
+
+    await query.execute();
   }
 }

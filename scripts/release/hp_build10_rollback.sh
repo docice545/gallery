@@ -20,6 +20,7 @@ operator_home=$(getent passwd doctoriceadm | cut -d: -f6)
    $(stat -c %u "$run_root") == "$(id -u)" ]] || { echo 'STOP OWNED_0700_RELEASE_DIRECTORY_REQUIRED' >&2; exit 1; }
 log="$run_root/rollback-$action-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
 (set -o noclobber; : > "$log")
+result_status=0
 trap 'result_status=$?; printf "RESULT exit=%s action=%s\n" "$result_status" "$action" | tee -a "$log"; exit "$result_status"' EXIT
 run_tool() { python3 -B "$tool" "$@" --run-root "$run_root" --sudo-docker 2>&1 | tee -a "$log"; }
 

@@ -70,4 +70,9 @@
 1793400000000-FixMemoryCandidateSchema
 1793600000000-AddAuthorizedAssetDeletion
 1793700000000-BindDeletionRecovery
+1794000000000-AddAssetFavoriteTables
 1794050000000-OwnerStorageDeletion
+1796000000000-AddAssetFaceCreatedBy
+1796000000100-ResetCatalogSyncProjection
+1796000000200-MirrorOwnerFavorites
+1796000000300-TrackCatalogIndexRecovery

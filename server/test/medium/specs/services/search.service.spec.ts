@@ -3,6 +3,7 @@ import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { FilterSuggestionsResponseDto, SearchSuggestionType } from 'src/dtos/search.dto.js';
 import { AlbumUserRole, AssetOrder, AssetVisibility, SearchOrderField, SharedSpaceRole } from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
+import { AssetFavoriteRepository } from 'src/repositories/asset-favorite.repository.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
 import { DatabaseRepository } from 'src/repositories/database.repository.js';
 import { FaceIdentityRepository } from 'src/repositories/face-identity.repository.js';
@@ -30,6 +31,7 @@ const setup = (db?: Kysely<DB>) => {
     real: [
       AccessRepository,
       AssetRepository,
+      AssetFavoriteRepository,
       DatabaseRepository,
       // Slice 1: the albumIds+personIds edge-case test exercises searchMetadata's person path, which calls
       // faceIdentityRepository.resolveScopedPersonTokens — wire it real so the resolver runs (returns no
@@ -1999,4 +2001,27 @@ describe(SearchService.name, () => {
       expect(ids).not.toContain(benAsset.id);
     });
   });
+});
+
+it('returns caller-specific shared favorites in live search without changing the owners flag', async () => {
+  const { sut, ctx } = setup();
+  const { auth: ownerAuth, user: owner } = await ctx.newSyncAuthUser();
+  const { auth, user: viewer } = await ctx.newSyncAuthUser();
+  const { space } = await ctx.newSharedSpace({ createdById: owner.id });
+  await ctx.newSharedSpaceMember({ spaceId: space.id, userId: owner.id, role: SharedSpaceRole.Owner });
+  await ctx.newSharedSpaceMember({ spaceId: space.id, userId: viewer.id, role: SharedSpaceRole.Viewer });
+  const { asset } = await ctx.newAsset({ ownerId: owner.id, isFavorite: false, visibility: AssetVisibility.Timeline });
+  await ctx.newExif({ assetId: asset.id, exifImageWidth: 100, exifImageHeight: 100 });
+  await ctx.newSharedSpaceAsset({ spaceId: space.id, assetId: asset.id, addedById: owner.id });
+  await ctx.get(AssetFavoriteRepository).addAll(viewer.id, [asset.id]);
+  const result = await sut.searchMetadata(auth, { size: 250, spaceId: space.id, isFavorite: true });
+  expect(result.assets.items).toContainEqual(expect.objectContaining({ id: asset.id, isFavorite: true }));
+  const ownersResult = await sut.searchMetadata(ownerAuth, { size: 250, spaceId: space.id, isFavorite: true });
+  expect(ownersResult.assets.items).toEqual([]);
+  const stored = await ctx.database
+    .selectFrom('asset')
+    .select('isFavorite')
+    .where('id', '=', asset.id)
+    .executeTakeFirstOrThrow();
+  expect(stored.isFavorite).toBe(false);
 });

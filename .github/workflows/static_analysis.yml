@@ -1,6 +1,15 @@
 name: Static Code Analysis
 on:
   workflow_dispatch:
+    inputs:
+      backend_ack_contracts:
+        description: 'Run only changed backend ACK contracts and regenerate their artifacts'
+        type: boolean
+        default: false
+      retry_cancellation_tests:
+        description: 'Acceptance retry: only the two failed cancellation tests; retain prior passing sync/journal evidence'
+        type: boolean
+        default: false
   pull_request:
   push:
     branches: [main, 'release/*']
@@ -36,7 +45,7 @@ jobs:
   mobile-dart-analyze:
     name: Run Dart Code Analysis
     needs: pre-job
-    if: ${{ fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    if: ${{ fromJSON(needs.pre-job.outputs.should_run).mobile == true && !inputs.backend_ack_contracts }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,6 +78,29 @@ jobs:
       - name: Run analyze
         run: mise //mobile:analyze
 
+      - name: Changed sync service and durable V2 journal regressions (manual acceptance)
+        if: github.event_name == 'workflow_dispatch' && !inputs.retry_cancellation_tests
+        run: >-
+          flutter test --no-pub --concurrency=1
+          test/domain/services/sync_stream_service_test.dart
+          test/infrastructure/repositories/memory_v2_journal_test.dart
+
+      - name: Previously failed cancellation regressions only
+        if: github.event_name == 'workflow_dispatch' && inputs.retry_cancellation_tests
+        run: >-
+          flutter test --no-pub --concurrency=1 --plain-name 'aborts and stops processing if cancelled'
+          test/domain/services/sync_stream_service_test.dart
+
+      - name: Existing V1 memory-link behavior (changed delete path)
+        if: github.event_name == 'workflow_dispatch'
+        run: >-
+          flutter test --no-pub --concurrency=1 --plain-name 'memory to asset links'
+          test/domain/repositories/sync_stream_repository_test.dart
+
+      - name: Actual SIGKILL and replay in a fresh Flutter process
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 ../tools/foto-automation/tests/run_pr7_memory_crash.py
+
       - name: Run format
         run: mise //mobile:format
 
@@ -80,3 +112,49 @@ jobs:
       # DCM requires a valid license key - skipped on fork
       # - name: Run DCM
       #   run: dcm analyze lib --fatal-style --fatal-warnings
+
+  backend-ack-contracts:
+    name: Targeted backend ACK contracts
+    if: github.event_name == 'workflow_dispatch' && inputs.backend_ack_contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      npm_config_child_concurrency: '1'
+      npm_config_workspace_concurrency: '1'
+      MISE_JOBS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+      - name: Install frozen workspace and build existing plugin dependencies sequentially
+        run: |
+          pnpm install --frozen-lockfile --child-concurrency=1
+          mise --jobs 1 run plugins
+      - name: Compile and regenerate actual server contracts
+        run: |
+          mise --jobs 1 run //server:build
+          mise --jobs 1 run //server:sync-open-api
+          mise --jobs 1 run //:open-api-typescript
+          mkdir -p "$RUNNER_TEMP/pr7-generated/open-api" "$RUNNER_TEMP/pr7-generated/packages/sdk/src"
+          cp open-api/immich-openapi-specs.json "$RUNNER_TEMP/pr7-generated/open-api/"
+          cp packages/sdk/src/fetch-client.ts "$RUNNER_TEMP/pr7-generated/packages/sdk/src/"
+          git rev-parse HEAD > "$RUNNER_TEMP/pr7-generated/source.sha"
+      - name: Type check and targeted SyncService and pinned client contracts
+        working-directory: server
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm exec eslint src/controllers/sync.controller.ts src/dtos/sync.dto.ts src/services/sync.service.ts src/services/sync.service.spec.ts src/utils/client-contracts.spec.ts --max-warnings 0
+          pnpm exec vitest run --config test/vitest.config.mjs src/services/sync.service.spec.ts src/utils/client-contracts.spec.ts --maxWorkers=1 --no-file-parallelism --maxConcurrency=1
+      - name: Preserve source-bound generated artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr7-ack-generated-${{ github.sha }}
+          path: ${{ runner.temp }}/pr7-generated/
+          if-no-files-found: warn

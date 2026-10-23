@@ -380,15 +380,18 @@ export class FacePersonVerdictRepository {
     return this.recordPersonalVerdict({ personGroupId, assetFaceId, status: 'ignored', ...opts });
   }
 
-  private async recordSpacePersonVerdict(input: {
-    spacePersonId: string;
-    assetFaceId: string;
-    status: 'rejected' | 'ignored';
-    identityId?: string | null;
-    source?: FacePersonVerdictSource;
-    actorId?: string | null;
-  }): Promise<number> {
-    const result = await this.db
+  private async recordSpacePersonVerdict(
+    input: {
+      spacePersonId: string;
+      assetFaceId: string;
+      status: 'rejected' | 'ignored';
+      identityId?: string | null;
+      source?: FacePersonVerdictSource;
+      actorId?: string | null;
+    },
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<number> {
+    const result = await db
       .insertInto('face_person_verdict')
       .values({
         spacePersonId: input.spacePersonId,
@@ -422,8 +425,9 @@ export class FacePersonVerdictRepository {
     spacePersonId: string,
     assetFaceId: string,
     opts?: { identityId?: string | null; source?: FacePersonVerdictSource; actorId?: string | null },
+    db: Kysely<DB> | Transaction<DB> = this.db,
   ): Promise<number> {
-    return this.recordSpacePersonVerdict({ spacePersonId, assetFaceId, status: 'rejected', ...opts });
+    return this.recordSpacePersonVerdict({ spacePersonId, assetFaceId, status: 'rejected', ...opts }, db);
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID, { source: 'suggestion' }] })
@@ -901,5 +905,86 @@ export class FacePersonVerdictRepository {
       )
       .executeTakeFirst();
     return row !== undefined;
+  }
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  async isFaceAssignableInSpace(spaceId: string, assetFaceId: string): Promise<boolean> {
+    const row = await this.db
+      .selectFrom('asset_face')
+      .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+      .leftJoin('person', 'person.personGroupId', 'asset_face.personGroupId')
+      .select('asset_face.id')
+      .where('asset_face.id', '=', assetFaceId)
+      .where('asset_face.deletedAt', 'is', null)
+      .where('asset_face.isVisible', 'is', true)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.isOffline', 'is', false)
+      .where((eb) => reviewableAssetVisibility(eb))
+      .where((eb) => eb.or([eb('person.personGroupId', 'is', null), eb('person.isHidden', '=', false)]))
+      .where((eb) =>
+        eb.or(
+          spaceAssetPathBranches(eb as unknown as ExpressionBuilder<DB, keyof DB>, {
+            correlateAssetId: 'asset.id',
+            correlateLibraryId: 'asset.libraryId',
+            scope: { spaceId },
+            // 'none', exactly as `isFaceReachableInSpace` above: whether a face may be assigned
+            // must not depend on a timeline display toggle.
+            albumTimelineGate: 'none',
+          }),
+        ),
+      )
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async lockFaceForAssignment(assetFaceId: string, db: Kysely<DB> | Transaction<DB> = this.db): Promise<void> {
+    await db.selectFrom('asset_face').select('id').where('id', '=', assetFaceId).forUpdate().executeTakeFirst();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  async getFaceOwnerLink(
+    spaceId: string,
+    assetFaceId: string,
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<
+    | {
+        personGroupId: string | null;
+        identityId: string | null;
+        ownerPersonName: string | null;
+        assetOwnerId: string;
+        ownerIsSpaceMember: boolean;
+      }
+    | undefined
+  > {
+    return db
+      .selectFrom('asset_face')
+      .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+      .leftJoin('person', 'person.personGroupId', 'asset_face.personGroupId')
+      .select((eb) => [
+        'asset_face.personGroupId as personGroupId',
+        'person.identityId as identityId',
+        'person.name as ownerPersonName',
+        'asset.ownerId as assetOwnerId',
+        eb
+          .exists(
+            eb
+              .selectFrom('shared_space_member')
+              .select('shared_space_member.userId')
+              .where('shared_space_member.spaceId', '=', spaceId)
+              .whereRef('shared_space_member.userId', '=', 'asset.ownerId'),
+          )
+          .$castTo<boolean>()
+          .as('ownerIsSpaceMember'),
+      ])
+      .where('asset_face.id', '=', assetFaceId)
+      .executeTakeFirst();
+  }
+
+  async getFaceCreatedBy(
+    assetFaceId: string,
+    db: Kysely<DB> | Transaction<DB> = this.db,
+  ): Promise<string | null | undefined> {
+    const row = await db.selectFrom('asset_face').select('createdBy').where('id', '=', assetFaceId).executeTakeFirst();
+    return row?.createdBy;
   }
 }

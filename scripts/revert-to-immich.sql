@@ -19,6 +19,7 @@
 --   * Classification categories and prompts (including the merged copy in
 --     system_metadata's system-config row — that key is stripped too)
 --   * Pet detection results (person.type, person.species, petsDetectedAt)
+--   * Non-owner personal favorites and favorite/catalog audit trails
 --   * Asset duplicate checksums
 --   * Library sync state (library_audit, library_user, library.createId)
 --   * Storage migration history
@@ -94,6 +95,8 @@ END $$;
 -- easier to audit and avoids surprises if a future Gallery migration adds a
 -- trigger that CASCADE would miss.
 -- -----------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS "gallery_index_projection_changed" ON "asset";
+DROP TRIGGER IF EXISTS "gallery_mirror_owner_favorite" ON "asset";
 DROP TRIGGER IF EXISTS "library_after_insert" ON "library";
 DROP TRIGGER IF EXISTS "asset_library_delete_audit" ON "asset";
 DROP TRIGGER IF EXISTS "album_soft_delete_shared_space_album" ON "album";
@@ -105,6 +108,12 @@ DROP TRIGGER IF EXISTS "album_soft_delete_shared_space_album" ON "album";
 -- any sequences owned by serial columns. The order within the list does not
 -- matter because of CASCADE, but we group related tables for readability.
 -- -----------------------------------------------------------------------------
+
+-- Personal favorites and catalog-cache metadata. Owner favorites remain in
+-- asset.isFavorite; non-owner overlays are fork-only data (see loss warning).
+DROP TABLE IF EXISTS "asset_favorite_audit" CASCADE;
+DROP TABLE IF EXISTS "asset_favorite" CASCADE;
+DROP TABLE IF EXISTS "catalog_projection_audit" CASCADE;
 
 -- Library sync / audit
 DROP TABLE IF EXISTS "library_user" CASCADE;
@@ -176,6 +185,9 @@ DROP TABLE IF EXISTS "memory_candidate" CASCADE;
 -- gone, so a plain DROP would work — CASCADE is belt-and-braces in case any
 -- Gallery-installed trigger slipped through.
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS gallery_index_projection_changed() CASCADE;
+DROP FUNCTION IF EXISTS gallery_mirror_owner_favorite() CASCADE;
+DROP FUNCTION IF EXISTS asset_favorite_delete_audit() CASCADE;
 DROP FUNCTION IF EXISTS library_after_insert() CASCADE;
 DROP FUNCTION IF EXISTS library_user_delete_after_audit() CASCADE;
 DROP FUNCTION IF EXISTS user_has_library_path(uuid, uuid, uuid) CASCADE;
@@ -206,6 +218,8 @@ DROP FUNCTION IF EXISTS album_space_asset_delete_audit() CASCADE;
 --
 -- The library_createId_idx index is dropped implicitly with library.createId.
 -- -----------------------------------------------------------------------------
+DROP INDEX IF EXISTS "asset_face_createdBy_idx";
+ALTER TABLE "asset_face"        DROP COLUMN IF EXISTS "createdBy";
 ALTER TABLE "person"            DROP COLUMN IF EXISTS "type";
 ALTER TABLE "person"            DROP COLUMN IF EXISTS "species";
 ALTER TABLE "asset_job_status"  DROP COLUMN IF EXISTS "petsDetectedAt";
@@ -243,6 +257,13 @@ UPDATE "system_metadata"
 -- -----------------------------------------------------------------------------
 DELETE FROM "migration_overrides"
  WHERE "name" IN (
+   'function_gallery_index_projection_changed',
+   'trigger_gallery_index_projection_changed',
+   'function_gallery_mirror_owner_favorite',
+   'trigger_gallery_mirror_owner_favorite',
+   'function_asset_favorite_delete_audit',
+   'trigger_asset_favorite_delete_audit',
+   'index_asset_face_createdBy_idx',
    'function_asset_library_delete_audit',
    'function_library_after_insert',
    'function_library_user_delete_after_audit',
@@ -445,6 +466,11 @@ ALTER ROLE CURRENT_USER RESET jit;
 DELETE FROM "kysely_migrations"
  WHERE "name" IN (
    -- Gallery fork migrations (server/src/schema/migrations-gallery/).
+   '1794000000000-AddAssetFavoriteTables',
+   '1796000000000-AddAssetFaceCreatedBy',
+   '1796000000100-ResetCatalogSyncProjection',
+   '1796000000200-MirrorOwnerFavorites',
+   '1796000000300-TrackCatalogIndexRecovery',
    '1772230000000-CreateStorageMigrationLogTable',
    '1772240000000-CreateSharedSpaceTables',
    '1772250000000-AddShowInTimelineToSharedSpaceMember',
@@ -602,6 +628,7 @@ BEGIN
     FROM pg_tables
    WHERE schemaname = current_schema()
      AND tablename IN (
+       'asset_favorite', 'asset_favorite_audit', 'catalog_projection_audit',
        'library_user', 'library_audit', 'library_asset_audit',
        'shared_space_library_audit', 'shared_space_library',
        'shared_space_library_asset_audit',

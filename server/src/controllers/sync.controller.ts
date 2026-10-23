@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
-import { SyncAckDeleteDto, SyncAckDto, SyncAckSetDto, SyncStreamDto } from 'src/dtos/sync.dto.js';
+import { SyncAckDeleteDto, SyncAckDto, SyncAckSetDto, SyncAckV2Dto, SyncStreamDto } from 'src/dtos/sync.dto.js';
 import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated } from 'src/middleware/auth.guard.js';
 import { GlobalExceptionFilter } from 'src/middleware/global-exception.filter.js';
@@ -36,6 +36,7 @@ export class SyncController {
   }
 
   @Get('ack')
+  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Extended sync checkpoints require GET /sync/ack/v2' })
   @Authenticated({ permission: Permission.SyncCheckpointRead })
   @Endpoint({
     summary: 'Retrieve acknowledgements',
@@ -44,6 +45,18 @@ export class SyncController {
   })
   getSyncAck(@Auth() auth: AuthDto): Promise<SyncAckDto[]> {
     return this.service.getAcks(auth);
+  }
+
+  @Get('ack/v2')
+  @Authenticated({ permission: Permission.SyncCheckpointRead })
+  @Endpoint({
+    summary: 'Retrieve acknowledgements including extended sync protocols',
+    description:
+      'Returns all checkpoints for the current session without projection or aliasing. Legacy GET /sync/ack returns 409 when extended checkpoints are present; use this versioned endpoint for such sessions. Stream and acknowledgement writes are unchanged.',
+    history: new HistoryBuilder().added('v5.7.3'),
+  })
+  getSyncAckV2(@Auth() auth: AuthDto): Promise<SyncAckV2Dto[]> {
+    return this.service.getAcksV2(auth);
   }
 
   @Post('ack')
