@@ -9,7 +9,7 @@ foto_launch_exit() {
   fi
 }
 trap 'foto_launch_exit "$?"' EXIT
-FOTO_TOOLS_SHA=95b4d75fb0834df8804489f78816921ea2bddeb1
+FOTO_TOOLS_SHA=9743a191e50ffc373abd848e45ab3fd97f61bbfa
 FOTO_INSTALL=/usr/local/lib/foto-build17-release/$FOTO_TOOLS_SHA
 FOTO_STAGE=$(mktemp -d /tmp/foto17-psi-install.XXXXXXXX)
 FOTO_RELEASE_CONFIG=/mnt/hp-data/codex-home/foto-build17-release-check-0bd44fb68.json
@@ -56,7 +56,7 @@ for f in foto-build17-release foto-stage-runner.py foto-mobile-codegen.sh foto-a
     --jq .content | base64 --decode > "$FOTO_STAGE/$f"
 done
 cat > "$FOTO_STAGE/SHA256SUMS" <<'SHA256SUMS'
-1e15ed56299c02e8ecb9898ee3a9b995d6d9acb8de46f4ffbe13d2f79a9b3f10  foto-build17-release
+cf6d5e60365942bbf7fa28a020a3e7e19611fdc4d9ffbee72d62d7472ae6c21a  foto-build17-release
 520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40  foto-stage-runner.py
 f5183332c0ed397cd929d07b468dc997fd51516b6b27f021c0ce27df91d9bb2e  foto-mobile-codegen.sh
 afaecc5b28c2f8d4bb926f1eaedfe9e34926ea3117f0c31523fb5eb4a869aca4  foto-android-build.sh
