@@ -629,6 +629,18 @@ class Pipeline:
                 if path.is_symlink() and path.readlink() == Path(target):
                     path.unlink()
 
+    def finalize(self):
+        # An explicit operator choice, under the existing common locks. Fail
+        # before integration/tests if the existing signing identity is unavailable.
+        self.signing()
+        self.prepare()
+        self.save('FINALIZE_REQUESTED_BUILD_ONLY_NO_DEPLOYMENT')
+        self.test()
+        self.build()
+        self.manifest['mode'] = 'verify'
+        self.save('VERIFY_SELECTED')
+        self.verify()
+
     def verify(self):
         self.gate()
         self.clean()
@@ -779,6 +791,8 @@ def main():
     modes = parser.add_mutually_exclusive_group(required=True)
     for mode in ('check', 'prepare', 'test', 'build', 'verify', 'resume'):
         modes.add_argument('--' + mode, action='store_true')
+    modes.add_argument('--finalize', action='store_true',
+                       help='Explicit prepare/test/build/verify in tmux; existing key only, no deployment or automatic retry')
     modes.add_argument('--receive-apk', type=Path, metavar='PUBLIC_RECEIPT')
     parser.add_argument('--retry-failed', action='store_true', help='Explicit one-attempt retry of failed/interrupted stages')
     parser.add_argument('--diagnosis', default='', help='Sanitized operator diagnosis; never a command or password')
@@ -790,6 +804,8 @@ def main():
     c = config(args.config)
     need(pwd.getpwuid(os.getuid()).pw_name == 'codex-gallery' and os.getuid() != 0,
          'RUN_AS_CODEX_GALLERY_NO_AUTOMATIC_PRIVILEGE_ESCALATION')
+    if args.finalize:
+        need(os.environ.get('TMUX'), 'FINALIZE_REQUIRES_TMUX')
     if args.check:
         # Intentionally no mkdir, locks, fetch, codegen, tool installation or state writes.
         print(json.dumps(inventory(c), indent=2))
@@ -798,12 +814,12 @@ def main():
     p = Pipeline(c, args.retry_failed, args.diagnosis)
     with p.locked():
         runner.atomic_json(p.state / ('inventory-' + uuid.uuid4().hex + '.json'), snapshot)
-        mode = next(x for x in ('prepare', 'test', 'build', 'verify', 'resume') if getattr(args, x))
+        mode = next(x for x in ('prepare', 'test', 'build', 'verify', 'resume', 'finalize') if getattr(args, x))
         if mode == 'resume':
             need(p.manifest, 'NO_CHECKPOINT_TO_RESUME')
             mode = p.manifest['mode']
-        if mode == 'prepare':
-            p.prepare()
+        if mode in ('prepare', 'finalize'):
+            getattr(p, mode)()
         else:
             need(p.manifest and p.manifest.get('prepared'), 'PREPARE_REQUIRED')
             p.manifest['mode'] = mode

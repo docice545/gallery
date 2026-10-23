@@ -1,5 +1,6 @@
 """Release orchestration tests. Real temporary Git/files; mocked GitHub/Docker/Android, never HP."""
 import copy
+import contextlib
 import importlib.machinery
 import importlib.util
 import io
@@ -708,9 +709,44 @@ class ReleaseTest(unittest.TestCase):
                     app.config(cfg)
 
     def test_no_mode_and_mutually_exclusive_modes(self):
-        for args in ([], ['--test', '--build']):
+        for args in ([], ['--test', '--build'], ['--finalize', '--build']):
             result = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True)
             self.assertEqual(result.returncode, 2)
+
+    def test_finalize_missing_existing_key_stops_before_integration_or_build(self):
+        with patch.object(self.p, 'prepare') as prepare, patch.object(self.p, 'build') as build:
+            with self.assertRaises(OSError):
+                self.p.finalize()
+        prepare.assert_not_called()
+        build.assert_not_called()
+
+    def test_finalize_failure_never_advances_to_later_phases_or_retries(self):
+        phases = ['signing', 'prepare', 'test', 'build', 'verify']
+        for failure in phases:
+            with self.subTest(failure=failure), contextlib.ExitStack() as stack:
+                self.p.manifest = {}
+                calls = []
+                for name in phases:
+                    def phase(name=name):
+                        calls.append(name)
+                        if name == failure:
+                            raise app.Stop('synthetic phase failure')
+                    stack.enter_context(patch.object(self.p, name, side_effect=phase))
+                stack.enter_context(patch.object(self.p, 'save'))
+                with self.assertRaisesRegex(app.Stop, 'synthetic phase failure'):
+                    self.p.finalize()
+                self.assertEqual(calls, phases[:phases.index(failure) + 1])
+                if failure == 'verify':
+                    self.assertEqual(self.p.manifest['mode'], 'verify')
+
+    def test_finalize_cli_requires_tmux_before_inventory_or_state_writes(self):
+        with patch.object(sys, 'argv', [str(SCRIPT), '--config', 'synthetic.json', '--finalize']), \
+             patch.object(app, 'config', return_value=self.c), patch.object(app.os, 'getuid', return_value=12345), \
+             patch.object(app.pwd, 'getpwuid', return_value=Mock(pw_name='codex-gallery')), \
+             patch.dict(os.environ, {'TMUX': ''}), patch.object(app, 'inventory') as inventory:
+            with self.assertRaisesRegex(app.Stop, 'FINALIZE_REQUIRES_TMUX'):
+                app.main()
+        inventory.assert_not_called()
 
     def test_mandatory_recipes_are_serial_and_include_compact_layout(self):
         with patch.object(Path, 'is_file', return_value=True):
@@ -727,6 +763,82 @@ class ReleaseTest(unittest.TestCase):
                 self.assertIn('--concurrency=1', cmd)
             if name in ('sdk-initial', 'plugin-sdk', 'plugin-core', 'plugin-gallery'):
                 self.assertEqual(cmd.count('--filter'), 1)
+
+
+@unittest.skipUnless(os.environ.get('FOTO17_PINNED_GIT_REPLAY_REPO'), 'requires the published pinned Git objects')
+class PinnedGitReplayTest(unittest.TestCase):
+    def test_original_stop_and_same_state_resume_on_published_heads(self):
+        objects = Path(os.environ['FOTO17_PINNED_GIT_REPLAY_REPO']).resolve()
+        review = app.REVIEWED_OVERLAP
+        def git(repo, *args):
+            return REAL_GIT(repo, *args)
+        original_head = git(objects, 'rev-parse', 'HEAD')
+        original_status = git(objects, 'status', '--porcelain=v1')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / 'repo'
+            subprocess.run(['git', 'clone', '--shared', '--no-checkout', str(objects), str(repo)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            git(repo, 'switch', '-c', app.BASE_BRANCH, review['base'])
+            git(repo, 'remote', 'set-url', 'origin', 'https://github.com/docice545/gallery.git')
+            c = json.loads(SCRIPT.with_name('foto-build17-release.example.json').read_text())
+            for name, value in {'repo': repo, 'state': root / 'state', 'automation_state': root / 'common',
+                                'legacy_lock': root / 'legacy/auto.lock'}.items():
+                c[name] = str(value)
+            for name in ('state', 'common', 'legacy'):
+                (root / name).mkdir(mode=0o700)
+            for role in app.ROLES:
+                self.assertEqual(c['prs'][role]['sha'], review[role])
+                c['prs'][role].update(approved=True, approval_note='isolated Git replay, not HP approval')
+            admitted = [{'role': role, **c['prs'][role]} for role in app.ROLES]
+            def local_fetch(repo, *args, **kwargs):
+                if args[0] == 'fetch':
+                    ref = args[-1].split(':', 1)[1]
+                    return REAL_GIT(repo, 'update-ref', ref, review[ref.split('/')[-1]])
+                return REAL_GIT(repo, *args, **kwargs)
+
+            # Execute the actual previous script, not a mock of its partial guard.
+            old = root / 'old'
+            old.mkdir()
+            previous = subprocess.check_output(['git', '-C', str(objects), 'show',
+                '4255a4c826fe61f563fb866a139c8044a41eff18:tools/foto-automation/foto-build17-release'])
+            (old / SCRIPT.name).write_bytes(previous)
+            (old / 'foto-stage-runner.py').write_bytes(SCRIPT.with_name('foto-stage-runner.py').read_bytes())
+            loader = importlib.machinery.SourceFileLoader('foto_release_old_overlap', str(old / SCRIPT.name))
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            legacy = importlib.util.module_from_spec(spec)
+            loader.exec_module(legacy)
+            stopped = legacy.Pipeline(c)
+            with patch.object(stopped, 'gate', return_value=admitted), patch.object(legacy, 'git', side_effect=local_fetch):
+                with self.assertRaisesRegex(legacy.Stop, 'PARTIALLY_APPLIED_PR_REVIEW_REQUIRED'):
+                    stopped.prepare()
+            before = {p.name: p.read_bytes() for p in stopped.state.glob('manifest-*.json')}
+            resumed = app.Pipeline(c)
+            with patch.object(resumed, 'gate', return_value=admitted), patch.object(app, 'git', side_effect=local_fetch), \
+                 patch.object(app, 'processes', return_value=[]), resumed.locked():
+                resumed.prepare()
+                head = resumed.manifest['head']
+                resumed.prepare()
+            source = resumed.source()
+            self.assertEqual(source, stopped.source())
+            self.assertEqual(git(source, 'rev-parse', 'HEAD^{tree}'), review['outputTree'])
+            self.assertEqual(resumed.manifest['head'], head)
+            self.assertEqual(len(resumed.manifest['overlapReview']['equivalentCommits']), 11)
+            for sha in (review['base'], review['editor'], review['compatibility'],
+                        '2364b82e9246a08174ad6d5278bc7227388e8e31'):
+                self.assertIsNotNone(REAL_GIT(source, 'merge-base', '--is-ancestor', sha, 'HEAD', optional=True))
+            self.assertEqual(git(source, 'diff', '--exit-code', review['compatibility'], 'HEAD', '--',
+                                 'server', 'web', 'open-api', 'packages/sdk', 'pnpm-lock.yaml', 'package.json',
+                                 'mobile/pubspec.yaml', 'mobile/pubspec.lock'), '')
+            self.assertEqual(git(source, 'diff', '--exit-code', review['editor'], 'HEAD', '--',
+                                 'mobile/lib/presentation/pages/edit', 'mobile/test/pages/edit',
+                                 'mobile/lib/repositories/magic_eraser.repository.dart'), '')
+            self.assertEqual(git(repo, 'rev-parse', 'HEAD'), review['base'])
+            self.assertEqual(git(repo, 'status', '--porcelain=v1'), '')
+            for name, data in before.items():
+                self.assertEqual((resumed.state / name).read_bytes(), data)
+        self.assertEqual(git(objects, 'rev-parse', 'HEAD'), original_head)
+        self.assertEqual(git(objects, 'status', '--porcelain=v1'), original_status)
 
 
 if __name__ == '__main__':

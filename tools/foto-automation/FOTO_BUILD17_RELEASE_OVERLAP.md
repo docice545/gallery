@@ -55,16 +55,33 @@ Existing test/build receipts from another tool hash cannot be relabelled as
 valid: `STAGE_INPUT_CHANGED_NEW_STATE_REQUIRED` preserves them and requires a
 separate reviewed state. Do not delete receipts to make resume succeed.
 
+## Explicit final build
+
+`--finalize` is an explicit prepare → test → build → verify choice. It requires
+tmux, holds the existing common locks for the entire chain, and checks that the
+existing signing files/certificate pin/JDK are present before integration. No
+new key is created. Any failed phase stops the chain; no retry is automatic.
+Completed stages are reused only through the existing SHA/log/output receipts.
+`--resume` retains its old single-phase semantics; requesting `--finalize` again
+is the explicit choice to continue the whole chain. A failed/interrupted heavy
+stage still needs the existing retry flag and a real diagnosis.
+
 ## Verification boundaries
 
-The changed Python orchestration suite initially passed 58 tests (temporary real
-Git, mocked external services), including old-checkpoint resume, full-history
+The changed Python orchestration suite passed 62 tests, including a replay of
+the actual old script against the published Git objects. GitHub admission and
+external services in fixtures are mocked; they are not HP/native E2E. Tests cover old-checkpoint resume, full-history
 merge, idempotency, unknown overlap refusal, changed tree/frontier, preview
 conflict, actual-result mismatch, and crash after review/before merge intent.
-Later results and published CI are recorded in the PR; a mock is not an HP test.
+Four workflow-scope tests also pass. Later results and published CI are recorded
+in the PR; a mock is not an HP test.
 
-Already-passed pinned PR6/PR7 suites are retained. Only combined Flutter/editor/
-sync regressions need a new cross-PR run; backend/API/migration content has not
-changed. Actual rootless builds, signed APK verification, native Android/iOS,
+Already-passed pinned PR6/PR7 suites are retained. A new GitHub job verifies the
+exact combined tree, generates the combined OpenAPI/Flutter client and runs
+Flutter analysis and targeted editor/backup/sync/journal/Trash regressions serially.
+It does not build/sign an APK. This tool-only follow-up uses ordinary path gates
+instead of forcing unrelated backend suites; source changes still select their
+normal checks. Signing/publishing are prohibited for this review branch.
+Backend/API/migration content has not changed. Actual rootless builds, signed APK verification, native Android/iOS,
 Synology and AI inference require their real environments. No APK or image is
 declared complete from orchestration tests or compilation alone.
