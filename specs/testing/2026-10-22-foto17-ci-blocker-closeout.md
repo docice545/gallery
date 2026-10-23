@@ -134,3 +134,30 @@ Prepare/test/build/deployment не запускались и не следуют
 Окончательные CI результаты публикуются в PR comments по точному новому HEAD.
 Красный/неизвестный/отменённый обязательный check блокирует локальную интеграцию.
 Нельзя выдавать previous PASS или skipped publishing за новый successful build.
+
+## Исправления новых тестов и повторная проверка (23 октября)
+
+- Завершённый PR6 run39877250566:31 successful checks,17 skipped,1 FAIL.
+  Medium3420 PASS/17 SKIPPED. Единственная причина server job —
+  unicorn/consistent-function-scoping у нового millis helper. Подтверждено полным
+  реальным логом и адресным AST-only lint; helper вынесен на module scope.
+  Адресный повтор этой rule с max-warnings0 — PASS; это не полный ESLint/TSC.
+- API ARM в #7/#8 обнаружил ошибку нового synthetic fixture: getTimeBucket
+  нормализует ISO month key к YYYY-MM-01, а test передавал Map c YYYY-MM.
+  Исправлен только test key; исходные assert id/deletedAt/restore сохранены.
+- Новый spaces fixture ожидал websocket upload-success, но сам spec не подключал
+  websocket. Это мой test regression, не инфраструктура. Теперь подключение
+  создаётся в beforeEach до uploads, disconnect/очистка event callbacks — в afterEach.
+  Browser ожидание трёх рейтингов и трёх results не ослаблено.
+- Старые/отменённые runs39877247795 и39877334238 не считаются successful.
+  Перезапуск вызван новым исходным SHA и исправлениями подтверждённых ошибок,
+  не попыткой получить случайный green. Обязательные CI-gates не отключались.
+
+Новые опубликованные editor/compat candidates:
+`b83f987beb1bc63b52a865d0dde1741cefa46e1f` /
+`2eac8c9a93b44a9afe9abb4290dc07172ce8b28d`.
+Release tool/config pin `1a29751ff3faffc92d28aa9e1a23b06105fa5d06`; последующий commit меняет только отчёт/README.
+
+До завершения собственного обязательного CI новых HEAD статус **BLOCKED**.
+Точные terminal statuses/ссылки дописываются в PR body/comments без doc-only
+повтора тяжёлых suites. Runtime/mobile/immutable migrations этим раундом не менялись.
