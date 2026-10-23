@@ -85,7 +85,7 @@ jobs:
               - 'packages/**'
             .github:
               - '.github/**'
-          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && '- .github/workflows/test.yml' || '' }}
+          force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && '- .github/workflows/test.yml' || '' }}
 
           force-events: 'workflow_dispatch'
 
@@ -361,6 +361,7 @@ jobs:
         run: |
           echo "ERROR: i18n files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
+          git diff -- packages/sdk open-api/immich-openapi-specs.json
           exit 1
 
   e2e-tests-lint:
@@ -419,7 +420,7 @@ jobs:
   e2e-tests-server-cli:
     name: End-to-End Tests (Server & CLI)
     needs: pre-job
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).server == true || fromJSON(needs.pre-job.outputs.should_run).cli == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).server == true || fromJSON(needs.pre-job.outputs.should_run).cli == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -510,7 +511,7 @@ jobs:
   e2e-tests-web:
     name: End-to-End Tests (Web)
     needs: pre-job
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -805,6 +806,17 @@ jobs:
           echo "ERROR: Generated files not up to date!"
           echo "Changed files: ${CHANGED_FILES}"
           exit 1
+
+      - name: Preserve generated contracts when the drift gate fails
+        if: ${{ failure() && steps.verify-changed-files.outputs.files_changed == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: openapi-generated-${{ github.sha }}
+          path: |
+            open-api/immich-openapi-specs.json
+            packages/sdk/src/fetch-client.ts
+          retention-days: 3
+          if-no-files-found: error
 
   sql-schema-up-to-date:
     name: SQL Schema Checks

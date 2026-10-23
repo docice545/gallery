@@ -1,6 +1,6 @@
 import request from 'supertest';
-import { Permission, QueueName } from 'src/enum.js';
 import { QueueController } from 'src/controllers/queue.controller.js';
+import { Permission, QueueName } from 'src/enum.js';
 import { QueueService } from 'src/services/queue.service.js';
 import { ControllerContext, controllerSetup, mockBaseService } from 'test/utils.js';
 

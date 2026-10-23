@@ -60,8 +60,17 @@ test.describe('asset viewer reopen', () => {
       { id: assetWithLocation.id, updateAssetDto: { latitude: 48.85341, longitude: 2.3488 } },
       { headers: asBearerAuth(admin.accessToken) },
     );
+    // A thumbnail is not a metadata/sidecar completion barrier. Keep this
+    // viewer regression independent from asynchronous import projection.
+    await utils.waitForQueueFinish(admin.accessToken, 'sidecar');
+    await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
     const tags = await utils.upsertTags(admin.accessToken, ['reopen-tag']);
-    await utils.tagAssets(admin.accessToken, tags[0].id, [assetWithLocation.id]);
+    const tagged = await utils.tagAssets(admin.accessToken, tags[0].id, [assetWithLocation.id]);
+    expect(tagged).toEqual([{ id: assetWithLocation.id, success: true }]);
+    await utils.waitForQueueFinish(admin.accessToken, 'sidecar');
+    await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
+    const detail = await utils.getAssetInfo(admin.accessToken, assetWithLocation.id);
+    expect(detail.tags).toEqual(expect.arrayContaining([expect.objectContaining({ value: 'reopen-tag' })]));
     await utils.updateMyPreferences(admin.accessToken, { tags: { enabled: true } });
   });
 

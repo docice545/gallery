@@ -602,7 +602,9 @@ export class MetadataService extends BaseService {
       }
     }
 
-    if (asset.files.length === 0) {
+    // Thumbnails/transcodes do not mean the newly written XMP is registered.
+    // The follow-up extraction must read it instead of restoring original EXIF.
+    if (!sidecarFile) {
       await this.assetRepository.upsertFile({ assetId: id, type: AssetFileType.Sidecar, path: sidecarPath });
     }
 

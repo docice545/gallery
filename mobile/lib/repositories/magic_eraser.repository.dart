@@ -20,6 +20,14 @@ final magicEraserEnabledProvider = FutureProvider.family.autoDispose<bool, Strin
   return ref.watch(magicEraserRepositoryProvider).isEnabled(assetId, abortTrigger: abort.future);
 });
 
+enum MagicEraserCapabilityFailure { unsupportedBackend, unavailablePhoto }
+
+class MagicEraserCapabilityException implements Exception {
+  final MagicEraserCapabilityFailure reason;
+
+  const MagicEraserCapabilityException(this.reason);
+}
+
 /// Uses the Gallery transport, authentication and local server originals.
 /// Only normalized brush instructions go from the phone to the server.
 class MagicEraserRepository {
@@ -57,16 +65,24 @@ class MagicEraserRepository {
 
   Future<bool> isEnabled(String assetId, {Future<void>? abortTrigger}) async {
     try {
-      final response = await _request('${_base(assetId)}/capabilities', 'GET', abortTrigger: abortTrigger);
+      late final http.Response response;
+      try {
+        response = await _request('${_base(assetId)}/capabilities', 'GET', abortTrigger: abortTrigger);
+      } on ApiException catch (error) {
+        if (error.code != 404) {
+          rethrow;
+        }
+        // 404 can mean an old API OR an unavailable asset. Ask the existing
+        // authenticated metadata endpoint before assigning a cause, never
+        // download an original or infer support from a server version string.
+        return await _explainMissingCapability(assetId, abortTrigger: abortTrigger);
+      }
       final capability = jsonDecode(utf8.decode(response.bodyBytes));
       if (capability is! Map<String, dynamic> || capability['enabled'] is! bool) {
         throw const FormatException('Invalid magic eraser capability');
       }
       return capability['enabled'] as bool;
     } catch (error, stack) {
-      if (error is ApiException && error.code == 404) {
-        return false;
-      }
       // The generated client wraps transport failures in an HTTP 400 exception.
       // Preserve their actual cause instead of reporting an unsupported photo.
       final failure = error is ApiException ? error.innerException ?? error : error;
@@ -75,6 +91,44 @@ class MagicEraserRepository {
       _log.warning('Magic eraser capability check failed ($reason)');
       Error.throwWithStackTrace(failure, stack);
     }
+  }
+
+  Future<Never> _explainMissingCapability(String assetId, {Future<void>? abortTrigger}) async {
+    late final http.Response response;
+    try {
+      response = await _request('/assets/${Uri.encodeComponent(assetId)}', 'GET', abortTrigger: abortTrigger);
+    } on ApiException catch (error) {
+      if (error.code != 404) {
+        rethrow;
+      }
+      throw const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unavailablePhoto);
+    }
+    final asset = jsonDecode(utf8.decode(response.bodyBytes));
+    if (asset is! Map<String, dynamic> ||
+        asset['id'] != assetId ||
+        asset['ownerId'] is! String ||
+        asset['type'] is! String ||
+        asset['isOffline'] is! bool ||
+        (asset['isTrashed'] != null && asset['isTrashed'] is! bool)) {
+      throw const FormatException('Invalid magic eraser asset metadata');
+    }
+    if (asset['isOffline'] == true || asset['isTrashed'] == true || asset['deletedAt'] != null) {
+      throw const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unavailablePhoto);
+    }
+    if (asset['type'] != 'IMAGE') {
+      throw ApiException(400, 'Magic eraser requires an image');
+    }
+    // A readable shared image can still be rejected by this fork's owner-only
+    // AI endpoint. Do not label that 404 as an unsupported server API.
+    final userResponse = await _request('/users/me', 'GET', abortTrigger: abortTrigger);
+    final user = jsonDecode(utf8.decode(userResponse.bodyBytes));
+    if (user is! Map<String, dynamic> || user['id'] is! String) {
+      throw const FormatException('Invalid magic eraser current user metadata');
+    }
+    if (user['id'] != asset['ownerId']) {
+      throw ApiException(403, 'Magic eraser requires the photo owner');
+    }
+    throw const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unsupportedBackend);
   }
 
   Future<Uint8List> source(String assetId, {Future<void>? abortTrigger}) =>

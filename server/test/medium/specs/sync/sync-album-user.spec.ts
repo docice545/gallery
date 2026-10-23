@@ -13,6 +13,27 @@ const setup = async (db?: Kysely<DB>) => {
   return { auth, user, session, ctx };
 };
 
+// UUIDv7 random bits do not encode insertion order inside one millisecond.
+// Assert exact independently-read checkpoints and membership data, not owner-first.
+const expectedInitialUsers = async (
+  ownerId: string,
+  editor: { albumId: string; userId: string; role: AlbumUserRole },
+) => {
+  const rows = await defaultDatabase
+    .selectFrom('album_user')
+    .select(['userId', 'updateId'])
+    .where('albumId', '=', editor.albumId)
+    .execute();
+  expect(rows).toHaveLength(2);
+  return [{ albumId: editor.albumId, userId: ownerId, role: AlbumUserRole.Owner }, editor]
+    .map((data) => {
+      const row = rows.find(({ userId }) => userId === data.userId);
+      expect(row).toBeDefined();
+      return { ack: `${SyncEntityType.AlbumUserV1}|${row!.updateId}`, data, type: SyncEntityType.AlbumUserV1 };
+    })
+    .sort((a, b) => a.ack.localeCompare(b.ack));
+};
+
 beforeAll(async () => {
   defaultDatabase = await getKyselyDB();
 });
@@ -24,24 +45,9 @@ describe(SyncRequestType.AlbumUsersV1, () => {
     const { user } = await ctx.newUser();
     const { albumUser } = await ctx.newAlbumUser({ albumId: album.id, userId: user.id, role: AlbumUserRole.Editor });
 
+    const expected = await expectedInitialUsers(auth.user.id, albumUser);
     await expect(ctx.syncStream(auth, [SyncRequestType.AlbumUsersV1])).resolves.toEqual([
-      {
-        ack: expect.any(String),
-        data: expect.objectContaining({
-          albumId: album.id,
-          role: AlbumUserRole.Owner,
-        }),
-        type: SyncEntityType.AlbumUserV1,
-      },
-      {
-        ack: expect.any(String),
-        data: expect.objectContaining({
-          albumId: albumUser.albumId,
-          role: albumUser.role,
-          userId: albumUser.userId,
-        }),
-        type: SyncEntityType.AlbumUserV1,
-      },
+      ...expected,
       expect.objectContaining({ type: SyncEntityType.SyncCompleteV1 }),
     ]);
   });
@@ -53,27 +59,9 @@ describe(SyncRequestType.AlbumUsersV1, () => {
       const { album } = await ctx.newAlbum({ ownerId: auth.user.id });
       const { albumUser } = await ctx.newAlbumUser({ albumId: album.id, userId: user1.id, role: AlbumUserRole.Editor });
 
+      const expected = await expectedInitialUsers(auth.user.id, albumUser);
       const response = await ctx.syncStream(auth, [SyncRequestType.AlbumUsersV1]);
-      expect(response).toEqual([
-        {
-          ack: expect.any(String),
-          data: expect.objectContaining({
-            albumId: album.id,
-            role: AlbumUserRole.Owner,
-          }),
-          type: SyncEntityType.AlbumUserV1,
-        },
-        {
-          ack: expect.any(String),
-          data: expect.objectContaining({
-            albumId: albumUser.albumId,
-            role: albumUser.role,
-            userId: albumUser.userId,
-          }),
-          type: SyncEntityType.AlbumUserV1,
-        },
-        expect.objectContaining({ type: SyncEntityType.SyncCompleteV1 }),
-      ]);
+      expect(response).toEqual([...expected, expect.objectContaining({ type: SyncEntityType.SyncCompleteV1 })]);
 
       await ctx.syncAckAll(auth, response);
       await ctx.assertSyncIsComplete(auth, [SyncRequestType.AlbumUsersV1]);

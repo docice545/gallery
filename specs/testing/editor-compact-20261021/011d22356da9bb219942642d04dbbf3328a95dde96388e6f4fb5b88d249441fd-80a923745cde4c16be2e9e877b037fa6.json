@@ -1,0 +1,38 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792613773.7738197,
+  "log": "011d22356da9bb219942642d04dbbf3328a95dde96388e6f4fb5b88d249441fd-80a923745cde4c16be2e9e877b037fa6.log",
+  "logSHA256": "7ffde7dde10445ce4cd8e30b4c39e580310c442379dd7e99e5476cdde8dcab50",
+  "outputs": {},
+  "pid": 295094,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "test",
+      "--concurrency=1",
+      "test/pages/edit/editor_compact_layout_test.dart",
+      "test/pages/edit/editor_acceptance_test.dart",
+      "test/pages/edit/editor_save_retry_test.dart",
+      "test/pages/edit/editor_crop_history_test.dart",
+      "test/pages/edit/magic_eraser_editor_integration_test.dart"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15"
+    },
+    "repo": "/workspace/gallery-editor-compact",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "eb9e66dc28dfe86d9a901b9fdd4109b8c5fe0bcbd7c530284e13ec9cd3f7ed04",
+      "head": "550324e08183a7f5f9346578befa7acb926a0c2f"
+    },
+    "stage": "flutter-test",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792613712.7771971,
+  "status": "PASS"
+}

@@ -1,0 +1,51 @@
+{
+  "exitCode": 0,
+  "finishedAt": 1792612872.2598207,
+  "log": "cb17a96e63822f458ce1b1b4853363a1799d39ce51703090c5473b776d3d31c6-5e660b819ad342d685770214de4789c2.log",
+  "logSHA256": "df58d6266f0bad1124228f49e524412f5c12e816b103fd2426ef50aba1143e30",
+  "outputs": {},
+  "pid": 293440,
+  "request": {
+    "argv": [
+      "/workspace/.gallery-tools/flutter/bin/flutter",
+      "test",
+      "--concurrency=1",
+      "test/pages/edit/annotation_canvas_test.dart",
+      "test/pages/edit/annotation_eraser_geometry_test.dart",
+      "test/pages/edit/annotation_resize_test.dart",
+      "test/pages/edit/editor_color_pipeline_test.dart",
+      "test/pages/edit/editor_crop_history_test.dart",
+      "test/pages/edit/editor_objects_test.dart",
+      "test/pages/edit/editor_viewport_test.dart",
+      "test/pages/edit/editor_compact_layout_test.dart",
+      "test/unit/providers/editor_document_history_test.dart",
+      "test/unit/providers/editor_provider_test.dart",
+      "test/unit/utils/editor_test.dart",
+      "test/utils/annotation_editor_test.dart",
+      "test/utils/edited_image_exporter_test.dart",
+      "test/utils/edited_image_loader_test.dart",
+      "test/utils/editor_formats_test.dart",
+      "test/presentation/widgets/asset_viewer/editor_entry_test.dart",
+      "test/unit/domain/models/magic_eraser_test.dart",
+      "test/unit/presentation/actions/magic_eraser_edit_action_test.dart"
+    ],
+    "installedDependencies": {
+      "mobile/.dart_tool/package_config.json": "2bb4a406315587e0d3689d5da3cc4a0d0f400a2b8851b8435517bc28eb517d15"
+    },
+    "repo": "/workspace/gallery-editor-compact",
+    "runnerSHA256": "520b1582135cd54ee96508e6a228551b45ef6d207b6db1010d9813c23efb4b40",
+    "source": {
+      "changesSHA256": "f69f786f7b6d2f57fb594e702e2ca5a33a5b0d076b782c411a289f893b9967f5",
+      "head": "20c71d932b2ed04c2a8b0b15e7eac8c76a253dcc"
+    },
+    "stage": "flutter-test",
+    "tool": {
+      "mtime": 1791107047721960671,
+      "path": "/workspace/.gallery-tools/flutter/bin/flutter",
+      "size": 2385
+    }
+  },
+  "schema": 1,
+  "startedAt": 1792612832.740689,
+  "status": "PASS"
+}

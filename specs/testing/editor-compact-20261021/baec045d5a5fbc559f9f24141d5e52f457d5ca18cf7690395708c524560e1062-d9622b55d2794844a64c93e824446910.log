@@ -1,0 +1,247 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 96.0.0 (110.0.0 available)
+  analyzer 10.2.0 (14.6.0 available)
+  archive 4.0.9 (4.5.2 available)
+  auto_route 11.1.0 (11.2.0 available)
+  auto_route_generator 10.5.0 (10.6.0 available)
+  background_downloader 9.5.7 (9.6.4 available)
+! bonsoir 5.1.11 (overridden) (7.1.5 available)
+  bonsoir_android 5.1.6 (7.1.3 available)
+  bonsoir_darwin 5.1.3 (7.1.1 available)
+  bonsoir_linux 5.1.3 (7.1.0 available)
+  bonsoir_platform_interface 5.1.3 (7.0.0 available)
+  bonsoir_windows 5.1.5 (7.3.0 available)
+  build 4.0.7 (5.0.0 available)
+  build_config 1.3.0 (1.4.0 available)
+  build_daemon 4.1.1 (4.1.7 available)
+  build_runner 2.15.1 (2.17.1 available)
+  built_collection 5.1.1 (5.1.2 available)
+  built_value 8.12.6 (8.13.0 available)
+  cli_util 0.4.2 (0.6.0 available)
+  clock 1.1.2 (1.1.3 available)
+  code_assets 1.2.1 (2.1.0 available)
+  code_builder 4.11.1 (4.13.0 available)
+  connectivity_plus 7.3.0 (7.3.2 available)
+  cross_file 0.3.5+2 (0.4.0 available)
+  dart_style 3.1.7 (3.1.14 available)
+  dbus 0.7.13 (0.8.0 available)
+  desktop_webview_window 0.3.0 (0.4.0 available)
+  device_info_plus 12.4.0 (13.3.0 available)
+  device_info_plus_platform_interface 7.0.3 (8.1.0 available)
+  drift 2.34.0 (2.35.2 available)
+  drift_dev 2.34.0 (2.35.1 available)
+  dynamic_color 1.8.1 (2.1.0 available)
+  file_selector_linux 0.9.4 (0.9.4+1 available)
+  file_selector_macos 0.9.5 (0.9.5+2 available)
+  file_selector_windows 0.9.3+5 (0.9.3+6 available)
+  flutter_local_notifications 17.2.4 (22.3.2 available)
+  flutter_local_notifications_linux 4.0.1 (8.0.2 available)
+  flutter_local_notifications_platform_interface 7.2.0 (12.2.0 available)
+  flutter_riverpod 2.6.1 (3.4.3 available)
+  flutter_secure_storage 9.2.4 (11.2.0 available)
+  flutter_secure_storage_linux 1.2.3 (3.0.3 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.1.1 available)
+  flutter_secure_storage_web 1.2.1 (2.1.1 available)
+  flutter_secure_storage_windows 3.1.2 (4.2.2 available)
+  flutter_web_auth_2 5.0.3 (5.1.0 available)
+  fluttertoast 8.2.14 (10.0.2 available)
+  freezed 3.2.5 (4.0.3 available)
+  frontend_server_client 4.0.0 (4.2.0 available)
+  geolocator 14.0.2 (14.1.2 available)
+  geolocator_android 5.0.2 (5.2.1 available)
+  geolocator_apple 2.3.13 (2.4.2 available)
+  geolocator_linux 0.2.3 (0.2.6 available)
+  geolocator_platform_interface 4.2.6 (4.4.1 available)
+  geolocator_web 4.1.3 (4.1.4 available)
+  glob 2.1.3 (2.2.0 available)
+  gsettings 0.2.8 (0.2.9 available)
+  home_widget 0.9.3 (0.10.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  hooks_riverpod 2.6.1 (3.4.3 available)
+  html 0.15.6 (0.15.7 available)
+  http_multi_server 3.2.2 (3.2.3 available)
+  image 4.9.1 (4.12.0 available)
+  image_picker 1.2.3 (1.2.4 available)
+  image_picker_android 0.8.13+19 (0.8.13+25 available)
+  image_picker_ios 0.8.13+6 (0.8.13+12 available)
+  image_picker_platform_interface 2.11.1 (2.11.2 available)
+  io 1.0.5 (1.1.0 available)
+  jni 0.15.2 (1.1.0 available)
+  js 0.6.7 (0.7.2 available)
+  lean_builder 0.1.10 (1.2.2 available)
+  local_auth 2.3.0 (3.0.2 available)
+  local_auth_android 1.0.56 (2.3.0 available)
+  local_auth_darwin 1.6.1 (2.0.5 available)
+  local_auth_windows 1.0.11 (2.0.2 available)
+  maplibre_gl 0.27.0 (0.27.1 available)
+  maplibre_gl_platform_interface 0.27.0 (0.27.1 available)
+  maplibre_gl_web 0.27.0 (0.27.1 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  native_toolchain_c 0.19.1 (0.19.5 available)
+  network_info_plus 6.1.4 (8.2.2 available)
+  network_info_plus_platform_interface 2.0.2 (3.1.0 available)
+  nm 0.5.0 (0.6.0 available)
+! objective_c 9.4.1 from git https://github.com/mertalev/native at 291555 in pkgs/objective_c (overridden)
+  octo_image 2.1.0 (2.1.2 available)
+  package_config 2.2.0 (3.0.0 available)
+  package_info_plus 8.3.1 (10.2.2 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  path_provider_android 2.2.23 (2.3.1 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  permission_handler 11.4.0 (13.0.2 available)
+  permission_handler_android 12.1.0 (14.1.0 available)
+  permission_handler_apple 9.4.9 (9.6.2 available)
+  permission_handler_html 0.1.3+5 (0.1.4+1 available)
+  permission_handler_platform_interface 4.3.0 (4.4.1 available)
+  permission_handler_windows 0.2.1 (0.2.2 available)
+  petitparser 7.0.2 (7.1.0 available)
+  photo_manager 3.9.0 (3.12.0 available)
+  pigeon 27.3.0 (29.0.11 available)
+  pinput 5.0.2 (7.0.0 available)
+  platform 3.1.6 (3.2.0 available)
+  pool 1.5.2 (1.5.3 available)
+  posix 6.5.0 (6.5.2 available)
+  process 5.0.5 (5.0.6 available)
+  protobuf 3.1.0 (6.1.0 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  pubspec_parse 1.5.0 (1.6.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  riverpod 2.6.1 (3.4.3 available)
+  share_plus 10.1.4 (13.3.1 available)
+  share_plus_platform_interface 5.0.2 (7.2.0 available)
+  shared_preferences 2.5.5 (2.5.6 available)
+  shared_preferences_android 2.4.25 (2.5.1 available)
+  shared_preferences_foundation 2.5.6 (2.6.0 available)
+  shelf 1.4.2 (1.4.3 available)
+  source_gen 4.2.3 (4.3.1 available)
+  sqlite3 3.4.0 (3.7.1 available)
+  sqlite3_connection_pool 0.2.7 (0.2.12 available)
+  sqlite3_web 0.8.1 (0.9.5 available)
+  sqlite_async 0.14.2 (0.14.6 available)
+  sqlparser 0.44.4 (0.45.0 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  stream_transform 2.1.1 (2.1.2 available)
+  test_api 0.7.12 (0.7.15 available)
+  timezone 0.9.4 (0.11.2 available)
+  url_launcher 6.3.2 (6.3.3 available)
+  url_launcher_android 6.3.32 (6.3.33 available)
+  url_launcher_ios 6.4.1 (6.4.2 available)
+  url_launcher_linux 3.2.2 (3.2.3 available)
+  url_launcher_macos 3.2.5 (3.2.6 available)
+  url_launcher_windows 3.1.5 (3.1.6 available)
+  vector_graphics 1.2.2 (1.2.4 available)
+  vector_graphics_compiler 1.2.5 (1.3.2 available)
+  vector_math 2.4.2 (2.4.3 available)
+  vm_service 15.2.0 (15.4.0 available)
+  wakelock_plus 1.3.3 (1.8.1 available)
+  wakelock_plus_platform_interface 1.5.1 (1.7.0 available)
+  webdriver 3.1.0 (3.2.0 available)
+  win32 5.15.0 (6.4.0 available)
+  win32_registry 2.1.0 (3.0.3 available)
+  window_to_front 0.0.3 (1.0.0 available)
+  xml 7.0.1 (7.1.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+144 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart
+00:00 +0: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: (setUpAll)
+00:00 +0: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.android Size(393.0, 852.0) (variant: TargetPlatform.android)
+00:01 +1: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.android Size(320.0, 720.0) (variant: TargetPlatform.android)
+00:01 +2: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.android Size(852.0, 393.0) (variant: TargetPlatform.android)
+00:01 +3: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.iOS Size(393.0, 852.0) (variant: TargetPlatform.iOS)
+00:01 +4: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.iOS Size(320.0, 720.0) (variant: TargetPlatform.iOS)
+00:01 +5: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: compact editor: five tools visible without scrolling on TargetPlatform.iOS Size(852.0, 393.0) (variant: TargetPlatform.iOS)
+00:01 +6: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: initial controls do not reserve half of the photo viewport
+00:01 +7: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: drawing settings expand and collapse without losing the document
+00:02 +8: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rotation between layouts preserves crop controller and history on TargetPlatform.android (variant: TargetPlatform.android)
+00:02 +9: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: keyboard insets resize once without changing the document on TargetPlatform.android (variant: TargetPlatform.android)
+00:02 +10: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rotation between layouts preserves crop controller and history on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:02 +11: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: keyboard insets resize once without changing the document on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:03 +12: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rendered compact portrait fixture on android_portrait (variant: TargetPlatform.android)
+00:03 +13: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rendered compact portrait fixture on ios_portrait (variant: TargetPlatform.iOS)
+00:03 +14: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: rendered compact portrait fixture on landscape (variant: TargetPlatform.android)
+00:03 +15: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_compact_layout_test.dart: (tearDownAll)
+00:03 +15: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart
+00:04 +15: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: (setUpAll)
+00:04 +15: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: black screen and back, history and Russian Save with vertical dots on TargetPlatform.android (variant: TargetPlatform.android)
+00:05 +16: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: black screen and back, history and Russian Save with vertical dots on TargetPlatform.iOS (variant: TargetPlatform.iOS)
+00:06 +17: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: all five primary sections are visible together with short Russian labels
+00:06 +18: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: yellow modes, blue/purple ink and circular ordered pill with separate history
+00:07 +19: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: portrait cutouts keeps complete controls outside system insets
+00:07 +20: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: landscape cutouts keeps complete controls outside system insets
+00:07 +21: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: compact landscape large text keeps complete controls outside system insets
+00:07 +22: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: acceptance: compact portrait large text keeps complete controls outside system insets
+00:07 +23: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: visual acceptance: Russian drawing screen with source pixels and a new stroke
+00:08 +24: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: visual acceptance: Russian landscape text editor with system cutouts
+00:08 +25: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_acceptance_test.dart: (tearDownAll)
+00:08 +25: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart
+00:09 +25: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart: successfully saves a PNG copy after timeout
+00:13 +26: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart: a hanging original load restores save and reopens the copy dialog without losing edits
+00:13 +27: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart: successfully saves a PNG copy after decode failure
+00:16 +28: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart: a failed original load restores save and reopens the copy dialog without losing edits
+00:16 +29: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart: canceling original load preserves edits, releases source and never imports a partial copy
+00:17 +30: /workspace/gallery-editor-compact/mobile/test/pages/edit/editor_save_retry_test.dart: denied native photo save preserves edits and retries as a new copy with no server mutation
+00:19 +31: loading /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart
+00:20 +31: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an older or unconfigured server disables only Magic Eraser while keeping the crop editor usable
+00:22 +32: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving opens copy, disabled replacement, and cancel choices
+00:22 +33: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: an unavailable optional AI service leaves ordinary transform editing operational
+00:22 +34: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a slow capability check stays disabled and visibly loading until confirmed
+00:23 +35: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 401 failure explains why and permits retry
+00:23 +36: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 403 failure explains why and permits retry
+00:23 +37: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 400 failure explains why and permits retry
+00:24 +38: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 500 failure explains why and permits retry
+00:24 +39: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a 503 failure explains why and permits retry
+00:24 +40: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a ClientException failure explains why and permits retry
+00:25 +41: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a RequestAbortedException failure explains why and permits retry
+00:25 +42: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a FormatException failure explains why and permits retry
+00:25 +43: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from disabled without losing crop or rotation
+00:26 +44: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: retry recovers from offline without losing crop or rotation
+00:26 +45: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: saving transform edits disables capability retry and AI navigation
+00:27 +46: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: rechecking an enabled capability does not reuse a stale enabled result
+00:27 +47: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Russian availability and retry fit a narrow screen with enlarged text
+00:27 +48: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: Live/Motion stills expose AI copies without enabling crop or overwrite controls
+00:27 +49: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: existing editor callers without an asset retain their original crop interface
+00:28 +50: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(390.0, 844.0)
+00:28 +51: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: preview and active settings stay between the panels at Size(844.0, 390.0)
+00:28 +52: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:29 +53: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:30 +54: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:30 +55: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:31 +56: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:32 +57: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: en tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:32 +58: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 1.3
+00:33 +59: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(320.0, 720.0) and text scale 2.0
+00:33 +60: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 1.3
+00:34 +61: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(720.0, 320.0) and text scale 2.0
+00:35 +62: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 1.3
+00:35 +63: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: ru tools stay usable at Size(844.0, 390.0) and text scale 2.0
+00:36 +64: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: all display rotations and flips keep actual preview pixels and exported markup aligned
+00:36 +65: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:37 +66: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(390.0, 844.0) area at every quarter-turn
+00:37 +67: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(400.0, 100.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:37 +68: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: decoded Size(100.0, 400.0) photo fills available Size(844.0, 390.0) area at every quarter-turn
+00:37 +69: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: markup ignores letterbox, keeps crop fixed, and stays image-relative after rotation and resize
+00:38 +70: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: changing modes keeps annotations and their undo history
+00:38 +71: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: editing existing text preserves style and position and creates one undoable edit
+00:39 +72: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: cancel text editing preserves the document and undo history
+00:39 +73: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: empty text editing preserves the document and undo history
+00:39 +74: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: unchanged text editing preserves the document and undo history
+00:40 +75: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: move tool edits selected text after zoom rotation and reflection without moving its anchor
+00:40 +76: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: undo and redo keep annotation dirty state aligned with the current document
+00:41 +77: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: reset restores server edit baseline and clears markup as one undoable document change
+00:41 +78: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in crop leaves crop and annotations untouched
+00:41 +79: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in draw leaves crop and annotations untouched
+00:41 +80: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in text leaves crop and annotations untouched
+00:41 +81: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: two-finger zoom/pan in stickers leaves crop and annotations untouched
+00:42 +82: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: drawing after zoom, rotation and reflection uses image coordinates; resize resets only the viewport
+00:42 +83: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: a pinch starting outside the photo cancels a stroke already being drawn
+00:42 +84: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: pinching crop corners preserves an existing crop selection
+00:42 +85: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: five visible sections and compact drawing strip keep the required tools and top history
+00:42 +86: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: sticker layers select, reorder, delete and undo through the shared document history
+00:43 +87: /workspace/gallery-editor-compact/mobile/test/pages/edit/magic_eraser_editor_integration_test.dart: text outline background size opacity and font update the selected layer and are undoable
+00:43 +88: All tests passed!

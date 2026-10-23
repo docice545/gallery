@@ -71,12 +71,130 @@ void main() {
   });
 
   group('capability compatibility', () {
-    test('an older server hides the feature without breaking the existing editor', () async {
-      stub((_) => jsonResponse({'message': 'Not found'}, status: 404));
+    Map<String, Object?> metadata([Map<String, Object?> changes = const {}]) => {
+      'id': assetId,
+      'ownerId': 'session-user',
+      'type': 'IMAGE',
+      'isOffline': false,
+      'isTrashed': false,
+      ...changes,
+    };
 
-      expect(await repository.isEnabled(assetId), isFalse);
-      expect(requests.single.method, 'GET');
-      expect(requests.single.url.path, '$basePath/capabilities');
+    void missingCapability(Object? asset, {int metadataStatus = 200}) => stub(
+      (request) => request.url.path == '$basePath/capabilities'
+          ? jsonResponse({'message': 'Not found'}, status: 404)
+          : request.url.path == '/api/users/me'
+          ? jsonResponse({'id': 'session-user'})
+          : jsonResponse(asset, status: metadataStatus),
+    );
+
+    test('an older API is distinguished from an unavailable photo using authenticated metadata only', () async {
+      missingCapability(metadata());
+
+      await expectLater(
+        repository.isEnabled(assetId),
+        throwsA(
+          isA<MagicEraserCapabilityException>().having(
+            (error) => error.reason,
+            'reason',
+            MagicEraserCapabilityFailure.unsupportedBackend,
+          ),
+        ),
+      );
+      expect(requests.map((request) => request.url.path), [
+        '$basePath/capabilities',
+        '/api/assets/$assetId',
+        '/api/users/me',
+      ]);
+      expect(requests.every((request) => request.method == 'GET'), isTrue);
+      expect(requests.last.headers['Authorization'], 'Bearer test-session');
+      expect(requests.last.headers['x-custom-header'], 'proxy-header');
+    });
+
+    test('missing, offline and trashed photos are not reported as unsupported APIs', () async {
+      for (final entry in [
+        (null, 404),
+        (metadata({'isOffline': true}), 200),
+        (metadata({'isTrashed': true}), 200),
+        (metadata({'deletedAt': '2026-10-21T00:00:00Z'}), 200),
+      ]) {
+        missingCapability(entry.$1, metadataStatus: entry.$2);
+        await expectLater(
+          repository.isEnabled(assetId),
+          throwsA(
+            isA<MagicEraserCapabilityException>().having(
+              (error) => error.reason,
+              'reason',
+              MagicEraserCapabilityFailure.unavailablePhoto,
+            ),
+          ),
+        );
+      }
+      expect(requests.every((request) => request.method == 'GET'), isTrue);
+    });
+
+    test('video eligibility and metadata authorization failures keep their real cause', () async {
+      missingCapability(metadata({'type': 'VIDEO'}));
+      await expectLater(
+        repository.isEnabled(assetId),
+        throwsA(isA<api.ApiException>().having((error) => error.code, 'code', 400)),
+      );
+      for (final status in [401, 403, 500, 503]) {
+        missingCapability(null, metadataStatus: status);
+        await expectLater(
+          repository.isEnabled(assetId),
+          throwsA(isA<api.ApiException>().having((error) => error.code, 'code', status)),
+        );
+      }
+    });
+
+    test('a readable shared photo is an ownership restriction, not an unsupported backend', () async {
+      missingCapability(metadata({'ownerId': 'another-user'}));
+      await expectLater(
+        repository.isEnabled(assetId),
+        throwsA(isA<api.ApiException>().having((error) => error.code, 'code', 403)),
+      );
+      expect(requests.every((request) => request.method == 'GET'), isTrue);
+    });
+
+    test('an unverified current user cannot establish that the backend is unsupported', () async {
+      stub((request) {
+        if (request.url.path == '$basePath/capabilities') {
+          return jsonResponse({}, status: 404);
+        }
+        if (request.url.path == '/api/users/me') {
+          return jsonResponse({});
+        }
+        return jsonResponse(metadata());
+      });
+      await expectLater(repository.isEnabled(assetId), throwsA(isA<FormatException>()));
+    });
+
+    test('mismatched or malformed metadata cannot prove that the backend is unsupported', () async {
+      for (final asset in <Object?>[
+        null,
+        [],
+        {},
+        metadata({'id': 'another-asset'}),
+        metadata({'ownerId': null}),
+        metadata({'type': null}),
+        metadata({'isOffline': 'false'}),
+        metadata({'isTrashed': 'false'}),
+      ]) {
+        missingCapability(asset);
+        await expectLater(repository.isEnabled(assetId), throwsA(isA<FormatException>()));
+      }
+    });
+
+    test('metadata lookup network failures remain retryable instead of inferring server support', () async {
+      stub((request) {
+        if (request.url.path == '$basePath/capabilities') {
+          return jsonResponse({}, status: 404);
+        }
+        throw http.ClientException('Private transport details');
+      });
+      await expectLater(repository.isEnabled(assetId), throwsA(isA<http.ClientException>()));
+      expect(requests, hasLength(2));
     });
 
     test('honors a disabled server instead of creating an inpainting job', () async {
