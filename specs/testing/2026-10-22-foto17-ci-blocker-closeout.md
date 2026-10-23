@@ -192,3 +192,38 @@ afterAll; канал и уже принятые события сохраняю�
 Candidates: PR6 `df3e0daf14f7593808a039df080c32cd05a7a503`,
 PR7 `3cc9631b7a2a48d2889808da5db7a62cc1345fea`.
 Installer code/config pin `0bd44fb68de8cc2d9e7db76c504d9ee9c086684d`; docs следующим commit.
+
+## Финальный retry PR8 и порядок подготовки rating fixture
+
+На `5281c79ef56b41a3906ec10f375cc0413a916bfa` run39898782691 attempt1
+остановился до medium/browser assertions: Docker500 `toomanyrequests`
+(`allowed:44000/minute`) и runner shutdown в Lint Web. Выполнен один
+`rerun-failed-jobs`; успешные suites не перезапускались вручную. Attempt2:
+Lint Web PASS, medium3420 PASS/17 SKIPPED; browser369 PASS/31 FLAKY/3 FAIL/7 SKIPPED.
+UI/maintenance после browser failure не запускались, это не PASS.
+
+Три terminal failures — persisted rating=null вместо3 в новой проверке
+`createPopulatedSpace`. После `tagAssets(asset1)` fixture сразу менял rating того
+же asset. Tag также ставит SidecarWrite; его раздельные чтения asset snapshot и
+lockedProperties допускают старый rating snapshot с уже новым списком locks.
+Fixture теперь завершает sidecar/metadata round trip тега **перед** изменением
+rating. Конечные проверки трёх rating=3, imported camera rating=3 и UI result
+counts не ослаблены; сообщение assertion теперь содержит asset id/filename.
+Это последовательная подготовка fixture, не исправление конкурентных metadata
+записей runtime. Такое inherited пересечение требует отдельной приёмки; здесь
+нет новой блокировки/SQL/изменения metadata API и нет утверждения о его устранении.
+
+Другие ошибки, прошедшие retry в этом browser run: color-contrast при смене темы
+и две отдельные INSERT fixture shared_space_person/face без transaction. Они
+не объявляются стабильными PASS и не исправляются попутно в release-конвейере.
+
+Уточнение полного лога PR7 `3cc9631b7a2a48d2889808da5db7a62cc1345fea`:
+browser353 PASS **+50 FLAKY**,7 SKIPPED; UI114 PASS **+2 FLAKY**,4 SKIPPED;
+maintenance3 PASS **+1 FLAKY**,2 SKIPPED. Job conclusions — success, но FLAKY
+означает успех лишь после штатных Playwright retries, а не чистое прохождение.
+Ранее опубликованные числа PASS не включали FLAKY; это явное дополнение к ним.
+Не изменены retries, assertions, CI gates или статус старых failures.
+
+Новый source HEAD PR8 обязан пройти собственный CI. До этого общий статус
+локальной интеграции **BLOCKED**. SHA/результаты фиксируются в PR comments по
+завершении, без дополнительного source push только ради финального статуса.

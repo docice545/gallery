@@ -123,6 +123,11 @@ test.describe('Spaces FilterPanel', () => {
 
     const [tag] = await utils.upsertTags(admin.accessToken, ['e2e-space-filter-tag']);
     await utils.tagAssets(admin.accessToken, tag.id, [asset1.id]);
+    // Tagging also queues a sidecar write for asset1. Complete that round trip
+    // before setting its rating: otherwise an earlier writer can snapshot the
+    // old rating and then observe/unlock the newer rating's metadata lock.
+    await utils.waitForQueueFinish(admin.accessToken, 'sidecar');
+    await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
     // Rating 3, not 5: some existing tests hard-assert "0 results" at the 5-star filter, so the
     // seeded rating must clear the 3-star threshold without also clearing 5.
     //
@@ -140,7 +145,7 @@ test.describe('Spaces FilterPanel', () => {
     await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
     for (const asset of [asset1, video, cameraAsset]) {
       const detail = await utils.getAssetInfo(admin.accessToken, asset.id);
-      expect(detail.exifInfo?.rating).toBe(3);
+      expect(detail.exifInfo?.rating, `persisted rating for ${asset.id} (${detail.originalFileName})`).toBe(3);
     }
 
     // Albums needs BOTH sides — some filed, some not.
