@@ -208,7 +208,7 @@ UI/maintenance после browser failure не запускались, это н
 lockedProperties допускают старый rating snapshot с уже новым списком locks.
 Fixture теперь завершает sidecar/metadata round trip тега **перед** изменением
 rating. Конечные проверки трёх rating=3, imported camera rating=3 и UI result
-counts не ослаблены; сообщение assertion теперь содержит asset id/filename.
+counts не ослаблены.
 Это последовательная подготовка fixture, не исправление конкурентных metadata
 записей runtime. Такое inherited пересечение требует отдельной приёмки; здесь
 нет новой блокировки/SQL/изменения metadata API и нет утверждения о его устранении.
@@ -227,3 +227,9 @@ maintenance3 PASS **+1 FLAKY**,2 SKIPPED. Job conclusions — success, но FLAK
 Новый source HEAD PR8 обязан пройти собственный CI. До этого общий статус
 локальной интеграции **BLOCKED**. SHA/результаты фиксируются в PR comments по
 завершении, без дополнительного source push только ради финального статуса.
+
+Проверка совместного дерева с PR6/PR7 обнаружила add/add conflict только из-за
+дополнительного текста rating assertion в промежуточном d834e8c94: блок assertions
+был независимо добавлен во всех трёх ветках. Необязательное изменение сообщения
+убрано, исходный exact assertion сохранён. Ветки не объединялись; история не
+переписывалась. Новый HEAD требует собственного CI; старый прогон superseded.

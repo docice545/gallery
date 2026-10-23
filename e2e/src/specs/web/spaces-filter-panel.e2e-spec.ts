@@ -145,7 +145,7 @@ test.describe('Spaces FilterPanel', () => {
     await utils.waitForQueueFinish(admin.accessToken, 'metadataExtraction');
     for (const asset of [asset1, video, cameraAsset]) {
       const detail = await utils.getAssetInfo(admin.accessToken, asset.id);
-      expect(detail.exifInfo?.rating, `persisted rating for ${asset.id} (${detail.originalFileName})`).toBe(3);
+      expect(detail.exifInfo?.rating).toBe(3);
     }
 
     // Albums needs BOTH sides — some filed, some not.
