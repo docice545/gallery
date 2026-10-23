@@ -91,9 +91,9 @@ bash <<'HP'
 set -euo pipefail
 umask 077
 FOTO_LAUNCH=$(mktemp /tmp/foto17-psi-launch.XXXXXXXX.sh)
-FOTO_REF=82bb34c435ad2da9078bb3841b49c5bd1c32344b
+FOTO_REF=4fd26568d5352eb822a01c241f7d858e37bce974
 FOTO_PATH=tools/foto-automation/foto-build17-release-hp.sh
-FOTO_LAUNCH_SHA=62b8828ba3d3ce84851094b870e8b719ec12414f589cdf35bf3c0e572943f87a
+FOTO_LAUNCH_SHA=075d7f723123b50bfa34863ac281a6109a853b9a1657c63742ff8019c38b8188
 sudo -u codex-gallery -H gh api "repos/docice545/gallery/contents/$FOTO_PATH?ref=$FOTO_REF" --jq .content | base64 --decode > "$FOTO_LAUNCH"
 echo "$FOTO_LAUNCH_SHA  $FOTO_LAUNCH" | sha256sum --check -
 bash -n "$FOTO_LAUNCH"
@@ -221,7 +221,7 @@ PSI follow-up: 6 адресных тестов PASS, включая подтве
 давление в отдельном предке/cgroup, перечитывание наблюдений и STOP до child/build
 intent при росте PSI после успешного preflight. Две launcher-проверки PASS:
 Bash/BUILD_ONLY и все5 Python heredoc, LF без CRLF, закреплённые5 file hashes,
-полный/повреждённый checkpoint без записи. AST класса Pipeline и non-PSI gates
+полный/повреждённый checkpoint без записи. EXIT handler сохраняет0/7; отдельный launcher проходит ShellCheck0.11.0 без suppression. AST класса Pipeline и non-PSI gates
 совпадает с предыдущим HEAD:50-PASS reuse, signing, memory/cgroup limits, locks
 и непосредственный stage-entry recheck не изменены. Ни один HP-тест не запускался.
 
