@@ -165,7 +165,13 @@ class RemoteImagesImpl(context: Context) : RemoteImageApi {
       },
       onFailure = { e ->
         requestMap.remove(requestId)
-        val result = if (signal.isCanceled) CANCELLED else Result.failure(e)
+        val result = when {
+          signal.isCanceled -> CANCELLED
+          e is RemoteImageHttpError -> Result.failure(
+            FlutterError("HTTP_ERROR", e.message, e.details(requestId))
+          )
+          else -> Result.failure(e)
+        }
         callback(result)
       }
     )
@@ -265,7 +271,7 @@ private class CronetImageFetcher : ImageFetcher {
       activeCount++
     }
 
-    val callback = FetchCallback(onSuccess, onFailure, ::onComplete)
+    val callback = FetchCallback(url, onSuccess, onFailure, ::onComplete)
     val requestBuilder = HttpClientManager.cronetEngine!!
       .newUrlRequestBuilder(url, callback, HttpClientManager.cronetExecutor)
     HttpClientManager.getAuthHeaders(url).forEach { (key, value) ->
@@ -322,6 +328,7 @@ private class CronetImageFetcher : ImageFetcher {
   }
 
   private class FetchCallback(
+    private val requestUrl: String,
     private val onSuccess: (NativeByteBuffer, String?) -> Unit,
     private val onFailure: (Exception) -> Unit,
     private val onComplete: () -> Unit,
@@ -335,7 +342,7 @@ private class CronetImageFetcher : ImageFetcher {
 
     override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
       if (info.httpStatusCode !in 200..299) {
-        error = IOException("HTTP ${info.httpStatusCode}: ${info.httpStatusText}")
+        error = RemoteImageHttpError(info.httpStatusCode, requestUrl, info.url)
         return request.cancel()
       }
 
@@ -387,7 +394,7 @@ private class CronetImageFetcher : ImageFetcher {
 
     override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: CronetException) {
       buffer?.free()
-      onFailure(error)
+      onFailure(this.error ?: error)
       onComplete()
     }
 
@@ -455,7 +462,9 @@ private class OkHttpImageFetcher private constructor(
       override fun onResponse(call: Call, response: Response) {
         response.use {
           if (!response.isSuccessful) {
-            return onFailure(IOException("HTTP ${response.code}: ${response.message}")).also { onComplete() }
+            return onFailure(
+              RemoteImageHttpError(response.code, call.request().url.toString(), response.request.url.toString())
+            ).also { onComplete() }
           }
 
           val body = response.body

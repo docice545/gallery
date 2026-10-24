@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -5,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
 import 'package:immich_mobile/infrastructure/loaders/image_request.dart';
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
@@ -16,9 +18,17 @@ void main() {
     'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
     RemoteImageApi.pigeonChannelCodec,
   );
+  const cancelChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.RemoteImageApi.cancelRequest',
+    RemoteImageApi.pigeonChannelCodec,
+  );
   late List<Object?> args;
 
   setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(
+      cancelChannel,
+      (_) async => <Object?>[null],
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(channel, (
       message,
     ) async {
@@ -29,6 +39,97 @@ void main() {
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(cancelChannel, null);
+  });
+
+  for (final encoded in [false, true]) {
+    test('preserves unexpected structured HTTP 404 for ${encoded ? 'animated' : 'decoded'} images', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(
+        channel,
+        (_) async => [
+          'HTTP_ERROR',
+          'Remote image request failed (HTTP 404)',
+          {
+            'statusCode': 404,
+            'requestPath': 'https://user:secret@example.test/api/assets/missing/thumbnail?key=private',
+            'finalPath': '/api/assets/missing/original?signature=private',
+            'requestId': 999,
+            'mediaSize': 'preview',
+            'edited': false,
+          },
+        ],
+      );
+      final request = RemoteImageRequest(
+        uri: 'https://example.test/api/assets/missing/thumbnail?size=preview&edited=false&token=private',
+      );
+      await expectLater(
+        encoded ? request.loadCodec() : request.load((_, {getTargetSize}) => throw UnimplementedError()),
+        throwsA(
+          isA<RemoteImageHttpException>()
+              .having((e) => e.statusCode, 'statusCode', 404)
+              .having((e) => e.requestId, 'actual requestId', request.requestId)
+              .having((e) => e.assetId, 'assetId', 'missing')
+              .having((e) => e.stage, 'stage', 'preview')
+              .having((e) => e.edited, 'edited', false)
+              .having((e) => e.requestPath, 'requestPath', '/api/assets/missing/thumbnail')
+              .having((e) => e.finalPath, 'finalPath', '/api/assets/missing/original')
+              .having((e) => e.toString(), 'redacted diagnostic', isNot(contains('private'))),
+        ),
+      );
+    });
+
+    test('an in-flight 404 after intentional cancellation is a cancelled ${encoded ? 'codec' : 'image'}', () async {
+      final started = Completer<void>();
+      final response = Completer<Object?>();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(channel, (
+        _,
+      ) async {
+        started.complete();
+        return response.future;
+      });
+      final request = RemoteImageRequest(uri: 'https://example.test/api/assets/deleted/thumbnail?size=preview');
+      final result = encoded ? request.loadCodec() : request.load((_, {getTargetSize}) => throw UnimplementedError());
+      await started.future;
+      request.cancel();
+      response.complete([
+        'HTTP_ERROR',
+        'Remote image request failed (HTTP 404)',
+        {
+          'statusCode': 404,
+          'requestPath': '/api/assets/deleted/thumbnail',
+          'finalPath': '/api/assets/deleted/thumbnail',
+        },
+      ]);
+      expect(await result, isNull);
+    });
+  }
+
+  test('never infers a 404 status by parsing a generic IOException message', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(
+      channel,
+      (_) async => ['IOException', 'java.io.IOException: HTTP 404', null],
+    );
+    final request = RemoteImageRequest(uri: 'https://example.test/api/assets/id/original');
+    await expectLater(
+      request.load((_, {getTargetSize}) => throw UnimplementedError()),
+      throwsA(isA<PlatformException>().having((e) => e.code, 'original code', 'IOException')),
+    );
+  });
+
+  test('malformed structured status remains a platform failure', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(
+      channel,
+      (_) async => [
+        'HTTP_ERROR',
+        'Malformed HTTP diagnostics',
+        {'statusCode': '404'},
+      ],
+    );
+    final request = RemoteImageRequest(uri: 'https://example.test/api/assets/id/original');
+    await expectLater(
+      request.load((_, {getTargetSize}) => throw UnimplementedError()),
+      throwsA(isA<PlatformException>()),
+    );
   });
 
   Future<ui.Image> loadEncoded(String path, ui.Size decodeSize) async {

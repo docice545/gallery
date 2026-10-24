@@ -7,7 +7,9 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
 import 'package:immich_mobile/providers/infrastructure/platform.provider.dart';
+import 'package:logging/logging.dart';
 
 part 'local_image_request.dart';
 part 'remote_image_request.dart';

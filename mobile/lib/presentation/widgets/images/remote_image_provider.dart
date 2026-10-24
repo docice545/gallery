@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/loaders/image_request.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/presentation/widgets/images/animated_image_stream_completer.dart';
@@ -25,7 +28,14 @@ class RemoteImageProvider extends CancellableImageProvider<RemoteImageProvider>
     this.edited = true,
     this.decodeSize,
     AssetMediaSize remoteMediaSize = AssetMediaSize.thumbnail,
-  }) : url = getThumbnailUrlForRemoteId(assetId, type: remoteMediaSize, thumbhash: thumbhash, edited: edited);
+    String? serverEndpoint,
+  }) : url = getThumbnailUrlForRemoteId(
+         assetId,
+         type: remoteMediaSize,
+         thumbhash: thumbhash,
+         edited: edited,
+         serverEndpoint: serverEndpoint,
+       );
 
   @override
   Future<RemoteImageProvider> obtainKey(ImageConfiguration configuration) {
@@ -38,7 +48,7 @@ class RemoteImageProvider extends CancellableImageProvider<RemoteImageProvider>
       _codec(key, decode),
       informationCollector: () => <DiagnosticsNode>[
         DiagnosticsProperty<ImageProvider>('Image provider', this),
-        DiagnosticsProperty<String>('URL', key.url),
+        DiagnosticsProperty<String>('Request path', RemoteImageHttpException.sanitizedPath(key.url)),
       ],
       onLastListenerRemoved: cancel,
     );
@@ -71,6 +81,7 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
   final AssetType assetType;
   final bool isAnimated;
   final bool edited;
+  final String serverEndpoint;
 
   /// Physical size of the thumbnail shown before the preview.
   final Size? thumbnailSize;
@@ -82,7 +93,19 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
     required this.isAnimated,
     this.edited = true,
     this.thumbnailSize,
-  });
+    String? serverEndpoint,
+  }) : serverEndpoint = serverEndpoint ?? Store.get(StoreKey.serverEndpoint);
+
+  String get previewUrl => getThumbnailUrlForRemoteId(
+    assetId,
+    type: AssetMediaSize.preview,
+    thumbhash: thumbhash,
+    edited: edited,
+    serverEndpoint: serverEndpoint,
+  );
+
+  String get originalUrl =>
+      getOriginalUrlForRemoteId(assetId, edited: edited, serverEndpoint: serverEndpoint, cacheKey: thumbhash);
 
   @override
   Future<RemoteFullImageProvider> obtainKey(ImageConfiguration configuration) {
@@ -96,7 +119,13 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
         stream: _animatedCodec(key, decode),
         scale: 1.0,
         initialImage: getInitialImage(
-          RemoteImageProvider.thumbnail(assetId: key.assetId, thumbhash: key.thumbhash, decodeSize: key.thumbnailSize),
+          RemoteImageProvider.thumbnail(
+            assetId: key.assetId,
+            thumbhash: key.thumbhash,
+            edited: key.edited,
+            decodeSize: key.thumbnailSize,
+            serverEndpoint: key.serverEndpoint,
+          ),
         ),
         informationCollector: () => <DiagnosticsNode>[
           DiagnosticsProperty<ImageProvider>('Image provider', this),
@@ -115,6 +144,7 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
           thumbhash: key.thumbhash,
           edited: key.edited,
           decodeSize: key.thumbnailSize,
+          serverEndpoint: key.serverEndpoint,
         ),
       ),
       informationCollector: () => <DiagnosticsNode>[
@@ -133,14 +163,7 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
       return;
     }
 
-    final previewRequest = request = RemoteImageRequest(
-      uri: getThumbnailUrlForRemoteId(
-        key.assetId,
-        type: AssetMediaSize.preview,
-        thumbhash: key.thumbhash,
-        edited: key.edited,
-      ),
-    );
+    final previewRequest = request = RemoteImageRequest(uri: key.previewUrl);
     final loadOriginal = assetType == AssetType.image && SettingsRepository.instance.appConfig.image.loadOriginal;
     yield* loadRequest(previewRequest, decode, isFinal: !loadOriginal);
 
@@ -152,9 +175,7 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
       return;
     }
 
-    final originalRequest = request = RemoteImageRequest(
-      uri: getOriginalUrlForRemoteId(key.assetId, edited: key.edited),
-    );
+    final originalRequest = request = RemoteImageRequest(uri: key.originalUrl);
     yield* loadRequest(originalRequest, decode, isFinal: true);
   }
 
@@ -165,14 +186,7 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
       return;
     }
 
-    final previewRequest = request = RemoteImageRequest(
-      uri: getThumbnailUrlForRemoteId(
-        key.assetId,
-        type: AssetMediaSize.preview,
-        thumbhash: key.thumbhash,
-        edited: key.edited,
-      ),
-    );
+    final previewRequest = request = RemoteImageRequest(uri: key.previewUrl);
     yield* loadRequest(previewRequest, decode, isFinal: false);
 
     if (isCancelled) {
@@ -180,9 +194,7 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
     }
 
     // always try original for animated, since previews don't support animation
-    final originalRequest = request = RemoteImageRequest(
-      uri: getOriginalUrlForRemoteId(key.assetId, edited: key.edited),
-    );
+    final originalRequest = request = RemoteImageRequest(uri: key.originalUrl);
     final codec = await loadCodecRequest(originalRequest, isFinal: true);
     if (codec == null) {
       if (isCancelled) {
@@ -202,12 +214,15 @@ class RemoteFullImageProvider extends CancellableImageProvider<RemoteFullImagePr
       return assetId == other.assetId &&
           thumbhash == other.thumbhash &&
           isAnimated == other.isAnimated &&
-          edited == other.edited;
+          edited == other.edited &&
+          assetType == other.assetType &&
+          thumbnailSize == other.thumbnailSize &&
+          serverEndpoint == other.serverEndpoint;
     }
 
     return false;
   }
 
   @override
-  int get hashCode => assetId.hashCode ^ thumbhash.hashCode ^ isAnimated.hashCode ^ edited.hashCode;
+  int get hashCode => Object.hash(assetId, thumbhash, isAnimated, edited, assetType, thumbnailSize, serverEndpoint);
 }
