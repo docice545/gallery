@@ -1,6 +1,7 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/services/hash.service.dart';
 import 'package:immich_mobile/domain/services/local_sync.service.dart';
+import 'package:immich_mobile/domain/services/local_trash_sync.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
 import 'package:immich_mobile/providers/api.provider.dart';
@@ -26,6 +27,15 @@ final syncStreamServiceProvider = Provider((ref) {
 });
 
 final syncApiRepositoryProvider = Provider((ref) => SyncApiRepository(ref.watch(apiServiceProvider)));
+
+final localTrashSyncServiceProvider = Provider((ref) {
+  return LocalTrashSyncService(
+    repository: ref.watch(driftProvider).trashedLocalAssetRepository,
+    mediaRepository: ref.watch(assetMediaRepositoryProvider),
+    permissionRepository: ref.watch(permissionRepositoryProvider),
+    cancellation: ref.watch(cancellationProvider),
+  );
+});
 
 final localSyncServiceProvider = Provider((ref) {
   final db = ref.watch(driftProvider);

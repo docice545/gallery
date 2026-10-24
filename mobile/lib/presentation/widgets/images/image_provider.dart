@@ -46,10 +46,21 @@ mixin CancellableImageProviderMixin<T extends Object> on CancellableImageProvide
     }
 
     unawaited(
-      completer.operation.valueOrCancellation().whenComplete(() {
-        cachedStream.removeListener(listener);
-        cachedOperation = null;
-      }),
+      completer.operation
+          .valueOrCancellation()
+          // initialImageStream owns and diagnoses the operation's failure. This
+          // cleanup continuation must not create a second unhandled error when
+          // an initial thumbnail disappears before the preview is loaded.
+          .then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stack) {
+              _log.fine('Initial-image failure remains owned by the primary image stream', error, stack);
+            },
+          )
+          .whenComplete(() {
+            cachedStream.removeListener(listener);
+            cachedOperation = null;
+          }),
     );
     cachedOperation = completer.operation;
     return null;

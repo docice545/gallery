@@ -11,6 +11,7 @@ import 'package:immich_mobile/data/store.dart';
 import 'package:immich_mobile/domain/services/background_work_lifecycle.dart';
 import 'package:immich_mobile/domain/services/hash.service.dart';
 import 'package:immich_mobile/domain/services/local_sync.service.dart';
+import 'package:immich_mobile/domain/services/local_trash_sync.service.dart';
 import 'package:immich_mobile/domain/services/log.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
 // ignore: library_prefixes
@@ -70,6 +71,7 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
   late LocalSyncService _localSyncService;
   late SyncStreamService _remoteSyncService;
   late HashService _hashService;
+  late LocalTrashSyncService _localTrashSyncService;
 
   bool _isCleanedUp = false;
   late final BackgroundWorkLifecycle _lifecycle;
@@ -110,6 +112,12 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
         trashedLocalAssetRepository: db.trashedLocalAssetRepository,
         cancellation: _cancellationToken,
         rethrowErrors: true,
+      );
+      _localTrashSyncService = LocalTrashSyncService(
+        repository: db.trashedLocalAssetRepository,
+        mediaRepository: ref.read(assetMediaRepositoryProvider),
+        permissionRepository: ref.read(permissionRepositoryProvider),
+        cancellation: _cancellationToken,
       );
       _lifecycle = BackgroundWorkLifecycle(
         cancellation: _cancellationToken,
@@ -247,6 +255,12 @@ class BackgroundWorkerBgService extends BackgroundWorkerFlutterApi {
         await backupFuture;
       } finally {
         cancelTimer?.cancel();
+      }
+      // Upload has already finished. Slow or rejected MediaStore operations
+      // cannot consume its startup window; this phase remains owned by the
+      // background lifecycle and observes the same cancellation token.
+      if (_lifecycle.acceptsWork) {
+        await _localTrashSyncService.runIfEnabled();
       }
     } catch (error, stack) {
       _logger.severe("Failed to complete $debugLabel", error, stack);

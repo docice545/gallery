@@ -25,15 +25,19 @@ class LocalFilesManagerPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
   private var activityBinding: ActivityPluginBinding? = null
   private var activity: Activity? = null
   private var pendingPermissionResult: MethodChannel.Result? = null
+  private var syncTrash: SyncTrashDelegate? = null
 
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     context = binding.applicationContext
+    syncTrash = SyncTrashDelegate(binding.applicationContext)
     channel = MethodChannel(binding.binaryMessenger, CHANNEL_NAME).also {
       it.setMethodCallHandler(this)
     }
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    syncTrash?.dispose()
+    syncTrash = null
     channel?.setMethodCallHandler(null)
     channel = null
     context = null
@@ -43,10 +47,12 @@ class LocalFilesManagerPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     activityBinding = binding
     activity = binding.activity
+    syncTrash?.attach(binding.activity)
     binding.addActivityResultListener(this)
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
+    syncTrash?.detach()
     activityBinding?.removeActivityResultListener(this)
     activityBinding = null
     activity = null
@@ -55,10 +61,12 @@ class LocalFilesManagerPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     activityBinding = binding
     activity = binding.activity
+    syncTrash?.attach(binding.activity)
     binding.addActivityResultListener(this)
   }
 
   override fun onDetachedFromActivity() {
+    syncTrash?.detach()
     activityBinding?.removeActivityResultListener(this)
     activityBinding = null
     activity = null
@@ -69,6 +77,9 @@ class LocalFilesManagerPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
       "hasManageMediaPermission" -> result.success(hasManageMediaPermission())
       "requestManageMediaPermission", "manageMediaPermission" -> requestManageMediaPermission(result)
       "moveToTrash" -> moveToTrash(call.argument<List<String>>("mediaUrls"), result)
+      "trashForSync" -> syncTrash?.trash(call.arguments, result)
+        ?: result.error("UNAVAILABLE", "The system trash delegate is detached", null)
+      "cancelTrashForSync" -> syncTrash?.cancel(call.arguments, result) ?: result.success(false)
       "restoreFromTrash" -> restoreFromTrash(call, result)
       "updateDownloadedAssetMimeType" -> updateDownloadedAssetMimeType(call, result)
       else -> result.notImplemented()
@@ -278,6 +289,7 @@ class LocalFilesManagerPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
   }
 
   override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+    if (syncTrash?.onActivityResult(requestCode, resultCode, data) == true) return true
     if (requestCode != MANAGE_MEDIA_REQUEST_CODE) {
       return false
     }

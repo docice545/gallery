@@ -6,14 +6,21 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/local_trash.model.dart';
+import 'package:immich_mobile/domain/models/pending_local_trash.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/services/local_sync.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
+import 'package:immich_mobile/entities/store.entity.dart';
+import 'package:immich_mobile/infrastructure/repositories/backup.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.dart';
 import 'package:immich_mobile/platform/native_sync_api.g.dart';
+import 'package:immich_mobile/repositories/asset_media.repository.dart';
+import 'package:immich_mobile/repositories/permission.repository.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -45,6 +52,7 @@ void main() {
     when(() => native.cancelSync()).thenAnswer((_) async {});
     when(() => native.cancelHashing()).thenAnswer((_) async {});
     await ctx.newUser(id: 'owner');
+    await ctx.newAuthUser(id: 'owner');
     await ctx.newLocalAlbum(
       id: 'camera',
       name: 'Camera',
@@ -76,11 +84,16 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  LocalSyncService service({Completer<void>? cancellation, LocalAlbumRepository? albumRepository}) => LocalSyncService(
+  LocalSyncService service({
+    Completer<void>? cancellation,
+    LocalAlbumRepository? albumRepository,
+    AssetMediaRepository? mediaRepository,
+    DevicePermissionRepository? permissionRepository,
+  }) => LocalSyncService(
     localAlbumRepository: albumRepository ?? LocalAlbumRepository(ctx.db),
     trashedLocalAssetRepository: TrashedLocalAssetRepository(ctx.db),
-    assetMediaRepository: MockAssetMediaRepository(),
-    permissionRepository: MockPermissionRepository(),
+    assetMediaRepository: mediaRepository ?? MockAssetMediaRepository(),
+    permissionRepository: permissionRepository ?? MockPermissionRepository(),
     nativeSyncApi: native,
     cancellation: cancellation,
   );
@@ -232,6 +245,146 @@ void main() {
     expect(photos.map((asset) => asset.id), ['new-file']);
     verifyNever(() => native.hashAssets(any()));
     verify(() => native.checkpointSync()).called(1);
+  });
+
+  Future<List<PendingLocalTrash>> pendingIntents() async {
+    final rows = await (ctx.db.settingsEntity.select()..where((row) => row.key.like('local-trash.v1.%'))).get();
+    return rows.map((row) => PendingLocalTrash.fromStored(row.key, row.value!)).toList();
+  }
+
+  for (final full in [true, false]) {
+    test('${full ? 'full' : 'delta'} discovers a new backup candidate despite deleteWithIds failure', () async {
+      await Store.put(StoreKey.manageLocalMediaAndroid, true);
+      final media = MockAssetMediaRepository();
+      final permission = MockPermissionRepository();
+      when(() => permission.hasManageMediaPermission()).thenAnswer((_) async => true);
+      when(() => native.getTrashedAssets()).thenAnswer((_) async => {});
+      when(() => media.trashForSync(any())).thenThrow(
+        PlatformException(
+          code: 'deleteWithIds failed',
+          message: 'MediaStore denied request',
+          details: 'SecurityException',
+        ),
+      );
+      configureSnapshot([deviceAsset(updatedAt: createdAt), deviceAsset(id: 'new-photo')]);
+
+      final syncService = service(mediaRepository: media, permissionRepository: permission);
+      await syncService.sync(full: full);
+      verifyNever(() => media.trashForSync(any()));
+      await syncService.processPendingTrash();
+
+      final photos = await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 100);
+      expect(photos.map((asset) => asset.id), ['new-photo']);
+      final candidates = await BackupRepository(ctx.db).getCandidates('owner', onlyHashed: false);
+      expect(candidates.map((asset) => asset.id), ['new-photo']);
+      final pending = await pendingIntents();
+      expect(pending, hasLength(1));
+      expect(pending.single.asset.id, 'local-still');
+      expect(pending.single.code, 'deleteWithIds failed');
+      expect(pending.single.message, contains('SecurityException'));
+      expect(await ctx.db.trashedLocalAssetEntity.select().get(), isEmpty);
+      verify(() => native.checkpointSync()).called(1);
+
+      // Reconstructing the service simulates a new sync owner. The persistent
+      // retry deadline, rather than an in-memory flag, prevents an active loop.
+      final restartedService = service(mediaRepository: media, permissionRepository: permission);
+      await restartedService.sync(full: full);
+      await restartedService.processPendingTrash();
+      expect((await ctx.db.localAssetEntity.select().get()).where((asset) => asset.id == 'new-photo'), hasLength(1));
+      expect((await pendingIntents()).single.attempts, pending.single.attempts);
+      verify(() => media.trashForSync(any())).called(1);
+      verifyNever(() => media.deleteAll(any(), trash: false));
+      verifyNever(() => media.restoreAssetsFromTrash(any()));
+    });
+  }
+
+  test(
+    'pending device trash survives permission loss and a new service completes it after permission returns',
+    () async {
+      await Store.put(StoreKey.manageLocalMediaAndroid, true);
+      final repository = TrashedLocalAssetRepository(ctx.db);
+      await repository.enqueueTrash(await repository.getToTrash());
+      final media = MockAssetMediaRepository();
+      final permission = MockPermissionRepository();
+      var granted = false;
+      when(() => permission.hasManageMediaPermission()).thenAnswer((_) async => granted);
+      when(() => native.getTrashedAssets()).thenAnswer((_) async => {});
+      when(
+        () => media.trashForSync(any()),
+      ).thenAnswer((_) async => {'local-still': const LocalTrashResult(code: 'trashed')});
+      configureSnapshot([deviceAsset(updatedAt: createdAt), deviceAsset(id: 'new-photo')]);
+
+      final syncService = service(mediaRepository: media, permissionRepository: permission);
+      await syncService.sync();
+      await syncService.processPendingTrash();
+
+      expect((await pendingIntents()).single.attempts, 0);
+      verifyNever(() => media.trashForSync(any()));
+      expect((await BackupRepository(ctx.db).getCandidates('owner', onlyHashed: false)).map((asset) => asset.id), [
+        'new-photo',
+      ]);
+
+      granted = true;
+      final restartedService = service(mediaRepository: media, permissionRepository: permission);
+      await restartedService.sync();
+      await restartedService.processPendingTrash();
+
+      expect(await pendingIntents(), isEmpty);
+      expect((await ctx.db.trashedLocalAssetEntity.select().get()).map((asset) => asset.id), ['local-still']);
+      expect((await ctx.db.localAssetEntity.select().get()).map((asset) => asset.id), ['new-photo']);
+      verify(() => media.trashForSync(any())).called(1);
+      verifyNever(() => media.deleteAll(any(), trash: false));
+    },
+  );
+
+  test('partial Android success removes only verified originals from local state and retains the remainder', () async {
+    await Store.put(StoreKey.manageLocalMediaAndroid, true);
+    await ctx.newLocalAsset(
+      id: 'other',
+      name: 'IMG_1000.JPG',
+      checksum: 'other-checksum',
+      createdAt: createdAt,
+      updatedAt: createdAt,
+      width: 4000,
+      height: 3000,
+      durationMs: 0,
+    );
+    await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'other');
+    await ctx.newRemoteAsset(id: 'remote-other', checksum: 'other-checksum', ownerId: 'owner', deletedAt: deletedAt);
+    final media = MockAssetMediaRepository();
+    final permission = MockPermissionRepository();
+    when(() => permission.hasManageMediaPermission()).thenAnswer((_) async => true);
+    when(() => native.getTrashedAssets()).thenAnswer((_) async => {});
+    when(() => media.trashForSync(any())).thenAnswer(
+      (_) async => {
+        'local-still': const LocalTrashResult(code: 'trashed'),
+        'other': const LocalTrashResult(code: 'missing', message: 'ID is not visible in MediaStore'),
+      },
+    );
+    configureSnapshot([
+      deviceAsset(updatedAt: createdAt),
+      deviceAsset(id: 'other', updatedAt: createdAt),
+      deviceAsset(id: 'new-photo'),
+    ]);
+
+    final syncService = service(mediaRepository: media, permissionRepository: permission);
+    await syncService.sync();
+    verifyNever(() => media.trashForSync(any()));
+    await syncService.processPendingTrash();
+
+    expect((await ctx.db.trashedLocalAssetEntity.select().get()).map((asset) => asset.id), ['local-still']);
+    expect(
+      (await ctx.db.localAssetEntity.select().get()).map((asset) => asset.id),
+      unorderedEquals(['other', 'new-photo']),
+    );
+    final pending = await pendingIntents();
+    expect(pending, hasLength(1));
+    expect(pending.single.asset.id, 'other');
+    expect(pending.single.code, 'missing');
+    expect((await BackupRepository(ctx.db).getCandidates('owner', onlyHashed: false)).map((asset) => asset.id), [
+      'new-photo',
+    ]);
+    verifyNever(() => media.deleteAll(any(), trash: false));
   });
 
   test('cancelling local sync without an owned hash does not cancel another hashing job', () async {

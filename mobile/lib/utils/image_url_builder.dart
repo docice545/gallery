@@ -2,8 +2,11 @@ import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:openapi/api.dart';
 
-String getOriginalUrlForRemoteId(final String id, {bool edited = true}) {
-  return '${Store.get(StoreKey.serverEndpoint)}/assets/$id/original?edited=$edited';
+String getOriginalUrlForRemoteId(final String id, {bool edited = true, String? serverEndpoint, String? cacheKey}) {
+  return _assetMediaUrl(id, 'original', {
+    'edited': '$edited',
+    if (cacheKey != null && cacheKey.isNotEmpty) 'c': cacheKey,
+  }, serverEndpoint: serverEndpoint);
 }
 
 String getThumbnailUrlForRemoteId(
@@ -11,9 +14,27 @@ String getThumbnailUrlForRemoteId(
   AssetMediaSize type = AssetMediaSize.thumbnail,
   bool edited = true,
   String? thumbhash,
+  String? serverEndpoint,
 }) {
-  final url = '${Store.get(StoreKey.serverEndpoint)}/assets/$id/thumbnail?size=$type&edited=$edited';
-  return thumbhash != null && thumbhash.isNotEmpty ? '$url&c=${Uri.encodeComponent(thumbhash)}' : url;
+  return _assetMediaUrl(id, 'thumbnail', {
+    'size': '$type',
+    'edited': '$edited',
+    if (thumbhash != null && thumbhash.isNotEmpty) 'c': thumbhash,
+  }, serverEndpoint: serverEndpoint);
+}
+
+String _assetMediaUrl(String id, String resource, Map<String, String> query, {String? serverEndpoint}) {
+  if (id.isEmpty) {
+    throw ArgumentError.value(id, 'id', 'A remote asset ID is required');
+  }
+  final endpoint = Uri.parse(serverEndpoint ?? Store.get(StoreKey.serverEndpoint));
+  return endpoint
+      .removeFragment()
+      .replace(
+        pathSegments: [...endpoint.pathSegments.where((segment) => segment.isNotEmpty), 'assets', id, resource],
+        queryParameters: query,
+      )
+      .toString();
 }
 
 String getPlaybackUrlForRemoteId(final String id) {

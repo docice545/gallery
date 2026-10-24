@@ -24,38 +24,44 @@ class InvalidIsolateUsageException implements Exception {
 Cancelable<T?> runInIsolateGentle<T>({
   required Future<T> Function(ProviderContainer ref) computation,
   String? debugLabel,
+  bool awaitCancellationDrain = false,
+  bool dedicated = false,
 }) {
   final token = RootIsolateToken.instance;
   if (token == null) {
     throw const InvalidIsolateUsageException();
   }
 
-  return workerManagerPatch.executeGentle((onCancel) async {
-    BackgroundIsolateBinaryMessenger.ensureInitialized(token);
-    DartPluginRegistrant.ensureInitialized();
+  return workerManagerPatch.executeGentle(
+    (onCancel) async {
+      BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+      DartPluginRegistrant.ensureInitialized();
 
-    final log = Logger("IsolateLogger");
-    final (dataController, apiService) = await Bootstrap.initDomain(
-      shouldBufferLogs: false,
-      disableStoreWatching: true,
-    );
-    final ref = ProviderContainer(
-      overrides: [
-        cancellationProvider.overrideWithValue(onCancel),
-        ...Store.overrideWith(dataController: dataController, apiService: apiService),
-      ],
-    );
+      final log = Logger("IsolateLogger");
+      final (dataController, apiService) = await Bootstrap.initDomain(
+        shouldBufferLogs: false,
+        disableStoreWatching: true,
+      );
+      final ref = ProviderContainer(
+        overrides: [
+          cancellationProvider.overrideWithValue(onCancel),
+          ...Store.overrideWith(dataController: dataController, apiService: apiService),
+        ],
+      );
 
-    try {
-      return await computation(ref);
-    } catch (error, stack) {
-      log.severe("Error in runInIsolateGentle${debugLabel == null ? '' : ' for $debugLabel'}", error, stack);
-      return null;
-    } finally {
-      ref.dispose();
-      await dbStore.Store.dispose();
-      await LogService.I.dispose();
-      await dataController.close();
-    }
-  });
+      try {
+        return await computation(ref);
+      } catch (error, stack) {
+        log.severe("Error in runInIsolateGentle${debugLabel == null ? '' : ' for $debugLabel'}", error, stack);
+        return null;
+      } finally {
+        ref.dispose();
+        await dbStore.Store.dispose();
+        await LogService.I.dispose();
+        await dataController.close();
+      }
+    },
+    awaitCancellationDrain: awaitCancellationDrain,
+    dedicated: dedicated,
+  );
 }
