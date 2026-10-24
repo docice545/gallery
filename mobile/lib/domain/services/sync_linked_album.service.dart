@@ -38,17 +38,28 @@ class SyncLinkedAlbumService {
   final _log = Logger("SyncLinkedAlbumService");
 
   Future<void> syncLinkedAlbums(String userId, {Completer<void>? cancellation}) async {
+    bool isCancelled() => cancellation?.isCompleted ?? false;
+    if (isCancelled()) {
+      return;
+    }
     final selectedAlbums = await _localAlbumRepository.getBackupAlbums();
 
     await Future.wait(
       selectedAlbums.map((localAlbum) async {
+        if (isCancelled()) {
+          return;
+        }
         final linkedRemoteAlbumId = localAlbum.linkedRemoteAlbumId;
         if (linkedRemoteAlbumId == null) {
-          _log.warning("No linked remote album ID found for local album: ${localAlbum.name}");
+          // Backup selection does not imply album linking. Only the explicit
+          // album-management path may create or change a remote link.
           return;
         }
 
         final remoteAlbum = await _remoteAlbumRepository.get(linkedRemoteAlbumId);
+        if (isCancelled()) {
+          return;
+        }
         if (remoteAlbum == null) {
           _log.warning("Linked remote album not found for ID: $linkedRemoteAlbumId");
           return;
@@ -56,6 +67,9 @@ class SyncLinkedAlbumService {
 
         // get assets that are uploaded but not in the remote album
         final assetIds = await _remoteAlbumRepository.getLinkedAssetIds(userId, localAlbum.id, linkedRemoteAlbumId);
+        if (isCancelled()) {
+          return;
+        }
         _log.fine("Syncing ${assetIds.length} assets to remote album: ${remoteAlbum.name}");
         if (assetIds.isNotEmpty) {
           final album = await _albumApiRepository.addAssets(
