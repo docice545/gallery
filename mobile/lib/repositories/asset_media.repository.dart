@@ -12,6 +12,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/local_trash.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/storage.repository.dart';
@@ -75,6 +76,92 @@ class AssetMediaRepository {
     }
     return PhotoManager.editor.deleteWithIds(ids);
   }
+
+  /// Executes automatic deletion synchronization using Android's system trash.
+  ///
+  /// This deliberately has no permanent-delete fallback. The native operation
+  /// checks the current asset identity and verifies every result in MediaStore;
+  /// callers retain unsuccessful outcomes in their durable pending operations.
+  Future<Map<String, LocalTrashResult>> trashForSync(List<LocalAsset> assets, {Future<void>? cancellation}) async {
+    final distinct = <String, LocalAsset>{};
+    for (final asset in assets) {
+      distinct.putIfAbsent(asset.id, () => asset);
+    }
+    if (distinct.isEmpty) {
+      return {};
+    }
+    if (!CurrentPlatform.isAndroid) {
+      return {for (final id in distinct.keys) id: const LocalTrashResult(code: 'unsupported')};
+    }
+
+    final results = <String, LocalTrashResult>{};
+    final pending = distinct.values.toList();
+    var cancelled = false;
+    final cancellationSignal = cancellation?.then((_) {
+      cancelled = true;
+      return _trashCancelled;
+    });
+    // Observe an already completed token before issuing any native operation.
+    if (cancellationSignal != null) {
+      await Future<void>.value();
+    }
+    // Keep native work bounded and well below Android's request URI limits.
+    const batchSize = 40;
+    for (var offset = 0; offset < pending.length; offset += batchSize) {
+      if (cancelled) {
+        for (final asset in pending.skip(offset)) {
+          results[asset.id] = const LocalTrashResult(code: 'cancelled');
+        }
+        break;
+      }
+      final end = offset + batchSize < pending.length ? offset + batchSize : pending.length;
+      final batch = pending.sublist(offset, end);
+      final operationId = const Uuid().v4();
+      const channel = MethodChannel('file_trash');
+      final nativeResponse = channel.invokeMethod<Object?>('trashForSync', {
+        'operationId': operationId,
+        'assets': [
+          for (final asset in batch)
+            {
+              'id': asset.id,
+              'type': asset.type.index,
+              'name': asset.name,
+              'createdAt': asset.createdAt.toUtc().millisecondsSinceEpoch ~/ 1000,
+              'updatedAt': asset.updatedAt.toUtc().millisecondsSinceEpoch ~/ 1000,
+            },
+        ],
+      });
+      Object? response;
+      if (cancellationSignal == null) {
+        response = await nativeResponse;
+      } else {
+        response = await Future.any<Object?>([nativeResponse, cancellationSignal]);
+        if (identical(response, _trashCancelled)) {
+          // Cancellation belongs to this exact native request. There is no
+          // detached callback that could later cancel a subsequent operation.
+          try {
+            await channel.invokeMethod<Object?>('cancelTrashForSync', {'operationId': operationId});
+          } finally {
+            response = await nativeResponse;
+          }
+        }
+      }
+      for (final asset in batch) {
+        final entry = response is Map ? response[asset.id] : null;
+        if (entry is Map && entry['code'] is String && (entry['message'] == null || entry['message'] is String)) {
+          results[asset.id] = LocalTrashResult(code: entry['code'] as String, message: entry['message'] as String?);
+        } else {
+          results[asset.id] = const LocalTrashResult(
+            code: 'invalidResponse',
+            message: 'Android did not return a valid per-asset trash result',
+          );
+        }
+      }
+    }
+    return results;
+  }
+
+  static final Object _trashCancelled = Object();
 
   Future<bool> _restoreFromTrashById(String mediaId, int type) async {
     try {
