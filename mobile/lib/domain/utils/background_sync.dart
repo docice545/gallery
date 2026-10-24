@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:immich_mobile/domain/utils/migrate_cloud_ids.dart' as m;
 import 'package:immich_mobile/domain/utils/sync_linked_album.dart';
 import 'package:immich_mobile/providers/infrastructure/sync.provider.dart';
 import 'package:immich_mobile/utils/isolate.dart';
+import 'package:logging/logging.dart';
 import 'package:worker_manager/worker_manager.dart';
 
 typedef SyncCallback = void Function();
@@ -19,6 +21,7 @@ class RemoteThenLocalSync {
 }
 
 class BackgroundSyncManager {
+  final _log = Logger('BackgroundSyncManager');
   final SyncCallback? onRemoteSyncStart;
   final SyncCallbackWithResult<bool?>? onRemoteSyncComplete;
   final SyncErrorCallback? onRemoteSyncError;
@@ -42,6 +45,7 @@ class BackgroundSyncManager {
   Cancelable<void>? _deviceAlbumSyncTask;
   Cancelable<void>? _linkedAlbumSyncTask;
   Cancelable<void>? _hashTask;
+  Cancelable<void>? _trashTask;
 
   BackgroundSyncManager({
     this.onRemoteSyncStart,
@@ -62,7 +66,13 @@ class BackgroundSyncManager {
   // stays referenced but frozen, so on resume the dedupe guards would hand back the
   // stale task instead of syncing (#28082). Websocket and cloud-id are excluded - the
   // resume path never restarts them. [_allTasks] builds on this so the lists can't drift.
-  List<Cancelable?> get _resumeSyncTasks => [_syncTask, _deviceAlbumSyncTask, _hashTask, _linkedAlbumSyncTask];
+  List<Cancelable?> get _resumeSyncTasks => [
+    _syncTask,
+    _deviceAlbumSyncTask,
+    _hashTask,
+    _linkedAlbumSyncTask,
+    _trashTask,
+  ];
 
   List<Cancelable?> get _allTasks => [_syncWebsocketTask, _cloudIdSyncTask, ..._resumeSyncTasks];
 
@@ -75,6 +85,7 @@ class BackgroundSyncManager {
     _linkedAlbumSyncTask = null;
     _deviceAlbumSyncTask = null;
     _hashTask = null;
+    _trashTask = null;
     await _cancelAll(tasks);
   }
 
@@ -85,6 +96,7 @@ class BackgroundSyncManager {
     _deviceAlbumSyncTask = null;
     _hashTask = null;
     _linkedAlbumSyncTask = null;
+    _trashTask = null;
     await _cancelAll(tasks);
   }
 
@@ -113,19 +125,16 @@ class BackgroundSyncManager {
 
     onLocalSyncStart?.call();
 
-    // We use a ternary operator to avoid [_deviceAlbumSyncTask] from being
-    // captured by the closure passed to [runInIsolateGentle].
-    final task = _deviceAlbumSyncTask = full
-        ? runInIsolateGentle(
-            computation: (ref) => ref.read(localSyncServiceProvider).sync(full: true),
-            debugLabel: 'local-sync-full-true',
-          )
-        : runInIsolateGentle(
-            computation: (ref) => ref.read(localSyncServiceProvider).sync(full: false),
-            debugLabel: 'local-sync-full-false',
-          );
+    final task = _deviceAlbumSyncTask = createLocalSyncTask(full);
 
     return task
+        .then<void>((_) {
+          if (identical(_deviceAlbumSyncTask, task)) {
+            // The maintenance task has its own lifetime. Backup and media sync
+            // completion never wait for an Android trash/consent request.
+            unawaited(syncDeviceTrash());
+          }
+        })
         .whenComplete(() {
           if (identical(_deviceAlbumSyncTask, task)) {
             _deviceAlbumSyncTask = null;
@@ -135,6 +144,50 @@ class BackgroundSyncManager {
         .catchError((error) {
           if (error is! CanceledError) {
             onLocalSyncError?.call(error.toString());
+          }
+        });
+  }
+
+  @protected
+  Cancelable<void> createLocalSyncTask(bool full) {
+    // Keep the closure free of this manager and its in-flight task fields.
+    return full
+        ? runInIsolateGentle(
+            computation: (ref) => ref.read(localSyncServiceProvider).sync(full: true),
+            debugLabel: 'local-sync-full-true',
+          )
+        : runInIsolateGentle(
+            computation: (ref) => ref.read(localSyncServiceProvider).sync(full: false),
+            debugLabel: 'local-sync-full-false',
+          );
+  }
+
+  @protected
+  Cancelable<void> createDeviceTrashTask() => runInIsolateGentle(
+    computation: (ref) => ref.read(localTrashSyncServiceProvider).runIfEnabled(),
+    debugLabel: 'device-trash',
+    awaitCancellationDrain: true,
+    dedicated: true,
+  );
+
+  /// Starts one owned, independently cancellable maintenance pass.
+  ///
+  /// Callers may explicitly await it when draining work, while normal local and
+  /// remote sync completion schedules it without making upload depend on it.
+  Future<void> syncDeviceTrash() {
+    if (_trashTask != null) {
+      return _trashTask!.future.catchError((_) {}, test: (error) => error is CanceledError);
+    }
+    final task = _trashTask = createDeviceTrashTask();
+    return task
+        .whenComplete(() {
+          if (identical(_trashTask, task)) {
+            _trashTask = null;
+          }
+        })
+        .catchError((error) {
+          if (error is! CanceledError) {
+            _log.severe('Device trash maintenance failed; durable intents retained', error);
           }
         });
   }
@@ -191,15 +244,15 @@ class BackgroundSyncManager {
 
     onRemoteSyncStart?.call();
 
-    final task = _syncTask = runInIsolateGentle(
-      computation: (ref) => ref.read(syncStreamServiceProvider).sync(),
-      debugLabel: 'remote-sync',
-    );
+    final task = _syncTask = createRemoteSyncTask();
     return task
         .then((result) {
           final success = result ?? false;
           onRemoteSyncComplete?.call(success);
           _syncQueued &= success;
+          if (success && identical(_syncTask, task)) {
+            unawaited(syncDeviceTrash());
+          }
           return success;
         })
         .catchError((error) {
@@ -221,6 +274,10 @@ class BackgroundSyncManager {
           }
         });
   }
+
+  @protected
+  Cancelable<bool?> createRemoteSyncTask() =>
+      runInIsolateGentle(computation: (ref) => ref.read(syncStreamServiceProvider).sync(), debugLabel: 'remote-sync');
 
   Future<void> syncWebsocketBatchV1(List<dynamic> batchData) {
     if (_syncWebsocketTask != null) {

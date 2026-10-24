@@ -60,9 +60,10 @@ class IsolateWorker {
 
   Future<R> work<R>(Task<R> task) async {
     taskId = task.id;
-    final result = _result = Completer();
+    final result = Completer<R>();
+    _result = result;
     _sendPort!.send(task.execution);
-    return await (result.future as Future<R>);
+    return await result.future;
   }
 
   /// Cancels the current task without retiring the worker.

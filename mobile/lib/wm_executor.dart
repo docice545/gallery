@@ -19,8 +19,26 @@ const _maxId = 9007199254740992;
 class _GentleTask<R> extends Task<R> implements Gentle {
   @override
   final GentleExecution<R> execution;
+  final bool awaitCancellationDrain;
 
-  _GentleTask({required super.id, required super.completer, required super.workPriority, required this.execution});
+  _GentleTask({
+    required super.id,
+    required super.completer,
+    required super.workPriority,
+    required this.execution,
+    required this.awaitCancellationDrain,
+  });
+}
+
+class _DedicatedGentleWork {
+  final worker = IsolateWorker();
+  final drained = Completer<void>();
+  bool cancelled = false;
+
+  void cancel() {
+    cancelled = true;
+    worker.cancelGentle();
+  }
 }
 
 class Mixinable<T> {
@@ -59,6 +77,8 @@ mixin _ExecutorLogger on Mixinable<_Executor> {
 class _Executor extends Mixinable<_Executor> with _ExecutorLogger {
   final _queue = PriorityQueue<Task>();
   final _pool = <IsolateWorker>[];
+  final _dedicated = <_DedicatedGentleWork>{};
+  var _dedicatedDisposals = 0;
   var _nextTaskId = _minId;
   var _dynamicSpawning = false;
   var _isolatesCount = numberOfProcessors;
@@ -86,26 +106,89 @@ class _Executor extends Mixinable<_Executor> with _ExecutorLogger {
 
   @override
   Future<void> dispose() async {
-    _queue.clear();
-    final shutdown = _pool.map((worker) => worker.shutdown()).toList(growable: false);
-    _pool.clear();
-    await Future.wait(shutdown);
-    super.dispose();
+    _dedicatedDisposals++;
+    try {
+      _queue.clear();
+      final dedicated = _dedicated.toList(growable: false);
+      for (final work in dedicated) {
+        work.cancel();
+      }
+      final shutdown = _pool.map((worker) => worker.shutdown()).toList(growable: false);
+      _pool.clear();
+      await Future.wait([...shutdown, ...dedicated.map((work) => work.drained.future)]);
+      super.dispose();
+    } finally {
+      _dedicatedDisposals--;
+    }
   }
 
   /// Runs [execution] on a worker isolate; its [Completer] completes when the
   /// returned [Cancelable] is cancelled.
-  Cancelable<R> executeGentle<R>(GentleExecution<R> execution, {WorkPriority priority = WorkPriority.immediately}) {
+  Cancelable<R> executeGentle<R>(
+    GentleExecution<R> execution, {
+    WorkPriority priority = WorkPriority.immediately,
+    bool awaitCancellationDrain = false,
+    bool dedicated = false,
+  }) {
     if (_nextTaskId + 1 == _maxId) {
       _nextTaskId = _minId;
     }
     final id = _nextTaskId.toString();
     _nextTaskId++;
-    final task = _GentleTask<R>(id: id, workPriority: priority, execution: execution, completer: Completer<R>());
+    final task = _GentleTask<R>(
+      id: id,
+      workPriority: priority,
+      execution: execution,
+      completer: Completer<R>(),
+      awaitCancellationDrain: awaitCancellationDrain,
+    );
+    if (dedicated) {
+      return _executeDedicated(task);
+    }
     _queue.add(task);
     _schedule();
     logTaskAdded(task.id);
     return Cancelable(completer: task.completer, onCancel: () => _cancel(task));
+  }
+
+  /// Native maintenance must not occupy a bounded sync/hash pool slot while it
+  /// waits for Android. Its result owns initialization, work and isolate exit.
+  Cancelable<R> _executeDedicated<R>(_GentleTask<R> task) {
+    if (_dedicatedDisposals != 0) {
+      task.complete(null, StateError('Worker manager is disposing'), StackTrace.current);
+      return Cancelable(completer: task.completer);
+    }
+    final owner = _DedicatedGentleWork();
+    _dedicated.add(owner);
+    unawaited(() async {
+      R? value;
+      Object? failure;
+      StackTrace? failureStack;
+      try {
+        await owner.worker.initialize();
+        if (owner.cancelled) {
+          failure = CanceledError();
+          failureStack = StackTrace.current;
+        } else {
+          value = await owner.worker.work<R>(task);
+        }
+      } catch (error, stack) {
+        failure = error;
+        failureStack = stack;
+      } finally {
+        try {
+          await owner.worker.shutdown();
+        } catch (error, stack) {
+          failure ??= error;
+          failureStack ??= stack;
+        }
+        _dedicated.remove(owner);
+        task.complete(value, failure, failureStack);
+        owner.drained.complete();
+      }
+    }());
+    logTaskAdded(task.id);
+    return Cancelable(completer: task.completer, onCancel: owner.cancel);
   }
 
   void _createWorkers() {
@@ -179,10 +262,16 @@ class _Executor extends Mixinable<_Executor> with _ExecutorLogger {
 
   @override
   void _cancel(Task task) {
-    task.cancel();
-    _queue.remove(task);
+    final worker = _pool.firstWhereOrNull((worker) => worker.taskId == task.id);
+    // Owned native maintenance must finish its cancellation/DB continuation
+    // before the caller can tear down resources. Queued work has no owner to
+    // drain; retain the existing immediate cancellation behavior there.
+    if (task is! _GentleTask || !task.awaitCancellationDrain || worker == null) {
+      task.cancel();
+      _queue.remove(task);
+    }
     // All tasks are gentle: signal cancellation; the worker unwinds on its own.
-    _pool.firstWhereOrNull((worker) => worker.taskId == task.id)?.cancelGentle();
+    worker?.cancelGentle();
     super._cancel(task);
   }
 }

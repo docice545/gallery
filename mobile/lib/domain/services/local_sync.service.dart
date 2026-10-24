@@ -7,6 +7,7 @@ import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/services/local_trash_sync.service.dart';
 import 'package:immich_mobile/domain/utils/cloud_id_resolver.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
@@ -73,19 +74,6 @@ class LocalSyncService {
     }
     final Stopwatch stopwatch = Stopwatch()..start();
     try {
-      if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
-        final hasPermission = await _permissionRepository.hasManageMediaPermission();
-        final permissionRestored = await _trashedLocalAssetRepository.updateManageMediaPermission(hasPermission);
-        if (permissionRestored) {
-          await _trashedLocalAssetRepository.clearPermissionHashFailures();
-        }
-        if (hasPermission) {
-          await _syncTrashedAssets();
-        } else {
-          _log.warning("syncTrashedAssets cannot proceed because MANAGE_MEDIA permission is missing");
-        }
-      }
-
       if (full || await _nativeSyncApi.shouldFullSync()) {
         _log.fine("Full sync request from ${full ? "user" : "native"}");
         return await fullSync();
@@ -172,6 +160,11 @@ class LocalSyncService {
         rethrow;
       }
     } finally {
+      // Device trash is independent maintenance. Discover/checkpoint new media
+      // first, including the no-delta and full-sync paths above.
+      if (!_isCancelled) {
+        await _runTrashMaintenance();
+      }
       stopwatch.stop();
       _log.info("Device sync took - ${stopwatch.elapsedMilliseconds}ms");
     }
@@ -506,9 +499,47 @@ class LocalSyncService {
     return a.name == b.name && a.assetCount == b.assetCount && a.updatedAt.isAtSameMomentAs(b.updatedAt);
   }
 
-  Future<void> _syncTrashedAssets() async {
-    final trashedAssetMap = await _nativeSyncApi.getTrashedAssets();
-    await processTrashedAssets(trashedAssetMap);
+  LocalTrashSyncService get _trashSync => LocalTrashSyncService(
+    repository: _trashedLocalAssetRepository,
+    mediaRepository: _assetMediaRepository,
+    permissionRepository: _permissionRepository,
+    cancellation: _cancellation,
+  );
+
+  /// Owned by the caller separately from discovery and upload scheduling.
+  Future<void> processPendingTrash() => _trashSync.runIfEnabled();
+
+  Future<void> _runTrashMaintenance() async {
+    if (!CurrentPlatform.isAndroid || !Store.get(StoreKey.manageLocalMediaAndroid, false)) {
+      return;
+    }
+    try {
+      final hasPermission = await _permissionRepository.hasManageMediaPermission();
+      final permissionRestored = await _trashedLocalAssetRepository.updateManageMediaPermission(hasPermission);
+      if (permissionRestored) {
+        await _trashedLocalAssetRepository.clearPermissionHashFailures();
+        await _trashedLocalAssetRepository.retryPermissionBlockedTrash();
+      }
+      if (!hasPermission) {
+        return;
+      }
+      Map<String, List<PlatformAsset>>? snapshot;
+      try {
+        snapshot = await _nativeSyncApi.getTrashedAssets();
+      } catch (error, stack) {
+        // A failed snapshot must neither replace known trash state with an empty
+        // snapshot. The separately owned trash task can retry durable intents.
+        _log.warning('Unable to read device trash snapshot; previous state retained', error, stack);
+      }
+      if (_isCancelled) {
+        return;
+      }
+      if (snapshot != null) {
+        await processTrashedAssets(snapshot);
+      }
+    } catch (error, stack) {
+      _log.severe('Device trash maintenance failed; media sync checkpoint is independent', error, stack);
+    }
   }
 
   @visibleForTesting
@@ -526,20 +557,7 @@ class LocalSyncService {
     // Local trash remains an OS/user decision. A remote Restore must not recreate the device copy.
 
     final localAssetsToTrash = await _trashedLocalAssetRepository.getToTrash();
-    if (localAssetsToTrash.isNotEmpty) {
-      final localIds = localAssetsToTrash.values.expand((assets) => assets).map((asset) => asset.id).toList();
-      _log.info("Moving to trash ${localIds.join(", ")} assets");
-      final movedIds = await _assetMediaRepository.deleteAll(localIds);
-      if (movedIds.isNotEmpty) {
-        final movedAssetsByAlbum = localAssetsToTrash.map(
-          (albumId, assets) => MapEntry(albumId, assets.where((asset) => movedIds.contains(asset.id)).toList()),
-        )..removeWhere((_, assets) => assets.isEmpty);
-
-        await _trashedLocalAssetRepository.trashLocalAsset(movedAssetsByAlbum);
-      }
-    } else {
-      _log.info("syncTrashedAssets, No assets found in backup-enabled albums for move to trash");
-    }
+    await _trashedLocalAssetRepository.enqueueTrash(localAssetsToTrash);
   }
 }
 

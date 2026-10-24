@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
+import 'package:immich_mobile/entities/store.entity.dart' as legacy;
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -43,6 +44,20 @@ void main() {
   });
 
   group("Store Service Init:", () {
+    test('legacy access follows the current store after an isolate task is restarted', () async {
+      final first = await StoreService.init(storeRepository: mockDriftStoreRepo, listenUpdates: false);
+      expect(legacy.Store, same(first));
+      await first.dispose();
+      final replacement = await StoreService.init(storeRepository: mockDriftStoreRepo, listenUpdates: false);
+      try {
+        expect(legacy.Store, same(replacement));
+        expect(legacy.Store, isNot(same(first)));
+        expect(legacy.Store.get(StoreKey.version), _kVersion);
+      } finally {
+        await replacement.dispose();
+      }
+    });
+
     test('Populates the internal cache on init', () {
       verify(() => mockDriftStoreRepo.getAll()).called(1);
       expect(sut.tryGet(StoreKey.accessToken), _kAccessToken);

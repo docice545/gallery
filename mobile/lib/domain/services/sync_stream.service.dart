@@ -3,10 +3,10 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/server_capability.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
+import 'package:immich_mobile/domain/services/local_trash_sync.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
@@ -380,6 +380,9 @@ class SyncStreamService {
       case SyncEntityType.assetV1:
         final remoteSyncAssets = data.cast<SyncAssetV1>();
         await _syncStreamRepository.updateAssetsV1(remoteSyncAssets);
+        await _trashedLocalAssetRepository.cancelPendingTrash(
+          remoteSyncAssets.where((e) => e.deletedAt == null).map((e) => e.id).toList(),
+        );
         if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
           await _syncAssetTrashStatus(remoteSyncAssets.where((e) => e.deletedAt != null).map((e) => e.id).toList());
         }
@@ -387,6 +390,9 @@ class SyncStreamService {
       case SyncEntityType.assetV2:
         final remoteSyncAssets = data.cast<SyncAssetV2>();
         await _syncStreamRepository.updateAssetsV2(remoteSyncAssets);
+        await _trashedLocalAssetRepository.cancelPendingTrash(
+          remoteSyncAssets.where((e) => e.deletedAt == null).map((e) => e.id).toList(),
+        );
         if (CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
           await _syncAssetTrashStatus(remoteSyncAssets.where((e) => e.deletedAt != null).map((e) => e.id).toList());
         }
@@ -786,48 +792,44 @@ class SyncStreamService {
     }
   }
 
-  Future<void> _handleRemoteDeleted(Iterable<String> remoteIds) async {
+  Future<void> _handleRemoteDeleted(Iterable<String> remoteIds, {bool permanent = false}) async {
     if (remoteIds.isEmpty) {
       return Future.value();
     } else {
       final localAssetsToTrash = await _localAssetRepository.getAssetsFromBackupAlbums(remoteIds);
-      if (localAssetsToTrash.isNotEmpty) {
-        await _trashLocalAssets(localAssetsToTrash);
+      if (localAssetsToTrash.isNotEmpty || permanent) {
+        // The durable intent must commit before the event ACK (and, for a
+        // permanent server deletion, before removing its remote metadata).
+        await _trashedLocalAssetRepository.enqueueTrash(localAssetsToTrash, permanent: permanent, remoteIds: remoteIds);
       } else {
         _logger.info("No assets found in backup-enabled albums for remote assets: $remoteIds");
       }
     }
   }
 
-  Future<void> _trashLocalAssets(Map<String, List<LocalAsset>> localAssetsToTrash) async {
-    final localIds = localAssetsToTrash.values.expand((assets) => assets).map((asset) => asset.id).toList();
-    _logger.info("Moving to trash ${localIds.join(", ")} assets");
-    final movedIds = await _assetMediaRepository.deleteAll(localIds);
-    if (movedIds.isNotEmpty) {
-      final movedAssetsByAlbum = localAssetsToTrash.map(
-        (albumId, assets) => MapEntry(albumId, assets.where((asset) => movedIds.contains(asset.id)).toList()),
-      )..removeWhere((_, assets) => assets.isEmpty);
-
-      await _trashedLocalAssetRepository.trashLocalAsset(movedAssetsByAlbum);
-    }
-  }
-
   Future<void> _syncAssetTrashStatus(List<String> remoteIds) async {
-    if (!(await _permissionRepository.hasManageMediaPermission())) {
-      _logger.warning("Syncing asset trash status cannot proceed because MANAGE_MEDIA permission is missing");
-      return;
-    }
-
     await _handleRemoteDeleted(remoteIds);
     // Server Restore changes server state only. Device restore requires an explicit OS/user action.
   }
 
   Future<void> _syncAssetDeletion(List<String> remoteIds) async {
-    if (!(await _permissionRepository.hasManageMediaPermission())) {
-      _logger.warning("Syncing asset deletion cannot proceed because MANAGE_MEDIA permission is missing");
+    await _handleRemoteDeleted(remoteIds, permanent: true);
+  }
+
+  /// Run as an independently owned phase, never as a prerequisite for backup.
+  Future<void> processPendingTrash() async {
+    if (isCancelled || !CurrentPlatform.isAndroid || !Store.get(StoreKey.manageLocalMediaAndroid, false)) {
       return;
     }
-
-    await _handleRemoteDeleted(remoteIds);
+    try {
+      await LocalTrashSyncService(
+        repository: _trashedLocalAssetRepository,
+        mediaRepository: _assetMediaRepository,
+        permissionRepository: _permissionRepository,
+        cancellation: _cancellation,
+      ).runIfEnabled();
+    } catch (error, stack) {
+      _logger.severe('Device trash maintenance failed; ACKed intents remain durable', error, stack);
+    }
   }
 }
