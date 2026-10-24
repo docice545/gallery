@@ -193,6 +193,7 @@ void main() {
       log == null
           ? scoped
           : TimelineLivePhotoScope(
+              localVideoResolver: (asset) async => '/local/${asset.localId}.mp4',
               previewBuilder: (_, onCompleted, onStarted, onFailed) {
                 onStarted();
                 return _Preview(log: log, onCompleted: onCompleted);
@@ -208,13 +209,15 @@ void main() {
       ],
     );
     await tester.pump();
+    await tester.pump();
+    await tester.pump();
   }
 
   RemoteAsset motion({String id = 'framed-motion'}) => TestUtils.createRemoteAsset(
     id: id,
     width: 900,
     height: 1600,
-  ).copyWith(livePhotoVideoId: '$id-video', stackId: 'stack-one');
+  ).copyWith(localId: '$id-local', livePhotoVideoId: '$id-video', stackId: 'stack-one');
 
   testWidgets('known top face repaints into view using the same decoded PNG and Thumbnail state', (tester) async {
     final bytes = (await tester.runAsync(_portraitPng))!;

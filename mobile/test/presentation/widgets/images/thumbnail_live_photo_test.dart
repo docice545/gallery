@@ -12,6 +12,7 @@ import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
+import 'package:immich_mobile/platform/local_image_api.g.dart';
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
@@ -27,6 +28,7 @@ void main() {
   late Drift db;
   late int taps;
   late int previews;
+  late int sourceResolutions;
   const previewKey = Key('live-preview');
   const tileKey = Key('thumbnail-tap-target');
   const requestChannel = BasicMessageChannel<Object?>(
@@ -36,6 +38,14 @@ void main() {
   const cancelChannel = BasicMessageChannel<Object?>(
     'dev.flutter.pigeon.immich_mobile.RemoteImageApi.cancelRequest',
     RemoteImageApi.pigeonChannelCodec,
+  );
+  const localRequestChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.LocalImageApi.requestImage',
+    LocalImageApi.pigeonChannelCodec,
+  );
+  const localCancelChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.LocalImageApi.cancelRequest',
+    LocalImageApi.pigeonChannelCodec,
   );
 
   setUpAll(() async {
@@ -48,11 +58,14 @@ void main() {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockDecodedMessageHandler(requestChannel, (_) async => <Object?>[null]);
     messenger.setMockDecodedMessageHandler(cancelChannel, (_) async => <Object?>[null]);
+    messenger.setMockDecodedMessageHandler(localRequestChannel, (_) async => <Object?>[null]);
+    messenger.setMockDecodedMessageHandler(localCancelChannel, (_) async => <Object?>[null]);
   });
 
   setUp(() async {
     taps = 0;
     previews = 0;
+    sourceResolutions = 0;
     await SettingsRepository.instance.clear(SettingsKey.values);
   });
 
@@ -60,12 +73,19 @@ void main() {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockDecodedMessageHandler(requestChannel, null);
     messenger.setMockDecodedMessageHandler(cancelChannel, null);
+    messenger.setMockDecodedMessageHandler(localRequestChannel, null);
+    messenger.setMockDecodedMessageHandler(localCancelChannel, null);
     await Store.clear();
     await SettingsRepository.reset();
     await db.close();
   });
 
-  Future<void> mountTile(WidgetTester tester, RemoteAsset asset, {bool scope = true}) async {
+  Future<void> mountTile(
+    WidgetTester tester,
+    RemoteAsset asset, {
+    bool scope = true,
+    bool localVideoAvailable = true,
+  }) async {
     final tile = Consumer(
       builder: (context, ref, _) => Center(
         child: SizedBox.square(
@@ -82,6 +102,10 @@ void main() {
     await tester.pumpConsumerWidget(
       scope
           ? TimelineLivePhotoScope(
+              localVideoResolver: (asset) async {
+                sourceResolutions++;
+                return localVideoAvailable ? '/local/${asset.localId}.mp4' : null;
+              },
               previewBuilder: (asset, onCompleted, onStarted, onFailed) {
                 onStarted();
                 previews++;
@@ -94,12 +118,17 @@ void main() {
         stackCountsProvider.overrideWith((_) => Stream.value({'stack1': 3})),
       ],
     );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
   }
 
   testWidgets('autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target', (
     tester,
   ) async {
-    final asset = RemoteAssetFactory.create(stackId: 'stack1').copyWith(livePhotoVideoId: 'paired-video');
+    final asset = RemoteAssetFactory.create(
+      stackId: 'stack1',
+    ).copyWith(localId: 'local-component', livePhotoVideoId: 'paired-video');
     await mountTile(tester, asset);
     final initialTileRect = tester.getRect(find.byKey(tileKey));
     final initialHeroRect = tester.getRect(find.byType(Hero));
@@ -126,7 +155,9 @@ void main() {
   });
 
   testWidgets('long press keeps normal selection decoration and badge while stopping motion', (tester) async {
-    final asset = RemoteAssetFactory.create(stackId: 'stack1').copyWith(livePhotoVideoId: 'paired-video');
+    final asset = RemoteAssetFactory.create(
+      stackId: 'stack1',
+    ).copyWith(localId: 'local-component', livePhotoVideoId: 'paired-video');
     await mountTile(tester, asset);
     await tester.pump(const Duration(milliseconds: 351));
     await tester.pump();
@@ -153,6 +184,38 @@ void main() {
     expect(previews, 0);
     expect(find.byType(Thumbnail), findsOneWidget);
     expect(find.byType(Hero), findsOneWidget);
+  });
+
+  testWidgets('server-only Live Photo keeps its still and motion badge without creating an autoplay source', (
+    tester,
+  ) async {
+    final asset = RemoteAssetFactory.create().copyWith(livePhotoVideoId: 'server-paired-video');
+    await mountTile(tester, asset);
+    await tester.pump(const Duration(seconds: 5));
+
+    expect(sourceResolutions, 0);
+    expect(previews, 0);
+    expect(find.byKey(previewKey), findsNothing);
+    expect(find.byIcon(Icons.motion_photos_on_rounded), findsOneWidget);
+    expect(find.byType(Thumbnail), findsOneWidget);
+    await tester.tap(find.byKey(tileKey));
+    expect(taps, 1, reason: 'the existing fullscreen-opening gesture remains available');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a merged still without its local video stays a normal clickable thumbnail', (tester) async {
+    final asset = RemoteAssetFactory.create().copyWith(localId: 'local-still', livePhotoVideoId: 'server-video');
+    await mountTile(tester, asset, localVideoAvailable: false);
+    await tester.pump(const Duration(seconds: 5));
+
+    expect(sourceResolutions, 1);
+    expect(previews, 0);
+    expect(find.byKey(previewKey), findsNothing);
+    expect(find.byType(Thumbnail), findsOneWidget);
+    expect(find.byIcon(Icons.motion_photos_on_rounded), findsOneWidget);
+    await tester.tap(find.byKey(tileKey));
+    expect(taps, 1);
+    expect(tester.takeException(), isNull);
   });
 
   for (final type in [AssetType.image, AssetType.video]) {

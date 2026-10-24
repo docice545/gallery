@@ -17,6 +17,7 @@ import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
+import 'package:immich_mobile/platform/local_image_api.g.dart';
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
@@ -37,11 +38,12 @@ import '../../../widget_tester_extensions.dart';
 const _viewportWidth = 360.0;
 const _spacing = 2.0;
 
-RemoteAsset _asset(String id, {double ratio = 1, bool live = false, bool stack = false}) => TestUtils.createRemoteAsset(
-  id: id,
-  width: (ratio * 1000).round(),
-  height: 1000,
-).copyWith(livePhotoVideoId: live ? '$id-video' : null, stackId: stack ? 'stack-one' : null);
+RemoteAsset _asset(String id, {double ratio = 1, bool live = false, bool stack = false, bool localVideo = false}) =>
+    TestUtils.createRemoteAsset(id: id, width: (ratio * 1000).round(), height: 1000).copyWith(
+      localId: localVideo ? 'device-$id' : null,
+      livePhotoVideoId: live ? '$id-video' : null,
+      stackId: stack ? 'stack-one' : null,
+    );
 
 class _Readonly extends ReadOnlyModeNotifier {
   @override
@@ -94,6 +96,10 @@ Finder _tile(String id) => find.byWidgetPredicate((widget) => widget is Thumbnai
 Finder _inTile(String id, Finder matching) => find.descendant(of: _tile(id), matching: matching);
 
 Future<void> _settlePreview(WidgetTester tester) async {
+  // Focus changes first resolve the local component, then publish its proof in
+  // a geometry frame. Flush those frames before advancing the settling timer.
+  await tester.pump();
+  await tester.pump();
   await tester.pump(livePhotoSettlingDelay);
   await tester.pump();
 }
@@ -108,6 +114,14 @@ void main() {
     'dev.flutter.pigeon.immich_mobile.RemoteImageApi.cancelRequest',
     RemoteImageApi.pigeonChannelCodec,
   );
+  const localRequestChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.LocalImageApi.requestImage',
+    LocalImageApi.pigeonChannelCodec,
+  );
+  const localCancelChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.immich_mobile.LocalImageApi.cancelRequest',
+    LocalImageApi.pigeonChannelCodec,
+  );
 
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -119,6 +133,8 @@ void main() {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockDecodedMessageHandler(requestChannel, (_) async => <Object?>[null]);
     messenger.setMockDecodedMessageHandler(cancelChannel, (_) async => <Object?>[null]);
+    messenger.setMockDecodedMessageHandler(localRequestChannel, (_) async => <Object?>[null]);
+    messenger.setMockDecodedMessageHandler(localCancelChannel, (_) async => <Object?>[null]);
   });
 
   setUp(() async {
@@ -129,6 +145,8 @@ void main() {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockDecodedMessageHandler(requestChannel, null);
     messenger.setMockDecodedMessageHandler(cancelChannel, null);
+    messenger.setMockDecodedMessageHandler(localRequestChannel, null);
+    messenger.setMockDecodedMessageHandler(localCancelChannel, null);
     await Store.clear();
     await SettingsRepository.reset();
     await db.close();
@@ -180,6 +198,11 @@ void main() {
           child: playback == null
               ? list
               : TimelineLivePhotoScope(
+                  localVideoResolver: (asset) async {
+                    expect(asset.storage, AssetState.merged);
+                    expect(asset.localId, isNotEmpty);
+                    return '/local/${asset.localId}.mp4';
+                  },
                   previewBuilder: (asset, onCompleted, onStarted, onFailed) {
                     onStarted();
                     return _Preview(
@@ -210,6 +233,8 @@ void main() {
         stackCountsProvider.overrideWith((_) => Stream.value({'stack-one': 3})),
       ],
     );
+    await tester.pump();
+    await tester.pump();
     await tester.pump();
     return ProviderScope.containerOf(tester.element(find.byType(ListView)));
   }
@@ -329,7 +354,11 @@ void main() {
 
   testWidgets('dense geometry selects one central visible motion tile and completion never cascades', (tester) async {
     final playback = _PlaybackLog();
-    final assets = [_asset('left', live: true), _asset('center', live: true), _asset('right', live: true)];
+    final assets = [
+      _asset('left', live: true, localVideo: true),
+      _asset('center', live: true, localVideo: true),
+      _asset('right', live: true, localVideo: true),
+    ];
     await mountRows(tester, assets, playback: playback);
     expect(playback.starts, isEmpty);
     await _settlePreview(tester);
@@ -354,7 +383,7 @@ void main() {
     tester,
   ) async {
     final playback = _PlaybackLog();
-    await mountRows(tester, [_asset('cropped', live: true)], viewportHeight: 210, playback: playback);
+    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 210, playback: playback);
     expect(tester.getSize(_tile('cropped')).height, 270);
     await _settlePreview(tester);
     expect(playback.starts, isEmpty);
@@ -364,7 +393,7 @@ void main() {
     final playback = _PlaybackLog();
     final scroll = ScrollController();
     addTearDown(scroll.dispose);
-    final assets = List.generate(4, (index) => _asset('live-$index', live: true));
+    final assets = List.generate(4, (index) => _asset('live-$index', live: true, localVideo: true));
     await mountRows(tester, assets, groups: [1, 1, 1, 1], viewportHeight: 240, scroll: scroll, playback: playback);
     await _settlePreview(tester);
     expect(playback.alive, {'live-0'});
