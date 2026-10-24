@@ -55,6 +55,8 @@ void main() {
   late ProviderContainer container;
   late Directory temporaryDirectory;
   late String filePath;
+  late Future<String?> Function(BaseAsset) feedResolver;
+  late int resolvedFeedSources;
   late RemoteAsset asset;
   late _MockVideoController controller;
   late _ReadinessSignal ready;
@@ -106,7 +108,7 @@ void main() {
 
   setUp(() async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
-    asset = RemoteAssetFactory.create().copyWith(livePhotoVideoId: 'paired-video');
+    asset = RemoteAssetFactory.create(localId: 'local-live-photo').copyWith(livePhotoVideoId: 'paired-video');
     assetService = MockAssetService();
     storageRepository = MockStorageRepository();
     when(() => assetService.getAsset(any())).thenAnswer((_) async => asset);
@@ -120,6 +122,8 @@ void main() {
     temporaryDirectory = await Directory.systemTemp.createTemp('gallery-timeline-preview-');
     filePath = '${temporaryDirectory.path}/motion.mp4';
     await File(filePath).writeAsBytes([0]);
+    feedResolver = (_) async => filePath;
+    resolvedFeedSources = 0;
     ready = _ReadinessSignal();
     ended = ChangeNotifier();
     position = ValueNotifier(0);
@@ -269,11 +273,26 @@ void main() {
     );
   }
 
+  Future<void> settleResolvedFeed(WidgetTester tester, int previousResolutions) async {
+    // Source proof is asynchronous and starts a new settling reservation. Wait
+    // for that boundary before advancing the controller's fake-time delay.
+    await waitForFixture(
+      tester,
+      () => resolvedFeedSources > previousResolutions,
+      'the focused component must resolve before its settling reservation',
+    );
+    await tester.pump();
+    await tester.pump(livePhotoSettlingDelay);
+    await tester.pump();
+    expect(find.byType(NativeVideoViewer), findsOneWidget);
+  }
+
   Future<void> mountFeed(
     WidgetTester tester, {
     GlobalKey<NavigatorState>? navigatorKey,
     ScrollController? scrollController,
   }) async {
+    final previousResolutions = resolvedFeedSources;
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -285,6 +304,11 @@ void main() {
                 width: 240,
                 height: 240,
                 child: TimelineLivePhotoScope(
+                  localVideoResolver: (asset) async {
+                    final path = await feedResolver(asset);
+                    resolvedFeedSources++;
+                    return path;
+                  },
                   child: ListView(
                     controller: scrollController,
                     padding: EdgeInsets.zero,
@@ -310,24 +334,32 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
-    await tester.pump(livePhotoSettlingDelay);
-    await tester.pump();
-    expect(find.byType(NativeVideoViewer), findsOneWidget);
+    await settleResolvedFeed(tester, previousResolutions);
   }
 
-  Future<void> attachFeedPlayer(WidgetTester tester) async {
+  Future<void> attachFeedPlayer(WidgetTester tester, {bool waitForSource = true}) async {
+    final previousLoads = calls.where((call) => call == 'load').length;
     tester.widget<NativeVideoPlayerView>(find.byType(NativeVideoPlayerView)).onViewReady!(controller);
+    if (waitForSource) {
+      await waitForFixture(
+        tester,
+        () => calls.where((call) => call == 'load').length > previousLoads || !ready.isObserved,
+        'the local feed component must configure the native player',
+      );
+    }
     await tester.runAsync(() => pumpEventQueue());
     await tester.pump();
   }
 
-  testWidgets('cold feed loads and plays its server pair without opening or priming the viewer', (tester) async {
+  testWidgets('cold feed loads and plays its local component without opening or priming the viewer', (tester) async {
     await mountFeed(tester);
     await attachFeedPlayer(tester);
     expect(calls.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
     final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
-    expect(source.path, 'https://example.test/api/assets/paired-video/video/playback');
+    expect(source.type, VideoSourceType.file);
+    expect(source.path, filePath);
+    expect(source.headers, isEmpty);
+    verifyNever(() => assetService.getAsset(any()));
     expect(container.read(isPlayingMotionVideoProvider), isFalse);
     expect(container.read(videoPlayerProvider(asset.id)).status, VideoPlaybackStatus.paused);
     position.value = 100;
@@ -344,21 +376,31 @@ void main() {
   testWidgets('cold feed cancelled by viewer navigation reloads automatically; stale source cannot play', (
     tester,
   ) async {
-    final source = Completer<BaseAsset?>();
-    when(() => assetService.getAsset(any())).thenAnswer((_) => source.future);
+    final muting = Completer<void>();
+    when(() => controller.setVolume(any())).thenAnswer((_) {
+      if (!sourceStarted.isCompleted) {
+        sourceStarted.complete();
+      }
+      return muting.future;
+    });
     final navigator = GlobalKey<NavigatorState>();
     await mountFeed(tester, navigatorKey: navigator);
-    await attachFeedPlayer(tester);
+    await attachFeedPlayer(tester, waitForSource: false);
+    await waitForFixture(tester, () => sourceStarted.isCompleted, 'native muting must be pending before navigation');
     expect(calls, isEmpty);
     unawaited(navigator.currentState!.push<void>(MaterialPageRoute(builder: (_) => const Scaffold())));
     await tester.pumpAndSettle();
     expect(ready.isObserved, isFalse);
-    source.complete(asset);
+    muting.complete();
     await tester.runAsync(() => pumpEventQueue());
     expect(calls, isNot(contains('load')));
-    when(() => assetService.getAsset(any())).thenAnswer((_) async => asset);
+    when(() => controller.setVolume(any())).thenAnswer((invocation) async {
+      calls.add('volume:${invocation.positionalArguments.single}');
+    });
+    final previousResolutions = resolvedFeedSources;
     navigator.currentState!.pop();
     await tester.pumpAndSettle();
+    await settleResolvedFeed(tester, previousResolutions);
     await attachFeedPlayer(tester);
     expect(calls.where((call) => call == 'load'), hasLength(1));
     expect(calls.where((call) => call == 'play'), hasLength(1));
@@ -380,18 +422,17 @@ void main() {
     expect(ready.isObserved, isFalse);
     position.value = 0;
     status.value = PlaybackStatus.stopped;
+    final previousResolutions = resolvedFeedSources;
     scroll.jumpTo(120);
     await tester.pump();
     expect(find.byType(NativeVideoViewer), findsNothing);
-    await tester.pump(livePhotoSettlingDelay);
-    await tester.pump();
+    await settleResolvedFeed(tester, previousResolutions);
     expect(tester.widget<NativeVideoViewer>(find.byType(NativeVideoViewer)).asset.id, 'second');
     await attachFeedPlayer(tester);
     final sources = verify(() => controller.loadVideoSource(captureAny())).captured.cast<VideoSource>();
-    expect(sources.map((source) => source.path), [
-      'https://example.test/api/assets/paired-video/video/playback',
-      'https://example.test/api/assets/second-pair/video/playback',
-    ]);
+    expect(sources.map((source) => source.path), [filePath, filePath]);
+    expect(sources.every((source) => source.type == VideoSourceType.file && source.headers.isEmpty), isTrue);
+    verifyNever(() => assetService.getAsset(any()));
     expect(calls.where((call) => call == 'play'), hasLength(2));
     expect(calls.where((call) => call == 'loop:false'), hasLength(2));
     expect(calls.where((call) => call == 'volume:0.0'), hasLength(2));
@@ -400,21 +441,28 @@ void main() {
   });
 
   testWidgets('cold native load cancelled by background retries automatically on resume', (tester) async {
-    final source = Completer<BaseAsset?>();
-    when(() => assetService.getAsset(any())).thenAnswer((_) => source.future);
+    final muting = Completer<void>();
+    when(() => controller.setVolume(any())).thenAnswer((_) {
+      if (!sourceStarted.isCompleted) {
+        sourceStarted.complete();
+      }
+      return muting.future;
+    });
     await mountFeed(tester);
-    await attachFeedPlayer(tester);
+    await attachFeedPlayer(tester, waitForSource: false);
+    await waitForFixture(tester, () => sourceStarted.isCompleted, 'native muting must be pending before backgrounding');
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
     expect(ready.isObserved, isFalse);
-    source.complete(asset);
+    muting.complete();
     await tester.runAsync(() => pumpEventQueue());
     expect(calls, isNot(contains('load')));
-    when(() => assetService.getAsset(any())).thenAnswer((_) async => asset);
+    when(() => controller.setVolume(any())).thenAnswer((invocation) async {
+      calls.add('volume:${invocation.positionalArguments.single}');
+    });
+    final previousResolutions = resolvedFeedSources;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-    await tester.pump(livePhotoSettlingDelay);
-    await tester.pump();
+    await settleResolvedFeed(tester, previousResolutions);
     await attachFeedPlayer(tester);
     expect(calls.where((call) => call == 'play'), hasLength(1));
     await tester.pumpWidget(const SizedBox());
@@ -1163,12 +1211,12 @@ void main() {
   });
 
   testWidgets('a stale source cannot load or play after the preview is removed', (tester) async {
-    final pendingAsset = Completer<BaseAsset?>();
-    when(() => assetService.getAsset(any())).thenAnswer((_) => pendingAsset.future);
+    final muting = Completer<void>();
+    when(() => controller.setVolume(any())).thenAnswer((_) => muting.future);
     await mountPreview(tester, waitForSource: false);
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
-    pendingAsset.complete(asset);
+    muting.complete();
     await tester.runAsync(() => pumpEventQueue());
     await tester.pump();
     expect(calls, isNot(contains('load')));
@@ -1192,65 +1240,49 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets('${platform.name} paired live photo uses authenticated encoded playback even with original enabled', (
-      tester,
-    ) async {
+    testWidgets('${platform.name} remote-only live photo never creates a timeline player or source', (tester) async {
       useSourcePlatform(platform);
       asset = RemoteAssetFactory.create(
         name: platform == TargetPlatform.android ? 'samsung.jpg' : 'apple.heic',
       ).copyWith(livePhotoVideoId: 'paired-${platform.name}-video');
-      await mountPreview(tester, useLocalFile: false);
+      // Even an explicit cached path cannot authorize remote-only autoplay.
+      await mountPreview(tester, injectController: false);
 
-      final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
-      expect(source.type, VideoSourceType.network);
-      expect(source.path, 'https://example.test/api/assets/paired-${platform.name}-video/video/playback');
-      expect(source.headers, {'x-test-auth': 'test-value'});
+      expect(find.byType(NativeVideoPlayerView), findsNothing);
+      verifyNever(() => controller.loadVideoSource(any()));
+      verifyZeroInteractions(assetService);
+      verifyZeroInteractions(storageRepository);
       expect(SettingsRepository.instance.appConfig.viewer.loadOriginalVideo, isTrue);
-      expect(completions, 0);
+      expect(calls, isEmpty);
+      expect(completions, 1);
       await tester.pumpWidget(const SizedBox());
       debugDefaultTargetPlatformOverride = null;
     });
   }
 
-  testWidgets('merged Android motion photo bypasses the local image and reuses the server video pair', (tester) async {
+  testWidgets('merged Android motion uses its explicit local component without resolving the server pair', (
+    tester,
+  ) async {
     useSourcePlatform(TargetPlatform.android);
     asset = RemoteAssetFactory.create(
       localId: 'local-samsung-photo',
     ).copyWith(livePhotoVideoId: 'samsung-motion-video');
-    await mountPreview(tester, useLocalFile: false);
+    await mountPreview(tester);
 
     final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
-    expect(source.path, 'https://example.test/api/assets/samsung-motion-video/video/playback');
-    verifyNever(() => assetService.getLocalAsset(any()));
+    expect(source.type, VideoSourceType.file);
+    expect(source.path, File(filePath).uri.toString());
+    expect(source.headers, isEmpty);
+    verifyZeroInteractions(assetService);
+    verifyZeroInteractions(storageRepository);
     expect(completions, 0);
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('a local-only Android motion image without a server pair safely stays static', (tester) async {
-    useSourcePlatform(TargetPlatform.android);
-    final local = LocalAsset(
-      id: 'local-only-motion',
-      name: 'samsung.jpg',
-      type: AssetType.image,
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      playbackStyle: AssetPlaybackStyle.livePhoto,
-      isEdited: false,
-    );
-    when(() => assetService.getAsset(local)).thenAnswer((_) async => local);
-    await mountPreview(tester, useLocalFile: false, previewAsset: local);
-
-    expect(completions, 1);
-    verifyNever(() => controller.loadVideoSource(any()));
-    expect(calls, isNot(contains('play')));
-    await tester.pumpWidget(const SizedBox());
-    debugDefaultTargetPlatformOverride = null;
-  });
-
-  LocalAsset iosLocalLivePhoto() => LocalAsset(
+  LocalAsset localLivePhoto({String name = 'apple.heic'}) => LocalAsset(
     id: 'local-live-photo',
-    name: 'apple.heic',
+    name: name,
     type: AssetType.image,
     createdAt: DateTime(2026),
     updatedAt: DateTime(2026),
@@ -1258,48 +1290,81 @@ void main() {
     isEdited: false,
   );
 
-  testWidgets('iOS cached still image with an iCloud-only motion part uses the remote pair without local export', (
-    tester,
-  ) async {
-    useSourcePlatform(TargetPlatform.iOS);
-    final local = iosLocalLivePhoto();
-    asset = RemoteAssetFactory.create(localId: local.id).copyWith(livePhotoVideoId: 'remote-apple-motion');
-    when(() => assetService.getLocalAsset(local.id)).thenAnswer((_) async => local);
-    when(() => storageRepository.isAssetAvailableLocally(local.id)).thenAnswer((_) async => true);
-    when(() => storageRepository.isAssetAvailableLocally(local.id, withSubtype: true)).thenAnswer((_) async => false);
+  testWidgets('local-only Android motion plays its proven video without a server pair', (tester) async {
+    useSourcePlatform(TargetPlatform.android);
+    final local = localLivePhoto(name: 'samsung.jpg');
+    await mountPreview(tester, previewAsset: local);
 
-    await mountPreview(tester, useLocalFile: false);
-
-    verify(() => storageRepository.isAssetAvailableLocally(local.id, withSubtype: true)).called(1);
-    verifyNever(() => storageRepository.getMotionFileForAsset(any()));
-    verifyNever(() => storageRepository.getFileForAsset(any()));
-    verifyNever(() => storageRepository.loadMotionFileFromCloud(any(), progressHandler: any(named: 'progressHandler')));
     final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
-    expect(source.type, VideoSourceType.network);
-    expect(source.path, 'https://example.test/api/assets/remote-apple-motion/video/playback');
+    expect(source.type, VideoSourceType.file);
+    expect(source.path, File(filePath).uri.toString());
+    expect(calls.where((call) => call == 'play'), hasLength(1));
     expect(completions, 0);
+    verifyZeroInteractions(assetService);
+    verifyZeroInteractions(storageRepository);
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('iOS locally cached motion subtype uses the existing paired-file export', (tester) async {
+  testWidgets('iOS cached still without a verified local motion component remains static without cloud export', (
+    tester,
+  ) async {
     useSourcePlatform(TargetPlatform.iOS);
-    final local = iosLocalLivePhoto();
-    when(() => assetService.getAsset(local)).thenAnswer((_) async => local);
-    when(() => storageRepository.isAssetAvailableLocally(local.id, withSubtype: true)).thenAnswer((_) async => true);
-    when(() => storageRepository.getMotionFileForAsset(local)).thenAnswer((_) async => File(filePath));
+    final local = localLivePhoto();
+    asset = RemoteAssetFactory.create(localId: local.id).copyWith(livePhotoVideoId: 'remote-apple-motion');
+    // Source preparation belongs to the timeline scope. No local video was
+    // provided, so the player may neither resolve storage nor fetch its twin.
+    await mountPreview(tester, useLocalFile: false, injectController: false);
 
-    await mountPreview(tester, useLocalFile: false, previewAsset: local);
+    expect(find.byType(NativeVideoPlayerView), findsNothing);
+    verifyZeroInteractions(assetService);
+    verifyZeroInteractions(storageRepository);
+    verifyNever(() => controller.loadVideoSource(any()));
+    expect(completions, 1);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
 
-    verify(() => storageRepository.isAssetAvailableLocally(local.id, withSubtype: true)).called(1);
-    verify(() => storageRepository.getMotionFileForAsset(local)).called(1);
-    verifyNever(() => storageRepository.getFileForAsset(any()));
+  testWidgets('iOS local motion uses the file already exported by the timeline scope', (tester) async {
+    useSourcePlatform(TargetPlatform.iOS);
+    await mountPreview(tester, previewAsset: localLivePhoto());
+
+    verifyZeroInteractions(assetService);
+    verifyZeroInteractions(storageRepository);
     final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
     expect(source.type, VideoSourceType.file);
     expect(source.path, filePath);
     expect(completions, 0);
     await tester.pumpWidget(const SizedBox());
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('merged motion with an unavailable local file never falls back to its remote video', (tester) async {
+    useSourcePlatform(TargetPlatform.android);
+    await mountPreview(tester, sourcePath: '${temporaryDirectory.path}/missing-motion.mp4');
+
+    expect(completions, 1);
+    expect(calls, isNot(contains('play')));
+    verifyNever(() => controller.loadVideoSource(any()));
+    verifyZeroInteractions(assetService);
+    verifyZeroInteractions(storageRepository);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('full-screen remote motion retains authenticated original playback when configured', (tester) async {
+    useSourcePlatform(TargetPlatform.android);
+    asset = RemoteAssetFactory.create().copyWith(livePhotoVideoId: 'manual-remote-motion');
+    await mountPreview(tester, useLocalFile: false, timelinePreview: false);
+
+    final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
+    expect(source.type, VideoSourceType.network);
+    expect(source.path, 'https://example.test/api/assets/manual-remote-motion/original');
+    expect(source.headers, {'x-test-auth': 'test-value'});
+    verify(() => assetService.getAsset(asset)).called(1);
+    verifyZeroInteractions(storageRepository);
+    expect(calls, contains('play'));
+    await finishMemoryViewer(tester);
   });
 
   testWidgets('the preview watchdog releases a stalled native source after eight seconds', (tester) async {
@@ -1335,7 +1400,7 @@ void main() {
       ended.notifyListeners();
       await tester.pump();
       expect(records, containsAll(['Timeline motion: selected', 'Timeline motion: platform-view-created']));
-      expect(records, contains('Timeline motion: source:explicit-local'));
+      expect(records, contains('Timeline motion: source:verified-local-component'));
       expect(records, contains('Timeline motion: native-ready:1920x1080'));
       expect(records, contains('Timeline motion: play-request-accepted'));
       expect(records, contains('Timeline motion: finished:ended'));
@@ -1352,13 +1417,12 @@ void main() {
 
   testWidgets('source failure diagnostics omit filename, URL and exception details', (tester) async {
     const privateDetail = 'private-name.jpg https://example.test/api?token=private-test-token';
-    when(() => assetService.getAsset(any())).thenThrow(StateError(privateDetail));
     final records = <String>[];
     final previousLevel = Logger.root.level;
     Logger.root.level = Level.INFO;
     final listener = Logger('NativeVideoViewer').onRecord.listen((record) => records.add(record.message));
     try {
-      await mountPreview(tester);
+      await mountPreview(tester, sourcePath: privateDetail);
       expect(completions, 1);
       expect(records, contains('Timeline motion: source-failed:StateError'));
       expect(records, contains('Timeline motion: finished:source-unavailable'));

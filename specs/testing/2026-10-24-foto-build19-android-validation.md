@@ -7,9 +7,16 @@ The backend remains Build 18; this change requires no backend deployment.
 
 ## Current evidence and release gate
 
-- 152 Dart/controller/widget tests passed; full Flutter analyze passed with no
-  issues. Ten synthetic Android JVM layout/bounds tests also passed after
+- 238 targeted Dart/controller/widget tests passed, including the existing
+  native-preview, face-framing, thumbnail-cache and dense-layout regressions
+  adapted to local video proof. Full Flutter analyze passed before that
+  test-only update; scoped analysis of all four updated suites also passed.
+  Ten synthetic Android JVM layout/bounds tests passed after
   successful native compilation. No test accessed user media or production.
+- The first complete CI mobile run identified 48 obsolete server-autoplay
+  expectations in those four suites; all 86 tests in the corrected suites now
+  pass locally, without skips. Full-suite results and current CI status must be
+  read from the latest PR checks/report; targeted success alone is insufficient.
 - Release compilation passed (`assembleRelease`, 711.9 seconds). APK manifest
   confirms `de.opennoodle.gallery` / `5.7.3` / `19`, minSdk 26 / targetSdk 36, and arm64-v8a,
   armeabi-v7a, x86_64. `zipalign -c -P 16 -v 4` passed.
@@ -80,6 +87,12 @@ flutter test --no-pub --concurrency=2 \
   test/providers/asset_viewer/video_player_provider_test.dart \
   test/presentation/widgets/timeline/live_photo_presentation_test.dart \
   test/domain/services/live_photos_timeline_factory_test.dart
+flutter test --no-pub --concurrency=2 \
+  test/presentation/widgets/asset_viewer/timeline_preview_video_viewer_test.dart \
+  test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart \
+  test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart \
+  test/presentation/widgets/timeline/dense_timeline_overlays_test.dart
+flutter test --no-pub --concurrency=2
 cd android
 ./gradlew :app:testDebugUnitTest --tests '*LocalMotionPhotoLayoutTest'
 cd ..
