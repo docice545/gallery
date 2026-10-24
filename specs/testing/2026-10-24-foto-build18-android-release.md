@@ -53,11 +53,12 @@ agent. The following commands operate on new artifact paths only; use the
 already-configured Android Build Tools and existing keystore/alias:
 
 ```sh
-zipalign -p -f 4 build18-unsigned.apk build18-aligned.apk
+zipalign -P 16 -f 4 build18-unsigned.apk build18-aligned.apk
 apksigner sign --ks "$FOTO_EXISTING_KEYSTORE" \
   --ks-key-alias "$FOTO_EXISTING_KEY_ALIAS" \
   --out build18-signed.apk build18-aligned.apk
 apksigner verify --verbose --print-certs build18-signed.apk
+zipalign -c -P 16 -v 4 build18-signed.apk
 apksigner verify --verbose --print-certs build17-production.apk
 aapt dump badging build18-signed.apk
 sha256sum build18-signed.apk
