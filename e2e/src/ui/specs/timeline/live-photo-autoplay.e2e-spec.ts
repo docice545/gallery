@@ -44,7 +44,7 @@ const fulfillVideo = async (route: Route) => {
 };
 
 type PlaybackProbe = { maxSources: number; maxPlaying: number; started: string[]; ended: string[] };
-type ProbedWindow = Window & { fotoLivePhotoProbe: PlaybackProbe };
+type ProbedWindow = typeof globalThis & { fotoLivePhotoProbe: PlaybackProbe };
 
 test.setTimeout(60_000);
 test.use({ viewport: { width: 1600, height: 1200 } });
