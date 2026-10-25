@@ -26,12 +26,20 @@ See [the design and backend localization boundary](../2026-10-25-foto-build19-an
 
 ## Verification
 
-Final combined Android regression: **304 passed, 0 failed, 1 pre-existing skip**,
+Combined Android regression: **304 passed, 0 failed, 1 pre-existing skip**,
 including new name/search/cache/provider/database/cluster/panel tests and the
 existing editor/Trash/Live Photo regressions. Full Flutter analyze reports no
 issues. All **71 Android JVM tests** pass, including nine synthetic localized-name
 policy tests and compilation of the actual Android Geocoder plugin. No Drift
 schema version or migration changes are needed for the existing store-table cache.
+
+Final landscape review found that a fixed initial sheet fraction could put the
+location button over the count panel before the first size notification. The
+control and panel now share the same measured minimum height. The final map-panel
+suite passes **11 tests**, including two new actual widget geometry cases at
+640×320, text scales 1.0/1.8, navigation inset and stale/expanded extents. Full
+Flutter analyze was repeated after this follow-up and reports no issues. Native
+Android code is unchanged by this layout follow-up.
 
 Fixtures exercise Москва, Химки, Внуково, Белек, Муйне, Немчиновка, Восточное
 Дегунино, Новая Купавна and Гонолулу, rejected airport/POI/distant matches,

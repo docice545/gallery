@@ -18,6 +18,7 @@ import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_shee
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/general_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/map_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/map.state.dart';
+import 'package:immich_mobile/presentation/widgets/map/map_my_location_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_bottom_pill.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_footer.widget.dart';
@@ -87,6 +88,7 @@ Future<_Harness> _pumpMapTimeline(
   List<Override> extraOverrides = const [],
   bool fullSheet = false,
   DraggableScrollableController? sheetController,
+  ValueNotifier<double>? locationOffset,
   double bottomInset = 0,
   double keyboardInset = 0,
   double textScale = 1,
@@ -151,7 +153,13 @@ Future<_Harness> _pumpMapTimeline(
                 ),
                 child: fullSheet
                     ? Scaffold(
-                        body: Stack(children: [MapBottomSheet(controller: sheetController)]),
+                        body: Stack(
+                          children: [
+                            MapBottomSheet(controller: sheetController),
+                            if (locationOffset != null)
+                              MapMyLocationButton(onZoomToLocation: () {}, bottomSheetOffset: locationOffset),
+                          ],
+                        ),
                       )
                     : const Scaffold(body: MapBottomSheetTimeline()),
               ),
@@ -289,6 +297,48 @@ void main() {
     expect(() => controller.addListener(listener), returnsNormally);
     controller.removeListener(listener);
   });
+
+  for (final textScale in [1.0, 1.8]) {
+    testWidgets('location control clears the initial landscape panel at text scale $textScale', (tester) async {
+      tester.view.physicalSize = const Size(640, 320);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final locationOffset = ValueNotifier<double>(0);
+      addTearDown(locationOffset.dispose);
+      final controller = DraggableScrollableController();
+      addTearDown(controller.dispose);
+      await _pumpMapTimeline(
+        tester,
+        fullSheet: true,
+        sheetController: controller,
+        locationOffset: locationOffset,
+        bottomInset: 24,
+        textScale: textScale,
+      );
+
+      Rect button() => tester.getRect(find.byKey(const Key('map-my-location-button')));
+      Rect header() => tester.getRect(find.byKey(const Key('map-panel-toggle')));
+      // No extent notification has occurred. The initial position accounts for
+      // the real collapsed header and Android navigation inset.
+      expect(button().height, 48);
+      expect(button().bottom, closeTo(header().top - 8, 0.1));
+      expect(find.byKey(const Key('map-my-location-button')).hitTestable(), findsOneWidget);
+
+      // A stale fraction after a viewport change must not move the control
+      // down over the minimum panel either.
+      locationOffset.value = 0.15;
+      await tester.pump();
+      expect(button().bottom, lessThanOrEqualTo(header().top - 8));
+
+      controller.jumpTo(0.65);
+      locationOffset.value = 0.65;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(button().bottom, closeTo(header().top - 8, 0.1));
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('header drag opens the panel and an empty GPS result stays usable', (tester) async {
     await _pumpMapTimeline(tester, fullSheet: true);

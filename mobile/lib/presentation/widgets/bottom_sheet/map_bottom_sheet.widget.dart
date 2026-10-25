@@ -24,6 +24,21 @@ class MapBottomSheet extends StatefulWidget {
 
   const MapBottomSheet({super.key, this.sheetKey, this.controller});
 
+  static double panelHeaderHeight(BuildContext context) {
+    final countStyle = context.themeData.textTheme.titleSmall;
+    final countLineHeight =
+        MediaQuery.textScalerOf(context).scale(countStyle?.fontSize ?? 14) * (countStyle?.height ?? 1.4);
+    return math.max(64.0, 20 + countLineHeight * 2);
+  }
+
+  /// Shared with map controls so their initial position is safe before the
+  /// sheet has emitted its first extent notification.
+  static double collapsedPanelHeight(BuildContext context, {required double availableHeight}) =>
+      (panelHeaderHeight(context) + MediaQuery.paddingOf(context).bottom).clamp(
+        availableHeight * 0.01,
+        availableHeight * 0.95,
+      );
+
   @override
   State<MapBottomSheet> createState() => _MapBottomSheetState();
 }
@@ -44,14 +59,11 @@ class _MapBottomSheetState extends State<MapBottomSheet> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final countStyle = context.themeData.textTheme.titleSmall;
-        final countLineHeight =
-            MediaQuery.textScalerOf(context).scale(countStyle?.fontSize ?? 14) * (countStyle?.height ?? 1.4);
-        final headerHeight = math.max(64.0, 20 + countLineHeight * 2);
-        final minSize = ((headerHeight + MediaQuery.paddingOf(context).bottom) / constraints.maxHeight).clamp(
-          0.01,
-          0.95,
-        );
+        final headerHeight = MapBottomSheet.panelHeaderHeight(context);
+        final minSize = constraints.maxHeight > 0
+            ? MapBottomSheet.collapsedPanelHeight(context, availableHeight: constraints.maxHeight) /
+                  constraints.maxHeight
+            : 0.95;
         final maxSize = math.max(minSize, 0.85);
         return DraggableScrollableSheet(
           key: widget.sheetKey,

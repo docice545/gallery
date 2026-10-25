@@ -8,10 +8,10 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/asyncvalue_extensions.dart';
-import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/map_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/map.state.dart';
+import 'package:immich_mobile/presentation/widgets/map/map_my_location_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_photo_selection.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_utils.dart';
 import 'package:immich_mobile/providers/routes.provider.dart';
@@ -37,7 +37,7 @@ class _MapViewState extends ConsumerState<MapView> {
   MapLibreMapController? mapController;
   final _reloadMutex = AsyncMutex();
   final _debouncer = Debouncer(interval: const Duration(milliseconds: 500), maxWaitTime: const Duration(seconds: 2));
-  final ValueNotifier<double> bottomSheetOffset = ValueNotifier(0.15);
+  final ValueNotifier<double> bottomSheetOffset = ValueNotifier(0);
   final _sheetController = DraggableScrollableController();
   final _log = Logger('PhotoMapView');
   int _styleGeneration = 0;
@@ -282,7 +282,7 @@ class _MapViewState extends ConsumerState<MapView> {
           sheetKey: _bottomSheetKey,
           controller: _sheetController,
         ),
-        _DynamicMyLocationButton(onZoomToLocation: onZoomToLocation, bottomSheetOffset: bottomSheetOffset),
+        MapMyLocationButton(onZoomToLocation: onZoomToLocation, bottomSheetOffset: bottomSheetOffset),
       ],
     );
   }
@@ -342,46 +342,6 @@ class _DynamicBottomSheetState extends State<_DynamicBottomSheet> {
         return false;
       },
       child: MapBottomSheet(sheetKey: widget.sheetKey, controller: widget.controller),
-    );
-  }
-}
-
-class _DynamicMyLocationButton extends StatelessWidget {
-  const _DynamicMyLocationButton({required this.onZoomToLocation, required this.bottomSheetOffset});
-
-  final VoidCallback onZoomToLocation;
-  final ValueNotifier<double> bottomSheetOffset;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) => Stack(
-        fit: StackFit.expand,
-        children: [
-          ValueListenableBuilder<double>(
-            valueListenable: bottomSheetOffset,
-            builder: (context, offset, child) => Positioned(
-              right: 12 + context.padding.right,
-              bottom: constraints.maxHeight * offset + 8,
-              child: IgnorePointer(
-                ignoring: offset >= 0.8,
-                child: AnimatedOpacity(
-                  opacity: offset < 0.8 ? 1 : 0,
-                  duration: const Duration(milliseconds: 150),
-                  child: SizedBox.square(
-                    dimension: 48,
-                    child: IconButton.filledTonal(
-                      tooltip: context.t.map_location_picker_page_use_location,
-                      onPressed: onZoomToLocation,
-                      icon: const Icon(Icons.my_location, size: 22),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
