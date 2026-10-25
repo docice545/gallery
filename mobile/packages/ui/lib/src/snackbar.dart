@@ -64,11 +64,24 @@ class SnackbarManager {
           Icon(icon, color: foreground, size: ImmichIconSize.sm),
           const SizedBox(width: ImmichSpacing.md),
           Expanded(
-            child: Text(
-              message,
-              maxLines: 2,
-              overflow: .ellipsis,
-              style: .new(color: foreground, fontWeight: .w600, fontSize: ImmichTextSize.body),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight:
+                    (MediaQuery.sizeOf(context).height - MediaQuery.viewInsetsOf(context).bottom).clamp(
+                      0.0,
+                      double.infinity,
+                    ) *
+                    0.3,
+              ),
+              // Deletion results can contain several remaining file names.
+              // Keep every line available without letting a long result cover
+              // the screen or collide with a measured bottom action bar.
+              child: SingleChildScrollView(
+                child: Text(
+                  message,
+                  style: .new(color: foreground, fontWeight: .w600, fontSize: ImmichTextSize.body),
+                ),
+              ),
             ),
           ),
         ],

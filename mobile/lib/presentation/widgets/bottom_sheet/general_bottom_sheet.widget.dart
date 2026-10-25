@@ -20,7 +20,8 @@ import 'package:immich_mobile/presentation/widgets/collection/collection_picker.
 
 class GeneralBottomSheet extends ConsumerStatefulWidget {
   final double? minChildSize;
-  const GeneralBottomSheet({super.key, this.minChildSize});
+  final bool expand;
+  const GeneralBottomSheet({super.key, this.minChildSize, this.expand = true});
 
   @override
   ConsumerState<GeneralBottomSheet> createState() => _GeneralBottomSheetState();
@@ -48,6 +49,7 @@ class _GeneralBottomSheetState extends ConsumerState<GeneralBottomSheet> {
 
     return BaseBottomSheet(
       controller: sheetController,
+      expand: widget.expand,
       initialChildSize: widget.minChildSize ?? 0.15,
       minChildSize: widget.minChildSize,
       maxChildSize: 0.85,

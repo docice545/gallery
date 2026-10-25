@@ -50,7 +50,7 @@ class _TileViewport {
 
 RemoteAsset _remote({String id = 'quality-photo', int? width = 4000, int? height = 6000, bool motion = false}) {
   final asset = TestUtils.createRemoteAsset(id: id, width: width, height: height);
-  return motion ? asset.copyWith(livePhotoVideoId: '$id-video') : asset;
+  return motion ? asset.copyWith(localId: '$id-local', livePhotoVideoId: '$id-video') : asset;
 }
 
 void _expectAspectCorrectBounded(Size size, BaseAsset asset) {
@@ -99,6 +99,8 @@ void _qualityTestWidgets(String description, WidgetTesterCallback callback) {
 void main() {
   late Drift db;
   late MockAssetService assetService;
+  late Directory motionDirectory;
+  late File localMotionFile;
   late HttpOverrides? previousHttpOverrides;
   var returnDecodedImage = false;
   final remoteRequests = <List<Object?>>[];
@@ -129,6 +131,11 @@ void main() {
     await SettingsRepository.ensureInitialized(db);
     await StoreService.init(storeRepository: StoreRepository(db), listenUpdates: false);
     await Store.put(StoreKey.serverEndpoint, 'https://example.test/api');
+    motionDirectory = await Directory.systemTemp.createTemp('foto-build19-thumbnail-quality-');
+    localMotionFile = File('${motionDirectory.path}/synthetic-motion.mp4');
+    // The Linux native surface is a placeholder. This synthetic fixture proves
+    // file availability without decoding or touching any user media.
+    await localMotionFile.writeAsBytes([0, 0, 0, 8, 102, 116, 121, 112]);
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockDecodedMessageHandler(remoteRequest, (message) async {
       remoteRequests.add((message! as List<Object?>).toList());
@@ -149,10 +156,11 @@ void main() {
     localRequests.clear();
     returnDecodedImage = false;
     await SettingsRepository.instance.clear(SettingsKey.values);
+    // Merged Live Photos can retain a remote still while their autoplay source
+    // is the independently verified local video component.
+    await SettingsRepository.instance.write(SettingsKey.imagePreferRemote, true);
     assetService = MockAssetService();
-    // Keep source preparation pending at the service boundary. This exercises
-    // the real motion layout, whose Linux platform view is a placeholder, while
-    // avoiding storage/network/native-player setup irrelevant to tile geometry.
+    // Timeline playback must bypass server asset resolution entirely.
     when(() => assetService.getAsset(any())).thenAnswer((_) => Completer<BaseAsset?>().future);
   });
 
@@ -171,6 +179,7 @@ void main() {
     await Store.clear();
     await SettingsRepository.reset();
     await db.close();
+    await motionDirectory.delete(recursive: true);
     HttpOverrides.global = previousHttpOverrides;
   });
 
@@ -185,6 +194,7 @@ void main() {
     ValueNotifier<_TileViewport>? changingViewport,
     VoidCallback? onTap,
   }) async {
+    await SettingsRepository.instance.write(SettingsKey.imagePreferRemote, asset is RemoteAsset);
     Widget tile(_TileViewport value) => Builder(
       builder: (context) => MediaQuery(
         data: MediaQuery.of(context).copyWith(devicePixelRatio: value.dpr),
@@ -210,7 +220,7 @@ void main() {
       child = FaceAwareThumbnailScope(child: child);
     }
     if (motionScope) {
-      child = TimelineLivePhotoScope(child: child);
+      child = TimelineLivePhotoScope(localVideoResolver: (_) async => localMotionFile.path, child: child);
     }
     await tester.pumpConsumerWidgetRaw(
       child,
@@ -220,11 +230,14 @@ void main() {
       ],
     );
     await tester.pump();
+    await tester.pump();
+    await tester.pump();
   }
 
   Thumbnail still(WidgetTester tester) => tester.widget<Thumbnail>(find.byType(Thumbnail));
 
   Future<void> startPreview(WidgetTester tester) async {
+    await tester.pump();
     await tester.pump(livePhotoSettlingDelay);
     await tester.pump();
     expect(find.byType(NativeVideoViewer), findsOneWidget);
@@ -630,6 +643,7 @@ void main() {
         await tester.pumpConsumerWidgetRaw(
           FaceAwareThumbnailScope(
             child: TimelineLivePhotoScope(
+              localVideoResolver: (_) async => localMotionFile.path,
               child: Builder(
                 builder: (context) => MediaQuery(
                   data: MediaQuery.of(context).copyWith(devicePixelRatio: 3),

@@ -27,8 +27,7 @@ void main() {
   late _MockFileMediaRepository media;
   late EditorTestImageProvider imageProvider;
   var applyEditsCalls = 0;
-  final save = find.byIcon(Icons.done_rounded);
-  final copy = find.byKey(const Key('edit-save-copy'));
+  final save = find.byKey(const Key('editor-save'));
 
   // Native raster work and file I/O complete on real time; pump fake frames
   // between completions so the production async continuations can advance.
@@ -89,12 +88,12 @@ void main() {
   }
 
   Future<void> chooseCopy(WidgetTester tester, EditorTestImageCompleter pending) async {
+    imageProvider.sources.add(pending);
     await tester.tap(save);
     await tester.pump(const Duration(milliseconds: 350));
-    expect(tester.widget<ListTile>(find.byKey(const Key('edit-replace-original'))).enabled, isFalse);
-    imageProvider.sources.add(pending);
-    await tester.tap(copy);
-    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byKey(const Key('edit-save-mode-dialog')), findsNothing);
+    expect(find.byKey(const Key('edit-replace-original')), findsNothing);
+    expect(find.byKey(const Key('edit-save-copy')), findsNothing);
   }
 
   for (final timeout in [true, false]) {
@@ -202,7 +201,7 @@ void main() {
     });
 
     testWidgets(
-      '${timeout ? 'a hanging' : 'a failed'} original load restores save and reopens the copy dialog without losing edits',
+      '${timeout ? 'a hanging' : 'a failed'} original load restores direct copy saving without losing edits',
       (tester) async {
         final container = await openEditor(tester);
         final pending = EditorTestImageCompleter();
@@ -240,12 +239,11 @@ void main() {
         );
         await tester.pump(const Duration(seconds: 4));
         await tester.pumpAndSettle();
-        await tester.tap(save);
-        await tester.pump(const Duration(milliseconds: 350));
-        expect(find.byKey(const Key('edit-save-mode-dialog')), findsOneWidget);
-        expect(copy, findsOneWidget);
-        expect(tester.widget<ListTile>(find.byKey(const Key('edit-replace-original'))).enabled, isFalse);
-        await tester.tap(find.byKey(const Key('edit-save-cancel')));
+        final retry = EditorTestImageCompleter();
+        await chooseCopy(tester, retry);
+        expect(container.read(editorStateProvider).isApplyingEdits, isTrue);
+        expect(retry.isObserved, isTrue);
+        await tester.tap(find.byKey(const Key('editor-cancel-export')));
         await tester.pumpAndSettle();
         expect(container.read(editorStateProvider).isApplyingEdits, isFalse);
         expect(container.read(editorStateProvider).hasUnsavedEdits, isTrue);
@@ -277,9 +275,37 @@ void main() {
       ),
     );
     expect(applyEditsCalls, 0);
-    await tester.tap(save);
+    final retry = EditorTestImageCompleter();
+    await chooseCopy(tester, retry);
+    expect(retry.isObserved, isTrue);
+    await tester.tap(find.byKey(const Key('editor-cancel-export')));
     await tester.pumpAndSettle();
-    expect(copy, findsOneWidget);
+  });
+  testWidgets('repeated Save copy activation starts only one export without opening a dialog', (tester) async {
+    final container = await openEditor(tester);
+    final pending = EditorTestImageCompleter();
+    imageProvider.sources.add(pending);
+    final onSave = tester.widget<TextButton>(save).onPressed!;
+    onSave();
+    onSave();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(pending.isObserved, isTrue);
+    expect(container.read(editorStateProvider).isApplyingEdits, isTrue);
+    expect(find.byKey(const Key('edit-save-mode-dialog')), findsNothing);
+    expect(find.byKey(const Key('edit-replace-original')), findsNothing);
+    expect(find.byKey(const Key('edit-save-copy')), findsNothing);
+    await tester.tap(find.byKey(const Key('editor-cancel-export')));
+    await tester.pumpAndSettle();
+    expect(pending.isObserved, isFalse);
+    expect(container.read(editorStateProvider).hasUnsavedEdits, isTrue);
+    verifyNever(
+      () => media.saveImageWithFile(
+        any(),
+        title: any(named: 'title'),
+        relativePath: any(named: 'relativePath'),
+      ),
+    );
+    expect(applyEditsCalls, 0);
   });
   testWidgets('denied native photo save preserves edits and retries as a new copy with no server mutation', (
     tester,

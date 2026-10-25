@@ -4,8 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 
-RemoteAsset _remote(String id, {bool live = true, AssetType type = AssetType.image}) => RemoteAsset(
+RemoteAsset _remote(String id, {bool live = true, AssetType type = AssetType.image, String? localId}) => RemoteAsset(
   id: id,
+  localId: localId,
   name: '$id.jpg',
   checksum: id,
   ownerId: 'owner',
@@ -16,8 +17,9 @@ RemoteAsset _remote(String id, {bool live = true, AssetType type = AssetType.ima
   isEdited: false,
 );
 
-LocalAsset _localLive(String id, {AssetType type = AssetType.image}) => LocalAsset(
+LocalAsset _localLive(String id, {AssetType type = AssetType.image, String? remoteId}) => LocalAsset(
   id: id,
+  remoteId: remoteId,
   name: '$id.heic',
   type: type,
   createdAt: DateTime(2025),
@@ -26,13 +28,19 @@ LocalAsset _localLive(String id, {AssetType type = AssetType.image}) => LocalAss
   isEdited: false,
 );
 
-LivePhotoCandidate _candidate(Object token, {BaseAsset? asset, double visibility = 1, double distance = 0}) =>
-    LivePhotoCandidate(
-      token: token,
-      asset: asset ?? _remote('$token'),
-      visibleFraction: visibility,
-      distanceFromCenter: distance,
-    );
+LivePhotoCandidate _candidate(
+  Object token, {
+  BaseAsset? asset,
+  double visibility = 1,
+  double distance = 0,
+  String? localVideoPath = '/local/motion.mp4',
+}) => LivePhotoCandidate(
+  token: token,
+  asset: asset ?? _localLive('$token'),
+  visibleFraction: visibility,
+  distanceFromCenter: distance,
+  localVideoPath: localVideoPath,
+);
 
 LivePhotoAutoplayController _controller({bool enabled = true, double viewportExtent = 400}) =>
     LivePhotoAutoplayController(enabled: enabled)..updateViewport(scrollOffset: 0, viewportExtent: viewportExtent);
@@ -104,9 +112,9 @@ void main() {
     });
 
     test('ordinary photos, videos, animated images and malformed video relations do not qualify', () {
-      final ordinary = _remote('photo', live: false);
-      final video = _remote('video', type: AssetType.video);
-      final animated = _remote('animated', live: false).copyWith(durationMs: 1000);
+      final ordinary = _localLive('photo').copyWith(playbackStyle: AssetPlaybackStyle.image);
+      final video = _localLive('video', type: AssetType.video);
+      final animated = _localLive('animated').copyWith(playbackStyle: AssetPlaybackStyle.imageAnimated);
       final malformedLocalVideo = _localLive('malformed', type: AssetType.video);
       expect(
         chooseLivePhotoCandidate([
@@ -119,18 +127,105 @@ void main() {
       );
     });
 
-    test('server-linked Samsung/Apple photos and local PhotoKit live photos use the same model', () {
-      final samsung = _remote('samsung');
-      final appleRemote = _remote('apple');
-      final appleLocal = _localLive('apple-local');
-      for (final asset in [samsung, appleRemote, appleLocal]) {
-        expect(asset.isMotionPhoto, isTrue);
+    test('a local live photo requires an explicitly resolved local video component', () {
+      final local = _localLive('local');
+      expect(local.storage, AssetState.local);
+      expect(chooseLivePhotoCandidate([_candidate('local', asset: local, localVideoPath: null)]), isNull);
+      expect(chooseLivePhotoCandidate([_candidate('local', asset: local)])?.asset, same(local));
+      expect(
+        chooseLivePhotoCandidate([
+          LivePhotoCandidate(token: 'unresolved', asset: local, visibleFraction: 1, distanceFromCenter: 0),
+        ]),
+        isNull,
+        reason: 'unresolved candidates fail closed rather than downloading a server component',
+      );
+    });
+
+    test('both merged model representations require a resolved local video component', () {
+      final mergedLocal = _localLive('local', remoteId: 'server');
+      final mergedRemote = _remote('server', localId: 'local');
+      for (final asset in [mergedLocal, mergedRemote]) {
+        expect(asset.storage, AssetState.merged);
+        expect(chooseLivePhotoCandidate([_candidate(asset.id, asset: asset, localVideoPath: null)]), isNull);
         expect(chooseLivePhotoCandidate([_candidate(asset.id, asset: asset)])?.asset, same(asset));
       }
+    });
+
+    test('remote live photos cannot autoplay even if a caller supplies a local-looking path', () {
+      for (final asset in [_remote('samsung'), _remote('apple')]) {
+        expect(asset.isMotionPhoto, isTrue);
+        expect(asset.storage, AssetState.remote);
+        expect(chooseLivePhotoCandidate([_candidate(asset.id, asset: asset)]), isNull);
+      }
+      expect(
+        chooseLivePhotoCandidate([
+          _candidate('remote-centre', asset: _remote('remote')),
+          _candidate('local', visibility: 0.9, distance: 100),
+        ])?.token,
+        'local',
+      );
+    });
+
+    test('network, missing and malformed source paths cannot authorize playback', () {
+      for (final path in [
+        null,
+        '',
+        '   ',
+        'https://server/assets/motion/video/playback',
+        'http://server/motion.mp4',
+        '//server/motion.mp4',
+        'file://server/motion.mp4',
+        'content://media/external/video/media/1',
+        'data:video/mp4;base64,AA==',
+      ]) {
+        expect(chooseLivePhotoCandidate([_candidate('local', localVideoPath: path)]), isNull, reason: '$path');
+      }
+      expect(chooseLivePhotoCandidate([_candidate('file', localVideoPath: 'file:///local/motion.mp4')])?.token, 'file');
+      expect(chooseLivePhotoCandidate([_candidate('local', asset: _localLive(''))]), isNull);
+      expect(chooseLivePhotoCandidate([_candidate('merged', asset: _remote('server', localId: ''))]), isNull);
     });
   });
 
   group('single live photo playback lease', () {
+    test('a remote-only cold feed never schedules a playback or source retry', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('remote', asset: _remote('remote'))]);
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull);
+        expect(clock.nonPeriodicTimerCount, 0);
+        controller.dispose();
+      });
+    });
+
+    test('a local video disappearing during settling revokes its pending playback', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('local')]);
+        clock.elapse(const Duration(milliseconds: 100));
+        controller.updateCandidates([_candidate('local', localVideoPath: null)]);
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull);
+        expect(clock.nonPeriodicTimerCount, 0);
+        controller.dispose();
+      });
+    });
+
+    test('losing the local component stops active playback without cascading to its neighbour', () {
+      fakeAsync((clock) {
+        final controller = _controller();
+        controller.updateCandidates([_candidate('local'), _candidate('neighbour', distance: 10)]);
+        clock.elapse(livePhotoSettlingDelay);
+        controller.started('local');
+        controller.updateCandidates([_candidate('local', localVideoPath: null), _candidate('neighbour', distance: 10)]);
+        expect(controller.activeToken, isNull);
+        clock.elapse(const Duration(seconds: 30));
+        expect(controller.activeToken, isNull);
+        expect(clock.nonPeriodicTimerCount, 0);
+        controller.dispose();
+      });
+    });
+
     test('a new feed activation rearms the same asset once with a new lease revision', () {
       fakeAsync((clock) {
         final controller = _controller();
@@ -447,7 +542,7 @@ void main() {
     test('meaningful movement cannot replay the same asset or skip it to play its neighbour', () {
       fakeAsync((clock) {
         final controller = _controller();
-        final photo = _remote('first');
+        final photo = _localLive('first');
         controller.updateCandidates([_candidate('original-tile', asset: photo)]);
         clock.elapse(livePhotoSettlingDelay);
         controller.complete('original-tile');
@@ -477,7 +572,7 @@ void main() {
         controller.unregister('first');
         expect(controller.activeToken, isNull);
         controller.updateCandidates([]);
-        controller.updateCandidates([_candidate('late'), _candidate('remounted', asset: _remote('first'))]);
+        controller.updateCandidates([_candidate('late'), _candidate('remounted', asset: _localLive('first'))]);
         clock.elapse(const Duration(seconds: 2));
         expect(controller.activeToken, isNull);
         controller.setEnabled(false);

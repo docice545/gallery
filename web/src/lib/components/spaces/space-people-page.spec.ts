@@ -8,7 +8,7 @@ import {
 } from '@immich/sdk';
 import { modalManager, toastManager } from '@immich/ui';
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import type { Component } from 'svelte';
 import { getAnimateMock } from '$lib/__mocks__/animate.mock';
@@ -191,7 +191,11 @@ describe('Spaces people page', () => {
     featureFlagsMock.value.peopleStatistics = true;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Dismissible-layer callbacks (10/20ms) and scroll unlock (24ms) must
+    // finish while happy-dom still provides Element and the document.
+    cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 50));
     vi.unstubAllGlobals();
   });
 

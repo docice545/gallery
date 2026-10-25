@@ -27,22 +27,50 @@ class LivePhotoCandidate {
     required this.asset,
     required this.visibleFraction,
     required this.distanceFromCenter,
+    this.localVideoPath,
   });
 
   final Object token;
   final BaseAsset asset;
   final double visibleFraction;
   final double distanceFromCenter;
+
+  /// The locally resolved video component, not the still or a remote fallback.
+  /// The scope proves availability before supplying the same path to the player.
+  final String? localVideoPath;
+}
+
+bool _isLocalVideoPath(String? path) {
+  if (path == null || path.trim().isEmpty) {
+    return false;
+  }
+  final uri = Uri.tryParse(path);
+  if (uri == null) {
+    return false;
+  }
+  if (uri.scheme.isEmpty) {
+    return !uri.hasAuthority;
+  }
+  return uri.scheme == 'file' &&
+      (uri.host.isEmpty || uri.host == 'localhost') &&
+      uri.path.isNotEmpty &&
+      !uri.hasQuery &&
+      !uri.hasFragment;
 }
 
 /// Keep the active tile while it remains visible; otherwise prefer the most
 /// visible motion photo closest to the viewport centre. Static photos and videos
 /// never qualify, even if a malformed video carries a live-photo relation.
+/// A local still/merged relation alone is insufficient: the scope must have
+/// resolved its local video component. Server sources never qualify.
 LivePhotoCandidate? chooseLivePhotoCandidate(Iterable<LivePhotoCandidate> candidates, {Object? activeToken}) {
   LivePhotoCandidate? best;
   for (final candidate in candidates) {
     if (!candidate.asset.isImage ||
         !candidate.asset.isMotionPhoto ||
+        candidate.asset.storage == AssetState.remote ||
+        (candidate.asset.localId?.isEmpty ?? true) ||
+        !_isLocalVideoPath(candidate.localVideoPath) ||
         candidate.visibleFraction < livePhotoVisibilityThreshold ||
         !candidate.visibleFraction.isFinite ||
         !candidate.distanceFromCenter.isFinite) {

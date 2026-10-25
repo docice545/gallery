@@ -10,7 +10,9 @@ import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart
 import 'package:immich_mobile/presentation/widgets/images/timeline_thumbnail_request.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
+import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/storage.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/filter_sheet.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:logging/logging.dart';
@@ -18,14 +20,17 @@ import 'package:logging/logging.dart';
 typedef LivePhotoPreviewBuilder =
     Widget Function(BaseAsset asset, VoidCallback onCompleted, VoidCallback onStarted, VoidCallback onFailed);
 
+typedef LocalLivePhotoVideoResolver = Future<String?> Function(BaseAsset asset);
+
 /// Opt-in scope used only by the main Photos timeline. Cached/offscreen grid
 /// rows register geometry, not players. Visibility is sampled after layout and
 /// after scroll settles; there is no per-tile polling or video prefetch.
 class TimelineLivePhotoScope extends ConsumerStatefulWidget {
-  const TimelineLivePhotoScope({super.key, required this.child, this.previewBuilder});
+  const TimelineLivePhotoScope({super.key, required this.child, this.previewBuilder, this.localVideoResolver});
 
   final Widget child;
   final LivePhotoPreviewBuilder? previewBuilder;
+  final LocalLivePhotoVideoResolver? localVideoResolver;
 
   static _TimelineLivePhotoScopeState? _maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_LivePhotoScope>()?.state;
@@ -48,6 +53,11 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
   final Set<int> _pointers = {};
   bool _refreshScheduled = false;
   final Map<String, String> _lastDiagnostics = {};
+  LivePhotoCandidate? _sourceCandidate;
+  String? _localVideoPath;
+  Future<void>? _sourceResolution;
+  Completer<void>? _sourceCancellation;
+  int _sourceRevision = 0;
   static final _log = Logger('TimelineLivePhoto');
   late bool _settingEnabled;
   late bool _selecting;
@@ -116,11 +126,15 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
     }
     if (active && !_feedActive) {
       if (!_selecting && !_filterSheetVisible && !_filterCoveredFeed) {
+        _invalidateLocalSource();
         controller.startFeedActivation();
       }
       _filterCoveredFeed = false;
     }
     _feedActive = active;
+    if (!active) {
+      _invalidateLocalSource();
+    }
     controller.setEnabled(_settingEnabled && !_selecting && !_filterSheetVisible && active);
   }
 
@@ -144,6 +158,9 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
 
   void unregister(Object token) {
     _tiles.remove(token);
+    if (_sourceCandidate?.token == token) {
+      _invalidateLocalSource();
+    }
     controller.unregister(token);
     refresh();
   }
@@ -214,6 +231,7 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
           asset: tile.asset,
           visibleFraction: livePhotoVisibleFraction(rect, viewport),
           distanceFromCenter: (rect.center - viewport.center).distanceSquared,
+          localVideoPath: localVideoPathFor(entry.key, tile.asset),
         ),
       );
     }
@@ -226,6 +244,118 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
           'visible=${live.where((c) => c.visibleFraction >= livePhotoVisibilityThreshold).length}',
     );
     controller.updateCandidates(candidates);
+    _prepareLocalSource(candidates);
+  }
+
+  bool _sameLocalRevision(BaseAsset a, BaseAsset b) =>
+      a.id == b.id &&
+      a.localId == b.localId &&
+      a.storage == b.storage &&
+      a.checksum == b.checksum &&
+      a.updatedAt.isAtSameMomentAs(b.updatedAt) &&
+      a.isMotionPhoto == b.isMotionPhoto;
+
+  String? localVideoPathFor(Object token, BaseAsset asset) {
+    final source = _sourceCandidate;
+    return source?.token == token && _sameLocalRevision(source!.asset, asset) ? _localVideoPath : null;
+  }
+
+  void _invalidateLocalSource() {
+    if (_sourceCancellation?.isCompleted == false) {
+      _sourceCancellation!.complete();
+    }
+    _sourceCancellation = null;
+    _sourceCandidate = null;
+    _localVideoPath = null;
+    _sourceRevision++;
+  }
+
+  /// Prepare one focused local candidate, never all cached grid rows. A failed
+  /// source remains static until focus changes or the feed is reactivated.
+  void _prepareLocalSource(List<LivePhotoCandidate> candidates) {
+    LivePhotoCandidate? best;
+    for (final candidate in candidates) {
+      final asset = candidate.asset;
+      if (!asset.isImage ||
+          !asset.isMotionPhoto ||
+          asset.storage == AssetState.remote ||
+          asset.localId == null ||
+          asset.localId!.isEmpty ||
+          candidate.visibleFraction < livePhotoVisibilityThreshold ||
+          !candidate.visibleFraction.isFinite ||
+          !candidate.distanceFromCenter.isFinite) {
+        continue;
+      }
+      if (candidate.token == controller.activeToken) {
+        best = candidate;
+        break;
+      }
+      if (best == null ||
+          candidate.visibleFraction > best.visibleFraction ||
+          (candidate.visibleFraction == best.visibleFraction &&
+              candidate.distanceFromCenter < best.distanceFromCenter)) {
+        best = candidate;
+      }
+    }
+    if (best == null) {
+      if (_sourceCandidate != null) {
+        _invalidateLocalSource();
+      }
+      return;
+    }
+    if (_sourceCandidate?.token == best.token && _sameLocalRevision(_sourceCandidate!.asset, best.asset)) {
+      return;
+    }
+    final previous = _sourceResolution;
+    _invalidateLocalSource();
+    _sourceCandidate = best;
+    final revision = _sourceRevision;
+    final cancellation = _sourceCancellation = Completer<void>();
+    final selected = best;
+    late final Future<void> task;
+    task =
+        (() async {
+          // At most one extractor is in flight, even during rapid viewport changes.
+          await previous;
+          if (!mounted || cancellation.isCompleted || revision != _sourceRevision) {
+            return;
+          }
+          try {
+            final String? path;
+            if (widget.localVideoResolver != null) {
+              path = await widget.localVideoResolver!(selected.asset);
+            } else {
+              final asset = selected.asset;
+              final local = asset is LocalAsset
+                  ? asset
+                  : await ref.read(assetServiceProvider).getLocalAsset(asset.localId!);
+              if (!mounted || cancellation.isCompleted || revision != _sourceRevision || local == null) {
+                return;
+              }
+              final file = await ref
+                  .read(storageRepositoryProvider)
+                  .getLocalMotionVideo(local, cancellation: cancellation.future);
+              path = file?.path;
+            }
+            if (mounted && !cancellation.isCompleted && revision == _sourceRevision) {
+              _localVideoPath = path;
+              _traceDecision('source', path == null ? 'local-video-unavailable' : 'local-video-ready');
+            }
+          } catch (error, stack) {
+            if (mounted && !cancellation.isCompleted && revision == _sourceRevision) {
+              _log.warning('Unable to prepare local timeline motion (${error.runtimeType})', null, stack);
+            }
+          }
+        })().whenComplete(() {
+          if (identical(_sourceResolution, task)) {
+            _sourceResolution = null;
+          }
+          if (mounted && revision == _sourceRevision) {
+            refresh();
+          }
+        });
+    _sourceResolution = task;
+    unawaited(task);
   }
 
   void _traceDecision(String name, String value) {
@@ -269,6 +399,7 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
 
   @override
   void dispose() {
+    _invalidateLocalSource();
     WidgetsBinding.instance.removeObserver(this);
     _router?.removeListener(_updateEnabled);
     _tabsRouter?.removeListener(_updateEnabled);
@@ -370,7 +501,11 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
   @override
   void didUpdateWidget(TimelineLivePhotoTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.asset != widget.asset) {
+    if (oldWidget.asset != widget.asset ||
+        oldWidget.asset.localId != widget.asset.localId ||
+        oldWidget.asset.storage != widget.asset.storage ||
+        oldWidget.asset.checksum != widget.asset.checksum ||
+        oldWidget.asset.isMotionPhoto != widget.asset.isMotionPhoto) {
       _scope?.unregister(_token);
       _scope?.register(_token, widget.asset, context);
     }
@@ -414,6 +549,10 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
   Widget build(BuildContext context) {
     final scope = _scope;
     if (scope == null || scope.controller.activeToken != _token) {
+      return const SizedBox.expand();
+    }
+    final localVideoPath = scope.localVideoPathFor(_token, widget.asset);
+    if (localVideoPath == null) {
       return const SizedBox.expand();
     }
     final leaseRevision = scope.controller.leaseRevision;
@@ -482,6 +621,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                     child: NativeVideoViewer(
                       key: ValueKey(widget.asset.heroTag),
                       asset: widget.asset,
+                      localFilePath: localVideoPath,
                       image: const SizedBox.expand(),
                       isCurrent: true,
                       showControls: false,

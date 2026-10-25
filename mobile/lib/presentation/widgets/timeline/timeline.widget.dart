@@ -25,6 +25,7 @@ import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart'
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_drag_selection.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_anchor.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_bottom_pill.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_footer.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_pinch_zoom.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_scroll_target.dart';
 import 'package:immich_mobile/providers/asset_viewer/scroll_to_asset_notifier.provider.dart';
@@ -65,6 +66,7 @@ class Timeline extends ConsumerWidget {
     this.loadingWidget,
     this.emptyWidget,
     this.withGroupingPill = false,
+    this.dockGroupingPill = false,
     this.spaceId,
   });
 
@@ -96,6 +98,12 @@ class Timeline extends ConsumerWidget {
   /// Photos page keeps its app-bar chip and stays off.
   final bool withGroupingPill;
 
+  /// Reserve layout space for the grouping control inside the Scaffold instead
+  /// of overlaying the photo grid. Snackbars then clear the control (or the
+  /// selection bar) using the Scaffold's measured bottom-navigation geometry.
+  /// Callers must provide an intrinsically sized [bottomSheet] in this mode.
+  final bool dockGroupingPill;
+
   /// The space this timeline shows, for timelines scoped to one. Only a "view in
   /// timeline" request naming the same space is drained here — the main timeline stays
   /// mounted under a pushed Space timeline and would otherwise consume it (#1047).
@@ -119,6 +127,7 @@ class Timeline extends ConsumerWidget {
           loadingWidget: loadingWidget,
           emptyWidget: emptyWidget,
           withGroupingPill: withGroupingPill,
+          dockGroupingPill: dockGroupingPill,
           spaceId: spaceId,
         );
         return ProviderScope(
@@ -141,7 +150,7 @@ class Timeline extends ConsumerWidget {
           // The pill overlays the whole timeline body — including the loading state — by
           // design: it is the always-visible grouping control, mirroring how the old top
           // header was present while content loaded.
-          child: withGroupingPill
+          child: withGroupingPill && !dockGroupingPill
               ? Stack(children: [sliverTimeline, const TimelineGroupingBottomPill()])
               : sliverTimeline,
         );
@@ -175,6 +184,7 @@ class _SliverTimeline extends ConsumerStatefulWidget {
     this.loadingWidget,
     this.emptyWidget,
     this.withGroupingPill = false,
+    this.dockGroupingPill = false,
     this.spaceId,
   });
 
@@ -190,6 +200,7 @@ class _SliverTimeline extends ConsumerStatefulWidget {
   final Widget? loadingWidget;
   final Widget? emptyWidget;
   final bool withGroupingPill;
+  final bool dockGroupingPill;
   final String? spaceId;
 
   @override
@@ -754,6 +765,13 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
             primary: false,
             resizeToAvoidBottomInset: false,
             floatingActionButton: const DownloadStatusFloatingButton(),
+            bottomNavigationBar: widget.dockGroupingPill
+                ? isBottomWidgetVisible
+                      ? widget.bottomSheet
+                      : widget.withGroupingPill && !isMultiSelectEnabled && !isSelectionMode
+                      ? const TimelineGroupingFooter()
+                      : null
+                : null,
             body: asyncSegments.widgetWhen(
               onLoading: () =>
                   widget.loadingWidget ??
@@ -791,11 +809,13 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                 final topPadding = context.padding.top + (widget.appBar == null ? 0 : kToolbarHeight) + 10;
 
                 const bottomSheetOpenModifier = 120.0;
-                final pillClearance = widget.withGroupingPill
+                final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
                     ? TimelineGroupingBottomPill.pillHeight + TimelineGroupingBottomPill.bottomFloat
                     : 0.0;
                 final contentBottomPadding =
-                    context.padding.bottom + pillClearance + (isMultiSelectEnabled ? bottomSheetOpenModifier : 0);
+                    (widget.dockGroupingPill ? 0 : context.padding.bottom) +
+                    pillClearance +
+                    (isMultiSelectEnabled && !widget.dockGroupingPill ? bottomSheetOpenModifier : 0);
                 final scrubberBottomPadding = contentBottomPadding + kScrubberThumbHeight;
 
                 return TimelinePinchZoom(
@@ -874,7 +894,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                                 child: Center(child: MultiSelectStatusButton()),
                               ),
                             ),
-                          if (isBottomWidgetVisible) widget.bottomSheet!,
+                          if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
                         ],
                       );
                     },

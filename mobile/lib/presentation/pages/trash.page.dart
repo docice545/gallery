@@ -15,13 +15,13 @@ import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope
 import 'package:immich_mobile/providers/infrastructure/action.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
-import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
 @RoutePage()
 class TrashPage extends StatelessWidget {
@@ -45,6 +45,7 @@ class TrashPage extends StatelessWidget {
       },
       child: Timeline(
         withGroupingPill: true,
+        dockGroupingPill: true,
         appBar: SliverAppBar(
           title: Text(context.t.trash),
           floating: true,
@@ -74,7 +75,7 @@ class TrashPage extends StatelessWidget {
           },
         ),
         topSliverWidgetHeight: TrashPage.trashInfoBannerTopSliverHeight,
-        bottomSheet: const TrashBottomBar(),
+        bottomSheet: const TrashBottomBar(docked: true),
       ),
     );
   }
@@ -137,14 +138,14 @@ class TrashKebabMenu extends ConsumerWidget {
           .map((result) => deletionMessage(context, result))
           .toSet()
           .join(', ');
-      ImmichToast.show(
-        context: context,
-        msg:
-            '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: reasons)}. ${context.t.device_deletion_result(removed: local.deletedIds.length, remaining: local.remainingIds.length, names: local.remainingIds.take(25).join(', '))}',
-        toastType: results.any((result) => !result.complete) || local.remainingIds.isNotEmpty
-            ? ToastType.error
-            : ToastType.success,
-      );
+      final message =
+          '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: reasons)}. ${context.t.device_deletion_result(removed: local.deletedIds.length, remaining: local.remainingIds.length, names: local.remainingIds.take(25).join(', '))}';
+      final toast = ref.read(toastServiceProvider);
+      if (results.any((result) => !result.complete) || local.remainingIds.isNotEmpty) {
+        toast.error(message);
+      } else {
+        toast.success(message);
+      }
     } catch (error, stack) {
       handleError(error, stack: stack, description: 'Failed to empty captured Trash selection');
     }
@@ -172,11 +173,12 @@ class TrashKebabMenu extends ConsumerWidget {
           if (!context.mounted) {
             return;
           }
-          ImmichToast.show(
-            context: context,
-            msg: result.success ? successMsg(result.count) : context.t.scaffold_body_error_occurred,
-            toastType: result.success ? ToastType.success : ToastType.error,
-          );
+          final toast = ref.read(toastServiceProvider);
+          if (result.success) {
+            toast.success(successMsg(result.count));
+          } else {
+            toast.error(context.t.scaffold_body_error_occurred);
+          }
         },
       ),
     );

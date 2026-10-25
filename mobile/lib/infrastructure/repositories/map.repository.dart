@@ -77,6 +77,10 @@ class MapRepository extends DatabaseAccessor<Drift> with $MapRepositoryMixin {
       query.where(assetFilter(_db.remoteAssetEntity));
     }
 
+    // Validate raw EXIF before LatLng clamps/normalizes invalid coordinates.
+    // This is a read predicate only; metadata and originals remain unchanged.
+    query.where(latitude.isBetweenValues(-90, 90) & longitude.isBetweenValues(-180, 180));
+
     if (bounds != null) {
       query.where(_db.remoteExifEntity.inBounds(bounds));
     } else {

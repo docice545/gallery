@@ -9,6 +9,7 @@ import 'package:immich_mobile/data/db/main/table/remote/stack.drift.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.drift.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
@@ -84,7 +85,10 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
         .getSingleOrNull();
   }
 
-  Future<List<(String, String)>> getPlaces(String userId) {
+  Future<List<(String, String)>> getPlaces(String userId) async =>
+      (await getPlaceDetails(userId)).map((place) => (place.name, place.assetId)).toList();
+
+  Future<List<Place>> getPlaceDetails(String userId) {
     final asset = Subquery(
       _db.remoteAssetEntity.select()
         ..where((row) => row.ownerId.equals(userId))
@@ -100,7 +104,18 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
               useColumns: false,
             ),
           ])
-          ..addColumns([_db.remoteExifEntity.city, _db.remoteExifEntity.assetId])
+          ..addColumns([
+            _db.remoteExifEntity.city,
+            _db.remoteExifEntity.assetId,
+            _db.remoteExifEntity.state,
+            _db.remoteExifEntity.country,
+            _db.remoteExifEntity.latitude,
+            _db.remoteExifEntity.longitude,
+            // SQLite selects the other columns from the same row as the sole
+            // MAX aggregate. The preview and geocoder coordinates therefore
+            // belong to the newest eligible photo, not unrelated group rows.
+            asset.ref(_db.remoteAssetEntity.createdAt).max(),
+          ])
           ..where(
             _db.remoteExifEntity.city.isNotNull() &
                 asset.ref(_db.remoteAssetEntity.deletedAt).isNull() &
@@ -109,11 +124,18 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
           ..groupBy([_db.remoteExifEntity.city])
           ..orderBy([OrderingTerm.asc(_db.remoteExifEntity.city)]);
 
-    return query.map((row) {
-      final assetId = row.read(_db.remoteExifEntity.assetId);
-      final city = row.read(_db.remoteExifEntity.city);
-      return (city!, assetId!);
-    }).get();
+    return query
+        .map(
+          (row) => Place(
+            name: row.read(_db.remoteExifEntity.city)!,
+            assetId: row.read(_db.remoteExifEntity.assetId)!,
+            state: row.read(_db.remoteExifEntity.state),
+            country: row.read(_db.remoteExifEntity.country),
+            latitude: row.read(_db.remoteExifEntity.latitude),
+            longitude: row.read(_db.remoteExifEntity.longitude),
+          ),
+        )
+        .get();
   }
 
   Future<void> trash(List<String> ids) async {

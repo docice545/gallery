@@ -3,6 +3,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
@@ -77,6 +78,8 @@ class AssetService {
   Future<List<(String, String)>> getPlaces(String userId) {
     return _remoteRepository.getPlaces(userId);
   }
+
+  Future<List<Place>> getPlaceDetails(String userId) => _remoteRepository.getPlaceDetails(userId);
 
   Future<(int local, int remote)> getAssetCounts() async {
     return (await _localRepository.getCount(), await _remoteRepository.getCount());

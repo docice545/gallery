@@ -30,7 +30,6 @@ import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/annotation_editor.dart';
-import 'package:immich_mobile/utils/edit_save_policy.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
@@ -236,6 +235,9 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   }
 
   Future<void> _saveCopy() async {
+    if (ref.read(editorStateProvider).isApplyingEdits) {
+      return;
+    }
     _cancelSave = false;
     _cancelLoad = Completer<void>();
     _writingCopy = false;
@@ -402,51 +404,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     ref.read(editorStateProvider.notifier).setAnnotations(_annotations.elements);
   }
 
-  Future<void> _chooseSaveMode() async {
-    if (ref.read(editorStateProvider).isApplyingEdits) {
-      return;
-    }
-    final mode = await showDialog<EditSaveMode>(
-      context: context,
-      builder: (context) => AlertDialog(
-        key: const Key('edit-save-mode-dialog'),
-        title: Text(context.t.save),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              key: const Key('edit-save-copy'),
-              leading: const Icon(Icons.copy),
-              title: Text(context.t.magic_eraser_save_copy),
-              subtitle: Text(context.tr('editor_copy_explanation')),
-              onTap: () => Navigator.of(context).pop(EditSaveMode.copy),
-            ),
-            ListTile(
-              key: const Key('edit-replace-original'),
-              enabled: EditSavePolicy.canReplace(
-                isExternalLibrary: true,
-                isMotionPhoto: widget.asset?.isMotionPhoto ?? false,
-              ),
-              leading: const Icon(Icons.save),
-              title: Text(context.t.replace_with_upload),
-              subtitle: Text(context.t.external_deletion_blocked),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            key: const Key('edit-save-cancel'),
-            onPressed: () => Navigator.of(context).pop(EditSaveMode.cancel),
-            child: Text(context.t.cancel),
-          ),
-        ],
-      ),
-    );
-    if (mode == EditSaveMode.copy && mounted) {
-      await _saveCopy();
-    }
-  }
-
   Future<bool?> _showDiscardChangesDialog() {
     return showDialog<bool>(
       context: context,
@@ -520,7 +477,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                   icon: const Icon(Icons.redo),
                 ),
               ],
-              if (allowTransformEdits) _SaveEditsButton(onSave: _chooseSaveMode),
+              if (allowTransformEdits) _SaveEditsButton(onSave: _saveCopy),
               if (state.isApplyingEdits && !_writingCopy)
                 TextButton(
                   key: const Key('editor-cancel-export'),
@@ -749,12 +706,12 @@ class _EditorBottomPanel extends StatelessWidget {
     if (maxHeight < footerHeight) {
       return const SizedBox.shrink();
     }
-    final headerHeight = draw ? 56.0 : 48.0;
+    const headerHeight = 48.0;
     final auxiliaryFits = maxHeight >= footerHeight + headerHeight + (settingsExpanded ? 48 : 0);
     final showSettings = settingsExpanded && auxiliaryFits;
     final minimumHeight =
         footerHeight + (auxiliaryFits && (draw || showSettings) ? headerHeight : 0) + (showSettings ? 48 : 0);
-    final limit = sidePanel ? maxHeight : max(minimumHeight, maxHeight * .34);
+    final limit = sidePanel ? maxHeight : max(minimumHeight, maxHeight * .28);
     Widget markup({required bool controls}) => MarkupControls(
       mode: mode,
       tool: tool,
@@ -878,7 +835,7 @@ class EditorModeBar extends StatelessWidget {
   static const _labelStyle = TextStyle(fontSize: 12, height: 1.2);
   static const _modes = [EditorMode.crop, EditorMode.filters, EditorMode.draw, EditorMode.text, EditorMode.stickers];
 
-  double preferredHeight(BuildContext context) => 64;
+  double preferredHeight(BuildContext context) => 56;
 
   @override
   Widget build(BuildContext context) {
@@ -909,7 +866,7 @@ class EditorModeBar extends StatelessWidget {
                         key: Key('editor-mode-${entry.name}'),
                         style: TextButton.styleFrom(
                           minimumSize: const Size(0, 48),
-                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          padding: const EdgeInsets.symmetric(vertical: 4),
                           foregroundColor: entry == activeMode ? Colors.yellow : Colors.white70,
                           backgroundColor: entry == activeMode ? const Color(0xff303030) : null,
                         ),
@@ -919,7 +876,7 @@ class EditorModeBar extends StatelessWidget {
                           children: [
                             Icon(entry.icon, size: 24),
                             if (labels) ...[
-                              const SizedBox(height: 3),
+                              const SizedBox(height: 2),
                               Text(entry.label(context), maxLines: 1, style: _labelStyle),
                             ],
                           ],
@@ -1167,15 +1124,26 @@ class _SaveEditsButton extends ConsumerWidget {
             child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5)),
           )
         : SizedBox(
-            width: MediaQuery.sizeOf(context).width < 360 ? 80 : 112,
-            child: TextButton.icon(
+            width: 112,
+            child: TextButton(
               key: const Key('editor-save'),
               style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
-              icon: MediaQuery.sizeOf(context).width >= 360 && MediaQuery.textScalerOf(context).scale(14) <= 18
-                  ? const Icon(Icons.done_rounded)
-                  : null,
               onPressed: hasUnsavedEdits ? onSave : null,
-              label: FittedBox(fit: BoxFit.scaleDown, child: Text(context.t.save, maxLines: 1)),
+              child: Tooltip(
+                message: context.t.magic_eraser_save_copy,
+                child: Semantics(
+                  label: context.t.magic_eraser_save_copy,
+                  excludeSemantics: true,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
             ),
           );
   }

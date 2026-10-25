@@ -58,6 +58,11 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
   /// Checks the scope's current token synchronously while widget removal is pending.
   final bool Function()? previewIsActive;
 
+  /// Allows widget tests to drive native readiness and lifecycle events without
+  /// decoding user media or constructing a platform player.
+  @visibleForTesting
+  final Widget Function(ValueChanged<NativeVideoPlayerController> onReady)? playerViewBuilder;
+
   const NativeVideoViewer({
     super.key,
     required this.asset,
@@ -76,6 +81,7 @@ class NativeVideoViewer extends ConsumerStatefulWidget {
     this.onPreviewStarted,
     this.onPreviewFailed,
     this.previewIsActive,
+    this.playerViewBuilder,
   });
 
   @override
@@ -272,6 +278,11 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     }
 
     try {
+      if (widget.timelinePreview) {
+        // The timeline owns source selection. Never resolve a remote twin or
+        // fall back to its server video when the local component is missing.
+        return await _createLocalTimelineSource();
+      }
       final assetService = ref.read(assetServiceProvider);
       final videoAsset = await assetService.getAsset(widget.asset) ?? widget.asset;
       if (!mounted || (widget.timelinePreview && !_canPreview)) {
@@ -293,12 +304,8 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
         );
       }
 
-      // Attempt to retrieve LocalAsset, falling back to remote if it cannot be found
-      // photo_manager's subtype export is iOS-only. Android motion JPEG/HEIC
-      // originals are images; use the server's existing extracted video pair.
-      LocalAsset? localAsset = widget.timelinePreview && CurrentPlatform.isAndroid && videoAsset.isMotionPhoto
-          ? null
-          : await _localPlaybackAsset(videoAsset);
+      // Full-screen playback retains its existing local/remote behavior.
+      LocalAsset? localAsset = await _localPlaybackAsset(videoAsset);
       if (!mounted || (widget.timelinePreview && !_canPreview)) {
         return null;
       }
@@ -372,6 +379,30 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       }
       return null;
     }
+  }
+
+  Future<VideoSource?> _createLocalTimelineSource() async {
+    final path = widget.localFilePath;
+    if (!widget.asset.hasLocal || widget.asset.storage == AssetState.remote || path == null || path.isEmpty) {
+      throw StateError('Timeline motion requires a verified local video component');
+    }
+    final uri = Uri.tryParse(path);
+    if (uri == null || (uri.hasScheme && uri.scheme != 'file') || uri.hasAuthority && uri.host.isNotEmpty) {
+      throw StateError('Timeline motion cannot use a network source');
+    }
+    final file = uri.scheme == 'file' ? File.fromUri(uri) : File(path);
+    // ignore: avoid_slow_async_io
+    if (!await file.exists()) {
+      throw StateError('The local motion component is no longer available');
+    }
+    if (!_canPreview) {
+      return null;
+    }
+    _previewTrace('source:verified-local-component');
+    return VideoSource.init(
+      path: CurrentPlatform.isAndroid ? file.uri.toString() : file.path,
+      type: VideoSourceType.file,
+    );
   }
 
   Future<LocalAsset?> _localPlaybackAsset(BaseAsset baseAsset) async {
@@ -628,6 +659,10 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
   @override
   Widget build(BuildContext context) {
+    if (widget.timelinePreview &&
+        (!widget.asset.hasLocal || widget.asset.storage == AssetState.remote || widget.localFilePath == null)) {
+      return widget.image;
+    }
     final isCasting = !widget.timelinePreview && ref.watch(castProvider.select((c) => c.isCasting));
     final status = widget.timelinePreview
         ? ref.watch(timelinePreviewVideoPlayerProvider(widget.asset.id).select((v) => v.status))
@@ -660,7 +695,8 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   }
 
   Widget _buildNativeSurface() {
-    final surface = NativeVideoPlayerView(onViewReady: _initController);
+    final surface =
+        widget.playerViewBuilder?.call(_initController) ?? NativeVideoPlayerView(onViewReady: _initController);
     if (!widget.timelinePreview) {
       return surface;
     }

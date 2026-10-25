@@ -3,9 +3,11 @@ import 'dart:ui' as ui;
 import 'package:crop_image/crop_image.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
@@ -111,7 +113,7 @@ void main() {
   }
   testWidgets('initial controls do not reserve half of the photo viewport', (tester) async {
     await pumpCompactEditor(tester);
-    expect(tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height, lessThanOrEqualTo(104));
+    expect(tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height, lessThanOrEqualTo(80));
     expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(620));
     expect(find.byKey(const Key('editor-header-undo')), findsOneWidget);
     expect(find.byKey(const Key('editor-header-redo')), findsOneWidget);
@@ -134,6 +136,67 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('annotation-width')), findsNothing);
     expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))), collapsed);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('compact Russian drawing menu keeps every tool distinct and readable at large text scale', (
+    tester,
+  ) async {
+    await pumpCompactEditor(tester, size: const Size(320, 720), scale: 2, russian: true);
+    await tester.tap(find.byKey(const Key('editor-mode-draw')));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byKey(const Key('editor-mode-bar'))).height, lessThanOrEqualTo(56));
+    expect(tester.getSize(find.byKey(const Key('editor-markup-controls'))).height, 48);
+    final photoBefore = tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height;
+    await tester.tap(find.byKey(const Key('editor-toggle-settings')));
+    await tester.pumpAndSettle();
+    final panel = find.byKey(const Key('editor-bottom-panel'));
+    expect(tester.getSize(panel).height, lessThanOrEqualTo(200));
+    expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(photoBefore - 80));
+    for (final (tool, label) in [
+      (AnnotationTool.pen, 'Перо'),
+      (AnnotationTool.highlighter, 'Маркер'),
+      (AnnotationTool.brush, 'Кисть'),
+      (AnnotationTool.eraser, 'Ластик штрихов'),
+      (AnnotationTool.move, 'Выбрать / двигать'),
+      (AnnotationTool.arrow, 'Стрелка'),
+      (AnnotationTool.rectangle, 'Прямоугольник'),
+      (AnnotationTool.ellipse, 'Эллипс'),
+    ]) {
+      final picker = find.byKey(const Key('annotation-tool-picker'));
+      await tester.ensureVisible(picker);
+      await tester.tap(picker);
+      await tester.pumpAndSettle();
+      final option = find.byKey(ValueKey('editor-tool-option-${tool.name}'));
+      await tester.scrollUntilVisible(option, 64, scrollable: find.byType(Scrollable).last);
+      await tester.pumpAndSettle();
+      final text = find.descendant(of: option, matching: find.text(label));
+      expect(text, findsOneWidget);
+      expect(tester.renderObject<RenderParagraph>(text).didExceedMaxLines, isFalse);
+      expect(tester.getSize(option).width, lessThanOrEqualTo(264));
+      await tester.tap(option);
+      await tester.pumpAndSettle();
+      expect(tester.widget<AnnotationCanvas>(find.byType(AnnotationCanvas)).tool, tool);
+      expect(tester.takeException(), isNull);
+    }
+  });
+  testWidgets('visual acceptance: compact Russian drawing tools popup', (tester) async {
+    await pumpCompactEditor(tester, russian: true, portrait: true);
+    await tester.tap(find.byKey(const Key('editor-mode-draw')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('editor-toggle-settings')));
+    await tester.pumpAndSettle();
+    final picker = find.byKey(const Key('annotation-tool-picker'));
+    expect(tester.getSize(picker).height, greaterThanOrEqualTo(48));
+    await tester.tap(picker);
+    await tester.pumpAndSettle();
+    // Capture the overlay as well as the editor, since popup routes paint above
+    // the document's own repaint boundary.
+    await expectLater(find.byType(Overlay), matchesGoldenFile('goldens/editor_ru_drawing_tools.png'));
+    final ellipse = find.byKey(const ValueKey('editor-tool-option-ellipse'));
+    await tester.scrollUntilVisible(ellipse, 64, scrollable: find.byType(Scrollable).last);
+    await tester.tap(ellipse);
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnnotationCanvas>(find.byType(AnnotationCanvas)).tool, AnnotationTool.ellipse);
     expect(tester.takeException(), isNull);
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {

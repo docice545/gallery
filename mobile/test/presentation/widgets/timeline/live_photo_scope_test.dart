@@ -19,16 +19,27 @@ class _TestSelection extends MultiSelectNotifier {
   void setForceEnable(bool enabled) => state = state.copyWith(forceEnable: enabled);
 }
 
-RemoteAsset _asset(String id, {bool live = true, AssetType type = AssetType.image}) => RemoteAsset(
+LocalAsset _asset(String id, {bool live = true, bool hashed = true, AssetType type = AssetType.image}) => LocalAsset(
   id: id,
   name: '$id.jpg',
-  checksum: id,
-  ownerId: 'owner',
+  checksum: hashed ? id : null,
   type: type,
   createdAt: DateTime(2025),
   updatedAt: DateTime(2025),
-  livePhotoVideoId: live ? '$id-motion' : null,
-  stackId: 'existing-stack',
+  playbackStyle: live ? AssetPlaybackStyle.livePhoto : AssetPlaybackStyle.image,
+  isEdited: false,
+);
+
+RemoteAsset _remoteAsset(String id, {String? localId}) => RemoteAsset(
+  id: id,
+  localId: localId,
+  name: '$id.jpg',
+  checksum: id,
+  ownerId: 'owner',
+  type: AssetType.image,
+  createdAt: DateTime(2025),
+  updatedAt: DateTime(2025),
+  livePhotoVideoId: '$id-server-motion',
   isEdited: false,
 );
 
@@ -99,6 +110,8 @@ Future<ProviderContainer> _pumpScope(
   WidgetTester tester,
   _PlaybackLog log, {
   List<BaseAsset>? assets,
+  ValueListenable<List<BaseAsset>>? assetList,
+  Future<String?> Function(BaseAsset)? localVideoResolver,
   bool enabled = true,
   ScrollController? scrollController,
   ValueListenable<bool>? showFirst,
@@ -131,20 +144,27 @@ Future<ProviderContainer> _pumpScope(
     ),
   );
 
-  Widget list(double tileHeight, bool firstVisible) => ListView(
+  Widget list(double tileHeight, bool firstVisible, List<BaseAsset> visibleAssets) => ListView(
     controller: scrollController,
     padding: EdgeInsets.zero,
     children: [
-      for (var i = 0; i < tiles.length; i++)
-        if (i != 0 || firstVisible) tile(tiles[i], tileHeight),
+      for (var i = 0; i < visibleAssets.length; i++)
+        if (i != 0 || firstVisible) tile(visibleAssets[i], tileHeight),
     ],
   );
 
+  Widget listWithAssets(double tileHeight, bool firstVisible) => assetList == null
+      ? list(tileHeight, firstVisible, tiles)
+      : ValueListenableBuilder<List<BaseAsset>>(
+          valueListenable: assetList,
+          builder: (_, currentAssets, _) => list(tileHeight, firstVisible, currentAssets),
+        );
+
   Widget listWithHeight(bool firstVisible) => height == null
-      ? list(120, firstVisible)
+      ? listWithAssets(120, firstVisible)
       : ValueListenableBuilder<double>(
           valueListenable: height,
-          builder: (_, tileHeight, _) => list(tileHeight, firstVisible),
+          builder: (_, tileHeight, _) => listWithAssets(tileHeight, firstVisible),
         );
 
   final child = showFirst == null
@@ -169,6 +189,7 @@ Future<ProviderContainer> _pumpScope(
               width: 240,
               height: 240,
               child: TimelineLivePhotoScope(
+                localVideoResolver: localVideoResolver ?? (asset) async => '/local/${asset.localId}.mp4',
                 previewBuilder: (asset, onCompleted, onStarted, onFailed) => _FakePreview(
                   key: ValueKey('preview-${asset.id}'),
                   asset: asset,
@@ -187,15 +208,251 @@ Future<ProviderContainer> _pumpScope(
     ),
   );
   await tester.pump();
+  await tester.pump();
+  await tester.pump();
   return ProviderScope.containerOf(tester.element(find.byType(TimelineLivePhotoScope)));
 }
 
 Future<void> _settlePlayback(WidgetTester tester) async {
+  // Flush the local proof Future and its geometry frame before settling.
+  await tester.pump();
   await tester.pump(livePhotoSettlingDelay);
   await tester.pump();
 }
 
 void main() {
+  testWidgets('cold local motion resolves its local component and starts without opening a viewer', (tester) async {
+    final log = _PlaybackLog();
+    final resolved = <String?>[];
+    final local = _asset('cold-local');
+    await _pumpScope(
+      tester,
+      log,
+      assets: [local],
+      localVideoResolver: (asset) async {
+        resolved.add(asset.localId);
+        return '/local/cold-local-video.mp4';
+      },
+    );
+    expect(log.starts, isEmpty);
+    await _settlePlayback(tester);
+    expect(resolved, ['cold-local']);
+    expect(log.alive, {'cold-local'});
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('remote Live Photos stay static and never resolve or allocate autoplay video', (tester) async {
+    final log = _PlaybackLog();
+    var resolutions = 0;
+    await _pumpScope(
+      tester,
+      log,
+      assets: [_remoteAsset('server-first'), _remoteAsset('server-second')],
+      localVideoResolver: (_) async {
+        resolutions++;
+        return '/local/incorrect-server-fallback.mp4';
+      },
+    );
+    await tester.pump(const Duration(seconds: 5));
+    expect(resolutions, 0);
+    expect(log.starts, isEmpty);
+    expect(find.byType(_FakePreview), findsNothing);
+    expect(find.text('photo-server-first'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('merged Live Photo uses only the proven local component', (tester) async {
+    final log = _PlaybackLog();
+    final resolved = <String?>[];
+    final merged = _remoteAsset('server-id', localId: 'device-id');
+    await _pumpScope(
+      tester,
+      log,
+      assets: [merged],
+      localVideoResolver: (asset) async {
+        resolved.add(asset.localId);
+        return '/local/device-id.mp4';
+      },
+    );
+    await _settlePlayback(tester);
+    expect(resolved, ['device-id']);
+    expect(log.alive, {'server-id'});
+    expect(tester.widget<_FakePreview>(find.byType(_FakePreview)).asset, same(merged));
+  });
+
+  testWidgets('merged Live Photo without a local video stays static without a retry or server fallback', (
+    tester,
+  ) async {
+    final log = _PlaybackLog();
+    var resolutions = 0;
+    await _pumpScope(
+      tester,
+      log,
+      assets: [_remoteAsset('merged-no-video', localId: 'still-only')],
+      localVideoResolver: (_) async {
+        resolutions++;
+        return null;
+      },
+    );
+    await tester.pump(const Duration(seconds: 30));
+    expect(resolutions, 1);
+    expect(log.starts, isEmpty);
+    expect(find.text('photo-merged-no-video'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a late local source cannot start after its merged asset becomes remote-only', (tester) async {
+    final log = _PlaybackLog();
+    final source = Completer<String?>();
+    final assets = ValueNotifier<List<BaseAsset>>([_remoteAsset('changing', localId: 'old-device')]);
+    addTearDown(assets.dispose);
+    var resolutions = 0;
+    await _pumpScope(
+      tester,
+      log,
+      assetList: assets,
+      localVideoResolver: (_) {
+        resolutions++;
+        return source.future;
+      },
+    );
+    expect(resolutions, 1);
+    assets.value = [_remoteAsset('changing')];
+    await tester.pump();
+    await tester.pump();
+    source.complete('/local/old-device.mp4');
+    await _settlePlayback(tester);
+    expect(resolutions, 1);
+    expect(log.starts, isEmpty);
+    expect(log.maxConcurrent, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('changing only the merged local ID rejects the old asynchronous source', (tester) async {
+    final log = _PlaybackLog();
+    final staleSource = Completer<String?>();
+    final assets = ValueNotifier<List<BaseAsset>>([_remoteAsset('same-remote', localId: 'old-device')]);
+    addTearDown(assets.dispose);
+    final resolved = <String?>[];
+    await _pumpScope(
+      tester,
+      log,
+      assetList: assets,
+      localVideoResolver: (asset) {
+        resolved.add(asset.localId);
+        return asset.localId == 'old-device' ? staleSource.future : Future.value('/local/new-device.mp4');
+      },
+    );
+    assets.value = [_remoteAsset('same-remote', localId: 'new-device')];
+    await tester.pump();
+    await tester.pump();
+    staleSource.complete('/local/old-device.mp4');
+    await tester.pump();
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(resolved, ['old-device', 'new-device']);
+    expect(log.alive, {'same-remote'});
+    expect(tester.widget<_FakePreview>(find.byType(_FakePreview)).asset.localId, 'new-device');
+    expect(log.maxConcurrent, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('checksum completion at the same mtime rejects a pending local source and resolves again', (
+    tester,
+  ) async {
+    final log = _PlaybackLog();
+    final staleSource = Completer<String?>();
+    final unhashed = _asset('pending-hash', hashed: false);
+    final hashed = unhashed.copyWith(checksum: 'completed-checksum');
+    // HashService updates checksum without changing MediaStore's modification
+    // time, and model equality intentionally ignores checksum.
+    expect(hashed.updatedAt, unhashed.updatedAt);
+    expect(hashed, unhashed);
+    final assets = ValueNotifier<List<BaseAsset>>([unhashed]);
+    addTearDown(assets.dispose);
+    final resolvedChecksums = <String?>[];
+    await _pumpScope(
+      tester,
+      log,
+      assetList: assets,
+      localVideoResolver: (asset) {
+        resolvedChecksums.add(asset.checksum);
+        return asset.checksum == null ? staleSource.future : Future.value('/local/verified-hash.mp4');
+      },
+    );
+    expect(resolvedChecksums, [null]);
+    assets.value = [hashed];
+    await tester.pump();
+    await tester.pump();
+    expect(log.starts, isEmpty);
+    expect(resolvedChecksums, [null], reason: 'source extraction remains serialized');
+    staleSource.complete('/local/stale-unhashed.mp4');
+    await tester.pump();
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(resolvedChecksums, [null, 'completed-checksum']);
+    expect(log.starts, ['pending-hash']);
+    expect(log.alive, {'pending-hash'});
+    expect(tester.widget<_FakePreview>(find.byType(_FakePreview)).asset.checksum, 'completed-checksum');
+    expect(log.maxConcurrent, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('checksum completion at the same mtime revokes a ready source without retaining its lease', (
+    tester,
+  ) async {
+    final log = _PlaybackLog();
+    final verifiedSource = Completer<String?>();
+    final unhashed = _asset('ready-hash', hashed: false);
+    final hashed = unhashed.copyWith(checksum: 'completed-checksum');
+    expect(hashed.updatedAt, unhashed.updatedAt);
+    expect(hashed, unhashed);
+    final assets = ValueNotifier<List<BaseAsset>>([unhashed]);
+    addTearDown(assets.dispose);
+    final resolvedChecksums = <String?>[];
+    await _pumpScope(
+      tester,
+      log,
+      assetList: assets,
+      startImmediately: false,
+      localVideoResolver: (asset) {
+        resolvedChecksums.add(asset.checksum);
+        return asset.checksum == null ? Future.value('/local/unhashed.mp4') : verifiedSource.future;
+      },
+    );
+    await _settlePlayback(tester);
+    expect(log.alive, {'ready-hash'});
+    final staleStarted = log.playbackStarted['ready-hash']!;
+    final staleCompleted = log.completions['ready-hash']!;
+    assets.value = [hashed];
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    expect(log.stops, ['ready-hash']);
+    expect(resolvedChecksums, [null, 'completed-checksum']);
+    verifiedSource.complete('/local/verified-hash.mp4');
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.starts, ['ready-hash', 'ready-hash']);
+    expect(log.alive, {'ready-hash'});
+    expect(tester.widget<_FakePreview>(find.byType(_FakePreview)).asset.checksum, 'completed-checksum');
+    staleStarted();
+    staleCompleted();
+    await tester.pump();
+    expect(log.alive, {
+      'ready-hash',
+    }, reason: 'callbacks from the revoked checksum revision cannot affect its successor');
+    log.playbackStarted['ready-hash']!();
+    log.completions['ready-hash']!();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['ready-hash', 'ready-hash'], reason: 'the new revision still has a one-shot playback budget');
+    expect(log.maxConcurrent, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('cold feed mounts while backgrounded and starts only on the first resume', (tester) async {
     final log = _PlaybackLog();
     final stages = <String>[];
@@ -395,6 +652,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(log.alive, isEmpty, reason: 'all scrolling and pointer interaction suppress autoplay');
     await gesture.up();
+    await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 349));
     expect(log.alive, isEmpty);
