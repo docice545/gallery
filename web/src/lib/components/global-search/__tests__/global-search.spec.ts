@@ -1,4 +1,11 @@
-import { AssetVisibility, getFilterSuggestions, getMlHealth, searchAssets, searchSmart } from '@immich/sdk';
+import {
+  AssetVisibility,
+  getFilterSuggestions,
+  getMlHealth,
+  searchAssets,
+  searchPerson,
+  searchSmart,
+} from '@immich/sdk';
 import { modalManager } from '@immich/ui';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
@@ -109,6 +116,33 @@ function installPhotoStub(m: GlobalSearchManager, items: Array<{ id: string; ori
   providers.photos.run = () => Promise.resolve({ status: 'ok' as const, items, total: items.length });
 }
 
+// Keyboard/pointer input can outlast the 150ms live-query debounce on a busy
+// worker. Return the seeded choices instead of replacing them with empty data.
+function mockLiveFilterSuggestions(options: Partial<Awaited<ReturnType<typeof getFilterSuggestions>>>) {
+  // A nonempty person token uses searchPerson; an empty token and space-scoped
+  // queries use getFilterSuggestions. Keep both paths consistent with the rows.
+  vi.mocked(searchPerson).mockImplementation(({ name }) =>
+    Promise.resolve(
+      (options.people ?? [])
+        .filter((person) => person.name.toLowerCase().includes(name.toLowerCase()))
+        .map((person) => ({ birthDate: null, isHidden: false, thumbnailPath: '', ...person })),
+    ),
+  );
+  vi.mocked(getFilterSuggestions).mockResolvedValue({
+    people: [],
+    cameraMakes: [],
+    countries: [],
+    hasAssetsInAlbum: false,
+    hasAssetsNotInAlbum: false,
+    hasFavorites: false,
+    hasUnnamedPeople: false,
+    mediaTypes: [],
+    ratings: [],
+    tags: [],
+    ...options,
+  });
+}
+
 /**
  * Stub every entity provider (photos + albums + spaces + people + places + tags) to
  * return exactly one ok item. Used by the section-ordering test to ensure every
@@ -157,6 +191,9 @@ describe('global-search root', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getFilterSuggestions).mockReset();
+    vi.mocked(searchPerson).mockReset();
+    mockLiveFilterSuggestions({});
     localStorage.clear();
     resetRecentStore();
     mediaState.minLg = false;
@@ -469,7 +506,9 @@ describe('global-search root', () => {
     const topResultHeading = screen.getByText(/cmdk_top_result|top result/i);
     expect(liveFilterHeading.compareDocumentPosition(topResultHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    await user.click(screen.getByRole('option', { name: /Anna Maria/i }));
+    await user.click(
+      within(screen.getByTestId('live-typed-filter-section')).getByRole('option', { name: /Anna Maria/i }),
+    );
 
     expect(selectSpy).toHaveBeenCalled();
   });
@@ -553,6 +592,7 @@ describe('global-search root', () => {
   });
 
   it('Enter on a highlighted live filter row rewrites the filter without submitting search', async () => {
+    mockLiveFilterSuggestions({ people: [{ id: 'p1', name: 'Ann Live' }] });
     const manager = new GlobalSearchManager();
     const activateSearchSpy = vi.spyOn(manager, 'activateSearch').mockImplementation(async () => {});
     manager.open();
@@ -576,6 +616,13 @@ describe('global-search root', () => {
     };
 
     render(GlobalSearch, { props: { manager } });
+
+    await vi.waitFor(() =>
+      expect(searchPerson).toHaveBeenCalledWith(
+        { name: 'ann', withHidden: false, withSharedSpaces: true },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
 
     const input = screen.getByRole('combobox') as HTMLInputElement;
     Object.defineProperties(input, {
@@ -686,6 +733,7 @@ describe('global-search root', () => {
   });
 
   it('submits search on the next Enter after keyboard-selecting a live person filter value', async () => {
+    mockLiveFilterSuggestions({ people: ['a', 'b'].map((name) => ({ id: `person:${name}`, name })) });
     const manager = new GlobalSearchManager();
     const activateSearchSpy = vi.spyOn(manager, 'activateSearch').mockImplementation(async () => {});
     manager.open();
@@ -819,6 +867,7 @@ describe('global-search root', () => {
   });
 
   it('selecting a live person row applies the filter and does not navigate to person', async () => {
+    mockLiveFilterSuggestions({ people: [{ id: 'p1', name: 'Anna Maria' }] });
     const manager = new GlobalSearchManager();
     const activateSpy = vi.spyOn(manager, 'activate');
     manager.open();
@@ -842,6 +891,13 @@ describe('global-search root', () => {
     };
     render(GlobalSearch, { props: { manager } });
 
+    await vi.waitFor(() =>
+      expect(searchPerson).toHaveBeenCalledWith(
+        { name: 'ann', withHidden: false, withSharedSpaces: true },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+
     await user.click(screen.getByRole('option', { name: /Anna Maria/i }));
 
     expect(manager.query).toBe('beach person:"Anna Maria" ');
@@ -855,6 +911,7 @@ describe('global-search root', () => {
   });
 
   it('selecting a live tag row applies the filter and does not navigate to tag', async () => {
+    mockLiveFilterSuggestions({ tags: [{ id: 't1', value: 'Travel' }] });
     const manager = new GlobalSearchManager();
     const activateSpy = vi.spyOn(manager, 'activate');
     manager.open();

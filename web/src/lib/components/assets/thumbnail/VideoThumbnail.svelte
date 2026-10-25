@@ -4,6 +4,7 @@
   import { Icon } from '@immich/ui';
   import { mdiAlertCircleOutline, mdiPauseCircleOutline, mdiPlayCircleOutline } from '@mdi/js';
   import { Duration } from 'luxon';
+  import { untrack } from 'svelte';
   import type { ClassValue } from 'svelte/elements';
   import LoadingSpinner from '$lib/components/shared-components/LoadingSpinner.svelte';
 
@@ -12,6 +13,9 @@
     durationInSeconds?: number;
     enablePlayback?: boolean;
     visibleAutoplay?: boolean;
+    isLivePhoto?: boolean;
+    playbackAllowed?: boolean;
+    playbackContext?: string;
     playbackOnIconHover?: boolean;
     showTime?: boolean;
     curve?: boolean;
@@ -25,6 +29,9 @@
     durationInSeconds = 0,
     enablePlayback = $bindable(false),
     visibleAutoplay = false,
+    isLivePhoto = false,
+    playbackAllowed = true,
+    playbackContext = undefined,
     playbackOnIconHover = false,
     showTime = true,
     curve = false,
@@ -34,44 +41,99 @@
   }: Props = $props();
 
   let container: HTMLDivElement | undefined = $state();
-  let automaticPlayback = $state(false);
-  let retry = $state(0);
-  let playback = $derived(enablePlayback || automaticPlayback);
-  let registration: ReturnType<typeof observeLivePhotoPlayback> | undefined;
-  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  interface PlaybackSession {
+    token: symbol;
+    source: string;
+    oneShot: boolean;
+  }
+  let session: PlaybackSession | undefined = $state();
+  let playback = $derived(!!session);
+  let livePhoto = $derived(isLivePhoto || visibleAutoplay);
+  let requestedMode: 'automatic' | 'hover' = $derived(enablePlayback ? 'hover' : 'automatic');
+  let playbackRequested = $derived(playbackAllowed && (livePhoto ? visibleAutoplay || enablePlayback : enablePlayback));
+  let playbackSource = $derived(url);
+  let playbackContextKey = $derived(
+    playbackContext ?? (typeof window === 'undefined' ? '' : `${location.pathname}${location.search}`),
+  );
+  let registration = $state<ReturnType<typeof observeLivePhotoPlayback>>();
+  let registrationToken: symbol | undefined;
+  const releasedPlayers = new WeakSet<HTMLVideoElement>();
 
-  $effect(() => {
-    if (!visibleAutoplay || !container) {
+  const releasePlayer = (video: HTMLVideoElement | undefined) => {
+    if (!video || releasedPlayers.has(video)) {
       return;
     }
-    registration = observeLivePhotoPlayback(container, (active) => {
-      automaticPlayback = active;
-      if (!active) {
-        clearTimeout(retryTimer);
-        retry = 0;
-      }
-    });
+    releasedPlayers.add(video);
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  };
+
+  $effect(() => {
+    const oneShot = livePhoto;
+    const source = playbackSource;
+    const context = playbackContextKey;
+    if (!container || !playbackRequested) {
+      return;
+    }
+    const token = Symbol();
+    registrationToken = token;
+    const lease = observeLivePhotoPlayback(
+      container,
+      (active) => {
+        untrack(() => {
+          if (registrationToken !== token) {
+            return;
+          }
+          // Stop the decoder synchronously: Svelte removes the old DOM node on
+          // its next flush, while the shared pool may grant another tile now.
+          session = undefined;
+          releasePlayer(player);
+          session = active ? { token: Symbol(), source, oneShot } : undefined;
+          if (active) {
+            loading = true;
+            error = false;
+            remainingSeconds = durationInSeconds;
+          }
+        });
+      },
+      { mode: untrack(() => requestedMode), key: source, context },
+    );
+    registration = lease;
     return () => {
-      registration?.destroy();
-      registration = undefined;
-      clearTimeout(retryTimer);
+      if (registrationToken === token) {
+        registrationToken = undefined;
+        registration = undefined;
+        untrack(() => {
+          session = undefined;
+          releasePlayer(player);
+        });
+      }
+      lease.destroy();
     };
   });
 
-  const playbackError = () => {
-    if (!player?.src) {
+  $effect(() => {
+    if (livePhoto) {
+      registration?.setMode(requestedMode);
+    }
+  });
+
+  const isCurrentSession = (video: HTMLVideoElement, current: PlaybackSession) =>
+    video === player && session?.token === current.token;
+
+  const finishPlayback = (video: HTMLVideoElement, current: PlaybackSession, failed = false) => {
+    if (!isCurrentSession(video, current)) {
       return;
     }
-    error = true;
+    error = failed;
     loading = false;
-    // Retry once, then release the decoder. Scrolling out and back allows a new attempt.
-    if (automaticPlayback && retry === 0) {
-      retryTimer = setTimeout(() => {
-        retry = 1;
-        loading = true;
-      }, 500);
-    } else if (automaticPlayback) {
+    session = undefined;
+    releasePlayer(video);
+    if (failed) {
       registration?.suspend();
+    } else {
+      registration?.complete();
     }
   };
 
@@ -81,22 +143,20 @@
   let player: HTMLVideoElement | undefined = $state();
 
   $effect(() => {
-    if (!playback) {
+    if (!session) {
       remainingSeconds = durationInSeconds;
-      return;
     }
+  });
+
+  $effect(() => {
     if (!player) {
       return;
     }
     const video = player;
-    return () => {
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
-    };
+    return () => releasePlayer(video);
   });
   const onMouseEnter = () => {
-    if (playbackOnIconHover) {
+    if (playbackAllowed && playbackOnIconHover) {
       enablePlayback = true;
     }
   };
@@ -109,8 +169,9 @@
 </script>
 
 <div bind:this={container} class="size-full">
-  {#if playback}
-    {#key retry}
+  {#if session}
+    {#key session.token}
+      {@const current = session}
       <video
         bind:this={player}
         class={cleanClass('h-full w-full object-cover', className)}
@@ -118,14 +179,31 @@
         muted
         playsinline
         autoplay
-        loop
-        src={url}
-        onplay={() => {
-          loading = false;
-          error = false;
+        loop={!current.oneShot}
+        preload="none"
+        src={current.source}
+        onplay={({ currentTarget }) => {
+          if (isCurrentSession(currentTarget, current)) {
+            loading = false;
+            error = false;
+          } else {
+            currentTarget.pause();
+          }
         }}
-        onerror={playbackError}
+        onended={({ currentTarget }) => {
+          if (current.oneShot) {
+            finishPlayback(currentTarget, current);
+          }
+        }}
+        onerror={({ currentTarget }) => {
+          if (currentTarget instanceof HTMLVideoElement) {
+            finishPlayback(currentTarget, current, true);
+          }
+        }}
         ontimeupdate={({ currentTarget }) => {
+          if (!isCurrentSession(currentTarget, current)) {
+            return;
+          }
           const remaining = currentTarget.duration - currentTarget.currentTime;
           remainingSeconds = Math.min(Math.ceil(Number.isNaN(remaining) ? Infinity : remaining), durationInSeconds);
         }}
@@ -154,11 +232,11 @@
       onmouseenter={onMouseEnter}
       onmouseleave={onMouseLeave}
     >
-      {#if playback}
+      {#if error}
+        <Icon icon={mdiAlertCircleOutline} size="24" class="text-red-600" />
+      {:else if playback}
         {#if loading}
           <LoadingSpinner size="large" />
-        {:else if error}
-          <Icon icon={mdiAlertCircleOutline} size="24" class="text-red-600" />
         {:else}
           <Icon icon={pauseIcon} size="24" />
         {/if}

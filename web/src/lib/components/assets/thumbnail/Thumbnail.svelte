@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/state';
   import { ProjectionType } from '$lib/constants';
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { authManager } from '$lib/managers/auth-manager.svelte';
@@ -7,6 +8,7 @@
   import { locale, playVideoThumbnailOnHover } from '$lib/stores/preferences.store';
   import { getAssetMediaUrl, getAssetPlaybackUrl } from '$lib/utils';
   import { moveFocus } from '$lib/utils/focus-util';
+  import { setLivePhotoFeedActive } from '$lib/utils/live-photo-autoplay';
   import { currentUrlReplaceAssetId } from '$lib/utils/navigation';
   import { getAltText } from '$lib/utils/thumbnail-util';
   import { AssetMediaSize, AssetVisibility, type UserResponseDto } from '@immich/sdk';
@@ -80,6 +82,11 @@
   let loaded = $state(false);
   let thumbError = $state(false);
   let skipFade = $state(false);
+  let playbackContext = $derived(`${page.url.pathname}${page.url.search}`);
+
+  $effect(() => {
+    setLivePhotoFeedActive(!assetViewerManager.isViewing);
+  });
 
   let width = $derived(thumbnailSize || thumbnailWidth || 235);
   let height = $derived(thumbnailSize || thumbnailHeight || 235);
@@ -266,6 +273,8 @@
             class="group-focus-visible:rounded-lg"
             url={getAssetPlaybackUrl({ id: asset.id, cacheKey: asset.thumbhash })}
             enablePlayback={mouseOver && $playVideoThumbnailOnHover}
+            playbackAllowed={!assetViewerManager.isViewing}
+            {playbackContext}
             curve={selected}
             durationInSeconds={asset.duration ? asset.duration / 1000 : 0}
             playbackOnIconHover={!$playVideoThumbnailOnHover}
@@ -276,7 +285,10 @@
           <VideoThumbnail
             class="group-focus-visible:rounded-lg"
             url={getAssetPlaybackUrl({ id: asset.livePhotoVideoId, cacheKey: asset.thumbhash })}
-            enablePlayback={!assetViewerManager.isViewing && mouseOver && $playVideoThumbnailOnHover}
+            isLivePhoto
+            enablePlayback={mouseOver && $playVideoThumbnailOnHover}
+            playbackAllowed={!assetViewerManager.isViewing}
+            {playbackContext}
             visibleAutoplay={!asset.isTrashed && !assetViewerManager.isViewing}
             pauseIcon={mdiMotionPauseOutline}
             playIcon={mdiMotionPlayOutline}

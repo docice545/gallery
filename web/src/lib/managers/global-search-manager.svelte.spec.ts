@@ -1622,6 +1622,9 @@ describe('activate("command")', () => {
 
       manager.setInputCaret('beach person:ann tag:f'.length);
       expect(manager.activeTypedSearchToken).toMatchObject({ key: 'tag', raw: 'tag:family' });
+      // This test only inspects caret state; cancel its real debounce before
+      // later tests install fake timers and inspect the shared resolver mock.
+      manager.close();
     });
 
     it('debounces live person filter suggestions for the active token', async () => {
