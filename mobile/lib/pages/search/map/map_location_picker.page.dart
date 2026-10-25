@@ -9,6 +9,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/maplibrecontroller_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/utils/map_utils.dart';
+import 'package:immich_mobile/widgets/map/map_style_presentation.dart';
 import 'package:immich_mobile/widgets/map/map_theme_override.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
@@ -23,8 +24,25 @@ class MapLocationPickerPage extends HookWidget {
     final selectedLatLng = useValueNotifier<LatLng>(initialLatLng);
     final controller = useRef<MapLibreMapController?>(null);
     final marker = useRef<Symbol?>(null);
+    final language = Localizations.localeOf(context).languageCode;
+    final styleReady = useRef(false);
+    useEffect(() {
+      final current = controller.value;
+      if (current != null && styleReady.value) {
+        unawaited(MapStylePresentation.applyLanguage(current, language, isCurrent: () => context.mounted));
+      }
+      return null;
+    }, [language]);
 
     Future<void> onStyleLoaded() async {
+      final current = controller.value;
+      if (current != null) {
+        await MapStylePresentation.applyLanguage(current, language, isCurrent: () => context.mounted);
+      }
+      if (!context.mounted) {
+        return;
+      }
+      styleReady.value = true;
       marker.value = await controller.value?.addMarkerAtLatLng(initialLatLng);
     }
 
@@ -71,7 +89,10 @@ class MapLocationPickerPage extends HookWidget {
                   zoom: (initialLatLng.latitude == 0 && initialLatLng.longitude == 0) ? 1 : 12,
                 ),
                 styleString: style,
-                onMapCreated: (mapController) => controller.value = mapController,
+                onMapCreated: (mapController) {
+                  styleReady.value = false;
+                  controller.value = mapController;
+                },
                 onStyleLoadedCallback: onStyleLoaded,
                 onMapClick: onMapClick,
                 dragEnabled: false,

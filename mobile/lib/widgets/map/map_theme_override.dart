@@ -5,6 +5,7 @@ import 'package:immich_mobile/providers/locale_provider.dart';
 import 'package:immich_mobile/providers/map/map_state.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
+import 'package:immich_mobile/widgets/map/map_style_presentation.dart';
 
 /// Overrides the theme below the widget tree to use the theme data based on the
 /// map settings instead of the one from the app settings
@@ -85,7 +86,9 @@ class _MapThemeOverrideState extends ConsumerState<MapThemeOverride> with Widget
           ? getThemeData(colorScheme: appTheme.dark, locale: locale)
           : getThemeData(colorScheme: appTheme.light, locale: locale),
       child: widget.mapBuilder.call(
-        ref.watch(mapStateNotifierProvider.select((v) => _isDarkTheme ? v.darkStyleFetched : v.lightStyleFetched)),
+        ref
+            .watch(mapStateNotifierProvider.select((v) => _isDarkTheme ? v.darkStyleFetched : v.lightStyleFetched))
+            .whenData(MapStylePresentation.colorfulStyle),
       ),
     );
   }

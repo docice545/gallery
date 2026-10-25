@@ -120,17 +120,23 @@ final mapMarkerProvider = FutureProvider.family<Map<String, dynamic>, LatLngBoun
 
   final mapService = ref.watch(mapServiceProvider);
   final markers = await mapService.getMarkers(bounds);
-  final features = List.filled(markers.length, const <String, dynamic>{});
-  for (int i = 0; i < markers.length; i++) {
-    final marker = markers[i];
-    features[i] = {
+  final features = <Map<String, dynamic>>[];
+  for (final marker in markers) {
+    if (!marker.location.latitude.isFinite ||
+        !marker.location.longitude.isFinite ||
+        marker.location.latitude.abs() > 90 ||
+        marker.location.longitude.abs() > 180) {
+      continue;
+    }
+    features.add({
       'type': 'Feature',
       'id': marker.assetId,
+      'properties': {'assetId': marker.assetId},
       'geometry': {
         'type': 'Point',
         'coordinates': [marker.location.longitude, marker.location.latitude],
       },
-    };
+    });
   }
   return {'type': 'FeatureCollection', 'features': features};
 }, dependencies: [mapServiceProvider]);

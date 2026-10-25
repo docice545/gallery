@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/map/map.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_settings_sheet.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -31,32 +32,36 @@ class MapPage extends StatelessWidget {
         children: [
           MapView(initialLocation: initialLocation),
           Positioned(
-            left: 20,
-            top: 70,
+            left: 12 + MediaQuery.paddingOf(context).left,
+            top: 12 + MediaQuery.paddingOf(context).top,
             child: IconButton.filled(
-              color: Colors.white,
+              color: context.themeData.colorScheme.onPrimaryContainer,
               onPressed: () => ContextHelper(context).pop(),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded),
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
               style: IconButton.styleFrom(
-                padding: const EdgeInsets.all(8),
-                backgroundColor: Colors.indigo,
+                minimumSize: const Size.square(48),
+                padding: const EdgeInsets.all(12),
+                backgroundColor: context.themeData.colorScheme.primaryContainer,
                 shadowColor: Colors.black26,
-                elevation: 4,
+                elevation: 2,
               ),
             ),
           ),
           Positioned(
-            right: 20,
-            top: 70,
+            right: 12 + MediaQuery.paddingOf(context).right,
+            top: 12 + MediaQuery.paddingOf(context).top,
             child: IconButton.filled(
-              color: Colors.white,
+              color: context.themeData.colorScheme.onPrimaryContainer,
               onPressed: () => onSettingsPressed(context),
-              icon: const Icon(Icons.more_vert_rounded),
+              tooltip: context.t.settings,
+              icon: const Icon(Icons.more_vert_rounded, size: 20),
               style: IconButton.styleFrom(
-                padding: const EdgeInsets.all(8),
-                backgroundColor: Colors.indigo,
+                minimumSize: const Size.square(48),
+                padding: const EdgeInsets.all(12),
+                backgroundColor: context.themeData.colorScheme.primaryContainer,
                 shadowColor: Colors.black26,
-                elevation: 4,
+                elevation: 2,
               ),
             ),
           ),

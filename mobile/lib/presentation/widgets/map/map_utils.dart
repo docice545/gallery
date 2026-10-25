@@ -12,59 +12,96 @@ class MapUtils {
 
   static const mapZoomToAssetLevel = 12.0;
   static const defaultSourceId = 'asset-map-markers';
-  static const defaultHeatMapLayerId = 'asset-heatmap-layer';
-  static var markerCompleter = Completer()..complete();
+  static const clusterLayerId = 'asset-photo-clusters';
+  static const countLayerId = 'asset-photo-counts';
 
-  static const defaultCircleLayerLayerProperties = CircleLayerProperties(
-    circleRadius: 10,
-    circleColor: "rgba(150,86,34,0.7)",
-    circleBlur: 1.0,
-    circleOpacity: 0.7,
-    circleStrokeWidth: 0.1,
-    circleStrokeColor: "rgba(203,46,19,0.5)",
-    circleStrokeOpacity: 0.7,
+  static const photoSource = GeojsonSourceProperties(
+    data: {'type': 'FeatureCollection', 'features': []},
+    cluster: true,
+    clusterRadius: 40,
+    clusterMaxZoom: 20,
   );
 
-  static const defaultHeatmapLayerProperties = HeatmapLayerProperties(
-    heatmapColor: [
-      Expressions.interpolate,
-      ["linear"],
-      ["heatmap-density"],
-      0.0,
-      "rgba(103,58,183,0.0)",
-      0.3,
-      "rgb(103,58,183)",
-      0.5,
-      "rgb(33,149,243)",
-      0.7,
-      "rgb(76,175,79)",
-      0.95,
-      "rgb(255,235,59)",
-      1.0,
-      "rgb(255,86,34)",
+  static const photoCircleProperties = CircleLayerProperties(
+    circleRadius: [
+      'case',
+      ['has', 'point_count'],
+      17,
+      10,
     ],
-    heatmapIntensity: [
-      Expressions.interpolate,
-      ["linear"],
-      [Expressions.zoom],
-      0,
-      0.5,
-      9,
-      2,
-    ],
-    heatmapRadius: [
-      Expressions.interpolate,
-      ["linear"],
-      [Expressions.zoom],
-      0,
-      4,
-      4,
-      8,
-      9,
-      16,
-    ],
-    heatmapOpacity: 0.7,
+    circleColor: '#4f46e5',
+    circleBlur: 0,
+    circleOpacity: 1,
+    circleStrokeWidth: 2,
+    circleStrokeColor: '#ffffff',
   );
+
+  static const photoCountProperties = SymbolLayerProperties(
+    textField: [
+      'to-string',
+      [
+        'coalesce',
+        ['get', 'point_count_abbreviated'],
+        1,
+      ],
+    ],
+    textFont: ['Noto Sans Regular'],
+    textSize: 12,
+    textColor: '#ffffff',
+    textAllowOverlap: true,
+    textIgnorePlacement: true,
+  );
+
+  /// Bounds for a marker/cluster selection, preserving native coordinates and
+  /// the shortest longitude arc for clusters that cross the date line.
+  static LatLngBounds? photoBounds(Iterable<dynamic> features) {
+    final points = <LatLng>[];
+    for (final feature in features) {
+      if (feature is! Map || feature['geometry'] is! Map) {
+        continue;
+      }
+      final geometry = feature['geometry'] as Map;
+      final coordinates = geometry['coordinates'];
+      if (geometry['type'] != 'Point' || coordinates is! List || coordinates.length < 2) {
+        continue;
+      }
+      final longitude = coordinates[0];
+      final latitude = coordinates[1];
+      if (longitude is! num ||
+          latitude is! num ||
+          !longitude.isFinite ||
+          !latitude.isFinite ||
+          longitude.abs() > 180 ||
+          latitude.abs() > 90) {
+        continue;
+      }
+      points.add(LatLng(latitude.toDouble(), longitude.toDouble()));
+    }
+    if (points.isEmpty) {
+      return null;
+    }
+    final latitudes = points.map((point) => point.latitude);
+    final longitudes = points.map((point) => point.longitude).toList()..sort();
+    var west = longitudes.first;
+    var east = longitudes.last;
+    var largestGap = 360 - east + west;
+    for (var index = 1; index < longitudes.length; index++) {
+      final gap = longitudes[index] - longitudes[index - 1];
+      if (gap > largestGap) {
+        largestGap = gap;
+        west = longitudes[index];
+        east = longitudes[index - 1];
+      }
+    }
+    final south = latitudes.reduce((a, b) => a < b ? a : b);
+    final north = latitudes.reduce((a, b) => a > b ? a : b);
+    // Include the selected point in SQL BETWEEN even for zero-size coordinates.
+    const epsilon = 0.000001;
+    return LatLngBounds(
+      southwest: LatLng((south - epsilon).clamp(-90, 90), (west - epsilon).clamp(-180, 180)),
+      northeast: LatLng((north + epsilon).clamp(-90, 90), (east + epsilon).clamp(-180, 180)),
+    );
+  }
 
   static Future<(Position?, LocationPermission?)> checkPermAndGetLocation({
     required BuildContext context,

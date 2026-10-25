@@ -1,26 +1,30 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
+import 'package:immich_mobile/domain/services/place_name.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
-import 'package:immich_mobile/pages/common/large_leading_tile.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
-import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/presentation/widgets/map/place_list_tile.widget.dart';
+import 'package:immich_mobile/providers/place_names.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
+import 'package:immich_mobile/utils/place_names.dart';
 import 'package:immich_mobile/widgets/common/search_field.dart';
 import 'package:immich_mobile/widgets/map/map_thumbnail.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 @RoutePage()
-class PlacePage extends StatelessWidget {
+class PlacePage extends HookWidget {
   const PlacePage({super.key, this.currentLocation});
 
   final LatLng? currentLocation;
 
   @override
   Widget build(BuildContext context) {
-    final ValueNotifier<String?> search = ValueNotifier(null);
+    final search = useValueNotifier<String?>(null);
 
     return Scaffold(
       body: ValueListenableBuilder(
@@ -30,7 +34,7 @@ class PlacePage extends StatelessWidget {
             slivers: [
               _PlaceSliverAppBar(search: search),
               _Map(search: search, currentLocation: currentLocation),
-              _PlaceList(search: search),
+              _PlaceList(query: searchValue),
             ],
           );
         },
@@ -108,13 +112,21 @@ class _Map extends StatelessWidget {
 }
 
 class _PlaceList extends ConsumerWidget {
-  const _PlaceList({required this.search});
+  const _PlaceList({required this.query});
 
-  final ValueNotifier<String?> search;
+  final String? query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final places = ref.watch(placesProvider);
+    final places = ref.watch(placeDetailsProvider);
+    final persisted = ref.watch(persistedPlaceLabelsProvider).valueOrNull ?? const <String, String>{};
+    final labels = {...persisted, ...ref.watch(resolvedPlaceLabelsProvider)};
+    final locale = context.locale;
+    final aliases = query != null && query!.trim().runes.length >= 2
+        ? ref.watch(placeSearchAliasesProvider(query!)).valueOrNull ?? const []
+        : const [];
+
+    String label(Place place) => labels[PlaceNameService.key(place, locale.toLanguageTag())] ?? place.name.trim();
 
     return places.when(
       loading: () => const SliverToBoxAdapter(
@@ -126,53 +138,76 @@ class _PlaceList extends ConsumerWidget {
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(20.0),
-            child: Text(
-              'Error loading places: $error, stack: $stack',
-              style: TextStyle(color: context.colorScheme.error),
+            child: TextButton.icon(
+              onPressed: () => ref.invalidate(placeDetailsProvider),
+              icon: const Icon(Icons.refresh),
+              label: Text(context.t.filter_sheet_load_error_retry),
             ),
           ),
         ),
       ),
       data: (places) {
-        final List<(String, String)> filtered;
-        if (search.value != null) {
-          filtered = places.where((place) {
-            return place.$1.toLowerCase().contains(search.value!.toLowerCase());
-          }).toList();
-        } else {
-          filtered = places;
+        final filtered =
+            places.where((place) {
+              if (place.name.trim().isEmpty) {
+                return false;
+              }
+              return matchesPlaceName(place, label(place), query ?? '') ||
+                  aliases.any(
+                    (alias) =>
+                        foldPlaceName(alias.name) == foldPlaceName(place.name) &&
+                        isNearbyPlace(place, alias.latitude, alias.longitude),
+                  );
+            }).toList()..sort((a, b) {
+              final comparison = comparePlaceNames(label(a), label(b), languageCode: locale.languageCode);
+              return comparison != 0 ? comparison : a.name.compareTo(b.name);
+            });
+
+        if (filtered.isEmpty) {
+          return SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: Text(query?.trim().isNotEmpty ?? false ? context.t.no_results : context.t.no_places),
+              ),
+            ),
+          );
         }
 
-        return SliverList.builder(
-          itemCount: filtered.length,
-          itemBuilder: (context, index) {
-            final place = filtered[index];
-            return _PlaceTile(place: place);
-          },
+        return SliverSafeArea(
+          top: false,
+          sliver: SliverList.builder(
+            itemCount: filtered.length,
+            findChildIndexCallback: (key) {
+              final index = filtered.indexWhere((place) => ValueKey(place.name) == key);
+              return index < 0 ? null : index;
+            },
+            itemBuilder: (context, index) {
+              final place = filtered[index];
+              return _PlaceTile(key: ValueKey(place.name), place: place, cachedLabel: label(place));
+            },
+          ),
         );
       },
     );
   }
 }
 
-class _PlaceTile extends StatelessWidget {
-  const _PlaceTile({required this.place});
+class _PlaceTile extends ConsumerWidget {
+  const _PlaceTile({super.key, required this.place, required this.cachedLabel});
 
-  final (String, String) place;
+  final Place place;
+  final String cachedLabel;
 
   @override
-  Widget build(BuildContext context) {
-    return LargeLeadingTile(
-      onTap: () => context.pushRoute(PlaceDetailRoute(place: place.$1)),
-      title: Text(place.$1, style: context.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500)),
-      leading: ClipRRect(
-        borderRadius: const BorderRadius.all(Radius.circular(20)),
-        child: SizedBox(
-          width: 80,
-          height: 80,
-          child: Thumbnail.remote(remoteId: place.$2, fit: BoxFit.cover, thumbhash: ""),
-        ),
-      ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final localized = ref.watch(localizedPlaceLabelProvider((place: place, locale: context.locale)));
+    final label = localized.valueOrNull ?? cachedLabel;
+    return PlaceListTile(
+      name: label,
+      sourceName: place.name,
+      onTap: () => context.pushRoute(PlaceDetailRoute(place: place.name)),
+      thumbnail: Thumbnail.remote(remoteId: place.assetId, fit: BoxFit.cover, thumbhash: ''),
     );
   }
 }

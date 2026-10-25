@@ -29,6 +29,7 @@ void main() {
         {
           'type': 'Feature',
           'id': 'asset-1',
+          'properties': {'assetId': 'asset-1'},
           'geometry': {
             'type': 'Point',
             'coordinates': [2.0, 1.0],
@@ -41,6 +42,21 @@ void main() {
 
       expect(calls, 2);
       expect((second['features'] as List).single['id'], 'asset-2');
+    });
+
+    test('invalid coordinates are omitted while real zero coordinates are retained', () async {
+      final service = _MockMapService();
+      when(() => service.getMarkers).thenReturn(
+        (_) async => [
+          const Marker(assetId: 'zero', location: LatLng(0, 0)),
+          const Marker(assetId: 'missing', location: LatLng(double.nan, 0)),
+          const Marker(assetId: 'invalid', location: LatLng(0, double.nan)),
+        ],
+      );
+      final container = ProviderContainer(overrides: [mapServiceProvider.overrideWithValue(service)]);
+      addTearDown(container.dispose);
+      final result = await container.read(mapMarkerProvider(null).future);
+      expect((result['features'] as List).map((feature) => feature['id']), ['zero']);
     });
   });
 }

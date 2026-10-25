@@ -5,7 +5,7 @@
 // where `showInTimeline=true`. These tests pin the new contract — markers
 // follow the same visibility rules as the timeline buckets.
 
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
@@ -99,6 +99,35 @@ void main() {
           .remote(['viewer'], 'viewer', TimelineMapOptions(bounds: globeBounds()))
           .markerSource(globeBounds());
       expect(markers, hasLength(1));
+    });
+
+    test('photos without GPS are excluded without modifying EXIF or coordinates', () async {
+      await insertUser('viewer');
+      await insertImage('no-exif', 'viewer');
+      await insertImage('no-gps', 'viewer');
+      await insertImage('latitude-only', 'viewer');
+      await insertImage('zero', 'viewer');
+      await insertImage('invalid-lat', 'viewer');
+      await insertImage('invalid-lng', 'viewer');
+      await db.into(db.remoteExifEntity).insert(RemoteExifEntityCompanion.insert(assetId: 'no-gps'));
+      await db
+          .into(db.remoteExifEntity)
+          .insert(RemoteExifEntityCompanion.insert(assetId: 'latitude-only', latitude: const Value(55.75)));
+      await insertExifAt('zero', 0, 0);
+      await insertExifAt('invalid-lat', 91, 37);
+      await insertExifAt('invalid-lng', 55, 181);
+
+      final source = sut.remote(['viewer'], 'viewer', TimelineMapOptions(bounds: globeBounds())).markerSource;
+      for (final bounds in [null, globeBounds()]) {
+        final markers = await source(bounds);
+        expect(markers.map((marker) => marker.assetId), ['zero']);
+        expect(markers.single.location, const LatLng(0, 0));
+      }
+      final exif = await db.remoteExifEntity.select().get();
+      expect(exif.singleWhere((row) => row.assetId == 'latitude-only').latitude, 55.75);
+      expect(exif.singleWhere((row) => row.assetId == 'latitude-only').longitude, isNull);
+      expect(exif.singleWhere((row) => row.assetId == 'invalid-lat').latitude, 91);
+      expect(exif.singleWhere((row) => row.assetId == 'invalid-lng').longitude, 181);
     });
 
     test('space-visible marker returned', () async {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:immich_mobile/extensions/asyncvalue_extensions.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/maplibrecontroller_extensions.dart';
 import 'package:immich_mobile/widgets/map/asset_marker_icon.dart';
+import 'package:immich_mobile/widgets/map/map_style_presentation.dart';
 import 'package:immich_mobile/widgets/map/map_theme_override.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
@@ -46,6 +48,14 @@ class MapThumbnail extends HookWidget {
   Widget build(BuildContext context) {
     final controller = useRef<MapLibreMapController?>(null);
     final styleLoaded = useState(false);
+    final language = Localizations.localeOf(context).languageCode;
+    useEffect(() {
+      final current = controller.value;
+      if (current != null && styleLoaded.value) {
+        unawaited(MapStylePresentation.applyLanguage(current, language, isCurrent: () => context.mounted));
+      }
+      return null;
+    }, [language]);
 
     Future<void> onMapCreated(MapLibreMapController mapController) async {
       controller.value = mapController;
@@ -54,6 +64,13 @@ class MapThumbnail extends HookWidget {
     }
 
     Future<void> onStyleLoaded() async {
+      final current = controller.value;
+      if (current != null) {
+        await MapStylePresentation.applyLanguage(current, language, isCurrent: () => context.mounted);
+      }
+      if (!context.mounted) {
+        return;
+      }
       try {
         if (showMarkerPin && controller.value != null) {
           await controller.value?.addMarkerAtLatLng(centre);

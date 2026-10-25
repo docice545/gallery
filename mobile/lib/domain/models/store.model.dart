@@ -21,6 +21,7 @@ enum StoreKey<T> {
   filterSheetCollapsedSections<String>._(143),
   filterSheetHiddenSections<String>._(144),
   libraryLayoutPreferences<String>._(145),
+  localizedPlaceNames<String>._(146),
 
   syncMigrationStatus<String>._(1013),
 
