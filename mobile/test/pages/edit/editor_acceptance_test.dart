@@ -118,7 +118,7 @@ void main() {
       expect(find.descendant(of: reset, matching: find.byIcon(Icons.arrow_back)), findsOneWidget);
       expect(find.byKey(const Key('editor-header-undo')), findsOneWidget);
       expect(find.byKey(const Key('editor-header-redo')), findsOneWidget);
-      expect(find.descendant(of: save, matching: find.text('Сохранить')), findsOneWidget);
+      expect(find.descendant(of: save, matching: find.text('Сохранить\nкопию')), findsOneWidget);
       expect(find.descendant(of: more, matching: find.byIcon(Icons.more_vert)), findsOneWidget);
       expect(tester.getCenter(reset).dx, lessThan(tester.getCenter(save).dx));
       expect(tester.getCenter(save).dx, lessThan(tester.getCenter(more).dx));
@@ -171,7 +171,10 @@ void main() {
       tester.getCenter(divider).dx,
       lessThan(tester.getRect(find.byKey(const Key('editor-toggle-settings'))).left),
     );
-    expect(tester.getRect(pill).bottom, lessThan(tester.getRect(find.byKey(const Key('editor-mode-bar'))).top));
+    expect(
+      tester.getRect(pill).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byKey(const Key('editor-mode-bar'))).top),
+    );
     final decoration = tester.widget<DecoratedBox>(pill).decoration as BoxDecoration;
     expect(decoration.color, const Color(0xff303030));
     expect(decoration.borderRadius, BorderRadius.circular(32));

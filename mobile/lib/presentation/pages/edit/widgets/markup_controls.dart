@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
@@ -88,9 +90,9 @@ class MarkupControls extends StatelessWidget {
       AnnotationTool.brush => context.tr('editor_brush'),
       AnnotationTool.eraser => context.tr('editor_stroke_eraser'),
       AnnotationTool.move => context.tr('editor_select'),
-      AnnotationTool.arrow => context.t.editor_shapes,
-      AnnotationTool.rectangle => context.tr('editor_shapes'),
-      AnnotationTool.ellipse => context.tr('editor_shapes'),
+      AnnotationTool.arrow => context.tr('editor_arrow'),
+      AnnotationTool.rectangle => context.tr('editor_rectangle'),
+      AnnotationTool.ellipse => context.tr('editor_ellipse'),
       _ => context.t.editor_text,
     };
     IconData icon(AnnotationTool value) => switch (value) {
@@ -110,11 +112,13 @@ class MarkupControls extends StatelessWidget {
       onPressed: (undo ? canUndo : canRedo) ? (undo ? onUndo : onRedo) : null,
       icon: Icon(undo ? Icons.undo : Icons.redo),
     );
+    final menuWidth = min(264.0, MediaQuery.sizeOf(context).width - 32);
+    final selectedToolWidth = min(180.0, MediaQuery.sizeOf(context).width * .45);
     return Material(
       key: Key(compact && draw && !showToolStrip ? 'editor-markup-settings' : 'editor-markup-controls'),
       color: const Color(0xff191919),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact && !settingsExpanded ? 0 : 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -206,20 +210,42 @@ class MarkupControls extends StatelessWidget {
                         value: tools.contains(tool) ? tool : tools.first,
                         underline: const SizedBox.shrink(),
                         dropdownColor: const Color(0xff303030),
+                        borderRadius: BorderRadius.circular(16),
+                        menuWidth: menuWidth,
+                        menuMaxHeight: min(288, MediaQuery.sizeOf(context).height * .35),
+                        itemHeight: null,
+                        selectedItemBuilder: (context) => [
+                          for (final entry in tools)
+                            SizedBox(
+                              width: selectedToolWidth,
+                              height: 48,
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: Text(label(entry)),
+                                ),
+                              ),
+                            ),
+                        ],
                         items: tools
                             .map(
                               (entry) => DropdownMenuItem(
+                                key: ValueKey('editor-tool-option-${entry.name}'),
                                 value: entry,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(icon(entry), size: 20),
-                                    const SizedBox(width: 8),
-                                    SizedBox(
-                                      width: 140,
-                                      child: Text(label(entry), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: SizedBox(
+                                    width: menuWidth - 32,
+                                    child: Row(
+                                      children: [
+                                        Icon(icon(entry), size: 20),
+                                        const SizedBox(width: 8),
+                                        Expanded(child: Text(label(entry))),
+                                      ],
                                     ),
-                                  ],
+                                  ),
                                 ),
                               ),
                             )

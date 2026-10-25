@@ -66,33 +66,51 @@ class TimelineHeader extends HookWidget {
             if (isYearHeader)
               Row(
                 children: [
-                  Text(
-                    toBeginningOfSentenceCase(_formatYear(context, date)),
-                    style: context.textTheme.labelLarge?.copyWith(fontSize: 24),
+                  Expanded(
+                    child: Tooltip(
+                      message: toBeginningOfSentenceCase(_formatYear(context, date)),
+                      child: Text(
+                        toBeginningOfSentenceCase(_formatYear(context, date)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.textTheme.labelLarge?.copyWith(fontSize: 24),
+                      ),
+                    ),
                   ),
-                  const Spacer(),
                   _BulkSelectIconButton(bucket: bucket, assetOffset: assetOffset),
                 ],
               ),
             if (isMonthHeader)
               Row(
                 children: [
-                  Text(
-                    toBeginningOfSentenceCase(_formatMonth(context, date)),
-                    style: context.textTheme.labelLarge?.copyWith(fontSize: 24),
+                  Expanded(
+                    child: Tooltip(
+                      message: toBeginningOfSentenceCase(_formatMonth(context, date)),
+                      child: Text(
+                        toBeginningOfSentenceCase(_formatMonth(context, date)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.textTheme.labelLarge?.copyWith(fontSize: 24),
+                      ),
+                    ),
                   ),
-                  const Spacer(),
                   if (header != HeaderType.monthAndDay) _BulkSelectIconButton(bucket: bucket, assetOffset: assetOffset),
                 ],
               ),
             if (isDayHeader)
               Row(
                 children: [
-                  Text(
-                    toBeginningOfSentenceCase(_formatDay(context, date)),
-                    style: context.textTheme.labelLarge?.copyWith(fontSize: 15),
+                  Expanded(
+                    child: Tooltip(
+                      message: toBeginningOfSentenceCase(_formatDay(context, date)),
+                      child: Text(
+                        toBeginningOfSentenceCase(_formatDay(context, date)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.textTheme.labelLarge?.copyWith(fontSize: 15),
+                      ),
+                    ),
                   ),
-                  const Spacer(),
                   _BulkSelectIconButton(bucket: bucket, assetOffset: assetOffset),
                 ],
               ),

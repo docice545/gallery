@@ -93,7 +93,7 @@ void main() {
     expect(find.byType(CropImage), findsOneWidget);
     expect(find.byIcon(Icons.rotate_left), findsOneWidget);
     expect(find.byIcon(Icons.rotate_right), findsOneWidget);
-    expect(find.byIcon(Icons.done_rounded), findsOneWidget);
+    expect(find.byKey(const Key('editor-save')), findsOneWidget);
     await tester.tap(find.byIcon(Icons.rotate_left));
     await tester.pump();
     final state = ProviderScope.containerOf(
@@ -108,21 +108,22 @@ void main() {
     expect(retry, findsOneWidget);
   });
 
-  testWidgets('saving opens copy, disabled replacement, and cancel choices', (tester) async {
+  testWidgets('the only save command clearly offers a copy without unavailable replacement controls', (tester) async {
     await pumpEditor(tester);
+    final save = find.byKey(const Key('editor-save'));
+    expect(tester.widget<TextButton>(save).onPressed, isNull);
+    expect(find.text('Save\na copy'), findsOneWidget);
+    expect(find.byKey(const Key('edit-save-mode-dialog')), findsNothing);
+    expect(find.byKey(const Key('edit-replace-original')), findsNothing);
+    expect(
+      find.text(
+        'A PNG copy is saved on this device. Automatic backup can upload it if enabled. The server original stays unchanged.',
+      ),
+      findsNothing,
+    );
     await tester.tap(find.byIcon(Icons.rotate_left));
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.done_rounded));
-    await tester.pump(const Duration(milliseconds: 350));
-
-    expect(find.byKey(const Key('edit-save-mode-dialog')), findsOneWidget);
-    expect(find.byKey(const Key('edit-save-copy')), findsOneWidget);
-    expect(find.byKey(const Key('edit-replace-original')), findsOneWidget);
-    expect(tester.widget<ListTile>(find.byKey(const Key('edit-replace-original'))).enabled, isFalse);
-    expect(find.byKey(const Key('edit-save-cancel')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('edit-save-cancel')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('edit-save-mode-dialog')), findsNothing);
+    expect(tester.widget<TextButton>(save).onPressed, isNotNull);
   });
 
   testWidgets('an unavailable optional AI service leaves ordinary transform editing operational', (tester) async {
@@ -316,7 +317,7 @@ void main() {
     expect(find.byType(CropImage), findsNothing);
     expect(find.byIcon(Icons.rotate_left), findsNothing);
     expect(find.byIcon(Icons.rotate_right), findsNothing);
-    expect(find.byIcon(Icons.done_rounded), findsNothing);
+    expect(find.byKey(const Key('editor-save')), findsNothing);
     expect(live.isEditable, isFalse);
     expect(live.livePhotoVideoId, 'paired-video-id');
   });
@@ -409,7 +410,7 @@ void main() {
             }
             expect(panel.bottom, closeTo(size.height, .01));
             expect(bar.bottom, closeTo(panel.bottom, .01));
-            expect(bar.height, greaterThanOrEqualTo(64));
+            expect(bar.height, lessThanOrEqualTo(56));
             final markup = mode == 'draw' || mode == 'text' || mode == 'stickers';
             expect(find.byKey(const Key('editor-markup-controls')), markup ? findsOneWidget : findsNothing);
             expect(magicEraser, mode == 'magicEraser' ? findsOneWidget : findsNothing);
