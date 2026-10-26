@@ -533,6 +533,8 @@ from
   "asset"
 where
   "asset"."id" = $1
+  and "asset"."deletedAt" is null
+  and "asset"."status" = $2
 
 -- AssetJobRepository.getForSyncAssets
 select

@@ -27,10 +27,62 @@ beforeAll(async () => {
   defaultDatabase = await getKyselyDB();
 });
 
+afterAll(async () => {
+  await defaultDatabase.destroy();
+});
+
 describe(OcrService.name, () => {
   it('should work', () => {
     const { sut } = setup();
     expect(sut).toBeDefined();
+  });
+
+  it('skips a duplicate queued event for a missing asset without OCR or requeueing', async () => {
+    const { sut, ctx } = setup();
+    const id = '748e2507-866d-49cd-9804-ba8d1f7c327d';
+
+    await expect(sut.handleOcr({ id })).resolves.toBe(JobStatus.Skipped);
+    await expect(sut.handleOcr({ id })).resolves.toBe(JobStatus.Skipped);
+    expect(ctx.getMock(MachineLearningRepository).ocr).not.toHaveBeenCalled();
+    expect(ctx.getMock(JobRepository).queue).not.toHaveBeenCalled();
+    expect(ctx.getMock(JobRepository).queueAll).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('discards late OCR results after deletion (empty OCR: %s)', async (empty) => {
+    const { sut, ctx } = setup();
+    const { user } = await ctx.newUser();
+    const { asset } = await ctx.newAsset({ ownerId: user.id });
+    await ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Preview, path: 'synthetic-preview.jpg' });
+
+    const started = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    ctx.getMock(MachineLearningRepository).ocr.mockImplementation(async () => {
+      started.resolve();
+      await finish.promise;
+      return empty
+        ? { box: [], boxScore: [], text: [], textScore: [] }
+        : { box: [0, 0, 1, 0, 1, 1, 0, 1], boxScore: [0.99], text: ['late result'], textScore: [0.99] };
+    });
+
+    // Deliberately delete on another connection while the actual service waits for OCR.
+    const job = sut.handleOcr({ id: asset.id });
+    void job.catch(started.reject);
+    try {
+      await started.promise;
+      await ctx.database.deleteFrom('asset').where('id', '=', asset.id).execute();
+    } finally {
+      finish.resolve();
+    }
+    await expect(job).resolves.toBe(JobStatus.Skipped);
+    await expect(sut.handleOcr({ id: asset.id })).resolves.toBe(JobStatus.Skipped);
+    for (const table of ['asset_ocr', 'ocr_search', 'asset_job_status'] as const) {
+      await expect(
+        ctx.database.selectFrom(table).select('assetId').where('assetId', '=', asset.id).execute(),
+      ).resolves.toEqual([]);
+    }
+    expect(ctx.getMock(MachineLearningRepository).ocr).toHaveBeenCalledOnce();
+    expect(ctx.getMock(JobRepository).queue).not.toHaveBeenCalled();
+    expect(ctx.getMock(JobRepository).queueAll).not.toHaveBeenCalled();
   });
 
   it('should parse asset', async () => {

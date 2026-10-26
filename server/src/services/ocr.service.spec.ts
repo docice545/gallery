@@ -12,6 +12,7 @@ describe(OcrService.name, () => {
     ({ sut, mocks } = newTestService(OcrService));
 
     mocks.config.getWorker.mockReturnValue(ImmichWorker.Microservices);
+    mocks.ocr.upsert.mockResolvedValue(true);
     mocks.assetJob.getForOcr.mockResolvedValue({
       visibility: AssetVisibility.Timeline,
       previewFile: '/uploads/user-id/thumbs/path.jpg',
@@ -197,12 +198,47 @@ describe(OcrService.name, () => {
       expect(mocks.ocr.upsert).not.toHaveBeenCalled();
     });
 
-    it('should fail if asset could not be found', async () => {
+    it('should skip a missing asset without retrying', async () => {
       mocks.assetJob.getForOcr.mockResolvedValue(void 0);
 
-      expect(await sut.handleOcr({ id: 'non-existent' })).toEqual(JobStatus.Failed);
+      expect(await sut.handleOcr({ id: 'non-existent' })).toEqual(JobStatus.Skipped);
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).not.toHaveBeenCalled();
 
       expect(mocks.machineLearning.ocr).not.toHaveBeenCalled();
+      expect(mocks.ocr.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should discard results when deletion wins during OCR without marking or requeueing the job', async () => {
+      mockOcrResult('removed while processing');
+      mocks.ocr.upsert.mockResolvedValue(false);
+
+      expect(await sut.handleOcr({ id: 'deleted-during-ocr' })).toBe(JobStatus.Skipped);
+      expect(mocks.machineLearning.ocr).toHaveBeenCalledOnce();
+      expect(mocks.ocr.upsert).toHaveBeenCalledOnce();
+      expect(mocks.asset.upsertJobStatus).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      new Error('database unavailable'),
+      Object.assign(new Error('unrelated foreign key violation'), { code: '23503', constraint: 'other_fkey' }),
+    ])('should propagate persistence errors without retrying or reporting success: %s', async (error) => {
+      mockOcrResult('retryable by normal job error handling');
+      mocks.ocr.upsert.mockRejectedValue(error);
+
+      await expect(sut.handleOcr({ id: 'existing' })).rejects.toBe(error);
+      expect(mocks.asset.upsertJobStatus).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).not.toHaveBeenCalled();
+    });
+
+    it('should propagate machine learning errors before persistence', async () => {
+      const error = new Error('OCR worker unavailable');
+      mocks.machineLearning.ocr.mockRejectedValue(error);
+
+      await expect(sut.handleOcr({ id: 'existing' })).rejects.toBe(error);
       expect(mocks.ocr.upsert).not.toHaveBeenCalled();
     });
 

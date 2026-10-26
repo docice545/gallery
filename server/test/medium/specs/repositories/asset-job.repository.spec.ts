@@ -156,6 +156,15 @@ describe(AssetJobRepository.name, () => {
   });
 
   describe('getForOcr', () => {
+    it.each([AssetStatus.Trashed, AssetStatus.Deleted])('excludes a previously queued %s asset', async (status) => {
+      const { ctx, sut } = setup();
+      const { user } = await ctx.newUser();
+      const { asset } = await ctx.newAsset({ ownerId: user.id, status, deletedAt: new Date() });
+      await ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Preview, path: 'synthetic-preview.jpg' });
+
+      await expect(sut.getForOcr(asset.id)).resolves.toBeUndefined();
+    });
+
     it('should not return the edited preview file', async () => {
       const { ctx, sut } = setup();
       const { user } = await ctx.newUser();

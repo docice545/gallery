@@ -18,55 +18,18 @@ where
   and "asset_ocr"."isVisible" = $2
 
 -- OcrRepository.upsert
-with
-  "deleted_ocr" as (
-    delete from "asset_ocr"
-    where
-      "assetId" = $1
-  ),
-  "inserted_ocr" as (
-    insert into
-      "asset_ocr" (
-        "assetId",
-        "x1",
-        "y1",
-        "x2",
-        "y2",
-        "x3",
-        "y3",
-        "x4",
-        "y4",
-        "text",
-        "boxScore",
-        "textScore"
-      )
-    values
-      (
-        $2,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8,
-        $9,
-        $10,
-        $11,
-        $12,
-        $13
-      )
-  ),
-  "inserted_search" as (
-    insert into
-      "ocr_search" ("assetId", "text")
-    values
-      ($14, $15)
-    on conflict ("assetId") do update
-    set
-      "text" = "excluded"."text"
-  )
+begin
 select
-  1 as "dummy"
+  "id"
+from
+  "asset"
+where
+  "id" = $1
+  and "deletedAt" is null
+  and "status" = $2
+  and "visibility" != $3
+for update
+commit
 
 -- OcrRepository.updateOcrVisibilities
 begin

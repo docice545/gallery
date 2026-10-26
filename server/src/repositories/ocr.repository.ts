@@ -3,6 +3,7 @@ import { type Insertable, type Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AssetOcrResponseDto } from 'src/dtos/ocr.dto.js';
+import { AssetStatus, AssetVisibility } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { AssetOcrTable } from 'src/schema/tables/asset-ocr.table.js';
 
@@ -56,23 +57,47 @@ export class OcrRepository {
       DummyValue.STRING,
     ],
   })
-  upsert(assetId: string, ocrDataList: Insertable<AssetOcrTable>[], searchText: string) {
-    let query = this.db.with('deleted_ocr', (db) => db.deleteFrom('asset_ocr').where('assetId', '=', assetId));
-    // eslint-disable-next-line unicorn/prefer-ternary
-    if (ocrDataList.length > 0) {
-      (query as any) = query
-        .with('inserted_ocr', (db) => db.insertInto('asset_ocr').values(ocrDataList))
-        .with('inserted_search', (db) =>
-          db
-            .insertInto('ocr_search')
-            .values({ assetId, text: searchText })
-            .onConflict((oc) => oc.column('assetId').doUpdateSet((eb) => ({ text: eb.ref('excluded.text') }))),
-        );
-    } else {
-      (query as any) = query.with('deleted_search', (db) => db.deleteFrom('ocr_search').where('assetId', '=', assetId));
-    }
+  async upsert(assetId: string, ocrDataList: Insertable<AssetOcrTable>[], searchText: string): Promise<boolean> {
+    const save = async (trx: Kysely<DB>) => {
+      // OCR runs outside this transaction. Lock the parent only while replacing its results so
+      // a concurrent delete either wins first (skip) or cascades after our complete commit.
+      // A second existence check without this lock would still race with the child inserts.
+      const asset = await trx
+        .selectFrom('asset')
+        .select('id')
+        .where('id', '=', assetId)
+        .where('deletedAt', 'is', null)
+        .where('status', '=', AssetStatus.Active)
+        .where('visibility', '!=', AssetVisibility.Hidden)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!asset) {
+        return false;
+      }
 
-    return query.selectNoFrom(sql`1`.as('dummy')).execute();
+      await trx.deleteFrom('asset_ocr').where('assetId', '=', assetId).execute();
+      if (ocrDataList.length > 0) {
+        await trx.insertInto('asset_ocr').values(ocrDataList).execute();
+        await trx
+          .insertInto('ocr_search')
+          .values({ assetId, text: searchText })
+          .onConflict((oc) => oc.column('assetId').doUpdateSet((eb) => ({ text: eb.ref('excluded.text') })))
+          .execute();
+      } else {
+        await trx.deleteFrom('ocr_search').where('assetId', '=', assetId).execute();
+      }
+
+      // Keep the completion marker in the same transaction as both result tables. Other jobs'
+      // status columns remain unchanged, and a failure rolls back the previous OCR replacement.
+      await trx
+        .insertInto('asset_job_status')
+        .values({ assetId, ocrAt: new Date() })
+        .onConflict((oc) => oc.column('assetId').doUpdateSet((eb) => ({ ocrAt: eb.ref('excluded.ocrAt') })))
+        .execute();
+      return true;
+    };
+
+    return this.db.isTransaction ? save(this.db) : this.db.transaction().execute(save);
   }
 
   @GenerateSql({ params: [DummyValue.UUID, [], []] })

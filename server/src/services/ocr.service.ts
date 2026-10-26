@@ -36,7 +36,12 @@ export class OcrService extends BaseService {
     }
 
     const asset = await this.assetJobRepository.getForOcr(id);
-    if (!asset || !asset.previewFile) {
+    if (!asset) {
+      this.logger.debug(`Skipped OCR for missing or ineligible asset ${id}`);
+      return JobStatus.Skipped;
+    }
+
+    if (!asset.previewFile) {
       return JobStatus.Failed;
     }
 
@@ -46,9 +51,10 @@ export class OcrService extends BaseService {
 
     const ocrResults = await this.machineLearningRepository.ocr(asset.previewFile, machineLearning.ocr);
     const { ocrDataList, searchText } = this.parseOcrResults(id, ocrResults);
-    await this.ocrRepository.upsert(id, ocrDataList, searchText);
-
-    await this.assetRepository.upsertJobStatus({ assetId: id, ocrAt: new Date() });
+    if (!(await this.ocrRepository.upsert(id, ocrDataList, searchText))) {
+      this.logger.debug(`Skipped OCR persistence for removed or ineligible asset ${id}`);
+      return JobStatus.Skipped;
+    }
 
     this.logger.debug(`Processed ${ocrResults.text.length} OCR result(s) for ${id}`);
     return JobStatus.Success;

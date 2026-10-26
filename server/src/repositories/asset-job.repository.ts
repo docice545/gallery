@@ -284,6 +284,8 @@ export class AssetJobRepository {
       .selectFrom('asset')
       .select((eb) => ['asset.visibility', withFilePath(eb, AssetFileType.Preview).as('previewFile')])
       .where('asset.id', '=', id)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.status', '=', AssetStatus.Active)
       .executeTakeFirst();
   }
 

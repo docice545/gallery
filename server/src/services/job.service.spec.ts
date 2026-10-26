@@ -177,6 +177,19 @@ describe(JobService.name, () => {
   });
 
   describe('onJobRun', () => {
+    it('completes a skipped stale OCR job without a retry or follow-up job', async () => {
+      mocks.job.run.mockResolvedValue(JobStatus.Skipped);
+      const job: JobItem = { name: JobName.Ocr, data: { id: '748e2507-866d-49cd-9804-ba8d1f7c327d' } };
+
+      await sut.onJobRun(QueueName.Ocr, job);
+
+      expect(mocks.event.emit).toHaveBeenCalledWith('JobSuccess', { job, response: JobStatus.Skipped });
+      expect(mocks.event.emit).toHaveBeenCalledWith('JobComplete', QueueName.Ocr, job);
+      expect(mocks.event.emit).not.toHaveBeenCalledWith('JobError', expect.anything());
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+      expect(mocks.job.queueAll).not.toHaveBeenCalled();
+    });
+
     it('should process a successful job', async () => {
       mocks.job.run.mockResolvedValue(JobStatus.Success);
 
