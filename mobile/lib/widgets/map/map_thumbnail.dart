@@ -9,6 +9,7 @@ import 'package:immich_mobile/extensions/maplibrecontroller_extensions.dart';
 import 'package:immich_mobile/widgets/map/asset_marker_icon.dart';
 import 'package:immich_mobile/widgets/map/map_style_presentation.dart';
 import 'package:immich_mobile/widgets/map/map_theme_override.dart';
+import 'package:logging/logging.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 /// A non-interactive thumbnail of a map in the given coordinates with optional markers
@@ -48,16 +49,49 @@ class MapThumbnail extends HookWidget {
   Widget build(BuildContext context) {
     final controller = useRef<MapLibreMapController?>(null);
     final styleLoaded = useState(false);
+    final languageGeneration = useRef(0);
+    final styleGeneration = useRef(0);
     final language = Localizations.localeOf(context).languageCode;
     useEffect(() {
+      final generation = ++languageGeneration.value;
       final current = controller.value;
       if (current != null && styleLoaded.value) {
-        unawaited(MapStylePresentation.applyLanguage(current, language, isCurrent: () => context.mounted));
+        unawaited(
+          MapStylePresentation.applyLanguage(
+            current,
+            language,
+            isCurrent: () => context.mounted && generation == languageGeneration.value,
+          ),
+        );
+      }
+      return () => languageGeneration.value++;
+    }, [language, styleLoaded.value]);
+
+    useEffect(() {
+      final current = controller.value;
+      if (styleLoaded.value &&
+          current != null &&
+          (current.cameraPosition?.target != centre || current.cameraPosition?.zoom != zoom)) {
+        // initialCameraPosition is read only when the native view is created.
+        // A sync can provide newer library coordinates without recreating it.
+        Future<void> updateCamera() async {
+          try {
+            await current.moveCamera(CameraUpdate.newLatLngZoom(centre, zoom));
+          } catch (error, stack) {
+            if (context.mounted && identical(current, controller.value)) {
+              Logger('LibraryMapPreview').warning('Cannot update library map viewport', error, stack);
+            }
+          }
+        }
+
+        unawaited(updateCamera());
       }
       return null;
-    }, [language]);
+    }, [centre, zoom, styleLoaded.value]);
 
     Future<void> onMapCreated(MapLibreMapController mapController) async {
+      languageGeneration.value++;
+      styleGeneration.value++;
       controller.value = mapController;
       styleLoaded.value = false;
       onCreated?.call(mapController);
@@ -65,10 +99,18 @@ class MapThumbnail extends HookWidget {
 
     Future<void> onStyleLoaded() async {
       final current = controller.value;
+      final generation = ++languageGeneration.value;
+      final style = ++styleGeneration.value;
+      bool isCurrentStyle() =>
+          context.mounted && style == styleGeneration.value && identical(current, controller.value);
       if (current != null) {
-        await MapStylePresentation.applyLanguage(current, language, isCurrent: () => context.mounted);
+        await MapStylePresentation.applyLanguage(
+          current,
+          language,
+          isCurrent: () => isCurrentStyle() && generation == languageGeneration.value,
+        );
       }
-      if (!context.mounted) {
+      if (!isCurrentStyle()) {
         return;
       }
       try {
@@ -80,7 +122,9 @@ class MapThumbnail extends HookWidget {
         // We do not have a way to check if the controller is disposed for now
         // https://github.com/maplibre/flutter-maplibre-gl/issues/192
       }
-      styleLoaded.value = true;
+      if (isCurrentStyle()) {
+        styleLoaded.value = true;
+      }
     }
 
     return MapThemeOverride(

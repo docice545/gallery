@@ -6,6 +6,7 @@ import android.location.Geocoder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -74,7 +75,7 @@ class PlaceNamesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     val qualifiers = listOf("state", "country").mapNotNull { key ->
       (args?.get(key) as? String)?.trim()?.takeIf { it.isNotEmpty() && it.length <= 200 && it.none(Char::isISOControl) }
     }
-    val query = (listOf(city) + qualifiers).distinct().joinToString(", ")
+    val queries = PlaceNamePolicy.queries(city, qualifiers)
     val operation = Lookup(result)
     pending = operation
     operation.timeout = Runnable {
@@ -90,30 +91,53 @@ class PlaceNamesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     try {
       val geocoder = Geocoder(ctx, Locale.forLanguageTag(languageTag))
       if (Build.VERSION.SDK_INT >= 33) {
-        providerBusy = true
-        geocoder.getFromLocationName(query, 3, south, west, north, east, object : Geocoder.GeocodeListener {
-          override fun onGeocode(addresses: MutableList<Address>) {
-            handler.post {
-              providerBusy = false
-              finish(operation, resolve(latitude, longitude, addresses))
+        fun lookup(index: Int) {
+          if (pending !== operation) return
+          providerBusy = true
+          geocoder.getFromLocationName(queries[index], 3, south, west, north, east, object : Geocoder.GeocodeListener {
+            override fun onGeocode(addresses: MutableList<Address>) {
+              handler.post {
+                providerBusy = false
+                if (pending !== operation) return@post
+                val label = resolve(latitude, longitude, addresses)?.takeIf { PlaceNamePolicy.acceptsLocale(it, languageTag) }
+                if (label == null && index + 1 < queries.size) {
+                  try { lookup(index + 1) }
+                  catch (_: Exception) {
+                    providerBusy = false
+                    finish(operation, error = "GEOCODER_FAILED")
+                  }
+                } else if (label == null) finish(operation, error = "GEOCODER_NO_MATCH")
+                else finish(operation, label)
+              }
             }
-          }
 
-          override fun onError(errorMessage: String?) {
-            // Provider error text can contain the query/coordinates. Keep it off logs.
-            handler.post {
-              providerBusy = false
-              finish(operation, error = "GEOCODER_FAILED")
+            override fun onError(errorMessage: String?) {
+              // Provider error text can contain the query/coordinates. Keep it off logs.
+              handler.post {
+                providerBusy = false
+                finish(operation, error = "GEOCODER_FAILED")
+              }
             }
-          }
-        })
+          })
+        }
+        lookup(0)
       } else {
         legacyBusy = true
+        val deadline = SystemClock.elapsedRealtime() + 3000
         operation.task = worker.submit {
           try {
-            @Suppress("DEPRECATION")
-            val addresses = geocoder.getFromLocationName(query, 3, south, west, north, east).orEmpty()
-            handler.post { finish(operation, resolve(latitude, longitude, addresses)) }
+            var label: String? = null
+            for (query in queries) {
+              if (Thread.currentThread().isInterrupted || SystemClock.elapsedRealtime() >= deadline) break
+              @Suppress("DEPRECATION")
+              val addresses = geocoder.getFromLocationName(query, 3, south, west, north, east).orEmpty()
+              label = resolve(latitude, longitude, addresses)?.takeIf { PlaceNamePolicy.acceptsLocale(it, languageTag) }
+              if (label != null) break
+            }
+            handler.post {
+              if (label == null) finish(operation, error = "GEOCODER_NO_MATCH")
+              else finish(operation, label)
+            }
           } catch (_: Exception) {
             handler.post { finish(operation, error = "GEOCODER_FAILED") }
           } finally {

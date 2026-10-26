@@ -15,6 +15,28 @@ class MapRepository extends DatabaseAccessor<Drift> with $MapRepositoryMixin {
 
   Drift get _db => attachedDatabase;
 
+  /// A deterministic library anchor, without requiring device-location access.
+  /// Read the newest eligible photo rather than a demo city or an arbitrary
+  /// unordered map-marker row. EXIF and asset membership remain unchanged.
+  Future<LatLng?> getInitialLocation(String userId) async {
+    final asset = _db.remoteAssetEntity;
+    final exif = _db.remoteExifEntity;
+    final query = exif.selectOnly()
+      ..addColumns([exif.latitude, exif.longitude])
+      ..join([innerJoin(asset, asset.id.equalsExp(exif.assetId), useColumns: false)])
+      ..where(
+        asset.ownerId.equals(userId) &
+            asset.deletedAt.isNull() &
+            asset.visibility.equals(AssetVisibility.timeline.index) &
+            exif.latitude.isBetweenValues(-90, 90) &
+            exif.longitude.isBetweenValues(-180, 180),
+      )
+      ..orderBy([OrderingTerm.desc(asset.createdAt), OrderingTerm.asc(asset.id)])
+      ..limit(1);
+    final row = await query.getSingleOrNull();
+    return row == null ? null : LatLng(row.read(exif.latitude)!, row.read(exif.longitude)!);
+  }
+
   MapQuery remote(List<String> userIds, String currentUserId, TimelineMapOptions options) => _mapQueryBuilder(
     assetFilter: (row) {
       Expression<bool> condition =

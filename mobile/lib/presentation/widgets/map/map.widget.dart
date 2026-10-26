@@ -14,6 +14,7 @@ import 'package:immich_mobile/presentation/widgets/map/map.state.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_my_location_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_photo_selection.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_utils.dart';
+import 'package:immich_mobile/providers/place_names.provider.dart';
 import 'package:immich_mobile/providers/routes.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/utils/async_mutex.dart';
@@ -41,6 +42,7 @@ class _MapViewState extends ConsumerState<MapView> {
   final _sheetController = DraggableScrollableController();
   final _log = Logger('PhotoMapView');
   int _styleGeneration = 0;
+  int _languageGeneration = 0;
   int _selectionGeneration = 0;
   bool _styleReady = false;
   bool _selecting = false;
@@ -63,6 +65,7 @@ class _MapViewState extends ConsumerState<MapView> {
   void dispose() {
     _debouncer.dispose();
     _styleGeneration++;
+    _languageGeneration++;
     _selectionGeneration++;
     mapController?.removeListener(onMapMoved);
     mapController?.onFeatureTapped.remove(onFeatureTapped);
@@ -76,6 +79,7 @@ class _MapViewState extends ConsumerState<MapView> {
     mapController?.removeListener(onMapMoved);
     mapController?.onFeatureTapped.remove(onFeatureTapped);
     _styleGeneration++;
+    _languageGeneration++;
     _selectionGeneration++;
     _styleReady = false;
     _selecting = false;
@@ -93,7 +97,16 @@ class _MapViewState extends ConsumerState<MapView> {
     if (_languageCode != null && _languageCode != language && _styleReady) {
       final controller = mapController;
       if (controller != null) {
-        unawaited(MapStylePresentation.applyLanguage(controller, language, isCurrent: () => mounted && _styleReady));
+        final generation = ++_languageGeneration;
+        final styleGeneration = _styleGeneration;
+        unawaited(
+          MapStylePresentation.applyLanguage(
+            controller,
+            language,
+            isCurrent: () =>
+                mounted && _styleReady && generation == _languageGeneration && styleGeneration == _styleGeneration,
+          ),
+        );
       }
     }
     _languageCode = language;
@@ -108,10 +121,6 @@ class _MapViewState extends ConsumerState<MapView> {
     _styleReady = false;
     bool current() => mounted && generation == _styleGeneration && identical(controller, mapController);
     try {
-      await MapStylePresentation.applyLanguage(controller, _languageCode ?? 'en', isCurrent: current);
-      if (!current()) {
-        return;
-      }
       await controller.addSource(MapUtils.defaultSourceId, MapUtils.photoSource);
       if (!current()) {
         return;
@@ -129,7 +138,15 @@ class _MapViewState extends ConsumerState<MapView> {
         return;
       }
       _styleReady = true;
-      _debouncer.run(() => setBounds(forceReload: true));
+      final languageGeneration = ++_languageGeneration;
+      await MapStylePresentation.applyLanguage(
+        controller,
+        _languageCode ?? 'en',
+        isCurrent: () => current() && languageGeneration == _languageGeneration,
+      );
+      if (current()) {
+        _debouncer.run(() => setBounds(forceReload: true));
+      }
     } catch (error, stack) {
       if (current()) {
         _log.warning('Cannot initialize photo map layers', error, stack);
@@ -288,7 +305,7 @@ class _MapViewState extends ConsumerState<MapView> {
   }
 }
 
-class _Map extends StatelessWidget {
+class _Map extends ConsumerWidget {
   final LatLng? initialLocation;
 
   const _Map({this.initialLocation, required this.onMapCreated, required this.onMapReady});
@@ -298,14 +315,18 @@ class _Map extends StatelessWidget {
   final VoidCallback onMapReady;
 
   @override
-  Widget build(BuildContext context) {
-    final initialLocation = this.initialLocation;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final location = initialLocation == null ? ref.watch(libraryMapLocationProvider) : AsyncData(initialLocation);
+    if (location.isLoading && !location.hasValue) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final libraryLocation = location.valueOrNull;
     return MapThemeOverride(
       mapBuilder: (style) => style.widgetWhen(
         onData: (style) => MapLibreMap(
-          initialCameraPosition: initialLocation == null
+          initialCameraPosition: libraryLocation == null
               ? const CameraPosition(target: LatLng(0, 0), zoom: 0)
-              : CameraPosition(target: initialLocation, zoom: MapUtils.mapZoomToAssetLevel),
+              : CameraPosition(target: libraryLocation, zoom: MapUtils.mapZoomToAssetLevel),
           compassEnabled: false,
           rotateGesturesEnabled: false,
           styleString: style,

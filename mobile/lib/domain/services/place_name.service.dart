@@ -25,6 +25,7 @@ class PlaceNameService {
   static final _logger = Logger('PlaceNameService');
   static const _positiveLifetime = Duration(days: 30);
   static const _negativeLifetime = Duration(hours: 1);
+  static const _transientLifetime = Duration(seconds: 15);
 
   final Future<String> Function() namespace;
   final Future<String?> Function() readCache;
@@ -33,7 +34,7 @@ class PlaceNameService {
   final DateTime Function() _now;
   final int maxCacheEntries;
   final Duration requestInterval;
-  final _cache = <String, ({String? label, DateTime expiresAt})>{};
+  final _cache = <String, ({String? label, DateTime expiresAt, bool persist})>{};
   final _pending = <String, ({Future<String> result, List<bool Function()> wanted})>{};
   Future<void>? _initialization;
   Future<void> _queue = Future.value();
@@ -75,7 +76,10 @@ class PlaceNameService {
         return;
       }
       final decoded = jsonDecode(serialized);
-      if (decoded is! Map || decoded['version'] != 1 || decoded['scope'] != _scope || decoded['entries'] is! List) {
+      if (decoded is! Map ||
+          !{1, 2}.contains(decoded['version']) ||
+          decoded['scope'] != _scope ||
+          decoded['entries'] is! List) {
         return;
       }
       for (final entry in decoded['entries'] as List) {
@@ -86,9 +90,14 @@ class PlaceNameService {
         if (label != null && label is! String) {
           continue;
         }
+        // Build 19 cached all failures (including offline/busy) for an hour.
+        // Keep its successful labels but let recoverable misses be retried.
+        if (decoded['version'] == 1 && label == null) {
+          continue;
+        }
         final expiry = DateTime.fromMillisecondsSinceEpoch(entry['expiresAt'] as int);
         if (expiry.isAfter(_now())) {
-          _cache[entry['key'] as String] = (label: label as String?, expiresAt: expiry);
+          _cache[entry['key'] as String] = (label: label as String?, expiresAt: expiry, persist: true);
         }
       }
       _trimCache();
@@ -149,6 +158,7 @@ class PlaceNameService {
         }
         _lastRequestAt = _now();
         String? label;
+        var persistFailure = true;
         try {
           label = (await lookup(place, languageTag).timeout(const Duration(seconds: 5)))?.trim();
           if (label != null &&
@@ -165,13 +175,24 @@ class PlaceNameService {
         } on PlatformException catch (error) {
           // Native codes are diagnostics. Never print the geocoder query,
           // coordinates or platform exception message containing user data.
-          _logger.warning('Localized place lookup failed (${error.code})');
+          persistFailure = error.code == 'GEOCODER_UNAVAILABLE' || error.code == 'GEOCODER_NO_MATCH';
+          _logger.warning(
+            'Localized place lookup failed (${error.code}); '
+            '${persistFailure ? 'source fallback' : 'transient retry permitted'}',
+          );
         } on TimeoutException {
+          persistFailure = false;
           _logger.warning('Localized place lookup timed out');
         } on Exception {
+          persistFailure = false;
           _logger.warning('Localized place lookup failed; retaining the source name');
         }
-        _cache[cacheKey] = (label: label, expiresAt: _now().add(label == null ? _negativeLifetime : _positiveLifetime));
+        final lifetime = label != null
+            ? _positiveLifetime
+            : persistFailure
+            ? _negativeLifetime
+            : _transientLifetime;
+        _cache[cacheKey] = (label: label, expiresAt: _now().add(lifetime), persist: label != null || persistFailure);
         _trimCache();
         await _persist();
         completer.complete(label ?? source);
@@ -187,6 +208,14 @@ class PlaceNameService {
     return completer.future;
   }
 
+  /// Explicit foreground retry. It does not mutate place/asset metadata or
+  /// clear successful translations; no background polling is introduced.
+  Future<void> retryFailures() async {
+    await (_initialization ??= _initialize());
+    _cache.removeWhere((_, entry) => entry.label == null);
+    await _persist();
+  }
+
   void _trimCache() {
     while (_cache.length > maxCacheEntries) {
       _cache.remove(_cache.keys.first);
@@ -200,11 +229,16 @@ class PlaceNameService {
     try {
       await writeCache(
         jsonEncode({
-          'version': 1,
+          'version': 2,
           'scope': _scope,
           'entries': [
             for (final entry in _cache.entries)
-              {'key': entry.key, 'label': entry.value.label, 'expiresAt': entry.value.expiresAt.millisecondsSinceEpoch},
+              if (entry.value.persist)
+                {
+                  'key': entry.key,
+                  'label': entry.value.label,
+                  'expiresAt': entry.value.expiresAt.millisecondsSinceEpoch,
+                },
           ],
         }),
       );

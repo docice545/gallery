@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -90,6 +91,51 @@ void main() {
     lookup = (_, _) async => 'Москва';
     expect(await resolve(names), 'Москва');
     expect(lookups, 2);
+  });
+
+  test('transient device failure does not survive restart and retries after a bounded backoff', () async {
+    lookup = (_, _) async => throw PlatformException(code: 'GEOCODER_FAILED');
+    final names = service();
+    expect(await resolve(names), 'Moscow');
+    expect(await resolve(names), 'Moscow');
+    expect(lookups, 1);
+    expect((jsonDecode(stored!) as Map)['entries'], isEmpty);
+    lookup = (_, _) async => 'Москва';
+    expect(await resolve(service()), 'Москва', reason: 'transient misses do not survive restart');
+    expect(lookups, 2);
+    now = now.add(const Duration(seconds: 16));
+    expect(await resolve(names), 'Москва');
+    expect(lookups, 3);
+  });
+
+  test('explicit foreground retry clears negative results without clearing good translations', () async {
+    lookup = (_, _) async => null;
+    final names = service();
+    expect(await resolve(names), 'Moscow');
+    lookup = (_, _) async => 'Москва';
+    expect(await resolve(names), 'Moscow');
+    await names.retryFailures();
+    expect(await resolve(names), 'Москва');
+    await names.retryFailures();
+    expect(await resolve(names), 'Москва');
+    expect(lookups, 2);
+  });
+
+  test('Build 19 hour-long negative cache does not pin a recovered provider to English', () async {
+    stored = jsonEncode({
+      'version': 1,
+      'scope': 'server|owner',
+      'entries': [
+        {
+          'key': PlaceNameService.key(place, 'ru-RU'),
+          'label': null,
+          'expiresAt': now.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+        },
+      ],
+    });
+    expect(await resolve(service()), 'Москва');
+    expect(lookups, 1);
+    expect((jsonDecode(stored!) as Map)['version'], 2);
   });
 
   test('unsupported platforms and ignored Russian locale preserve the source spelling', () async {

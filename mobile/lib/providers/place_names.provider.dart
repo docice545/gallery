@@ -11,7 +11,19 @@ import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:logging/logging.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:openapi/api.dart';
+
+/// Shared by the library card, Places preview and the default map route. The
+/// owner library is the source of the initial viewport, never the device GPS.
+final libraryMapLocationProvider = FutureProvider<LatLng?>((ref) {
+  ref.watch(syncStatusProvider.select((state) => state.remoteContentChangedCount));
+  final userId = ref.watch(currentUserProvider.select((user) => user?.id));
+  if (userId == null) {
+    return Future.value(null);
+  }
+  return ref.watch(driftProvider).mapRepository.getInitialLocation(userId);
+});
 
 final placeDetailsProvider = FutureProvider<List<Place>>((ref) {
   ref.watch(syncStatusProvider.select((state) => state.remoteContentChangedCount));

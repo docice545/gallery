@@ -8,12 +8,12 @@ import 'package:immich_mobile/domain/services/place_name.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
+import 'package:immich_mobile/presentation/widgets/map/library_map_preview.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/place_list_tile.widget.dart';
 import 'package:immich_mobile/providers/place_names.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/place_names.dart';
 import 'package:immich_mobile/widgets/common/search_field.dart';
-import 'package:immich_mobile/widgets/map/map_thumbnail.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 @RoutePage()
@@ -43,13 +43,13 @@ class PlacePage extends HookWidget {
   }
 }
 
-class _PlaceSliverAppBar extends HookWidget {
+class _PlaceSliverAppBar extends HookConsumerWidget {
   const _PlaceSliverAppBar({required this.search});
 
   final ValueNotifier<String?> search;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final searchFocusNode = useFocusNode();
 
     return SliverAppBar(
@@ -71,6 +71,19 @@ class _PlaceSliverAppBar extends HookWidget {
             )
           : Text(context.t.places),
       actions: [
+        IconButton(
+          tooltip: context.t.refresh,
+          icon: const Icon(Icons.refresh),
+          onPressed: () async {
+            await ref.read(placeNameServiceProvider).retryFailures();
+            if (!context.mounted) {
+              return;
+            }
+            ref.invalidate(localizedPlaceLabelProvider);
+            ref.invalidate(placeDetailsProvider);
+            ref.invalidate(libraryMapLocationProvider);
+          },
+        ),
         IconButton(
           icon: Icon(search.value != null ? Icons.close : Icons.search),
           onPressed: () {
@@ -97,12 +110,9 @@ class _Map extends StatelessWidget {
               child: SizedBox(
                 height: 200,
                 width: context.width,
-                child: MapThumbnail(
-                  onTap: (_, _) => context.pushRoute(MapRoute(initialLocation: currentLocation)),
-                  zoom: 8,
-                  centre: currentLocation ?? const LatLng(21.44950, -157.91959),
-                  showAttribution: false,
-                  themeMode: context.isDarkTheme ? ThemeMode.dark : ThemeMode.light,
+                child: LibraryMapPreview(
+                  initialLocation: currentLocation,
+                  onTap: (centre) => context.pushRoute(MapRoute(initialLocation: centre)),
                 ),
               ),
             ),

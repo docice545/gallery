@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlaceNamePolicyTest {
+  @Test fun `ignored Russian locale triggers the bounded fallback instead of accepting English`() {
+    assertFalse(PlaceNamePolicy.acceptsLocale("Moscow", "ru-RU"))
+    assertFalse(PlaceNamePolicy.acceptsLocale("Moskva", "ru"))
+    assertTrue(PlaceNamePolicy.acceptsLocale("Москва", "ru-RU"))
+    assertTrue(PlaceNamePolicy.acceptsLocale("Mũi Né", "vi"))
+  }
+
+  @Test fun `qualified lookup has only one bounded city-only fallback`() {
+    assertEquals(listOf("Moscow, Russia", "Moscow"),
+      PlaceNamePolicy.queries("Moscow", listOf("MOSCOW", "Russia")))
+    assertEquals(listOf("Vnukovo, Moscow, Russia", "Vnukovo"),
+      PlaceNamePolicy.queries("Vnukovo", listOf("Moscow", "Russia")))
+    assertEquals(listOf("Муйне"), PlaceNamePolicy.queries("Муйне", emptyList()))
+  }
+
   @Test fun preservesNamesFromLocalizedProviderWithoutTransliteration() {
     val fixtures = listOf("Москва", "Химки", "Внуково", "Белек", "Муйне", "Немчиновка",
       "Восточное Дегунино", "Новая Купавна", "Гонолулу")

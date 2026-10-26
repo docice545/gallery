@@ -15,6 +15,18 @@ internal data class PlaceNameCandidate(
 )
 
 internal object PlaceNamePolicy {
+  /** Some device providers cannot parse qualified foreign-language place
+   * names. A bounded city-only retry uses the same anchor and name policy;
+   * it never falls back to the containing city of an unrelated POI. */
+  fun queries(city: String, qualifiers: List<String>): List<String> {
+    val parts = (listOf(city) + qualifiers).distinctBy { it.trim().lowercase(java.util.Locale.ROOT) }
+    return listOf(parts.joinToString(", "), city).distinct()
+  }
+
+  fun acceptsLocale(label: String, languageTag: String): Boolean =
+    !java.util.Locale.forLanguageTag(languageTag).language.equals("ru", ignoreCase = true) ||
+      Regex("[А-Яа-яЁё]").containsMatchIn(label)
+
   fun validCoordinates(latitude: Double, longitude: Double): Boolean =
     latitude.isFinite() && longitude.isFinite() && latitude in -90.0..90.0 && longitude in -180.0..180.0
 
