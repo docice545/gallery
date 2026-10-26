@@ -66,6 +66,27 @@ class AssetService {
     return [asset, ...stack];
   }
 
+  /// Resolve explicitly selected collapsed covers before any Trash mutation.
+  /// Local cache contents can be incomplete; the server owns stack membership.
+  /// Individual frames and flat timelines must keep their exact selected IDs.
+  Future<List<String>> resolveStackTrashIds(List<String> selectedIds, List<RemoteAsset> covers) async {
+    final selected = selectedIds.toSet();
+    final ids = {...selected};
+    final seenStacks = <String>{};
+    for (final cover in covers) {
+      final stackId = cover.stackId;
+      if (stackId == null || !selected.contains(cover.id) || !seenStacks.add(stackId)) {
+        continue;
+      }
+      final stack = await _apiRepository.getStack(stackId);
+      if (stack.id != stackId || stack.primaryAssetId != cover.id || !stack.assetIds.contains(cover.id)) {
+        throw StateError('Selected stack cover changed; refresh the selection before deleting');
+      }
+      ids.addAll(stack.assetIds);
+    }
+    return ids.toList(growable: false);
+  }
+
   Future<ExifInfo?> getExif(BaseAsset asset) async {
     if (!asset.hasRemote) {
       return null;

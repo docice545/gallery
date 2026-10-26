@@ -5,15 +5,20 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
+import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
+import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
+import 'package:immich_mobile/utils/asset_filter.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:mocktail/mocktail.dart';
@@ -60,7 +65,19 @@ void main() {
     bool trashEnabled = true,
     bool everywhere = false,
     bool device = false,
+    TimelineOrigin? origin,
+    ActionSource source = ActionSource.timeline,
   }) async {
+    final timeline = origin == null
+        ? null
+        : TimelineService((
+            assetSource: (_, _) async => selection.toList(),
+            bucketSource: () => Stream.value(const []),
+            origin: origin,
+          ));
+    if (timeline != null) {
+      addTearDown(timeline.dispose);
+    }
     if (!trashEnabled) {
       when(
         () => context.service.serverInfo.getServerFeatures(),
@@ -71,12 +88,16 @@ void main() {
       context,
       ActionIconButton(
         action: device
-            ? const CleanupLocalAction(source: .timeline)
+            ? CleanupLocalAction(source: source)
             : everywhere
-            ? const DeleteEverywhereAction(source: .timeline)
-            : const DeleteAction(source: .timeline),
+            ? DeleteEverywhereAction(source: source)
+            : DeleteAction(source: source),
       ),
-      overrides: context.selected(selection),
+      overrides: [
+        ...context.selected(selection),
+        if (timeline != null) timelineServiceProvider.overrideWithValue(timeline),
+        if (source == .viewer) assetsActionProvider(source).overrideWithValue(AssetFilter(selection)),
+      ],
     );
 
     if (!trashEnabled) {
@@ -97,6 +118,121 @@ void main() {
   }
 
   group('DeleteAction', () {
+    group('collapsed main-timeline stacks', () {
+      for (final count in [2, 3, 5]) {
+        testWidgets('$count-member cover trashes all server IDs and Undo restores the same set', (tester) async {
+          final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack-$count');
+          final ids = [cover.id, for (var i = 1; i < count; i++) 'child-$count-$i'];
+          when(() => assetService.resolveStackTrashIds(any(), any())).thenAnswer((_) async => ids);
+
+          await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+          await tester.pumpAndSettle();
+
+          verify(() => assetService.resolveStackTrashIds([cover.id], [cover])).called(1);
+          verify(() => assetService.trash(ids)).called(1);
+          expect(find.text('$count moved to trash'), findsOneWidget);
+          verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+          verifyNever(() => assetService.deleteWithResults(any()));
+          await tester.tap(find.text('Undo'));
+          await tester.pumpAndSettle();
+          verify(() => assetService.restoreTrash(ids)).called(1);
+        });
+      }
+
+      testWidgets('failed membership lookup keeps the selection and never trashes only the cover', (tester) async {
+        final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+        when(() => assetService.resolveStackTrashIds(any(), any())).thenThrow(StateError('fixture stack unavailable'));
+
+        await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+        await tester.pumpAndSettle();
+
+        verifyNever(() => assetService.trash(any()));
+        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {cover});
+      });
+
+      testWidgets('server switch during lookup cannot apply the old selection to the new server', (tester) async {
+        final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+        final membership = Completer<List<String>>();
+        when(() => assetService.resolveStackTrashIds(any(), any())).thenAnswer((_) => membership.future);
+        try {
+          await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+          verifyNever(() => assetService.trash(any()));
+          await StoreService.I.put(StoreKey.serverEndpoint, 'https://other.example.test/api');
+          membership.complete([cover.id, 'child']);
+          await tester.pumpAndSettle();
+          verifyNever(() => assetService.trash(any()));
+          verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+          final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+          expect(scope.read(multiSelectProvider).selectedAssets, {cover});
+        } finally {
+          await StoreService.I.put(StoreKey.serverEndpoint, PresentationContext.serverEndpoint);
+        }
+      });
+
+      testWidgets('expanded server IDs never expand the explicitly selected local copies', (tester) async {
+        final cover = RemoteAssetFactory.create(
+          ownerId: context.currentUser.id,
+          stackId: 'stack',
+          localId: 'selected-phone-copy',
+        );
+        when(() => assetService.resolveStackTrashIds(any(), any())).thenAnswer((_) async => [cover.id, 'child']);
+        when(
+          () => cleanupService.deleteLocalAssetsDetailed(any()),
+        ).thenAnswer((_) async => const LocalDeletionResult(deletedIds: ['selected-phone-copy'], remainingIds: []));
+
+        await pumpDelete(tester, {cover}, origin: TimelineOrigin.main, everywhere: true);
+        await tester.pumpAndSettle();
+
+        verify(() => assetService.trash([cover.id, 'child'])).called(1);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(['selected-phone-copy'])).called(1);
+        expect(find.text('Undo'), findsNothing);
+      });
+
+      for (final frame in ['primary', 'child']) {
+        testWidgets('viewer $frame remains an individual frame even over the main timeline', (tester) async {
+          final asset = RemoteAssetFactory.create(id: frame, ownerId: context.currentUser.id, stackId: 'stack');
+
+          await pumpDelete(tester, {asset}, origin: TimelineOrigin.main, source: ActionSource.viewer);
+          await tester.pumpAndSettle();
+
+          verify(() => assetService.trash([asset.id])).called(1);
+          verifyNever(() => assetService.resolveStackTrashIds(any(), any()));
+          verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        });
+      }
+
+      for (final origin in [TimelineOrigin.remoteAlbum, TimelineOrigin.map, TimelineOrigin.search]) {
+        testWidgets('flat ${origin.name} selection keeps its exact server IDs', (tester) async {
+          final asset = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+
+          await pumpDelete(tester, {asset}, origin: origin);
+          await tester.pumpAndSettle();
+
+          verify(() => assetService.trash([asset.id])).called(1);
+          verifyNever(() => assetService.resolveStackTrashIds(any(), any()));
+          verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        });
+      }
+
+      testWidgets('permanent deletion in Trash never expands into an active sibling', (tester) async {
+        final asset = RemoteAssetFactory.create(
+          ownerId: context.currentUser.id,
+          stackId: 'stack',
+          deletedAt: DateTime(2026, 10, 26),
+        );
+
+        await pumpDelete(tester, {asset}, origin: TimelineOrigin.trash);
+        await respondToDialog(tester, confirm: true);
+
+        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verifyNever(() => assetService.resolveStackTrashIds(any(), any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+      });
+    });
+
     group('trash', () {
       testWidgets('trashes a remote-only owned asset', (tester) async {
         final asset = owned();

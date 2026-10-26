@@ -3,11 +3,14 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
@@ -95,13 +98,34 @@ class DeleteAction extends AssetActionBuilder {
     final clearSelection = ref.read(clearSelectionProvider(source));
 
     try {
+      var trashIds = remoteIds;
+      if (trash && source == .timeline) {
+        final covers = ref
+            .read(ownedAssetsActionProvider(source))
+            .where((asset) => asset.stackId != null)
+            .toList(growable: false);
+        // Main Photos collapses stacks in its query. Viewer (even its primary),
+        // flat album/search/map and Trash selections still denote single frames.
+        if (covers.isNotEmpty && ref.read(timelineServiceProvider).origin == TimelineOrigin.main) {
+          final userId = ref.read(authUserProvider).id;
+          final store = ref.read(storeServiceProvider);
+          final endpoint = store.tryGet(StoreKey.serverEndpoint);
+          trashIds = await assetService.resolveStackTrashIds(remoteIds, covers);
+          if (!context.mounted) {
+            return;
+          }
+          if (ref.read(authUserProvider).id != userId || store.tryGet(StoreKey.serverEndpoint) != endpoint) {
+            throw StateError('Account or server changed while resolving selected stacks');
+          }
+        }
+      }
       final _DeletionMessage? result;
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
       ToastOption? undo;
       if (trash) {
-        result = await _moveToTrash(context, ref, remoteIds, removeLocalCopies ? localIds : const []);
+        result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const []);
         if (!removeLocalCopies) {
-          undo = .new(onUndo: () => assetService.restoreTrash(remoteIds));
+          undo = .new(onUndo: () => assetService.restoreTrash(trashIds));
         }
       } else {
         result = await _deletePermanently(context, ref, remoteIds);
