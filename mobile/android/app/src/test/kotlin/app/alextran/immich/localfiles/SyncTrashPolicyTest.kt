@@ -8,6 +8,40 @@ class SyncTrashPolicyTest {
   private val expected = SyncTrashAsset("42", 1, "photo.jpg", 1000, 1100)
   private val current = SyncTrashSnapshot(1, "photo.jpg", 1000, 1100, false)
 
+  @Test fun `foreground user request may obtain system consent without MANAGE_MEDIA`() {
+    assertEquals(true, SyncTrashPolicy.mayRequestTrash(true, false))
+    assertEquals(true, SyncTrashPolicy.mayRequestTrash(true, true))
+  }
+
+  @Test fun `automatic sync cannot ask for consent after MANAGE_MEDIA is missing or revoked`() {
+    assertEquals(false, SyncTrashPolicy.mayRequestTrash(false, false))
+    assertEquals(true, SyncTrashPolicy.mayRequestTrash(false, true))
+  }
+
+  @Test fun `system trash is supported from API30 for user operations and API31 for sync`() {
+    assertEquals(false, SyncTrashPolicy.supportsTrash(29, true))
+    assertEquals(false, SyncTrashPolicy.supportsTrash(30, false))
+    assertEquals(true, SyncTrashPolicy.supportsTrash(30, true))
+    assertEquals(true, SyncTrashPolicy.supportsTrash(36, false))
+  }
+
+  @Test fun `trashed replacement with reused id never completes the original intent`() {
+    assertEquals("assetChanged", SyncTrashPolicy.beforeWrite(expected,
+      current.copy(isTrashed = true, name = "replacement.jpg")))
+    assertEquals("assetChanged", SyncTrashPolicy.beforeWrite(expected,
+      current.copy(isTrashed = true, createdAt = 2000)))
+    assertEquals("assetChanged", SyncTrashPolicy.beforeWrite(expected,
+      current.copy(isTrashed = true, type = 2)))
+  }
+
+  @Test fun `identity diagnostic distinguishes stale fingerprints without disclosing original name`() {
+    assertEquals("phase=identity typeMatches=true nameMatches=false createdAtMatches=true " +
+      "updatedAtMatches=false isTrashed=false", SyncTrashPolicy.identityDiagnostic(expected,
+      current.copy(name = "private-replacement.jpg", updatedAt = 3000)))
+    assertEquals("phase=identity: MediaStore row missing or no longer visible",
+      SyncTrashPolicy.identityDiagnostic(expected, null))
+  }
+
   @Test fun `unchanged live media is eligible`() {
     assertNull(SyncTrashPolicy.beforeWrite(expected, current))
   }

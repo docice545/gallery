@@ -199,6 +199,39 @@ void main() {
         expect(find.text('Undo'), findsNothing);
       });
 
+      testWidgets('fourteen server deletions with six refused system requests retain all device selections', (
+        tester,
+      ) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        try {
+          final assets = {
+            for (var i = 0; i < 14; i++)
+              RemoteAssetFactory.create(
+                id: 'server-$i',
+                ownerId: context.currentUser.id,
+                localId: i < 6 ? 'phone-$i' : null,
+              ),
+          };
+          final localIds = [for (var i = 0; i < 6; i++) 'phone-$i'];
+          when(
+            () => cleanupService.deleteLocalAssetsDetailed(any()),
+          ).thenAnswer((_) async => LocalDeletionResult(deletedIds: const [], remainingIds: localIds));
+
+          await pumpDelete(tester, assets, everywhere: true);
+          await tester.pumpAndSettle();
+
+          verify(() => assetService.trash(assets.map((asset) => asset.id).toList())).called(1);
+          verify(() => cleanupService.deleteLocalAssetsDetailed(localIds)).called(1);
+          expect(find.textContaining('0 removed, 6 remain'), findsOneWidget);
+          final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+          expect(scope.read(multiSelectProvider).selectedAssets, assets);
+          verifyNever(() => assetService.deleteWithResults(any()));
+          expect(find.text('Undo'), findsNothing);
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+
       testWidgets('mixed everywhere operation includes local-only copies after cloud acceptance', (tester) async {
         final backedUp = owned(localId: 'backed-up');
         final localOnly = LocalAssetFactory.create(id: 'local-only');

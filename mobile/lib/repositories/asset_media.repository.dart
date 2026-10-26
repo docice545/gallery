@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -43,6 +42,7 @@ final assetMediaRepositoryProvider = Provider(
     ref.watch(nativeSyncApiProvider),
     ref.watch(storageRepositoryProvider),
     remoteAssetById: ref.watch(driftProvider).remoteAssetRepository.get,
+    localAssetById: ref.watch(driftProvider).localAssetRepository.get,
   ),
 );
 
@@ -56,23 +56,37 @@ class AssetMediaRepository {
   final LivePhotoApi? livePhotoApi;
   final Future<RemoteAsset?> Function(String)? remoteAssetById;
 
-  const AssetMediaRepository(this._nativeSyncApi, this._storageRepository, {this.livePhotoApi, this.remoteAssetById});
+  final Future<LocalAsset?> Function(String)? localAssetById;
 
-  Future<bool> _androidSupportsTrash() async {
-    if (Platform.isAndroid) {
-      final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-      final AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-      final int sdkVersion = androidInfo.version.sdkInt;
-      return sdkVersion >= 31;
-    }
-    return false;
-  }
+  const AssetMediaRepository(
+    this._nativeSyncApi,
+    this._storageRepository, {
+    this.livePhotoApi,
+    this.remoteAssetById,
+    this.localAssetById,
+  });
 
   Future<List<String>> deleteAll(List<String> ids, {bool trash = true}) async {
-    if (trash && CurrentPlatform.isAndroid && await _androidSupportsTrash()) {
-      return PhotoManager.editor.android.moveToTrash(
-        ids.map((e) => AssetEntity(id: e, width: 1, height: 1, typeInt: 0)).toList(),
-      );
+    if (trash && CurrentPlatform.isAndroid) {
+      // Explicit foreground removal and automatic synchronization must share
+      // identity checks and per-ID MediaStore verification. PhotoManager's
+      // synthetic typeInt=0 batch loses both the media type and the reason for
+      // each rejection. An unsupported Android version must never turn Trash
+      // into a permanent delete.
+      final assets = <LocalAsset>[];
+      for (final id in ids.toSet()) {
+        final asset = await localAssetById?.call(id);
+        if (asset == null) {
+          _log.warning('Device trash id=$id mode=user code=identityUnavailable: current local metadata is missing');
+        } else {
+          assets.add(asset);
+        }
+      }
+      final outcomes = await _trashAndroid(assets, allowUserConfirmation: true);
+      return [
+        for (final entry in outcomes.entries)
+          if (entry.value.isTrashed) entry.key,
+      ];
     }
     return PhotoManager.editor.deleteWithIds(ids);
   }
@@ -82,7 +96,14 @@ class AssetMediaRepository {
   /// This deliberately has no permanent-delete fallback. The native operation
   /// checks the current asset identity and verifies every result in MediaStore;
   /// callers retain unsuccessful outcomes in their durable pending operations.
-  Future<Map<String, LocalTrashResult>> trashForSync(List<LocalAsset> assets, {Future<void>? cancellation}) async {
+  Future<Map<String, LocalTrashResult>> trashForSync(List<LocalAsset> assets, {Future<void>? cancellation}) =>
+      _trashAndroid(assets, cancellation: cancellation);
+
+  Future<Map<String, LocalTrashResult>> _trashAndroid(
+    List<LocalAsset> assets, {
+    bool allowUserConfirmation = false,
+    Future<void>? cancellation,
+  }) async {
     final distinct = <String, LocalAsset>{};
     for (final asset in assets) {
       distinct.putIfAbsent(asset.id, () => asset);
@@ -120,6 +141,7 @@ class AssetMediaRepository {
       const channel = MethodChannel('file_trash');
       final nativeResponse = channel.invokeMethod<Object?>('trashForSync', {
         'operationId': operationId,
+        'allowUserConfirmation': allowUserConfirmation,
         'assets': [
           for (final asset in batch)
             {
@@ -132,19 +154,36 @@ class AssetMediaRepository {
         ],
       });
       Object? response;
-      if (cancellationSignal == null) {
-        response = await nativeResponse;
-      } else {
-        response = await Future.any<Object?>([nativeResponse, cancellationSignal]);
-        if (identical(response, _trashCancelled)) {
-          // Cancellation belongs to this exact native request. There is no
-          // detached callback that could later cancel a subsequent operation.
-          try {
-            await channel.invokeMethod<Object?>('cancelTrashForSync', {'operationId': operationId});
-          } finally {
-            response = await nativeResponse;
+      StackTrace? nativeFailureStack;
+      try {
+        if (cancellationSignal == null) {
+          response = await nativeResponse;
+        } else {
+          response = await Future.any<Object?>([nativeResponse, cancellationSignal]);
+          if (identical(response, _trashCancelled)) {
+            // Cancellation belongs to this exact native request. There is no
+            // detached callback that could later cancel a subsequent operation.
+            try {
+              await channel.invokeMethod<Object?>('cancelTrashForSync', {'operationId': operationId});
+            } finally {
+              response = await nativeResponse;
+            }
           }
         }
+      } on PlatformException catch (error, stack) {
+        // A later failed native batch must not erase earlier verified results.
+        // Preserve the concrete error for every affected ID and let the next
+        // bounded batch run. The durable sync queue retains these failed IDs.
+        nativeFailureStack = stack;
+        final rawMessage =
+            'phase=channel ${error.message ?? error.code}'
+            '${error.details == null ? '' : '; details=${error.details}'}';
+        final message = rawMessage
+            .replaceAll(RegExp(r'(?:content|file)://[^\s;]+'), '<media-uri>')
+            .replaceAll(RegExp(r'/(?:storage|data|mnt)/[^\s;]+'), '<media-path>');
+        response = {
+          for (final asset in batch) asset.id: {'code': error.code, 'message': message},
+        };
       }
       for (final asset in batch) {
         final entry = response is Map ? response[asset.id] : null;
@@ -156,6 +195,27 @@ class AssetMediaRepository {
             message: 'Android did not return a valid per-asset trash result',
           );
         }
+        final result = results[asset.id]!;
+        final diagnostic =
+            'Device trash id=${asset.id} mode=${allowUserConfirmation ? 'user' : 'sync'} '
+            'code=${result.code}${result.message == null ? '' : ': ${result.message}'}';
+        if (result.isTrashed) {
+          _log.info(diagnostic);
+        } else {
+          _log.warning(diagnostic, null, nativeFailureStack);
+        }
+      }
+      if (allowUserConfirmation && results.values.any((result) => result.code == 'cancelled')) {
+        // One cancelled system dialog is a cancelled user operation. Do not
+        // launch another dialog for later batches in the same selection.
+        for (final asset in pending.skip(end)) {
+          results[asset.id] = const LocalTrashResult(
+            code: 'cancelled',
+            message: 'A preceding system trash request was cancelled',
+          );
+          _log.warning('Device trash id=${asset.id} mode=user code=cancelled: preceding system request cancelled');
+        }
+        break;
       }
     }
     return results;

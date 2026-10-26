@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
@@ -42,21 +43,21 @@ void main() {
       verify(() => localAssetRepository.deleteAssets(ids)).called(1);
     });
 
-    test('deletes in platform-specific batches when over limit', () async {
+    test('authorized permanent cleanup preserves platform-specific batches above the limit', () async {
       final batchSize = CurrentPlatform.isAndroid ? 2000 : 10000;
       final ids = List.generate(batchSize * 2 + 501, (i) => 'asset-$i');
       final capturedBatches = <List<String>>[];
 
-      when(() => assetMediaRepository.deleteAll(any())).thenAnswer((invocation) async {
+      when(() => assetMediaRepository.deleteAll(any(), trash: false)).thenAnswer((invocation) async {
         final batch = (invocation.positionalArguments.first as List<String>).toList();
         capturedBatches.add(batch);
         return batch;
       });
       when(() => localAssetRepository.deleteAssets(any())).thenAnswer((_) async {});
 
-      final result = await sut.deleteLocalAssets(ids);
+      final result = await sut.deleteLocalAssetsDetailed(ids, trash: false);
 
-      expect(result, ids.length);
+      expect(result.deletedIds, ids);
       expect(capturedBatches.length, 3);
       expect(capturedBatches[0].length, batchSize);
       expect(capturedBatches[1].length, batchSize);
@@ -86,18 +87,18 @@ void main() {
       verify(() => localAssetRepository.deleteAssets(['photo'])).called(1);
     });
 
-    test('one failed OS batch does not hide results from the following batch', () async {
+    test('authorized permanent cleanup retains later batch success after a platform refusal', () async {
       final size = CurrentPlatform.isAndroid ? 2000 : 10000;
       final ids = List.generate(size + 1, (index) => 'id-$index');
       var batch = 0;
-      when(() => assetMediaRepository.deleteAll(any())).thenAnswer((call) async {
+      when(() => assetMediaRepository.deleteAll(any(), trash: false)).thenAnswer((call) async {
         if (batch++ == 0) {
-          throw StateError('OS denied this batch');
+          throw PlatformException(code: 'USER_DENIED', message: 'OS denied this batch');
         }
         return call.positionalArguments.first as List<String>;
       });
       when(() => localAssetRepository.deleteAssets(any())).thenAnswer((_) async {});
-      final result = await sut.deleteLocalAssetsDetailed(ids);
+      final result = await sut.deleteLocalAssetsDetailed(ids, trash: false);
       expect(result.deletedIds, [ids.last]);
       expect(result.remainingIds, ids.take(size));
     });

@@ -35,12 +35,14 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Trash-only synchronization. MediaStore, rather than an accepted intent or a
- * plugin's batch callback, is the authority for each returned success.
+ * Shared trash-only operation for explicit user requests and synchronization.
+ * MediaStore, not an accepted intent or a plugin's batch callback, is the
+ * authority for each returned success.
  *
- * MANAGE_MEDIA suppresses the system confirmation; it does not itself grant
- * direct write access. Camera-owned rows can therefore require createTrashRequest
- * even when this permission is present. Such requests need a foreground Activity.
+ * An explicit user request can obtain the foreground system trash grant without
+ * MANAGE_MEDIA. Automatic synchronization never prompts when that permission is
+ * missing. MANAGE_MEDIA suppresses confirmation but does not grant direct write
+ * access; camera-owned rows can still need createTrashRequest in the foreground.
  */
 internal class SyncTrashDelegate(context: Context) {
   private val ctx = context.applicationContext
@@ -51,7 +53,12 @@ internal class SyncTrashDelegate(context: Context) {
   private var pending: PendingConfirmation? = null
   private var nextRequestCode = 23000
 
-  private class Operation(val id: String, val assets: List<SyncTrashAsset>, val result: MethodChannel.Result) {
+  private class Operation(
+    val id: String,
+    val assets: List<SyncTrashAsset>,
+    val allowUserConfirmation: Boolean,
+    val result: MethodChannel.Result,
+  ) {
     val outcomes = ConcurrentHashMap<String, Map<String, String>>()
     val delivered = AtomicBoolean(false)
     var job: Job? = null
@@ -111,7 +118,7 @@ internal class SyncTrashDelegate(context: Context) {
       result.success(assets.associate { it.id to outcome("busy", "Another synchronized trash operation is active") })
       return
     }
-    val op = Operation(operationId, assets, result)
+    val op = Operation(operationId, assets, input?.get("allowUserConfirmation") == true, result)
     active = op
     op.watchdog = Runnable {
       // A coroutine timeout alone cannot release Flutter while a synchronous
@@ -165,14 +172,22 @@ internal class SyncTrashDelegate(context: Context) {
     op.watchdog?.let(main::removeCallbacks)
     if (!op.delivered.compareAndSet(false, true)) return
     val snapshot = op.assets.associate { asset ->
-      asset.id to (op.outcomes[asset.id] ?: outcome("cancelled", "The operation ended before this asset was verified"))
+      val actual = op.outcomes[asset.id] ?: outcome("cancelled", "The operation ended before this asset was verified")
+      asset.id to (actual + ("message" to listOfNotNull(
+        "sdk=${Build.VERSION.SDK_INT} mode=${if (op.allowUserConfirmation) "user" else "sync"}",
+        actual["message"],
+      ).joinToString("; ")))
     }
     op.result.success(snapshot)
   }
 
   private suspend fun execute(op: Operation) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-      completeRemaining(op, "unsupported", "Automatic system-trash synchronization requires Android API 31 or newer")
+    if (!SyncTrashPolicy.supportsTrash(Build.VERSION.SDK_INT, op.allowUserConfirmation)) {
+      completeRemaining(op, "unsupported", "System Trash requires Android API 30 for a user request or API 31 for automatic synchronization")
+      return
+    }
+    if (op.allowUserConfirmation && !withContext(Dispatchers.Main) { isForegroundActivity() }) {
+      completeRemaining(op, "noActivity", "An explicit user trash request needs a resumed Activity before any MediaStore write")
       return
     }
     val needsConsent = mutableListOf<SyncTrashAsset>()
@@ -184,27 +199,35 @@ internal class SyncTrashDelegate(context: Context) {
         continue
       }
       try {
-        permissionFailure(asset)?.let { op.outcomes[asset.id] = it } ?: run {
-          val before = SyncTrashPolicy.beforeWrite(asset, snapshot(asset))
+        permissionFailure(asset, op.allowUserConfirmation)?.let { op.outcomes[asset.id] = it } ?: run {
+          val current = snapshot(asset)
+          val before = SyncTrashPolicy.beforeWrite(asset, current)
           if (before != null) {
-            op.outcomes[asset.id] = outcome(before)
+            op.outcomes[asset.id] = outcome(before, SyncTrashPolicy.identityDiagnostic(asset, current))
           } else {
             coroutineContext.ensureActive()
             // Recheck permissions immediately before mutating the media row.
-            val denied = permissionFailure(asset)
+            val denied = permissionFailure(asset, op.allowUserConfirmation)
             if (denied != null) {
               op.outcomes[asset.id] = denied
+            } else if (op.allowUserConfirmation && !canManageMedia()) {
+              // MANAGE_MEDIA is optional for an explicit foreground action.
+              // Obtain Android's trash-only grant instead of silently denying
+              // the whole selection or attempting an unapproved direct write.
+              requestReasons[asset.id] = "MANAGE_MEDIA=false; explicit system consent required"
+              needsConsent.add(asset)
             } else {
               coroutineContext.ensureActive()
               try {
-                ctx.contentResolver.update(uri(asset), ContentValues().apply {
+                val changed = ctx.contentResolver.update(uri(asset), ContentValues().apply {
                   put(MediaStore.MediaColumns.IS_TRASHED, 1)
                 }, null, null)
-                val after = verifiedOutcome(asset, "notTrashed")
+                val after = verifiedOutcome(asset, op.allowUserConfirmation, "notTrashed",
+                  "phase=directWrite rowsChanged=$changed manageMedia=${canManageMedia()}")
                 if (after["code"] == "notTrashed") {
                   // Some providers return zero instead of throwing when a
                   // camera-owned row needs a scoped system write grant.
-                  requestReasons[asset.id] = "MediaStore update did not mark the row as trashed"
+                  requestReasons[asset.id] = "${after["message"]}; MediaStore update did not mark the row as trashed"
                   needsConsent.add(asset)
                 } else {
                   op.outcomes[asset.id] = after
@@ -232,7 +255,7 @@ internal class SyncTrashDelegate(context: Context) {
     for (asset in needsConsent) {
       coroutineContext.ensureActive()
       try {
-        val denied = permissionFailure(asset)
+        val denied = permissionFailure(asset, op.allowUserConfirmation)
         val state = if (denied == null) SyncTrashPolicy.beforeWrite(asset, snapshot(asset)) else null
         when {
           denied != null -> op.outcomes[asset.id] = denied
@@ -249,15 +272,18 @@ internal class SyncTrashDelegate(context: Context) {
     }
     if (eligible.isEmpty()) return
 
-    val consent = requestTrash(eligible)
+    val consent = requestTrash(eligible, op.allowUserConfirmation)
     for (asset in eligible) {
       coroutineContext.ensureActive()
       try {
         // Cancellation, partial success and provider races are determined from
         // the current row, never from RESULT_OK or a list of requested IDs.
-        val explanation = listOfNotNull(consent.message, requestReasons[asset.id]).joinToString("; ")
-        op.outcomes[asset.id] = verifiedOutcome(asset, if (consent.accepted) "notTrashed" else consent.code,
-          explanation.takeIf { it.isNotEmpty() })
+        val explanation = listOfNotNull(
+          "phase=systemConsent accepted=${consent.accepted} manageMedia=${canManageMedia()}",
+          consent.message, requestReasons[asset.id],
+        ).joinToString("; ")
+        op.outcomes[asset.id] = verifiedOutcome(asset, op.allowUserConfirmation,
+          if (consent.accepted) "notTrashed" else consent.code, explanation)
       } catch (error: CancellationException) {
         throw error
       } catch (error: SecurityException) {
@@ -268,10 +294,10 @@ internal class SyncTrashDelegate(context: Context) {
     }
   }
 
-  private suspend fun requestTrash(assets: List<SyncTrashAsset>): Consent {
+  private suspend fun requestTrash(assets: List<SyncTrashAsset>, allowUserConfirmation: Boolean): Consent {
     // MediaStore permission checks and request creation are synchronous provider
     // calls too. Keep them off Main so the independent watchdog remains live.
-    val denied = assets.firstNotNullOfOrNull { permissionFailure(it) }
+    val denied = assets.firstNotNullOfOrNull { permissionFailure(it, allowUserConfirmation) }
     if (denied != null) return Consent(false, "permissionDenied", denied["message"])
     if (!withContext(Dispatchers.Main) { isForegroundActivity() }) {
       return Consent(false, "noActivity", "A foreground Activity is required for Android's system trash request")
@@ -321,20 +347,35 @@ internal class SyncTrashDelegate(context: Context) {
     if (request.requestCode != requestCode) return false
     pending = null
     if (request.continuation.isActive) {
-      request.continuation.resume(Consent(resultCode == Activity.RESULT_OK, "cancelled", "Android rejected or cancelled the system trash request"))
+      request.continuation.resume(if (resultCode == Activity.RESULT_OK) {
+        Consent(true, "accepted", "systemResult=RESULT_OK; MediaStore verification follows")
+      } else {
+        Consent(false, "cancelled", "systemResult=$resultCode; Android rejected or cancelled the system trash request")
+      })
     }
     return true
   }
 
-  private fun verifiedOutcome(asset: SyncTrashAsset, failureCode: String, message: String? = null): Map<String, String> {
-    permissionFailure(asset)?.let { return it }
-    val actual = snapshot(asset) ?: return outcome("missing", "The media row disappeared before its trash state was confirmed")
-    return if (actual.isTrashed) outcome("trashed") else outcome(failureCode, message)
+  private fun verifiedOutcome(
+    asset: SyncTrashAsset,
+    allowUserConfirmation: Boolean,
+    failureCode: String,
+    message: String? = null,
+  ): Map<String, String> {
+    permissionFailure(asset, allowUserConfirmation)?.let { return it }
+    val actual = snapshot(asset)
+      ?: return outcome("missing", "phase=verification: the media row disappeared; $message")
+    val state = SyncTrashPolicy.beforeWrite(asset, actual)
+    if (state == "assetChanged") return outcome(state, SyncTrashPolicy.identityDiagnostic(asset, actual))
+    return if (actual.isTrashed) outcome("trashed", message) else outcome(failureCode, message)
   }
 
-  private fun permissionFailure(asset: SyncTrashAsset): Map<String, String>? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !MediaStore.canManageMedia(ctx)) {
-      return outcome("permissionDenied", "MANAGE_MEDIA is not granted")
+  private fun canManageMedia(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && MediaStore.canManageMedia(ctx)
+
+  private fun permissionFailure(asset: SyncTrashAsset, allowUserConfirmation: Boolean): Map<String, String>? {
+    if (!SyncTrashPolicy.mayRequestTrash(allowUserConfirmation, canManageMedia())) {
+      return outcome("permissionDenied", "MANAGE_MEDIA is not granted; automatic synchronization cannot request user consent")
     }
     val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       when (asset.type) {
@@ -344,7 +385,7 @@ internal class SyncTrashDelegate(context: Context) {
       }
     } else Manifest.permission.READ_EXTERNAL_STORAGE
     return if (ctx.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
-      outcome("permissionDenied", "$permission is not granted; limited selection is insufficient for automatic trash requests")
+      outcome("permissionDenied", "Full $permission is not granted; current media identity cannot be verified (selected-only access may be active)")
     } else null
   }
 
@@ -376,5 +417,12 @@ internal class SyncTrashDelegate(context: Context) {
   private fun outcome(code: String, message: String? = null): Map<String, String> =
     if (message == null) mapOf("code" to code) else mapOf("code" to code, "message" to message)
 
-  private fun describe(error: Exception) = "${error.javaClass.simpleName}: ${error.message ?: "No provider details"}"
+  private fun describe(error: Exception): String {
+    // Provider messages can include storage paths or content URIs. Keep the
+    // exception class/reason while excluding original file locations from logs.
+    val detail = (error.message ?: "No provider details")
+      .replace(Regex("(?:content|file)://[^\\s;]+"), "<media-uri>")
+      .replace(Regex("/(?:storage|data|mnt)/[^\\s;]+"), "<media-path>")
+    return "${error.javaClass.simpleName}: $detail"
+  }
 }
