@@ -116,6 +116,28 @@ void main() {
     );
   });
 
+  test('an unknown HTTP400 remains a structured image error rather than a successful missing placeholder', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(
+      channel,
+      (_) async => [
+        'HTTP_ERROR',
+        'Remote image request failed (HTTP 400)',
+        {
+          'statusCode': 400,
+          'requestPath': '/api/assets/8dd6007e-f11b-4bf8-bc3a-121794f37303/thumbnail',
+          'finalPath': '/api/assets/8dd6007e-f11b-4bf8-bc3a-121794f37303/thumbnail',
+        },
+      ],
+    );
+    final request = RemoteImageRequest(
+      uri: 'https://example.test/api/assets/8dd6007e-f11b-4bf8-bc3a-121794f37303/thumbnail',
+    );
+    await expectLater(
+      request.load((_, {getTargetSize}) => throw UnimplementedError()),
+      throwsA(isA<RemoteImageHttpException>().having((error) => error.statusCode, 'status', 400)),
+    );
+  });
+
   test('malformed structured status remains a platform failure', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockDecodedMessageHandler(
       channel,

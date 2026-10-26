@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:ffi' hide Size;
 import 'dart:ui' as ui;
 
 import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
+import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +15,7 @@ import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/services/remote_image_reconciliation.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
@@ -25,6 +29,7 @@ import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/thumbnail_framing.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 
@@ -45,6 +50,18 @@ class _CountingMemoryImage extends MemoryImage {
     onLoad();
     return super.loadImage(key, decode);
   }
+}
+
+class _IdleImageCompleter extends ImageStreamCompleter {}
+
+class _PendingImage extends ImageProvider<_PendingImage> {
+  final stream = _IdleImageCompleter();
+
+  @override
+  Future<_PendingImage> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(_PendingImage key, ImageDecoderCallback decode) => stream;
 }
 
 Future<Uint8List> _portraitPng() async {
@@ -218,6 +235,135 @@ void main() {
     width: 900,
     height: 1600,
   ).copyWith(localId: '$id-local', livePhotoVideoId: '$id-video', stackId: 'stack-one');
+
+  test('thumbnail source revisions reflect synchronized changes without depending on object creation', () {
+    final asset = TestUtils.createRemoteAsset(id: '8dd6007e-f11b-4bf8-bc3a-121794f37303');
+    final initial = Thumbnail.fromAsset(asset: asset);
+    expect(Thumbnail.fromAsset(asset: asset.copyWith()).sourceRevision, initial.sourceRevision);
+    expect(
+      Thumbnail.fromAsset(
+        asset: asset.copyWith(updatedAt: asset.updatedAt.add(const Duration(seconds: 1))),
+      ).sourceRevision,
+      isNot(initial.sourceRevision),
+    );
+    expect(
+      Thumbnail.fromAsset(asset: asset.copyWith(deletedAt: DateTime.utc(2026, 10, 26))).sourceRevision,
+      isNot(initial.sourceRevision),
+    );
+  });
+
+  testWidgets('failed remote URL retries once on a new sync revision and never on an ordinary rerender', (
+    tester,
+  ) async {
+    final bytes = (await tester.runAsync(_portraitPng))!;
+    var requests = 0;
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockDecodedMessageHandler(remoteRequest, (message) async {
+      requests++;
+      final uri = Uri.parse((message! as List)[0] as String);
+      if (requests == 1) {
+        return [
+          'HTTP_ERROR',
+          'Remote image request failed (HTTP 400)',
+          {'statusCode': 400, 'requestPath': uri.path, 'finalPath': uri.path},
+        ];
+      }
+      final pointer = malloc<Uint8>(bytes.length)..asTypedList(bytes.length).setAll(0, bytes);
+      return [
+        <Object?, Object?>{'pointer': pointer.address, 'length': bytes.length},
+      ];
+    });
+    addTearDown(() => messenger.setMockDecodedMessageHandler(remoteRequest, (_) async => <Object?>[null]));
+    final revision = DateTime.utc(2026, 10, 26);
+    final source = ValueNotifier<(int, DateTime)>((0, revision));
+    addTearDown(source.dispose);
+    final captureKey = GlobalKey();
+    await tester.pumpConsumerWidgetRaw(
+      Center(
+        child: RepaintBoundary(
+          key: captureKey,
+          child: SizedBox.square(
+            dimension: 100,
+            child: ValueListenableBuilder<(int, DateTime)>(
+              valueListenable: source,
+              builder: (_, value, _) => Thumbnail.remote(
+                remoteId: '8dd6007e-f11b-4bf8-bc3a-121794f37303',
+                thumbhash: '',
+                sourceRevision: value.$2,
+              ),
+            ),
+          ),
+        ),
+      ),
+      overrides: [
+        remoteImageReconciliationProvider.overrideWithValue(
+          RemoteImageReconciliationService(
+            endpoint: Uri.parse('https://example.test/api'),
+            isCurrentSession: () => true,
+            isDeletionComplete: (_) async => false,
+            retireDeletedAsset: (_) async => false,
+            syncIncrementally: () async {},
+          ),
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    source.value = (1, revision);
+    await tester.pumpAndSettle();
+    expect(requests, 1, reason: 'the same failed revision cannot start a retry loop');
+    source.value = (2, revision.add(const Duration(seconds: 1)));
+    await tester.pump();
+    await tester.runAsync(
+      () => precacheImage(
+        tester.widget<Thumbnail>(find.byType(Thumbnail)).imageProvider!,
+        tester.element(find.byType(Thumbnail)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 2);
+    expect(_pixel(await _capture(tester, captureKey), 48, 12), [0, 0, 255, 255]);
+    source.value = (3, revision.add(const Duration(seconds: 2)));
+    await tester.pumpAndSettle();
+    expect(requests, 2, reason: 'successful images remain cached when metadata changes');
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final replacementPending in [false, true]) {
+    testWidgets(
+      'recycled tile clears previous pixels when its source becomes ${replacementPending ? 'pending' : 'absent'}',
+      (tester) async {
+        final bytes = (await tester.runAsync(_portraitPng))!;
+        final image = MemoryImage(bytes);
+        final source = ValueNotifier<ImageProvider?>(image);
+        addTearDown(source.dispose);
+        final captureKey = GlobalKey();
+        await tester.pumpConsumerWidgetRaw(
+          Center(
+            child: RepaintBoundary(
+              key: captureKey,
+              child: SizedBox.square(
+                dimension: 100,
+                child: ValueListenableBuilder<ImageProvider?>(
+                  valueListenable: source,
+                  builder: (_, value, _) => Thumbnail(imageProvider: value),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(() => precacheImage(image, tester.element(find.byType(Thumbnail))));
+        await tester.pumpAndSettle();
+        final state = tester.state(find.byType(Thumbnail));
+        expect(_pixel(await _capture(tester, captureKey), 48, 12), [0, 0, 255, 255]);
+        source.value = replacementPending ? _PendingImage() : null;
+        await tester.pump();
+        expect(tester.state(find.byType(Thumbnail)), same(state));
+        expect(_pixel(await _capture(tester, captureKey), 48, 12), isNot([0, 0, 255, 255]));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('known top face repaints into view using the same decoded PNG and Thumbnail state', (tester) async {
     final bytes = (await tester.runAsync(_portraitPng))!;

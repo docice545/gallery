@@ -11,9 +11,11 @@ import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/stack.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.drift.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:immich_mobile/utils/option.dart';
+import 'package:openapi/api.dart' show SyncAssetDeleteV1;
 
 @DriftAccessor()
 class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRepositoryMixin {
@@ -253,6 +255,28 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
       });
     });
   }
+
+  /// A completed owner-scoped server receipt is proof; a thumbnail status is
+  /// not. Keep the existing permanent marker before applying normal sync-delete
+  /// semantics, so an old/backfilled payload cannot resurrect the stale row.
+  /// The local original and MediaStore deletion queue are deliberately untouched.
+  Future<bool> retireConfirmedDeletedAsset(
+    String id, {
+    required String ownerId,
+    required String endpoint,
+  }) => _db.transaction(() async {
+    final currentEndpoint = await (_db.storeEntity.select()..where((row) => row.id.equals(StoreKey.serverEndpoint.id)))
+        .getSingleOrNull();
+    final currentUser = await (_db.authUserEntity.select()..where((row) => row.id.equals(ownerId))).getSingleOrNull();
+    final row = await (_db.remoteAssetEntity.select()..where((row) => row.id.equals(id) & row.ownerId.equals(ownerId)))
+        .getSingleOrNull();
+    if (currentUser == null || currentEndpoint?.stringValue != endpoint || row == null) {
+      return false;
+    }
+    await _db.syncStreamRepository.retainPermanentDeletion([id]);
+    await _db.syncStreamRepository.deleteAssetsV1([SyncAssetDeleteV1(assetId: id)]);
+    return true;
+  });
 
   Future<void> stack(String userId, StackResponse stack) {
     return _db.transaction(() async {

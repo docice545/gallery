@@ -646,7 +646,12 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   /// Only called after a successful explicit Restore/Delete API operation.
   /// Works during reset before the corresponding asset row is re-delivered.
   Future<void> retainPermanentDeletion(List<String> ids) async {
-    final snapshots = await updateRetainedTrash(ids, DateTime.now(), preserveExistingDates: true);
+    final snapshots = await updateRetainedTrash(
+      ids,
+      DateTime.now(),
+      preserveExistingDates: true,
+      includeActiveAssets: true,
+    );
     for (final snapshot in snapshots) {
       final state = jsonDecode(snapshot.retainedValue!) as Map<String, dynamic>;
       state['permanent'] = true;
@@ -697,6 +702,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     Iterable<String> ids,
     DateTime deletedAt, {
     bool preserveExistingDates = false,
+    bool includeActiveAssets = false,
     String? operation,
   }) async {
     final endpoint = await _trashEndpoint();
@@ -728,7 +734,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     for (final row in existing) {
       previousDates[row.id] = row.deletedAt;
       previousIndexStates[row.id] = row.isIndexTombstone;
-      if (!preserveExistingDates || row.deletedAt != null) {
+      if (!preserveExistingDates || row.deletedAt != null || includeActiveAssets) {
         identities[row.id] = (ownerId: row.ownerId, checksum: row.checksum);
       }
       if (row.deletedAt != null) {

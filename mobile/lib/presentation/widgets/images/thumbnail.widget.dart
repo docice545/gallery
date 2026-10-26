@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
@@ -10,6 +12,7 @@ import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.
 import 'package:immich_mobile/presentation/widgets/images/thumb_hash_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
+import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
 
@@ -17,9 +20,13 @@ final log = Logger('ThumbnailWidget');
 
 enum ThumbhashMode { enabled, disabled, only }
 
-class Thumbnail extends StatefulWidget {
+class Thumbnail extends ConsumerStatefulWidget {
   final ImageProvider? imageProvider;
   final ImageProvider? thumbhashProvider;
+
+  /// A changed synchronized media/trash revision can retry a failed URL. Plain
+  /// widget reconstruction with the same revision must not reissue HTTP work.
+  final Object? sourceRevision;
   final BoxFit fit;
   final List<Rect> faces;
 
@@ -32,6 +39,7 @@ class Thumbnail extends StatefulWidget {
     this.faces = const [],
     this.framingImageSize,
     this.thumbhashProvider,
+    this.sourceRevision,
     super.key,
   });
 
@@ -41,6 +49,7 @@ class Thumbnail extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.framingImageSize,
+    this.sourceRevision,
 
     /// Physical size to decode, or null for the source size.
     Size? decodeSize,
@@ -61,7 +70,17 @@ class Thumbnail extends StatefulWidget {
     Size? remoteSize,
     AssetMediaSize remoteMediaSize = AssetMediaSize.thumbnail,
     super.key,
-  }) : thumbhashProvider = switch (asset) {
+  }) : sourceRevision = asset == null
+           ? null
+           : (
+               asset.remoteId,
+               asset.localId,
+               asset.updatedAt,
+               asset.isEdited,
+               asset is RemoteAsset ? asset.deletedAt : null,
+               asset is RemoteAsset ? asset.isIndexTombstone : false,
+             ),
+       thumbhashProvider = switch (asset) {
          RemoteAsset() when asset.thumbHash != null && asset.localId == null => ThumbHashProvider(
            thumbHash: asset.thumbHash!,
          ),
@@ -72,10 +91,10 @@ class Thumbnail extends StatefulWidget {
            : getThumbnailImageProvider(asset, size: size, remoteSize: remoteSize, remoteMediaSize: remoteMediaSize);
 
   @override
-  State<Thumbnail> createState() => _ThumbnailState();
+  ConsumerState<Thumbnail> createState() => _ThumbnailState();
 }
 
-class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMixin {
+class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProviderStateMixin {
   ui.Image? _providerImage;
   ui.Image? _previousImage;
 
@@ -86,6 +105,8 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
   ImageStreamListener? _imageStreamListener;
   ImageStream? _thumbhashStream;
   ImageStreamListener? _thumbhashStreamListener;
+  bool _hadImageError = false;
+  int _imageGeneration = 0;
 
   static final _gradientCache = <ColorScheme, Gradient>{};
 
@@ -115,11 +136,11 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
     final thumbhashStream = _thumbhashStream = thumbhashProvider.resolve(ImageConfiguration.empty);
     final thumbhashStreamListener = _thumbhashStreamListener = ImageStreamListener(
       (ImageInfo imageInfo, bool synchronousCall) {
-        _stopListeningToThumbhashStream();
-        if (!mounted || _providerImage != null) {
+        if (!mounted || !identical(_thumbhashStream, thumbhashStream) || _providerImage != null) {
           imageInfo.dispose();
           return;
         }
+        _stopListeningToThumbhashStream();
         _fadeController.value = 1.0;
         setState(() {
           _providerImage = imageInfo.image;
@@ -133,9 +154,16 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
     thumbhashStream.addListener(thumbhashStreamListener);
   }
 
-  void _loadFromImageProvider() {
+  void _loadFromImageProvider({bool retry = false}) {
     _stopListeningToImageStream();
-    final imageProvider = widget.imageProvider;
+    final generation = ++_imageGeneration;
+    _hadImageError = false;
+    final original = widget.imageProvider;
+    // A cancelled provider owns an old request; retry through a fresh instance
+    // with exactly the same cache key and bounded decode settings.
+    final imageProvider = retry && original is RemoteImageProvider
+        ? RemoteImageProvider(url: original.url, edited: original.edited, decodeSize: original.decodeSize)
+        : original;
     if (imageProvider == null) {
       return;
     }
@@ -143,11 +171,11 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
     final imageStream = _imageStream = imageProvider.resolve(ImageConfiguration.empty);
     final imageStreamListener = _imageStreamListener = ImageStreamListener(
       (ImageInfo imageInfo, bool synchronousCall) {
-        _stopListeningToThumbhashStream();
-        if (!mounted) {
+        if (!mounted || !identical(_imageStream, imageStream)) {
           imageInfo.dispose();
           return;
         }
+        _stopListeningToThumbhashStream();
 
         if (_providerImage == imageInfo.image) {
           return;
@@ -172,11 +200,37 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
         });
       },
       onError: (exception, stackTrace) {
-        log.severe('Error loading image: $exception', exception, stackTrace);
+        if (!identical(_imageStream, imageStream)) {
+          return;
+        }
         _stopListeningToImageStream();
+        _hadImageError = true;
+        unawaited(_handleImageError(imageProvider, exception, stackTrace, generation));
       },
     );
     imageStream.addListener(imageStreamListener);
+  }
+
+  Future<void> _handleImageError(ImageProvider provider, Object error, StackTrace? stack, int generation) async {
+    final confirmed = error is RemoteImageHttpException && provider is RemoteImageProvider
+        ? await ref.read(remoteImageReconciliationProvider).reconcile(error, provider.url)
+        : false;
+    if (confirmed) {
+      if (mounted && generation == _imageGeneration && widget.imageProvider == provider) {
+        _stopListeningToStream();
+        setState(_clearImages);
+      }
+    } else {
+      log.severe('Error loading image: $error', error, stack);
+    }
+  }
+
+  void _clearImages() {
+    _fadeController.stop();
+    _providerImage?.dispose();
+    _providerImage = null;
+    _previousImage?.dispose();
+    _previousImage = null;
   }
 
   void _stopListeningToImageStream() {
@@ -205,12 +259,18 @@ class _ThumbnailState extends State<Thumbnail> with SingleTickerProviderStateMix
     super.didUpdateWidget(oldWidget);
 
     if (widget.imageProvider != oldWidget.imageProvider) {
-      if (_fadeController.isAnimating) {
-        _fadeController.stop();
-        _previousImage?.dispose();
-        _previousImage = null;
-      }
-      _loadFromImageProvider();
+      // A virtualized tile can now represent another asset (or no asset).
+      // Never keep the previous photo/blurhash while the replacement fails.
+      _stopListeningToStream();
+      _clearImages();
+      _loadImage();
+      return;
+    }
+
+    if (_hadImageError &&
+        widget.imageProvider is RemoteImageProvider &&
+        widget.sourceRevision != oldWidget.sourceRevision) {
+      _loadFromImageProvider(retry: true);
     }
 
     if (_providerImage == null && oldWidget.thumbhashProvider != widget.thumbhashProvider) {

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
+import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
@@ -17,9 +18,11 @@ import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widg
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_overlay.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/view_intent/view_intent_file_path.provider.dart';
@@ -363,11 +366,20 @@ class _AssetPageState extends ConsumerState<AssetPage> {
         onDragCancel: _onDragCancel,
         onTapUp: _onTapUp,
         onLongPressStart: asset.isMotionPhoto ? _onLongPress : null,
-        errorBuilder: (_, _, _) => SizedBox(
-          width: size.width,
-          height: size.height,
-          child: Thumbnail.fromAsset(asset: asset, fit: BoxFit.contain),
-        ),
+        errorBuilder: (_, error, _) {
+          if (error is RemoteImageHttpException && imageProvider is RemoteFullImageProvider) {
+            unawaited(
+              ref
+                  .read(remoteImageReconciliationProvider)
+                  .reconcile(error, error.stage == 'original' ? imageProvider.originalUrl : imageProvider.previewUrl),
+            );
+          }
+          return SizedBox(
+            width: size.width,
+            height: size.height,
+            child: Thumbnail.fromAsset(asset: asset, fit: BoxFit.contain),
+          );
+        },
       );
     }
 
