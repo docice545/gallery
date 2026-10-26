@@ -76,3 +76,4 @@
 1796000000100-ResetCatalogSyncProjection
 1796000000200-MirrorOwnerFavorites
 1796000000300-TrackCatalogIndexRecovery
+1796000000400-AddVerifiedAssetContentChecksum

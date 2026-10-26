@@ -8,7 +8,6 @@ import {
 import { Readable } from 'node:stream';
 import type { UploadBody } from 'src/types.js';
 import { DiskStorageBackend } from 'src/backends/disk-storage.backend.js';
-import { AssetFile } from 'src/database.js';
 import { AssetMediaStatus, AssetRejectReason, AssetUploadAction } from 'src/dtos/asset-media-response.dto.js';
 import { AssetMediaCreateDto, AssetMediaSize, UploadFieldName } from 'src/dtos/asset-media.dto.js';
 import { MapAsset } from 'src/dtos/asset-response.dto.js';
@@ -156,27 +155,24 @@ const createDto = Object.freeze({
   isFavorite: false,
 }) as AssetMediaCreateDto;
 
-const assetEntity = Object.freeze({
-  duplicateId: null,
-  id: 'id_1',
-  ownerId: 'user_id_1',
-  type: AssetType.Video,
-  originalPath: 'fake_path/asset_1.jpeg',
-  fileModifiedAt: new Date('2022-06-19T23:41:36.910Z'),
-  fileCreatedAt: new Date('2022-06-19T23:41:36.910Z'),
-  updatedAt: new Date('2022-06-19T23:41:36.910Z'),
-  isFavorite: false,
-  duration: null,
-  files: [] as AssetFile[],
-  exifInfo: {
-    latitude: 49.533547,
-    longitude: 10.703075,
-  },
-  livePhotoVideoId: null,
-} as MapAsset);
+const assetEntity = Object.freeze(
+  AssetFactory.create({
+    duplicateId: null,
+    id: 'id_1',
+    ownerId: 'user_id_1',
+    type: AssetType.Video,
+    originalPath: 'fake_path/asset_1.jpeg',
+    fileModifiedAt: new Date('2022-06-19T23:41:36.910Z'),
+    fileCreatedAt: new Date('2022-06-19T23:41:36.910Z'),
+    updatedAt: new Date('2022-06-19T23:41:36.910Z'),
+    isFavorite: false,
+    duration: null,
+    livePhotoVideoId: null,
+  }),
+);
 
 const existingAsset = Object.freeze({
-  ...assetEntity,
+  ...getForAsset(assetEntity),
   duration: null,
   type: AssetType.Image,
   checksum: Buffer.from('_getExistingAsset', 'utf8'),

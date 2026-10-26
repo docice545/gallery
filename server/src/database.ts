@@ -1,4 +1,4 @@
-import { Selectable, ShallowDehydrateObject } from 'kysely';
+import { Selectable, ShallowDehydrateObject, sql } from 'kysely';
 import type { UserMetadataItem } from 'src/types.js';
 import { MapAsset } from 'src/dtos/asset-response.dto.js';
 import {
@@ -412,6 +412,12 @@ const userWithPrefixColumns = [
   'user2.profileChangedAt',
 ] as const;
 
+// Existing mobile clients merge local and remote assets through this checksum.
+// Keep external path identity in the database while exposing only a verified
+// content digest through the existing API field; aliases are never proof.
+const clientAssetChecksum = sql<Buffer>`case when asset."isOffline" then asset.checksum
+  else coalesce(asset."contentChecksum", asset.checksum) end`.as('checksum');
+
 export const columns = {
   asset: [
     'asset.id',
@@ -441,6 +447,7 @@ export const columns = {
     'asset.deletedAt',
     'asset.status',
     'asset.checksum',
+    'asset.contentChecksum',
     'asset.checksumAlgorithm',
     'asset.duplicateId',
     'asset.duration',
@@ -536,7 +543,7 @@ export const columns = {
     'asset.ownerId',
     'asset.originalFileName',
     'asset.thumbhash',
-    'asset.checksum',
+    clientAssetChecksum,
     'asset.fileCreatedAt',
     'asset.fileModifiedAt',
     'asset.createdAt',
@@ -559,7 +566,7 @@ export const columns = {
     'asset.ownerId',
     'asset.originalFileName',
     'asset.thumbhash',
-    'asset.checksum',
+    clientAssetChecksum,
     'asset.fileCreatedAt',
     'asset.fileModifiedAt',
     'asset.createdAt',
@@ -581,7 +588,7 @@ export const columns = {
     'asset.ownerId',
     'asset.originalFileName',
     'asset.thumbhash',
-    'asset.checksum',
+    clientAssetChecksum,
     'asset.fileCreatedAt',
     'asset.fileModifiedAt',
     'asset.localDateTime',
@@ -603,7 +610,7 @@ export const columns = {
     'asset.ownerId',
     'asset.originalFileName',
     'asset.thumbhash',
-    'asset.checksum',
+    clientAssetChecksum,
     'asset.fileCreatedAt',
     'asset.fileModifiedAt',
     'asset.createdAt',
@@ -628,7 +635,7 @@ export const columns = {
     'asset.ownerId',
     'asset.originalFileName',
     'asset.thumbhash',
-    'asset.checksum',
+    clientAssetChecksum,
     'asset.fileCreatedAt',
     'asset.fileModifiedAt',
     'asset.createdAt',

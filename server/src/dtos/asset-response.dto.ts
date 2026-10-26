@@ -133,6 +133,7 @@ export type MapAsset = {
   updateId: string;
   status: AssetStatus;
   checksum: Buffer<ArrayBufferLike>;
+  contentChecksum?: Buffer<ArrayBufferLike> | null;
   checksumAlgorithm: ChecksumAlgorithm;
   duplicateId: string | null;
   duration: number | null;
@@ -244,7 +245,7 @@ export function mapAsset(entity: MaybeDehydrated<MapAsset>, options: AssetMapOpt
     livePhotoVideoId: entity.livePhotoVideoId,
     tags: entity.tags?.map((tag) => mapTag(tag)),
     people: peopleFromFaces(entity.faces),
-    checksum: hexOrBufferToBase64(entity.checksum)!,
+    checksum: hexOrBufferToBase64(entity.isOffline ? entity.checksum : (entity.contentChecksum ?? entity.checksum))!,
     stack: withStack ? mapStack(entity) : undefined,
     isOffline: entity.isOffline,
     hasMetadata: true,

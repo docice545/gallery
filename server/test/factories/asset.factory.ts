@@ -53,6 +53,7 @@ export class AssetFactory {
       updateId: newUuidV7(),
       status: AssetStatus.Active,
       checksum: newSha1(),
+      contentChecksum: null,
       checksumAlgorithm: ChecksumAlgorithm.sha1File,
       duplicateId: null,
       duration: null,

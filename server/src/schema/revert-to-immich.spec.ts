@@ -52,6 +52,13 @@ const deleteBlockEnd = sql.indexOf(');', deleteBlockStart) + 2;
 const deleteBlock = sql.slice(deleteBlockStart, deleteBlockEnd);
 
 describe('revert-to-immich.sql', () => {
+  it('removes only the derived content proof and its registry during explicit fork conversion', () => {
+    expect(sql).toContain('DROP INDEX IF EXISTS "asset_owner_content_checksum_idx"');
+    expect(sql).toContain('ALTER TABLE "asset"             DROP COLUMN IF EXISTS "contentChecksum"');
+    expect(sql).toContain("'index_asset_owner_content_checksum_idx'");
+    expect(sql).not.toMatch(/ALTER TABLE "asset"\s+DROP COLUMN IF EXISTS "checksum"/);
+  });
+
   it('blocks conversion before any destructive SQL when durable deletion state exists', () => {
     const barrier = sql.indexOf("IF to_regclass('public.asset_deletion_tombstone') IS NOT NULL THEN");
     expect(barrier).toBeGreaterThan(0);

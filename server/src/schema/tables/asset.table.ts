@@ -78,6 +78,11 @@ import { ASSET_CHECKSUM_CONSTRAINT } from 'src/utils/database.js';
 @Index({ columns: ['originalPath', 'libraryId'] })
 @Index({ columns: ['id', 'stackId'] })
 @Index({
+  name: 'asset_owner_content_checksum_idx',
+  columns: ['ownerId', 'contentChecksum'],
+  where: '"contentChecksum" IS NOT NULL',
+})
+@Index({
   name: 'asset_originalFilename_trigram_idx',
   using: 'gin',
   expression: 'f_unaccent("originalFileName") gin_trgm_ops',
@@ -129,6 +134,11 @@ export class AssetTable {
 
   @Column({ type: 'bytea', index: true })
   checksum!: Buffer; // sha1 checksum
+
+  // Server-verified bytes, distinct from external-library path identity and
+  // duplicate-resolution aliases. Nullable for existing, unverified assets.
+  @Column({ type: 'bytea', nullable: true })
+  contentChecksum!: Buffer | null;
 
   @Column({ enum: asset_checksum_algorithm_enum })
   checksumAlgorithm!: ChecksumAlgorithm;

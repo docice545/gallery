@@ -225,6 +225,9 @@ ALTER TABLE "person"            DROP COLUMN IF EXISTS "species";
 ALTER TABLE "asset_job_status"  DROP COLUMN IF EXISTS "petsDetectedAt";
 ALTER TABLE "asset_job_status"  DROP COLUMN IF EXISTS "classifiedAt";
 ALTER TABLE "library"           DROP COLUMN IF EXISTS "createId";
+-- Derived backup identity only; the path checksum and every original stay intact.
+DROP INDEX IF EXISTS "asset_owner_content_checksum_idx";
+ALTER TABLE "asset"             DROP COLUMN IF EXISTS "contentChecksum";
 -- 1791000000000-RepointFaceReviewToPersonGroup added this unique index to make option M's
 -- one-person-per-group invariant a database fact. It lives on the upstream `person` table, so
 -- unlike the rest of that migration (which only touches Gallery-only face-review tables that
@@ -264,6 +267,7 @@ DELETE FROM "migration_overrides"
    'function_asset_favorite_delete_audit',
    'trigger_asset_favorite_delete_audit',
    'index_asset_face_createdBy_idx',
+   'index_asset_owner_content_checksum_idx',
    'function_asset_library_delete_audit',
    'function_library_after_insert',
    'function_library_user_delete_after_audit',
@@ -471,6 +475,7 @@ DELETE FROM "kysely_migrations"
    '1796000000100-ResetCatalogSyncProjection',
    '1796000000200-MirrorOwnerFavorites',
    '1796000000300-TrackCatalogIndexRecovery',
+   '1796000000400-AddVerifiedAssetContentChecksum',
    '1772230000000-CreateStorageMigrationLogTable',
    '1772240000000-CreateSharedSpaceTables',
    '1772250000000-AddShowInTimelineToSharedSpaceMember',
