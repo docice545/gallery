@@ -86,6 +86,7 @@ describe(JobRepository.name, () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -452,12 +453,13 @@ describe(JobRepository.name, () => {
 
   it('S9.9 supplementary (job.repository): gives up waiting after the configured timeout and logs a warning naming the queue', async () => {
     const { sut, queue, logger } = setup();
+    let elapsed = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => (elapsed += 5));
     // never drains — always reports a waiting job
     queue.getJobCounts.mockResolvedValue({ ...emptyCounts(), waiting: 1 });
 
-    // a short injected timeout (not a production-length interval) — setTimeout is mocked to resolve
-    // instantly (see the file-level `vi.mock('node:timers/promises', ...)` above), so the loop spins
-    // until this many real milliseconds have actually elapsed, not 20 real seconds.
+    // Advance a controlled clock with the already mocked sleep. CPU pauses or
+    // garbage collection must not turn the draining positive control into a timeout.
     await sut.waitForQueueCompletion(QueueName.PeopleBackfill, { timeoutMs: 20 });
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(QueueName.PeopleBackfill));
