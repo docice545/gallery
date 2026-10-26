@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Stats } from 'node:fs';
 import { Readable } from 'node:stream';
 import type { UploadBody } from 'src/types.js';
 import { DiskStorageBackend } from 'src/backends/disk-storage.backend.js';
@@ -202,6 +203,12 @@ describe(AssetMediaService.name, () => {
 
   beforeEach(() => {
     ({ sut, mocks } = newTestService(AssetMediaService));
+    // Keep the existing create fixtures while exercising the new admission
+    // boundary; repository concurrency/file proof has real-DB coverage.
+    mocks.asset.createForUpload.mockImplementation(async (asset, _verify, beforeCreate) => {
+      beforeCreate();
+      return { asset: await mocks.asset.create(asset), duplicate: false };
+    });
   });
 
   describe('getUploadAssetIdByChecksum', () => {
@@ -248,6 +255,167 @@ describe(AssetMediaService.name, () => {
       );
       expect(mocks.asset.getDeletionReceipt).toHaveBeenCalledWith(authStub.admin.user.id, 'deleted-asset');
     });
+  });
+
+  describe('verified External admission', () => {
+    const checksum = Buffer.from('68b329da9893e34099c7d8ad5cb9c94083ba7105', 'hex');
+    let external: ReturnType<typeof AssetFactory.create>;
+    let stat: Stats;
+
+    beforeEach(() => {
+      external = AssetFactory.create({
+        isExternal: true,
+        libraryId: 'external-library',
+        ownerId: authStub.admin.user.id,
+      });
+      stat = { dev: 1, ino: 2, size: 1024, mtimeMs: 100, ctimeMs: 100, isFile: () => true } as Stats;
+      mocks.storage.stat.mockResolvedValue(stat);
+      mocks.crypto.hashFile.mockResolvedValue(checksum);
+      mocks.asset.getExternalUploadAsset.mockImplementation(async (_owner, expected, verify) => {
+        const actual = await verify(external);
+        return actual?.equals(expected) ? { ...external, contentChecksum: actual } : undefined;
+      });
+    });
+
+    it('acknowledges the real External UUID after stable content proof without changing media or metadata', async () => {
+      await expect(sut.getUploadAssetIdByChecksum(authStub.admin, checksum.toString('hex'))).resolves.toMatchObject({
+        id: external.id,
+        status: AssetMediaStatus.DUPLICATE,
+      });
+      expect(mocks.crypto.hashFile).toHaveBeenCalledWith(external.originalPath, expect.any(AbortSignal));
+      expect(mocks.storage.stat).toHaveBeenCalledTimes(2);
+      expect(mocks.asset.createForUpload).not.toHaveBeenCalled();
+      expect(mocks.asset.update).not.toHaveBeenCalled();
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+    });
+
+    it('coalesces duplicate bulk-check inputs and returns the existing old-client duplicate shape', async () => {
+      mocks.asset.getByChecksums.mockResolvedValue([]);
+      await expect(
+        sut.bulkUploadCheck(authStub.admin, {
+          assets: [
+            { id: 'phone-1', checksum: checksum.toString('hex') },
+            { id: 'phone-2', checksum: checksum.toString('base64') },
+          ],
+        }),
+      ).resolves.toEqual({
+        results: ['phone-1', 'phone-2'].map((id) => ({
+          id,
+          action: AssetUploadAction.REJECT,
+          reason: AssetRejectReason.DUPLICATE,
+          assetId: external.id,
+          isTrashed: false,
+        })),
+      });
+      expect(mocks.asset.getExternalUploadAsset).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not infer equality from a stale content alias', async () => {
+      mocks.crypto.hashFile.mockResolvedValue(Buffer.from('different bytes'));
+      await expect(sut.getUploadAssetIdByChecksum(authStub.admin, checksum.toString('hex'))).resolves.toBeUndefined();
+    });
+
+    it('does not acknowledge a file replaced while it is being hashed', async () => {
+      mocks.storage.stat.mockResolvedValueOnce(stat).mockResolvedValueOnce({ ...stat, ino: 3 } as Stats);
+      await expect(sut.getUploadAssetIdByChecksum(authStub.admin, checksum.toString('hex'))).resolves.toBeUndefined();
+    });
+
+    it.each(['ENOENT', 'EACCES', 'ESTALE', 'EIO', 'ETIMEDOUT'])(
+      'keeps upload available when the External file cannot be read (%s)',
+      async (code) => {
+        mocks.crypto.hashFile.mockRejectedValue(Object.assign(new Error('unavailable'), { code }));
+        await expect(sut.getUploadAssetIdByChecksum(authStub.admin, checksum.toString('hex'))).resolves.toBeUndefined();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining(`code=${code}`));
+      },
+    );
+
+    it('does not suppress unexpected verification failures', async () => {
+      const error = new Error('unexpected storage failure');
+      mocks.crypto.hashFile.mockRejectedValue(error);
+      await expect(sut.getUploadAssetIdByChecksum(authStub.admin, checksum.toString('hex'))).rejects.toBe(error);
+    });
+
+    it('bounds a stalled External read and permits a real new upload', async () => {
+      vi.useFakeTimers();
+      const signal = new AbortController();
+      const deadline = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal.signal);
+      mocks.storage.stat.mockImplementation(() => new Promise(() => {}));
+      try {
+        const pending = sut.getUploadAssetIdByChecksum(authStub.admin, checksum.toString('hex'));
+        await vi.waitFor(() => expect(mocks.storage.stat).toHaveBeenCalled());
+        signal.abort(new Error('deadline'));
+        await expect(pending).resolves.toBeUndefined();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('READ_TIMEOUT'));
+      } finally {
+        deadline.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it('cleans only the incoming multipart files and preserves existing Live Photo and metadata on a duplicate', async () => {
+      mocks.asset.createForUpload.mockResolvedValue({ asset: external, duplicate: true });
+      mocks.asset.getById.mockResolvedValue(
+        getForAsset(
+          AssetFactory.create({
+            id: 'existing-motion',
+            type: AssetType.Video,
+            ownerId: authStub.admin.user.id,
+            visibility: AssetVisibility.Timeline,
+          }),
+        ),
+      );
+      const file = {
+        uuid: 'incoming',
+        originalPath: '/data/upload/incoming.jpg',
+        originalName: 'photo.jpg',
+        checksum,
+        size: 1024,
+      };
+      const sidecar = { ...file, originalPath: '/data/upload/incoming.xmp' };
+      await expect(
+        sut.uploadAsset(authStub.admin, { ...createDto, livePhotoVideoId: 'existing-motion' }, file, sidecar),
+      ).resolves.toEqual({ id: external.id, duplicateId: null, status: AssetMediaStatus.DUPLICATE });
+      expect(mocks.job.queue).toHaveBeenCalledExactlyOnceWith({
+        name: JobName.FileDelete,
+        data: { files: [file.originalPath, sidecar.originalPath], temporaryOwnerId: authStub.admin.user.id },
+      });
+      expect(mocks.asset.getById).toHaveBeenCalledExactlyOnceWith('existing-motion');
+      expect(mocks.asset.upsertMetadata).not.toHaveBeenCalled();
+      expect(mocks.asset.upsertExif).not.toHaveBeenCalled();
+      expect(mocks.asset.update).not.toHaveBeenCalled();
+      expect(mocks.event.emit).not.toHaveBeenCalled();
+      expect(mocks.storage.utimes).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    { label: 'missing', video: undefined, message: 'Live photo video not found' },
+    {
+      label: 'non-video',
+      video: AssetFactory.create({ type: AssetType.Image, ownerId: authStub.admin.user.id }),
+      message: 'Live photo video must be a video',
+    },
+    {
+      label: 'another owner',
+      video: AssetFactory.create({ type: AssetType.Video, ownerId: 'another-owner' }),
+      message: 'Live photo video does not belong to the user',
+    },
+  ])('validates a $label Live Photo component before upload admission or mutation', async ({ video, message }) => {
+    mocks.asset.getById.mockResolvedValue(video ? getForAsset(video) : undefined);
+    const file = {
+      uuid: 'incoming',
+      originalPath: '/data/upload/incoming.jpg',
+      originalName: 'photo.jpg',
+      checksum: file1,
+      size: 1024,
+    };
+    await expect(
+      sut.uploadAsset(authStub.admin, { ...createDto, livePhotoVideoId: 'motion-id' }, file),
+    ).rejects.toThrow(message);
+    expect(mocks.asset.createForUpload).not.toHaveBeenCalled();
+    expect(mocks.asset.create).not.toHaveBeenCalled();
+    expect(mocks.asset.update).not.toHaveBeenCalled();
+    expect(mocks.event.emit).not.toHaveBeenCalled();
   });
 
   describe('canUpload', () => {
@@ -746,7 +914,7 @@ describe(AssetMediaService.name, () => {
         .owner(authStub.user1.user)
         .build();
       const asset = AssetFactory.create({ livePhotoVideoId: motionAsset.id });
-      mocks.asset.getById.mockResolvedValueOnce(getForAsset(motionAsset));
+      mocks.asset.getById.mockResolvedValue(getForAsset(motionAsset));
       mocks.asset.create.mockResolvedValueOnce(asset);
 
       await expect(
@@ -764,7 +932,7 @@ describe(AssetMediaService.name, () => {
     it('should hide the linked motion asset', async () => {
       const motionAsset = AssetFactory.from({ type: AssetType.Video }).owner(authStub.user1.user).build();
       const asset = AssetFactory.create();
-      mocks.asset.getById.mockResolvedValueOnce(getForAsset(motionAsset));
+      mocks.asset.getById.mockResolvedValue(getForAsset(motionAsset));
       mocks.asset.create.mockResolvedValueOnce(asset);
 
       await expect(

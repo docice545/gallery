@@ -162,8 +162,8 @@ export const getMyPartnerIds = async ({ userId, repository, timelineEnabled }: P
 
 export type AssetHookRepositories = { asset: AssetRepository; event: EventRepository };
 
-export const onBeforeLink = async (
-  { asset: assetRepository, event: eventRepository }: AssetHookRepositories,
+export const validateLivePhotoLink = async (
+  assetRepository: AssetRepository,
   { userId, livePhotoVideoId }: { userId: string; livePhotoVideoId: string },
 ) => {
   const motionAsset = await assetRepository.getById(livePhotoVideoId);
@@ -176,6 +176,14 @@ export const onBeforeLink = async (
   if (motionAsset.ownerId !== userId) {
     throw new BadRequestException('Live photo video does not belong to the user');
   }
+  return motionAsset;
+};
+
+export const onBeforeLink = async (
+  { asset: assetRepository, event: eventRepository }: AssetHookRepositories,
+  { userId, livePhotoVideoId }: { userId: string; livePhotoVideoId: string },
+) => {
+  const motionAsset = await validateLivePhotoLink(assetRepository, { userId, livePhotoVideoId });
 
   if (motionAsset && motionAsset.visibility === AssetVisibility.Timeline) {
     await assetRepository.update({ id: livePhotoVideoId, visibility: AssetVisibility.Hidden });

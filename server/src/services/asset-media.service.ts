@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { Selectable } from 'kysely';
 import { createReadStream } from 'node:fs';
 import sanitize from 'sanitize-filename';
 import type { UploadFile, UploadRequest } from 'src/types.js';
@@ -38,17 +39,25 @@ import {
 } from 'src/enum.js';
 import { StorageBackend } from 'src/interfaces/storage-backend.interface.js';
 import { AuthRequest } from 'src/middleware/auth.guard.js';
+import { AssetTable } from 'src/schema/tables/asset.table.js';
 import { BaseService } from 'src/services/base.service.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { requireUploadAccess } from 'src/utils/access.js';
-import { asUploadRequest, onBeforeLink } from 'src/utils/asset.util.js';
+import { asUploadRequest, onBeforeLink, validateLivePhotoLink } from 'src/utils/asset.util.js';
 import { isAssetChecksumConstraint } from 'src/utils/database.js';
+import { verifyExternalOriginal } from 'src/utils/external-original.js';
 import { ImmichMediaResponse, getFileNameWithoutExtension, getFilenameExtension } from 'src/utils/file.js';
 import { mimeTypes } from 'src/utils/mime-types.js';
 import { fromChecksum } from 'src/utils/request.js';
 
 export interface AssetMediaRedirectResponse {
   targetSize: AssetMediaSize | 'original';
+}
+
+class UploadDuplicate extends Error {
+  constructor(readonly asset: Selectable<AssetTable>) {
+    super('Verified upload duplicate');
+  }
 }
 
 const SKIP_UPLOAD_FILE_CLEANUP = Symbol('skipUploadFileCleanup');
@@ -69,7 +78,10 @@ export class AssetMediaService extends BaseService {
       return;
     }
 
-    const result = await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, fromChecksum(checksum));
+    const contentChecksum = fromChecksum(checksum);
+    const result =
+      (await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, contentChecksum)) ??
+      (await this.findExternalUpload(auth.user.id, contentChecksum));
     if (!result) {
       return;
     }
@@ -169,15 +181,13 @@ export class AssetMediaService extends BaseService {
         ids: [auth.user.id],
       });
 
-      this.requireQuota(auth, file.size);
-
       if (dto.livePhotoVideoId) {
-        await onBeforeLink(
-          { asset: this.assetRepository, event: this.eventRepository },
-          { userId: auth.user.id, livePhotoVideoId: dto.livePhotoVideoId },
-        );
+        await validateLivePhotoLink(this.assetRepository, {
+          userId: auth.user.id,
+          livePhotoVideoId: dto.livePhotoVideoId,
+        });
       }
-      asset = await this.create(auth.user.id, dto, file, sidecarFile);
+      asset = await this.create(auth, dto, file, sidecarFile);
 
       if (auth.sharedLink) {
         await this.addToSharedLink(auth.sharedLink, asset.id);
@@ -292,6 +302,14 @@ export class AssetMediaService extends BaseService {
       checksumMap[checksum.toString('hex')] = { id, isTrashed: !!deletedAt };
     }
 
+    // Coalesce identical request checksums and verify one candidate at a time:
+    // NFS reads must not fan out for a large mobile preflight batch.
+    for (const checksum of new Map(checksums.map((value) => [value.toString('hex'), value])).values()) {
+      if (checksumMap[checksum.toString('hex')]) continue;
+      const external = await this.findExternalUpload(auth.user.id, checksum);
+      if (external) checksumMap[checksum.toString('hex')] = { id: external.assetId, isTrashed: false };
+    }
+
     return {
       results: dto.assets.map(({ id, checksum }) => {
         const duplicate = checksumMap[fromChecksum(checksum).toString('hex')];
@@ -348,9 +366,13 @@ export class AssetMediaService extends BaseService {
       });
     }
 
-    // handle duplicates with a success response
-    if (isAssetChecksumConstraint(error)) {
-      const result = await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, file.checksum);
+    // A committed admission proof returns the real existing object. Cleanup
+    // remains restricted to the incoming temporary upload, never the keeper.
+    if (error instanceof UploadDuplicate || isAssetChecksumConstraint(error)) {
+      const result =
+        error instanceof UploadDuplicate
+          ? { assetId: error.asset.id, duplicateId: error.asset.duplicateId }
+          : await this.assetRepository.getUploadAssetIdByChecksum(auth.user.id, file.checksum);
       if (!result) {
         this.logger.error(`Error locating duplicate for checksum constraint`);
         throw new InternalServerErrorException();
@@ -379,31 +401,44 @@ export class AssetMediaService extends BaseService {
     throw error;
   }
 
-  private async create(ownerId: string, dto: AssetMediaCreateDto, file: UploadFile, sidecarFile?: UploadFile) {
-    const asset = await this.assetRepository.create({
-      ownerId,
-      libraryId: null,
+  private async create(auth: AuthDto, dto: AssetMediaCreateDto, file: UploadFile, sidecarFile?: UploadFile) {
+    const ownerId = auth.user.id;
+    const admission = await this.assetRepository.createForUpload(
+      {
+        ownerId,
+        libraryId: null,
 
-      checksum: file.checksum,
-      checksumAlgorithm: ChecksumAlgorithm.sha1File,
-      originalPath: file.originalPath,
+        checksum: file.checksum,
+        checksumAlgorithm: ChecksumAlgorithm.sha1File,
+        originalPath: file.originalPath,
 
-      fileCreatedAt: dto.fileCreatedAt,
-      fileModifiedAt: dto.fileModifiedAt,
-      localDateTime: dto.fileCreatedAt,
+        fileCreatedAt: dto.fileCreatedAt,
+        fileModifiedAt: dto.fileModifiedAt,
+        localDateTime: dto.fileCreatedAt,
 
-      type: mimeTypes.assetType(file.originalPath),
-      isFavorite: dto.isFavorite,
-      duration: dto.duration || null,
-      visibility: dto.visibility ?? AssetVisibility.Timeline,
-      livePhotoVideoId: dto.livePhotoVideoId,
-      originalFileName: dto.filename || file.originalName,
-    });
+        type: mimeTypes.assetType(file.originalPath),
+        isFavorite: dto.isFavorite,
+        duration: dto.duration || null,
+        visibility: dto.visibility ?? AssetVisibility.Timeline,
+        livePhotoVideoId: dto.livePhotoVideoId,
+        originalFileName: dto.filename || file.originalName,
+      },
+      (candidate) => this.verifyExternalOriginal(candidate),
+      () => this.requireQuota(auth, file.size),
+    );
+    if (admission.duplicate) throw new UploadDuplicate(admission.asset);
+    const asset = admission.asset;
 
     const backendFiles: string[] = [];
     let writeBackend: StorageBackend | undefined;
 
     try {
+      if (dto.livePhotoVideoId) {
+        await onBeforeLink(
+          { asset: this.assetRepository, event: this.eventRepository },
+          { userId: auth.user.id, livePhotoVideoId: dto.livePhotoVideoId },
+        );
+      }
       if (dto.metadata?.length) {
         await this.assetRepository.upsertMetadata(asset.id, dto.metadata);
       }
@@ -485,6 +520,21 @@ export class AssetMediaService extends BaseService {
     }
 
     return asset;
+  }
+
+  private async findExternalUpload(ownerId: string, checksum: Buffer) {
+    const asset = await this.assetRepository.getExternalUploadAsset(ownerId, checksum, (candidate) =>
+      this.verifyExternalOriginal(candidate),
+    );
+    return asset ? { assetId: asset.id, duplicateId: asset.duplicateId } : undefined;
+  }
+
+  private verifyExternalOriginal(asset: Selectable<AssetTable>) {
+    return verifyExternalOriginal(asset, {
+      storage: this.storageRepository,
+      crypto: this.cryptoRepository,
+      logger: this.logger,
+    });
   }
 
   private requireQuota(auth: AuthDto, size: number) {

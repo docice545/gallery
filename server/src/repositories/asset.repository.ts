@@ -970,58 +970,224 @@ export class AssetRepository {
 
   async create(asset: Insertable<AssetTable>): Promise<Selectable<AssetTable>> {
     return this.db.transaction().execute(async (tx) => {
-      // Serialize managed uploads with external imports. Without the shared owner lock,
-      // an upload and a scan can both pass their identity checks before either commits.
       await sql`select pg_advisory_xact_lock(hashtextextended(${asset.ownerId}, 731))`.execute(tx);
-
-      let duplicateId: string | null = asset.duplicateId ?? null;
-      if (asset.libraryId === null) {
-        const alias = await tx
-          .selectFrom('asset_duplicate_checksum')
-          .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
-          .select(['asset_duplicate_checksum.assetId as id', 'asset.duplicateId'])
-          .where('asset_duplicate_checksum.ownerId', '=', asset.ownerId)
-          .where('asset.ownerId', '=', asset.ownerId)
-          .where('asset_duplicate_checksum.checksum', '=', asset.checksum)
-          // Resolution aliases can intentionally point DIFFERENT bytes at a
-          // keeper. They are upload barriers, not proof of content equality.
-          .where((eb) => eb.or([eb('asset.libraryId', 'is not', null), eb('asset.checksum', '=', asset.checksum)]))
-          .executeTakeFirst();
-        if (alias) {
-          // Exact content match found - use existing duplicateId or generate new one
-          duplicateId = alias.duplicateId ?? randomUUID();
-          // Update the existing asset's duplicateId if it didn't have one
-          if (!alias.duplicateId) {
-            await tx.updateTable('asset').set({ duplicateId }).where('id', '=', alias.id).execute();
-          }
-        }
-      }
-
-      const newAsset = await tx
-        .insertInto('asset')
-        .values({ ...asset, duplicateId })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-
-      // If this is a managed upload with a content checksum, store it in asset_duplicate_checksum
-      if (asset.libraryId === null && asset.checksum) {
-        await tx
-          .insertInto('asset_duplicate_checksum')
-          .values({
-            assetId: newAsset.id,
-            ownerId: asset.ownerId,
-            checksum: asset.checksum,
-          })
-          .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
-          .execute();
-      }
-
-      return newAsset;
+      return this.insertAsset(tx, asset);
     });
   }
 
+  /** File-only verification runs inside the existing per-owner scan/upload lock.
+   * It must not acquire another database connection or perform mutations.
+   */
+  async createForUpload(
+    asset: Insertable<AssetTable>,
+    verify: (asset: Selectable<AssetTable>) => Promise<Buffer | null>,
+    beforeCreate: () => void,
+  ): Promise<{ asset: Selectable<AssetTable>; duplicate: boolean }> {
+    return this.db.transaction().execute(async (tx) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${asset.ownerId}, 731))`.execute(tx);
+      // Reuse the established Managed/explicit Trash/permanent-deletion policy
+      // on this transaction's connection before considering an active External.
+      const known = await new AssetRepository(tx).getUploadAssetIdByChecksum(asset.ownerId, asset.checksum);
+      if (known) {
+        const duplicate = await tx
+          .selectFrom('asset')
+          .selectAll()
+          .where('id', '=', known.assetId)
+          .where('ownerId', '=', asset.ownerId)
+          .executeTakeFirst();
+        if (duplicate) return { asset: duplicate, duplicate: true };
+        // A retained permanent-deletion identity must reach the existing insert
+        // guard and produce Gone, never a successful External acknowledgement.
+        beforeCreate();
+        return { asset: await this.insertAsset(tx, asset), duplicate: false };
+      }
+      const existing = await this.findVerifiedExternalUpload(tx, asset.ownerId, asset.checksum, verify);
+      if (existing) return { asset: existing, duplicate: true };
+      beforeCreate();
+      return { asset: await this.insertAsset(tx, asset), duplicate: false };
+    });
+  }
+
+  async getExternalUploadAsset(
+    ownerId: string,
+    checksum: Buffer,
+    verify: (asset: Selectable<AssetTable>) => Promise<Buffer | null>,
+  ): Promise<Selectable<AssetTable> | undefined> {
+    return this.db.transaction().execute(async (tx) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
+      return this.findVerifiedExternalUpload(tx, ownerId, checksum, verify);
+    });
+  }
+
+  private async findVerifiedExternalUpload(
+    tx: Transaction<DB>,
+    ownerId: string,
+    checksum: Buffer,
+    verify: (asset: Selectable<AssetTable>) => Promise<Buffer | null>,
+  ) {
+    const candidates = await tx
+      .selectFrom('asset')
+      .innerJoin('library', 'library.id', 'asset.libraryId')
+      .selectAll('asset')
+      .where('asset.ownerId', '=', ownerId)
+      .where('library.ownerId', '=', ownerId)
+      .where('library.deletedAt', 'is', null)
+      .where('asset.isExternal', '=', true)
+      .where('asset.status', '=', AssetStatus.Active)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.isOffline', '=', false)
+      .where((eb) =>
+        eb.or([
+          eb('asset.contentChecksum', '=', checksum),
+          eb.exists(
+            eb
+              .selectFrom('asset_duplicate_checksum')
+              .select('asset_duplicate_checksum.assetId')
+              .whereRef('asset_duplicate_checksum.assetId', '=', 'asset.id')
+              .where('asset_duplicate_checksum.ownerId', '=', ownerId)
+              .where('asset_duplicate_checksum.checksum', '=', checksum),
+          ),
+        ]),
+      )
+      .orderBy(sql<boolean>`coalesce("asset"."contentChecksum" = ${checksum}, false)`, 'desc')
+      .orderBy('asset.createdAt')
+      .orderBy('asset.id')
+      .forUpdate(['asset', 'library'])
+      .execute();
+
+    for (const candidate of candidates) {
+      const contentChecksum = await verify(candidate);
+      const projected = await this.persistExternalContent(tx, candidate, contentChecksum);
+      if (projected?.equals(checksum)) return { ...candidate, contentChecksum: projected };
+    }
+  }
+
+  async refreshExternalContent(
+    libraryId: string,
+    assetId: string,
+    verify: (asset: Selectable<AssetTable>) => Promise<Buffer | null>,
+  ): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const library = await tx
+        .selectFrom('library')
+        .select('ownerId')
+        .where('id', '=', libraryId)
+        .where('deletedAt', 'is', null)
+        .executeTakeFirst();
+      if (!library) return;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${library.ownerId}, 731))`.execute(tx);
+      const asset = await tx
+        .selectFrom('asset')
+        .innerJoin('library', 'library.id', 'asset.libraryId')
+        .selectAll('asset')
+        .where('asset.id', '=', assetId)
+        .where('asset.libraryId', '=', libraryId)
+        .where('asset.ownerId', '=', library.ownerId)
+        .where('library.ownerId', '=', library.ownerId)
+        .where('library.deletedAt', 'is', null)
+        .where('asset.isExternal', '=', true)
+        .where('asset.status', '=', AssetStatus.Active)
+        .where('asset.deletedAt', 'is', null)
+        .where('asset.isOffline', '=', false)
+        .forUpdate(['asset', 'library'])
+        .executeTakeFirst();
+      if (!asset) return;
+      const contentChecksum = await verify(asset);
+      await this.persistExternalContent(tx, asset, contentChecksum);
+    });
+  }
+
+  private async persistExternalContent(tx: Transaction<DB>, asset: Selectable<AssetTable>, checksum: Buffer | null) {
+    // Two pre-existing External paths can already contain equal bytes. Do not
+    // project a second key that violates installed clients' (owner,library,SHA1)
+    // uniqueness; retain their catalog rows and the first canonical keeper.
+    const canonical = checksum
+      ? await tx
+          .selectFrom('asset')
+          .select('id')
+          .where('ownerId', '=', asset.ownerId)
+          .where('libraryId', '=', asset.libraryId)
+          .where('id', '!=', asset.id)
+          .where('contentChecksum', '=', checksum)
+          .where('isExternal', '=', true)
+          .where('isOffline', '=', false)
+          .executeTakeFirst()
+      : undefined;
+    const contentChecksum = canonical ? null : checksum;
+    if (
+      !(asset.contentChecksum === null && contentChecksum === null) &&
+      !asset.contentChecksum?.equals(contentChecksum ?? Buffer.alloc(0))
+    ) {
+      await tx.updateTable('asset').set({ contentChecksum }).where('id', '=', asset.id).execute();
+    }
+    if (checksum) {
+      const anchor = await tx
+        .selectFrom('asset_duplicate_checksum')
+        .select('assetId')
+        .where('ownerId', '=', asset.ownerId)
+        .where('checksum', '=', checksum)
+        .executeTakeFirst();
+      if (!anchor) {
+        await tx
+          .insertInto('asset_duplicate_checksum')
+          .values({ assetId: asset.id, ownerId: asset.ownerId, checksum })
+          .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
+          .execute();
+      }
+    }
+    return contentChecksum;
+  }
+
+  private async insertAsset(tx: Transaction<DB>, asset: Insertable<AssetTable>): Promise<Selectable<AssetTable>> {
+    let duplicateId: string | null = asset.duplicateId ?? null;
+    if (asset.libraryId === null) {
+      const alias = await tx
+        .selectFrom('asset_duplicate_checksum')
+        .innerJoin('asset', 'asset.id', 'asset_duplicate_checksum.assetId')
+        .select(['asset_duplicate_checksum.assetId as id', 'asset.duplicateId'])
+        .where('asset_duplicate_checksum.ownerId', '=', asset.ownerId)
+        .where('asset.ownerId', '=', asset.ownerId)
+        .where('asset_duplicate_checksum.checksum', '=', asset.checksum)
+        // Resolution aliases can intentionally point DIFFERENT bytes at a
+        // keeper. They are upload barriers, not proof of content equality.
+        .where((eb) =>
+          eb.or([eb('asset.contentChecksum', '=', asset.checksum), eb('asset.checksum', '=', asset.checksum)]),
+        )
+        .executeTakeFirst();
+      if (alias) {
+        // Exact content match found - use existing duplicateId or generate new one
+        duplicateId = alias.duplicateId ?? randomUUID();
+        // Update the existing asset's duplicateId if it didn't have one
+        if (!alias.duplicateId) {
+          await tx.updateTable('asset').set({ duplicateId }).where('id', '=', alias.id).execute();
+        }
+      }
+    }
+
+    const newAsset = await tx
+      .insertInto('asset')
+      .values({ ...asset, duplicateId })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // If this is a managed upload with a content checksum, store it in asset_duplicate_checksum
+    if (asset.libraryId === null && asset.checksum) {
+      await tx
+        .insertInto('asset_duplicate_checksum')
+        .values({
+          assetId: newAsset.id,
+          ownerId: asset.ownerId,
+          checksum: asset.checksum,
+        })
+        .onConflict((oc) => oc.columns(['ownerId', 'checksum']).doNothing())
+        .execute();
+    }
+
+    return newAsset;
+  }
+
   @ChunkedArray({ chunkSize: 4000 })
-  async createAll(assets: (Insertable<AssetTable> & { contentChecksum?: Buffer })[]) {
+  async createAll(assets: Insertable<AssetTable>[]) {
     if (assets.length === 0) return [];
     return this.db.transaction().execute(async (tx) => {
       // Share the deletion-intent lock. A scanner queued before confirmation
@@ -1073,7 +1239,8 @@ export class AssetRepository {
       const existingExternalContent = new Set(
         existingExternalChecksums.map(({ ownerId, checksum }) => `${ownerId}:${checksum.toString('hex')}`),
       );
-      const accepted: Array<{ asset: Insertable<AssetTable>; contentChecksum?: Buffer }> = [];
+      const accepted: Array<{ asset: Insertable<AssetTable>; contentChecksum?: Buffer | null }> = [];
+      const projectedContent = new Set<string>();
       for (const { contentChecksum, ...asset } of assets) {
         const suppressed = await tx
           .selectFrom('asset_deletion_tombstone')
@@ -1098,7 +1265,16 @@ export class AssetRepository {
           contentChecksum &&
           (managedContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`) ||
             existingExternalContent.has(`${asset.ownerId}:${contentChecksum.toString('hex')}`));
-        if (!suppressed && !matchesManaged) accepted.push({ asset, contentChecksum });
+        if (!suppressed && !matchesManaged) {
+          const key = contentChecksum ? `${asset.ownerId}:${contentChecksum.toString('hex')}` : undefined;
+          // Preserve pre-existing same-batch External catalog semantics. Only
+          // the content anchor is projected as canonical to legacy clients.
+          accepted.push({
+            asset: { ...asset, contentChecksum: key && !projectedContent.has(key) ? contentChecksum : null },
+            contentChecksum,
+          });
+          if (key) projectedContent.add(key);
+        }
       }
       if (accepted.length === 0) return [];
       const inserted = await tx
@@ -2772,7 +2948,7 @@ export class AssetRepository {
   }
 
   private async _getByChecksumsWithTombstones(userId: string, checksums: Buffer[]) {
-    const [assetResults, tombstoneResults, deletionResults] = await Promise.all([
+    const [assetResults, tombstoneResults, deletionResults, trashedContentResults] = await Promise.all([
       this.db
         .selectFrom('asset')
         .select(['id', 'checksum', 'deletedAt'])
@@ -2801,6 +2977,16 @@ export class AssetRepository {
           ]),
         )
         .execute(),
+      // A verified External version can outlive or conflict with the single
+      // legacy alias anchor. Explicit Trash must still suppress reupload.
+      this.db
+        .selectFrom('asset')
+        .select(['id', 'contentChecksum as checksum', 'deletedAt'])
+        .where('ownerId', '=', asUuid(userId))
+        .where('status', '=', AssetStatus.Trashed)
+        .where('contentChecksum', 'in', checksums)
+        .$narrowType<{ checksum: Buffer }>()
+        .execute(),
     ]);
 
     // Asset-table results take priority over tombstone results
@@ -2817,6 +3003,7 @@ export class AssetRepository {
         })),
       ]),
       ...tombstoneResults.filter((r) => !seen.has(r.checksum.toString('hex'))),
+      ...trashedContentResults.filter((r) => !seen.has(r.checksum.toString('hex'))),
     ];
   }
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.BUFFER] })
@@ -2836,6 +3023,16 @@ export class AssetRepository {
     if (asset) {
       return { assetId: asset.id, duplicateId: asset.duplicateId };
     }
+
+    const trashedContent = await this.db
+      .selectFrom('asset')
+      .select(['id as assetId', 'duplicateId'])
+      .where('ownerId', '=', asUuid(ownerId))
+      .where('status', '=', AssetStatus.Trashed)
+      .where('contentChecksum', '=', checksum)
+      .limit(1)
+      .executeTakeFirst();
+    if (trashedContent) return trashedContent;
 
     const tombstone = await this.db
       .selectFrom('asset_duplicate_checksum')
@@ -3399,6 +3596,7 @@ export class AssetRepository {
       .set({
         isOffline: true,
         deletedAt: new Date(),
+        contentChecksum: null,
       })
       .where('isOffline', '=', false)
       .where('isExternal', '=', true)

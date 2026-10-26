@@ -45,10 +45,10 @@ export class CryptoRepository {
     return createHash('sha1').update(value).digest();
   }
 
-  hashFile(filepath: string | Buffer): Promise<Buffer> {
+  hashFile(filepath: string | Buffer, signal?: AbortSignal): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const hash = createHash('sha1');
-      const stream = createReadStream(filepath);
+      const stream = createReadStream(filepath, { signal });
       stream.on('error', (error) => reject(error));
       stream.on('data', (chunk) => hash.update(chunk));
       stream.on('end', () => resolve(hash.digest()));

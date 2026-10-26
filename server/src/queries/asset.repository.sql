@@ -681,6 +681,16 @@ where
     or "contentChecksum" in ($3)
     or aliases ?| $4::text[]
   )
+select
+  "id",
+  "contentChecksum" as "checksum",
+  "deletedAt"
+from
+  "asset"
+where
+  "ownerId" = $1::uuid
+  and "status" = $2
+  and "contentChecksum" in ($3)
 
 -- AssetRepository.getUploadAssetIdByChecksum
 select
@@ -694,6 +704,17 @@ where
   and "libraryId" is null
 limit
   $3
+select
+  "id" as "assetId",
+  "duplicateId"
+from
+  "asset"
+where
+  "ownerId" = $1::uuid
+  and "status" = $2
+  and "contentChecksum" = $3
+limit
+  $4
 select
   "asset_duplicate_checksum"."assetId" as "assetId",
   "asset"."duplicateId"
@@ -1240,14 +1261,15 @@ limit
 update "asset"
 set
   "isOffline" = $1,
-  "deletedAt" = $2
+  "deletedAt" = $2,
+  "contentChecksum" = $3
 where
-  "isOffline" = $3
-  and "isExternal" = $4
-  and "libraryId" = $5::uuid
+  "isOffline" = $4
+  and "isExternal" = $5
+  and "libraryId" = $6::uuid
   and (
-    not "originalPath" like $6
-    or "originalPath" ~ $7
+    not "originalPath" like $7
+    or "originalPath" ~ $8
   )
 
 -- AssetRepository.filterNewExternalAssetPaths

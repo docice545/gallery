@@ -1,7 +1,7 @@
 import { Kysely } from 'kysely';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { StorageCore } from 'src/cores/storage.core.js';
@@ -17,7 +17,7 @@ import { SharedSpaceRepository } from 'src/repositories/shared-space.repository.
 import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { DB } from 'src/schema/index.js';
 import { LibraryService } from 'src/services/library.service.js';
-import { MediumTestContext, mediumFactory, testAssetsDir } from 'test/medium.factory.js';
+import { MediumTestContext, mediumFactory } from 'test/medium.factory.js';
 import { newUuid } from 'test/small.factory.js';
 import { getKyselyDB } from 'test/utils.js';
 
@@ -31,13 +31,6 @@ const fileModifiedAt = new Date(1_700_000_000_000);
 const createFile = async (filePath: string, modifiedAt: Date = fileModifiedAt) => {
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, 'test');
-  await utimes(filePath, modifiedAt, modifiedAt);
-  return filePath;
-};
-
-const copyTestAsset = async (source: string, filePath: string, modifiedAt: Date = fileModifiedAt) => {
-  await mkdir(dirname(filePath), { recursive: true });
-  await copyFile(join(testAssetsDir, source), filePath);
   await utimes(filePath, modifiedAt, modifiedAt);
   return filePath;
 };
@@ -1025,7 +1018,7 @@ describe(LibraryService.name, () => {
       const { sut, ctx } = setup();
       const jobs = ctx.getMock(JobRepository);
       const library = await ctx.createLibrary({ importPaths: [importPath] });
-      const rawPath = await copyTestAsset('formats/raw/Nikon/D80/glarus.nef', join(importPath, 'glarus.nef'));
+      const rawPath = await createFile(join(importPath, 'synthetic.nef'));
 
       const { asset } = await ctx.newAsset({
         ownerId: library.ownerId,
@@ -1061,7 +1054,7 @@ describe(LibraryService.name, () => {
       const { sut, ctx } = setup();
       const jobs = ctx.getMock(JobRepository);
       const library = await ctx.createLibrary({ importPaths: [importPath] });
-      const rawPath = await copyTestAsset('formats/raw/Nikon/D80/glarus.nef', join(importPath, 'glarus.nef'));
+      const rawPath = await createFile(join(importPath, 'synthetic.nef'));
 
       const { asset } = await ctx.newAsset({
         ownerId: library.ownerId,
@@ -1093,7 +1086,7 @@ describe(LibraryService.name, () => {
       const { sut, ctx } = setup();
       const jobs = ctx.getMock(JobRepository);
       const library = await ctx.createLibrary({ importPaths: [importPath] });
-      const rawPath = await copyTestAsset('formats/raw/Nikon/D80/glarus.nef', join(importPath, 'glarus.nef'));
+      const rawPath = await createFile(join(importPath, 'synthetic.nef'));
 
       await expect(
         sut.handleSyncFiles({

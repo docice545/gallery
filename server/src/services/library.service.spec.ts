@@ -421,6 +421,7 @@ describe(LibraryService.name, () => {
       expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], {
         isOffline: true,
         deletedAt: expect.anything(),
+        contentChecksum: null,
       });
     });
 
@@ -443,6 +444,7 @@ describe(LibraryService.name, () => {
       expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], {
         isOffline: true,
         deletedAt: expect.anything(),
+        contentChecksum: null,
       });
     });
 
@@ -482,7 +484,7 @@ describe(LibraryService.name, () => {
       await expect(sut.handleSyncAssets(mockAssetJob)).resolves.toBe(JobStatus.Success);
 
       expect(mocks.assetJob.setOnlineForLibrarySync).toHaveBeenCalledWith([asset.id]);
-      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+      expect(mocks.asset.updateAll).toHaveBeenCalledExactlyOnceWith([asset.id], { contentChecksum: null });
     });
 
     it('should use a conditional online write when the asset is trashed during stat', async () => {
@@ -510,7 +512,7 @@ describe(LibraryService.name, () => {
 
       await expect(sync).resolves.toBe(JobStatus.Success);
       expect(mocks.assetJob.setOnlineForLibrarySync).toHaveBeenCalledWith([asset.id]);
-      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+      expect(mocks.asset.updateAll).toHaveBeenCalledExactlyOnceWith([asset.id], { contentChecksum: null });
     });
 
     it('should keep an initially trashed asset in trash when its file comes online', async () => {
@@ -532,7 +534,7 @@ describe(LibraryService.name, () => {
         progressCounter: 0,
       });
 
-      expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], { isOffline: false });
+      expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], { isOffline: false, contentChecksum: null });
       expect(mocks.assetJob.setOnlineForLibrarySync).not.toHaveBeenCalled();
     });
 
@@ -616,7 +618,43 @@ describe(LibraryService.name, () => {
       await expect(sut.handleSyncAssets(mockAssetJob)).resolves.toBe(JobStatus.Success);
 
       expect(mocks.assetJob.setOnlineForLibrarySync).toHaveBeenCalledWith([asset.id]);
-      expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+      expect(mocks.asset.updateAll).toHaveBeenCalledExactlyOnceWith([asset.id], { contentChecksum: null });
+    });
+
+    it('recomputes a changed External original through the locked, file-only verifier', async () => {
+      const asset = AssetFactory.create({ libraryId: 'library-id', isExternal: true, fileModifiedAt: new Date(1) });
+      const checksum = Buffer.from('current edited bytes');
+      const stat = {
+        dev: 1,
+        ino: 2,
+        size: 100,
+        mtimeMs: 2,
+        ctimeMs: 2,
+        mtime: new Date(2),
+        isFile: () => true,
+      } as Stats;
+      mocks.assetJob.getForSyncAssets.mockResolvedValue([asset]);
+      mocks.storage.stat.mockResolvedValue(stat);
+      mocks.crypto.hashFile.mockResolvedValue(checksum);
+      mocks.asset.refreshExternalContent.mockImplementation(async (_libraryId, _id, verify) => {
+        await expect(verify(asset)).resolves.toEqual(checksum);
+      });
+      await expect(
+        sut.handleSyncAssets({
+          assetIds: [asset.id],
+          libraryId: 'library-id',
+          importPaths: ['/'],
+          exclusionPatterns: [],
+          totalAssets: 1,
+          progressCounter: 1,
+        }),
+      ).resolves.toBe(JobStatus.Success);
+      expect(mocks.asset.refreshExternalContent).toHaveBeenCalledExactlyOnceWith(
+        'library-id',
+        asset.id,
+        expect.any(Function),
+      );
+      expect(mocks.crypto.hashFile).toHaveBeenCalledExactlyOnceWith(asset.originalPath, expect.any(AbortSignal));
     });
 
     it('should update with online assets that have changed', async () => {
@@ -637,6 +675,7 @@ describe(LibraryService.name, () => {
 
       await expect(sut.handleSyncAssets(mockAssetJob)).resolves.toBe(JobStatus.Success);
 
+      expect(mocks.asset.updateAll).toHaveBeenCalledWith([asset.id], { contentChecksum: null });
       expect(mocks.job.queueAll).toHaveBeenCalledWith([
         {
           name: JobName.SidecarCheck,
@@ -697,6 +736,22 @@ describe(LibraryService.name, () => {
           },
         },
       ]);
+    });
+
+    it('does not persist canonical content identity for an original replaced while hashing', async () => {
+      const library = factory.library();
+      const before = { dev: 1, ino: 2, size: 100, mtimeMs: 10, ctimeMs: 10, mtime: new Date(10) } as Stats;
+      mocks.library.get.mockResolvedValue(library);
+      mocks.storage.stat.mockResolvedValueOnce(before).mockResolvedValueOnce({ ...before, ino: 3 } as Stats);
+      mocks.asset.createAll.mockResolvedValue([]);
+      await expect(sut.handleSyncFiles({ libraryId: library.id, paths: ['/data/user1/photo.jpg'] })).resolves.toBe(
+        JobStatus.Success,
+      );
+      expect(mocks.asset.createAll).toHaveBeenCalledWith([]);
+      expect(mocks.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('External original changed while computing content identity'),
+      );
+      expect(mocks.event.emit).not.toHaveBeenCalled();
     });
 
     it('should not import an asset to a soft deleted library', async () => {

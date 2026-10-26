@@ -33,6 +33,7 @@ import {
 import { AssetSyncResult } from 'src/repositories/library.repository.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 import { BaseService } from 'src/services/base.service.js';
+import { verifyExternalOriginal } from 'src/utils/external-original.js';
 import { mimeTypes } from 'src/utils/mime-types.js';
 import { batched, findOrFail, handlePromiseError } from 'src/utils/misc.js';
 
@@ -260,7 +261,7 @@ export class LibraryService extends BaseService {
       return JobStatus.Failed;
     }
 
-    const assetImports: (Insertable<AssetTable> & { contentChecksum?: Buffer })[] = [];
+    const assetImports: Insertable<AssetTable>[] = [];
     await Promise.all(
       job.paths.map(async (path) => {
         try {
@@ -418,6 +419,16 @@ export class LibraryService extends BaseService {
     const assetPath = path.normalize(filePath);
     const stat = await this.storageRepository.stat(assetPath);
     const contentChecksum = await this.cryptoRepository.hashFile(assetPath);
+    const after = await this.storageRepository.stat(assetPath);
+    if (
+      stat.dev !== after.dev ||
+      stat.ino !== after.ino ||
+      stat.size !== after.size ||
+      stat.mtimeMs !== after.mtimeMs ||
+      stat.ctimeMs !== after.ctimeMs
+    ) {
+      throw new Error('External original changed while computing content identity');
+    }
 
     return {
       ownerId,
@@ -561,26 +572,54 @@ export class LibraryService extends BaseService {
 
     const promises = [];
     if (assetIdsToOffline.length > 0) {
-      promises.push(this.assetRepository.updateAll(assetIdsToOffline, { isOffline: true, deletedAt: new Date() }));
+      promises.push(
+        this.assetRepository.updateAll(assetIdsToOffline, {
+          isOffline: true,
+          deletedAt: new Date(),
+          contentChecksum: null,
+        }),
+      );
     }
 
     if (trashedAssetIdsToOffline.length > 0) {
-      promises.push(this.assetRepository.updateAll(trashedAssetIdsToOffline, { isOffline: true }));
+      promises.push(
+        this.assetRepository.updateAll(trashedAssetIdsToOffline, { isOffline: true, contentChecksum: null }),
+      );
     }
 
     if (assetIdsToOnline.length > 0) {
-      promises.push(this.assetJobRepository.setOnlineForLibrarySync(assetIdsToOnline));
+      promises.push(
+        this.assetRepository.updateAll(assetIdsToOnline, { contentChecksum: null }),
+        this.assetJobRepository.setOnlineForLibrarySync(assetIdsToOnline),
+      );
     }
 
     if (trashedAssetIdsToOnline.length > 0) {
-      promises.push(this.assetRepository.updateAll(trashedAssetIdsToOnline, { isOffline: false }));
+      promises.push(
+        this.assetRepository.updateAll(trashedAssetIdsToOnline, { isOffline: false, contentChecksum: null }),
+      );
     }
 
     if (assetIdsToUpdate.length > 0) {
-      promises.push(this.queuePostSyncJobs(assetIdsToUpdate));
+      promises.push(
+        this.assetRepository.updateAll(assetIdsToUpdate, { contentChecksum: null }),
+        this.queuePostSyncJobs(assetIdsToUpdate),
+      );
     }
 
     await Promise.all(promises);
+
+    // Refresh only files already identified by the normal sync as changed or
+    // newly accessible. No library crawl or automatic backfill is introduced.
+    for (const assetId of new Set([...assetIdsToUpdate, ...assetIdsToOnline])) {
+      await this.assetRepository.refreshExternalContent(job.libraryId, assetId, (asset) =>
+        verifyExternalOriginal(asset, {
+          storage: this.storageRepository,
+          crypto: this.cryptoRepository,
+          logger: this.logger,
+        }),
+      );
+    }
 
     const remainingCount = assets.length - assetIdsToOffline.length - assetIdsToUpdate.length - assetIdsToOnline.length;
     const cumulativePercentage = ((100 * job.progressCounter) / job.totalAssets).toFixed(1);
