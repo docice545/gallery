@@ -14,7 +14,13 @@ import 'package:openapi/api.dart';
 
 /// Warms FOTO's durable native thumbnail cache from the already-synced Drift
 /// catalog. Does not download originals, write to Drift, or enqueue uploads.
-/// Runs only while the Photos screen is mounted and Wi-Fi is connected.
+/// Runs while the Photos screen is mounted and any network is available
+/// (Wi-Fi, mobile data, VPN, Ethernet, or another transport).
+/// Connectivity is a transport hint only: do not restrict mobile data or VPN.
+/// A network transport may still lack internet, so HTTP failures are bounded.
+bool canWarmThumbnailsOn(List<ConnectivityResult> transports) =>
+    transports.isNotEmpty && transports.any((transport) => transport != ConnectivityResult.none);
+
 class OfflineThumbnailWarmup {
   static final _log = Logger('OfflineThumbnailWarmup');
   static const _pageSize = 40;
@@ -46,8 +52,10 @@ class OfflineThumbnailWarmup {
 
     while (!_cancelled && sessionIsCurrent()) {
       final transports = await Connectivity().checkConnectivity();
-      // Never silently prefetch a large library on cellular/mobile data.
-      if (!transports.contains(ConnectivityResult.wifi)) return;
+      // Accept all online transport types, including cellular and VPN.
+      // Connectivity reports transport presence, not server reachability;
+      // repeated HTTP failures below still stop the warmup promptly.
+      if (!canWarmThumbnailsOn(transports)) return;
 
       final query = db.select(db.remoteAssetEntity)
         ..where(
