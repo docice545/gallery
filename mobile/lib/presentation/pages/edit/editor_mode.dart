@@ -26,10 +26,10 @@ extension EditorModeExtension on EditorMode {
   };
 
   String label(BuildContext context) => switch (this) {
-    EditorMode.crop => context.tr('crop'),
+    EditorMode.crop => context.tr('editor_tool_crop'),
     EditorMode.adjustments => context.tr('editor_adjustments'),
     EditorMode.filters => context.tr('editor_filters'),
-    EditorMode.draw => context.tr('editor_draw'),
+    EditorMode.draw => context.tr('editor_tool_markup'),
     EditorMode.text => context.tr('editor_text'),
     EditorMode.shapes => context.tr('editor_shapes'),
     EditorMode.stickers => context.tr('editor_stickers'),

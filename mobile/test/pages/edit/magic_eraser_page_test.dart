@@ -5,10 +5,13 @@ import 'dart:ui' as ui;
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
+import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
+import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/widgets/common/transparent_image.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart' as api;
@@ -48,7 +51,15 @@ void main() {
     await tester.runAsync(() async {
       await tester.pumpConsumerWidgetRaw(
         MagicEraserPage(asset: photo ?? asset),
-        overrides: [magicEraserRepositoryProvider.overrideWithValue(repository)],
+        overrides: [
+          magicEraserRepositoryProvider.overrideWithValue(repository),
+          immichThemeProvider.overrideWith(
+            (ref) => ImmichTheme(
+              light: ColorScheme.fromSeed(seedColor: Colors.blue),
+              dark: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.dark),
+            ),
+          ),
+        ],
       );
       // Native descriptor/image decoding completes outside the fake timer zone.
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -57,6 +68,8 @@ void main() {
   }
 
   bool canRemove(WidgetTester tester) => tester.widget<FilledButton>(remove).onPressed != null;
+
+  bool canSave(WidgetTester tester) => tester.widget<FilledButton>(save).onPressed != null;
 
   Future<void> selectCenter(WidgetTester tester) async {
     await tester.tapAt(tester.getCenter(canvas));
@@ -74,13 +87,14 @@ void main() {
       () => repository.create(asset.id, any()),
     ).thenAnswer((_) async => const MagicEraserJob(id: 'ready-job', status: MagicEraserStatus.ready));
     await selectCenter(tester);
+    await tester.ensureVisible(remove);
     await tester.runAsync(() async {
       await tester.tap(remove);
       await tester.pump();
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
     await tester.pump();
-    expect(save, findsOneWidget);
+    expect(canSave(tester), isTrue);
   }
 
   MemoryImage displayedImage(WidgetTester tester) =>
@@ -100,6 +114,19 @@ void main() {
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final (error, message) in <(Object, String)>[
+      (api.ApiException(401, 'Private response'), 'Sign in again to check magic eraser availability.'),
+      (api.ApiException(403, 'Private response'), 'You do not have permission to edit this photo.'),
+      (api.ApiException(400, 'Private response'), 'Magic eraser does not support this photo.'),
+      (api.ApiException(404, 'Private response'), 'This photo is unavailable, offline or in Trash.'),
+      (
+        http.ClientException('Private URL'),
+        'Could not check magic eraser availability. Check your connection and retry.',
+      ),
+      (http.RequestAbortedException(), 'Could not check magic eraser availability. Check your connection and retry.'),
+      (
+        const FormatException('Private payload'),
+        'Could not check magic eraser availability. Check your connection and retry.',
+      ),
       (
         const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unsupportedBackend),
         'This server does not provide the magic eraser API.',
@@ -140,12 +167,38 @@ void main() {
     verifyNever(() => repository.create(any(), any()));
   });
 
+  testWidgets('an unavailable capability can be checked again without creating or saving a photo', (tester) async {
+    when(
+      () => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger')),
+    ).thenThrow(http.ClientException('Private URL'));
+    await pumpEditor(tester);
+    expect(find.text('Could not check magic eraser availability. Check your connection and retry.'), findsOneWidget);
+    expect(canSave(tester), isFalse);
+    verifyNever(() => repository.source(any(), abortTrigger: any(named: 'abortTrigger')));
+
+    when(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => true);
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pump();
+    expect(canvas, findsOneWidget);
+    expect(canRemove(tester), isFalse);
+    expect(canSave(tester), isFalse);
+    verify(() => repository.source(asset.id, abortTrigger: any(named: 'abortTrigger'))).called(1);
+    verifyNever(() => repository.create(any(), any()));
+    verifyNever(() => repository.save(any(), any()));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a server-only source displays without inpainting or importing an asset automatically', (tester) async {
     await pumpEditor(tester);
 
     expect(canvas, findsOneWidget);
     expect(displayedImage(tester).bytes, same(source));
     expect(canRemove(tester), isFalse);
+    expect(canSave(tester), isFalse);
     expect(find.byKey(const Key('eraser-brush-size')), findsOneWidget);
     expect(find.byIcon(Icons.undo), findsOneWidget);
     expect(find.byIcon(Icons.redo), findsOneWidget);
@@ -309,7 +362,7 @@ void main() {
 
     verify(() => repository.cancel(asset.id, 'late-job')).called(1);
     verifyNever(() => repository.preview(any(), any(), abortTrigger: any(named: 'abortTrigger')));
-    expect(save, findsNothing);
+    expect(canSave(tester), isFalse);
     expect(canRemove(tester), isTrue);
   });
 
@@ -364,7 +417,7 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(displayedImage(tester).bytes, same(source));
     expect(canRemove(tester), isTrue);
-    expect(save, findsNothing);
+    expect(canSave(tester), isFalse);
     verifyNever(() => repository.save(any(), any()));
   });
 
@@ -405,7 +458,7 @@ void main() {
       });
       await tester.pump();
 
-      expect(save, findsNothing);
+      expect(canSave(tester), isFalse);
       expect(displayedImage(tester).bytes, same(source));
       expect(canRemove(tester), isTrue);
       verifyNever(() => repository.save(any(), any()));
@@ -462,5 +515,81 @@ void main() {
     expect(tester.getRect(save).left, greaterThanOrEqualTo(0));
     expect(tester.getRect(save).right, lessThanOrEqualTo(320));
     expect(tester.takeException(), isNull);
+  });
+
+  for (final size in [const Size(320, 720), const Size(720, 320), const Size(568, 320)]) {
+    testWidgets('Russian AI editor keeps its canvas and four header actions at font scale 2 on $size', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      final padding = size.width > size.height
+          ? const FakeViewPadding(left: 24, right: 24, bottom: 24)
+          : const FakeViewPadding(top: 28, bottom: 24);
+      tester.view.padding = padding;
+      tester.view.viewPadding = padding;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(() {
+        tester.view.reset();
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+      });
+      await pumpEditor(tester);
+      await EasyLocalization.of(tester.element(canvas))!.setLocale(const Locale('ru'));
+      await tester.pumpAndSettle();
+
+      final appBar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(appBar.actions, hasLength(3));
+      for (final key in ['eraser-back', 'eraser-header-undo', 'eraser-header-redo', 'eraser-save']) {
+        expectTapTargetMin(tester, find.byKey(Key(key)));
+        final rect = tester.getRect(find.byKey(Key(key)));
+        expect(rect.left, greaterThanOrEqualTo(padding.left));
+        expect(rect.right, lessThanOrEqualTo(size.width - padding.right));
+      }
+      expect(canSave(tester), isFalse);
+      expect(Theme.of(tester.element(canvas)).brightness, Brightness.dark);
+      final canvasRegion = tester.getRect(find.byKey(const Key('eraser-canvas-region')));
+      final panel = tester.getRect(find.byKey(const Key('eraser-controls-panel')));
+      expect(canvasRegion.height, greaterThanOrEqualTo(96));
+      expect(canvasRegion.width, greaterThanOrEqualTo(96));
+      if (size.width - padding.left - padding.right >= 560) {
+        expect(panel.left, greaterThanOrEqualTo(canvasRegion.right));
+      } else {
+        expect(panel.top, greaterThanOrEqualTo(canvasRegion.bottom));
+      }
+      await tester.ensureVisible(remove);
+      expect(remove.hitTestable(), findsOneWidget);
+      await showResult(tester);
+      expect(canSave(tester), isTrue);
+      await tester.ensureVisible(find.text('До'));
+      await tester.tap(find.text('До'));
+      await tester.pump();
+      expect(displayedImage(tester).bytes, same(source));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('keyboard and cutout insets preserve the AI mask and scrollable controls', (tester) async {
+    tester.view.physicalSize = const Size(320, 720);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 28, bottom: 24);
+    tester.view.viewPadding = const FakeViewPadding(top: 28, bottom: 24);
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(() {
+      tester.view.reset();
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+    });
+    await pumpEditor(tester);
+    await selectCenter(tester);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    tester.view.padding = const FakeViewPadding(top: 28);
+    await tester.pumpAndSettle();
+
+    expect(canRemove(tester), isTrue);
+    expect(tester.getSize(find.byKey(const Key('eraser-canvas-region'))).height, greaterThan(96));
+    await tester.ensureVisible(remove);
+    expect(remove.hitTestable(), findsOneWidget);
+    expect(tester.getRect(find.byKey(const Key('eraser-controls-panel'))).bottom, lessThanOrEqualTo(440));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('eraser-header-undo')));
+    await tester.pump();
+    expect(canRemove(tester), isFalse);
   });
 }

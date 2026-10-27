@@ -97,10 +97,12 @@ void main() {
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final size in [const Size(393, 852), const Size(320, 720), const Size(852, 393)]) {
-      testWidgets('compact editor: five tools visible without scrolling on $platform $size', (tester) async {
+      testWidgets('compact editor: four primary tools remain labeled and accessible on $platform $size', (
+        tester,
+      ) async {
         await pumpCompactEditor(tester, size: size);
         final safe = Rect.fromLTRB(0, 28, size.width, size.height - 24);
-        for (final name in ['crop', 'filters', 'draw', 'text', 'stickers']) {
+        for (final name in ['crop', 'draw', 'text', 'magicEraser']) {
           final target = find.byKey(Key('editor-mode-$name'));
           final rect = tester.getRect(target);
           expect(safe.contains(rect.topLeft), isTrue, reason: '$name top-left');
@@ -113,7 +115,7 @@ void main() {
   }
   testWidgets('initial controls do not reserve half of the photo viewport', (tester) async {
     await pumpCompactEditor(tester);
-    expect(tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height, lessThanOrEqualTo(80));
+    expect(tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height, lessThanOrEqualTo(96));
     expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(620));
     expect(find.byKey(const Key('editor-header-undo')), findsOneWidget);
     expect(find.byKey(const Key('editor-header-redo')), findsOneWidget);
@@ -144,13 +146,25 @@ void main() {
     await pumpCompactEditor(tester, size: const Size(320, 720), scale: 2, russian: true);
     await tester.tap(find.byKey(const Key('editor-mode-draw')));
     await tester.pumpAndSettle();
-    expect(tester.getSize(find.byKey(const Key('editor-mode-bar'))).height, lessThanOrEqualTo(56));
+    final primaryBar = find.byKey(const Key('editor-mode-bar'));
+    expect(
+      tester.widgetList<Text>(find.descendant(of: primaryBar, matching: find.byType(Text))).map((text) => text.data),
+      ['Обрезка', 'Разметка', 'Текст', 'Волшебный ластик'],
+    );
+    for (final name in ['crop', 'draw', 'text', 'magicEraser']) {
+      final target = find.byKey(Key('editor-mode-$name'));
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      expect(target.hitTestable(), findsOneWidget);
+      expectTapTargetMin(tester, target);
+    }
+    expect(tester.getSize(find.byKey(const Key('editor-mode-bar'))).height, inInclusiveRange(90, 100));
     expect(tester.getSize(find.byKey(const Key('editor-markup-controls'))).height, 48);
     final photoBefore = tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height;
     await tester.tap(find.byKey(const Key('editor-toggle-settings')));
     await tester.pumpAndSettle();
     final panel = find.byKey(const Key('editor-bottom-panel'));
-    expect(tester.getSize(panel).height, lessThanOrEqualTo(200));
+    expect(tester.getSize(panel).height, lessThanOrEqualTo(240));
     expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(photoBefore - 80));
     for (final (tool, label) in [
       (AnnotationTool.pen, 'Перо'),
@@ -200,7 +214,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets('short landscape with cutouts keeps the drawing strip and five tools usable on $platform', (
+    testWidgets('short landscape with cutouts keeps the drawing strip and four primary tools usable on $platform', (
       tester,
     ) async {
       await pumpCompactEditor(
@@ -213,8 +227,12 @@ void main() {
       for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
         expect(find.byKey(Key('editor-tool-$tool')).hitTestable(), findsOneWidget);
       }
-      for (final mode in ['crop', 'filters', 'draw', 'text', 'stickers']) {
-        expect(find.byKey(Key('editor-mode-$mode')).hitTestable(), findsOneWidget);
+      for (final mode in ['crop', 'draw', 'text', 'magicEraser']) {
+        final target = find.byKey(Key('editor-mode-$mode'));
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(target.hitTestable(), findsOneWidget);
+        expectTapTargetMin(tester, target);
       }
       expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(100));
       await tester.tap(find.byKey(const Key('editor-toggle-settings')));
@@ -239,8 +257,12 @@ void main() {
       tester.view.padding = const FakeViewPadding(left: 44, right: 44);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('editor-active-settings')), findsNothing);
-      for (final mode in ['crop', 'filters', 'draw', 'text', 'stickers']) {
-        expect(find.byKey(Key('editor-mode-$mode')).hitTestable(), findsOneWidget);
+      for (final mode in ['crop', 'draw', 'text', 'magicEraser']) {
+        final target = find.byKey(Key('editor-mode-$mode'));
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(target.hitTestable(), findsOneWidget);
+        expectTapTargetMin(tester, target);
       }
       expect(container.read(editorStateProvider), before);
       tester.view.viewInsets = const FakeViewPadding(bottom: 220);

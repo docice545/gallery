@@ -19,7 +19,6 @@ import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
-import 'package:immich_mobile/presentation/pages/edit/magic_eraser_availability.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
@@ -27,10 +26,10 @@ import 'package:immich_mobile/presentation/pages/edit/widgets/markup_controls.da
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
-import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/annotation_editor.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
+import 'package:immich_mobile/utils/editor_geometry.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_ui/immich_ui.dart';
@@ -61,6 +60,8 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   bool _cancelSave = false;
   bool _writingCopy = false;
   bool _settingsExpanded = false;
+  bool _straightening = false;
+  bool _magicEraserOpen = false;
   final _previewKey = GlobalKey();
   Completer<void>? _cancelLoad;
   AnnotationElement _textStyle = AnnotationElement(
@@ -218,7 +219,46 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     super.initState();
     _annotations.replaceAll(ref.read(editorStateProvider).annotations);
     _mode = widget.asset?.isEditable ?? true ? EditorMode.crop : EditorMode.magicEraser;
-    _settingsExpanded = _mode == EditorMode.magicEraser;
+    _settingsExpanded = false;
+  }
+
+  Future<void> _openMagicEraser() async {
+    if (_magicEraserOpen || ref.read(editorStateProvider).isApplyingEdits) {
+      return;
+    }
+    _magicEraserOpen = true;
+    try {
+      while (true) {
+        if (!mounted) {
+          return;
+        }
+        final asset = widget.asset;
+        if (asset != null) {
+          await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => MagicEraserPage(asset: asset)));
+          return;
+        }
+        final retry = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(context.t.magic_eraser),
+            content: Text(context.t.editor_magic_local_unavailable),
+            actions: [
+              TextButton(
+                key: const Key('magic-eraser-local-retry'),
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(context.t.retry),
+              ),
+              TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.t.close)),
+            ],
+          ),
+        );
+        if (retry != true) {
+          return;
+        }
+      }
+    } finally {
+      _magicEraserOpen = false;
+    }
   }
 
   void _cancelExport() {
@@ -260,6 +300,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         source: source,
         crop: state.crop,
         rotationDegrees: state.rotationAngle,
+        straightenDegrees: state.straightenDegrees,
         flipHorizontal: state.flipHorizontal,
         flipVertical: state.flipVertical,
         annotations: _annotations.elements,
@@ -453,164 +494,149 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
       },
       child: Theme(
         data: getThemeData(colorScheme: ref.watch(immichThemeProvider).dark, locale: context.locale),
-        child: Scaffold(
-          appBar: AppBar(
-            backgroundColor: Colors.black,
-            leading: IconButton(
-              key: const Key('editor-back'),
-              tooltip: context.t.back,
-              onPressed: state.isApplyingEdits ? null : () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.arrow_back),
-            ),
-            actions: [
-              if (!state.isApplyingEdits) ...[
+        child: Builder(
+          builder: (context) => Scaffold(
+            appBar: AppBar(
+              toolbarHeight: _editorHeaderHeight(context),
+              backgroundColor: Colors.black,
+              leadingWidth: 48,
+              leading: IconButton(
+                key: const Key('editor-back'),
+                tooltip: context.t.back,
+                onPressed: state.isApplyingEdits ? null : () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back),
+              ),
+              actions: [
                 IconButton(
                   key: const Key('editor-header-undo'),
                   tooltip: context.t.undo,
-                  onPressed: state.canUndo ? notifier.undo : null,
+                  onPressed: !state.isApplyingEdits && state.canUndo ? notifier.undo : null,
                   icon: const Icon(Icons.undo),
                 ),
                 IconButton(
                   key: const Key('editor-header-redo'),
                   tooltip: context.t.magic_eraser_redo,
-                  onPressed: state.canRedo ? notifier.redo : null,
+                  onPressed: !state.isApplyingEdits && state.canRedo ? notifier.redo : null,
                   icon: const Icon(Icons.redo),
                 ),
+                _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits),
               ],
-              if (allowTransformEdits) _SaveEditsButton(onSave: _saveCopy),
-              if (state.isApplyingEdits && !_writingCopy)
-                TextButton(
-                  key: const Key('editor-cancel-export'),
-                  onPressed: _cancelExport,
-                  child: Text(context.t.cancel),
-                ),
-              PopupMenuButton<String>(
-                key: const Key('editor-more'),
-                icon: const Icon(Icons.more_vert),
-                enabled: !state.isApplyingEdits,
-                onSelected: (value) {
-                  switch (value) {
-                    case 'reset':
-                      _reset();
-                    case 'magic':
-                      setState(() {
-                        _mode = EditorMode.magicEraser;
-                        _settingsExpanded = true;
-                      });
-                    case 'layers':
-                      unawaited(_layers());
-                    case 'close':
-                      Navigator.of(context).maybePop();
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    key: const Key('editor-reset'),
-                    value: 'reset',
-                    enabled: state.hasEdits,
-                    child: Text(context.tr('editor_revert')),
-                  ),
-                  PopupMenuItem(
-                    key: const Key('editor-mode-magicEraser'),
-                    value: 'magic',
-                    enabled: widget.asset != null,
-                    child: Text(context.t.magic_eraser),
-                  ),
-                  PopupMenuItem(
-                    value: 'layers',
-                    enabled: allowTransformEdits,
-                    child: Text(context.tr('editor_layers')),
-                  ),
-                  PopupMenuItem(value: 'close', child: Text(context.t.close)),
-                ],
-              ),
-            ],
-          ),
-          backgroundColor: Colors.black,
-          body: SafeArea(
-            bottom: false,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final sidePanel =
-                    MediaQuery.orientationOf(context) == Orientation.landscape && constraints.maxWidth >= 560;
-                final preview = allowTransformEdits
-                    ? _EditorPreview(
-                        key: _previewKey,
-                        image: widget.image,
-                        annotations: _annotations,
-                        tool: _tool,
-                        color: _color,
-                        width: _strokeWidth,
-                        opacity: _opacity,
-                        mode: _mode,
-                        selectedId: _selectedId,
-                        onSelectionChanged: (id) => setState(() => _selectedId = id),
-                        onTextPosition: _addText,
-                        onEditText: _editText,
-                        onChanged: (_) {
-                          _syncAnnotationDirty();
-                          setState(() {});
-                        },
-                      )
-                    : Center(child: InteractiveViewer(child: widget.image));
-                final panel = _EditorBottomPanel(
-                  source: widget.image.image,
-                  maxHeight: constraints.maxHeight,
-                  sidePanel: sidePanel,
-                  settingsExpanded: _settingsExpanded,
-                  onToggleSettings: () => setState(() => _settingsExpanded = !_settingsExpanded),
-                  mode: _mode,
-                  allowTransformEdits: allowTransformEdits,
-                  asset: widget.asset,
-                  tool: _tool,
-                  color: _color,
-                  width: _strokeWidth,
-                  opacity: _opacity,
-                  canUndo: state.canUndo,
-                  canRedo: state.canRedo,
-                  textStyle: _selected?.isText == true ? _selected! : _textStyle,
-                  onTextStyle: _setTextStyle,
-                  onSticker: _addSticker,
-                  onReset: _reset,
-                  onMode: (mode) => setState(() {
-                    _mode = mode;
-                    _settingsExpanded = mode != EditorMode.draw && mode != EditorMode.shapes;
-                    _tool = mode.defaultTool;
-                    _selectedId = null;
-                  }),
-                  onTool: (tool) => setState(() {
-                    _tool = tool;
-                    if (tool == AnnotationTool.pen || tool == AnnotationTool.highlighter) {
-                      _color = tool == AnnotationTool.pen ? Colors.blue : Colors.purple;
-                      _opacity = tool == AnnotationTool.pen ? 1 : .45;
-                    }
-                  }),
-                  onColor: (color) => _setInk(color: color),
-                  onWidth: (width) => setState(() => _strokeWidth = width),
-                  onOpacity: (opacity) => _setInk(opacity: opacity),
-                  onUndo: notifier.undo,
-                  onRedo: notifier.redo,
-                  onGestureStart: notifier.beginGesture,
-                  onGestureEnd: notifier.endGesture,
-                );
-                return AbsorbPointer(
-                  absorbing: state.isApplyingEdits,
-                  child: sidePanel
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(child: SafeArea(top: false, child: preview)),
-                            SizedBox(width: min(320, max(272, constraints.maxWidth * .38)), child: panel),
-                          ],
+            ),
+            backgroundColor: Colors.black,
+            body: SafeArea(
+              bottom: false,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final sidePanel =
+                      MediaQuery.orientationOf(context) == Orientation.landscape && constraints.maxWidth >= 480;
+                  final preview = allowTransformEdits
+                      ? _EditorPreview(
+                          key: _previewKey,
+                          image: widget.image,
+                          annotations: _annotations,
+                          tool: _tool,
+                          color: _color,
+                          width: _strokeWidth,
+                          opacity: _opacity,
+                          mode: _mode,
+                          cropHandles: _mode == EditorMode.crop && !_straightening,
+                          selectedId: _selectedId,
+                          onSelectionChanged: (id) => setState(() => _selectedId = id),
+                          onTextPosition: _addText,
+                          onEditText: _editText,
+                          onChanged: (_) {
+                            _syncAnnotationDirty();
+                            setState(() {});
+                          },
                         )
-                      : Column(
-                          children: [
-                            Expanded(child: preview),
-                            if (allowTransformEdits || widget.asset != null) panel,
-                          ],
+                      : Center(child: InteractiveViewer(child: widget.image));
+                  final panel = _EditorBottomPanel(
+                    source: widget.image.image,
+                    maxHeight: constraints.maxHeight,
+                    sidePanel: sidePanel,
+                    settingsExpanded: _settingsExpanded,
+                    onToggleSettings: () => setState(() => _settingsExpanded = !_settingsExpanded),
+                    mode: _mode,
+                    allowTransformEdits: allowTransformEdits,
+                    asset: widget.asset,
+                    straightening: _straightening,
+                    onStraightening: (value) => setState(() => _straightening = value),
+                    onLayers: _layers,
+                    tool: _tool,
+                    color: _color,
+                    width: _strokeWidth,
+                    opacity: _opacity,
+                    canUndo: state.canUndo,
+                    canRedo: state.canRedo,
+                    textStyle: _selected?.isText == true ? _selected! : _textStyle,
+                    onTextStyle: _setTextStyle,
+                    onSticker: _addSticker,
+                    onReset: _reset,
+                    onMode: (mode) {
+                      if (mode == EditorMode.magicEraser) {
+                        unawaited(_openMagicEraser());
+                        return;
+                      }
+                      setState(() {
+                        _mode = mode;
+                        _settingsExpanded = mode != EditorMode.draw && mode != EditorMode.shapes;
+                        _tool = mode.defaultTool;
+                        _selectedId = null;
+                      });
+                    },
+                    onTool: (tool) => setState(() {
+                      _tool = tool;
+                      if (tool == AnnotationTool.pen || tool == AnnotationTool.highlighter) {
+                        _color = tool == AnnotationTool.pen ? Colors.blue : Colors.purple;
+                        _opacity = tool == AnnotationTool.pen ? 1 : .45;
+                      }
+                    }),
+                    onColor: (color) => _setInk(color: color),
+                    onWidth: (width) => setState(() => _strokeWidth = width),
+                    onOpacity: (opacity) => _setInk(opacity: opacity),
+                    onUndo: notifier.undo,
+                    onRedo: notifier.redo,
+                    onGestureStart: notifier.beginGesture,
+                    onGestureEnd: notifier.endGesture,
+                  );
+                  final content = AbsorbPointer(
+                    absorbing: state.isApplyingEdits,
+                    child: sidePanel
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: SafeArea(top: false, child: preview)),
+                              SizedBox(width: min(320, max(272, constraints.maxWidth * .38)), child: panel),
+                            ],
+                          )
+                        : Column(
+                            children: [
+                              Expanded(child: preview),
+                              if (allowTransformEdits || widget.asset != null) panel,
+                            ],
+                          ),
+                  );
+                  return Stack(
+                    children: [
+                      Positioned.fill(child: content),
+                      if (state.isApplyingEdits && !_writingCopy)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Material(
+                            color: const Color(0xff191919),
+                            borderRadius: BorderRadius.circular(24),
+                            child: TextButton(
+                              key: const Key('editor-cancel-export'),
+                              onPressed: _cancelExport,
+                              child: Text(context.t.cancel),
+                            ),
+                          ),
                         ),
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -628,6 +654,9 @@ class _EditorBottomPanel extends StatelessWidget {
   final EditorMode mode;
   final bool allowTransformEdits;
   final RemoteAsset? asset;
+  final bool straightening;
+  final ValueChanged<bool> onStraightening;
+  final VoidCallback onLayers;
   final AnnotationTool tool;
   final Color color;
   final double width;
@@ -657,6 +686,9 @@ class _EditorBottomPanel extends StatelessWidget {
     required this.mode,
     required this.allowTransformEdits,
     required this.asset,
+    required this.straightening,
+    required this.onStraightening,
+    required this.onLayers,
     required this.tool,
     required this.color,
     required this.width,
@@ -691,7 +723,9 @@ class _EditorBottomPanel extends StatelessWidget {
             : mode == EditorMode.shapes
             ? EditorMode.draw
             : mode;
-        if (next == active) {
+        if (next == EditorMode.magicEraser) {
+          onMode(next);
+        } else if (next == active) {
           onToggleSettings();
         } else {
           onMode(next);
@@ -707,11 +741,12 @@ class _EditorBottomPanel extends StatelessWidget {
       return const SizedBox.shrink();
     }
     const headerHeight = 48.0;
-    final auxiliaryFits = maxHeight >= footerHeight + headerHeight + (settingsExpanded ? 48 : 0);
+    final canvasReserve = sidePanel ? 0.0 : min(maxHeight - footerHeight, min(120.0, maxHeight * .35));
+    final auxiliaryFits = maxHeight - canvasReserve >= footerHeight + headerHeight + (settingsExpanded ? 48 : 0);
     final showSettings = settingsExpanded && auxiliaryFits;
     final minimumHeight =
         footerHeight + (auxiliaryFits && (draw || showSettings) ? headerHeight : 0) + (showSettings ? 48 : 0);
-    final limit = sidePanel ? maxHeight : max(minimumHeight, maxHeight * .28);
+    final limit = sidePanel ? maxHeight : min(maxHeight - canvasReserve, max(minimumHeight, maxHeight * .32));
     Widget markup({required bool controls}) => MarkupControls(
       mode: mode,
       tool: tool,
@@ -762,6 +797,12 @@ class _EditorBottomPanel extends StatelessWidget {
                         child: Text(mode.label(context), maxLines: 1, overflow: TextOverflow.ellipsis),
                       ),
                     ),
+                    _SecondaryEditorTools(
+                      allowTransformEdits: allowTransformEdits,
+                      onMode: onMode,
+                      onReset: onReset,
+                      onLayers: onLayers,
+                    ),
                     IconButton(
                       key: const Key('editor-toggle-settings'),
                       tooltip: context.tr('collapse'),
@@ -779,7 +820,31 @@ class _EditorBottomPanel extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (mode == EditorMode.crop && allowTransformEdits) const _TransformControls(),
+                        if (draw)
+                          _SecondaryEditorTools(
+                            allowTransformEdits: allowTransformEdits,
+                            onMode: onMode,
+                            onReset: onReset,
+                            onLayers: onLayers,
+                          ),
+                        if (mode == EditorMode.crop && allowTransformEdits) ...[
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            children: [
+                              TextButton(
+                                key: const Key('editor-crop-frame'),
+                                onPressed: () => onStraightening(false),
+                                child: Text(context.t.editor_crop_frame),
+                              ),
+                              TextButton(
+                                key: const Key('editor-crop-straighten'),
+                                onPressed: () => onStraightening(true),
+                                child: Text(context.t.editor_straighten),
+                              ),
+                            ],
+                          ),
+                          if (straightening) const _StraightenControls() else const _TransformControls(),
+                        ],
                         if (mode == EditorMode.filters || mode == EditorMode.adjustments) ...[
                           Wrap(
                             alignment: WrapAlignment.center,
@@ -803,7 +868,6 @@ class _EditorBottomPanel extends StatelessWidget {
                             mode == EditorMode.shapes ||
                             mode == EditorMode.stickers)
                           markup(controls: true),
-                        if (mode == EditorMode.magicEraser && asset != null) _MagicEraserButton(asset: asset!),
                       ],
                     ),
                   ),
@@ -833,59 +897,76 @@ class EditorModeBar extends StatelessWidget {
   });
 
   static const _labelStyle = TextStyle(fontSize: 12, height: 1.2);
-  static const _modes = [EditorMode.crop, EditorMode.filters, EditorMode.draw, EditorMode.text, EditorMode.stickers];
+  static const _modes = [EditorMode.crop, EditorMode.draw, EditorMode.text, EditorMode.magicEraser];
 
-  double preferredHeight(BuildContext context) => 56;
+  double preferredHeight(BuildContext context) => max(56, 36 + MediaQuery.textScalerOf(context).scale(12) * 2.4);
 
   @override
   Widget build(BuildContext context) {
-    final activeMode = mode == EditorMode.adjustments
-        ? EditorMode.filters
-        : mode == EditorMode.shapes
-        ? EditorMode.draw
-        : mode;
+    final activeMode = switch (mode) {
+      EditorMode.adjustments || EditorMode.filters => EditorMode.crop,
+      EditorMode.shapes || EditorMode.stickers => EditorMode.draw,
+      _ => mode,
+    };
     return SizedBox(
       key: const Key('editor-mode-bar'),
       height: preferredHeight(context),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final labels = constraints.maxWidth / _modes.length >= 72 && MediaQuery.textScalerOf(context).scale(12) <= 16;
-          return Row(
-            children: [
-              for (final entry in _modes)
-                Expanded(
-                  child: Semantics(
-                    selected: entry == activeMode,
-                    child: Tooltip(
-                      message: entry == EditorMode.crop
-                          ? context.tr('editor_crop_rotate')
-                          : entry == EditorMode.filters
-                          ? context.tr('editor_filters_adjustments')
-                          : entry.label(context),
+          // Keep readable labels at the user's actual text scale. At large
+          // accessibility sizes the four tools scroll rather than hiding text.
+          final labelStyle = _labelStyle.copyWith(
+            fontFamily: Theme.of(context).textTheme.labelSmall?.fontFamily,
+            fontWeight: FontWeight.w500,
+          );
+          final widths = _modes.map((entry) {
+            final label = entry.label(context);
+            final longest = label.split(RegExp(r'\s+')).reduce((a, b) => a.length >= b.length ? a : b);
+            final painter = TextPainter(
+              text: TextSpan(text: longest, style: labelStyle),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+            )..layout();
+            final width = max(48.0, painter.width.ceilToDouble() + 18);
+            painter.dispose();
+            return width;
+          }).toList();
+          final total = widths.fold<double>(0, (sum, width) => sum + width);
+          final spare = max(0.0, constraints.maxWidth - total) / _modes.length;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var index = 0; index < _modes.length; index++)
+                  SizedBox(
+                    width: widths[index] + spare,
+                    height: preferredHeight(context),
+                    child: Semantics(
+                      selected: _modes[index] == activeMode,
                       child: TextButton(
-                        key: Key('editor-mode-${entry.name}'),
+                        key: Key('editor-mode-${_modes[index].name}'),
                         style: TextButton.styleFrom(
-                          minimumSize: const Size(0, 48),
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          foregroundColor: entry == activeMode ? Colors.yellow : Colors.white70,
-                          backgroundColor: entry == activeMode ? const Color(0xff303030) : null,
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          foregroundColor: _modes[index] == activeMode ? Colors.yellow : Colors.white70,
+                          backgroundColor: _modes[index] == activeMode ? const Color(0xff303030) : null,
                         ),
-                        onPressed: allowTransformEdits ? () => onMode(entry) : null,
+                        onPressed: allowTransformEdits || _modes[index] == EditorMode.magicEraser
+                            ? () => onMode(_modes[index])
+                            : null,
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(entry.icon, size: 24),
-                            if (labels) ...[
-                              const SizedBox(height: 2),
-                              Text(entry.label(context), maxLines: 1, style: _labelStyle),
-                            ],
+                            Icon(_modes[index].icon, size: 24),
+                            const SizedBox(height: 2),
+                            Text(_modes[index].label(context), textAlign: TextAlign.center, style: labelStyle),
                           ],
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -893,70 +974,82 @@ class EditorModeBar extends StatelessWidget {
   }
 }
 
-class _MagicEraserButton extends ConsumerWidget {
-  final RemoteAsset asset;
+class _SecondaryEditorTools extends StatelessWidget {
+  final bool allowTransformEdits;
+  final ValueChanged<EditorMode> onMode;
+  final VoidCallback onReset;
+  final VoidCallback onLayers;
 
-  const _MagicEraserButton({required this.asset});
+  const _SecondaryEditorTools({
+    required this.allowTransformEdits,
+    required this.onMode,
+    required this.onReset,
+    required this.onLayers,
+  });
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<String>(
+    key: const Key('editor-more'),
+    tooltip: context.t.editor_tools_more,
+    icon: const Icon(Icons.more_horiz),
+    onSelected: (value) {
+      switch (value) {
+        case 'reset':
+          onReset();
+        case 'layers':
+          onLayers();
+        case 'filters':
+          onMode(EditorMode.filters);
+        case 'stickers':
+          onMode(EditorMode.stickers);
+      }
+    },
+    itemBuilder: (context) => [
+      PopupMenuItem(
+        key: const Key('editor-reset'),
+        value: 'reset',
+        enabled: allowTransformEdits,
+        child: Text(context.t.editor_revert),
+      ),
+      PopupMenuItem(value: 'layers', enabled: allowTransformEdits, child: Text(context.t.editor_layers)),
+      PopupMenuItem(
+        key: const Key('editor-mode-filters'),
+        value: 'filters',
+        enabled: allowTransformEdits,
+        child: Text(context.t.editor_filters),
+      ),
+      PopupMenuItem(
+        key: const Key('editor-mode-stickers'),
+        value: 'stickers',
+        enabled: allowTransformEdits,
+        child: Text(context.t.editor_stickers),
+      ),
+    ],
+  );
+}
+
+class _StraightenControls extends ConsumerWidget {
+  const _StraightenControls();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final capability = ref.watch(magicEraserEnabledProvider(asset.id));
-    // A refresh can retain the previous result; require a completed check.
-    final enabled = !capability.isLoading && !capability.hasError && capability.asData?.value == true;
-    final applyingEdits = ref.watch(editorStateProvider.select((state) => state.isApplyingEdits));
-    final message = capability.isLoading
-        ? context.t.magic_eraser_checking
-        : magicEraserAvailabilityMessage(context, capability.error);
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Tooltip(
-            message: enabled ? context.t.magic_eraser : message,
-            child: OutlinedButton(
-              key: const Key('magic-eraser-editor-action'),
-              onPressed: !enabled || applyingEdits
-                  ? null
-                  : () => Navigator.of(
-                      context,
-                    ).push<bool>(MaterialPageRoute(builder: (_) => MagicEraserPage(asset: asset))),
-              child: Row(
-                children: [
-                  const Icon(Icons.auto_fix_high),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      context.t.magic_eraser,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (!enabled)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (capability.isLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 12),
-                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                  ),
-                Semantics(liveRegion: true, child: Text(message, style: context.textTheme.bodySmall)),
-                if (!capability.isLoading)
-                  TextButton(
-                    key: const Key('magic-eraser-capability-retry'),
-                    onPressed: applyingEdits ? null : () => ref.invalidate(magicEraserEnabledProvider(asset.id)),
-                    child: Text(context.t.retry),
-                  ),
-              ],
-            ),
-        ],
-      ),
+    final angle = ref.watch(editorStateProvider.select((state) => state.straightenDegrees));
+    final notifier = ref.read(editorStateProvider.notifier);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('${angle.toStringAsFixed(1)}°'),
+        Slider(
+          key: const Key('editor-straighten-slider'),
+          min: -EditorGeometry.maxStraightenDegrees,
+          max: EditorGeometry.maxStraightenDegrees,
+          value: angle,
+          onChangeStart: (_) => notifier.beginGesture(),
+          onChanged: notifier.setStraightenDegrees,
+          onChangeEnd: (_) => notifier.endGesture(),
+          label: '${angle.toStringAsFixed(1)}°',
+        ),
+      ],
     );
   }
 }
@@ -1108,44 +1201,78 @@ class _TransformControls extends ConsumerWidget {
   }
 }
 
+TextStyle _editorSaveLabelStyle(BuildContext context) => TextStyle(
+  fontSize: 14,
+  height: 1.2,
+  fontWeight: FontWeight.w500,
+  fontFamily: Theme.of(context).textTheme.labelLarge?.fontFamily,
+);
+
+double _editorSaveWidth(BuildContext context) {
+  final available = MediaQuery.sizeOf(context).width - MediaQuery.paddingOf(context).horizontal - 144;
+  final painter = TextPainter(
+    text: TextSpan(
+      text: context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
+      style: _editorSaveLabelStyle(context),
+    ),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+  )..layout();
+  final width = min(max(48.0, available), max(112.0, painter.width.ceilToDouble() + 18));
+  painter.dispose();
+  return width;
+}
+
+double _editorHeaderHeight(BuildContext context) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
+      style: _editorSaveLabelStyle(context),
+    ),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+  )..layout(maxWidth: max(1, _editorSaveWidth(context) - 16));
+  final height = max(56.0, painter.height + 16);
+  painter.dispose();
+  return height;
+}
+
 class _SaveEditsButton extends ConsumerWidget {
   final VoidCallback onSave;
+  final bool enabled;
 
-  const _SaveEditsButton({required this.onSave});
+  const _SaveEditsButton({required this.onSave, required this.enabled});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isApplyingEdits = ref.watch(editorStateProvider.select((state) => state.isApplyingEdits));
     final hasUnsavedEdits = ref.watch(editorStateProvider.select((state) => state.hasUnsavedEdits));
-
-    return isApplyingEdits
-        ? const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5)),
-          )
-        : SizedBox(
-            width: 112,
-            child: TextButton(
-              key: const Key('editor-save'),
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
-              onPressed: hasUnsavedEdits ? onSave : null,
-              child: Tooltip(
-                message: context.t.magic_eraser_save_copy,
-                child: Semantics(
-                  label: context.t.magic_eraser_save_copy,
-                  excludeSemantics: true,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
-                      maxLines: 2,
-                      textAlign: TextAlign.center,
-                    ),
+    return SizedBox(
+      width: _editorSaveWidth(context),
+      height: _editorHeaderHeight(context),
+      child: TextButton(
+        key: const Key('editor-save'),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: const Size(48, 48),
+        ),
+        onPressed: enabled && hasUnsavedEdits && !isApplyingEdits ? onSave : null,
+        child: Tooltip(
+          message: context.t.magic_eraser_save_copy,
+          child: Semantics(
+            label: context.t.magic_eraser_save_copy,
+            excludeSemantics: true,
+            child: isApplyingEdits
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+                : Text(
+                    context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
+                    textAlign: TextAlign.center,
+                    style: _editorSaveLabelStyle(context),
                   ),
-                ),
-              ),
-            ),
-          );
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1157,6 +1284,7 @@ class _EditorPreview extends ConsumerStatefulWidget {
   final double width;
   final double opacity;
   final EditorMode mode;
+  final bool cropHandles;
   final void Function(Offset point, double relativeWidth)? onTextPosition;
   final ValueChanged<AnnotationElement>? onEditText;
   final ValueChanged<List<AnnotationElement>>? onChanged;
@@ -1172,6 +1300,7 @@ class _EditorPreview extends ConsumerStatefulWidget {
     required this.width,
     required this.opacity,
     required this.mode,
+    required this.cropHandles,
     this.onTextPosition,
     this.onEditText,
     this.onChanged,
@@ -1305,76 +1434,98 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
         if (imageSize == null) {
           return const Center(child: CircularProgressIndicator());
         }
-        final sideways = editorState.rotationAngle % 180 != 0;
-        final available = sideways ? Size(constraints.maxHeight, constraints.maxWidth) : constraints.biggest;
-        final visibleCrop = widget.mode == EditorMode.crop ? const Rect.fromLTWH(0, 0, 1, 1) : editorState.crop;
-        final visibleSize = Size(imageSize.width * visibleCrop.width, imageSize.height * visibleCrop.height);
-        final fitted = applyBoxFit(BoxFit.contain, visibleSize, available).destination;
-        final fullSize = Size(fitted.width / visibleCrop.width, fitted.height / visibleCrop.height);
-
-        // Rotate layout and hit testing together. The stack has the decoded
-        // image's aspect ratio, so normalized annotations never include letterbox.
-        final transformedPreview = RotatedBox(
-          quarterTurns: editorState.rotationAngle ~/ 90,
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.identity()
-              ..scaleByDouble(editorState.flipHorizontal ? -1.0 : 1.0, editorState.flipVertical ? -1.0 : 1.0, 1.0, 1.0),
-            child: SizedBox(
-              key: const Key('editor-image-surface'),
-              width: fitted.width,
-              height: fitted.height,
-              child: ClipRect(
-                child: Stack(
-                  children: [
-                    Positioned(
-                      left: -visibleCrop.left * fullSize.width,
-                      top: -visibleCrop.top * fullSize.height,
-                      width: fullSize.width,
-                      height: fullSize.height,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          IgnorePointer(
-                            ignoring: widget.mode != EditorMode.crop,
-                            child: Listener(
-                              onPointerDown: (_) => ref.read(editorStateProvider.notifier).beginGesture(),
-                              onPointerUp: (_) => ref.read(editorStateProvider.notifier).endGesture(),
-                              onPointerCancel: (_) => ref.read(editorStateProvider.notifier).endGesture(),
-                              child: FilteredImage(
-                                editorState: editorState,
-                                image: widget.image,
-                                cropController: cropController,
-                                mode: widget.mode,
-                              ),
-                            ),
+        final visibleCrop = widget.cropHandles ? const Rect.fromLTWH(0, 0, 1, 1) : editorState.crop;
+        final sourceCrop = Rect.fromLTWH(
+          imageSize.width * visibleCrop.left,
+          imageSize.height * visibleCrop.top,
+          imageSize.width * visibleCrop.width,
+          imageSize.height * visibleCrop.height,
+        );
+        final sourceGeometry = EditorGeometry(
+          sourceRect: sourceCrop,
+          rotationDegrees: editorState.rotationAngle,
+          flipHorizontal: editorState.flipHorizontal,
+          flipVertical: editorState.flipVertical,
+          straightenDegrees: widget.cropHandles ? 0 : editorState.straightenDegrees,
+        );
+        final scale = min(
+          constraints.maxWidth / sourceGeometry.outputSize.width,
+          constraints.maxHeight / sourceGeometry.outputSize.height,
+        );
+        final fullSize = imageSize * scale;
+        final geometry = EditorGeometry(
+          sourceRect: Rect.fromLTWH(
+            sourceCrop.left * scale,
+            sourceCrop.top * scale,
+            sourceCrop.width * scale,
+            sourceCrop.height * scale,
+          ),
+          rotationDegrees: editorState.rotationAngle,
+          flipHorizontal: editorState.flipHorizontal,
+          flipVertical: editorState.flipVertical,
+          straightenDegrees: widget.cropHandles ? 0 : editorState.straightenDegrees,
+        );
+        // The image and normalized annotation canvas share one source-space
+        // surface. Transform's inverse hit testing maps gestures through exactly
+        // the affine geometry used by the full-resolution exporter.
+        final transformedPreview = SizedBox(
+          width: geometry.outputSize.width,
+          height: geometry.outputSize.height,
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.topLeft,
+              minWidth: fullSize.width,
+              maxWidth: fullSize.width,
+              minHeight: fullSize.height,
+              maxHeight: fullSize.height,
+              child: Transform(
+                transform: geometry.sourceToOutputTransform,
+                child: SizedBox(
+                  key: const Key('editor-image-surface'),
+                  width: fullSize.width,
+                  height: fullSize.height,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      IgnorePointer(
+                        ignoring: !widget.cropHandles,
+                        child: Listener(
+                          onPointerDown: (_) => ref.read(editorStateProvider.notifier).beginGesture(),
+                          onPointerUp: (_) => ref.read(editorStateProvider.notifier).endGesture(),
+                          onPointerCancel: (_) => ref.read(editorStateProvider.notifier).endGesture(),
+                          child: FilteredImage(
+                            editorState: editorState,
+                            image: widget.image,
+                            cropController: cropController,
+                            mode: widget.mode,
+                            showCropHandles: widget.cropHandles,
                           ),
-                          Positioned.fill(
-                            child: AnnotationCanvas(
-                              key: const Key('annotation-canvas'),
-                              editor: widget.annotations,
-                              tool: widget.tool,
-                              color: widget.color,
-                              width: widget.width,
-                              opacity: widget.opacity,
-                              navigationActive: _navigationActive,
-                              objectTransformActive: _objectTransformActive,
-                              selectedId: widget.selectedId,
-                              onSelectionChanged: widget.onSelectionChanged,
-                              enabled:
-                                  widget.mode == EditorMode.draw ||
-                                  widget.mode == EditorMode.text ||
-                                  widget.mode == EditorMode.shapes ||
-                                  widget.mode == EditorMode.stickers,
-                              onTextPosition: widget.onTextPosition,
-                              onEditText: widget.onEditText,
-                              onChanged: widget.onChanged,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                      Positioned.fill(
+                        child: AnnotationCanvas(
+                          key: const Key('annotation-canvas'),
+                          editor: widget.annotations,
+                          tool: widget.tool,
+                          color: widget.color,
+                          width: widget.width,
+                          opacity: widget.opacity,
+                          navigationActive: _navigationActive,
+                          objectTransformActive: _objectTransformActive,
+                          selectedId: widget.selectedId,
+                          onSelectionChanged: widget.onSelectionChanged,
+                          enabled:
+                              widget.mode == EditorMode.draw ||
+                              widget.mode == EditorMode.text ||
+                              widget.mode == EditorMode.shapes ||
+                              widget.mode == EditorMode.stickers,
+                          onTextPosition: widget.onTextPosition,
+                          onEditText: widget.onEditText,
+                          onChanged: widget.onChanged,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1383,7 +1534,7 @@ class _EditorPreviewState extends ConsumerState<_EditorPreview> {
 
         return EditorViewport(
           key: const Key('editor-preview-viewport'),
-          contentSize: sideways ? Size(fitted.height, fitted.width) : fitted,
+          contentSize: geometry.outputSize,
           navigationActive: _navigationActive,
           objectTransformActive: _objectTransformActive,
           child: RepaintBoundary(child: transformedPreview),

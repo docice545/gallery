@@ -13,12 +13,14 @@ class FilteredImage extends StatelessWidget {
     required this.image,
     required this.cropController,
     required this.mode,
+    this.showCropHandles = true,
   });
 
   final EditorState editorState;
   final Image image;
   final CropController cropController;
   final EditorMode mode;
+  final bool showCropHandles;
 
   @override
   Widget build(BuildContext context) {
@@ -31,11 +33,11 @@ class FilteredImage extends StatelessWidget {
       key: ObjectKey(image.image),
       controller: cropController,
       image: image,
-      gridColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridInnerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      gridCornerColor: mode == EditorMode.crop ? Colors.white : Colors.transparent,
-      showCorners: mode == EditorMode.crop,
-      scrimColor: mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
+      gridColor: showCropHandles && mode == EditorMode.crop ? Colors.white : Colors.transparent,
+      gridInnerColor: showCropHandles && mode == EditorMode.crop ? Colors.white : Colors.transparent,
+      gridCornerColor: showCropHandles && mode == EditorMode.crop ? Colors.white : Colors.transparent,
+      showCorners: showCropHandles && mode == EditorMode.crop,
+      scrimColor: showCropHandles && mode == EditorMode.crop ? Colors.black54 : Colors.transparent,
     );
 
     return ColorFiltered(colorFilter: colorFilter, child: child);

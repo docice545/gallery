@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -8,14 +7,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
+import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
+import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
@@ -33,14 +33,19 @@ class _MockMagicEraserRepository extends Mock implements MagicEraserRepository {
 void main() {
   late _MockMagicEraserRepository repository;
   late RemoteAsset asset;
-  final magicEraser = find.byKey(const Key('magic-eraser-editor-action'));
-  final retry = find.byKey(const Key('magic-eraser-capability-retry'));
+  final magicEraser = find.byType(MagicEraserPage);
+
+  setUpAll(() => registerFallbackValue(<MagicEraserStroke>[]));
 
   setUp(() {
     TestUtils.init();
     repository = _MockMagicEraserRepository();
     asset = TestUtils.createRemoteAsset(id: 'asset-id', width: 1, height: 1);
     when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => false);
+    when(
+      () => repository.source(any(), abortTrigger: any(named: 'abortTrigger')),
+    ).thenAnswer((_) async => Uint8List.fromList(kTransparentImage));
+    when(() => repository.cancel(any(), any())).thenAnswer((_) async {});
   });
 
   Future<void> pumpEditor(WidgetTester tester, {RemoteAsset? photo, bool legacyCaller = false, Image? image}) async {
@@ -76,260 +81,263 @@ void main() {
     }
   }
 
-  Future<void> selectMagicEraser(WidgetTester tester) async {
-    await tester.tap(find.byKey(const Key('editor-more')));
+  Future<void> selectMode(WidgetTester tester, String mode) async {
+    if (mode == 'filters' || mode == 'stickers') {
+      final more = find.byKey(const Key('editor-more'));
+      if (more.evaluate().isEmpty) {
+        final crop = find.byKey(const Key('editor-mode-crop'));
+        await tester.ensureVisible(crop);
+        await tester.tap(crop);
+        await tester.pumpAndSettle();
+        if (more.evaluate().isEmpty) {
+          await tester.tap(crop);
+          await tester.pumpAndSettle();
+        }
+      }
+      await tester.ensureVisible(more);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+    }
+    final target = find.byKey(Key('editor-mode-$mode'));
+    await tester.ensureVisible(target);
+    await tester.tap(target);
+    await tester.pump();
+    if (mode == 'magicEraser') {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    }
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('editor-mode-magicEraser')));
-    await tester.pump();
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-    await tester.pump();
   }
 
-  testWidgets('an older or unconfigured server disables only Magic Eraser while keeping the crop editor usable', (
-    tester,
-  ) async {
-    await pumpEditor(tester);
-
-    expect(find.byType(CropImage), findsOneWidget);
-    expect(find.byIcon(Icons.rotate_left), findsOneWidget);
-    expect(find.byIcon(Icons.rotate_right), findsOneWidget);
-    expect(find.byKey(const Key('editor-save')), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.rotate_left));
-    await tester.pump();
-    final state = ProviderScope.containerOf(
-      tester.element(find.byKey(const Key('editor-mode-crop'))),
-    ).read(editorStateProvider);
-    expect(state.rotationAngle, -90);
-    expect(state.hasUnsavedEdits, isTrue);
-
-    await selectMagicEraser(tester);
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-    expect(find.text('The AI eraser service is unavailable. Please try again later.'), findsOneWidget);
-    expect(retry, findsOneWidget);
-  });
-
-  testWidgets('the only save command clearly offers a copy without unavailable replacement controls', (tester) async {
+  testWidgets('the only save command offers a copy without unavailable replacement controls', (tester) async {
     await pumpEditor(tester);
     final save = find.byKey(const Key('editor-save'));
     expect(tester.widget<TextButton>(save).onPressed, isNull);
     expect(find.text('Save\na copy'), findsOneWidget);
     expect(find.byKey(const Key('edit-save-mode-dialog')), findsNothing);
     expect(find.byKey(const Key('edit-replace-original')), findsNothing);
-    expect(
-      find.text(
-        'A PNG copy is saved on this device. Automatic backup can upload it if enabled. The server original stays unchanged.',
-      ),
-      findsNothing,
-    );
     await tester.tap(find.byIcon(Icons.rotate_left));
     await tester.pump();
     expect(tester.widget<TextButton>(save).onPressed, isNotNull);
   });
 
-  testWidgets('an unavailable optional AI service leaves ordinary transform editing operational', (tester) async {
-    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenThrow(StateError('Offline'));
-
+  testWidgets('fourth tool opens the existing AI page directly with a reason and retry', (tester) async {
     await pumpEditor(tester);
-    await selectMagicEraser(tester);
-
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-    expect(find.byType(CropImage), findsOneWidget);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-crop')));
-    await tester.tap(find.byKey(const Key('editor-mode-crop')));
-    await tester.pump();
-    expect(find.byIcon(Icons.rotate_left), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+    container.read(editorStateProvider.notifier).rotateCCW();
+    final before = container.read(editorStateProvider);
+    await selectMode(tester, 'magicEraser');
+    expect(magicEraser, findsOneWidget);
+    expect(find.text('The AI eraser service is unavailable. Please try again later.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    verifyNever(() => repository.source(any(), abortTrigger: any(named: 'abortTrigger')));
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    verify(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).called(2);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(container.read(editorStateProvider), before);
+    expect(find.byKey(const Key('editor-mode-crop')), findsOneWidget);
   });
 
-  testWidgets('a slow capability check stays disabled and visibly loading until confirmed', (tester) async {
-    final pending = Completer<bool>();
-    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) => pending.future);
-
+  testWidgets('double activation before the next frame opens only one AI route and capability request', (tester) async {
     await pumpEditor(tester);
-    await selectMagicEraser(tester);
-
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-    expect(find.text('Checking magic eraser availability…'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(retry, findsNothing);
-    expect(find.byType(CropImage), findsOneWidget);
-
-    pending.complete(true);
-    await tester.pump();
-
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNotNull);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final button = tester.widget<TextButton>(find.byKey(const Key('editor-mode-magicEraser')));
+    button.onPressed!();
+    button.onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.byType(MagicEraserPage, skipOffstage: false), findsOneWidget);
+    verify(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).called(1);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    button.onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.byType(MagicEraserPage, skipOffstage: false), findsOneWidget);
+    verify(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).called(1);
   });
 
-  for (final (error, message) in <(Object, String)>[
-    (api.ApiException(401, 'Private response'), 'Sign in again to check magic eraser availability.'),
-    (api.ApiException(403, 'Private response'), 'You do not have permission to edit this photo.'),
-    (api.ApiException(400, 'Private response'), 'Magic eraser does not support this photo.'),
-    (
-      const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unsupportedBackend),
-      'This server does not provide the magic eraser API.',
-    ),
-    (
-      const MagicEraserCapabilityException(MagicEraserCapabilityFailure.unavailablePhoto),
-      'This photo is unavailable, offline or in Trash.',
-    ),
-    (
-      api.ApiException(500, 'Private response'),
-      'Could not check magic eraser availability. Check your connection and retry.',
-    ),
-    (api.ApiException(503, 'Private response'), 'The AI eraser service is unavailable. Please try again later.'),
-    (
-      http.ClientException('Private URL'),
-      'Could not check magic eraser availability. Check your connection and retry.',
-    ),
-    (http.RequestAbortedException(), 'Could not check magic eraser availability. Check your connection and retry.'),
-    (
-      const FormatException('Private payload'),
-      'Could not check magic eraser availability. Check your connection and retry.',
-    ),
-  ]) {
-    testWidgets(
-      'a ${error is api.ApiException ? error.code : error.runtimeType} failure explains why and permits retry',
-      (tester) async {
-        when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenThrow(error);
-
-        await pumpEditor(tester);
-        await selectMagicEraser(tester);
-
-        expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-        expect(find.text(message), findsOneWidget);
-        expect(retry, findsOneWidget);
-        expect(find.textContaining('Private'), findsNothing);
-        expect(find.byType(CropImage), findsOneWidget);
-        expect(tester.takeException(), isNull);
-      },
+  testWidgets('local-only editor explains AI availability without uploading a source or changing edits', (
+    tester,
+  ) async {
+    await pumpEditor(tester, legacyCaller: true);
+    final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+    container.read(editorStateProvider.notifier).rotateCCW();
+    final before = container.read(editorStateProvider);
+    await selectMode(tester, 'magicEraser');
+    expect(
+      find.text('Magic Eraser needs a photo saved on the server. Your edits stay in this editor.'),
+      findsOneWidget,
     );
-  }
+    expect(find.byKey(const Key('magic-eraser-local-retry')), findsOneWidget);
+    verifyNever(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger')));
+    verifyNever(() => repository.source(any(), abortTrigger: any(named: 'abortTrigger')));
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(container.read(editorStateProvider), before);
+  });
 
-  for (final initiallyDisabled in [true, false]) {
-    testWidgets('retry recovers from ${initiallyDisabled ? 'disabled' : 'offline'} without losing crop or rotation', (
+  for (final saveResult in [false, true]) {
+    testWidgets('AI ${saveResult ? 'saved copy' : 'cancel'} preserves the parent draft and complete undo/redo history', (
       tester,
     ) async {
-      if (!initiallyDisabled) {
-        when(
-          () => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger')),
-        ).thenThrow(http.ClientException('Offline'));
-      }
-      await pumpEditor(tester);
-      await selectMagicEraser(tester);
-      final container = ProviderScope.containerOf(tester.element(magicEraser));
-      container.read(editorStateProvider.notifier).setCrop(const Rect.fromLTRB(0.1, 0.1, 0.9, 0.9));
-      container.read(editorStateProvider.notifier).rotateCCW();
-      await tester.pumpAndSettle();
-      final before = container.read(editorStateProvider);
-      final pending = Completer<bool>();
+      when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => true);
       when(
-        () => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger')),
-      ).thenAnswer((_) => pending.future);
-
-      await tester.tap(retry);
-      await tester.pump();
-
-      expect(retry, findsNothing);
-      expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-      verify(() => repository.isEnabled(asset.id, abortTrigger: any(named: 'abortTrigger'))).called(2);
-      pending.complete(true);
-      await tester.pumpAndSettle();
-
-      expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNotNull);
-      final after = container.read(editorStateProvider);
-      expect(after.crop, before.crop);
-      expect(after.rotationAngle, before.rotationAngle);
-      expect(after.hasUnsavedEdits, isTrue);
+        () => repository.create(asset.id, any()),
+      ).thenAnswer((_) async => const MagicEraserJob(id: 'ready-job', status: MagicEraserStatus.ready));
+      when(
+        () => repository.preview(any(), any(), abortTrigger: any(named: 'abortTrigger')),
+      ).thenAnswer((_) async => Uint8List.fromList(kTransparentImage));
+      when(() => repository.save(asset.id, 'ready-job')).thenAnswer((_) async => 'separate-ai-copy');
+      await pumpEditor(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+      final notifier = container.read(editorStateProvider.notifier);
+      notifier.setCrop(const Rect.fromLTWH(.1, .1, .8, .8));
+      notifier.rotateCW();
+      notifier.setStraightenDegrees(7);
+      notifier.setAnnotations([
+        AnnotationElement(
+          id: 'retained-markup',
+          tool: AnnotationTool.pen,
+          points: const [Offset(.4, .4)],
+          color: Colors.blue,
+          width: 5,
+          opacity: 1,
+        ),
+      ]);
+      notifier.undo();
+      final before = container.read(editorStateProvider);
+      expect(before.canRedo, isTrue);
+      await selectMode(tester, 'magicEraser');
+      expect(magicEraser, findsOneWidget);
+      expect(
+        find.text(
+          'Works on the original photo without your current edits. Your edits will still be in the editor when you return.',
+        ),
+        findsOneWidget,
+      );
+      if (saveResult) {
+        final canvas = find.byKey(const Key('eraser-canvas'));
+        for (var i = 0; i < 100 && canvas.evaluate().isEmpty; i++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump();
+        }
+        await tester.tapAt(tester.getCenter(canvas));
+        await tester.pump();
+        final remove = find.byKey(const Key('eraser-remove'));
+        await tester.ensureVisible(remove);
+        await tester.runAsync(() async {
+          await tester.tap(remove);
+          await tester.pump();
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        });
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('eraser-save')));
+        await tester.pumpAndSettle();
+        verify(() => repository.save(asset.id, 'ready-job')).called(1);
+        verifyNever(() => repository.cancel(asset.id, 'ready-job'));
+      } else {
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        verifyNever(() => repository.save(any(), any()));
+      }
+      expect(magicEraser, findsNothing);
+      expect(container.read(editorStateProvider), before);
+      notifier.redo();
+      expect(container.read(editorStateProvider).annotations.single.id, 'retained-markup');
+      notifier.undo();
+      expect(container.read(editorStateProvider), before);
+      notifier.undo();
+      expect(container.read(editorStateProvider).straightenDegrees, 0);
+      expect(container.read(editorStateProvider).rotationAngle, 90);
+      expect(container.read(editorStateProvider).crop, before.crop);
+      if (saveResult) {
+        // The existing success notification has a bounded dismissal timer.
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pumpAndSettle();
+      }
     });
   }
 
-  testWidgets('saving transform edits disables capability retry and AI navigation', (tester) async {
-    await pumpEditor(tester);
-    await selectMagicEraser(tester);
-    final container = ProviderScope.containerOf(tester.element(magicEraser));
-    container.read(editorStateProvider.notifier).setIsEditing(true);
-    await tester.pump();
-
-    expect(tester.widget<TextButton>(retry).onPressed, isNull);
-    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => true);
-    container.invalidate(magicEraserEnabledProvider(asset.id));
-    await tester.pump();
-    await tester.pump();
-
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-  });
-
-  testWidgets('rechecking an enabled capability does not reuse a stale enabled result', (tester) async {
-    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => true);
-    await pumpEditor(tester);
-    await selectMagicEraser(tester);
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNotNull);
-    final pending = Completer<bool>();
-    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) => pending.future);
-    final container = ProviderScope.containerOf(tester.element(magicEraser));
-
-    container.invalidate(magicEraserEnabledProvider(asset.id));
-    await tester.pump();
-
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-    expect(find.text('Checking magic eraser availability…'), findsOneWidget);
-    pending.complete(false);
-    await tester.pumpAndSettle();
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNull);
-    expect(retry, findsOneWidget);
-  });
-
-  testWidgets('Russian availability and retry fit a narrow screen with enlarged text', (tester) async {
-    tester.view.physicalSize = const Size(320, 720);
-    tester.view.devicePixelRatio = 1;
-    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    when(
-      () => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger')),
-    ).thenThrow(http.ClientException('Offline'));
-    await pumpEditor(tester);
-    await selectMagicEraser(tester);
-
-    await EasyLocalization.of(tester.element(magicEraser))!.setLocale(const Locale('ru'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(retry);
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text('Не удалось проверить доступность волшебного ластика. Проверьте соединение и повторите попытку.'),
-      findsOneWidget,
-    );
-    expect(find.text('Повторить'), findsOneWidget);
-    expect(tester.getRect(retry).right, lessThanOrEqualTo(320));
-    expect(tester.getRect(retry).bottom, lessThanOrEqualTo(720));
-  });
-
-  testWidgets('Live/Motion stills expose AI copies without enabling crop or overwrite controls', (tester) async {
-    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => true);
+  testWidgets('Live/Motion stills expose the fourth AI tool without enabling transform or overwrite', (tester) async {
     final live = asset.copyWith(livePhotoVideoId: 'paired-video-id');
-
     await pumpEditor(tester, photo: live);
-
-    expect(tester.widget<OutlinedButton>(magicEraser).onPressed, isNotNull);
+    expect(tester.widget<TextButton>(find.byKey(const Key('editor-mode-crop'))).onPressed, isNull);
+    expect(tester.widget<TextButton>(find.byKey(const Key('editor-save'))).onPressed, isNull);
     expect(find.byType(CropImage), findsNothing);
-    expect(find.byIcon(Icons.rotate_left), findsNothing);
-    expect(find.byIcon(Icons.rotate_right), findsNothing);
-    expect(find.byKey(const Key('editor-save')), findsNothing);
-    expect(live.isEditable, isFalse);
+    await selectMode(tester, 'magicEraser');
+    expect(magicEraser, findsOneWidget);
     expect(live.livePhotoVideoId, 'paired-video-id');
   });
 
-  testWidgets('existing editor callers without an asset retain their original crop interface', (tester) async {
-    await pumpEditor(tester, legacyCaller: true);
-
-    expect(magicEraser, findsNothing);
-    expect(find.byType(CropImage), findsOneWidget);
-    expect(find.byIcon(Icons.rotate_left), findsOneWidget);
-    verifyNever(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger')));
-  });
+  testWidgets(
+    'frame and straighten retain crop angle and history; transformed drawing maps back to source after resize',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final source = (await tester.runAsync(createEditorRaster))!;
+      addTearDown(source.dispose);
+      final png = (await tester.runAsync(() => EditedImageExporter.encodePng(source)))!;
+      await pumpEditor(tester, image: Image.memory(png));
+      final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+      final notifier = container.read(editorStateProvider.notifier);
+      notifier.setCrop(const Rect.fromLTRB(.125, .125, .875, .875));
+      notifier.rotateCW();
+      notifier.flipHorizontally();
+      notifier.setStraightenDegrees(8);
+      await tester.pumpAndSettle();
+      final before = container.read(editorStateProvider);
+      final straighten = find.byKey(const Key('editor-crop-straighten'));
+      await tester.ensureVisible(straighten);
+      await tester.tap(straighten);
+      await tester.pumpAndSettle();
+      expect(container.read(editorStateProvider), before);
+      expect(tester.widget<CropImage>(find.byType(CropImage)).showCorners, isFalse);
+      final slider = tester.widget<Slider>(find.byKey(const Key('editor-straighten-slider')));
+      slider.onChangeStart!(8);
+      slider.onChanged!(10);
+      slider.onChanged!(12);
+      slider.onChangeEnd!(12);
+      await tester.pump();
+      notifier.undo();
+      expect(container.read(editorStateProvider).straightenDegrees, 8);
+      notifier.redo();
+      expect(container.read(editorStateProvider).straightenDegrees, 12);
+      await tester.ensureVisible(find.byKey(const Key('editor-crop-frame')));
+      await tester.tap(find.byKey(const Key('editor-crop-frame')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CropImage>(find.byType(CropImage)).showCorners, isTrue);
+      expect(container.read(editorStateProvider).crop, before.crop);
+      expect(container.read(editorStateProvider).straightenDegrees, 12);
+      await selectMode(tester, 'draw');
+      final canvas = find.byType(AnnotationCanvas);
+      var box = tester.renderObject<RenderBox>(canvas);
+      var start = box.localToGlobal(Offset(box.size.width * .45, box.size.height * .45));
+      var end = box.localToGlobal(Offset(box.size.width * .55, box.size.height * .5));
+      await tester.dragFrom(start, end - start);
+      await tester.pump();
+      final editor = tester.widget<AnnotationCanvas>(canvas).editor;
+      expect(editor.elements, hasLength(1));
+      expect(editor.elements.single.points.first.dx, closeTo(.45, .002));
+      expect(editor.elements.single.points.first.dy, closeTo(.45, .002));
+      expect(editor.elements.single.points.last.dx, closeTo(.55, .002));
+      expect(editor.elements.single.points.last.dy, closeTo(.5, .002));
+      tester.view.physicalSize = const Size(844, 390);
+      await tester.pumpAndSettle();
+      box = tester.renderObject<RenderBox>(canvas);
+      start = box.localToGlobal(Offset(box.size.width * .5, box.size.height * .55));
+      end = box.localToGlobal(Offset(box.size.width * .6, box.size.height * .5));
+      await tester.dragFrom(start, end - start);
+      await tester.pump();
+      expect(editor.elements, hasLength(2));
+      expect(editor.elements.last.points.first.dx, closeTo(.5, .002));
+      expect(editor.elements.last.points.first.dy, closeTo(.55, .002));
+      expect(editor.elements.last.points.last.dx, closeTo(.6, .002));
+      expect(container.read(editorStateProvider).crop, before.crop);
+      expect(container.read(editorStateProvider).straightenDegrees, 12);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final size in [const Size(390, 844), const Size(844, 390)]) {
     testWidgets('preview and active settings stay between the panels at $size', (tester) async {
@@ -384,17 +392,12 @@ void main() {
           await EasyLocalization.of(tester.element(page))!.setLocale(Locale(locale));
           await tester.pumpAndSettle();
 
-          const modes = ['magicEraser', 'crop', 'filters', 'draw', 'stickers', 'text'];
+          const modes = ['crop', 'filters', 'draw', 'stickers', 'text'];
           for (var index = 0; index < modes.length; index++) {
             final mode = modes[index];
-            if (mode == 'magicEraser') {
-              await selectMagicEraser(tester);
-            } else {
-              final button = find.byKey(Key('editor-mode-$mode'));
-              expect(button.hitTestable(), findsOneWidget);
-              await tester.tap(button);
-              await tester.pumpAndSettle();
-              expect(tester.getSize(button).shortestSide, greaterThanOrEqualTo(48));
+            await selectMode(tester, mode);
+            if (mode != 'filters' && mode != 'stickers') {
+              expect(tester.getSize(find.byKey(Key('editor-mode-$mode'))).shortestSide, greaterThanOrEqualTo(48));
             }
             final viewport = tester.getRect(find.byKey(const Key('editor-preview-viewport')));
             final appBar = tester.getRect(find.byType(AppBar));
@@ -410,10 +413,10 @@ void main() {
             }
             expect(panel.bottom, closeTo(size.height, .01));
             expect(bar.bottom, closeTo(panel.bottom, .01));
-            expect(bar.height, lessThanOrEqualTo(56));
+            expect(bar.height, lessThanOrEqualTo(100));
             final markup = mode == 'draw' || mode == 'text' || mode == 'stickers';
             expect(find.byKey(const Key('editor-markup-controls')), markup ? findsOneWidget : findsNothing);
-            expect(magicEraser, mode == 'magicEraser' ? findsOneWidget : findsNothing);
+            expect(magicEraser, findsNothing);
             if (markup) {
               if (mode == 'draw') {
                 await tester.tap(find.byKey(const Key('editor-toggle-settings')));
@@ -531,6 +534,7 @@ void main() {
               source: source,
               crop: state.crop,
               rotationDegrees: state.rotationAngle,
+              straightenDegrees: state.straightenDegrees,
               flipHorizontal: state.flipHorizontal,
               flipVertical: state.flipVertical,
               annotations: tester.widget<AnnotationCanvas>(canvas).editor.elements,
@@ -662,9 +666,7 @@ void main() {
     await tester.ensureVisible(find.byKey(const Key('editor-mode-text')));
     await tester.tap(find.byKey(const Key('editor-mode-text')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-stickers')));
-    await tester.tap(find.byKey(const Key('editor-mode-stickers')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'stickers');
     expect(tester.widget<AnnotationCanvas>(canvas).editor, same(editor));
     expect(editor.elements.single, original);
     await tester.tap(find.byKey(const Key('editor-header-undo')));
@@ -868,6 +870,7 @@ void main() {
     await tester.ensureVisible(cropMode);
     await tester.tap(cropMode);
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('editor-more')));
     await tester.tap(find.byKey(const Key('editor-more')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('editor-reset')));
@@ -897,9 +900,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await pumpEditor(tester);
-      await tester.ensureVisible(find.byKey(Key('editor-mode-$mode')));
-      await tester.tap(find.byKey(Key('editor-mode-$mode')));
-      await tester.pumpAndSettle();
+      await selectMode(tester, mode);
       final canvas = find.byType(AnnotationCanvas);
       final editor = tester.widget<AnnotationCanvas>(canvas).editor;
       final container = ProviderScope.containerOf(tester.element(canvas));
@@ -1016,7 +1017,7 @@ void main() {
     expect(container.read(editorStateProvider).crop, crop);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('five visible sections and compact drawing strip keep the required tools and top history', (
+  testWidgets('four visible sections and compact drawing strip keep the required tools and top history', (
     tester,
   ) async {
     await pumpEditor(tester);
@@ -1024,10 +1025,9 @@ void main() {
     final buttons = tester.widgetList<TextButton>(find.descendant(of: bar, matching: find.byType(TextButton)));
     expect(buttons.map((button) => (button.key! as ValueKey<String>).value), [
       'editor-mode-crop',
-      'editor-mode-filters',
       'editor-mode-draw',
       'editor-mode-text',
-      'editor-mode-stickers',
+      'editor-mode-magicEraser',
     ]);
     expect(find.byKey(const Key('editor-back')), findsOneWidget);
     expect(find.byKey(const Key('editor-save')), findsOneWidget);
@@ -1060,15 +1060,14 @@ void main() {
 
   testWidgets('sticker layers select, reorder, delete and undo through the shared document history', (tester) async {
     await pumpEditor(tester);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-stickers')));
-    await tester.tap(find.byKey(const Key('editor-mode-stickers')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'stickers');
     await tester.tap(find.byKey(const Key('editor-sticker-star')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('editor-sticker-heart')));
     await tester.pump();
     final editor = tester.widget<AnnotationCanvas>(find.byType(AnnotationCanvas)).editor;
     expect(editor.elements.map((e) => e.text), ['star', 'heart']);
+    await tester.ensureVisible(find.byKey(const Key('editor-more')));
     await tester.tap(find.byKey(const Key('editor-more')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Layers'));

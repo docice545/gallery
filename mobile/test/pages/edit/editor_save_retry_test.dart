@@ -208,7 +208,12 @@ void main() {
         await chooseCopy(tester, pending);
         expect(container.read(editorStateProvider).isApplyingEdits, isTrue);
         expect(pending.isObserved, isTrue);
-        expect(save, findsNothing);
+        expect(save, findsOneWidget);
+        expect(tester.widget<TextButton>(save).onPressed, isNull);
+        for (final key in ['editor-back', 'editor-header-undo', 'editor-header-redo']) {
+          expect(find.byKey(Key(key)), findsOneWidget);
+          expect(tester.widget<IconButton>(find.byKey(Key(key))).onPressed, isNull);
+        }
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
         if (timeout) {

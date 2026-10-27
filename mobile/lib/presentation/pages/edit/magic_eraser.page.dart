@@ -3,13 +3,16 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser_availability.dart';
+import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
+import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
 /// The canvas is always the server's oriented original, independent of local
@@ -337,34 +340,122 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_saving,
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(title: Text(context.t.magic_eraser)),
-        body: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  widget.asset.isMotionPhoto
-                      ? context.t.magic_eraser_live_notice
-                      : context.t.magic_eraser_original_notice,
-                  style: const TextStyle(color: Colors.white70),
-                ),
+    final theme = getThemeData(colorScheme: ref.watch(immichThemeProvider).dark, locale: context.locale);
+    final saveStyle = theme.textTheme.labelLarge!.copyWith(fontSize: 14, height: 1.15, fontWeight: FontWeight.w600);
+    final media = MediaQuery.of(context);
+    final safeWidth = media.size.width - media.padding.horizontal;
+    final saveWidth = math.min(200.0, math.max(96.0, safeWidth - 160));
+    final label = TextPainter(
+      text: TextSpan(text: context.t.magic_eraser_save_copy, style: saveStyle),
+      textDirection: Directionality.of(context),
+      textScaler: media.textScaler,
+    )..layout(maxWidth: saveWidth - 32);
+    final toolbarHeight = math.max(64.0, label.height + 32);
+    label.dispose();
+
+    return Theme(
+      data: theme,
+      child: PopScope(
+        canPop: !_saving,
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            toolbarHeight: toolbarHeight,
+            leading: IconButton(
+              key: const Key('eraser-back'),
+              tooltip: context.t.back,
+              onPressed: _saving ? null : () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back),
+            ),
+            actions: [
+              IconButton(
+                key: const Key('eraser-header-undo'),
+                tooltip: context.t.undo,
+                onPressed: _busy || _drawing || !_mask.canUndo ? null : () => _changeMask(_mask.undo()),
+                icon: const Icon(Icons.undo),
               ),
-              Expanded(child: _canvas()),
-              if ((_failed || _timeout) && _source != null)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    _timeout ? context.t.magic_eraser_timeout : context.t.magic_eraser_failed,
-                    style: const TextStyle(color: Colors.orangeAccent),
+              IconButton(
+                key: const Key('eraser-header-redo'),
+                tooltip: context.t.magic_eraser_redo,
+                onPressed: _busy || _drawing || !_mask.canRedo ? null : () => _changeMask(_mask.redo()),
+                icon: const Icon(Icons.redo),
+              ),
+              SizedBox(
+                width: saveWidth,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: FilledButton(
+                    key: const Key('eraser-save'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      textStyle: saveStyle,
+                    ),
+                    onPressed: _busy || _drawing || _result == null ? null : _saveCopy,
+                    child: Text(context.t.magic_eraser_save_copy, textAlign: TextAlign.center),
                   ),
                 ),
-              if (_source != null) _controls(),
+              ),
             ],
+          ),
+          body: SafeArea(
+            top: false,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final controls = _source != null;
+                final sidePanel =
+                    controls && constraints.maxWidth >= 560 && constraints.maxWidth > constraints.maxHeight;
+                final canvas = SizedBox.expand(key: const Key('eraser-canvas-region'), child: _canvas());
+                if (!controls) {
+                  return canvas;
+                }
+                final panel = ColoredBox(
+                  color: const Color(0xff191919),
+                  child: SingleChildScrollView(
+                    key: const Key('eraser-controls-panel'),
+                    primary: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(
+                            widget.asset.isMotionPhoto
+                                ? context.t.magic_eraser_live_notice
+                                : context.t.magic_eraser_original_notice,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                        if (_failed || _timeout)
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(
+                              _timeout ? context.t.magic_eraser_timeout : context.t.magic_eraser_failed,
+                              style: const TextStyle(color: Colors.orangeAccent),
+                            ),
+                          ),
+                        _controls(),
+                      ],
+                    ),
+                  ),
+                );
+                return sidePanel
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: canvas),
+                          SizedBox(width: math.min(320, math.max(248, constraints.maxWidth * .4)), child: panel),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(child: canvas),
+                          SizedBox(height: math.min(264, constraints.maxHeight * .42), child: panel),
+                        ],
+                      );
+              },
+            ),
           ),
         ),
       ),
@@ -373,7 +464,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
 
   Widget _canvas() {
     if (_loading) {
-      return _loadingState(context.t.magic_eraser_loading);
+      return Center(child: SingleChildScrollView(child: _loadingState(context.t.magic_eraser_loading)));
     }
     if (!_enabled || _source == null || _sourceSize == null) {
       return Center(
@@ -467,19 +558,27 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
               Positioned.fill(
                 child: ColoredBox(
                   color: Colors.black54,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _loadingState(
-                        _saving
-                            ? context.t.magic_eraser_save_copy
-                            : _queued
-                            ? context.t.magic_eraser_queued
-                            : context.t.magic_eraser_processing,
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _loadingState(
+                            _saving
+                                ? context.t.magic_eraser_save_copy
+                                : _queued
+                                ? context.t.magic_eraser_queued
+                                : context.t.magic_eraser_processing,
+                          ),
+                          if (_processing)
+                            TextButton(
+                              key: const Key('eraser-cancel'),
+                              onPressed: _cancel,
+                              child: Text(context.t.cancel),
+                            ),
+                        ],
                       ),
-                      if (_processing)
-                        TextButton(key: const Key('eraser-cancel'), onPressed: _cancel, child: Text(context.t.cancel)),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -517,11 +616,6 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
                 onPressed: _busy || _drawing ? null : () => setState(() => _before = false),
                 child: Text(context.t.magic_eraser_after),
               ),
-              FilledButton(
-                key: const Key('eraser-save'),
-                onPressed: _busy || _drawing ? null : _saveCopy,
-                child: Text(context.t.magic_eraser_save_copy),
-              ),
             ],
           ),
         Wrap(
@@ -554,16 +648,6 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
               isSelected: _zoom,
               onPressed: _busy || _drawing ? null : () => setState(() => _zoom = !_zoom),
               icon: const Icon(Icons.zoom_in, color: Colors.white),
-            ),
-            IconButton(
-              tooltip: context.t.undo,
-              onPressed: _busy || _drawing || !_mask.canUndo ? null : () => _changeMask(_mask.undo()),
-              icon: const Icon(Icons.undo, color: Colors.white),
-            ),
-            IconButton(
-              tooltip: context.t.magic_eraser_redo,
-              onPressed: _busy || _drawing || !_mask.canRedo ? null : () => _changeMask(_mask.redo()),
-              icon: const Icon(Icons.redo, color: Colors.white),
             ),
             TextButton(
               onPressed: _busy || _drawing ? null : () => _changeMask(_mask.reset()),

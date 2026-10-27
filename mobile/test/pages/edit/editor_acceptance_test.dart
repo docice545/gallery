@@ -74,7 +74,11 @@ Future<void> _pumpEditor(
 
 Future<void> _mode(WidgetTester tester, String mode) async {
   final button = find.byKey(Key('editor-mode-$mode'));
-  await tester.ensureVisible(button);
+  final bar = tester.getRect(find.byKey(const Key('editor-mode-bar')));
+  final target = tester.getRect(button);
+  if (!bar.contains(target.topLeft) || !bar.contains(target.bottomRight - const Offset(.01, .01))) {
+    await tester.ensureVisible(button);
+  }
   await tester.tap(button);
   await tester.pumpAndSettle();
 }
@@ -103,30 +107,31 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets('acceptance: black screen and back, history and Russian Save with vertical dots on $platform', (
-      tester,
-    ) async {
-      await _pumpEditor(tester);
-      final page = find.byType(EditImagePage);
-      final scaffold = tester.widget<Scaffold>(find.descendant(of: page, matching: find.byType(Scaffold)));
-      expect(scaffold.backgroundColor, Colors.black);
-      expect(tester.widget<AppBar>(find.byType(AppBar)).backgroundColor, Colors.black);
-      expect(Theme.of(tester.element(find.byKey(const Key('editor-back')))).brightness, Brightness.dark);
-      final reset = find.byKey(const Key('editor-back'));
-      final save = find.byKey(const Key('editor-save'));
-      final more = find.byKey(const Key('editor-more'));
-      expect(find.descendant(of: reset, matching: find.byIcon(Icons.arrow_back)), findsOneWidget);
-      expect(find.byKey(const Key('editor-header-undo')), findsOneWidget);
-      expect(find.byKey(const Key('editor-header-redo')), findsOneWidget);
-      expect(find.descendant(of: save, matching: find.text('Сохранить\nкопию')), findsOneWidget);
-      expect(find.descendant(of: more, matching: find.byIcon(Icons.more_vert)), findsOneWidget);
-      expect(tester.getCenter(reset).dx, lessThan(tester.getCenter(save).dx));
-      expect(tester.getCenter(save).dx, lessThan(tester.getCenter(more).dx));
-      expect(tester.takeException(), isNull);
-    }, variant: TargetPlatformVariant({platform}));
+    testWidgets(
+      'acceptance: black screen and back, history and Russian Save copy with exactly four header actions on $platform',
+      (tester) async {
+        await _pumpEditor(tester);
+        final page = find.byType(EditImagePage);
+        final scaffold = tester.widget<Scaffold>(find.descendant(of: page, matching: find.byType(Scaffold)));
+        expect(scaffold.backgroundColor, Colors.black);
+        expect(tester.widget<AppBar>(find.byType(AppBar)).backgroundColor, Colors.black);
+        expect(Theme.of(tester.element(find.byKey(const Key('editor-back')))).brightness, Brightness.dark);
+        final reset = find.byKey(const Key('editor-back'));
+        final save = find.byKey(const Key('editor-save'));
+        expect(find.descendant(of: reset, matching: find.byIcon(Icons.arrow_back)), findsOneWidget);
+        expect(find.byKey(const Key('editor-header-undo')), findsOneWidget);
+        expect(find.byKey(const Key('editor-header-redo')), findsOneWidget);
+        expect(find.descendant(of: save, matching: find.text('Сохранить\nкопию')), findsOneWidget);
+        expect(tester.widget<AppBar>(find.byType(AppBar)).actions, hasLength(3));
+        expect(find.byKey(const Key('editor-more')), findsNothing);
+        expect(tester.getCenter(reset).dx, lessThan(tester.getCenter(save).dx));
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
   }
 
-  testWidgets('acceptance: all five primary sections are visible together with short Russian labels', (tester) async {
+  testWidgets('acceptance: all four primary sections retain readable Russian labels', (tester) async {
     await _pumpEditor(tester);
     final bar = find.byKey(const Key('editor-mode-bar'));
     final labels = tester.widgetList<Text>(find.descendant(of: bar, matching: find.byType(Text))).toList();
@@ -134,10 +139,10 @@ void main() {
       expect(
         (text.findRenderObject()! as RenderParagraph).didExceedMaxLines,
         isFalse,
-        reason: 'Primary labels must fit without scrolling: ${(text.widget as Text).data}',
+        reason: 'Primary labels must wrap without truncation: ${(text.widget as Text).data}',
       );
     }
-    expect(labels.map((label) => label.data), ['Обрезать', 'Фильтры', 'Рисование', 'Текст', 'Стикеры']);
+    expect(labels.map((label) => label.data), ['Обрезка', 'Разметка', 'Текст', 'Волшебный ластик']);
   });
 
   testWidgets('acceptance: yellow modes, blue/purple ink and circular ordered pill with separate history', (
@@ -178,13 +183,37 @@ void main() {
     final decoration = tester.widget<DecoratedBox>(pill).decoration as BoxDecoration;
     expect(decoration.color, const Color(0xff303030));
     expect(decoration.borderRadius, BorderRadius.circular(32));
-    for (final (mode, label) in [('draw', 'Рисование'), ('stickers', 'Стикеры'), ('text', 'Текст')]) {
+    for (final (mode, label) in [('draw', 'Разметка'), ('text', 'Текст')]) {
       await _mode(tester, mode);
       final button = find.byKey(Key('editor-mode-$mode'));
       expect(find.descendant(of: button, matching: find.text(label)), findsOneWidget);
       expect(tester.widget<TextButton>(button).style!.foregroundColor!.resolve({}), Colors.yellow);
     }
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('filters, stickers, layers and reset remain in secondary tool settings', (tester) async {
+    await _pumpEditor(tester);
+    for (final (mode, label) in [('filters', 'Фильтры'), ('stickers', 'Стикеры')]) {
+      if (find.byKey(const Key('editor-more')).evaluate().isEmpty) {
+        await _mode(tester, 'crop');
+      }
+      final more = find.byKey(const Key('editor-more'));
+      await tester.ensureVisible(more);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-reset')), findsOneWidget);
+      expect(find.text('Слои'), findsOneWidget);
+      final option = find.byKey(Key('editor-mode-$mode'));
+      expect(find.descendant(of: option, matching: find.text(label)), findsOneWidget);
+      await tester.tap(option);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-active-settings')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+    final bar = find.byKey(const Key('editor-mode-bar'));
+    expect(find.descendant(of: bar, matching: find.byKey(const Key('editor-mode-filters'))), findsNothing);
+    expect(find.descendant(of: bar, matching: find.byKey(const Key('editor-mode-stickers'))), findsNothing);
   });
 
   for (final (name, size, insets, scale) in [
@@ -196,7 +225,7 @@ void main() {
     testWidgets('acceptance: $name keeps complete controls outside system insets', (tester) async {
       await _pumpEditor(tester, size: size, insets: insets, textScale: scale);
       final safe = Rect.fromLTRB(insets.left, insets.top, size.width - insets.right, size.height - insets.bottom);
-      for (final key in ['editor-back', 'editor-header-undo', 'editor-header-redo', 'editor-save', 'editor-more']) {
+      for (final key in ['editor-back', 'editor-header-undo', 'editor-header-redo', 'editor-save']) {
         final button = find.byKey(Key(key));
         _inside(safe, tester.getRect(button), key);
         for (final text in find.descendant(of: button, matching: find.byType(Text)).evaluate()) {
