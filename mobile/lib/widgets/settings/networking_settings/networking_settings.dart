@@ -13,6 +13,7 @@ import 'package:immich_mobile/providers/network.provider.dart';
 import 'package:immich_mobile/utils/url_helper.dart';
 import 'package:immich_mobile/widgets/settings/networking_settings/external_network_preference.dart';
 import 'package:immich_mobile/widgets/settings/networking_settings/local_network_preference.dart';
+import 'package:immich_mobile/widgets/settings/networking_settings/offline_thumbnail_network_settings.dart';
 import 'package:immich_ui/immich_ui.dart';
 
 class NetworkingSettings extends HookConsumerWidget {
@@ -175,6 +176,9 @@ class NetworkingSettings extends HookConsumerWidget {
         const SizedBox(height: 16),
         SettingGroupTitle(title: context.t.external_network, icon: Icons.dns_outlined),
         ExternalNetworkPreference(enabled: featureEnabled.value),
+        const SizedBox(height: 16),
+        SettingGroupTitle(title: context.t.offline_thumbnail_network_title, icon: Icons.cloud_download_outlined),
+        const OfflineThumbnailNetworkSettings(),
       ],
     );
   }
