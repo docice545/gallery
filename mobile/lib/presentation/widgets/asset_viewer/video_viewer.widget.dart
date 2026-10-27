@@ -279,8 +279,12 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
     try {
       if (widget.timelinePreview) {
-        // The timeline owns source selection. Never resolve a remote twin or
-        // fall back to its server video when the local component is missing.
+        // Use verified local motion data when present. Remote-only assets have
+        // no local component and may stream the known paired video ID, without
+        // resolving or downloading full-resolution originals.
+        if (widget.asset is RemoteAsset && widget.asset.storage == AssetState.remote) {
+          return await _createRemoteTimelineSource();
+        }
         return await _createLocalTimelineSource();
       }
       final assetService = ref.read(assetServiceProvider);
@@ -379,6 +383,27 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       }
       return null;
     }
+  }
+
+  Future<VideoSource?> _createRemoteTimelineSource() async {
+    final asset = widget.asset;
+    if (asset is! RemoteAsset ||
+        asset.storage != AssetState.remote ||
+        !asset.isMotionPhoto ||
+        asset.livePhotoVideoId == null) {
+      throw StateError('Timeline motion requires a paired remote video');
+    }
+    if (!_canPreview) {
+      return null;
+    }
+    final endpoint = Store.get(StoreKey.serverEndpoint);
+    final videoUrl = '$endpoint/assets/${asset.livePhotoVideoId}/video/playback';
+    _previewTrace('source:remote-pair-playback');
+    return VideoSource.init(
+      path: videoUrl,
+      type: VideoSourceType.network,
+      headers: ApiService.getRequestHeaders(),
+    );
   }
 
   Future<VideoSource?> _createLocalTimelineSource() async {
@@ -659,8 +684,12 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
 
   @override
   Widget build(BuildContext context) {
-    if (widget.timelinePreview &&
-        (!widget.asset.hasLocal || widget.asset.storage == AssetState.remote || widget.localFilePath == null)) {
+    final remotePreview =
+        widget.asset is RemoteAsset &&
+        widget.asset.storage == AssetState.remote &&
+        (widget.asset as RemoteAsset).livePhotoVideoId != null;
+    if (widget.timelinePreview && !remotePreview &&
+        (!widget.asset.hasLocal || widget.localFilePath == null)) {
       return widget.image;
     }
     final isCasting = !widget.timelinePreview && ref.watch(castProvider.select((c) => c.isCasting));
