@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:auto_route/auto_route.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/domain/services/offline_thumbnail_warmup.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/feature_message/feature_message_dialog.widget.dart';
 import 'package:immich_mobile/presentation/widgets/filter_sheet/filter_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
@@ -20,14 +20,14 @@ import 'package:immich_mobile/providers/feature_message.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/offline_thumbnail_network.provider.dart';
-import 'package:immich_mobile/providers/sync_status.provider.dart';
-import 'package:immich_mobile/providers/user.provider.dart';
-import 'package:logging/logging.dart';
 import 'package:immich_mobile/providers/photos_filter/memory_lane.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/photos_filter.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/photos_filter_search.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/timeline_query.provider.dart';
+import 'package:immich_mobile/providers/sync_status.provider.dart';
+import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_sliver_app_bar.dart';
+import 'package:logging/logging.dart';
 
 /// Scroll offset the memories strip occupies at the top of the timeline —
 /// matches [MemoryLane]'s own max height so the scrubber lines up.
@@ -63,7 +63,9 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
   }
 
   void _startOfflineWarmup() {
-    if (!mounted || _offlineWarmup != null) return;
+    if (!mounted || _offlineWarmup != null) {
+      return;
+    }
     final user = ref.read(currentUserProvider);
     final owners = ref.read(timelineUsersProvider).valueOrNull;
     if (user == null ||
@@ -104,14 +106,20 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
     _syncSubscription = ref.listenManual(
       syncStatusProvider.select((s) => s.remoteSyncStatus),
       (_, status) {
-        if (status == SyncStatus.success) _startOfflineWarmup();
+        if (status == SyncStatus.success) {
+          _startOfflineWarmup();
+        }
       },
     );
     _timelineUsersSubscription = ref.listenManual(timelineUsersProvider, (_, next) {
-      if (next.hasValue) _startOfflineWarmup();
+      if (next.hasValue) {
+        _startOfflineWarmup();
+      }
     });
     _offlineNetworkSubscription = ref.listenManual(offlineThumbnailAnyNetworkProvider, (_, next) {
-      if (next.hasValue) _restartOfflineWarmup();
+      if (next.hasValue) {
+        _restartOfflineWarmup();
+      }
     });
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((_) => _restartOfflineWarmup());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
