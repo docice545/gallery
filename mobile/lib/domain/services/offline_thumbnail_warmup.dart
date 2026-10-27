@@ -57,7 +57,7 @@ class OfflineThumbnailWarmup {
               row.isIndexTombstone.equals(false) &
               row.visibility.equals(AssetVisibility.timeline.index) &
               row.thumbHash.isNotNull() &
-              (afterId == null ? const Constant(true) : row.id.isBiggerThanValue(afterId)),
+              (afterId == null ? const Constant(true) : row.id.isBiggerThanValue(afterId!)),
         )
         ..orderBy([(row) => OrderingTerm.asc(row.id)])
         ..limit(_pageSize);
