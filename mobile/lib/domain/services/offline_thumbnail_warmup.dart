@@ -14,12 +14,14 @@ import 'package:openapi/api.dart';
 
 /// Warms FOTO's durable native thumbnail cache from the already-synced Drift
 /// catalog. Does not download originals, write to Drift, or enqueue uploads.
-/// Runs while the Photos screen is mounted and any network is available
-/// (Wi-Fi, mobile data, VPN, Ethernet, or another transport).
-/// Connectivity is a transport hint only: do not restrict mobile data or VPN.
-/// A network transport may still lack internet, so HTTP failures are bounded.
-bool canWarmThumbnailsOn(List<ConnectivityResult> transports) =>
-    transports.isNotEmpty && transports.any((transport) => transport != ConnectivityResult.none);
+/// Runs while Photos is mounted. Wi-Fi is the conservative default, while the
+/// user can explicitly allow any transport after acknowledging mobile-data fees.
+/// Connectivity is only a hint, so repeated HTTP failures still stop the scan.
+bool canWarmThumbnailsOn(List<ConnectivityResult> transports, {bool allowAnyNetwork = false}) {
+  final onlineTransport = transports.any((transport) => transport != ConnectivityResult.none);
+  if (!onlineTransport) return false;
+  return allowAnyNetwork || transports.contains(ConnectivityResult.wifi);
+}
 
 class OfflineThumbnailWarmup {
   static final _log = Logger('OfflineThumbnailWarmup');
@@ -43,6 +45,7 @@ class OfflineThumbnailWarmup {
     required Drift db,
     required List<String> ownerIds,
     required bool Function() sessionIsCurrent,
+    required bool Function() useAnyNetwork,
   }) async {
     if (!Platform.isAndroid || ownerIds.isEmpty || !sessionIsCurrent()) return;
 
@@ -52,10 +55,8 @@ class OfflineThumbnailWarmup {
 
     while (!_cancelled && sessionIsCurrent()) {
       final transports = await Connectivity().checkConnectivity();
-      // Accept all online transport types, including cellular and VPN.
-      // Connectivity reports transport presence, not server reachability;
-      // repeated HTTP failures below still stop the warmup promptly.
-      if (!canWarmThumbnailsOn(transports)) return;
+      // The user's selected network policy applies before every page.
+      if (!canWarmThumbnailsOn(transports, allowAnyNetwork: useAnyNetwork())) return;
 
       final query = db.select(db.remoteAssetEntity)
         ..where(
@@ -76,6 +77,9 @@ class OfflineThumbnailWarmup {
 
       for (final asset in page) {
         if (_cancelled || !sessionIsCurrent()) return;
+        // Stop immediately on Wi-Fi -> cellular transitions without consent.
+        final activeTransports = await Connectivity().checkConnectivity();
+        if (!canWarmThumbnailsOn(activeTransports, allowAnyNetwork: useAnyNetwork())) return;
         final hash = asset.thumbHash;
         if (hash == null || hash.isEmpty) continue;
 
