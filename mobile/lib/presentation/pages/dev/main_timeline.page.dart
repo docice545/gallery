@@ -1,8 +1,11 @@
 import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/domain/services/offline_thumbnail_warmup.dart';
 import 'package:immich_mobile/presentation/widgets/feature_message/feature_message_dialog.widget.dart';
 import 'package:immich_mobile/presentation/widgets/filter_sheet/filter_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
@@ -14,6 +17,11 @@ import 'package:immich_mobile/presentation/widgets/timeline/timeline_empty_state
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_selector.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope.dart';
 import 'package:immich_mobile/providers/feature_message.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
+import 'package:immich_mobile/providers/sync_status.provider.dart';
+import 'package:immich_mobile/providers/user.provider.dart';
+import 'package:logging/logging.dart';
 import 'package:immich_mobile/providers/photos_filter/memory_lane.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/photos_filter.provider.dart';
 import 'package:immich_mobile/providers/photos_filter/photos_filter_search.provider.dart';
@@ -35,13 +43,61 @@ class MainTimelinePage extends ConsumerStatefulWidget {
 }
 
 class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
+  static final _offlineLog = Logger('OfflineThumbnailWarmup');
+  OfflineThumbnailWarmup? _offlineWarmup;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  ProviderSubscription<SyncStatus>? _syncSubscription;
+  ProviderSubscription<AsyncValue<List<String>>>? _timelineUsersSubscription;
+
+  void _startOfflineWarmup() {
+    if (!mounted || _offlineWarmup != null) return;
+    final user = ref.read(currentUserProvider);
+    final owners = ref.read(timelineUsersProvider).valueOrNull;
+    if (user == null ||
+        owners == null ||
+        !owners.contains(user.id) ||
+        ref.read(syncStatusProvider).remoteSyncStatus != SyncStatus.success) {
+      return;
+    }
+
+    final warmup = OfflineThumbnailWarmup();
+    _offlineWarmup = warmup;
+    unawaited(
+      warmup
+          .run(
+            db: ref.read(driftProvider),
+            ownerIds: List<String>.of(owners),
+            sessionIsCurrent: () => mounted && ref.read(currentUserProvider)?.id == user.id,
+          )
+          .catchError((Object error, StackTrace stack) {
+            _offlineLog.warning('Background thumbnail warmup stopped', error, stack);
+          })
+          .whenComplete(() {
+            if (mounted && identical(_offlineWarmup, warmup)) {
+              _offlineWarmup = null;
+            }
+          }),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _syncSubscription = ref.listenManual(
+      syncStatusProvider.select((s) => s.remoteSyncStatus),
+      (_, status) {
+        if (status == SyncStatus.success) _startOfflineWarmup();
+      },
+    );
+    _timelineUsersSubscription = ref.listenManual(timelineUsersProvider, (_, next) {
+      if (next.hasValue) _startOfflineWarmup();
+    });
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((_) => _startOfflineWarmup());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) {
         return;
       }
+      _startOfflineWarmup();
       final service = ref.read(featureMessageServiceProvider);
       if (!service.shouldShow()) {
         return;
@@ -54,6 +110,15 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
 
       await showFeatureMessageDialog(context);
     });
+  }
+
+  @override
+  void dispose() {
+    _offlineWarmup?.cancel();
+    _syncSubscription?.close();
+    _timelineUsersSubscription?.close();
+    unawaited(_connectivitySubscription?.cancel());
+    super.dispose();
   }
 
   @override
