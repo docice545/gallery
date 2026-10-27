@@ -46,10 +46,10 @@ void main() {
   };
 
   test('only monochrome upstream defaults switch to same-provider colour style', () {
-    for (final name in ['positron', 'dark']) {
+    for (final entry in {'positron': 'liberty', 'dark': 'fiord'}.entries) {
       expect(
-        MapStylePresentation.colorfulStyle('https://tiles.openfreemap.org/styles/$name'),
-        'https://tiles.openfreemap.org/styles/liberty',
+        MapStylePresentation.colorfulStyle('https://tiles.openfreemap.org/styles/${entry.key}'),
+        'https://tiles.openfreemap.org/styles/${entry.value}',
       );
     }
     for (final custom in [

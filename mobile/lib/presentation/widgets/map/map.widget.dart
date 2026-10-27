@@ -6,6 +6,7 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
+import 'package:immich_mobile/domain/models/map.model.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/asyncvalue_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
@@ -14,7 +15,8 @@ import 'package:immich_mobile/presentation/widgets/map/map.state.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_my_location_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_photo_selection.dart';
 import 'package:immich_mobile/presentation/widgets/map/map_utils.dart';
-import 'package:immich_mobile/providers/place_names.provider.dart';
+import 'package:immich_mobile/presentation/widgets/map/map_viewport.dart';
+import 'package:immich_mobile/providers/infrastructure/map.provider.dart';
 import 'package:immich_mobile/providers/routes.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/utils/async_mutex.dart';
@@ -45,6 +47,10 @@ class _MapViewState extends ConsumerState<MapView> {
   int _languageGeneration = 0;
   int _selectionGeneration = 0;
   bool _styleReady = false;
+  bool _initialCameraApplied = false;
+  bool _userInteracted = false;
+  bool _initialCameraAvailable = false;
+  CameraPosition? _initialCamera;
   bool _selecting = false;
   String? _languageCode;
   final GlobalKey _bottomSheetKey = GlobalKey();
@@ -90,6 +96,36 @@ class _MapViewState extends ConsumerState<MapView> {
 
   void _onEvent(_) => _debouncer.run(() => setBounds(forceReload: true));
 
+  void _prepareInitialCamera(CameraPosition camera, bool hasCoordinates) {
+    _initialCamera = camera;
+    _initialCameraAvailable = hasCoordinates;
+    // A library may acquire its first geotags after the map is already open.
+    // Fit that first real extent, but never replace an intentional user camera.
+    if (_styleReady && !_initialCameraApplied && !_userInteracted && hasCoordinates) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final controller = mapController;
+        if (mounted && _styleReady && controller != null) {
+          unawaited(_applyInitialCamera(controller));
+        }
+      });
+    }
+  }
+
+  Future<void> _applyInitialCamera(MapLibreMapController controller) async {
+    if (_initialCameraApplied || _userInteracted || !_initialCameraAvailable || _initialCamera == null) {
+      return;
+    }
+    _initialCameraApplied = true;
+    try {
+      await controller.moveCamera(CameraUpdate.newCameraPosition(_initialCamera!));
+    } catch (error, stack) {
+      if (mounted && identical(controller, mapController)) {
+        _initialCameraApplied = false;
+        _log.warning('Cannot fit initial photo map viewport', error, stack);
+      }
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -121,6 +157,10 @@ class _MapViewState extends ConsumerState<MapView> {
     _styleReady = false;
     bool current() => mounted && generation == _styleGeneration && identical(controller, mapController);
     try {
+      await _applyInitialCamera(controller);
+      if (!current()) {
+        return;
+      }
       await controller.addSource(MapUtils.defaultSourceId, MapUtils.photoSource);
       if (!current()) {
         return;
@@ -293,7 +333,13 @@ class _MapViewState extends ConsumerState<MapView> {
     });
     return Stack(
       children: [
-        _Map(initialLocation: widget.initialLocation, onMapCreated: onMapCreated, onMapReady: onMapReady),
+        _Map(
+          initialLocation: widget.initialLocation,
+          onMapCreated: onMapCreated,
+          onMapReady: onMapReady,
+          onCameraPrepared: _prepareInitialCamera,
+          onInteraction: () => _userInteracted = true,
+        ),
         _DynamicBottomSheet(
           bottomSheetOffset: bottomSheetOffset,
           sheetKey: _bottomSheetKey,
@@ -308,34 +354,71 @@ class _MapViewState extends ConsumerState<MapView> {
 class _Map extends ConsumerWidget {
   final LatLng? initialLocation;
 
-  const _Map({this.initialLocation, required this.onMapCreated, required this.onMapReady});
+  const _Map({
+    this.initialLocation,
+    required this.onMapCreated,
+    required this.onMapReady,
+    required this.onCameraPrepared,
+    required this.onInteraction,
+  });
 
   final MapCreatedCallback onMapCreated;
 
   final VoidCallback onMapReady;
+  final void Function(CameraPosition, bool) onCameraPrepared;
+  final VoidCallback onInteraction;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final location = initialLocation == null ? ref.watch(libraryMapLocationProvider) : AsyncData(initialLocation);
-    if (location.isLoading && !location.hasValue) {
+    final viewport = initialLocation == null
+        ? ref.watch(initialMapViewportProvider)
+        : const AsyncData<MapViewport?>(null);
+    if (viewport.isLoading && !viewport.hasValue) {
       return const Center(child: CircularProgressIndicator());
     }
-    final libraryLocation = location.valueOrNull;
-    return MapThemeOverride(
-      mapBuilder: (style) => style.widgetWhen(
-        onData: (style) => MapLibreMap(
-          initialCameraPosition: libraryLocation == null
-              ? const CameraPosition(target: LatLng(0, 0), zoom: 0)
-              : CameraPosition(target: libraryLocation, zoom: MapUtils.mapZoomToAssetLevel),
-          compassEnabled: false,
-          rotateGesturesEnabled: false,
-          styleString: style,
-          onMapCreated: onMapCreated,
-          onStyleLoadedCallback: onMapReady,
-          attributionButtonPosition: AttributionButtonPosition.topRight,
-          attributionButtonMargins: const Point(8, kToolbarHeight),
+    if (viewport.hasError && !viewport.hasValue) {
+      return Center(
+        child: IconButton(
+          tooltip: context.t.retry,
+          onPressed: () => ref.invalidate(initialMapViewportProvider),
+          icon: const Icon(Icons.refresh),
         ),
-      ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final camera = initialLocation != null
+            ? CameraPosition(target: initialLocation!, zoom: MapUtils.mapZoomToAssetLevel)
+            : MapViewportCamera.cameraForViewport(
+                viewport.valueOrNull,
+                size: constraints.biggest,
+                padding: EdgeInsets.fromLTRB(
+                  24,
+                  kToolbarHeight + MediaQuery.paddingOf(context).top + 24,
+                  24,
+                  120 + MediaQuery.paddingOf(context).bottom,
+                ),
+              );
+        onCameraPrepared(camera, initialLocation != null || viewport.valueOrNull != null);
+        return MapThemeOverride(
+          mapBuilder: (style) => style.widgetWhen(
+            onData: (style) => Listener(
+              onPointerDown: (_) => onInteraction(),
+              child: MapLibreMap(
+                initialCameraPosition: camera,
+                trackCameraPosition: true,
+                compassEnabled: false,
+                rotateGesturesEnabled: false,
+                styleString: style,
+                onMapCreated: onMapCreated,
+                onStyleLoadedCallback: onMapReady,
+                attributionButtonPosition: AttributionButtonPosition.topRight,
+                attributionButtonMargins: const Point(8, kToolbarHeight),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

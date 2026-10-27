@@ -4,6 +4,14 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 
 part 'map.model.freezed.dart';
 
+/// Read-only geography of the eligible photos, not a device location.
+class MapViewport {
+  const MapViewport({required this.bounds, required this.photoCount});
+
+  final LatLngBounds bounds;
+  final int photoCount;
+}
+
 @freezed
 abstract class Marker with _$Marker {
   const factory Marker({required LatLng location, required String assetId}) = _Marker;

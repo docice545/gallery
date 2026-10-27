@@ -11,14 +11,19 @@ class MapFactory {
 
   const MapFactory({required this._mapRepository});
 
-  MapService remote(List<String> userIds, String currentUserId, TimelineMapOptions options) =>
-      MapService(_mapRepository.remote(userIds, currentUserId, options));
+  MapService remote(List<String> userIds, String currentUserId, TimelineMapOptions options) => MapService(
+    _mapRepository.remote(userIds, currentUserId, options),
+    viewportSource: () => _mapRepository.getInitialViewport(userIds, currentUserId, options),
+  );
 }
 
 class MapService {
   final MapMarkerSource _markerSource;
+  final Future<MapViewport?> Function()? _viewportSource;
 
-  MapService(MapQuery query) : _markerSource = query.markerSource;
+  MapService(MapQuery query, {this._viewportSource}) : _markerSource = query.markerSource;
 
   Future<List<Marker>> Function(LatLngBounds? bounds) get getMarkers => _markerSource;
+
+  Future<MapViewport?> getInitialViewport() => _viewportSource?.call() ?? Future.value(null);
 }

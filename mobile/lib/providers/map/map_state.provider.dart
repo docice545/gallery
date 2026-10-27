@@ -16,6 +16,17 @@ class MapStateNotifier extends Notifier<MapState> {
     final lightStyleUrl = ref.read(serverInfoProvider).serverConfig.mapLightStyleUrl;
     final darkStyleUrl = ref.read(serverInfoProvider).serverConfig.mapDarkStyleUrl;
 
+    // Server settings can arrive after this notifier's initial defaults. Keep
+    // custom sources reactive without resetting the user's current map theme.
+    ref.listen(
+      serverInfoProvider.select(
+        (info) => (light: info.serverConfig.mapLightStyleUrl, dark: info.serverConfig.mapDarkStyleUrl),
+      ),
+      (_, urls) {
+        state = state.copyWith(lightStyleFetched: AsyncData(urls.light), darkStyleFetched: AsyncData(urls.dark));
+      },
+    );
+
     return MapState(
       themeMode: mapConfig.themeMode,
       showFavoriteOnly: mapConfig.favoritesOnly,

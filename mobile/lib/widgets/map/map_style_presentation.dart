@@ -15,7 +15,8 @@ class MapStylePresentation {
     if (uri?.scheme == 'https' &&
         uri?.host == 'tiles.openfreemap.org' &&
         {'/styles/positron', '/styles/dark'}.contains(uri?.path)) {
-      return uri!.replace(path: '/styles/liberty').toString();
+      // Fiord is the provider's full-colour dark style; Liberty is light.
+      return uri!.replace(path: uri.path == '/styles/dark' ? '/styles/fiord' : '/styles/liberty').toString();
     }
     return style;
   }

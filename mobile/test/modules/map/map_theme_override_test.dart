@@ -1,164 +1,93 @@
-@Skip('Flaky test, needs investigation')
-library;
-
-import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:immich_mobile/data/db/main/database.dart';
-import 'package:immich_mobile/domain/services/store.service.dart';
-import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/models/map/map_state.model.dart';
 import 'package:immich_mobile/providers/locale_provider.dart';
 import 'package:immich_mobile/providers/map/map_state.provider.dart';
+import 'package:immich_mobile/providers/theme.provider.dart';
+import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/widgets/map/map_theme_override.dart';
 
-import '../../test_utils.dart';
-import '../../widget_tester_extensions.dart';
-import 'map_mocks.dart';
+class _State extends MapStateNotifier {
+  @override
+  MapState build() => const MapState(
+    themeMode: ThemeMode.system,
+    lightStyleFetched: AsyncData('https://tiles.openfreemap.org/styles/positron'),
+    darkStyleFetched: AsyncData('https://tiles.openfreemap.org/styles/dark'),
+  );
+  MapState get current => state;
+  void update(MapState value) => state = value;
+}
 
 void main() {
-  late MockMapStateNotifier mapStateNotifier;
-  late List<Override> overrides;
-  late MapState mapState;
-  late Drift db;
-
-  setUpAll(() async {
-    db = Drift(DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
-    TestUtils.init();
-  });
-
-  setUp(() async {
-    mapState = const MapState(themeMode: ThemeMode.dark);
-    mapStateNotifier = MockMapStateNotifier(mapState);
-    await StoreService.init(storeRepository: StoreRepository(db));
-    overrides = [
-      mapStateNotifierProvider.overrideWith(() => mapStateNotifier),
-      localeProvider.overrideWithValue(const Locale("en")),
-    ];
-  });
-
-  testWidgets("Return dark theme style when theme mode is dark", (tester) async {
-    AsyncValue<String>? mapStyle;
-    await tester.pumpConsumerWidget(
-      MapThemeOverride(
-        mapBuilder: (AsyncValue<String> style) {
-          mapStyle = style;
-          return const Text("Mock");
-        },
-      ),
-      overrides: overrides,
-    );
-
-    mapStateNotifier.state = mapState.copyWith(darkStyleFetched: const AsyncData("dark"));
-    await tester.pumpAndSettle();
-    expect(mapStyle?.valueOrNull, "dark");
-  });
-
-  testWidgets("Return error when style is not fetched", (tester) async {
-    AsyncValue<String>? mapStyle;
-    await tester.pumpConsumerWidget(
-      MapThemeOverride(
-        mapBuilder: (AsyncValue<String> style) {
-          mapStyle = style;
-          return const Text("Mock");
-        },
-      ),
-      overrides: overrides,
-    );
-
-    mapStateNotifier.state = mapState.copyWith(darkStyleFetched: const AsyncError("Error", StackTrace.empty));
-    await tester.pumpAndSettle();
-    expect(mapStyle?.hasError, isTrue);
-  });
-
-  testWidgets("Return light theme style when theme mode is light", (tester) async {
-    AsyncValue<String>? mapStyle;
-    await tester.pumpConsumerWidget(
-      MapThemeOverride(
-        mapBuilder: (AsyncValue<String> style) {
-          mapStyle = style;
-          return const Text("Mock");
-        },
-      ),
-      overrides: overrides,
-    );
-
-    mapStateNotifier.state = mapState.copyWith(themeMode: ThemeMode.light, lightStyleFetched: const AsyncData("light"));
-    await tester.pumpAndSettle();
-    expect(mapStyle?.valueOrNull, "light");
-  });
-
-  group("System mode", () {
-    testWidgets("Return dark theme style when system is dark", (tester) async {
-      AsyncValue<String>? mapStyle;
-      await tester.pumpConsumerWidget(
-        MapThemeOverride(
-          mapBuilder: (AsyncValue<String> style) {
-            mapStyle = style;
-            return const Text("Mock");
-          },
+  late _State state;
+  AsyncValue<String>? style;
+  Future<void> pump(WidgetTester tester, {ThemeMode? mode}) async {
+    state = _State();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapStateNotifierProvider.overrideWith(() => state),
+          localeProvider.overrideWithValue(const Locale('ru')),
+          immichThemeProvider.overrideWith(
+            (_) => ImmichTheme(
+              light: ColorScheme.fromSeed(seedColor: Colors.indigo),
+              dark: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.dark),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: MapThemeOverride(
+            themeMode: mode,
+            mapBuilder: (value) {
+              style = value;
+              return const SizedBox();
+            },
+          ),
         ),
-        overrides: overrides,
-      );
+      ),
+    );
+  }
 
-      tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
-      mapStateNotifier.state = mapState.copyWith(
-        themeMode: ThemeMode.system,
-        darkStyleFetched: const AsyncData("dark"),
-      );
-      await tester.pumpAndSettle();
+  tearDown(() => style = null);
 
-      expect(mapStyle?.valueOrNull, "dark");
-    });
+  testWidgets('system brightness changes between full-colour default light/dark styles', (tester) async {
+    tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    addTearDown(tester.binding.platformDispatcher.clearPlatformBrightnessTestValue);
+    await pump(tester);
+    expect(style!.valueOrNull, 'https://tiles.openfreemap.org/styles/liberty');
+    tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pump();
+    expect(style!.valueOrNull, 'https://tiles.openfreemap.org/styles/fiord');
+    tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await tester.pump();
+    expect(style!.valueOrNull, 'https://tiles.openfreemap.org/styles/liberty');
+    expect(tester.takeException(), isNull);
+  });
 
-    testWidgets("Return light theme style when system is light", (tester) async {
-      AsyncValue<String>? mapStyle;
-      await tester.pumpConsumerWidget(
-        MapThemeOverride(
-          mapBuilder: (AsyncValue<String> style) {
-            mapStyle = style;
-            return const Text("Mock");
-          },
-        ),
-        overrides: overrides,
-      );
+  testWidgets('custom URL and inline JSON survive theme changes and async config arrival', (tester) async {
+    await pump(tester, mode: ThemeMode.light);
+    state.update(state.current.copyWith(lightStyleFetched: const AsyncData('{"version":8,"layers":[]}')));
+    await tester.pump();
+    expect(style!.valueOrNull, '{"version":8,"layers":[]}');
+    state.update(state.current.copyWith(lightStyleFetched: const AsyncData('https://custom.test/positron.json')));
+    await tester.pump();
+    expect(style!.valueOrNull, 'https://custom.test/positron.json');
+  });
 
-      tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.light;
-      mapStateNotifier.state = mapState.copyWith(
-        themeMode: ThemeMode.system,
-        lightStyleFetched: const AsyncData("light"),
-      );
-      await tester.pumpAndSettle();
-
-      expect(mapStyle?.valueOrNull, "light");
-    });
-
-    testWidgets("Switches style when system brightness changes", (tester) async {
-      AsyncValue<String>? mapStyle;
-      await tester.pumpConsumerWidget(
-        MapThemeOverride(
-          mapBuilder: (AsyncValue<String> style) {
-            mapStyle = style;
-            return const Text("Mock");
-          },
-        ),
-        overrides: overrides,
-      );
-
-      tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.light;
-      mapStateNotifier.state = mapState.copyWith(
-        themeMode: ThemeMode.system,
-        lightStyleFetched: const AsyncData("light"),
-        darkStyleFetched: const AsyncData("dark"),
-      );
-      await tester.pumpAndSettle();
-      expect(mapStyle?.valueOrNull, "light");
-
-      tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
-      await tester.pumpAndSettle();
-      expect(mapStyle?.valueOrNull, "dark");
-    });
+  testWidgets('explicit widget theme wins and errors/loading stay observable', (tester) async {
+    await pump(tester, mode: ThemeMode.dark);
+    expect(style!.valueOrNull, 'https://tiles.openfreemap.org/styles/fiord');
+    state.update(state.current.copyWith(themeMode: ThemeMode.light, darkStyleFetched: const AsyncLoading()));
+    await tester.pump();
+    expect(style!.isLoading, isTrue);
+    state.update(state.current.copyWith(darkStyleFetched: const AsyncError('offline', StackTrace.empty)));
+    await tester.pump();
+    expect(style!.error, 'offline');
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pump();
+    tester.binding.platformDispatcher.clearPlatformBrightnessTestValue();
+    expect(tester.takeException(), isNull);
   });
 }

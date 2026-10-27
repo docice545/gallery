@@ -6,12 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/locales.dart';
+import 'package:immich_mobile/domain/models/map.model.dart';
 import 'package:immich_mobile/generated/codegen_loader.g.dart';
 import 'package:immich_mobile/models/map/map_state.model.dart';
 import 'package:immich_mobile/presentation/widgets/map/library_map_preview.widget.dart';
+import 'package:immich_mobile/presentation/widgets/map/map.state.dart' show mapMarkerProvider;
+import 'package:immich_mobile/providers/infrastructure/map.provider.dart';
 import 'package:immich_mobile/providers/locale_provider.dart';
 import 'package:immich_mobile/providers/map/map_state.provider.dart';
-import 'package:immich_mobile/providers/place_names.provider.dart';
+import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/widgets/map/map_thumbnail.dart';
@@ -25,7 +28,7 @@ class _MapState extends MapStateNotifier {
 void main() {
   Future<void> pump(
     WidgetTester tester,
-    Future<LatLng?> Function(Ref) anchor, {
+    Future<MapViewport?> Function(Ref) viewport, {
     LatLng? initial,
     ValueChanged<LatLng?>? onTap,
   }) async {
@@ -39,7 +42,15 @@ void main() {
         assetLoader: const CodegenLoader(),
         child: ProviderScope(
           overrides: [
-            libraryMapLocationProvider.overrideWith(anchor),
+            initialMapViewportProvider.overrideWith(viewport),
+            mapMarkerProvider(null).overrideWith(
+              (_) async => {
+                'type': 'FeatureCollection',
+                'features': [
+                  {'id': 'photo'},
+                ],
+              },
+            ),
             mapStateNotifierProvider.overrideWith(_MapState.new),
             localeProvider.overrideWithValue(const Locale('ru')),
             immichThemeProvider.overrideWith(
@@ -65,19 +76,27 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('cold preview waits for library GPS and opens the same real location', (tester) async {
-    final result = Completer<LatLng?>();
-    LatLng? opened;
+  testWidgets('cold preview fits real GPS and leaves full-map camera selection automatic', (tester) async {
+    final result = Completer<MapViewport?>();
+    LatLng? opened = const LatLng(1, 2);
     await pump(tester, (_) => result.future, onTap: (location) => opened = location);
     expect(find.byType(MapThumbnail), findsNothing);
-    result.complete(const LatLng(55.75, 37.62));
+    result.complete(
+      MapViewport(
+        photoCount: 2,
+        bounds: LatLngBounds(southwest: const LatLng(55, 37), northeast: const LatLng(56, 38)),
+      ),
+    );
     await tester.pump();
     await tester.pump();
     final thumbnail = tester.widget<MapThumbnail>(find.byType(MapThumbnail));
-    expect(thumbnail.centre, const LatLng(55.75, 37.62));
-    expect(thumbnail.zoom, 8);
+    expect(thumbnail.viewport!.photoCount, 2);
+    await tester.pump();
+    expect(tester.widget<MapThumbnail>(find.byType(MapThumbnail)).photoMarkers!['features'], [
+      {'id': 'photo'},
+    ]);
     thumbnail.onTap!(const Point(0, 0), const LatLng(0, 0));
-    expect(opened, const LatLng(55.75, 37.62));
+    expect(opened, isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -85,7 +104,7 @@ void main() {
     var reads = 0;
     await pump(tester, (_) async {
       reads++;
-      return const LatLng(55, 37);
+      return null;
     }, initial: const LatLng(10.93, 108.29));
     final thumbnail = tester.widget<MapThumbnail>(find.byType(MapThumbnail));
     expect(thumbnail.centre, const LatLng(10.93, 108.29));
@@ -101,6 +120,35 @@ void main() {
     expect(thumbnail.zoom, 0);
     expect(thumbnail.showMarkerPin, isFalse);
     expect(thumbnail.assetMarkerRemoteId, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sync refresh retains the preview while the next real extent loads', (tester) async {
+    final pending = Completer<MapViewport?>();
+    var reads = 0;
+    final first = MapViewport(
+      photoCount: 1,
+      bounds: LatLngBounds(southwest: const LatLng(55, 37), northeast: const LatLng(55, 37)),
+    );
+    await pump(tester, (ref) {
+      ref.watch(syncStatusProvider.select((state) => state.remoteContentChangedCount));
+      return ++reads == 1 ? Future.value(first) : pending.future;
+    });
+    await tester.pump();
+    final previous = tester.element(find.byType(MapThumbnail));
+    final container = ProviderScope.containerOf(tester.element(find.byType(LibraryMapPreview)));
+    container.read(syncStatusProvider.notifier).markRemoteContentChanged();
+    await tester.pump();
+    expect(identical(tester.element(find.byType(MapThumbnail)), previous), isTrue);
+    pending.complete(
+      MapViewport(
+        photoCount: 2,
+        bounds: LatLngBounds(southwest: const LatLng(54, 36), northeast: const LatLng(56, 38)),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(tester.widget<MapThumbnail>(find.byType(MapThumbnail)).viewport!.photoCount, 2);
     expect(tester.takeException(), isNull);
   });
 }

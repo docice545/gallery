@@ -146,6 +146,116 @@ void main() {
     });
   });
 
+  group('MapRepository.getInitialViewport()', () {
+    test('fits eligible library rather than newest point and handles the date line', () async {
+      await insertUser('viewer');
+      await insertImage('west', 'viewer');
+      await insertExifAt('west', 10, 179);
+      await insertImage('east', 'viewer');
+      await insertExifAt('east', 20, -179);
+      final viewport = await sut.getInitialViewport(['viewer'], 'viewer', TimelineMapOptions(bounds: globeBounds()));
+      expect(viewport!.photoCount, 2);
+      expect(viewport.bounds.southwest, const LatLng(10, 179));
+      expect(viewport.bounds.northeast, const LatLng(20, -179));
+    });
+
+    test('same favorites/archive/deleted/GPS policy as markers; no EXIF writes', () async {
+      await insertUser('viewer');
+      for (final id in ['favorite', 'ordinary', 'archived', 'deleted', 'invalid', 'noGPS']) {
+        await insertImage(id, 'viewer');
+        if (id != 'noGPS') {
+          await insertExifAt(id, id == 'invalid' ? 91 : 55, 37);
+        }
+      }
+      await (db.update(db.remoteAssetEntity)..where((row) => row.id.isIn(['favorite', 'archived']))).write(
+        const RemoteAssetEntityCompanion(isFavorite: Value(true)),
+      );
+      await (db.update(db.remoteAssetEntity)..where((row) => row.id.equals('archived'))).write(
+        const RemoteAssetEntityCompanion(visibility: Value(AssetVisibility.archive)),
+      );
+      await (db.update(
+        db.remoteAssetEntity,
+      )..where((row) => row.id.equals('deleted'))).write(RemoteAssetEntityCompanion(deletedAt: Value(DateTime(2025))));
+      for (final options in [
+        TimelineMapOptions(bounds: globeBounds()),
+        TimelineMapOptions(bounds: globeBounds(), onlyFavorites: true),
+        TimelineMapOptions(bounds: globeBounds(), onlyFavorites: true, includeArchived: true),
+      ]) {
+        final markers = await sut.remote(['viewer'], 'viewer', options).markerSource(null);
+        final viewport = await sut.getInitialViewport(['viewer'], 'viewer', options);
+        expect(viewport!.photoCount, markers.length);
+      }
+      expect((await db.remoteExifEntity.select().get()).singleWhere((row) => row.assetId == 'invalid').latitude, 91);
+    });
+
+    test('empty/no GPS library has no invented point; zero is valid', () async {
+      await insertUser('viewer');
+      final options = TimelineMapOptions(bounds: globeBounds());
+      expect(await sut.getInitialViewport(['viewer'], 'viewer', options), isNull);
+      await insertImage('zero', 'viewer');
+      expect(await sut.getInitialViewport(['viewer'], 'viewer', options), isNull);
+      await insertExifAt('zero', 0, 0);
+      expect((await sut.getInitialViewport(['viewer'], 'viewer', options))!.bounds.southwest, const LatLng(0, 0));
+    });
+
+    test('aggregate includes photos beyond the existing 10000 marker cap', () async {
+      await insertUser('viewer');
+      await db.batch((batch) {
+        batch.insertAll(
+          db.remoteAssetEntity,
+          List.generate(
+            10001,
+            (index) => RemoteAssetEntityCompanion.insert(
+              id: 'asset-$index',
+              name: '$index.jpg',
+              type: AssetType.image,
+              checksum: '$index',
+              ownerId: 'viewer',
+              visibility: AssetVisibility.timeline,
+            ),
+          ),
+        );
+        batch.insertAll(
+          db.remoteExifEntity,
+          List.generate(
+            10001,
+            (index) => RemoteExifEntityCompanion.insert(
+              assetId: 'asset-$index',
+              latitude: Value(index == 10000 ? -33.8 : 55.7),
+              longitude: Value(index == 10000 ? 151.2 : 37.6),
+            ),
+          ),
+        );
+      });
+      final options = TimelineMapOptions(bounds: globeBounds());
+      final viewport = await sut.getInitialViewport(['viewer'], 'viewer', options);
+      expect(viewport!.photoCount, 10001);
+      expect(viewport.bounds.southwest.latitude, -33.8);
+      expect(viewport.bounds.northeast.latitude, 55.7);
+      expect(await sut.remote(['viewer'], 'viewer', options).markerSource(null), hasLength(10000));
+    });
+  });
+
+  group('Cross-method permission matrix — initial viewport', () {
+    runPermissionMatrix(
+      methodName: 'initial viewport',
+      fixtures: MatrixFixtures(
+        db: () => db,
+        insertAsset: (assetId, ownerId) async {
+          await insertImage(assetId, ownerId);
+          await insertExifAt(assetId, 48.85, 2.35);
+        },
+      ),
+      count: (userIds, currentUserId) async =>
+          (await sut.getInitialViewport(
+            userIds,
+            currentUserId,
+            TimelineMapOptions(bounds: globeBounds()),
+          ))?.photoCount ??
+          0,
+    );
+  });
+
   group('Cross-method permission matrix — MapRepository.remote() markers', () {
     final bounds = LatLngBounds(southwest: const LatLng(-89, -179), northeast: const LatLng(89, 179));
     runPermissionMatrix(
