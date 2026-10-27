@@ -22,6 +22,7 @@ enum StoreKey<T> {
   filterSheetHiddenSections<String>._(144),
   libraryLayoutPreferences<String>._(145),
   localizedPlaceNames<String>._(146),
+  offlineThumbnailAnyNetwork<bool>._(147),
 
   syncMigrationStatus<String>._(1013),
 
