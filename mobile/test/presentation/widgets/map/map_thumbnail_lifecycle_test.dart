@@ -24,8 +24,6 @@ class _Platform extends MapLibrePlatform with Mock {
     void Function(int) created,
     Set<Factory<OneSequenceGestureRecognizer>>? gestures,
   ) => const SizedBox.expand();
-  @override
-  void dispose() => super.dispose();
 }
 
 class _Controller extends Mock implements MapLibreMapController {}
