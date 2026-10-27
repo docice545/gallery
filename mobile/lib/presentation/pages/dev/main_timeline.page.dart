@@ -70,12 +70,14 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
     final owners = ref.read(timelineUsersProvider).valueOrNull;
     if (user == null ||
         owners == null ||
-        !owners.contains(user.id) ||
-        ref.read(syncStatusProvider).remoteSyncStatus != SyncStatus.success) {
+        !owners.contains(user.id)) {
       return;
     }
 
+    // Drift already holds the synced catalog. Waiting for a fresh successful
+    // remote sync can starve offline prefetch for the whole app session.
     final warmup = OfflineThumbnailWarmup();
+    _offlineLog.info('Starting offline thumbnail cache warmup for ${owners.length} timeline owners');
     _offlineWarmup = warmup;
     unawaited(
       warmup
