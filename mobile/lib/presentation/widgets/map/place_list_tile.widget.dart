@@ -8,12 +8,14 @@ class PlaceListTile extends StatelessWidget {
     super.key,
     required this.name,
     required this.sourceName,
+    this.regionName = '',
     required this.thumbnail,
     required this.onTap,
   });
 
   final String name;
   final String sourceName;
+  final String regionName;
   final Widget thumbnail;
   final VoidCallback onTap;
 
@@ -46,6 +48,14 @@ class PlaceListTile extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           sourceName,
+                          style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                    if (regionName.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          regionName,
                           style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
                         ),
                       ),

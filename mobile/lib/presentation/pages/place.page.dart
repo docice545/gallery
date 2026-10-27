@@ -9,7 +9,9 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/presentation/widgets/map/library_map_preview.widget.dart';
+import 'package:immich_mobile/presentation/widgets/map/map.state.dart';
 import 'package:immich_mobile/presentation/widgets/map/place_list_tile.widget.dart';
+import 'package:immich_mobile/providers/infrastructure/map.provider.dart';
 import 'package:immich_mobile/providers/place_names.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/place_names.dart';
@@ -81,7 +83,8 @@ class _PlaceSliverAppBar extends HookConsumerWidget {
             }
             ref.invalidate(localizedPlaceLabelProvider);
             ref.invalidate(placeDetailsProvider);
-            ref.invalidate(libraryMapLocationProvider);
+            ref.invalidate(initialMapViewportProvider);
+            ref.invalidate(mapMarkerProvider(null));
           },
         ),
         IconButton(
@@ -157,20 +160,26 @@ class _PlaceList extends ConsumerWidget {
         ),
       ),
       data: (places) {
+        final aliasScopes = {
+          for (final alias in aliases)
+            if (nearestPlaceForAlias(places, alias.name, alias.latitude, alias.longitude) case final place?)
+              place.scopeIdentity,
+        };
         final filtered =
             places.where((place) {
               if (place.name.trim().isEmpty) {
                 return false;
               }
               return matchesPlaceName(place, label(place), query ?? '') ||
-                  aliases.any(
-                    (alias) =>
-                        foldPlaceName(alias.name) == foldPlaceName(place.name) &&
-                        isNearbyPlace(place, alias.latitude, alias.longitude),
-                  );
+                  foldPlaceName(place.sourceRegion).contains(foldPlaceName(query ?? '')) ||
+                  aliasScopes.contains(place.scopeIdentity);
             }).toList()..sort((a, b) {
               final comparison = comparePlaceNames(label(a), label(b), languageCode: locale.languageCode);
-              return comparison != 0 ? comparison : a.name.compareTo(b.name);
+              if (comparison != 0) {
+                return comparison;
+              }
+              final sourceComparison = a.name.compareTo(b.name);
+              return sourceComparison != 0 ? sourceComparison : a.sourceRegion.compareTo(b.sourceRegion);
             });
 
         if (filtered.isEmpty) {
@@ -189,12 +198,12 @@ class _PlaceList extends ConsumerWidget {
           sliver: SliverList.builder(
             itemCount: filtered.length,
             findChildIndexCallback: (key) {
-              final index = filtered.indexWhere((place) => ValueKey(place.name) == key);
+              final index = filtered.indexWhere((place) => ValueKey(place.scopeIdentity) == key);
               return index < 0 ? null : index;
             },
             itemBuilder: (context, index) {
               final place = filtered[index];
-              return _PlaceTile(key: ValueKey(place.name), place: place, cachedLabel: label(place));
+              return _PlaceTile(key: ValueKey(place.scopeIdentity), place: place, cachedLabel: label(place));
             },
           ),
         );
@@ -216,7 +225,8 @@ class _PlaceTile extends ConsumerWidget {
     return PlaceListTile(
       name: label,
       sourceName: place.name,
-      onTap: () => context.pushRoute(PlaceDetailRoute(place: place.name)),
+      regionName: place.sourceRegion,
+      onTap: () => context.pushRoute(PlaceDetailRoute(place: place.name, selectedPlace: place)),
       thumbnail: Thumbnail.remote(remoteId: place.assetId, fit: BoxFit.cover, thumbhash: ''),
     );
   }

@@ -39,12 +39,56 @@ int comparePlaceNames(String first, String second, {required String languageCode
 /// A named search result must refer to the same area, not a homonymous city on
 /// the other side of the world. No coordinates are changed by this comparison.
 bool isNearbyPlace(Place place, double latitude, double longitude, {double maxDistanceMeters = 25000}) {
+  final distance = _distanceToPlace(place, latitude, longitude);
+  return distance != null && distance <= maxDistanceMeters;
+}
+
+/// A search alias belongs to the nearest matching library group, rather than
+/// every homonym in the radius. Tied anchors are ambiguous and keep source-name
+/// search available instead of guessing a region. This does not group photos or
+/// change geographic metadata; the bounded radius only validates an alias.
+Place? nearestPlaceForAlias(
+  Iterable<Place> places,
+  String sourceName,
+  double latitude,
+  double longitude, {
+  double maxDistanceMeters = 25000,
+}) {
+  final foldedName = foldPlaceName(sourceName);
+  Place? closest;
+  double? closestDistance;
+  final candidates = <({Place place, double distance})>[];
+  for (final place in places) {
+    if (foldPlaceName(place.name) != foldedName) {
+      continue;
+    }
+    final distance = _distanceToPlace(place, latitude, longitude);
+    if (distance == null || distance > maxDistanceMeters) {
+      continue;
+    }
+    candidates.add((place: place, distance: distance));
+    if (closestDistance == null || distance < closestDistance) {
+      closest = place;
+      closestDistance = distance;
+    }
+  }
+  if (closest == null) {
+    return null;
+  }
+  final ambiguous = candidates.any(
+    (candidate) =>
+        candidate.place.scopeIdentity != closest!.scopeIdentity && candidate.distance - closestDistance! <= 0.001,
+  );
+  return ambiguous ? null : closest;
+}
+
+double? _distanceToPlace(Place place, double latitude, double longitude) {
   if (!place.hasCoordinates ||
       !latitude.isFinite ||
       !longitude.isFinite ||
       latitude.abs() > 90 ||
       longitude.abs() > 180) {
-    return false;
+    return null;
   }
   const radians = math.pi / 180;
   final latitudeDelta = (latitude - place.latitude!) * radians;
@@ -52,6 +96,5 @@ bool isNearbyPlace(Place place, double latitude, double longitude, {double maxDi
   final haversine =
       math.pow(math.sin(latitudeDelta / 2), 2) +
       math.cos(latitude * radians) * math.cos(place.latitude! * radians) * math.pow(math.sin(longitudeDelta / 2), 2);
-  final distance = 6371000 * 2 * math.asin(math.sqrt(haversine.clamp(0, 1)));
-  return distance <= maxDistanceMeters;
+  return 6371000 * 2 * math.asin(math.sqrt(haversine.clamp(0, 1)));
 }

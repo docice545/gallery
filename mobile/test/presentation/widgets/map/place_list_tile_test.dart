@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/presentation/widgets/map/place_list_tile.widget.dart';
 
 void main() {
@@ -78,6 +79,38 @@ void main() {
     );
     expect(find.text('Mũi Né'), findsOneWidget);
     expect(find.text('Mui Ne'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('same localized names retain separate region context and select their own source group', (tester) async {
+    const places = [
+      Place(name: 'Annino', assetId: 'moscow', state: 'Moscow', country: 'Russia'),
+      Place(name: 'Annino', assetId: 'leningrad', state: 'Leningrad Oblast', country: 'Russia'),
+    ];
+    Place? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            children: [
+              for (final place in places)
+                PlaceListTile(
+                  key: ValueKey(place.scopeIdentity),
+                  name: 'Аннино',
+                  sourceName: place.name,
+                  regionName: place.sourceRegion,
+                  thumbnail: const Icon(Icons.photo),
+                  onTap: () => selected = place,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Аннино'), findsNWidgets(2));
+    await tester.tap(find.text('Leningrad Oblast, Russia'));
+    expect(selected, places[1]);
+    expect(selected!.scopeIdentity, isNot(places[0].scopeIdentity));
     expect(tester.takeException(), isNull);
   });
 }

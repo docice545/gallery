@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
 import 'package:immich_mobile/domain/models/map.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
@@ -35,6 +36,26 @@ void main() {
     final settingsRepo = _MockSettingsRepository();
     when(() => settingsRepo.appConfig).thenReturn(const AppConfig());
     sut = TimelineFactory(timelineRepository: repo, settingsRepository: settingsRepo);
+  });
+
+  test('place forwards exact selected source context alongside grouping and temporal scope', () {
+    const selected = Place(name: 'Annino', assetId: 'preview', state: 'Moscow', country: 'Russia');
+    when(
+      () =>
+          repo.place('Annino', ['user-1'], 'user-1', GroupAssetsBy.month, selectedPlace: selected, temporalScope: year),
+    ).thenReturn(_query(TimelineOrigin.place));
+    sut.place(
+      'Annino',
+      ['user-1'],
+      'user-1',
+      selectedPlace: selected,
+      groupBy: GroupAssetsBy.month,
+      temporalScope: year,
+    );
+    verify(
+      () =>
+          repo.place('Annino', ['user-1'], 'user-1', GroupAssetsBy.month, selectedPlace: selected, temporalScope: year),
+    ).called(1);
   });
 
   test('forwards temporal scope and forced grouping to repository routes', () {

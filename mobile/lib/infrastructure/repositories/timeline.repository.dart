@@ -10,6 +10,7 @@ import 'package:immich_mobile/data/db/main/table/remote/asset.drift.dart';
 import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/map.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
@@ -981,10 +982,17 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     List<String> userIds,
     String currentUserId,
     GroupAssetsBy groupBy, {
+    Place? selectedPlace,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) => (
-    bucketSource: () =>
-        _watchPlaceBucket(place, userIds, currentUserId, groupBy: groupBy, temporalScope: temporalScope),
+    bucketSource: () => _watchPlaceBucket(
+      place,
+      userIds,
+      currentUserId,
+      selectedPlace: selectedPlace,
+      groupBy: groupBy,
+      temporalScope: temporalScope,
+    ),
     assetSource: (offset, count) => _getPlaceBucketAssets(
       place,
       userIds,
@@ -992,6 +1000,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
       groupBy: groupBy,
       offset: offset,
       count: count,
+      selectedPlace: selectedPlace,
       temporalScope: temporalScope,
     ),
     origin: TimelineOrigin.place,
@@ -1037,10 +1046,29 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     origin: TimelineOrigin.person,
   );
 
+  /// These fields qualify a selected group without inventing geographic
+  /// boundaries. Same-city/state/country homonyms need an authoritative place ID
+  /// to split further; source EXIF is never modified to manufacture one.
+  Expression<bool> _selectedPlacePredicate(String name, Place? selectedPlace) {
+    if (selectedPlace == null) {
+      return const Constant(true);
+    }
+    if (selectedPlace.name != name) {
+      return const Constant(false);
+    }
+    return (selectedPlace.state == null
+            ? _db.remoteExifEntity.state.isNull()
+            : _db.remoteExifEntity.state.equals(selectedPlace.state!)) &
+        (selectedPlace.country == null
+            ? _db.remoteExifEntity.country.isNull()
+            : _db.remoteExifEntity.country.equals(selectedPlace.country!));
+  }
+
   Stream<List<Bucket>> _watchPlaceBucket(
     String place,
     List<String> userIds,
     String currentUserId, {
+    Place? selectedPlace,
     GroupAssetsBy groupBy = GroupAssetsBy.day,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) {
@@ -1064,6 +1092,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
       ])
       ..where(
         _db.remoteExifEntity.city.equals(place) &
+            _selectedPlacePredicate(place, selectedPlace) &
             _db.remoteAssetEntity.deletedAt.isNull() &
             _db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.timeline) &
             _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope) &
@@ -1086,6 +1115,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     String place,
     List<String> userIds,
     String currentUserId, {
+    Place? selectedPlace,
     required int offset,
     required int count,
     GroupAssetsBy groupBy = GroupAssetsBy.day,
@@ -1105,6 +1135,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
             _db.remoteAssetEntity.deletedAt.isNull() &
                 _db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.timeline) &
                 _db.remoteExifEntity.city.equals(place) &
+                _selectedPlacePredicate(place, selectedPlace) &
                 _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope) &
                 visibilityPredicate,
           )

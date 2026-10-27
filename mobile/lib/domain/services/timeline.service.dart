@@ -6,6 +6,7 @@ import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/models/map.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_grouping.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
@@ -146,11 +147,28 @@ class TimelineFactory {
     String place,
     List<String> userIds,
     String currentUserId, {
+    Place? selectedPlace,
     GroupAssetsBy? groupBy,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
-  }) => TimelineService(
-    _timelineRepository.place(place, userIds, currentUserId, groupBy ?? this.groupBy, temporalScope: temporalScope),
-  );
+  }) {
+    final query = selectedPlace == null
+        ? _timelineRepository.place(
+            place,
+            userIds,
+            currentUserId,
+            groupBy ?? this.groupBy,
+            temporalScope: temporalScope,
+          )
+        : _timelineRepository.place(
+            place,
+            userIds,
+            currentUserId,
+            groupBy ?? this.groupBy,
+            selectedPlace: selectedPlace,
+            temporalScope: temporalScope,
+          );
+    return TimelineService(query);
+  }
 
   TimelineService person(
     String userId,

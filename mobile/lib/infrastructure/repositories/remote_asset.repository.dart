@@ -87,10 +87,14 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
         .getSingleOrNull();
   }
 
+  // Preserve the legacy city-only contract, including its newest-photo preview.
+  // Places UI uses qualified details so homonyms never share a route or list key.
   Future<List<(String, String)>> getPlaces(String userId) async =>
-      (await getPlaceDetails(userId)).map((place) => (place.name, place.assetId)).toList();
+      (await _getPlaceDetails(userId, cityOnly: true)).map((place) => (place.name, place.assetId)).toList();
 
-  Future<List<Place>> getPlaceDetails(String userId) {
+  Future<List<Place>> getPlaceDetails(String userId) => _getPlaceDetails(userId);
+
+  Future<List<Place>> _getPlaceDetails(String userId, {bool cityOnly = false}) {
     final asset = Subquery(
       _db.remoteAssetEntity.select()
         ..where((row) => row.ownerId.equals(userId))
@@ -123,8 +127,15 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
                 asset.ref(_db.remoteAssetEntity.deletedAt).isNull() &
                 asset.ref(_db.remoteAssetEntity.visibility).equals(AssetVisibility.timeline.index),
           )
-          ..groupBy([_db.remoteExifEntity.city])
-          ..orderBy([OrderingTerm.asc(_db.remoteExifEntity.city)]);
+          ..groupBy([
+            _db.remoteExifEntity.city,
+            if (!cityOnly) ...[_db.remoteExifEntity.state, _db.remoteExifEntity.country],
+          ])
+          ..orderBy([
+            OrderingTerm.asc(_db.remoteExifEntity.city),
+            OrderingTerm.asc(_db.remoteExifEntity.state),
+            OrderingTerm.asc(_db.remoteExifEntity.country),
+          ]);
 
     return query
         .map(
