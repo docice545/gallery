@@ -9,6 +9,7 @@ import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/utils/color_adjustment.dart';
 import 'package:immich_mobile/utils/editor.utils.dart';
+import 'package:immich_mobile/utils/editor_geometry.dart';
 
 part 'editor.provider.freezed.dart';
 
@@ -60,6 +61,7 @@ class EditorProvider extends Notifier<EditorState> {
   bool _sameDocument(EditorState a, EditorState b) =>
       a.crop == b.crop &&
       a.rotationAngle % 360 == b.rotationAngle % 360 &&
+      a.straightenDegrees == b.straightenDegrees &&
       a.flipHorizontal == b.flipHorizontal &&
       a.flipVertical == b.flipVertical &&
       a.aspectRatio == b.aspectRatio &&
@@ -199,6 +201,9 @@ class EditorProvider extends Notifier<EditorState> {
 
   void rotateCCW() => _rotate(-90);
   void rotateCW() => _rotate(90);
+  void setStraightenDegrees(double degrees) =>
+      _commit(state.copyWith(straightenDegrees: EditorGeometry.clampStraightenDegrees(degrees)));
+
   void _rotate(int angle) => _commit(
     state.copyWith(
       rotationAngle: state.rotationAngle + angle,
@@ -248,6 +253,7 @@ abstract class EditorState with _$EditorState {
   const factory EditorState({
     @Default(false) bool isApplyingEdits,
     @Default(0) int rotationAngle,
+    @Default(0.0) double straightenDegrees,
     @Default(false) bool flipHorizontal,
     @Default(false) bool flipVertical,
     @Default(Rect.fromLTRB(0, 0, 1, 1)) Rect crop,

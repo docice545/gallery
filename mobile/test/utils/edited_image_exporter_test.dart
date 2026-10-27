@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
+import 'package:immich_mobile/utils/editor_geometry.dart';
 
 import '../fixtures/editor_raster.dart';
 
@@ -169,6 +170,89 @@ void main() {
       ]);
     });
   }
+
+  for (final turn in [0, 1, 2, 3]) {
+    for (final horizontal in [false, true]) {
+      for (final vertical in [false, true]) {
+        for (final angle in [-13.0, 13.0]) {
+          test(
+            'straighten crop and markup: turn=$turn horizontal=$horizontal vertical=$vertical angle=$angle',
+            () async {
+              final originalPixels = await _pixels(source);
+              const marker = Color(0xFF123456);
+              final annotation = AnnotationElement(
+                id: 'straightened-marker',
+                tool: AnnotationTool.pen,
+                points: const [Offset(.75, 5 / 12)],
+                color: marker,
+                width: 60,
+                opacity: 1,
+              );
+              final output = await EditedImageExporter.render(
+                source: source,
+                crop: const Rect.fromLTRB(.25, 0, 1, 2 / 3),
+                rotationDegrees: turn * 90,
+                flipHorizontal: horizontal,
+                flipVertical: vertical,
+                straightenDegrees: angle,
+                annotations: [annotation],
+              );
+              addTearDown(output.dispose);
+              expect((output.width, output.height), turn.isEven ? (48, 32) : (32, 48));
+
+              final geometry = EditorGeometry(
+                sourceRect: const Rect.fromLTRB(16, 0, 64, 32),
+                rotationDegrees: turn * 90,
+                flipHorizontal: horizontal,
+                flipVertical: vertical,
+                straightenDegrees: angle,
+              );
+              final markerPosition = geometry.sourceToOutput(const Offset(48, 20));
+              expect(await _pixel(output, markerPosition.dx.floor(), markerPosition.dy.floor()), marker.toARGB32());
+              expect((await _pixels(output)).every((pixel) => pixel >>> 24 == 255), isTrue);
+              // Export retains the original texture and dimensions for the editor.
+              expect((source.width, source.height), (64, 48));
+              expect(await _pixels(source), originalPixels);
+            },
+          );
+        }
+      }
+    }
+  }
+
+  test('straightening the whole original leaves opaque corners at unchanged full resolution', () async {
+    for (final angle in [-15.0, 15.0]) {
+      final output = await EditedImageExporter.render(
+        source: source,
+        crop: const Rect.fromLTRB(0, 0, 1, 1),
+        rotationDegrees: 0,
+        flipHorizontal: false,
+        flipVertical: false,
+        straightenDegrees: angle,
+        annotations: const [],
+      );
+      addTearDown(output.dispose);
+      expect((output.width, output.height), (64, 48));
+      expect((await _pixels(output)).every((pixel) => pixel >>> 24 == 255), isTrue);
+    }
+  });
+
+  test('non-finite straighten angles are rejected before rasterization', () async {
+    for (final angle in [double.nan, double.infinity, double.negativeInfinity]) {
+      await expectLater(
+        EditedImageExporter.render(
+          source: source,
+          crop: const Rect.fromLTRB(0, 0, 1, 1),
+          rotationDegrees: 0,
+          flipHorizontal: false,
+          flipVertical: false,
+          straightenDegrees: angle,
+          annotations: const [],
+        ),
+        throwsArgumentError,
+      );
+    }
+  });
 }
 
 Future<int> _pixel(ui.Image image, int x, int y) async {

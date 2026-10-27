@@ -66,6 +66,61 @@ void main() {
     editor.redo();
     expect(state().adjustments, {'exposure': 1});
   });
+  test('straighten has one gesture history step and preserves crop, quarter-turn and annotations', () {
+    editor.setCrop(const Rect.fromLTWH(.1, .2, .8, .7));
+    editor.rotateCW();
+    editor.setAnnotations([caption()]);
+    final before = state();
+    editor.beginGesture();
+    for (var i = 1; i <= 1000; i++) {
+      editor.setStraightenDegrees(i * .012);
+    }
+    editor.endGesture();
+    expect(state().straightenDegrees, 12);
+    expect(state().crop, before.crop);
+    expect(state().rotationAngle, 90);
+    expect(state().annotations, before.annotations);
+    editor.undo();
+    expect(state().straightenDegrees, 0);
+    expect(state().crop, before.crop);
+    expect(state().rotationAngle, 90);
+    expect(state().annotations, before.annotations);
+    editor.redo();
+    expect(state().straightenDegrees, 12);
+    editor.undo();
+    editor.undo();
+    expect(state().annotations, isEmpty);
+  });
+  test('straighten clamps finite input and reset is reversible without changing the original rotation', () {
+    editor.setStraightenDegrees(30);
+    expect(state().straightenDegrees, 15);
+    expect(state().rotationAngle, 0);
+    expect(state().hasEdits, isTrue);
+    editor.setStraightenDegrees(-30);
+    expect(state().straightenDegrees, -15);
+    editor.resetEdits();
+    expect(state().straightenDegrees, 0);
+    expect(state().hasEdits, isFalse);
+    editor.undo();
+    expect(state().straightenDegrees, -15);
+    editor.redo();
+    expect(state().straightenDegrees, 0);
+    expect(state().hasEdits, isFalse);
+  });
+  test('straighten no-op gestures preserve redo and returning to zero is clean', () {
+    editor.setStraightenDegrees(7);
+    editor.undo();
+    editor.beginGesture();
+    editor.setStraightenDegrees(0);
+    editor.endGesture();
+    expect(state().canRedo, isTrue);
+    expect(state().canUndo, isFalse);
+    editor.redo();
+    expect(state().straightenDegrees, 7);
+    editor.setStraightenDegrees(0);
+    expect(state().hasEdits, isFalse);
+    expect(state().canRedo, isFalse);
+  });
   test('no-op interactions do not consume history or discard redo', () {
     editor.setFilter(4);
     editor.undo();
@@ -125,11 +180,13 @@ void main() {
     editor.setAnnotations([caption()]);
     editor.setIsEditing(true);
     editor.setFilter(32);
+    editor.setStraightenDegrees(8);
     editor.undo();
     editor.setAnnotations([]);
     editor.redo();
     expect(state().annotations, hasLength(1));
     expect(state().selectedFilterIndex, 0);
+    expect(state().straightenDegrees, 0);
     editor.setIsEditing(false);
     editor.undo();
     expect(state().annotations, isEmpty);
@@ -138,6 +195,9 @@ void main() {
     expect(() => editor.setCrop(const Rect.fromLTWH(-.1, 0, 1, 1)), throwsArgumentError);
     expect(() => editor.setAdjustment('hue', double.nan), throwsArgumentError);
     expect(() => editor.setFilter(2, intensity: double.infinity), throwsArgumentError);
+    expect(() => editor.setStraightenDegrees(double.nan), throwsArgumentError);
+    expect(() => editor.setStraightenDegrees(double.infinity), throwsArgumentError);
+    expect(() => editor.setStraightenDegrees(double.negativeInfinity), throwsArgumentError);
     expect(state().hasEdits, isFalse);
     expect(state().canUndo, isFalse);
   });

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/utils/annotation_painter.dart';
 import 'package:immich_mobile/utils/color_adjustment.dart';
+import 'package:immich_mobile/utils/editor_geometry.dart';
 
 class ImageExportCancelledException implements Exception {
   const ImageExportCancelledException();
@@ -16,7 +17,7 @@ class ImageExportLimitException implements Exception {
 }
 
 /// Renders the edit document in source-image coordinates, then applies the crop
-/// and orthogonal transforms. The viewport, zoom and editor chrome are excluded.
+/// and geometry. The viewport, zoom and editor chrome are excluded.
 class EditedImageExporter {
   const EditedImageExporter._();
 
@@ -88,6 +89,7 @@ class EditedImageExporter {
     required bool flipHorizontal,
     required bool flipVertical,
     required List<AnnotationElement> annotations,
+    double straightenDegrees = 0,
     Map<String, double> adjustments = const {},
     int selectedFilterIndex = 0,
     double filterIntensity = 1.0,
@@ -110,23 +112,20 @@ class EditedImageExporter {
     final top = (safeCrop.top * source.height).round().clamp(0, source.height - 1);
     final right = (safeCrop.right * source.width).round().clamp(left + 1, source.width);
     final bottom = (safeCrop.bottom * source.height).round().clamp(top + 1, source.height);
-    final cropWidth = right - left;
-    final cropHeight = bottom - top;
-    final normalizedRotation = ((rotationDegrees % 360) + 360) % 360;
-    if (normalizedRotation % 90 != 0) {
-      throw ArgumentError.value(rotationDegrees, 'rotationDegrees', 'Only quarter-turn rotations are supported');
-    }
-    final sideways = normalizedRotation == 90 || normalizedRotation == 270;
-    final outputWidth = sideways ? cropHeight : cropWidth;
-    final outputHeight = sideways ? cropWidth : cropHeight;
+    final geometry = EditorGeometry(
+      sourceRect: Rect.fromLTRB(left.toDouble(), top.toDouble(), right.toDouble(), bottom.toDouble()),
+      rotationDegrees: rotationDegrees,
+      flipHorizontal: flipHorizontal,
+      flipVertical: flipVertical,
+      straightenDegrees: straightenDegrees,
+    );
+    final outputWidth = geometry.outputSize.width.toInt();
+    final outputHeight = geometry.outputSize.height.toInt();
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, outputWidth.toDouble(), outputHeight.toDouble()));
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(0, 0, outputWidth.toDouble(), outputHeight.toDouble()));
-    canvas.translate(outputWidth / 2, outputHeight / 2);
-    canvas.rotate(normalizedRotation * 3.141592653589793 / 180);
-    canvas.scale(flipHorizontal ? -1.0 : 1.0, flipVertical ? -1.0 : 1.0);
-    canvas.translate(-(left + cropWidth / 2), -(top + cropHeight / 2));
+    canvas.transform(geometry.sourceToOutputTransform.storage);
 
     final paint = Paint()
       ..filterQuality = FilterQuality.high
