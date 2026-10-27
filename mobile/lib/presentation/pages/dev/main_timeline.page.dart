@@ -19,6 +19,7 @@ import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope
 import 'package:immich_mobile/providers/feature_message.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
+import 'package:immich_mobile/providers/offline_thumbnail_network.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:logging/logging.dart';
@@ -48,6 +49,18 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   ProviderSubscription<SyncStatus>? _syncSubscription;
   ProviderSubscription<AsyncValue<List<String>>>? _timelineUsersSubscription;
+  ProviderSubscription<AsyncValue<bool>>? _offlineNetworkSubscription;
+  bool _restartWarmupWhenStopped = false;
+
+  void _restartOfflineWarmup() {
+    final warmup = _offlineWarmup;
+    if (warmup == null) {
+      _startOfflineWarmup();
+    } else {
+      _restartWarmupWhenStopped = true;
+      warmup.cancel();
+    }
+  }
 
   void _startOfflineWarmup() {
     if (!mounted || _offlineWarmup != null) return;
@@ -68,6 +81,7 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
             db: ref.read(driftProvider),
             ownerIds: List<String>.of(owners),
             sessionIsCurrent: () => mounted && ref.read(currentUserProvider)?.id == user.id,
+            useAnyNetwork: () => ref.read(offlineThumbnailAnyNetworkProvider).valueOrNull ?? false,
           )
           .catchError((Object error, StackTrace stack) {
             _offlineLog.warning('Background thumbnail warmup stopped', error, stack);
@@ -75,6 +89,10 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
           .whenComplete(() {
             if (mounted && identical(_offlineWarmup, warmup)) {
               _offlineWarmup = null;
+              if (_restartWarmupWhenStopped) {
+                _restartWarmupWhenStopped = false;
+                _startOfflineWarmup();
+              }
             }
           }),
     );
@@ -92,7 +110,10 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
     _timelineUsersSubscription = ref.listenManual(timelineUsersProvider, (_, next) {
       if (next.hasValue) _startOfflineWarmup();
     });
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((_) => _startOfflineWarmup());
+    _offlineNetworkSubscription = ref.listenManual(offlineThumbnailAnyNetworkProvider, (_, next) {
+      if (next.hasValue) _restartOfflineWarmup();
+    });
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((_) => _restartOfflineWarmup());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) {
         return;
@@ -117,6 +138,7 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
     _offlineWarmup?.cancel();
     _syncSubscription?.close();
     _timelineUsersSubscription?.close();
+    _offlineNetworkSubscription?.close();
     unawaited(_connectivitySubscription?.cancel());
     super.dispose();
   }
