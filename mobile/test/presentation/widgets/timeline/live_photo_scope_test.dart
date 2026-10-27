@@ -241,7 +241,7 @@ void main() {
     expect(log.maxConcurrent, 1);
   });
 
-  testWidgets('remote Live Photos stay static and never resolve or allocate autoplay video', (tester) async {
+  testWidgets('remote Live Photos can preview their known server motion pair without local extraction', (tester) async {
     final log = _PlaybackLog();
     var resolutions = 0;
     await _pumpScope(
@@ -253,10 +253,11 @@ void main() {
         return '/local/incorrect-server-fallback.mp4';
       },
     );
-    await tester.pump(const Duration(seconds: 5));
+    await _settlePlayback(tester);
     expect(resolutions, 0);
-    expect(log.starts, isEmpty);
-    expect(find.byType(_FakePreview), findsNothing);
+    expect(log.starts, isNotEmpty);
+    expect(log.maxConcurrent, 1);
+    expect(find.byType(_FakePreview), findsOneWidget);
     expect(find.text('photo-server-first'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -301,7 +302,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a late local source cannot start after its merged asset becomes remote-only', (tester) async {
+  testWidgets('a late local source cannot override a newly remote-only asset', (tester) async {
     final log = _PlaybackLog();
     final source = Completer<String?>();
     final assets = ValueNotifier<List<BaseAsset>>([_remoteAsset('changing', localId: 'old-device')]);
@@ -323,8 +324,9 @@ void main() {
     source.complete('/local/old-device.mp4');
     await _settlePlayback(tester);
     expect(resolutions, 1);
-    expect(log.starts, isEmpty);
-    expect(log.maxConcurrent, 0);
+    expect(log.alive, {'changing'});
+    expect(tester.widget<_FakePreview>(find.byType(_FakePreview)).asset.storage, AssetState.remote);
+    expect(log.maxConcurrent, 1);
     expect(tester.takeException(), isNull);
   });
 
