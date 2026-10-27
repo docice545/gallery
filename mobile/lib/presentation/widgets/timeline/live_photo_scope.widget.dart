@@ -552,7 +552,11 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
       return const SizedBox.expand();
     }
     final localVideoPath = scope.localVideoPathFor(_token, widget.asset);
-    if (localVideoPath == null) {
+    final remotePair =
+        widget.asset is RemoteAsset &&
+        widget.asset.storage == AssetState.remote &&
+        (widget.asset as RemoteAsset).livePhotoVideoId != null;
+    if (localVideoPath == null && !remotePair) {
       return const SizedBox.expand();
     }
     final leaseRevision = scope.controller.leaseRevision;
