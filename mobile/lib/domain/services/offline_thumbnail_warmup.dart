@@ -80,6 +80,9 @@ class OfflineThumbnailWarmup {
       // Cursor pagination avoids buffering the full archive in RAM.
       final page = await query.get();
       if (page.isEmpty) {
+        if (successful == 0) {
+          _log.info('Offline thumbnails: no eligible versioned remote assets in local catalog');
+        }
         break;
       }
 
@@ -117,8 +120,15 @@ class OfflineThumbnailWarmup {
             // requestImage transfers malloc ownership to the Dart caller.
             malloc.free(Pointer<Uint8>.fromAddress(pointer));
           }
-          successful++;
-          consecutiveFailures = 0;
+          if (result == null) {
+            consecutiveFailures++;
+          } else {
+            successful++;
+            consecutiveFailures = 0;
+            if (successful % 200 == 0) {
+              _log.info('Offline thumbnails: $successful image requests completed');
+            }
+          }
         } on TimeoutException {
           unawaited(remoteImageApi.cancelRequest(id));
           consecutiveFailures++;
@@ -133,6 +143,7 @@ class OfflineThumbnailWarmup {
         // Stop a disconnected or unauthorized preload rather than retrying
         // thousands of failed requests while offline.
         if (consecutiveFailures >= 3) {
+          _log.warning('Offline thumbnails paused after 3 consecutive request failures');
           return;
         }
         if (_cancelled || !sessionIsCurrent()) {
@@ -143,6 +154,6 @@ class OfflineThumbnailWarmup {
       afterId = page.last.id;
     }
 
-    _log.fine('Offline thumbnail warmup completed: $successful image requests');
+    _log.info('Offline thumbnail warmup completed: $successful image requests');
   }
 }
