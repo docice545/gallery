@@ -194,6 +194,8 @@ class RemoteImagesImpl(context: Context) : RemoteImageApi {
 
 private object ImageFetcherManager {
   private lateinit var cacheDir: File
+  private lateinit var offlineCache: OfflineThumbnailCache
+  private val offlineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private lateinit var fetcher: ImageFetcher
   private var initialized = false
 
@@ -202,6 +204,7 @@ private object ImageFetcherManager {
     synchronized(this) {
       if (initialized) return
       cacheDir = context.cacheDir
+      offlineCache = OfflineThumbnailCache(File(context.filesDir, "foto_offline_thumbnails"))
       fetcher = build()
       HttpClientManager.addClientChangedListener(::invalidate)
       initialized = true
@@ -214,7 +217,63 @@ private object ImageFetcherManager {
     onSuccess: (NativeByteBuffer, String?) -> Unit,
     onFailure: (Exception) -> Unit,
   ) {
-    fetcher.fetch(url, signal, onSuccess, onFailure)
+    // Never cache originals or unauthenticated media. The key contains a digest
+    // of the current account's authorization credential and the immutable URL.
+    val key = OfflineThumbnailCache.keyFor(url, HttpClientManager.getAuthHeaders(url))
+    if (key == null) {
+      fetcher.fetch(url, signal, onSuccess, onFailure)
+      return
+    }
+
+    offlineScope.launch {
+      if (signal.isCanceled) {
+        onFailure(OperationCanceledException())
+        return@launch
+      }
+
+      // App-private files survive an OS HTTP-cache purge and a cold start.
+      val cached = offlineCache.read(key)
+      if (cached != null && !signal.isCanceled) {
+        val native = NativeByteBuffer(cached.size)
+        try {
+          NativeBuffer.wrap(native.pointer, cached.size).put(cached)
+          native.advance(cached.size)
+          onSuccess(native, null)
+        } catch (error: Exception) {
+          native.free()
+          onFailure(error)
+        }
+        return@launch
+      }
+
+      if (signal.isCanceled) {
+        onFailure(OperationCanceledException())
+        return@launch
+      }
+
+      fetcher.fetch(
+        url,
+        signal,
+        onSuccess = { buffer, contentType ->
+          // Copy before forwarding buffer ownership to the decoder, which frees it.
+          // Cache writing is isolated from both the network and decode callbacks.
+          val encoded = if (buffer.offset in 12..OfflineThumbnailCache.MAX_ITEM_BYTES) {
+            try {
+              ByteArray(buffer.offset).also { NativeBuffer.wrap(buffer.pointer, buffer.offset).get(it) }
+            } catch (_: Exception) {
+              null
+            }
+          } else {
+            null
+          }
+          if (encoded != null) {
+            offlineScope.launch { offlineCache.write(key, encoded) }
+          }
+          onSuccess(buffer, contentType)
+        },
+        onFailure = onFailure,
+      )
+    }
   }
 
   fun clearCache(onCleared: (Result<Long>) -> Unit) {
