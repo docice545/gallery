@@ -10,7 +10,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/providers/infrastructure/platform.provider.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:logging/logging.dart';
-import 'package:openapi/api.dart';
+import 'package:openapi/api.dart' show AssetMediaSize;
 
 /// Warms FOTO's durable native thumbnail cache from the already-synced Drift
 /// catalog. Does not download originals, write to Drift, or enqueue uploads.
@@ -19,7 +19,9 @@ import 'package:openapi/api.dart';
 /// Connectivity is only a hint, so repeated HTTP failures still stop the scan.
 bool canWarmThumbnailsOn(List<ConnectivityResult> transports, {bool allowAnyNetwork = false}) {
   final onlineTransport = transports.any((transport) => transport != ConnectivityResult.none);
-  if (!onlineTransport) return false;
+  if (!onlineTransport) {
+    return false;
+  }
   return allowAnyNetwork || transports.contains(ConnectivityResult.wifi);
 }
 
@@ -47,7 +49,9 @@ class OfflineThumbnailWarmup {
     required bool Function() sessionIsCurrent,
     required bool Function() useAnyNetwork,
   }) async {
-    if (!Platform.isAndroid || ownerIds.isEmpty || !sessionIsCurrent()) return;
+    if (!Platform.isAndroid || ownerIds.isEmpty || !sessionIsCurrent()) {
+      return;
+    }
 
     String? afterId;
     var consecutiveFailures = 0;
@@ -56,7 +60,9 @@ class OfflineThumbnailWarmup {
     while (!_cancelled && sessionIsCurrent()) {
       final transports = await Connectivity().checkConnectivity();
       // The user's selected network policy applies before every page.
-      if (!canWarmThumbnailsOn(transports, allowAnyNetwork: useAnyNetwork())) return;
+      if (!canWarmThumbnailsOn(transports, allowAnyNetwork: useAnyNetwork())) {
+        return;
+      }
 
       final query = db.select(db.remoteAssetEntity)
         ..where(
@@ -66,22 +72,30 @@ class OfflineThumbnailWarmup {
               row.isIndexTombstone.equals(false) &
               row.visibility.equals(AssetVisibility.timeline.index) &
               row.thumbHash.isNotNull() &
-              (afterId == null ? const Constant(true) : row.id.isBiggerThanValue(afterId!)),
+              (afterId == null ? const Constant(true) : row.id.isBiggerThanValue(afterId)),
         )
         ..orderBy([(row) => OrderingTerm.asc(row.id)])
         ..limit(_pageSize);
 
       // Cursor pagination avoids buffering the full archive in RAM.
       final page = await query.get();
-      if (page.isEmpty) break;
+      if (page.isEmpty) {
+        break;
+      }
 
       for (final asset in page) {
-        if (_cancelled || !sessionIsCurrent()) return;
+        if (_cancelled || !sessionIsCurrent()) {
+          return;
+        }
         // Stop immediately on Wi-Fi -> cellular transitions without consent.
         final activeTransports = await Connectivity().checkConnectivity();
-        if (!canWarmThumbnailsOn(activeTransports, allowAnyNetwork: useAnyNetwork())) return;
+        if (!canWarmThumbnailsOn(activeTransports, allowAnyNetwork: useAnyNetwork())) {
+          return;
+        }
         final hash = asset.thumbHash;
-        if (hash == null || hash.isEmpty) continue;
+        if (hash == null || hash.isEmpty) {
+          continue;
+        }
 
         final id = _nextRequestId--;
         _activeRequestId = id;
@@ -112,12 +126,18 @@ class OfflineThumbnailWarmup {
           _log.fine('Offline thumbnail preload skipped a remote image', error);
           consecutiveFailures++;
         } finally {
-          if (_activeRequestId == id) _activeRequestId = null;
+          if (_activeRequestId == id) {
+            _activeRequestId = null;
+          }
         }
         // Stop a disconnected or unauthorized preload rather than retrying
         // thousands of failed requests while offline.
-        if (consecutiveFailures >= 3) return;
-        if (_cancelled || !sessionIsCurrent()) return;
+        if (consecutiveFailures >= 3) {
+          return;
+        }
+        if (_cancelled || !sessionIsCurrent()) {
+          return;
+        }
         await Future<void>.delayed(_pause);
       }
       afterId = page.last.id;
