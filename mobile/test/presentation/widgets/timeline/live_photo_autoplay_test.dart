@@ -151,18 +151,25 @@ void main() {
       }
     });
 
-    test('remote live photos cannot autoplay even if a caller supplies a local-looking path', () {
+    test('remote-only Live Photos can autoplay their known server motion pair', () {
       for (final asset in [_remote('samsung'), _remote('apple')]) {
         expect(asset.isMotionPhoto, isTrue);
         expect(asset.storage, AssetState.remote);
-        expect(chooseLivePhotoCandidate([_candidate(asset.id, asset: asset)]), isNull);
+        expect(
+          chooseLivePhotoCandidate([_candidate(asset.id, asset: asset, localVideoPath: null)])?.asset,
+          same(asset),
+        );
       }
       expect(
         chooseLivePhotoCandidate([
-          _candidate('remote-centre', asset: _remote('remote')),
+          _candidate('remote-centre', asset: _remote('remote'), localVideoPath: null),
           _candidate('local', visibility: 0.9, distance: 100),
         ])?.token,
-        'local',
+        'remote-centre',
+      );
+      expect(
+        chooseLivePhotoCandidate([_candidate('no-pair', asset: _remote('no-pair', live: false))]),
+        isNull,
       );
     });
 
@@ -187,10 +194,14 @@ void main() {
   });
 
   group('single live photo playback lease', () {
-    test('a remote-only cold feed never schedules a playback or source retry', () {
+    test('remote-only live photos schedule a single settled motion preview', () {
       fakeAsync((clock) {
         final controller = _controller();
-        controller.updateCandidates([_candidate('remote', asset: _remote('remote'))]);
+        controller.updateCandidates([_candidate('remote', asset: _remote('remote'), localVideoPath: null)]);
+        clock.elapse(livePhotoSettlingDelay);
+        expect(controller.activeToken, 'remote');
+        controller.started('remote');
+        controller.complete('remote');
         clock.elapse(const Duration(seconds: 30));
         expect(controller.activeToken, isNull);
         expect(clock.nonPeriodicTimerCount, 0);
