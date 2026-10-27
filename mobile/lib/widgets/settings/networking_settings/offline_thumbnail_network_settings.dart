@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
-import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/providers/offline_thumbnail_network.provider.dart';
 
 /// Settings > Networking: separate from cellular BACKUP. Consent is required
@@ -18,7 +18,9 @@ class _OfflineThumbnailNetworkSettingsState extends ConsumerState<OfflineThumbna
   bool _updating = false;
 
   Future<void> _change(bool useAnyNetwork) async {
-    if (_updating) return;
+    if (_updating) {
+      return;
+    }
     if (useAnyNetwork) {
       final accepted = await showDialog<bool>(
         context: context,
@@ -37,14 +39,18 @@ class _OfflineThumbnailNetworkSettingsState extends ConsumerState<OfflineThumbna
           ],
         ),
       );
-      if (!mounted || accepted != true) return;
+      if (!mounted || accepted != true) {
+        return;
+      }
     }
 
     setState(() => _updating = true);
     try {
       await Store.put(StoreKey.offlineThumbnailAnyNetwork, useAnyNetwork);
     } finally {
-      if (mounted) setState(() => _updating = false);
+      if (mounted) {
+        setState(() => _updating = false);
+      }
     }
   }
 
