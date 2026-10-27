@@ -62,15 +62,23 @@ bool _isLocalVideoPath(String? path) {
 /// visible motion photo closest to the viewport centre. Static photos and videos
 /// never qualify, even if a malformed video carries a live-photo relation.
 /// A local still/merged relation alone is insufficient: the scope must have
-/// resolved its local video component. Server sources never qualify.
+/// resolved its local video component. Remote-only motion pairs can stream.
 LivePhotoCandidate? chooseLivePhotoCandidate(Iterable<LivePhotoCandidate> candidates, {Object? activeToken}) {
   LivePhotoCandidate? best;
   for (final candidate in candidates) {
-    if (!candidate.asset.isImage ||
-        !candidate.asset.isMotionPhoto ||
-        candidate.asset.storage == AssetState.remote ||
-        (candidate.asset.localId?.isEmpty ?? true) ||
-        !_isLocalVideoPath(candidate.localVideoPath) ||
+    final asset = candidate.asset;
+    // Remote-only Live Photos may stream their paired motion clip. Local and
+    // merged assets must still have a verified local file: never silently
+    // download a server copy when the local component is unavailable.
+    final remotePair =
+        asset is RemoteAsset && asset.storage == AssetState.remote && asset.livePhotoVideoId != null;
+    final localPair =
+        asset.storage != AssetState.remote &&
+        (asset.localId?.isNotEmpty ?? false) &&
+        _isLocalVideoPath(candidate.localVideoPath);
+    if (!asset.isImage ||
+        !asset.isMotionPhoto ||
+        !(remotePair || localPair) ||
         candidate.visibleFraction < livePhotoVisibilityThreshold ||
         !candidate.visibleFraction.isFinite ||
         !candidate.distanceFromCenter.isFinite) {
