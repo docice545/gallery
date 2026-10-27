@@ -14,6 +14,7 @@ import 'package:immich_mobile/providers/backup/backup_album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/platform.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
+import 'package:immich_mobile/widgets/settings/networking_settings/offline_thumbnail_network_settings.dart';
 import 'package:immich_ui/immich_ui.dart';
 
 class BackupSettings extends StatelessWidget {
@@ -26,6 +27,9 @@ class BackupSettings extends StatelessWidget {
         SettingGroupTitle(title: context.t.network_requirements, icon: Icons.cell_tower),
         const _UseCellularForVideosButton(),
         const _UseCellularForPhotosButton(),
+        const Divider(),
+        SettingGroupTitle(title: context.t.offline_thumbnail_network_title, icon: Icons.cloud_download_outlined),
+        const OfflineThumbnailNetworkSettings(),
         if (CurrentPlatform.isAndroid) ...[
           const Divider(),
           SettingGroupTitle(title: context.t.background_options, icon: Icons.charging_station_rounded),
