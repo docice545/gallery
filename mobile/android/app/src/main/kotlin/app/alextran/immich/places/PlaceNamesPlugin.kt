@@ -99,7 +99,7 @@ class PlaceNamesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
               handler.post {
                 providerBusy = false
                 if (pending !== operation) return@post
-                val label = resolve(latitude, longitude, addresses)?.takeIf { PlaceNamePolicy.acceptsLocale(it, languageTag) }
+                val label = resolve(latitude, longitude, addresses, languageTag)
                 if (label == null && index + 1 < queries.size) {
                   try { lookup(index + 1) }
                   catch (_: Exception) {
@@ -131,7 +131,7 @@ class PlaceNamesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
               if (Thread.currentThread().isInterrupted || SystemClock.elapsedRealtime() >= deadline) break
               @Suppress("DEPRECATION")
               val addresses = geocoder.getFromLocationName(query, 3, south, west, north, east).orEmpty()
-              label = resolve(latitude, longitude, addresses)?.takeIf { PlaceNamePolicy.acceptsLocale(it, languageTag) }
+              label = resolve(latitude, longitude, addresses, languageTag)
               if (label != null) break
             }
             handler.post {
@@ -152,11 +152,11 @@ class PlaceNamesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
   }
 
-  private fun resolve(latitude: Double, longitude: Double, addresses: List<Address>): String? =
+  private fun resolve(latitude: Double, longitude: Double, addresses: List<Address>, languageTag: String): String? =
     PlaceNamePolicy.resolve(latitude, longitude, addresses.filter { it.hasLatitude() && it.hasLongitude() }.map {
       PlaceNameCandidate(it.latitude, it.longitude, it.featureName, it.locality, it.subLocality,
         it.adminArea, it.countryName, it.thoroughfare)
-    })
+    }, languageTag)
 
   private fun finish(operation: Lookup, name: String? = null, error: String? = null) {
     if (pending !== operation) return

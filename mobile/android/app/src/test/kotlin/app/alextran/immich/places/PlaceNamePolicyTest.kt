@@ -99,4 +99,73 @@ class PlaceNamePolicyTest {
     assertNull(PlaceNamePolicy.resolve(55.75, 37.61,
       listOf(PlaceNameCandidate(55.75, 37.61, locality = "Я".repeat(201)))))
   }
+
+  @Test fun `English first result does not hide a later Russian candidate`() {
+    val candidates = listOf(
+      PlaceNameCandidate(55.58, 37.60, featureName = "Annino", locality = "Annino"),
+      PlaceNameCandidate(55.5801, 37.60, featureName = "Аннино", locality = "Аннино"),
+    )
+    assertEquals("Аннино", PlaceNamePolicy.resolve(55.58, 37.60, candidates, "ru-RU"))
+    assertEquals("Annino", PlaceNamePolicy.resolve(55.58, 37.60, candidates, "en-US"))
+  }
+
+  @Test fun `nearest trusted homonym wins regardless of provider registration order`() {
+    listOf("Аннино", "Дружба").forEach { name ->
+      val nearest = PlaceNameCandidate(55.5801, 37.60, featureName = name, locality = name)
+      // Distinct provider casing makes the selected result observable without
+      // inventing a translated name or using the input name as a replacement.
+      val farther = PlaceNameCandidate(55.70, 37.60,
+        featureName = name.uppercase(java.util.Locale.ROOT), locality = name.uppercase(java.util.Locale.ROOT))
+      assertEquals(name, PlaceNamePolicy.resolve(55.58, 37.60, listOf(farther, nearest), "ru"))
+      assertEquals(name, PlaceNamePolicy.resolve(55.58, 37.60, listOf(nearest, farther), "ru"))
+    }
+  }
+
+  @Test fun `a distant homonym in another country cannot displace the anchored place`() {
+    val candidates = listOf(
+      PlaceNameCandidate(46.39, 28.26, featureName = "Дружба", locality = "Дружба", countryName = "Молдова"),
+      PlaceNameCandidate(55.58, 37.60, featureName = "ДРУЖБА", locality = "ДРУЖБА", countryName = "Россия"),
+    )
+    assertEquals("ДРУЖБА", PlaceNamePolicy.resolve(55.58, 37.60, candidates, "ru"))
+  }
+
+  @Test fun `only provider localized names are returned without generated transliteration`() {
+    val fixtures = listOf(
+      Triple(36.86, 31.05, "Белек"),
+      Triple(56.25, 37.99, "Хотьково"),
+    )
+    fixtures.forEach { (latitude, longitude, name) ->
+      assertEquals(name, PlaceNamePolicy.resolve(latitude, longitude,
+        listOf(PlaceNameCandidate(latitude, longitude, featureName = name, locality = name)), "ru-RU"))
+    }
+    assertNull(PlaceNamePolicy.resolve(36.86, 31.05,
+      listOf(PlaceNameCandidate(36.86, 31.05, featureName = "Belek", locality = "Belek")), "ru"))
+    assertNull(PlaceNamePolicy.resolve(56.25, 37.99,
+      listOf(PlaceNameCandidate(56.25, 37.99, featureName = "Khot'kovo", locality = "Khot'kovo")), "ru"))
+  }
+
+  @Test fun `nearest ranking handles candidates on opposite sides of the date line`() {
+    val candidates = listOf(
+      PlaceNameCandidate(0.0, 179.80, featureName = "Дальнее место", locality = "Дальнее место"),
+      PlaceNameCandidate(0.0, -179.99, featureName = "Ближнее место", locality = "Ближнее место"),
+    )
+    assertEquals("Ближнее место", PlaceNamePolicy.resolve(0.0, 179.99, candidates, "ru"))
+  }
+
+  @Test fun `equal distance retains deterministic provider order`() {
+    val first = PlaceNameCandidate(55.58, 37.60, featureName = "Первое место", locality = "Первое место")
+    val second = PlaceNameCandidate(55.58, 37.60, featureName = "Второе место", locality = "Второе место")
+    assertEquals("Первое место", PlaceNamePolicy.resolve(55.58, 37.60, listOf(first, second), "ru"))
+    assertEquals("Второе место", PlaceNamePolicy.resolve(55.58, 37.60, listOf(second, first), "ru"))
+  }
+
+  @Test fun `localized nearby POI and mismatched scripts remain untrusted`() {
+    val candidates = listOf(
+      PlaceNameCandidate(55.58, 37.60, featureName = "Парк Аннино", locality = "Москва"),
+      PlaceNameCandidate(55.5801, 37.60, featureName = "Annino", locality = "Аннино"),
+      PlaceNameCandidate(55.5802, 37.60, featureName = "Аннино", locality = "Аннино"),
+    )
+    assertEquals("Аннино", PlaceNamePolicy.resolve(55.58, 37.60, candidates, "ru"))
+    assertNull(PlaceNamePolicy.resolve(55.58, 37.60, candidates.take(2), "ru"))
+  }
 }

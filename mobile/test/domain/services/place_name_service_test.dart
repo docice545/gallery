@@ -135,8 +135,51 @@ void main() {
     });
     expect(await resolve(service()), 'Москва');
     expect(lookups, 1);
-    expect((jsonDecode(stored!) as Map)['version'], 2);
+    expect((jsonDecode(stored!) as Map)['version'], 3);
   });
+
+  for (final oldVersion in [1, 2]) {
+    test('old trust-policy version $oldVersion cannot retain a nearby city translation', () async {
+      stored = jsonEncode({
+        'version': oldVersion,
+        'scope': 'server|owner',
+        'entries': [
+          {
+            'key': PlaceNameService.key(place, 'ru-RU'),
+            'label': 'Химки',
+            'expiresAt': now.add(const Duration(days: 30)).millisecondsSinceEpoch,
+          },
+        ],
+      });
+      final names = service();
+      expect(await names.cachedLabels(), isEmpty, reason: 'old nearby candidate policy is no longer trusted');
+      expect(lookups, 0, reason: 'restoring the cache must not schedule background geocoding');
+      expect(await resolve(names), 'Москва');
+      expect(lookups, 1);
+    });
+  }
+
+  for (final malformed in ['Moscow', '', '   ', 'Мос\tква', 'Мос\u0000ква', 'Мос\u0085ква']) {
+    test('restored and fresh labels share validation for ${jsonEncode(malformed)}', () async {
+      stored = jsonEncode({
+        'version': 3,
+        'scope': 'server|owner',
+        'entries': [
+          {
+            'key': PlaceNameService.key(place, 'ru-RU'),
+            'label': malformed,
+            'expiresAt': now.add(const Duration(days: 30)).millisecondsSinceEpoch,
+          },
+        ],
+      });
+      final restored = service();
+      expect(await restored.cachedLabels(), isEmpty);
+      expect(await resolve(restored), 'Москва');
+      stored = null;
+      lookup = (_, _) async => malformed;
+      expect(await resolve(service()), 'Moscow');
+    });
+  }
 
   test('unsupported platforms and ignored Russian locale preserve the source spelling', () async {
     lookup = (_, _) async => throw MissingPluginException();
@@ -164,6 +207,27 @@ void main() {
     lookup = (_, _) async => 'Москва';
     expect(await resolve(service(scope: 'another-server|owner')), 'Москва');
     expect(lookups, 3);
+  });
+
+  test('equivalent language tags reuse one bounded cache across restart', () async {
+    final names = service();
+    expect(await resolve(names, place, ' RU_ru '), 'Москва');
+    expect(await resolve(names, place, 'ru-RU'), 'Москва');
+    expect(await resolve(service(), place, 'ru_ru'), 'Москва');
+    expect(lookups, 1);
+    expect(PlaceNameService.key(place, ' RU_ru '), PlaceNameService.key(place, 'ru-RU'));
+    expect((await names.cachedLabels()).length, 1);
+    expect(PlaceNameService.normalizeLanguageTag('zh_hant_tw'), 'zh-Hant-TW');
+  });
+
+  test('nearby homonyms with distinct trusted coordinates cannot reuse each other', () async {
+    const first = Place(name: 'Druzhba', assetId: 'a', latitude: 55.0001, longitude: 37.0001);
+    const second = Place(name: 'Druzhba', assetId: 'b', latitude: 55.0002, longitude: 37.0002);
+    lookup = (place, _) async => place == first ? 'Дружба первая' : 'Дружба вторая';
+    final names = service();
+    expect(await resolve(names, first), 'Дружба первая');
+    expect(await resolve(names, second), 'Дружба вторая');
+    expect(lookups, 2);
   });
 
   test('concurrent requests share one native operation', () async {
@@ -233,6 +297,68 @@ void main() {
     expect(lookups, 1);
     result.complete('Москва');
     expect(await first, 'Москва');
+  });
+
+  test('disposing an owner session rejects in-flight results and all queued requests', () async {
+    final entered = Completer<void>();
+    final result = Completer<String?>();
+    lookup = (_, _) {
+      entered.complete();
+      return result.future;
+    };
+    final names = service();
+    final first = resolve(names);
+    await entered.future;
+    final queued = resolve(names, const Place(name: 'Khimki', assetId: 'p2', latitude: 55.89, longitude: 37.45));
+    names.dispose();
+    expect(await first, 'Moscow');
+    expect(await queued, 'Khimki');
+    result.complete('Москва');
+    await pumpEventQueue();
+    expect(lookups, 1);
+    expect(stored, isNull);
+    expect(await names.cachedLabels(), isEmpty);
+    expect(await resolve(names), 'Moscow');
+  });
+
+  test('disposal while awaiting namespace never reads cache or starts native lookup', () async {
+    final scope = Completer<String>();
+    var reads = 0;
+    final names = PlaceNameService(
+      namespace: () => scope.future,
+      readCache: () async {
+        reads++;
+        return null;
+      },
+      writeCache: (_) async => fail('disposed service must not persist'),
+      lookup: (_, _) async => fail('disposed service must not localize'),
+    );
+    final pending = resolve(names);
+    names.dispose();
+    expect(await pending, 'Moscow');
+    scope.complete('old-owner');
+    await pumpEventQueue();
+    expect(reads, 0);
+  });
+
+  test('initialization errors fall back immediately and permit explicit retry', () async {
+    var available = false;
+    final names = PlaceNameService(
+      namespace: () async {
+        if (!available) {
+          throw StateError('synthetic endpoint stream failure');
+        }
+        return 'server|owner';
+      },
+      readCache: () async => null,
+      writeCache: (_) async {},
+      lookup: (_, _) async => 'Москва',
+      requestInterval: Duration.zero,
+    );
+    expect(await resolve(names), 'Moscow');
+    available = true;
+    await names.retryFailures();
+    expect(await resolve(names), 'Москва');
   });
 
   test('an unexpected provider error is contained without poisoning later lookups', () async {
