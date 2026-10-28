@@ -1,7 +1,9 @@
 # FOTO release audit (2026-10-28)
 
-This is a continuation of the FOTO audit. No production operation, HP change, APK installation,
-release publication, or new APK build was performed.
+This is a continuation of the FOTO audit. The source branch is
+`codex/foto-final-rc-20261028`, based on the published
+`fix/foto-offline-library-20261027` line. No production operation, HP change,
+APK installation, or new APK build was performed.
 
 ## Cloud versus HP boundaries
 
@@ -28,9 +30,9 @@ The remote refs were verified with Git:
 - `ec7424a33f864f6ff44b2d61861cdaad6cf16d6d` through `bdd58a7a00ffcf22db9fa88ad0c1555f3f1a1fc4`
   restore the layered editor, history, compact controls, Magic Eraser, and save-as-copy flow.
 
-Those changes were cherry-picked into the current checkout as local commits. The resulting local SHAs
-include `abd2c5569` (Web), `2b0375091` (Android Live Photo), `a23eb5805`/`6978a8a8f` (Places and
-localized map), `3e7f93a19` (inpainting backend), and `a904b13d3` (four-tool editor integration).
+The RC branch contains the equivalent reviewed patches on the complete offline line, including
+`2eb2816f9` as the source base and the historical migration `1796000000400`. The published RC
+checkpoints are recorded in `docs/foto-final/PROGRESS.md` and `PROGRESS.json`.
 
 ## Implemented functionality
 
@@ -77,12 +79,21 @@ failures. The actual HP container and object removal are not proven from Cloud.
 
 ### Offline gallery and original-client compatibility
 
-The historical offline slice is now present: configurable Library cards and a Live Photos collection,
-reactive album previews, Android opt-in Cloud Media Provider/Shizuku admission with reversible state,
-account-scoped collection generation and cancellation handling, and iOS background Live Photo transfer
-draining/pair validation. These changes are additive to the existing sync/cache contracts; the original
-Noodle Gallery apps were not modified. Android/iOS device, Photo Picker, Shizuku, and offline/online
-recovery scenarios remain BLOCKED in Cloud.
+The historical offline slice is now present: durable session-scoped thumbnail cache and paginated warmup,
+configurable Library cards and a Live Photos collection, reactive album previews, Android opt-in Cloud
+Media Provider/Shizuku admission with reversible state, account-scoped collection generation and
+cancellation handling, and iOS background Live Photo transfer draining/pair validation. These changes
+are additive to the existing sync/cache contracts; the original Noodle Gallery apps were not modified.
+Android/iOS device, Photo Picker, Shizuku, and offline/online recovery scenarios remain BLOCKED in Cloud.
+
+### Stack, duplicates and Trash performance
+
+`dd1cab300` and its disposable medium tests preserve the distinction between deleting selected assets
+and unstacking a group. The RC adds `scripts/external-upload-dedup/hp-readonly-audit.py` for a per-owner
+read-only checksum/path/relations audit. It does not apply deduplication and does not re-enable the
+`chudo_anna` stack exclusion. The Android Empty Trash path now aggregates durable deletion receipts in
+two owner-scoped queries, removing the previous per-item polling N+1. Cloud server tests pass; HP/NFS
+timings and Samsung UI remain BLOCKED.
 
 ## Reproducible HP/device checks
 
@@ -115,6 +126,9 @@ preview, cancel, 401/403/404/503 handling, save-as-copy, and original hash compa
 | Russian geographic names | IMPLEMENTED BY RESTORED DESIGN / DEVICE CHECK BLOCKED | Localized expression/session fallback code present; HP geodata required |
 | Four-tool editor and save-as-copy | IMPLEMENTED / TESTS PRESENT, EXECUTION BLOCKED | Restored editor acceptance/layout/history tests; Flutter/Samsung/iOS UI unavailable |
 | Magic Eraser API and copy save | IMPLEMENTED / SERVER+INPAINTING TESTED | 57 server tests and 55 Python tests passed; mobile/real `immich-gallery-inpainting-1` unavailable |
-| Offline Library/Cloud Media and iOS transfer | IMPLEMENTED BY RESTORED COMMITS | Cloud Media/Library tests present; Android/iOS offline device checks BLOCKED |
+| Offline Library/Cloud Media and iOS transfer | IMPLEMENTED BY RESTORED COMMITS | Durable cache/warmup and Cloud Media/Library tests present; Android/iOS offline device checks BLOCKED |
+| Stack selection and deletion | SOURCE PASS | `dd1cab300`, stack selection tests and disposable medium suite; Flutter/medium execution BLOCKED |
+| All-user duplicate inventory | BLOCKED | `hp-readonly-audit.py` prepared; HP/NAS reports not available |
+| Empty Trash status path | SOURCE PASS / HP BLOCKED | 239 AssetService tests; two-query receipt aggregation; no HP p50/p95 yet |
 | Offline gallery/API regressions | NOT TESTED | Flutter/HP/device checks unavailable here; no production services were started |
 | Overall RELEASE READY | NOT RELEASE READY | Mandatory HP, Samsung, iOS, browser and production-data evidence is missing |

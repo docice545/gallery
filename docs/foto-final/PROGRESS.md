@@ -34,3 +34,13 @@ commit without repeating destructive work.
 - **Blocked:** Flutter tests, medium PostgreSQL/NFS timing runs, Samsung UI and HP duplicate inventory.
 - **Next safe step:** publish this checkpoint, then run the remaining Web/server/inpainting checks and assemble the
   release manifest and HP preflight package.
+
+## 2026-10-28 — Stage 2: release handoff package
+
+- **Checkpoint:** pending commit after the checks below.
+- **Source changes:** prepared `scripts/release/foto-final-rc-20261028/`, kept dangerous HP actions outside Cloud,
+  and advanced the mobile source version to `5.7.3+22` so a future APK can update Build 21.
+- **Checks:** HP preflight shell syntax PASS; APK build/signing and device upgrade are NOT TESTED/BLOCKED by
+  policy and unavailable SDK/key.
+- **Next safe step:** publish this checkpoint, then commit the machine-readable release manifest and create the
+  integration PR when GitHub credentials permit it.

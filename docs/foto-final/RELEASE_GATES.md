@@ -16,3 +16,4 @@ does not imply device or production readiness.
 | Magic Eraser inference | BLOCKED | API/Python tests only | HP `immich-gallery-inpainting-1` |
 | Production migration/NAS switch | BLOCKED | No HP access and no approval | Owner-approved staging then switch |
 | Overall RELEASE READY | NOT RELEASE READY | Mandatory device/HP gates open | Do not publish APK or production |
+| RC source version for next APK | PASS (source) | `mobile/pubspec.yaml` is `5.7.3+22`; package/signing checks remain HP-only | Build and sign on HP after approval |

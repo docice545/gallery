@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "publish-stack-duplicate-trash-performance-checkpoint",
+  "nextStage": "publish-release-handoff-checkpoint",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -28,6 +28,17 @@
       "dedup_planner": "PASS:31",
       "hp_audit_python_compile": "PASS",
       "flutter_medium_hp": "BLOCKED"
+    },
+    "productionChanged": false,
+    "apkBuilt": false
+  },
+  "stage2": {
+    "status": "SOURCE_READY_HP_DEVICE_REQUIRED",
+    "mobileVersion": "5.7.3+22",
+    "tests": {
+      "hp_preflight_shell_syntax": "PASS",
+      "apk_build_and_sign": "NOT TESTED",
+      "device_upgrade": "BLOCKED"
     },
     "productionChanged": false,
     "apkBuilt": false
