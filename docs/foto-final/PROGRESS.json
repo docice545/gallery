@@ -8,7 +8,7 @@
   },
   "checkpoint": {
     "stage": "integration-baseline",
-    "commit": "58330fb1e",
+    "commit": "ed425f9e7796030cfa35c60bc1e28840382cb2d1",
     "status": "RECORDED",
     "productionChanged": false,
     "apkBuilt": false,

@@ -7,7 +7,7 @@ commit without repeating destructive work.
 ## 2026-10-28 — Stage 0: integration baseline
 
 - **Base:** `2eb2816f94647587a60c9b0e014bfdb30152fa08` (`fix/foto-offline-library-20261027`).
-- **Checkpoint:** `58330fb1e` (audit boundary documentation; the next checkpoint adds this journal).
+- **Checkpoint:** `ed425f9e7` (audit boundary documentation plus this journal).
 - **Scope:** selected the complete offline/remote-Live-Photo/migration line as the RC base; verified the
   historical branch and migration `1796000000400-AddVerifiedAssetContentChecksum` are present.
 - **Cloud checks:** Git refs and source inspection PASS. Flutter, Android device, iOS device, HP,
