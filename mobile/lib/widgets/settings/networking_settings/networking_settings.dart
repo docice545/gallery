@@ -137,6 +137,9 @@ class NetworkingSettings extends HookConsumerWidget {
       padding: const EdgeInsets.only(bottom: 96),
       children: <Widget>[
         const SizedBox(height: 8),
+        SettingGroupTitle(title: context.t.offline_thumbnail_network_title, icon: Icons.cloud_download_outlined),
+        const OfflineThumbnailNetworkSettings(),
+        const Divider(),
         SettingGroupTitle(
           title: context.t.current_server_address,
           icon: (currentEndpoint?.startsWith('https') ?? false) ? Icons.https_outlined : Icons.http_outlined,
@@ -176,9 +179,7 @@ class NetworkingSettings extends HookConsumerWidget {
         const SizedBox(height: 16),
         SettingGroupTitle(title: context.t.external_network, icon: Icons.dns_outlined),
         ExternalNetworkPreference(enabled: featureEnabled.value),
-        const SizedBox(height: 16),
-        SettingGroupTitle(title: context.t.offline_thumbnail_network_title, icon: Icons.cloud_download_outlined),
-        const OfflineThumbnailNetworkSettings(),
+
       ],
     );
   }
