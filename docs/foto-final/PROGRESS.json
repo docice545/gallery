@@ -22,6 +22,7 @@
   "nextStage": "publish-stack-duplicate-trash-performance-checkpoint",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
+    "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
     "tests": {
       "asset_service": "PASS:239",
       "dedup_planner": "PASS:31",

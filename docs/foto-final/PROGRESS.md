@@ -25,7 +25,7 @@ commit without repeating destructive work.
 
 ## 2026-10-28 — Stage 1: Stack, duplicate and Trash gate
 
-- **Checkpoint:** pending commit after Cloud checks below.
+- **Checkpoint:** `0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b` (published).
 - **Source changes:** added owner-scoped two-query deletion receipt aggregation and a read-only per-owner HP
   duplicate auditor. Confirmed `dd1cab300` and the seven historical Stack/Trash batch commits are ancestors.
 - **Checks:** `pnpm --dir server exec vitest --config test/vitest.config.mjs run src/services/asset.service.spec.ts` —
