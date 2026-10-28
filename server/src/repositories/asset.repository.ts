@@ -2270,6 +2270,33 @@ export class AssetRepository {
       .executeTakeFirst();
   }
 
+  /**
+   * Load all receipts needed to render one deletion batch with two bounded
+   * queries. The old status path queried each parent, then each paired motion
+   * receipt, on every 250 ms mobile poll. That made a 5,000 asset batch an
+   * N+1 query storm even though the durable tombstones already contain the
+   * operation identity needed to aggregate the result.
+   */
+  async getDeletionReceipts(ownerId: string, ids: string[]) {
+    if (ids.length === 0) return [];
+
+    const parents = await this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select(['assetId', 'operationId', 'state', 'errorCode'])
+      .where('ownerId', '=', ownerId)
+      .where('assetId', 'in', ids)
+      .execute();
+    const operationIds = [...new Set(parents.map(({ operationId }) => operationId))];
+    if (operationIds.length === 0) return [];
+
+    return this.db
+      .selectFrom('asset_deletion_tombstone')
+      .select(['assetId', 'operationId', 'state', 'errorCode'])
+      .where('ownerId', '=', ownerId)
+      .where('operationId', 'in', operationIds)
+      .execute();
+  }
+
   async preparePermanentDeletion(
     id: string,
     ownerId: string,

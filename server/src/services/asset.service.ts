@@ -1331,14 +1331,28 @@ export class AssetService extends BaseService {
       throw new ForbiddenException('Deletion batch is not available for this user');
     }
 
-    const statuses: PermanentDeletionResultDto[] = [];
-    for (let start = 0; start < batch.ids.length; start += AssetService.BATCH_CHUNK_SIZE) {
-      statuses.push(
-        ...(await Promise.all(
-          batch.ids.slice(start, start + AssetService.BATCH_CHUNK_SIZE).map((id) => this.deletionStatus(auth, id)),
-        )),
-      );
+    // One parent query plus one operation query replaces the former per-item
+    // receipt/companion lookups. Mobile polls this endpoint frequently; status
+    // reads must stay bounded even for a 5,000 asset batch.
+    const receipts = await this.assetRepository.getDeletionReceipts(auth.user.id, batch.ids);
+    const byAsset = new Map(receipts.map((receipt) => [receipt.assetId, receipt]));
+    const byOperation = new Map<string, typeof receipts>();
+    for (const receipt of receipts) {
+      const operation = byOperation.get(receipt.operationId) ?? [];
+      operation.push(receipt);
+      byOperation.set(receipt.operationId, operation);
     }
+    const statuses: PermanentDeletionResultDto[] = batch.ids.map((id) => {
+      const parent = byAsset.get(id);
+      if (!parent) return { id, state: 'blocked', code: 'NO_AUTHORIZED_DELETION' };
+      const targets = byOperation.get(parent.operationId) ?? [];
+      const failed = targets.find((item) => item.state === 'failed');
+      if (failed) return { id, state: 'failed', code: failed.errorCode ?? 'PAIRED_DELETION_INCOMPLETE' };
+      return {
+        id,
+        state: targets.length > 0 && targets.every((item) => item.state === 'complete') ? 'complete' : 'pending',
+      };
+    });
     const complete = statuses.filter((item) => item.state === 'complete').length;
     const failed = statuses.filter(
       (item) => item.state === 'failed' || (item.state === 'blocked' && ['complete', 'failed'].includes(batch.state)),

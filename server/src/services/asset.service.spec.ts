@@ -1645,7 +1645,7 @@ describe(AssetService.name, () => {
       expect(mocks.job.cancelAssetDeleteBatch).not.toHaveBeenCalled();
     });
 
-    it('bounds aggregate receipt checks to 200 in flight', async () => {
+    it('loads aggregate receipts in one bounded repository call', async () => {
       const ids = Array.from({ length: 1000 }, (_, index) => `asset-${index}`);
       const batchId = getAssetDeleteBatchJobId(authStub.user1.user.id, ids);
       mocks.job.getAssetDeleteBatchJob.mockResolvedValue({
@@ -1655,19 +1655,14 @@ describe(AssetService.name, () => {
         ids,
         allowActive: false,
       });
-      let active = 0;
-      let maximum = 0;
-      vi.spyOn(sut, 'deletionStatus').mockImplementation(async (_auth, id) => {
-        maximum = Math.max(maximum, ++active);
-        await Promise.resolve();
-        active--;
-        return { id, state: 'pending' };
-      });
+      mocks.asset.getDeletionReceipts.mockResolvedValue(
+        ids.map((id) => ({ assetId: id, operationId: id, state: 'pending', errorCode: null })),
+      );
       await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toMatchObject({
         total: 1000,
         pending: 1000,
       });
-      expect(maximum).toBe(200);
+      expect(mocks.asset.getDeletionReceipts).toHaveBeenCalledExactlyOnceWith(authStub.user1.user.id, ids);
     });
 
     it.each(['active', 'cancelled'] as const)(
@@ -1683,9 +1678,9 @@ describe(AssetService.name, () => {
           allowActive: false,
           cancelRequested: true,
         });
-        vi.spyOn(sut, 'deletionStatus')
-          .mockResolvedValueOnce({ id: ids[0], state: 'complete' })
-          .mockResolvedValueOnce({ id: ids[1], state: 'blocked', code: 'NO_AUTHORIZED_DELETION' });
+        mocks.asset.getDeletionReceipts.mockResolvedValue([
+          { assetId: ids[0], operationId: ids[0], state: 'complete', errorCode: null },
+        ]);
         await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toEqual({
           id: batchId,
           state,
@@ -1728,11 +1723,11 @@ describe(AssetService.name, () => {
         ids,
         allowActive: false,
       });
-      vi.spyOn(sut, 'deletionStatus')
-        .mockResolvedValueOnce({ id: ids[0], state: 'complete' })
-        .mockResolvedValueOnce({ id: ids[1], state: 'failed', code: 'NFS_UNAVAILABLE' })
-        .mockResolvedValueOnce({ id: ids[2], state: 'pending' })
-        .mockResolvedValueOnce({ id: ids[3], state: 'blocked', code: 'NO_AUTHORIZED_DELETION' });
+      mocks.asset.getDeletionReceipts.mockResolvedValue([
+        { assetId: ids[0], operationId: ids[0], state: 'complete', errorCode: null },
+        { assetId: ids[1], operationId: ids[1], state: 'failed', errorCode: 'NFS_UNAVAILABLE' },
+        { assetId: ids[2], operationId: ids[2], state: 'pending', errorCode: null },
+      ]);
 
       await expect(sut.deletionBatchStatus(authStub.user1, batchId)).resolves.toEqual({
         id: batchId,

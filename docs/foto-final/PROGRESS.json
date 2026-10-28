@@ -19,5 +19,16 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "stack-duplicate-trash-performance"
+  "nextStage": "publish-stack-duplicate-trash-performance-checkpoint",
+  "stage1": {
+    "status": "SOURCE_CHECKED_HP_BLOCKED",
+    "tests": {
+      "asset_service": "PASS:239",
+      "dedup_planner": "PASS:31",
+      "hp_audit_python_compile": "PASS",
+      "flutter_medium_hp": "BLOCKED"
+    },
+    "productionChanged": false,
+    "apkBuilt": false
+  }
 }

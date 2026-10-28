@@ -22,3 +22,15 @@ commit without repeating destructive work.
 2. Verify the published branch HEAD and working-tree cleanliness.
 3. Continue only from the last checkpoint whose tests are recorded here.
 4. Keep destructive NAS and production operations behind explicit HP approval.
+
+## 2026-10-28 — Stage 1: Stack, duplicate and Trash gate
+
+- **Checkpoint:** pending commit after Cloud checks below.
+- **Source changes:** added owner-scoped two-query deletion receipt aggregation and a read-only per-owner HP
+  duplicate auditor. Confirmed `dd1cab300` and the seven historical Stack/Trash batch commits are ancestors.
+- **Checks:** `pnpm --dir server exec vitest --config test/vitest.config.mjs run src/services/asset.service.spec.ts` —
+  PASS (239 tests); `node --test scripts/external-upload-dedup/plan.test.mjs` — PASS (31 tests);
+  `python3 -m py_compile scripts/external-upload-dedup/hp-readonly-audit.py` — PASS; `git diff --check` — PASS.
+- **Blocked:** Flutter tests, medium PostgreSQL/NFS timing runs, Samsung UI and HP duplicate inventory.
+- **Next safe step:** publish this checkpoint, then run the remaining Web/server/inpainting checks and assemble the
+  release manifest and HP preflight package.

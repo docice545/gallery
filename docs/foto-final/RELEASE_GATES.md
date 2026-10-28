@@ -8,8 +8,8 @@ does not imply device or production readiness.
 | Complete offline integration line selected | PASS | `origin/fix/foto-offline-library-20261027` at `2eb2816f9` | Keep branch ancestry recorded |
 | `1796000000400-AddVerifiedAssetContentChecksum` present | PASS | `server/src/schema/migrations-gallery/ORDER` | Disposable PG migration run |
 | Stack deletion selection | PASS (source) | `dd1cab300` and stack-trash tests | Flutter/device run |
-| All-user duplicate audit | NOT TESTED | HP read-only tooling pending | Run per-user on HP |
-| Android empty-Trash performance | NOT TESTED | Batch/status code present; bottleneck audit pending | Benchmark on disposable PG/NFS and Samsung |
+| All-user duplicate audit | BLOCKED | `hp-readonly-audit.py` prepared; no HP/NAS access | Run per-user on HP |
+| Android empty-Trash performance | SOURCE FIX TESTED / HP BLOCKED | 239 server tests; receipt aggregation changed from N+1 to two queries | Benchmark disposable PG/NFS and Samsung |
 | Web Live Photo | PASS (Cloud tests on prior source line) | Web unit/component checks | Chromium with real media |
 | Android/iOS playback | BLOCKED | SDK/device unavailable | Samsung and iOS E2E |
 | Places and Russian geodata | BLOCKED | Source restored | HP geodata and device rendering |
