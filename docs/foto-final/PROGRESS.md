@@ -22,3 +22,13 @@ commit without repeating destructive work.
 2. Verify the published branch HEAD and working-tree cleanliness.
 3. Continue only from the last checkpoint whose tests are recorded here.
 4. Keep destructive NAS and production operations behind explicit HP approval.
+
+## 2026-10-28 — Stage 1: HP handoff validation in Cloud
+
+- **History correction:** GitHub verifies Build 21 `57b79cf3a7f11960ead971ca8963d666cc6baa91` is an ancestor of final RC `4bd351510bba8750f0f54d8777523d6603a44fdd`, with 16 commits above it. The installed APK's build receipt remains unverified.
+- **PR #12:** retained on the final RC base; its client audit is integrated into the acceptance documents. No application behavior changed.
+- **Docs:** Prettier failures were reproduced from the PR check and fixed in the six files reported by CI; the check remains enabled.
+- **HP tools:** added a worktree-safe, read-only source preflight and owner-scoped PostgreSQL audit. The audit was exercised against a disposable PostgreSQL 16 schema and verified no row count change.
+- **Manifest:** `docs/foto-final/release-manifest-20261028.json` records the current RC source, versionCode 22 target, certificate digest, test states and HP commands. APK checksum remains unavailable until HP builds it.
+- **Production:** unchanged. No production PostgreSQL, NAS, APK signing, deployment or device operation was performed.
+- **Next safe step:** stack selection/deletion checkpoint, then all-user duplicate dry-run and trash performance benchmark.

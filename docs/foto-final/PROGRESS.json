@@ -7,15 +7,19 @@
     "sha": "2eb2816f94647587a60c9b0e014bfdb30152fa08"
   },
   "checkpoint": {
-    "stage": "integration-baseline",
+    "stage": "hp-handoff-validation",
     "commit": "ed425f9e7796030cfa35c60bc1e28840382cb2d1",
-    "status": "RECORDED",
+    "status": "RECORDED_PENDING_CHECKPOINT_SHA",
     "productionChanged": false,
     "apkBuilt": false,
     "published": false,
     "tests": {
-      "git_history": "PASS",
-      "cloud_static_source_audit": "PASS",
+      "git_history_build21_ancestor": "PASS_16_COMMITS_ABOVE_RC_BASE",
+      "docs_prettier": "PASS_AFTER_TARGETED_FORMAT",
+      "hp_preflight_worktree": "PASS_UNIT",
+      "hp_readonly_disposable_postgres": "PASS_REAL_SCHEMA",
+      "release_manifest_consistency": "PASS_SOURCE_RC_VERSION_CERTIFICATE",
+      "production": "UNCHANGED",
       "flutter_android_ios_hp": "BLOCKED"
     }
   },

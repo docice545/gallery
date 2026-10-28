@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "repository": "docice545/gallery",
+  "sourceRef": "codex/foto-final-rc-20261028",
+  "sourceSha": "4bd351510bba8750f0f54d8777523d6603a44fdd",
+  "currentRcHead": "4bd351510bba8750f0f54d8777523d6603a44fdd",
+  "android": {
+    "packageId": "de.opennoodle.gallery",
+    "versionName": "5.7.3",
+    "versionCode": 22,
+    "signingCertificateSha256": "ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18",
+    "apkSha256": null,
+    "status": "NOT_BUILT_IN_CLOUD"
+  },
+  "tests": {
+    "flutterFocused": "PASS_71",
+    "flutterScopedAnalyze": "PASS",
+    "flutterWholeTreeAnalyze": "BLOCKED_GENERATED_FIXTURES",
+    "androidJvm": "PASS_91",
+    "webLivePhoto": "PASS_49",
+    "webBuild": "PASS",
+    "docsBuild": "PENDING_HANDOFF_CHECK",
+    "hpReadonlyPostgres": "PENDING_DISPOSABLE_FIXTURE",
+    "samsung": "NOT_TESTED",
+    "ios": "NOT_TESTED",
+    "upstreamClients": "NOT_TESTED"
+  },
+  "hpCommands": {
+    "preflight": "scripts/release/hp-preflight.sh --repo \"$FOTO_REPO\" --expected-sha \"$FOTO_SOURCE_SHA\" --manifest docs/foto-final/release-manifest-20261028.json",
+    "readonlyAudit": "python3 scripts/diagnostics/hp-readonly-audit.py --dsn \"$FOTO_PG_DSN\" --output \"$FOTO_AUDIT_DIR/library-audit.json\"",
+    "verifySource": "git -C \"$FOTO_REPO\" rev-parse HEAD"
+  },
+  "releaseStatus": "NOT_RELEASE_READY",
+  "productionChanged": false,
+  "apkBuilt": false,
+  "deployment": "NOT_AUTHORIZED"
+}

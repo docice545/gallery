@@ -22,7 +22,7 @@ This audit is for the independent client acceptance branch created from the publ
 - `27605a42d`, `ede766e29` — persistent thumbnail cache across endpoint changes and its tests;
 - `2eb2816f9`, `c20f66f5d`, `6663dcec3`, `58330fb1e`, `ed425f9e7`, `4bd351510` — settings/documentation/checkpoint commits.
 
-The source-level explanation for three Build 21 reports is therefore established: that APK was built from a different source line. The editor report needs separate APK provenance evidence: `mobile/lib/presentation/pages/edit/edit.page.dart` is byte-identical at Build 21 and final RC and already exposes crop, markup, text, and Magic Eraser modes. The repository `pubspec.yaml` also declares `5.7.3+19` while Gradle takes `versionCode` from `flutter.versionCode`; the reported Build 21 `versionCode=21` was supplied by an external build override and is not reproducible from this source without the original build command.
+The source-level explanation for three Build 21 reports is now precise: the Build 21 source checkpoint is an ancestor, but it predates the 16 final-RC commits that add the missing fixes. Whether the installed APK was actually built from that checkpoint still requires its binary/build receipt. The editor report needs separate APK provenance evidence: `mobile/lib/presentation/pages/edit/edit.page.dart` is byte-identical at Build 21 and final RC and already exposes crop, markup, text, and Magic Eraser modes. The repository `pubspec.yaml` also declares `5.7.3+19` while Gradle takes `versionCode` from `flutter.versionCode`; the reported Build 21 `versionCode=21` was supplied by an external build override and is not reproducible from this source without the original build command.
 
 ## Client feature inventory
 
