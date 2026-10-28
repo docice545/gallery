@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "repository": "docice545/gallery",
+  "branch": "codex/foto-final-rc-20261028",
+  "sourceSha": "018a9f0422788d78494ba7697afb4de5535e37e7",
+  "manifestCommit": "SET_AFTER_COMMIT",
+  "base": {
+    "ref": "fix/foto-offline-library-20261027",
+    "sha": "2eb2816f94647587a60c9b0e014bfdb30152fa08"
+  },
+  "mobile": {
+    "packageId": "de.opennoodle.gallery",
+    "version": "5.7.3",
+    "versionCode": 22,
+    "productionCertificateSha256": "ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18",
+    "apkBuilt": false,
+    "signatureVerified": "HP_REQUIRED"
+  },
+  "historicalInputs": {
+    "placesEditorHead": "96c8be0d9bb428202e35c4256ed912e6265bcf60",
+    "pr11": "e2a95e6aeee9d9da8d23ca7643a6a061c61944c3",
+    "offlineLine": "2eb2816f94647587a60c9b0e014bfdb30152fa08",
+    "stackDeletion": "dd1cab300a309d3774f7fab7594501ff8d7ba25c",
+    "verifiedContentAdmission": "af4395683a296f1609cfdb72c116d18ff6eb9d14",
+    "galleryMigration": "1796000000400-AddVerifiedAssetContentChecksum"
+  },
+  "checkpoints": [
+    "4bd351510",
+    "e487ca0ce",
+    "018a9f042"
+  ],
+  "releaseGates": {
+    "webLivePhotoUnitAndComponent": "PASS",
+    "webChromiumRealMedia": "NOT_TESTED",
+    "androidLivePhotoDevice": "BLOCKED",
+    "iosLivePhotoDevice": "BLOCKED",
+    "offlineGalleryDevice": "BLOCKED",
+    "placesAndRussianGeodata": "BLOCKED",
+    "editorDevice": "BLOCKED",
+    "magicEraserApiAndInpaintingTests": "PASS",
+    "magicEraserHpInference": "BLOCKED",
+    "stackSelectionSource": "PASS",
+    "duplicateInventoryHp": "BLOCKED",
+    "trashStatusAggregation": "PASS",
+    "trashPerformanceHpNfs": "BLOCKED",
+    "originalNoodleAndroidIos": "NOT_TESTED",
+    "productionMigration": "BLOCKED",
+    "overall": "NOT_RELEASE_READY"
+  },
+  "testReceipts": {
+    "webLivePhoto": "49 tests",
+    "webChecks": "svelte 0 errors/0 warnings; TypeScript PASS",
+    "serverMagicEraser": "57 tests",
+    "serverAssetDeletion": "239 tests",
+    "migrationOrder": "96 upstream + 79 gallery PASS",
+    "inpainting": "55 passed, 1 skipped",
+    "dedupPlanner": "31 tests",
+    "flutterDartKotlin": "BLOCKED: SDKs unavailable in Cloud"
+  },
+  "productionChanged": false,
+  "hpOperationsExecuted": false,
+  "apkBuildExecuted": false,
+  "notes": [
+    "sourceSha identifies the reviewed code/document commit; manifestCommit is filled by the final metadata commit",
+    "HP and device gates must be completed before RELEASE READY",
+    "No production backend, PostgreSQL, NAS, VPN, proxy, Docker Compose service or signing key was changed"
+  ]
+}

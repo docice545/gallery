@@ -34,6 +34,7 @@
   },
   "stage2": {
     "status": "SOURCE_READY_HP_DEVICE_REQUIRED",
+    "commit": "018a9f0422788d78494ba7697afb4de5535e37e7",
     "mobileVersion": "5.7.3+22",
     "tests": {
       "hp_preflight_shell_syntax": "PASS",

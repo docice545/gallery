@@ -37,7 +37,7 @@ commit without repeating destructive work.
 
 ## 2026-10-28 — Stage 2: release handoff package
 
-- **Checkpoint:** pending commit after the checks below.
+- **Checkpoint:** `018a9f0422788d78494ba7697afb4de5535e37e7` (published).
 - **Source changes:** prepared `scripts/release/foto-final-rc-20261028/`, kept dangerous HP actions outside Cloud,
   and advanced the mobile source version to `5.7.3+22` so a future APK can update Build 21.
 - **Checks:** HP preflight shell syntax PASS; APK build/signing and device upgrade are NOT TESTED/BLOCKED by
