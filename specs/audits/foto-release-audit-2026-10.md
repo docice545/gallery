@@ -107,13 +107,13 @@ preview, cancel, 401/403/404/503 handling, save-as-copy, and original hash compa
 | Web single active Live Photo, stable selection, no loop | IMPLEMENTED / UNIT TESTED | `web/src/lib/utils/live-photo-autoplay*.spec.ts`, `VideoThumbnail.spec.ts` |
 | Web browser playback and manual fullscreen | NOT TESTED IN THIS RUNTIME | Playwright requires installed dependencies and browser; HP/real browser still separate |
 | Web remote Live Photo candidate | IMPLEMENTED / TESTED BY CONTRACT | No remote-origin filter; real authenticated media remains environment-dependent |
-| Android local Live Photo autoplay | IMPLEMENTED / UNIT TESTED | `live_photo_autoplay_test.dart`, `live_photo_scope_test.dart`; device decoding BLOCKED |
-| Android remote Live Photo autoplay | IMPLEMENTED / UNIT TESTED | Updated candidate/source path; Samsung E2E BLOCKED |
+| Android local Live Photo autoplay | IMPLEMENTED / TESTS PRESENT, EXECUTION BLOCKED | `live_photo_autoplay_test.dart`, `live_photo_scope_test.dart`; Flutter/device decoding unavailable |
+| Android remote Live Photo autoplay | IMPLEMENTED / TESTS PRESENT, EXECUTION BLOCKED | Updated candidate/source path; Flutter and Samsung E2E unavailable |
 | iOS Live Photo/backend compatibility | NOT TESTED | Physical iOS + HP required |
-| Places camera fit and clustering | IMPLEMENTED / UNIT TESTED | Restored map/place tests; rendered device/geodata check BLOCKED |
+| Places camera fit and clustering | IMPLEMENTED / TESTS PRESENT, EXECUTION BLOCKED | Restored map/place tests; Flutter/rendered device/geodata check unavailable |
 | Russian geographic names | IMPLEMENTED BY RESTORED DESIGN / DEVICE CHECK BLOCKED | Localized expression/session fallback code present; HP geodata required |
-| Four-tool editor and save-as-copy | IMPLEMENTED / UNIT TESTED | Restored editor acceptance/layout/history tests; Samsung/iOS UI check BLOCKED |
-| Magic Eraser API and copy save | IMPLEMENTED / UNIT TESTED | Client/server/inpainting tests present; real `immich-gallery-inpainting-1` BLOCKED |
+| Four-tool editor and save-as-copy | IMPLEMENTED / TESTS PRESENT, EXECUTION BLOCKED | Restored editor acceptance/layout/history tests; Flutter/Samsung/iOS UI unavailable |
+| Magic Eraser API and copy save | IMPLEMENTED / SERVER+INPAINTING TESTED | 57 server tests and 55 Python tests passed; mobile/real `immich-gallery-inpainting-1` unavailable |
 | Offline Library/Cloud Media and iOS transfer | IMPLEMENTED BY RESTORED COMMITS | Cloud Media/Library tests present; Android/iOS offline device checks BLOCKED |
 | Offline gallery/API regressions | NOT TESTED | Flutter/Docker/HP/device checks unavailable here |
 | Overall RELEASE READY | NOT RELEASE READY | Mandatory HP, Samsung, iOS, browser and production-data evidence is missing |
