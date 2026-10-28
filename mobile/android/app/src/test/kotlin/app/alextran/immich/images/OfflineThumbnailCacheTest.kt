@@ -39,6 +39,18 @@ class OfflineThumbnailCacheTest {
     assertArrayEquals(jpeg, OfflineThumbnailCache(File(temporaryFolder.root, "offline")).read(keyA))
   }
 
+  @Test fun cachedPhotosSurviveInternalToExternalServerSwitch() {
+    val privateUrl = "http://10.10.10.80:2283/api/assets/550e8400-e29b-41d4-a716-446655440000/thumbnail?size=thumbnail&edited=true&c=revision1"
+    val publicUrl = url
+    val keyInternal = OfflineThumbnailCache.keyFor(privateUrl, sessionA)!!
+    val keyExternal = OfflineThumbnailCache.keyFor(publicUrl, sessionA)!!
+    assertEquals(keyInternal, keyExternal)
+    val cache = OfflineThumbnailCache(temporaryFolder.newFolder("endpoint-switch"))
+    assertTrue(cache.write(keyInternal, jpeg))
+    assertArrayEquals(jpeg, cache.read(keyExternal))
+    assertNotEquals(keyExternal, OfflineThumbnailCache.keyFor(publicUrl, sessionB))
+  }
+
   @Test fun changedRevisionNeverReadsStalePixels() {
     val oldKey = OfflineThumbnailCache.keyFor(url, sessionA)!!
     val newKey = OfflineThumbnailCache.keyFor(url.replace("revision1", "revision2"), sessionA)!!
