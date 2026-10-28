@@ -5,9 +5,10 @@ release publication, or new APK build was performed.
 
 ## Cloud versus HP boundaries
 
-The new Cloud runtime can reach GitHub and now exposes the historical refs. The earlier runtime's
-proxy/Docker failures were Cloud-only observations; they were not changed through production or HP
-infrastructure. Cloud can run repository/unit/static checks once dependencies and SDKs are available.
+The new Cloud runtime can reach GitHub, has a working Docker daemon for isolated local checks, and now
+exposes the historical refs. The earlier runtime's proxy/Docker failures were Cloud-only observations;
+they were not changed through production or HP infrastructure. Cloud can run repository/unit/static
+checks once dependencies and SDKs are available.
 
 HP/device checks remain separate: production PostgreSQL/geodata, the `immich-gallery-inpainting-1`
 container, backend-to-ML traffic, decoded video frames, Samsung playback, iOS playback, and production
@@ -115,5 +116,5 @@ preview, cancel, 401/403/404/503 handling, save-as-copy, and original hash compa
 | Four-tool editor and save-as-copy | IMPLEMENTED / TESTS PRESENT, EXECUTION BLOCKED | Restored editor acceptance/layout/history tests; Flutter/Samsung/iOS UI unavailable |
 | Magic Eraser API and copy save | IMPLEMENTED / SERVER+INPAINTING TESTED | 57 server tests and 55 Python tests passed; mobile/real `immich-gallery-inpainting-1` unavailable |
 | Offline Library/Cloud Media and iOS transfer | IMPLEMENTED BY RESTORED COMMITS | Cloud Media/Library tests present; Android/iOS offline device checks BLOCKED |
-| Offline gallery/API regressions | NOT TESTED | Flutter/Docker/HP/device checks unavailable here |
+| Offline gallery/API regressions | NOT TESTED | Flutter/HP/device checks unavailable here; no production services were started |
 | Overall RELEASE READY | NOT RELEASE READY | Mandatory HP, Samsung, iOS, browser and production-data evidence is missing |
