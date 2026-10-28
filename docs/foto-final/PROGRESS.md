@@ -44,3 +44,12 @@ commit without repeating destructive work.
   policy and unavailable SDK/key.
 - **Next safe step:** publish this checkpoint, then commit the machine-readable release manifest and create the
   integration PR when GitHub credentials permit it.
+
+## 2026-10-28 — Stage 3: release manifest
+
+- **Checkpoint:** `00aefbdb7a696ebbb55f2e5ccac1f6ed1ffbacb7` (published).
+- **Source changes:** added `release-manifest-20261028.json` and a clean-checkout generator with source/file
+  SHA-256 provenance. The manifest records real gate statuses and keeps `overall=NOT_RELEASE_READY`.
+- **Checks:** JSON/Python validation PASS; no APK, production, HP or device operation was executed.
+- **Next safe step:** create or update the integration PR; GitHub CLI authentication must be restored for API PR
+  creation. The branch itself is already published and resumable.

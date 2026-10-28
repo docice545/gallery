@@ -3,7 +3,7 @@
   "repository": "docice545/gallery",
   "branch": "codex/foto-final-rc-20261028",
   "sourceSha": "018a9f0422788d78494ba7697afb4de5535e37e7",
-  "manifestCommit": "SET_AFTER_COMMIT",
+  "manifestCommit": "00aefbdb7a696ebbb55f2e5ccac1f6ed1ffbacb7",
   "base": {
     "ref": "fix/foto-offline-library-20261027",
     "sha": "2eb2816f94647587a60c9b0e014bfdb30152fa08"
