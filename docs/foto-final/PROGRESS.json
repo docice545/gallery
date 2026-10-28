@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "repository": "docice545/gallery",
+  "branch": "codex/foto-final-rc-20261028",
+  "base": {
+    "ref": "fix/foto-offline-library-20261027",
+    "sha": "2eb2816f94647587a60c9b0e014bfdb30152fa08"
+  },
+  "checkpoint": {
+    "stage": "integration-baseline",
+    "commit": "58330fb1e",
+    "status": "RECORDED",
+    "productionChanged": false,
+    "apkBuilt": false,
+    "published": false,
+    "tests": {
+      "git_history": "PASS",
+      "cloud_static_source_audit": "PASS",
+      "flutter_android_ios_hp": "BLOCKED"
+    }
+  },
+  "nextStage": "stack-duplicate-trash-performance"
+}
