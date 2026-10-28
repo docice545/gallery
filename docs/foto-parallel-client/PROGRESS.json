@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "repository": "docice545/gallery",
+  "branch": "codex/foto-client-acceptance-20261028-alt",
+  "base": {
+    "ref": "codex/foto-final-rc-20261028",
+    "sha": "4bd351510bba8750f0f54d8777523d6603a44fdd"
+  },
+  "build21": "57b79cf3a7f11960ead971ca8963d666cc6baa91",
+  "historicalOfflineBase": "2eb2816f94647587a60c9b0e014bfdb30152fa08",
+  "stage": "inventory",
+  "status": "RECORDED",
+  "productionChanged": false,
+  "apkBuilt": false,
+  "tests": {
+    "github_ref_audit": "PASS",
+    "source_inventory": "PASS",
+    "device_and_hp": "BLOCKED",
+    "upstream_client_e2e": "NOT TESTED"
+  },
+  "nextStage": "client-regression-tests"
+}
