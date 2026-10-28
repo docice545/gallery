@@ -10,20 +10,30 @@
 
 The final RC already contains the client fixes that were absent from the Build 21 comparison: durable thumbnail warmup/cache, the Wi-Fi/cellular consent control, remote-only Android Live Photo selection/source handling, and their tests. The four-tool editor is present in both the Build 21 tree and final RC at this source SHA; a report that an APK shows the old editor therefore needs APK provenance/route evidence before another editor implementation is justified.
 
+## Stage B — client regression checks (2026-10-28)
+
+The final RC source was checked without changing application code. Focused Flutter checks passed (71 tests), Android JVM checks passed (9 suites / 91 tests), and Web Live Photo/component checks passed (49 tests). Scoped Flutter analysis, Web Svelte diagnostics, ESLint, Prettier, and the Web production build passed. Whole-tree Flutter analysis is blocked by missing/unsupported generated fixtures; see `specs/audits/foto-client-acceptance-2026-10.md`.
+
+The editor source is already four-tool in both Build 21 and final RC. Its reported absence in the installed APK remains an APK provenance or runtime-route question and cannot be closed from Cloud source inspection.
+
 ## Current gate state
 
 | Area | Cloud source/tests | Hardware or production evidence |
 |---|---|---|
-| Offline Drift catalogue and warmup | source and focused tests available; final branch run pending | Samsung cold-start/airplane-mode scroll **BLOCKED** |
-| Persistent thumbnail cache | Android unit tests in source; final JVM run pending | cache restore and storage pressure on Samsung **BLOCKED** |
-| Wi-Fi/cellular warmup setting | source and widget tests | real settings path/data warning on Samsung **BLOCKED** |
-| Android Live Photo, local and remote | candidate/source tests present | decoded frames on Samsung **BLOCKED** |
-| Web Live Photo | prior source tests recorded | Chromium with real media **NOT TESTED** |
+| Offline Drift catalogue and warmup | **PASS** — focused source tests | Samsung cold-start/airplane-mode scroll **BLOCKED** |
+| Persistent thumbnail cache | **PASS** — Android JVM cache/endpoint tests | cache restore and storage pressure on Samsung **BLOCKED** |
+| Wi-Fi/cellular warmup setting | **PASS** — focused source tests | real settings path/data warning on Samsung **BLOCKED** |
+| Android Live Photo, local and remote | **PASS** — focused source tests, including remote paired motion | decoded frames on Samsung **BLOCKED** |
+| Web Live Photo | **PASS** — 49 targeted tests, typecheck/lint/format/build | Chromium with real media **NOT TESTED** |
 | Places/Russian labels | restored source/tests recorded | HP geodata/native tiles/Geocoder **BLOCKED** |
-| Four-tool editor/Magic Eraser | source/tests present | APK route and Samsung/iOS UI **BLOCKED**; HP inference **BLOCKED** |
+| Four-tool editor/Magic Eraser | **SOURCE PRESENT** — editor unchanged between Build 21 and final RC | APK route and Samsung/iOS UI **BLOCKED**; HP inference **BLOCKED** |
 | Noodle Gallery Android/iOS compatibility | source/API audit only | unmodified clients against backend **NOT TESTED** |
 | PostgreSQL/NAS/migrations/production | read-only source audit only | HP disposable DB/NFS and production **BLOCKED** |
-| Overall release | **NOT RELEASE READY** | mandatory real-device, browser, iOS and HP gates open |
+| Overall release | **NOT RELEASE READY** | mandatory real-device, APK provenance, browser, iOS and HP gates open |
+
+## Evidence report
+
+See `specs/audits/foto-client-acceptance-2026-10.md` for the exact commit comparison, commands, test counts, blockers, and safe HP/device protocol.
 
 ## Resume protocol
 

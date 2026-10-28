@@ -1,22 +1,35 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "repository": "docice545/gallery",
   "branch": "codex/foto-client-acceptance-20261028-alt",
   "base": {
     "ref": "codex/foto-final-rc-20261028",
     "sha": "4bd351510bba8750f0f54d8777523d6603a44fdd"
   },
-  "build21": "57b79cf3a7f11960ead971ca8963d666cc6baa91",
+  "build21": {
+    "sha": "57b79cf3a7f11960ead971ca8963d666cc6baa91",
+    "parent": "e5c9fbb0af3dd7dd188f80620ce254881feeb5ca"
+  },
   "historicalOfflineBase": "2eb2816f94647587a60c9b0e014bfdb30152fa08",
-  "stage": "inventory",
+  "stage": "client-regression-tests",
   "status": "RECORDED",
   "productionChanged": false,
   "apkBuilt": false,
   "tests": {
     "github_ref_audit": "PASS",
     "source_inventory": "PASS",
+    "flutter_focused": "PASS_71",
+    "flutter_scoped_analyze": "PASS",
+    "flutter_whole_tree_analyze": "BLOCKED_GENERATED_FIXTURES",
+    "android_jvm": "PASS_91",
+    "web_live_photo": "PASS_49",
+    "web_svelte_check": "PASS",
+    "web_lint_format_build": "PASS",
     "device_and_hp": "BLOCKED",
-    "upstream_client_e2e": "NOT TESTED"
+    "upstream_client_e2e": "NOT_TESTED",
+    "apk_update_and_signature": "NOT_TESTED"
   },
-  "nextStage": "client-regression-tests"
+  "releaseStatus": "NOT_RELEASE_READY",
+  "report": "specs/audits/foto-client-acceptance-2026-10.md",
+  "nextStage": "hp-and-device-acceptance"
 }
