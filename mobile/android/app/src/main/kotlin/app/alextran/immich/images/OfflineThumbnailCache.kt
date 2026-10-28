@@ -46,8 +46,17 @@ internal class OfflineThumbnailCache(
       val authorization = requestHeaders.entries.firstOrNull { it.key.equals("authorization", true) }?.value
       val principal = token ?: authorization?.takeIf { it.isNotBlank() } ?: return null
       // Never write a username, token, endpoint, URL or account ID to the filesystem.
+      // A single server may be reached through an internal Wi-Fi address and
+      // a public/mobile-data endpoint. Do not pin offline files to the hostname,
+      // scheme or port: an automatic endpoint switch must keep the same media.
+      // Still separate accounts by credential and assets by media revision.
+      val assetId = segments[segments.size - 2].lowercase(Locale.ROOT)
+      val contentIdentity = listOf(
+        assetId, params.getValue("size"),
+        params["edited"] ?: "true", params.getValue("c")
+      ).joinToString("\n")
       return MessageDigest.getInstance("SHA-256").digest(
-        ("foto-offline-v1\n" + principal + "\n" + url).toByteArray(Charsets.UTF_8)
+        ("foto-offline-v2\n" + principal + "\n" + contentIdentity).toByteArray(Charsets.UTF_8)
       ).joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 0xff) }
     }
 
