@@ -53,6 +53,12 @@
       "hp_device_production": "BLOCKED"
     },
     "productionChanged": false,
-    "apkBuilt": false
+    "apkBuilt": false,
+    "githubPr": {
+      "status": "BLOCKED",
+      "reason": "gh CLI returned 403 Forbidden because configured GH_TOKEN is invalid",
+      "branchUrl": "https://github.com/docice545/gallery/tree/codex/foto-final-rc-20261028",
+      "compareUrl": "https://github.com/docice545/gallery/compare/main...codex/foto-final-rc-20261028?expand=1"
+    }
   }
 }

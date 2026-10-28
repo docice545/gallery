@@ -53,3 +53,10 @@ commit without repeating destructive work.
 - **Checks:** JSON/Python validation PASS; no APK, production, HP or device operation was executed.
 - **Next safe step:** create or update the integration PR; GitHub CLI authentication must be restored for API PR
   creation. The branch itself is already published and resumable.
+
+## GitHub publication status
+
+- Branch: `https://github.com/docice545/gallery/tree/codex/foto-final-rc-20261028`.
+- PR creation: **BLOCKED** in Cloud (`gh pr create` returned `403 Forbidden`; configured `GH_TOKEN` is invalid).
+- Recovery URL: `https://github.com/docice545/gallery/compare/main...codex/foto-final-rc-20261028?expand=1`.
+- No force-push was used; all checkpoints are linear and published.

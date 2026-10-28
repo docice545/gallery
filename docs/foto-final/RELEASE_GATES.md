@@ -17,3 +17,4 @@ does not imply device or production readiness.
 | Production migration/NAS switch | BLOCKED | No HP access and no approval | Owner-approved staging then switch |
 | Overall RELEASE READY | NOT RELEASE READY | Mandatory device/HP gates open | Do not publish APK or production |
 | RC source version for next APK | PASS (source) | `mobile/pubspec.yaml` is `5.7.3+22`; package/signing checks remain HP-only | Build and sign on HP after approval |
+| Integration PR | BLOCKED by Cloud auth | Branch is published; `gh pr create` returned 403 with invalid `GH_TOKEN` | Restore GitHub CLI token and use compare URL |
