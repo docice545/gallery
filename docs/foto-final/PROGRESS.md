@@ -47,7 +47,7 @@ commit without repeating destructive work.
 
 ## 2026-10-28 — Stage 3: release manifest
 
-- **Checkpoint:** `00aefbdb7a696ebbb55f2e5ccac1f6ed1ffbacb7` (published).
+- **Checkpoint:** `de5c94409b9e01d28a2929eb3defd3b481364ed1` (published; manifest sealed after the generator commit).
 - **Source changes:** added `release-manifest-20261028.json` and a clean-checkout generator with source/file
   SHA-256 provenance. The manifest records real gate statuses and keeps `overall=NOT_RELEASE_READY`.
 - **Checks:** JSON/Python validation PASS; no APK, production, HP or device operation was executed.
@@ -60,3 +60,9 @@ commit without repeating destructive work.
 - PR creation: **BLOCKED** in Cloud (`gh pr create` returned `403 Forbidden`; configured `GH_TOKEN` is invalid).
 - Recovery URL: `https://github.com/docice545/gallery/compare/main...codex/foto-final-rc-20261028?expand=1`.
 - No force-push was used; all checkpoints are linear and published.
+
+## 2026-10-28 — Stage 4: resumability and PR handoff
+
+- **Checkpoint:** `06754793212e91311d675803b5609fe18ecf53aa` (published).
+- **Files:** progress journal, release gates and PR handoff status.
+- **Result:** branch publication PASS; PR API creation BLOCKED by invalid Cloud GitHub token.

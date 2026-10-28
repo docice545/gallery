@@ -46,7 +46,7 @@
   },
   "stage3": {
     "status": "MANIFEST_PUBLISHED_NOT_RELEASE_READY",
-    "commit": "00aefbdb7a696ebbb55f2e5ccac1f6ed1ffbacb7",
+    "commit": "de5c94409b9e01d28a2929eb3defd3b481364ed1",
     "tests": {
       "manifest_json": "PASS",
       "manifest_generator_compile": "PASS",
@@ -60,5 +60,15 @@
       "branchUrl": "https://github.com/docice545/gallery/tree/codex/foto-final-rc-20261028",
       "compareUrl": "https://github.com/docice545/gallery/compare/main...codex/foto-final-rc-20261028?expand=1"
     }
+  },
+  "stage4": {
+    "status": "BRANCH_PUBLISHED_PR_BLOCKED",
+    "commit": "06754793212e91311d675803b5609fe18ecf53aa",
+    "tests": {
+      "remote_branch_head": "PASS",
+      "github_pr_api": "BLOCKED: invalid GH_TOKEN"
+    },
+    "productionChanged": false,
+    "apkBuilt": false
   }
 }
