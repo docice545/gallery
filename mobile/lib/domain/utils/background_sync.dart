@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/utils/migrate_cloud_ids.dart' as m;
 import 'package:immich_mobile/domain/utils/sync_linked_album.dart';
 import 'package:immich_mobile/providers/infrastructure/sync.provider.dart';
@@ -46,6 +47,7 @@ class BackgroundSyncManager {
   Cancelable<void>? _linkedAlbumSyncTask;
   Cancelable<void>? _hashTask;
   Cancelable<void>? _trashTask;
+  bool _sqliteRecoveryRequired = false;
 
   BackgroundSyncManager({
     this.onRemoteSyncStart,
@@ -87,6 +89,35 @@ class BackgroundSyncManager {
     _hashTask = null;
     _trashTask = null;
     await _cancelAll(tasks);
+  }
+
+  /// True after a worker reports an unsafe SQLite write failure. This flag
+  /// lives in the root isolate so a later request cannot silently create a new
+  /// worker with a fresh process-local recovery gate.
+  bool get sqliteRecoveryRequired => _sqliteRecoveryRequired;
+
+  /// Release the root-isolate barrier only after the user-mediated recovery
+  /// flow has validated and explicitly restored the repaired copy.
+  void clearSqliteRecoveryAfterValidatedRecovery() {
+    _sqliteRecoveryRequired = false;
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+  }
+
+  void _notifySqliteRecoveryRequired() {
+    onRemoteSyncError?.call('Primary SQLite database requires validated recovery before sync can continue');
+  }
+
+  void _observeSqliteRecovery<T>(Future<T> future) {
+    unawaited(
+      future.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace _) {
+          if (error is SqliteDatabaseUnhealthy) {
+            _sqliteRecoveryRequired = true;
+          }
+        },
+      ),
+    );
   }
 
   Future<void> cancelResumeSyncs() async {
@@ -237,6 +268,10 @@ class BackgroundSyncManager {
   }
 
   Future<bool> syncRemote({bool enqueue = false}) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value(false);
+    }
     if (_syncTask != null) {
       _syncQueued |= enqueue;
       return _syncTask!.future.then((result) => result ?? false).catchError((_) => false);
@@ -259,6 +294,9 @@ class BackgroundSyncManager {
           if (error is! CanceledError) {
             onRemoteSyncError?.call(error.toString());
           }
+          if (error is SqliteDatabaseUnhealthy) {
+            _sqliteRecoveryRequired = true;
+          }
           _syncQueued = false;
           return false;
         })
@@ -280,6 +318,10 @@ class BackgroundSyncManager {
       runInIsolateGentle(computation: (ref) => ref.read(syncStreamServiceProvider).sync(), debugLabel: 'remote-sync');
 
   Future<void> syncWebsocketBatchV1(List<dynamic> batchData) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
@@ -290,16 +332,25 @@ class BackgroundSyncManager {
   }
 
   Future<void> syncWebsocketBatchV2(List<dynamic> batchData) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
     _syncWebsocketTask = _handleWsAssetUploadReadyV2Batch(batchData);
+    _observeSqliteRecovery(_syncWebsocketTask!.future);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
   }
 
   Future<void> syncWebsocketEditV1(dynamic data) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
@@ -310,10 +361,15 @@ class BackgroundSyncManager {
   }
 
   Future<void> syncWebsocketEditV2(dynamic data) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
     _syncWebsocketTask = _handleWsAssetEditReadyV2(data);
+    _observeSqliteRecovery(_syncWebsocketTask!.future);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });

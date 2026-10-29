@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/utils/background_sync.dart';
 import 'package:worker_manager/worker_manager.dart';
 
@@ -103,6 +104,25 @@ void main() {
     expect(manager.trash, hasLength(1));
     expect(manager.trash.single.isCompleted, isFalse);
     manager.trash.single.complete();
+    await manager.cancel();
+  });
+
+  test('SQLite recovery failure gates root remote sync until explicit clear', () async {
+    final manager = _ControlledBackgroundSyncManager();
+    final first = manager.syncRemote();
+    manager.remote.completeError(const SqliteDatabaseUnhealthy('updateAssetsV2[user]', 779));
+
+    expect(await first.timeout(const Duration(seconds: 2)), isFalse);
+    expect(manager.sqliteRecoveryRequired, isTrue);
+
+    // The next request is rejected in the root isolate and cannot create a
+    // fresh worker with a process-local gate that has been reset.
+    expect(await manager.syncRemote().timeout(const Duration(seconds: 2)), isFalse);
+    await manager.syncWebsocketBatchV2([]);
+    await manager.syncWebsocketEditV2(const {});
+
+    manager.clearSqliteRecoveryAfterValidatedRecovery();
+    expect(manager.sqliteRecoveryRequired, isFalse);
     await manager.cancel();
   });
 
