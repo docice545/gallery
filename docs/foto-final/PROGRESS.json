@@ -144,14 +144,15 @@
       "samsungS23": "NOT_TESTED",
       "localDisposablePostgresRedis": "PASS_STARTED_PINNED_IMAGES",
       "localDockerServerBuild": "BLOCKED_ENOSPC_REGISTERING_PINNED_BASE_LAYERS",
-      "manifestStatusSeparation": "PASS_cbc395bc9"
+      "manifestStatusSeparation": "PASS_cbc395bc9",
+      "workflowTriggeredOnExactFinalSha": "PASS_PUSH_ca3305567"
     },
     "productionChanged": false,
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "compatibility-status-separation",
-    "commit": "cbc395bc99e885900688a59a5813c50187273e7f",
+    "stage": "final-sha-compatibility-workflow-triggered",
+    "commit": "ca3305567f93d1f77193690dbcbca65f6fab018d",
     "published": true,
     "remoteHeadVerified": true,
     "overall": "NOT_RELEASE_READY"

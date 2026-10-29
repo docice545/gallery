@@ -174,3 +174,13 @@ commit without repeating destructive work.
   evidence, but the manifest now records that a disposable API smoke on the
   current checkpoint is still required. The overall release stays
   `NOT RELEASE READY`.
+
+## 2026-10-29 — Stage 5g: exact-SHA workflow trigger
+
+- **Checkpoint:** `ca3305567f93d1f77193690dbcbca65f6fab018d` (published; remote
+  branch head verified).
+- The compatibility workflow received a checkpoint marker and was pushed on
+  this exact SHA, so its Android, iOS, API, cache, SQLite and Build22 jobs are
+  scheduled against the final source rather than an older receipt. Until the
+  hosted run reports results, every runtime gate remains pending and the
+  overall release remains `NOT RELEASE READY`.
