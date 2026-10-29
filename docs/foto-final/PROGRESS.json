@@ -203,8 +203,8 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "build22-p0-source-fixes",
-    "commit": "c40b15395",
+    "stage": "build22-p0-sqlite-recovery-and-android-action-gates",
+    "commit": "55e3b091e85a610f908c61aa6867b28a77891684",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": false,
@@ -240,6 +240,26 @@
       "flutterDartTests": "BLOCKED:no_flutter_or_dart_runtime",
       "pluginWasmBuild": "BLOCKED:extism-js_missing",
       "hostedRerun": "NOT_RUN:manual_dispatch_permission_required"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage7": {
+    "status": "P0_SOURCE_FIXES_PUBLISHED_HOSTED_RUNTIME_PENDING",
+    "sqliteImplementationCommit": "76f36de52a5abcdf42b2cbddb38207751c14f3e7",
+    "androidActionCommit": "55e3b091e85a610f908c61aa6867b28a77891684",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "sqliteFileBackedCorruptionRecovery": "PENDING_HOSTED_FLUTTER",
+      "sqliteErrorCode": "779_SQLITE_CORRUPT_INDEX",
+      "sqlitePendingAndCursorPreservation": "SOURCE_ASSERTIONS_PRESENT",
+      "sqliteCopyRepairAndResume": "SOURCE_ASSERTIONS_PRESENT",
+      "syncAckSuppression": "SOURCE_TEST_PRESENT",
+      "androidSmokeShellSyntax": "PASS",
+      "pythonReleaseHandoff": "PASS:3",
+      "gitDiffCheck": "PASS",
+      "run40937674495": "CANCELLED_BY_SUPERSEDING_CHECKPOINT_AFTER_API_PASS",
+      "run40938640647": "QUEUED"
     },
     "overall": "NOT_RELEASE_READY"
   }
