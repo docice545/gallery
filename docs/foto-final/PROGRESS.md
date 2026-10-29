@@ -184,3 +184,14 @@ commit without repeating destructive work.
   scheduled against the final source rather than an older receipt. Until the
   hosted run reports results, every runtime gate remains pending and the
   overall release remains `NOT RELEASE READY`.
+
+## 2026-10-29 — Stage 5h: SQLite snapshot retention fix
+
+- **Source checkpoint:** `f368af9e16d5a6dce642c7157c61fade9d68b6be` (published;
+  remote branch head verified at the source commit before this documentation
+  receipt).
+- Repeated corruption capture no longer overwrites a same-timestamp snapshot;
+  unique microsecond/suffix names preserve every evidence bundle. The Flutter
+  fixture now checks that behavior. The workflow triggered by the mobile source
+  change is the authoritative final-SHA run; its runtime result is still
+  pending and no release PASS is inferred.

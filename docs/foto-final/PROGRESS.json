@@ -145,16 +145,18 @@
       "localDisposablePostgresRedis": "PASS_STARTED_PINNED_IMAGES",
       "localDockerServerBuild": "BLOCKED_ENOSPC_REGISTERING_PINNED_BASE_LAYERS",
       "manifestStatusSeparation": "PASS_cbc395bc9",
-      "workflowTriggeredOnExactFinalSha": "PASS_PUSH_ca3305567"
+      "workflowTriggeredOnExactFinalSha": "PASS_PUSH_ca3305567",
+      "sqliteSnapshotRetention": "SOURCE_FIX_f368af9e1"
     },
     "productionChanged": false,
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "final-sha-compatibility-workflow-triggered",
-    "commit": "ca3305567f93d1f77193690dbcbca65f6fab018d",
+    "stage": "sqlite-snapshot-retention-fix",
+    "commit": "f368af9e16d5a6dce642c7157c61fade9d68b6be",
     "published": true,
     "remoteHeadVerified": true,
+    "documentationReceiptPending": true,
     "overall": "NOT_RELEASE_READY"
   }
 }
