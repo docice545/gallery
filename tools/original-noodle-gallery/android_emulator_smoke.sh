@@ -7,6 +7,14 @@ adb_bin=${ADB_BIN:-adb}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-/tmp/noodle-android-adb-diagnostics.log}
 ui_dump_attempts=${UI_DUMP_ATTEMPTS:-3}
 ui_dump_retry_delay=${UI_DUMP_RETRY_DELAY:-1}
+grant_media_permissions() {
+  for permission in \
+    android.permission.READ_MEDIA_IMAGES \
+    android.permission.READ_MEDIA_VIDEO \
+    android.permission.READ_MEDIA_VISUAL_USER_SELECTED; do
+    "$adb_bin" shell pm grant de.opennoodle.gallery "$permission" >/dev/null 2>&1 || true
+  done
+}
 phase=bootstrap
 mark_phase() { phase=$1; echo "phase=$phase" >&2; }
 ui_summary() {
@@ -298,9 +306,13 @@ mark_phase install
 $adb_bin install -r "$apk_path"
 mark_phase clear_and_launch
 $adb_bin shell pm clear de.opennoodle.gallery >/dev/null
+grant_media_permissions
 $adb_bin shell monkey -p de.opennoodle.gallery 1 >/tmp/noodle-monkey.log
 sleep 5
 mark_phase server_endpoint_dump
+dump_ui
+tap_text_any 'Allow all' 'Allow limited access' || true
+sleep 1
 dump_ui
 mark_phase server_endpoint_package
 $adb_bin shell dumpsys package de.opennoodle.gallery | grep -q "versionName=$version"

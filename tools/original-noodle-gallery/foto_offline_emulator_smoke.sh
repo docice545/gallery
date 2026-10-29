@@ -14,6 +14,17 @@ adb_run() {
 adb_clear() {
   timeout --signal=TERM --kill-after=5s "$adb_clear_timeout" "$adb_bin" "$@"
 }
+grant_media_permissions() {
+  # Android 14/15 photo access is reset by pm clear. These grants are scoped to
+  # the disposable emulator package; unsupported selected-media grants are
+  # intentionally best effort and the semantic dialog handler below remains.
+  for permission in \
+    android.permission.READ_MEDIA_IMAGES \
+    android.permission.READ_MEDIA_VIDEO \
+    android.permission.READ_MEDIA_VISUAL_USER_SELECTED; do
+    adb_run shell pm grant "$package_name" "$permission" >/dev/null 2>&1 || true
+  done
+}
 package_name=${PACKAGE_NAME:-de.opennoodle.gallery.debug}
 artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-$artifact_dir/adb-diagnostics.log}
@@ -310,9 +321,14 @@ adb_run shell am force-stop "$package_name" >/dev/null 2>&1 || true
 if ! adb_clear shell pm clear "$package_name" >"$artifact_dir/pm-clear.log" 2>&1; then
   echo "warning: pm clear did not complete within ${adb_clear_timeout}s; continuing with a disposable emulator" >&2
 fi
+grant_media_permissions
 mark_phase launch
 adb_run shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
 sleep 5
+if dump_ui; then
+  tap_text_any 'Allow all' 'Allow limited access' || true
+  sleep 1
+fi
 mark_phase server_endpoint_dump
 dump_ui
 mark_phase server_endpoint_activity
