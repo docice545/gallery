@@ -24,6 +24,11 @@ on:
 
 permissions: {}
 
+# Keep the expensive emulator and disposable-backend matrix bounded when small commits land.
+concurrency:
+  group: original-noodle-gallery-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   api-contract:
     name: API contract and compatibility regressions
@@ -43,13 +48,24 @@ jobs:
       - run: pnpm --dir server exec vitest run src/utils/client-contracts.spec.ts src/utils/original-noodle-gallery-contracts.spec.ts --config test/vitest.config.mjs
       - name: Start disposable backend dependencies
         run: |
-          docker compose -f e2e/docker-compose.yml up -d database redis
+          for attempt in 1 2 3; do
+            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+              docker compose -f e2e/docker-compose.yml up -d database redis && break
+            rc=$?
+            if [[ $attempt -eq 3 ]]; then exit $rc; fi
+            sleep $((attempt * 20))
+          done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
       - name: Build and start disposable FOTO backend
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          docker compose -f e2e/docker-compose.yml build immich-server
+          for attempt in 1 2 3; do
+            docker compose -f e2e/docker-compose.yml build immich-server && break
+            rc=$?
+            if [[ $attempt -eq 3 ]]; then exit $rc; fi
+            sleep $((attempt * 20))
+          done
           docker compose -f e2e/docker-compose.yml up -d immich-server
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
           docker compose -f e2e/docker-compose.yml logs immich-server
@@ -86,6 +102,10 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      # The two official APKs exercise the same disposable backend and emulator
+      # host. Keep them sequential so Docker pulls and KVM memory are bounded
+      # without dropping either version from the release gate.
+      max-parallel: 1
       matrix:
         version: ['5.8.0', '5.9.0']
     permissions:
@@ -115,11 +135,22 @@ jobs:
           echo "path=$PWD/gallery-v$VERSION.apk" >> "$GITHUB_OUTPUT"
       - name: Start disposable PostgreSQL and Redis
         run: |
-          docker compose -f e2e/docker-compose.yml up -d database redis
+          for attempt in 1 2 3; do
+            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+              docker compose -f e2e/docker-compose.yml up -d database redis && break
+            rc=$?
+            if [[ $attempt -eq 3 ]]; then exit $rc; fi
+            sleep $((attempt * 20))
+          done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
       - name: Build and start disposable FOTO backend
         run: |
-          docker compose -f e2e/docker-compose.yml build immich-server
+          for attempt in 1 2 3; do
+            docker compose -f e2e/docker-compose.yml build immich-server && break
+            rc=$?
+            if [[ $attempt -eq 3 ]]; then exit $rc; fi
+            sleep $((attempt * 20))
+          done
           docker compose -f e2e/docker-compose.yml up -d immich-server
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
           docker compose -f e2e/docker-compose.yml logs immich-server
@@ -138,7 +169,9 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -memory 4096 -cores 2 -gpu swiftshader_indirect
+          emulator-boot-timeout: 900
+          force-avd-creation: true
           script: |
             mkdir -p /tmp/noodle-e2e
             bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
@@ -264,14 +297,36 @@ jobs:
         working-directory: mobile
         # Keep this as a standalone retryable receipt: the prior hosted run
         # built the same APK, while a later runner failed before backend setup.
-        run: flutter build apk --debug --no-tree-shake-icons
+        run: |
+          set -euo pipefail
+          ram_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+          cpu_count=$(nproc)
+          echo "Runner memory: ${ram_mb} MiB; CPUs: ${cpu_count}"
+          heap_mb=$((ram_mb * 45 / 100))
+          if (( heap_mb < 4096 )); then heap_mb=4096; fi
+          if (( heap_mb > 8192 )); then heap_mb=8192; fi
+          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Dorg.gradle.workers.max=2"
+          # This receipt is deliberately x86_64-only for the hosted emulator.
+          # Release workflows continue to build the universal/arm64 artifacts.
+          flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64
       - name: Start disposable PostgreSQL and Redis
         run: |
-          docker compose -f e2e/docker-compose.yml up -d database redis
+          for attempt in 1 2 3; do
+            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+              docker compose -f e2e/docker-compose.yml up -d database redis && break
+            rc=$?
+            if [[ $attempt -eq 3 ]]; then exit $rc; fi
+            sleep $((attempt * 20))
+          done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
       - name: Build and start disposable FOTO backend
         run: |
-          docker compose -f e2e/docker-compose.yml build immich-server
+          for attempt in 1 2 3; do
+            docker compose -f e2e/docker-compose.yml build immich-server && break
+            rc=$?
+            if [[ $attempt -eq 3 ]]; then exit $rc; fi
+            sleep $((attempt * 20))
+          done
           docker compose -f e2e/docker-compose.yml up -d immich-server
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
           docker compose -f e2e/docker-compose.yml logs immich-server
@@ -307,7 +362,9 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -memory 4096 -cores 2 -gpu swiftshader_indirect
+          emulator-boot-timeout: 900
+          force-avd-creation: true
           script: |
             bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
       - name: Upload FOTO offline evidence

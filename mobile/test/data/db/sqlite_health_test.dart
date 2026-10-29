@@ -46,8 +46,8 @@ void main() {
     expect(snapshot.files, hasLength(1));
     expect(File('${snapshot.directory.path}/immich.sqlite-wal').existsSync(), isFalse);
 
-    expect(
-      () => captureSqliteRecoverySnapshot(
+    await expectLater(
+      captureSqliteRecoverySnapshot(
         database: File('${source.path}/missing.sqlite'),
         outputDirectory: output,
       ),
