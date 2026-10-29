@@ -164,6 +164,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           sudo chmod 0666 /dev/kvm 2>/dev/null || true
           ls -l /dev/kvm 2>/dev/null || true
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then echo 'KVM usable'; else echo '::warning::KVM is unavailable; emulator action will use its documented software fallback'; fi
           adb kill-server || true
           adb start-server
           adb version
@@ -200,8 +201,8 @@ jobs:
             api-level: 35
             target: google_apis
             arch: x86_64
-            disable-animations: false
-            emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
+            disable-animations: true
+            emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
             emulator-boot-timeout: 900
             force-avd-creation: true
             script: |
@@ -451,6 +452,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           sudo chmod 0666 /dev/kvm 2>/dev/null || true
           ls -l /dev/kvm 2>/dev/null || true
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then echo 'KVM usable'; else echo '::warning::KVM is unavailable; emulator action will use its documented software fallback'; fi
           adb kill-server || true
           adb start-server
           adb version
@@ -468,8 +470,8 @@ jobs:
             api-level: 35
             target: google_apis
             arch: x86_64
-            disable-animations: false
-            emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
+            disable-animations: true
+            emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
             emulator-boot-timeout: 900
             force-avd-creation: true
             script: |

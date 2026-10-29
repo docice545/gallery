@@ -5,6 +5,8 @@ version=${2:?version is required}
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-/tmp/noodle-android-adb-diagnostics.log}
+phase=bootstrap
+mark_phase() { phase=$1; echo "phase=$phase" >&2; }
 adb_diagnostics() {
   {
     echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -21,6 +23,7 @@ adb_diagnostics() {
 }
 on_error() {
   rc=$?
+  echo "::error title=official Android smoke phase::phase=$phase rc=$rc"
   adb_diagnostics
   return "$rc"
 }
@@ -63,6 +66,13 @@ tap_text() {
   read -r x y < <(center "$b")
   $adb_bin shell input tap "$x" "$y"
 }
+tap_text_any() {
+  local needle
+  for needle in "$@"; do
+    if tap_text "$needle"; then return 0; fi
+  done
+  return 1
+}
 edit_text_at() {
   local i=$1 value=$2 b x y
   b=$(python3 - "$i" /tmp/noodle-window.xml <<'PY'
@@ -76,28 +86,37 @@ PY
   $adb_bin shell input tap "$x" "$y"
   $adb_bin shell input text "$value"
 }
+mark_phase wait_for_boot
 wait_for_boot
+mark_phase install
 "$adb_bin" start-server >/dev/null 2>&1 || true
 $adb_bin install -r "$apk_path"
+mark_phase clear_and_launch
 $adb_bin shell pm clear de.opennoodle.gallery >/dev/null
 $adb_bin shell monkey -p de.opennoodle.gallery 1 >/tmp/noodle-monkey.log
 sleep 5
+mark_phase server_endpoint
 dump_ui
 $adb_bin shell dumpsys package de.opennoodle.gallery | grep -q "versionName=$version"
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
-tap_text 'Server Endpoint URL'
+tap_text_any 'Server Endpoint URL' 'Endpoint URL' 'Server URL'
+mark_phase enter_server
 edit_text_at 0 "$server_url"
-tap_text 'Next'
+tap_text_any 'Next' 'Continue'
+mark_phase wait_login
 for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
 grep -qi Email /tmp/noodle-window.xml
+mark_phase credentials
 edit_text_at 0 'admin@immich.cloud'
 edit_text_at 1 'password'
-tap_text 'Login'
+tap_text_any 'Login' 'Log in'
 sleep 12
+mark_phase authenticated
 dump_ui
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
 $adb_bin shell screencap -p /sdcard/noodle-$version.png
 $adb_bin pull /sdcard/noodle-$version.png "${ARTIFACT_DIR:-/tmp}/noodle-$version.png" >/dev/null
+mark_phase complete
 trap - ERR
 echo "Noodle Gallery $version installed, authenticated, and foreground on disposable backend."
 

@@ -7,6 +7,8 @@ adb_bin=${ADB_BIN:-adb}
 package_name=${PACKAGE_NAME:-de.opennoodle.gallery.debug}
 artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-$artifact_dir/adb-diagnostics.log}
+phase=bootstrap
+mark_phase() { phase=$1; echo "phase=$phase" >&2; }
 mkdir -p "$artifact_dir"
 adb_diagnostics() {
   {
@@ -24,6 +26,7 @@ adb_diagnostics() {
 }
 on_error() {
   rc=$?
+  echo "::error title=FOTO offline smoke phase::phase=$phase rc=$rc"
   adb_diagnostics
   return "$rc"
 }
@@ -66,6 +69,13 @@ tap_text() {
   read -r x y < <(center "$b")
   $adb_bin shell input tap "$x" "$y"
 }
+tap_text_any() {
+  local needle
+  for needle in "$@"; do
+    if tap_text "$needle"; then return 0; fi
+  done
+  return 1
+}
 edit_text_at() {
   local i=$1 value=$2 b x y
   b=$(python3 - "$i" /tmp/noodle-window.xml <<'PY'
@@ -79,23 +89,31 @@ PY
   $adb_bin shell input tap "$x" "$y"
   $adb_bin shell input text "$value"
 }
+mark_phase wait_for_boot
 wait_for_boot
+mark_phase install
 "$adb_bin" start-server >/dev/null 2>&1 || true
 $adb_bin install -r "$apk_path"
+mark_phase clear_and_launch
 $adb_bin shell pm clear "$package_name" >/dev/null
 $adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
 sleep 5
+mark_phase server_endpoint
 dump_ui
 $adb_bin shell dumpsys activity activities | grep -q "$package_name"
-tap_text 'Server Endpoint URL'
+tap_text_any 'Server Endpoint URL' 'Endpoint URL' 'Server URL'
+mark_phase enter_server
 edit_text_at 0 "$server_url"
-tap_text 'Next'
+tap_text_any 'Next' 'Continue'
+mark_phase wait_login
 for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
 grep -qi Email /tmp/noodle-window.xml
+mark_phase credentials
 edit_text_at 0 'admin@immich.cloud'
 edit_text_at 1 'password'
-tap_text 'Login'
+tap_text_any 'Login' 'Log in'
 sleep 12
+mark_phase authenticated
 dump_ui
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
 for _ in $(seq 1 30); do
@@ -120,6 +138,7 @@ assert_rendered_capture "$artifact_dir/online.png"
 # both emulator transports are disabled.
 $adb_bin shell svc wifi disable
 $adb_bin shell svc data disable
+mark_phase offline_restart
 $adb_bin shell am force-stop "$package_name"
 $adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/offline-launch.log"
 sleep 12
@@ -135,6 +154,7 @@ $adb_bin shell screencap -p /sdcard/foto-offline.png
 $adb_bin pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
 ! grep -Eqi 'Could not load value|Enable backup|Something went wrong' /tmp/noodle-window.xml
 assert_rendered_capture "$artifact_dir/offline.png"
+mark_phase complete
 $adb_bin shell svc wifi enable || true
 $adb_bin shell svc data enable || true
 echo "FOTO offline emulator smoke passed: login, synced timeline, force-stop, offline relaunch, and local catalog render."
