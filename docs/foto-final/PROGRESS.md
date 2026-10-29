@@ -150,6 +150,11 @@ commit without repeating destructive work.
   leaving release/universal builds unchanged, serializes official APK matrix
   jobs, adds emulator cold-boot diagnostics, and retries pinned Docker pulls
   and disposable backend builds with backoff (`75cc67e87`).
+- **Local disposable attempt:** pinned PostgreSQL/Redis pulled and started;
+  the server image build then failed with Docker `no space left on device`
+  while registering the large pinned base layers. Containers and images were
+  removed afterward. This is recorded as a local resource limit, not a backend
+  or migration PASS; the hosted workflow remains the authoritative build gate.
 - **Current gate status:** API smoke remains PASS on run `40866220811`; official
   APK provenance remains PASS; Android unchanged-client E2E, Build22 offline
   process-death E2E, Flutter/iOS checks, SQLite runtime replay, Samsung S23 and

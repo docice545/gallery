@@ -220,6 +220,9 @@ jobs:
       - name: Run offline thumbnail warmup policy tests
         working-directory: mobile
         run: flutter test --no-pub test/domain/services/offline_thumbnail_warmup_test.dart
+      - name: Run SQLite recovery fixture tests
+        working-directory: mobile
+        run: flutter test --no-pub test/data/db/sqlite_health_test.dart
       - name: Build unsigned iOS simulator app
         working-directory: mobile
         run: flutter build ios --simulator --no-codesign
@@ -268,7 +271,13 @@ jobs:
           install -m 644 "$wrapper/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
       - name: Run Android cache unit tests
         working-directory: mobile/android
-        run: ./gradlew --no-daemon :app:testDebugUnitTest --tests 'app.alextran.immich.images.OfflineThumbnailCacheTest' --console=plain
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest \
+            --tests 'app.alextran.immich.images.OfflineThumbnailCacheTest' \
+            --tests 'app.alextran.immich.cloudmedia.CloudAdmissionPolicyTest' \
+            --tests 'app.alextran.immich.cloudmedia.CloudMimeTest' \
+            --tests 'app.alextran.immich.cloudmedia.CloudRangeReaderTest' \
+            --console=plain
 
   foto-offline-emulator:
     name: FOTO Build 22 offline timeline emulator E2E

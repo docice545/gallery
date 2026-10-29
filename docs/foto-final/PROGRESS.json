@@ -140,7 +140,9 @@
       "officialAndroidE2E": "PENDING_HOSTED_EMULATOR",
       "iosSimulator": "PENDING_MACOS_CI",
       "sqliteRecoveryRuntime": "NOT_TESTED",
-      "samsungS23": "NOT_TESTED"
+      "samsungS23": "NOT_TESTED",
+      "localDisposablePostgresRedis": "PASS_STARTED_PINNED_IMAGES",
+      "localDockerServerBuild": "BLOCKED_ENOSPC_REGISTERING_PINNED_BASE_LAYERS"
     },
     "productionChanged": false,
     "overall": "NOT_RELEASE_READY"
