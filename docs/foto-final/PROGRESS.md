@@ -269,3 +269,15 @@ commit without repeating destructive work.
 - **Final retry:** GHCR authentication was added in `1f27ec1f15af` with
   `packages: read`; final stabilized run `40890985422` is waiting on a hosted
   runner. No further heavy workflow was started after that push.
+
+## 2026-10-29 — Stage 6: Build 22 P0 compatibility and Android gate repair
+
+- **Checkpoint:** `c40b15395` on `codex/foto-build22-resume-20261029`; remote branch SHA verified.
+- **Fact check:** public GitHub Actions run `40909759811` was re-read from GitHub web. `api-contract` is PASS; `ios-contract` is CANCELLED; `android-offline-cache` and `foto-offline-emulator` are FAIL; both stock Android 5.8.0 (`123575099353`) and 5.9.0 (`123575100102`) exhaust all retries at `phase=wait_login` with the exact server-version incompatibility message. The run is on `b216af2be0dd5867c45221724f9612afff62abb8`.
+- **Root cause and fix:** official v5.8.0/v5.9.0 source accepts server major versions from `app.major` through `app.major + 1`. The disposable backend exposed the un-stamped `server/package.json` fallback `3.2.0`, so both unchanged 5.x clients rejected it before login. `e2e/docker-compose.yml` now passes the existing Docker `BUILD_VERSION=5.7.3` stamp, and the API smoke asserts `/api/server/version` is `5.7.3`. Original APKs remain byte-for-byte untouched.
+- **Android smoke:** both emulator scripts now poll the UI hierarchy for a semantic text input (including compatible subclasses/input-type metadata), emit the current phase and UI summary on timeout, and no longer throw an uninformative `IndexError` when the field is not present. A fake no-field run exits explicitly at `server_endpoint_field`.
+- **Gradle:** the hosted cache job and Build 22 debug build now bound heap to runner memory, cap heap at 6 GiB, disable parallel workers, disable the daemon for unit tests, and persist complete JVM/Kotlin daemon options through Gradle user properties for Flutter builds. Tests must still run; no assertions were disabled.
+- **SQLite:** added a copy-only recovery operator and fixtures. It validates a captured DB/WAL/SHM snapshot, runs integrity and foreign-key checks, fingerprints user tables including pending operations, only attempts named-index `REINDEX` on a proven index-only failure, writes a redacted receipt, and never promotes a candidate. Flutter execution remains pending because this Cloud image has no Dart/Flutter runtime.
+- **Verification:** 12 server compatibility/API contract tests PASS; `pnpm --dir server build` PASS with 79 Gallery migrations and compatibility aliases; version-stamp unit probe PASS; Docker Compose config, shell syntax, Python/JSON checks and `git diff --check` PASS. Plugin WASM build is BLOCKED by missing pinned `extism-js`; hosted Android/iOS/device/HP/NAS gates remain open.
+- **Production:** unchanged. No HP, NAS, signing key, real user data or production service was accessed.
+- **Next stage:** run one controlled hosted workflow on this exact published SHA, then inspect jobs/artifacts before continuing SQLite device replay, original-client full flows, and remaining product gates.

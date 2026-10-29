@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "docice545/gallery",
-  "branch": "codex/foto-master-final-20261029",
+  "branch": "codex/foto-build22-resume-20261029",
   "base": {
     "ref": "codex/foto-final-rc-20261028",
     "sha": "8910f0281cdcec731b585a9e0efdefcba59827e5"
@@ -203,11 +203,44 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "ghcr-auth-final-hosted-run",
-    "commit": "1f27ec1f15af1351e13b459f1d5709c6c121a3d2",
+    "stage": "build22-p0-source-fixes",
+    "commit": "c40b15395",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": false,
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage6": {
+    "status": "P0_SOURCE_FIXES_PUBLISHED_HOSTED_RERUN_REQUIRED",
+    "commit": "c40b15395",
+    "published": true,
+    "remoteHeadVerified": true,
+    "productionChanged": false,
+    "run40909759811": {
+      "headSha": "b216af2be0dd5867c45221724f9612afff62abb8",
+      "apiContract": "PASS",
+      "iosContract": "CANCELLED",
+      "androidOfflineCache": "FAIL",
+      "fotoOfflineEmulator": "FAIL",
+      "stockAndroid580": "FAIL:server_version_admission",
+      "stockAndroid590": "FAIL:server_version_admission"
+    },
+    "fixes": {
+      "compatibilityBackendVersion": "BUILD_VERSION=5.7.3 plus API assertion",
+      "androidUiSmoke": "explicit semantic input wait and timeout receipt",
+      "gradleHeap": "dynamic 4-6GiB heap, one worker, daemon controls",
+      "sqliteRecovery": "copy-only diagnostic/index-repair operator; no promotion"
+    },
+    "tests": {
+      "serverContractTests": "PASS:12",
+      "serverBuild": "PASS:79_gallery_migrations_and_aliases",
+      "versionStampProbe": "PASS",
+      "dockerComposeConfig": "PASS",
+      "shellAndJsonChecks": "PASS",
+      "flutterDartTests": "BLOCKED:no_flutter_or_dart_runtime",
+      "pluginWasmBuild": "BLOCKED:extism-js_missing",
+      "hostedRerun": "NOT_RUN:manual_dispatch_permission_required"
+    },
     "overall": "NOT_RELEASE_READY"
   }
 }
