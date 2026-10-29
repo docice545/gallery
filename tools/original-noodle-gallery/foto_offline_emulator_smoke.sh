@@ -76,9 +76,14 @@ tap_text 'Login'
 sleep 12
 dump_ui
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
+for _ in $(seq 1 30); do
+  grep -Eq '2020|2024' /tmp/noodle-window.xml && break
+  sleep 2
+  dump_ui
+done
+grep -Eq '2020|2024' /tmp/noodle-window.xml
 $adb_bin shell screencap -p /sdcard/foto-online.png
 $adb_bin pull /sdcard/foto-online.png "$artifact_dir/online.png" >/dev/null
-grep -Eq '2020|2024' /tmp/noodle-window.xml
 
 assert_rendered_capture() {
   local file=$1 colors
@@ -97,10 +102,15 @@ $adb_bin shell am force-stop "$package_name"
 $adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/offline-launch.log"
 sleep 12
 dump_ui
+$adb_bin shell dumpsys activity activities | grep -q "$package_name"
+for _ in $(seq 1 30); do
+  grep -Eq '2020|2024' /tmp/noodle-window.xml && break
+  sleep 2
+  dump_ui
+done
+grep -Eq '2020|2024' /tmp/noodle-window.xml
 $adb_bin shell screencap -p /sdcard/foto-offline.png
 $adb_bin pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
-$adb_bin shell dumpsys activity activities | grep -q "$package_name"
-grep -Eq '2020|2024' /tmp/noodle-window.xml
 ! grep -Eqi 'Could not load value|Enable backup|Something went wrong' /tmp/noodle-window.xml
 assert_rendered_capture "$artifact_dir/offline.png"
 $adb_bin shell svc wifi enable || true
