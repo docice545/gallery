@@ -112,12 +112,13 @@
     "tests": {
       "gitDiffCheck": "PASS",
       "disposableApiSmoke": "PASS_RUN_40864366678_COMMIT_4c123818fc03cc7f4ca434f12ae41dade047b4c6",
-      "flutterWidgetTests": "PENDING_CI",
-      "androidCacheUnitTests": "PENDING_CI",
+      "flutterWidgetTests": "PENDING_CI_RUN_40866439346",
+      "androidCacheUnitTests": "PASS_RUN_40865110861",
       "build22OfflineEmulator": "PENDING_CI",
       "samsungS23": "NOT_TESTED"
     },
     "workflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
-    "apkBuilt": false
+    "apkBuilt": true,
+    "apkBuildEvidence": "RUN_40865110861"
   }
 }

@@ -127,3 +127,7 @@ commit without repeating destructive work.
   rendered-pixel tests, Android cache unit tests, Build22 offline process-death
   replay, iOS simulator checks, and Samsung S23 remain pending or blocked until
   their hosted jobs complete.
+- **CI update:** Android durable-cache unit tests passed in run
+  `40865110861`; the same run also built the Build22 debug APK successfully.
+  The Build22 emulator replay and Flutter rendered-pixel tests are still
+  running, so the two P0 gates remain open.
