@@ -242,12 +242,16 @@ jobs:
           working_directory: ./mobile
       - name: Install mobile dependencies and generated clients
         run: mise //mobile:install:ci && mise //mobile:codegen
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - name: Build final debug APK for emulator evidence
         working-directory: mobile
         run: flutter build apk --debug --no-tree-shake-icons
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - name: Start disposable PostgreSQL and Redis
         run: |
           docker compose -f e2e/docker-compose.yml up -d database redis
