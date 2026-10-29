@@ -61,9 +61,9 @@ jobs:
             -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
       - name: Ensure API smoke media tool is available
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v convert >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y ffmpeg
+            sudo apt-get install -y ffmpeg imagemagick
           fi
       - name: Run disposable backend API smoke flows
         run: bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285
@@ -262,6 +262,10 @@ jobs:
       - name: Seed account and edge-content fixture
         run: |
           set -euo pipefail
+          if ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
           command -v convert
           base='http://127.0.0.1:2285/api'
           curl --fail --silent -X POST "$base/auth/admin-sign-up" -H 'content-type: application/json' \
