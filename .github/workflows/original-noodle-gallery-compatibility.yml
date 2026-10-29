@@ -52,14 +52,16 @@ jobs:
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
           docker compose -f e2e/docker-compose.yml logs immich-server
           exit 1
-      - name: Run server sync compatibility regressions
-        env:
-          DB_HOSTNAME: 127.0.0.1
-          DB_PORT: 5435
-          DB_USERNAME: postgres
-          DB_PASSWORD: postgres
-          DB_DATABASE_NAME: immich
-        run: pnpm --dir server exec vitest run test/medium/specs/sync/sync-client-compat.spec.ts --config test/vitest.config.medium.mjs
+      - name: Run disposable backend API smoke flows
+        run: |
+          set -euo pipefail
+          base='http://127.0.0.1:2285/api'
+          token=$(curl --fail --silent -X POST "$base/auth/login" -H 'content-type: application/json' -d '{"email":"admin@immich.cloud","password":"password"}' | jq -r .accessToken)
+          test -n "$token" && test "$token" != null
+          curl --fail --silent "$base/auth/status" -H "Authorization: Bearer $token" >/dev/null
+          curl --fail --silent "$base/albums" -H "Authorization: Bearer $token" >/dev/null
+          curl --fail --silent "$base/search/explore" -H "Authorization: Bearer $token" >/dev/null
+          curl --fail --silent "$base/trash/empty/preflight" -H "Authorization: Bearer $token" >/dev/null
       - name: Upload contract receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

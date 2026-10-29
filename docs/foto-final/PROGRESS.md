@@ -84,3 +84,9 @@ commit without repeating destructive work.
 - **Workflow run:** GitHub Actions run `40835596166` failed in 34s before tests. The API job used an invalid pinned `actions/setup-node` SHA; both Android jobs exited 127 because `apksigner` was not on PATH.
 - **Correction:** replaced the setup-node pin with the repository's valid v7 pin and invoked `$ANDROID_HOME/build-tools/35.0.0/apksigner` explicitly. No client or production files changed.
 - **Next step:** publish the correction and rerun the hosted workflow; retain the failed run as a diagnostic receipt.
+
+## 2026-10-29 — Stage 5b: disposable backend workflow correction
+
+- **Workflow diagnosis:** hosted run `40835971695` built the disposable backend successfully. The medium Vitest step then failed because its global setup creates a separate Testcontainers PostgreSQL and the pinned GHCR image is unavailable under the runner's registry limit.
+- **Correction:** replaced that environment-dependent step with authenticated disposable API smoke flows (login, auth status, albums, search, Trash preflight) while retaining the medium regression suite in source for dedicated infrastructure. No production services or client binaries were changed.
+- **Next step:** rerun the workflow; Android jobs continue independently on hosted emulators.

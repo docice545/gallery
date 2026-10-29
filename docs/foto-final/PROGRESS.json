@@ -84,7 +84,8 @@
       "local_android_emulator": "BLOCKED:no KVM/VMX/SVM",
       "hosted_android_emulator": "FAIL:run 40835596166 action pin/apksigner path; corrected in next checkpoint",
       "ios_testflight_or_simulator": "NOT TESTED:no macOS",
-      "disposable_backend": "PENDING:registry rate limit in Cloud"
+      "disposable_backend": "PASS:built and pinged in run 40835971695; API smoke replacement queued after Testcontainers registry failure",
+      "medium_sync_regression": "NOT RUN in hosted gate: Testcontainers GHCR registry limit"
     },
     "commit": "PENDING_CHECKPOINT_COMMIT",
     "nextAttempt": "rerun hosted workflow after 063d03ee7 correction"
