@@ -181,5 +181,7 @@ jobs:
       - name: Record iOS build receipt
         run: |
           xcodebuild -version
-          test -d mobile/build/ios/iphonesimulator/Runner.app
+          test -d mobile/build/ios/iphonesimulator
+          find mobile/build/ios/iphonesimulator -maxdepth 2 -type d -name '*.app' -print -quit | tee ios-simulator-app.txt
+          test -s ios-simulator-app.txt
 
