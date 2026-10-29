@@ -203,8 +203,8 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "build22-p0-sqlite-recovery-and-android-action-gates",
-    "commit": "55e3b091e85a610f908c61aa6867b28a77891684",
+    "stage": "hosted-p0-proof-bounded-build22-launch-diagnosis",
+    "commit": "99d4a58eabf6cc13f1f4e4fc3151cde051925b03",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": false,
@@ -260,6 +260,30 @@
       "gitDiffCheck": "PASS",
       "run40937674495": "CANCELLED_BY_SUPERSEDING_CHECKPOINT_AFTER_API_PASS",
       "run40938640647": "QUEUED"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage8": {
+    "status": "HOSTED_SQLITE_P0_PASS_BUILD22_LAUNCH_DIAGNOSIS_RERUN_PENDING",
+    "sqliteHostedRun": "40938640647",
+    "sqliteHostedCommit": "55e3b091e85a610f908c61aa6867b28a77891684",
+    "priorBuild22Run": "40945591027",
+    "priorBuild22Commit": "52129624a0cc1bcf65bcc22ef096c49154b8a000",
+    "sourceCommit": "99d4a58eabf6cc13f1f4e4fc3151cde051925b03",
+    "rerun": "40950288472",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "sqliteFileBackedCorruptionRecovery": "PASS_HOSTED_IOS_RUN_40938640647",
+      "sqliteErrorCode": "779_SQLITE_CORRUPT_INDEX",
+      "sqlitePendingAndCursorPreservation": "PASS_HOSTED_IOS_RUN_40938640647",
+      "sqliteCopyRepairAndResume": "PASS_HOSTED_IOS_RUN_40938640647",
+      "syncAckSuppression": "PASS_SOURCE_TEST",
+      "officialAndroid580": "PASS_RUN_40938640647",
+      "officialAndroid590": "PASS_RUN_40938640647",
+      "fotoOfflineEmulator": "FAIL_RUN_40945591027:three attempts stopped at clear_and_launch",
+      "fotoLaunchFix": "PASS_LOCAL_SHELL_AND_SOURCE_CHECKS",
+      "fotoRerun": "PENDING_RUN_40950288472"
     },
     "overall": "NOT_RELEASE_READY"
   }
