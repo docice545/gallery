@@ -6,7 +6,15 @@ base=${base_url%/}/api
 workdir=${TMPDIR:-/tmp}/noodle-api-smoke
 mkdir -p "$workdir"
 stage=preflight
-trap 'printf "%s\n%s\n" "$stage" "$BASH_COMMAND" > "$workdir/failure.txt"; echo "API smoke failed at stage $stage (line $LINENO): $BASH_COMMAND" >&2' ERR
+stage_code() {
+  case "$1" in
+    preflight) echo 71 ;; login) echo 72 ;; discovery) echo 73 ;;
+    media_generation) echo 74 ;; upload) echo 75 ;; downloads) echo 76 ;;
+    albums) echo 77 ;; sync) echo 78 ;; acks_and_trash) echo 79 ;;
+    reconnect) echo 80 ;; *) echo 70 ;;
+  esac
+}
+trap 'status=$?; code=$(stage_code "$stage"); printf "%s\n%s\n%s\n" "$stage" "$status" "$BASH_COMMAND" > "$workdir/failure.txt"; echo "API smoke failed at stage $stage (line $LINENO): $BASH_COMMAND" >&2; exit "$code"' ERR
 mark_stage() { stage=$1; printf '%s\n' "$stage" > "$workdir/stage.txt"; }
 mark_stage preflight
 command -v curl jq ffmpeg convert >/dev/null
