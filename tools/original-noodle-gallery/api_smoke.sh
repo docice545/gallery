@@ -9,8 +9,7 @@ stage=preflight
 trap 'printf "%s\n%s\n" "$stage" "$BASH_COMMAND" > "$workdir/failure.txt"; echo "API smoke failed at stage $stage (line $LINENO): $BASH_COMMAND" >&2' ERR
 mark_stage() { stage=$1; printf '%s\n' "$stage" > "$workdir/stage.txt"; }
 mark_stage preflight
-command -v curl jq node ffmpeg >/dev/null
-node -e "require.resolve('sharp')"
+command -v curl jq ffmpeg convert >/dev/null
 
 mark_stage login
 json_header=(-H 'content-type: application/json')
@@ -27,18 +26,7 @@ curl --fail --silent --show-error "$base/trash/empty/preflight" "${auth[@]}" >/d
 echo 'API smoke: auth and discovery passed'
 
 mark_stage media_generation
-node - "$workdir/noodle-still.jpg" <<'NODE'
-const sharp = require('sharp');
-const output = process.argv[2];
-(async () => {
-  await sharp({ create: { width: 32, height: 32, channels: 3, background: { r: 32, g: 96, b: 160 } } })
-    .jpeg()
-    .toFile(output);
-})().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
-NODE
+convert -size 32x32 xc:'rgb(32,96,160)' -quality 85 "$workdir/noodle-still.jpg"
 ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=16x16:d=1 \
   -vf format=yuv420p -c:v libx264 -movflags +faststart -y "$workdir/noodle-motion.mp4"
 
