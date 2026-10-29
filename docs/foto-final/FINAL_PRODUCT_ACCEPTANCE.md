@@ -6,7 +6,7 @@ macOS, Samsung, iOS, or CI runtime; `NOT TESTED` means no claim is made.
 
 | # | Gate | Status | Evidence / remaining blocker |
 |---:|---|---|---|
-| 1 | Git integration | PASS | Source checkpoint `46e013adaddeddf8d9b358bcd10b5f721270e0ed` and documentation checkpoint `9544373a55629dddba8272507e70870bb797e671` are pushed; remote branch and `main` resolve to the published head |
+| 1 | Git integration | PASS | Source checkpoint `46e013adaddeddf8d9b358bcd10b5f721270e0ed` and the accompanying reports are pushed; remote branch and `main` resolve to the final published head |
 | 2 | Offline catalogue | PASS | Existing offline source line and regression receipts in RC |
 | 3 | Thumbnail warmup | PASS | Existing mobile tests and RC receipts |
 | 4 | Wi-Fi/cellular | PASS | Existing network preference tests |
