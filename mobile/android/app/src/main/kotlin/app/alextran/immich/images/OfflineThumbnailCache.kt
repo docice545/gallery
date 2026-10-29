@@ -82,7 +82,11 @@ internal class OfflineThumbnailCache(
   fun read(key: String): ByteArray? {
     if (!shaName.matches(key)) return null
     val file = File(directory, key)
-    if (!file.isFile || file.length() !in 12L..MAX_ITEM_BYTES.toLong()) return null
+    if (!file.isFile) return null
+    if (file.length() !in 12L..MAX_ITEM_BYTES.toLong()) {
+      file.delete()
+      return null
+    }
     return try {
       val bytes = file.readBytes()
       if (!isSupportedImage(bytes)) {

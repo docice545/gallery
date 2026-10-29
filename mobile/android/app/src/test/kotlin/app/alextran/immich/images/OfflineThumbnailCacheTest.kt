@@ -80,6 +80,17 @@ class OfflineThumbnailCacheTest {
     assertFalse(file.exists())
   }
 
+  @Test fun truncatedEntryIsRemovedAndNeverPresentedAsAnImage() {
+    val key = OfflineThumbnailCache.keyFor(url, sessionA)!!
+    val cache = OfflineThumbnailCache(temporaryFolder.newFolder("truncated"))
+    val file = File(temporaryFolder.root, "truncated/$key")
+    file.parentFile!!.mkdirs()
+    file.writeBytes(byteArrayOf(0xff.toByte(), 0xd8.toByte()))
+
+    assertNull(cache.read(key))
+    assertFalse(file.exists())
+  }
+
   @Test fun evictsOldestEntriesUnderStorageBudget() {
     val directory = temporaryFolder.newFolder("limited")
     val cache = OfflineThumbnailCache(directory, maxBytes = jpeg.size.toLong())
