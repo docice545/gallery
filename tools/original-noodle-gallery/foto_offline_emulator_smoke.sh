@@ -148,9 +148,18 @@ mark_phase enter_server_submit
 $adb_bin shell input keyevent 66
 sleep 1
 dump_ui
-tap_text_any 'Next' 'Continue' || true
+tap_text_any 'Next' 'Continue' 'Login' 'Log in' || true
 mark_phase wait_login
-for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
+login_opened=false
+for _ in $(seq 1 30); do
+  sleep 2
+  dump_ui
+  if grep -qi Email /tmp/noodle-window.xml; then break; fi
+  if [[ "$login_opened" == false ]] && grep -qi 'Login' /tmp/noodle-window.xml; then
+    tap_text_any 'Login' 'Log in'
+    login_opened=true
+  fi
+done
 grep -qi Email /tmp/noodle-window.xml
 mark_phase credentials
 edit_text_at 0 'admin@immich.cloud'

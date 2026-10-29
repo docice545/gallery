@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/main/table/app/settings.drift.dart';
 import 'package:immich_mobile/data/db/main/table/asset/edit.drift.dart';
 import 'package:immich_mobile/data/db/main/table/asset/ocr.drift.dart';
@@ -48,6 +50,8 @@ import 'package:immich_mobile/infrastructure/utils/exif.converter.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart' as api show AlbumUserRole, AssetEditAction, AssetVisibility, UserMetadataKey;
 import 'package:openapi/api.dart' hide AlbumUserRole, AssetEditAction, AssetVisibility, UserMetadataKey;
+import 'package:path/path.dart' as p;
+import 'package:sqlite3/common.dart';
 import 'package:uuid/uuid.dart';
 
 typedef AssetTrashSnapshot = ({
@@ -858,6 +862,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   Future<void> updateAssetsV2(Iterable<SyncAssetV2> data, {String debugLabel = 'user'}) async {
     try {
+      SqliteRecoveryGate.throwIfRequired('updateAssetsV2[$debugLabel]');
       await _db.transaction(() async {
         final assets = data.toList();
         final retained = await _retainedTrash({for (final asset in assets) asset.id: asset.ownerId});
@@ -914,7 +919,41 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsV2 - $debugLabel', error, stack);
+      if (error is SqliteException && isUnsafeToWrite(error)) {
+        SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[$debugLabel]', resultCode: error.resultCode);
+        await _captureSyncRecoverySnapshot(debugLabel: debugLabel, error: error);
+        throw SqliteDatabaseUnhealthy('updateAssetsV2[$debugLabel]', error.resultCode);
+      }
       rethrow;
+    }
+  }
+
+  /// Export copy-only evidence after a write-path corruption. The transaction
+  /// has already rolled back when this runs, preserving pending operations.
+  /// Recovery never promotes or replaces the primary database.
+  Future<SqliteRecoverySnapshot?> _captureSyncRecoverySnapshot({
+    required String debugLabel,
+    required SqliteException error,
+  }) async {
+    try {
+      final database = await sqliteDatabaseFile(name: 'immich');
+      final safeLabel = debugLabel.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
+      final snapshot = await captureSqliteRecoverySnapshot(
+        database: database,
+        outputDirectory: Directory(p.join(database.parent.path, 'sqlite-recovery')),
+        reason: 'updateAssetsV2[$safeLabel] SQLite result ${error.resultCode}',
+      );
+      _logger.warning('Captured copy-only SQLite recovery snapshot for updateAssetsV2[$safeLabel]');
+      return snapshot;
+    } catch (captureError, captureStack) {
+      // Keep the original SqliteException as the recovery signal. A full disk
+      // or unreadable source must not trigger deletion, reset, or promotion.
+      _logger.warning(
+        'Unable to capture SQLite recovery snapshot after updateAssetsV2 failure',
+        captureError,
+        captureStack,
+      );
+      return null;
     }
   }
 

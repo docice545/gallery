@@ -4,6 +4,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
 
 void main() {
+  setUp(() {
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+  });
+
+  tearDown(() {
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+  });
+
+  test('holds sync after SQLITE_CORRUPT_INDEX until validated recovery clears it', () {
+    SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[user]', resultCode: 779);
+
+    expect(SqliteRecoveryGate.isHalted, isTrue);
+    expect(SqliteRecoveryGate.check, 'updateAssetsV2[user]');
+    expect(SqliteRecoveryGate.resultCode, 779);
+    expect(
+      () => SqliteRecoveryGate.throwIfRequired('remote sync'),
+      throwsA(
+        isA<SqliteDatabaseUnhealthy>().having(
+          (error) => error.cause,
+          'cause',
+          779,
+        ),
+      ),
+    );
+
+    // Only the explicit, user-mediated recovery path may release the barrier.
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+    expect(SqliteRecoveryGate.isHalted, isFalse);
+    expect(() => SqliteRecoveryGate.throwIfRequired('remote sync'), returnsNormally);
+  });
+
   test('captures database and WAL/SHM sidecars without changing source', () async {
     final source = await Directory.systemTemp.createTemp('foto-sqlite-source-');
     final output = await Directory.systemTemp.createTemp('foto-sqlite-snapshots-');

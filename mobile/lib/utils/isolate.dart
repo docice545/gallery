@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/store.dart';
 import 'package:immich_mobile/domain/services/log.service.dart';
 // ignore: library_prefixes
@@ -53,6 +54,12 @@ Cancelable<T?> runInIsolateGentle<T>({
         return await computation(ref);
       } catch (error, stack) {
         log.severe("Error in runInIsolateGentle${debugLabel == null ? '' : ' for $debugLabel'}", error, stack);
+        // SQLite corruption is a stop condition, not a nullable background
+        // result. Preserve the typed signal so BackgroundSync can clear its
+        // queue and surface the copy-only recovery requirement to the caller.
+        if (error is SqliteDatabaseUnhealthy) {
+          rethrow;
+        }
         return null;
       } finally {
         ref.dispose();

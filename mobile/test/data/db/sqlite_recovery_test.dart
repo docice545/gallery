@@ -45,10 +45,14 @@ void main() {
     final db = sqlite3.open(database.path);
     db.execute('CREATE TABLE remote_asset_entity (id TEXT PRIMARY KEY, checksum TEXT NOT NULL)');
     db.execute('CREATE TABLE pending_delete (id TEXT PRIMARY KEY)');
-    db.execute('CREATE INDEX remote_asset_checksum ON remote_asset_entity(checksum)');
-    db.execute("INSERT INTO remote_asset_entity VALUES ('asset-1', 'checksum-1')");
-    db.execute("INSERT INTO remote_asset_entity VALUES ('asset-2', 'checksum-2')");
-    db.execute("INSERT INTO remote_asset_entity VALUES ('asset-3', 'checksum-3')");
+    // A unique index makes the write path validate the damaged b-tree and
+    // reproduce SQLITE_CORRUPT_INDEX (779), matching updateAssetsV2's
+    // remote_asset_entity failure mode.
+    db.execute('CREATE UNIQUE INDEX remote_asset_checksum ON remote_asset_entity(checksum)');
+    for (var index = 1; index <= 100; index++) {
+      final suffix = index.toString().padLeft(3, '0');
+      db.execute("INSERT INTO remote_asset_entity VALUES ('asset-$index', 'checksum-$suffix')");
+    }
     db.execute("INSERT INTO pending_delete VALUES ('asset-1')");
     final pageSize = db.select('PRAGMA page_size').single[0] as int;
     final indexRoot = db
@@ -56,18 +60,32 @@ void main() {
         .single[0] as int;
     db.dispose();
 
-    // Remove one cell pointer from the index b-tree. SQLite's integrity check
-    // reports a missing index entry while the table and pending-delete rows
-    // stay readable; REINDEX can safely rebuild that index on a copy.
+    // Change the serial-type byte in one index cell. SQLite's integrity check
+    // reports a named index failure while the table and pending-delete rows
+    // stay readable; a write that updates remote_asset_entity reproduces the
+    // extended SQLITE_CORRUPT_INDEX result, and REINDEX can safely rebuild
+    // that index on a copy.
     final bytes = await database.readAsBytes();
     final pageOffset = (indexRoot - 1) * pageSize;
     final header = ByteData.sublistView(bytes, pageOffset, pageOffset + pageSize);
     final cellCount = header.getUint16(3, Endian.big);
+    final cellContentOffset = header.getUint16(5, Endian.big);
     expect(cellCount, greaterThan(1));
-    header.setUint16(3, cellCount - 1, Endian.big);
+    expect(cellContentOffset + 5, lessThan(pageSize));
+    header.setUint8(cellContentOffset + 5, 0);
     await database.writeAsBytes(bytes, flush: true);
+    final corruptedBytes = await database.readAsBytes();
 
-    final before = await database.readAsBytes();
+    final probe = sqlite3.open(database.path);
+    expect(
+      () => probe.execute("UPDATE remote_asset_entity SET checksum = 'checksum-new' WHERE id = 'asset-1'"),
+      throwsA(isA<SqliteException>().having((error) => error.resultCode, 'resultCode', 779)),
+    );
+    probe.dispose();
+
+    // The failed write must not alter the primary file or its pending rows.
+    expect(await database.readAsBytes(), corruptedBytes);
+    final before = corruptedBytes;
     final snapshot = await captureSqliteRecoverySnapshot(database: database, outputDirectory: output);
     final report = await diagnoseAndRepairSqliteSnapshot(snapshot: snapshot.directory, outputDirectory: output);
 
@@ -79,6 +97,12 @@ void main() {
     expect(await database.readAsBytes(), before);
 
     final candidateDb = sqlite3.open('${report.candidate!.path}/immich.sqlite');
+    expect(candidateDb.select('SELECT id FROM pending_delete').single[0], 'asset-1');
+    candidateDb.execute("INSERT INTO remote_asset_entity VALUES ('asset-after-recovery', 'checksum-after')");
+    expect(
+      candidateDb.select("SELECT checksum FROM remote_asset_entity WHERE id = 'asset-after-recovery'").single[0],
+      'checksum-after',
+    );
     expect(candidateDb.select('SELECT id FROM pending_delete').single[0], 'asset-1');
     candidateDb.dispose();
   });

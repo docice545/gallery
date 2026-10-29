@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/models/server_capability.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
@@ -87,6 +88,10 @@ class SyncStreamService {
     if (isCancelled) {
       return false;
     }
+    // A prior updateAssetsV2 write failed with SQLITE_CORRUPT_INDEX (or another
+    // unsafe SQLite result). Stop before network work until an approved,
+    // copy-only recovery has been validated and the gate is explicitly cleared.
+    SqliteRecoveryGate.throwIfRequired('remote sync');
     _logger.info("Remote sync request for user");
     final serverVersion = await _api.serverInfoApi.getServerVersion();
     if (isCancelled) {
@@ -708,6 +713,9 @@ class SyncStreamService {
       }
     } catch (error, stackTrace) {
       _logger.severe("Error processing AssetUploadReadyV2 websocket batch events", error, stackTrace);
+      if (error is SqliteDatabaseUnhealthy) {
+        rethrow;
+      }
     }
   }
 
@@ -789,6 +797,9 @@ class SyncStreamService {
       );
     } catch (error, stackTrace) {
       _logger.severe("Error processing AssetEditReadyV2 websocket event", error, stackTrace);
+      if (error is SqliteDatabaseUnhealthy) {
+        rethrow;
+      }
     }
   }
 

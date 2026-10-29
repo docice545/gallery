@@ -45,6 +45,48 @@ final class SqliteDatabaseUnhealthy implements Exception {
   String toString() => 'Primary SQLite database failed $check ($cause)';
 }
 
+/// Process-local stop gate for sync work after a write-path corruption error.
+///
+/// A failed transaction is rolled back by Drift, so pending operations remain
+/// in the primary database. The gate prevents the same stream from immediately
+/// retrying against the damaged index. It is deliberately not persisted or
+/// cleared automatically: the caller must validate a repaired copy and then
+/// explicitly clear it after the approved recovery has been applied.
+final class SqliteRecoveryGate {
+  static bool _halted = false;
+  static String? _check;
+  static int? _resultCode;
+
+  static bool get isHalted => _halted;
+  static String? get check => _check;
+  static int? get resultCode => _resultCode;
+
+  static void markRequired({required String check, required int resultCode}) {
+    _halted = true;
+    _check = check;
+    _resultCode = resultCode;
+  }
+
+  /// Throws before a new sync attempt can reach the damaged database.
+  static void throwIfRequired([String? operation]) {
+    if (!_halted) {
+      return;
+    }
+    throw SqliteDatabaseUnhealthy(
+      operation ?? _check ?? 'SQLite sync write',
+      _resultCode ?? 'recovery required',
+    );
+  }
+
+  /// Releases the barrier after a user-mediated recovery has validated a
+  /// repaired candidate and explicitly restored it through the approved flow.
+  static void clearAfterValidatedRecovery() {
+    _halted = false;
+    _check = null;
+    _resultCode = null;
+  }
+}
+
 /// A non-destructive copy of a SQLite database and any WAL/SHM sidecars.
 ///
 /// The snapshot is written into a staging directory and atomically renamed
