@@ -22,8 +22,9 @@ Fixtures and pixel evidence:
 - `mobile/test/presentation/widgets/images/thumbnail_framing_test.dart` checks
   screenshot/document classification and full-source framing.
 - `mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart`
-  creates a white-center image with black/blue content at the top and bottom,
-  renders it through `Thumbnail`, and asserts the actual captured RGBA pixels.
+  creates a white-center image with red/green/black/blue content at the left,
+  right, top and bottom edges, renders it through `Thumbnail`, and asserts the
+  actual captured RGBA pixels.
 
 Required evidence before PASS:
 

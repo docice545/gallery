@@ -87,6 +87,8 @@ Future<Uint8List> _edgeContentPng() async {
   canvas.drawRect(const Rect.fromLTWH(0, 0, 100, 200), Paint()..color = Colors.white);
   canvas.drawRect(const Rect.fromLTRB(35, 0, 65, 24), Paint()..color = Colors.black);
   canvas.drawRect(const Rect.fromLTRB(35, 176, 65, 200), Paint()..color = Colors.blue);
+  canvas.drawRect(const Rect.fromLTRB(0, 76, 18, 124), Paint()..color = Colors.red);
+  canvas.drawRect(const Rect.fromLTRB(82, 76, 100, 124), Paint()..color = Colors.green);
   final picture = recorder.endRecording();
   final image = await picture.toImage(100, 200);
   try {
@@ -462,6 +464,8 @@ void main() {
     final pixels = await _capture(tester, captureKey);
     expect(_pixel(pixels, 50, 5), [0, 0, 0, 255]);
     expect(_pixel(pixels, 50, 95), [0, 0, 255, 255]);
+    expect(_pixel(pixels, 5, 50), [255, 0, 0, 255]);
+    expect(_pixel(pixels, 95, 50), [0, 128, 0, 255]);
     expect(tester.takeException(), isNull);
   });
 
