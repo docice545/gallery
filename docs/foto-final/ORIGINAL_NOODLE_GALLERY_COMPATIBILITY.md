@@ -13,6 +13,12 @@ in the OpenAPI surface. The existing medium regression suite in
 `server/test/medium/specs/sync/sync-client-compat.spec.ts` exercises the server
 projection and ACK behavior against a disposable PostgreSQL database.
 
+The disposable real-backend API smoke completed successfully in GitHub Actions
+run `40864366678` at backend commit
+`4c123818fc03cc7f4ca434f12ae41dade047b4c6`. It covered login, auth status,
+full/incremental sync and ACKs, upload/download, a Live Photo pair, album
+create/detail, search, Trash restore/empty/permanent delete, and reconnect.
+
 Official Android artifacts were obtained from the release URLs and inspected
 with Android SDK Build Tools `35.0.0`: v5.8.0 SHA256
 `385cd0734530c943bbe09f7d651434d585fbc276c2523c3c5a0357a6e94c2cd0`, and

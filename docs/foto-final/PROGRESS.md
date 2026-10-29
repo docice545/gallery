@@ -115,3 +115,15 @@ commit without repeating destructive work.
   disables emulator transports, and relaunches offline.
 - **Current status:** source changes and workflow are pending CI; Samsung S23,
   production-signing APK, and physical offline replay remain NOT TESTED.
+
+## 2026-10-29 — Stage 5d: disposable API evidence
+
+- **API result:** GitHub Actions run `40864366678` passed the disposable
+  backend smoke at commit `4c123818fc03cc7f4ca434f12ae41dade047b4c6` after
+  correcting the album detail route. The receipt covers login, full and
+  incremental sync/ACKs, upload/download, Live Photo pairing, album detail,
+  search, Trash restore/empty/permanent delete, and reconnect.
+- **Remaining gates:** unchanged official Android emulator E2E, Flutter
+  rendered-pixel tests, Android cache unit tests, Build22 offline process-death
+  replay, iOS simulator checks, and Samsung S23 remain pending or blocked until
+  their hosted jobs complete.

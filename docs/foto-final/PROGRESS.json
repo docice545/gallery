@@ -111,6 +111,7 @@
     },
     "tests": {
       "gitDiffCheck": "PASS",
+      "disposableApiSmoke": "PASS_RUN_40864366678_COMMIT_4c123818fc03cc7f4ca434f12ae41dade047b4c6",
       "flutterWidgetTests": "PENDING_CI",
       "androidCacheUnitTests": "PENDING_CI",
       "build22OfflineEmulator": "PENDING_CI",

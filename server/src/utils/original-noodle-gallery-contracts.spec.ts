@@ -17,7 +17,10 @@ describe('original Noodle Gallery compatibility gate', () => {
     }
     expect(gate.evidence.nativeAndroid).toBe('NOT TESTED');
     expect(gate.evidence.nativeIOS).toBe('NOT TESTED');
-    expect(gate.evidence.realBackend).toBe('NOT TESTED');
+    expect(gate.evidence.realBackend).toMatch(/^(NOT TESTED|PASS_RUN_\d+)$/);
+    if (gate.evidence.realBackend.startsWith('PASS_RUN_')) {
+      expect(gate.evidence.apiSmokeCommit).toMatch(/^[0-9a-f]{40}$/);
+    }
   });
 
   it('retains every operation required by the unchanged clients', () => {
