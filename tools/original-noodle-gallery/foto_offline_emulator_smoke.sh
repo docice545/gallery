@@ -9,6 +9,20 @@ artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-$artifact_dir/adb-diagnostics.log}
 phase=bootstrap
 mark_phase() { phase=$1; echo "phase=$phase" >&2; }
+ui_summary() {
+  python3 - <<'PY'
+import xml.etree.ElementTree as ET
+try:
+    root = ET.parse('/tmp/noodle-window.xml').getroot()
+except Exception:
+    raise SystemExit(0)
+rows = []
+for node in root.iter('node'):
+    values = [node.attrib.get(k, '') for k in ('text', 'content-desc', 'resource-id', 'class')]
+    if any(values[:3]): rows.append('|'.join(values))
+print(' || '.join(rows)[:3500])
+PY
+}
 mkdir -p "$artifact_dir"
 adb_diagnostics() {
   {
@@ -27,7 +41,7 @@ adb_diagnostics() {
 on_error() {
   rc=$?
   ui=''
-  if [[ -s /tmp/noodle-window.xml ]]; then ui=$(tr '\n' ' ' < /tmp/noodle-window.xml | cut -c1-1800); fi
+  if [[ -s /tmp/noodle-window.xml ]]; then ui=$(ui_summary); fi
   echo "::error title=FOTO offline smoke phase::phase=$phase rc=$rc ui=$ui"
   adb_diagnostics
   return "$rc"
@@ -108,6 +122,9 @@ mark_phase server_endpoint_field
 edit_text_at 0 "$server_url"
 mark_phase enter_server_submit
 $adb_bin shell input keyevent 66
+sleep 1
+dump_ui
+tap_text_any 'Next' 'Continue' || true
 mark_phase wait_login
 for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
 grep -qi Email /tmp/noodle-window.xml
