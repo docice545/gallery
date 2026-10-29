@@ -326,7 +326,26 @@ jobs:
       - name: Run Android cache unit tests
         working-directory: mobile/android
         run: |
-          ./gradlew --no-daemon :app:testDebugUnitTest \
+          set -euo pipefail
+          # Jetifier can transform the Flutter x86/ARM debug artifacts in a
+          # single worker.  Keep the daemon off and pass the JVM settings on
+          # the command line so they take precedence over a stale project or
+          # user gradle.properties value.  The cap leaves room for the runner,
+          # Android toolchain and test process instead of blindly allocating
+          # the whole machine to one Java heap.
+          ram_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+          heap_mb=$((ram_mb * 50 / 100))
+          if (( heap_mb < 4096 )); then heap_mb=4096; fi
+          if (( heap_mb > 6144 )); then heap_mb=6144; fi
+          gradle_jvmargs="-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          echo "Runner memory: ${ram_mb} MiB; Gradle heap: ${heap_mb} MiB"
+          ./gradlew --version
+          ./gradlew --no-daemon --max-workers=1 \
+            -Dorg.gradle.jvmargs="$gradle_jvmargs" \
+            -Dorg.gradle.workers.max=1 \
+            -Dorg.gradle.parallel=false \
+            -Dkotlin.daemon.jvm.options=-Xmx2048m \
+            :app:testDebugUnitTest \
             --tests 'app.alextran.immich.images.OfflineThumbnailCacheTest' \
             --tests 'app.alextran.immich.cloudmedia.CloudAdmissionPolicyTest' \
             --tests 'app.alextran.immich.cloudmedia.CloudMimeTest' \
@@ -377,8 +396,22 @@ jobs:
           echo "Runner memory: ${ram_mb} MiB; CPUs: ${cpu_count}"
           heap_mb=$((ram_mb * 45 / 100))
           if (( heap_mb < 4096 )); then heap_mb=4096; fi
-          if (( heap_mb > 8192 )); then heap_mb=8192; fi
-          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
+          if (( heap_mb > 6144 )); then heap_mb=6144; fi
+          gradle_jvmargs="-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          # Flutter does not expose a reliable way to pass a quoted
+          # org.gradle.jvmargs value through `flutter build`.  A user-level
+          # Gradle properties file has higher precedence than the checked-in
+          # project file and keeps the complete value (including spaces).
+          gradle_user_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          mkdir -p "$gradle_user_home"
+          cat > "$gradle_user_home/gradle.properties" <<EOF
+          org.gradle.jvmargs=$gradle_jvmargs
+          org.gradle.workers.max=1
+          org.gradle.parallel=false
+          kotlin.daemon.jvm.options=-Xmx2048m
+          EOF
+          export GRADLE_USER_HOME="$gradle_user_home"
+          export GRADLE_OPTS="-Dfile.encoding=UTF-8"
           # This receipt is deliberately x86_64-only for the hosted emulator.
           # Release workflows continue to build the universal/arm64 artifacts.
           flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64

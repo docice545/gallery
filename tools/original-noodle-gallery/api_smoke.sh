@@ -31,6 +31,11 @@ curl --fail --silent --show-error "$base/auth/status" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/albums" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/search/explore" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/trash/empty/preflight" "${auth[@]}" >/dev/null
+# Unchanged Noodle 5.8/5.9 clients perform a major-version admission check
+# before login. The compatibility compose stamps the disposable server with
+# the FOTO Build 22 release (5.7.3); assert the response here so an un-stamped
+# upstream fallback (3.2.0) cannot reach the emulator gate unnoticed.
+curl --fail --silent --show-error "$base/server/version" | jq -e '.major == 5 and .minor == 7 and .patch == 3' >/dev/null
 echo 'API smoke: auth and discovery passed'
 
 mark_stage media_generation

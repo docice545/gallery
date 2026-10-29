@@ -94,16 +94,40 @@ tap_text_any() {
 }
 edit_text_at() {
   local i=$1 value=$2 b x y
-  b=$(python3 - "$i" /tmp/noodle-window.xml <<'PY'
-import sys
-import xml.etree.ElementTree as ET
-items = [n for n in ET.parse(sys.argv[2]).getroot().iter('node') if n.attrib.get('class') == 'android.widget.EditText']
-print(items[int(sys.argv[1])].attrib['bounds'])
-PY
-)
+  b=$(wait_for_edit_text "$i")
   read -r x y < <(center "$b")
   $adb_bin shell input tap "$x" "$y"
   $adb_bin shell input text "$value"
+}
+wait_for_edit_text() {
+  local i=$1 timeout=${UI_WAIT_SECONDS:-90} b
+  for _ in $(seq 1 "$timeout"); do
+    dump_ui || true
+    if b=$(python3 - "$i" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[2]).getroot()
+items = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').lower()
+    input_type = (node.attrib.get('input-type') or '').lower()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        items.append(node)
+index = int(sys.argv[1])
+if index < len(items):
+    print(items[index].attrib['bounds'])
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    ); then
+      printf '%s\n' "$b"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for EditText index $i (phase=$phase)" >&2
+  ui_summary >&2 || true
+  return 1
 }
 mark_phase wait_for_boot
 wait_for_boot
