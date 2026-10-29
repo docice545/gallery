@@ -4,11 +4,15 @@ apk_path=${1:?APK path is required}
 version=${2:?version is required}
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
+adb_timeout=${ADB_COMMAND_TIMEOUT:-60}
+adb_run() {
+  timeout --signal=TERM --kill-after=5s "$adb_timeout" "$adb_bin" "$@"
+}
 package_name=${PACKAGE_NAME:-de.opennoodle.gallery.debug}
 artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-$artifact_dir/adb-diagnostics.log}
 phase=bootstrap
-mark_phase() { phase=$1; echo "phase=$phase" >&2; }
+mark_phase() { phase=$1; echo "phase=$phase" >&2; echo "::notice title=FOTO smoke phase::$phase"; }
 ui_summary() {
   python3 - <<'PY'
 import xml.etree.ElementTree as ET
@@ -28,14 +32,14 @@ adb_diagnostics() {
   {
     echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo '--- adb devices ---'
-    "$adb_bin" devices -l || true
+    adb_run devices -l || true
     echo '--- adb state ---'
-    "$adb_bin" get-state || true
+    adb_run get-state || true
     echo '--- emulator properties ---'
-    "$adb_bin" shell getprop sys.boot_completed || true
-    "$adb_bin" shell getprop ro.kernel.qemu || true
+    adb_run shell getprop sys.boot_completed || true
+    adb_run shell getprop ro.kernel.qemu || true
     echo '--- logcat tail ---'
-    "$adb_bin" logcat -d -t 200 || true
+    adb_run logcat -d -t 200 || true
   } >"$diagnostics_file" 2>&1 || true
 }
 on_error() {
@@ -49,14 +53,14 @@ on_error() {
 trap on_error ERR
 wait_for_boot() {
   for _ in $(seq 1 90); do
-    if [[ "$($adb_bin get-state 2>/dev/null || true)" == "device" ]] && [[ "$($adb_bin shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
+    if [[ "$(adb_run get-state 2>/dev/null || true)" == "device" ]] && [[ "$(adb_run shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
     sleep 2
   done
   return 1
 }
 dump_ui() {
-  $adb_bin shell uiautomator dump /sdcard/window.xml >/dev/null
-  $adb_bin shell cat /sdcard/window.xml | tr -d '\r' > /tmp/noodle-window.xml
+  adb_run shell uiautomator dump /sdcard/window.xml >/dev/null
+  adb_run shell cat /sdcard/window.xml | tr -d '\r' > /tmp/noodle-window.xml
 }
 find_bounds() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
@@ -120,7 +124,7 @@ tap_text() {
   b=$(find_bounds "$1")
   test -n "$b" || { echo "UI element not found: $1" >&2; return 1; }
   read -r x y < <(center "$b")
-  $adb_bin shell input tap "$x" "$y"
+  adb_run shell input tap "$x" "$y"
 }
 tap_text_any() {
   local needle
@@ -134,7 +138,7 @@ tap_action_text() {
   b=$(find_action_bounds "$1")
   test -n "$b" || { echo "Enabled clickable button not found: $1" >&2; return 1; }
   read -r x y < <(center "$b")
-  $adb_bin shell input tap "$x" "$y"
+  adb_run shell input tap "$x" "$y"
 }
 tap_action_text_any() {
   local needle
@@ -178,7 +182,7 @@ clear_focused_edit_text() {
   # autofilled credential without guessing coordinates or relying on clipboard.
   local deletes
   printf -v deletes ' 67%.0s' {1..128}
-  $adb_bin shell input keyevent 123$deletes
+  adb_run shell input keyevent 123$deletes
 }
 read_edit_text_at() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
@@ -203,7 +207,7 @@ set_edit_text() {
   for attempt in 1 2 3; do
     b=$(wait_for_edit_text "$i")
     read -r x y < <(center "$b")
-    $adb_bin shell input tap "$x" "$y"
+    adb_run shell input tap "$x" "$y"
     for _ in $(seq 1 20); do
       dump_ui || true
       if focused_edit_text "$b"; then break; fi
@@ -212,7 +216,7 @@ set_edit_text() {
     clear_focused_edit_text
     # Send the complete value only after the focused state is observable. The
     # readback catches Flutter's first-character loss and retries from empty.
-    $adb_bin shell input text "$value"
+    adb_run shell input text "$value"
     # Password fields are intentionally masked in the accessibility tree, so
     # verify the observable text only for the endpoint/email field.
     if [[ "$i" != 0 ]]; then
@@ -266,16 +270,16 @@ PY
 mark_phase wait_for_boot
 wait_for_boot
 mark_phase install
-"$adb_bin" start-server >/dev/null 2>&1 || true
-$adb_bin install -r "$apk_path"
+adb_run start-server >/dev/null 2>&1 || true
+adb_run install -r "$apk_path"
 mark_phase clear_and_launch
-$adb_bin shell pm clear "$package_name" >/dev/null
-$adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
+adb_run shell pm clear "$package_name" >/dev/null
+adb_run shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
 sleep 5
 mark_phase server_endpoint_dump
 dump_ui
 mark_phase server_endpoint_activity
-$adb_bin shell dumpsys activity activities | grep -q "$package_name"
+adb_run shell dumpsys activity activities | grep -q "$package_name"
 mark_phase server_endpoint_field
 edit_text_at 0 "$server_url"
 mark_phase enter_server_submit
@@ -283,7 +287,7 @@ if ! tap_action_text_any 'Next' 'Continue'; then
   # The endpoint TextField advertises IME_ACTION_NEXT; retain the semantic
   # keyboard submission as a fallback for Flutter builds that omit the button
   # from the Android hierarchy.
-  $adb_bin shell input keyevent 66
+  adb_run shell input keyevent 66
 fi
 sleep 1
 dump_ui
@@ -310,7 +314,7 @@ for _ in $(seq 1 30); do
   if grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]; then break; fi
   if [[ "$login_opened" == false ]] && tap_action_text_any 'Login' 'Log in'; then
     login_opened=true
-    $adb_bin shell input keyevent 66 || true
+    adb_run shell input keyevent 66 || true
   fi
 done
 grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]
@@ -321,15 +325,15 @@ tap_action_text_any 'Login' 'Log in'
 sleep 12
 mark_phase authenticated
 dump_ui
-$adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
+adb_run shell dumpsys activity activities | grep -q de.opennoodle.gallery
 for _ in $(seq 1 30); do
   grep -Eq '2020|2024' /tmp/noodle-window.xml && break
   sleep 2
   dump_ui
 done
 grep -Eq '2020|2024' /tmp/noodle-window.xml
-$adb_bin shell screencap -p /sdcard/foto-online.png
-$adb_bin pull /sdcard/foto-online.png "$artifact_dir/online.png" >/dev/null
+adb_run shell screencap -p /sdcard/foto-online.png
+adb_run pull /sdcard/foto-online.png "$artifact_dir/online.png" >/dev/null
 
 assert_rendered_capture() {
   local file=$1 colors
@@ -342,27 +346,27 @@ assert_rendered_capture "$artifact_dir/online.png"
 
 # The Drift catalog and durable thumbnails must survive a process restart when
 # both emulator transports are disabled.
-$adb_bin shell svc wifi disable
-$adb_bin shell svc data disable
+adb_run shell svc wifi disable
+adb_run shell svc data disable
 mark_phase offline_restart
-$adb_bin shell am force-stop "$package_name"
-$adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/offline-launch.log"
+adb_run shell am force-stop "$package_name"
+adb_run shell monkey -p "$package_name" 1 >"$artifact_dir/offline-launch.log"
 sleep 12
 dump_ui
-$adb_bin shell dumpsys activity activities | grep -q "$package_name"
+adb_run shell dumpsys activity activities | grep -q "$package_name"
 for _ in $(seq 1 30); do
   grep -Eq '2020|2024' /tmp/noodle-window.xml && break
   sleep 2
   dump_ui
 done
 grep -Eq '2020|2024' /tmp/noodle-window.xml
-$adb_bin shell screencap -p /sdcard/foto-offline.png
-$adb_bin pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
+adb_run shell screencap -p /sdcard/foto-offline.png
+adb_run pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
 ! grep -Eqi 'Could not load value|Enable backup|Something went wrong' /tmp/noodle-window.xml
 assert_rendered_capture "$artifact_dir/offline.png"
 mark_phase complete
-$adb_bin shell svc wifi enable || true
-$adb_bin shell svc data enable || true
+adb_run shell svc wifi enable || true
+adb_run shell svc data enable || true
 echo "FOTO offline emulator smoke passed: login, synced timeline, force-stop, offline relaunch, and local catalog render."
 trap - ERR
 
