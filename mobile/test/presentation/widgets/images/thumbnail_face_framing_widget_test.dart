@@ -464,8 +464,10 @@ void main() {
     final pixels = await _capture(tester, captureKey);
     expect(_pixel(pixels, 50, 5), [0, 0, 0, 255]);
     expect(_pixel(pixels, 50, 95), [0, 0, 255, 255]);
-    expect(_pixel(pixels, 5, 50), [255, 0, 0, 255]);
-    expect(_pixel(pixels, 95, 50), [0, 128, 0, 255]);
+    // Contain framing letterboxes the portrait source horizontally; sample
+    // inside the rendered source rectangle rather than in the side bars.
+    expect(_pixel(pixels, 28, 50), [255, 0, 0, 255]);
+    expect(_pixel(pixels, 72, 50), [0, 128, 0, 255]);
     expect(tester.takeException(), isNull);
   });
 
