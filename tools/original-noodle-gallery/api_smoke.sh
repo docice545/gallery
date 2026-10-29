@@ -101,6 +101,7 @@ acks=$(jq -c -s '[.[] | select(.ack != null) | .ack] | unique' "$workdir/sync-in
 if [[ "$acks" != '[]' ]]; then
   curl --fail --silent --show-error -X POST "$base/sync/ack" "${auth[@]}" "${json_header[@]}" -d "{\"acks\":$acks}"
 fi
+curl --fail --silent --show-error "$base/sync/ack" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error -X DELETE "$base/sync/ack" "${auth[@]}" "${json_header[@]}" -d '{}'
 
 curl --fail --silent --show-error -X DELETE "$base/assets" "${auth[@]}" "${json_header[@]}" \
