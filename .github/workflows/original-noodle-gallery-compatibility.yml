@@ -149,3 +149,32 @@ jobs:
         if: always()
         run: docker compose -f e2e/docker-compose.yml down -v
 
+  ios-contract:
+    name: iOS source and simulator contract checks
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Install pinned mobile dependencies and generated clients
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Run iOS-capable Flutter analysis and tests
+        working-directory: mobile
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub test/services test/repositories
+      - name: Build unsigned iOS simulator app
+        working-directory: mobile
+        run: flutter build ios --simulator --no-codesign
+      - name: Record iOS build receipt
+        run: |
+          xcodebuild -version
+          test -d mobile/build/ios/iphonesimulator/Runner.app
+
