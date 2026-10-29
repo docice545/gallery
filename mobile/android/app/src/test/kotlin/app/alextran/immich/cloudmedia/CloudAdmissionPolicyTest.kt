@@ -17,6 +17,7 @@ class CloudAdmissionPolicyTest {
     assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row), null, "a.b"))
     assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row), " a.b,b.c ", "different.value"))
     assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf(row, row), " a.b,b.c ", " a.b,b.c "))
+    assertFalse(CloudAdmissionPolicy.verifyOverrideSnapshot(listOf("other/setting= a.b,b.c "), " a.b,b.c ", " a.b,b.c "))
     assertThrows(IllegalArgumentException::class.java) { CloudAdmissionPolicy.packages("a.b,\nc.d") }
   }
   private val own = "de.opennoodle.gallery"

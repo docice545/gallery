@@ -48,9 +48,15 @@ internal object CloudAdmissionPolicy {
   // println adds one terminator. Preserve actual flag whitespace for exact undo.
   fun commandValue(stdout: String): String = stdout.removeSuffix("\n").removeSuffix("\r")
 
-  fun verifyOverrideSnapshot(listed: List<String>, raw: String?, effective: String?): Boolean =
-    listed.size <= 1 && listed.isNotEmpty() == (raw != null) &&
-      (raw == null || (raw == effective && listed.single().substringAfter('=') == raw))
+  fun verifyOverrideSnapshot(listed: List<String>, raw: String?, effective: String?): Boolean {
+    if (listed.size > 1 || listed.isNotEmpty() != (raw != null)) return false
+    if (raw == null) return true
+    // The shell output must identify the exact setting we queried. Accepting any
+    // `key=value` row here could make a different override look like ours.
+    val row = listed.single()
+    val prefix = "$MEDIA_PROVIDER_NAMESPACE/$ALLOWED_CLOUD_PROVIDERS="
+    return row.startsWith(prefix) && raw == effective && row.removePrefix(prefix) == raw
+  }
 
   fun verifyOverrideSnapshots(listed: List<Pair<String, String>>, values: List<DeviceConfigValue>): Boolean {
     if (values.map { "${it.namespace}/${it.key}" }.toSet().size != values.size) return false
