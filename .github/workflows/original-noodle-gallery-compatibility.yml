@@ -397,11 +397,15 @@ jobs:
             -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
           token=$(curl --fail --silent -X POST "$base/auth/login" -H 'content-type: application/json' \
             -d '{"email":"admin@immich.cloud","password":"password"}' | jq -r .accessToken)
-          convert -size 1080x1920 xc:white -fill black -draw 'rectangle 100,30 980,210' \
-            -fill blue -draw 'rectangle 100,1710 980,1890' /tmp/foto-edge.png
           for year in 2020 2024; do
+            fixture="/tmp/foto-edge-${year}.png"
+            # Keep the centre white while drawing the year into the top edge so
+            # each fixture has distinct bytes and survives server deduplication.
+            convert -size 1080x1920 xc:white -fill black -draw 'rectangle 100,30 980,210' \
+              -fill blue -draw 'rectangle 100,1710 980,1890' \
+              -fill white -pointsize 80 -gravity North -annotate +0+65 "$year" "$fixture"
             curl --fail --silent -X POST "$base/assets" -H "Authorization: Bearer $token" \
-              -F 'assetData=@/tmp/foto-edge.png' -F "filename=Screenshot_edge-content-$year.png" \
+              -F "assetData=@$fixture" -F "filename=Screenshot_edge-content-$year.png" \
               -F "fileCreatedAt=$year-01-01T00:00:00.000Z" -F "fileModifiedAt=$year-01-01T00:00:00.000Z"
           done
       - name: Run Build 22 offline emulator smoke
