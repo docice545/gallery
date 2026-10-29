@@ -301,6 +301,15 @@ jobs:
             --tests 'app.alextran.immich.cloudmedia.CloudMimeTest' \
             --tests 'app.alextran.immich.cloudmedia.CloudRangeReaderTest' \
             --console=plain
+      - name: Upload Android cache and CloudMedia receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-cache-cloudmedia-test-receipts
+          path: |
+            mobile/android/app/build/test-results/**
+            mobile/android/app/build/reports/**
+          if-no-files-found: ignore
 
   foto-offline-emulator:
     name: FOTO Build 22 offline timeline emulator E2E
@@ -351,6 +360,18 @@ jobs:
             sleep $((attempt * 20))
           done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+      - name: Record Build 22 APK receipt
+        if: always()
+        working-directory: mobile
+        run: |
+          mkdir -p /tmp/foto-build22-receipt
+          apk=build/app/outputs/flutter-apk/app-debug.apk
+          if [[ -s "$apk" ]]; then
+            sha256sum "$apk" | tee /tmp/foto-build22-receipt/apk-sha256.txt
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > /tmp/foto-build22-receipt/aapt-badging.txt
+          else
+            echo 'APK missing after build step' | tee /tmp/foto-build22-receipt/apk-missing.txt
+          fi
       - name: Build and start disposable FOTO backend
         run: |
           for attempt in 1 2 3; do
@@ -404,7 +425,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: foto-build22-offline-emulator
-          path: /tmp/foto-offline-e2e/**
+          path: |
+            /tmp/foto-offline-e2e/**
+            /tmp/foto-build22-receipt/**
       - name: Tear down disposable services
         if: always()
         run: docker compose -f e2e/docker-compose.yml down -v
