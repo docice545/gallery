@@ -18,6 +18,8 @@ run `40866220811` at backend commit
 `cb24532f35df70defa117a56685c728bb36ac122`. It covered login, auth status,
 full/incremental sync and ACKs, upload/download, a Live Photo pair, album
 create/detail, search, Trash restore/empty/permanent delete, and reconnect.
+That receipt predates the current final checkpoint, so the final-SHA API smoke
+remains a required rerun; it is not silently reused as a release PASS.
 
 Official Android artifacts were obtained from the release URLs and inspected
 with Android SDK Build Tools `35.0.0`: v5.8.0 SHA256
@@ -28,12 +30,21 @@ report package `de.opennoodle.gallery`, pass APK v2 signature verification, and
 use certificate SHA256
 `c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3`.
 
-The Android emulator image was installed, but this worker has no KVM/VMX/SVM
-acceleration (`x86_64 emulation currently requires hardware acceleration`), so
-the APKs could not be installed or exercised in an emulator. No macOS host is
-available for the iOS TestFlight/simulator path. These are the specific runtime
-blockers; they do not invalidate the downloaded artifact or API contract tests.
+The statuses are intentionally split:
 
-Native Android and iOS execution is **BLOCKED / NOT TESTED** in this Cloud
-session. The gate remains blocked and the release remains **NOT RELEASE READY**
-until both unchanged clients complete the workflow matrix in the JSON manifest.
+| Client | Official artifact obtained | APK/app launched | Backend API smoke | Real client E2E |
+|---|---|---|---|---|
+| Android 5.8.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS on run `40866220811`** (pre-final SHA; rerun required) | **PENDING** |
+| Android 5.9.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS on run `40866220811`** (pre-final SHA; rerun required) | **PENDING** |
+| iOS pinned source/TestFlight | **NOT TESTED** — no TestFlight binary is copied into the repository | **PENDING macOS simulator/TestFlight** | **CONTRACT SOURCE PASS; final-SHA smoke rerun required** | **NOT TESTED** |
+
+The local worker has no Android SDK/emulator command or KVM/VMX/SVM
+acceleration, so it cannot install or exercise the APKs here. The repository
+workflow uses a hosted x86_64 emulator for both unchanged APKs and a macOS
+runner for the iOS simulator/build checks. These are concrete runtime attempts,
+not a claim that the official artifacts were unavailable.
+
+Native Android execution is **BLOCKED LOCALLY / PENDING HOSTED** and iOS
+execution is **NOT TESTED / PENDING MACOS**. The gate remains open and the
+release remains **NOT RELEASE READY** until both unchanged clients complete the
+workflow matrix in the JSON manifest.

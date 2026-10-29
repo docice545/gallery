@@ -128,7 +128,10 @@
     "nativeAndroid": "NOT TESTED",
     "nativeIOS": "NOT TESTED",
     "realBackend": "PASS_RUN_40866220811",
-    "apiSmokeCommit": "cb24532f35df70defa117a56685c728bb36ac122"
+    "apiSmokeCommit": "cb24532f35df70defa117a56685c728bb36ac122",
+    "finalSha": "62db998618f80a2ad1e9b508759c9ab66a6262e",
+    "finalShaApiSmoke": "PENDING_HOSTED_RUN",
+    "hostedWorkflow": ".github/workflows/original-noodle-gallery-compatibility.yml"
   },
   "artifacts": {
     "v5.8.0": {
@@ -159,9 +162,9 @@
     "apkStaticInspection": "PASS",
     "androidEmulator": "BLOCKED_NO_KVM",
     "apkInstall": "NOT_TESTED",
-    "androidE2E": "BLOCKED_NO_EMULATOR",
-    "fotoOfflineEmulatorE2E": "PENDING_CI",
-    "iosArtifact": "NOT_TESTED",
+    "androidE2E": "PENDING_HOSTED_AFTER_62db99886",
+    "fotoOfflineEmulatorE2E": "PENDING_HOSTED_AFTER_62db99886",
+    "iosArtifact": "PENDING_MACOS_AFTER_62db99886",
     "iosE2E": "BLOCKED_NO_MACOS"
   }
 }
