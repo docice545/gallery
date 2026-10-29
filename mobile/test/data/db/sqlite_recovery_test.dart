@@ -47,6 +47,8 @@ void main() {
     db.execute('CREATE TABLE pending_delete (id TEXT PRIMARY KEY)');
     db.execute('CREATE INDEX remote_asset_checksum ON remote_asset_entity(checksum)');
     db.execute("INSERT INTO remote_asset_entity VALUES ('asset-1', 'checksum-1')");
+    db.execute("INSERT INTO remote_asset_entity VALUES ('asset-2', 'checksum-2')");
+    db.execute("INSERT INTO remote_asset_entity VALUES ('asset-3', 'checksum-3')");
     db.execute("INSERT INTO pending_delete VALUES ('asset-1')");
     final pageSize = db.select('PRAGMA page_size').single[0] as int;
     final indexRoot = db
