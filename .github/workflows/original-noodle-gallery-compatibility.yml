@@ -1,0 +1,149 @@
+name: Original Noodle Gallery compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'open-api/**'
+      - 'mobile/**'
+      - 'e2e/**'
+      - 'server/test/contracts/original-noodle-gallery-compatibility.json'
+      - '.github/workflows/original-noodle-gallery-compatibility.yml'
+  push:
+    branches: ['codex/foto-master-final-20261029']
+    paths:
+      - 'server/**'
+      - 'open-api/**'
+      - 'mobile/**'
+      - 'e2e/**'
+      - 'server/test/contracts/original-noodle-gallery-compatibility.json'
+      - '.github/workflows/original-noodle-gallery-compatibility.yml'
+
+permissions: {}
+
+jobs:
+  api-contract:
+    name: API contract and compatibility regressions
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02d # v6.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir server exec vitest run src/utils/client-contracts.spec.ts src/utils/original-noodle-gallery-contracts.spec.ts --config test/vitest.config.mjs
+      - name: Start disposable backend dependencies
+        run: |
+          docker compose -f e2e/docker-compose.yml up -d database redis
+          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+      - name: Build and start disposable FOTO backend
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          docker compose -f e2e/docker-compose.yml build immich-server
+          docker compose -f e2e/docker-compose.yml up -d immich-server
+          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+          docker compose -f e2e/docker-compose.yml logs immich-server
+          exit 1
+      - name: Run server sync compatibility regressions
+        env:
+          DB_HOSTNAME: 127.0.0.1
+          DB_PORT: 5435
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          DB_DATABASE_NAME: immich
+        run: pnpm --dir server exec vitest run test/medium/specs/sync/sync-client-compat.spec.ts --config test/vitest.config.medium.mjs
+      - name: Upload contract receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: original-noodle-api-contract-receipts
+          path: server/test-results/**
+          if-no-files-found: ignore
+      - name: Tear down disposable services
+        if: always()
+        run: docker compose -f e2e/docker-compose.yml down -v
+
+  android-emulator:
+    name: Stock Android ${{ matrix.version }} emulator E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['5.8.0', '5.9.0']
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Download and verify official APK
+        id: apk
+        env:
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          case "$VERSION" in
+            5.8.0) url='https://github.com/open-noodle/gallery/releases/download/v5.8.0/gallery-v5.8.0.apk'; sha='385cd0734530c943bbe09f7d651434d585fbc276c2523c3c5a0357a6e94c2cd0' ;;
+            5.9.0) url='https://github.com/open-noodle/gallery/releases/download/v5.9.0/gallery-v5.9.0.apk'; sha='a00b7a4168449d5de77efb6d77294c7097721a038e8a5beff0a1a73d73ef7c9d' ;;
+          esac
+          curl --fail --location --retry 3 "$url" -o "gallery-v$VERSION.apk"
+          echo "$sha  gallery-v$VERSION.apk" | sha256sum --check
+          apksigner verify --verbose --print-certs "gallery-v$VERSION.apk" | tee apk-signature.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' apk-signature.txt
+          grep -q 'Signer #1 certificate SHA-256 digest: c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3' apk-signature.txt
+          echo "path=$PWD/gallery-v$VERSION.apk" >> "$GITHUB_OUTPUT"
+      - name: Start disposable PostgreSQL and Redis
+        run: |
+          docker compose -f e2e/docker-compose.yml up -d database redis
+          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+      - name: Build and start disposable FOTO backend
+        run: |
+          docker compose -f e2e/docker-compose.yml build immich-server
+          docker compose -f e2e/docker-compose.yml up -d immich-server
+          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+          docker compose -f e2e/docker-compose.yml logs immich-server
+          exit 1
+      - name: Seed disposable login account
+        run: |
+          curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up -H 'content-type: application/json' -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
+      - name: Run official client on emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          VERSION: ${{ matrix.version }}
+          SERVER_URL: http://10.0.2.2:2285
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            mkdir -p /tmp/noodle-e2e
+            bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
+      - name: Upload Android E2E evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: original-noodle-android-${{ matrix.version }}
+          path: |
+            apk-signature.txt
+            /tmp/noodle-e2e/**
+            /tmp/noodle-window.xml
+            /tmp/noodle-monkey.log
+      - name: Tear down disposable services
+        if: always()
+        run: docker compose -f e2e/docker-compose.yml down -v
+

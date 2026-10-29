@@ -18,3 +18,6 @@ does not imply device or production readiness.
 | Overall RELEASE READY | NOT RELEASE READY | Mandatory device/HP gates open | Do not publish APK or production |
 | RC source version for next APK | PASS (source) | `mobile/pubspec.yaml` is `5.7.3+22`; package/signing checks remain HP-only | Build and sign on HP after approval |
 | Integration PR | BLOCKED by Cloud auth | Branch is published; `gh pr create` returned 403 with invalid `GH_TOKEN` | Restore GitHub CLI token and use compare URL |
+
+| Original Noodle Gallery Android/iOS compatibility | API contract PASS; APK provenance PASS; hosted Android E2E PENDING; iOS NOT TESTED | `server/src/utils/original-noodle-gallery-contracts.spec.ts`, official APK hashes/signatures, `.github/workflows/original-noodle-gallery-compatibility.yml` | Run workflow on GitHub; complete iOS/macOS and device acceptance before release |
+| SQLite corruption recovery | SOURCE PASS / runtime NOT TESTED | `mobile/lib/data/db/sqlite_health.dart`, checkpoint `a00cc2056` | Add fixtures, run Flutter tests and device recovery replay |

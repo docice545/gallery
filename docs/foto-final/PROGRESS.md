@@ -66,3 +66,15 @@ commit without repeating destructive work.
 - **Checkpoint:** `06754793212e91311d675803b5609fe18ecf53aa` (published).
 - **Files:** progress journal, release gates and PR handoff status.
 - **Result:** branch publication PASS; PR API creation BLOCKED by invalid Cloud GitHub token.
+
+## 2026-10-29 — Stage 5: original Noodle Gallery compatibility gate
+
+- **Branch:** `codex/foto-master-final-20261029`, based on published `codex/foto-final-rc-20261028` at `8910f0281cdcec731b585a9e0efdefcba59827e5`.
+- **Source changes:** added the machine-readable original-client contract manifest, OpenAPI compatibility tests, acceptance matrix, and a GitHub Actions workflow that downloads official Android APKs, starts disposable FOTO services, and runs the unchanged APKs on a hosted Android emulator.
+- **PR #7:** required compatibility commit `a3d51348003b5e1fd84aa26040161f071fc4d648` is an ancestor of the selected RC.
+- **Artifact checks:** official v5.8.0 and v5.9.0 APKs downloaded; SHA256 and APK v2 signatures verified; package `de.opennoodle.gallery`, certificate SHA256 `c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3`.
+- **Automated checks:** API contract tests PASS (11 tests); TypeScript check PASS after building SDK/plugin SDK; shell/YAML validation PASS.
+- **Runtime status:** local emulator image installed but cannot start because this worker has no KVM/VMX/SVM. Hosted emulator job is added and must complete before Android E2E is PASS. iOS TestFlight/simulator remains NOT TESTED without macOS.
+- **SQLite:** primary database startup health guard integrated from checkpoint `5aa533cc9e42cc940bfc88e8577588ba36d0d8e0`; Flutter compile/device validation remains pending.
+- **Production:** unchanged; no HP, NAS, production database, or real user data touched.
+- **Next stage:** push this checkpoint, verify remote SHA, then run the hosted compatibility workflow and disposable PostgreSQL regressions.

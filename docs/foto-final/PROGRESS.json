@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "repository": "docice545/gallery",
-  "branch": "codex/foto-final-rc-20261028",
+  "branch": "codex/foto-master-final-20261029",
   "base": {
-    "ref": "fix/foto-offline-library-20261027",
-    "sha": "2eb2816f94647587a60c9b0e014bfdb30152fa08"
+    "ref": "codex/foto-final-rc-20261028",
+    "sha": "8910f0281cdcec731b585a9e0efdefcba59827e5"
   },
   "checkpoint": {
     "stage": "integration-baseline",
@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "create-or-update-integration-pr",
+  "nextStage": "push-and-run-hosted-original-client-compatibility-workflow",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -70,5 +70,22 @@
     },
     "productionChanged": false,
     "apkBuilt": false
+  },
+  "stage5": {
+    "status": "API_PASS_APK_PROVENANCE_PASS_ANDROID_CI_PENDING_IOS_NOT_TESTED",
+    "productionChanged": false,
+    "apkBuilt": false,
+    "pr7RequiredCommit": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+    "tests": {
+      "original_noodle_contracts": "PASS:11",
+      "typescript_check": "PASS",
+      "official_apk_5_8_0": "PASS:sha256+apk-v2-certificate",
+      "official_apk_5_9_0": "PASS:sha256+apk-v2-certificate",
+      "local_android_emulator": "BLOCKED:no KVM/VMX/SVM",
+      "hosted_android_emulator": "PENDING",
+      "ios_testflight_or_simulator": "NOT TESTED:no macOS",
+      "disposable_backend": "PENDING:registry rate limit in Cloud"
+    },
+    "commit": "PENDING_CHECKPOINT_COMMIT"
   }
 }

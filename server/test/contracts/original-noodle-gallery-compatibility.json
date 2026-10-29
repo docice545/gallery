@@ -1,0 +1,139 @@
+{
+  "gate": "ORIGINAL_NOODLE_GALLERY_COMPATIBILITY",
+  "status": "BLOCKED",
+  "clients": [
+    {
+      "name": "Noodle Gallery Android",
+      "version": "5.8.0",
+      "sourceRepository": "open-noodle/gallery",
+      "sourceCommit": "37aa54e632606cc6a62bc6bcbba14c62200147c4",
+      "runtimeStatus": "BLOCKED"
+    },
+    {
+      "name": "Noodle Gallery iOS",
+      "version": "5.8.0",
+      "sourceRepository": "open-noodle/gallery",
+      "sourceCommit": "37aa54e632606cc6a62bc6bcbba14c62200147c4",
+      "runtimeStatus": "BLOCKED"
+    }
+  ],
+  "integration": {
+    "pr": 7,
+    "requiredCommit": "a3d51348003b5e1fd84aa26040161f071fc4d648",
+    "requiredCommitIntegrated": true,
+    "productionChanged": false
+  },
+  "requiredWorkflows": [
+    "login",
+    "full_sync",
+    "incremental_sync",
+    "upload",
+    "download_original",
+    "download_thumbnail",
+    "live_photo_pair",
+    "albums",
+    "search",
+    "trash",
+    "restore",
+    "permanent_delete",
+    "reconnect_after_backend_upgrade"
+  ],
+  "apiOperations": [
+    {
+      "method": "post",
+      "path": "/auth/login"
+    },
+    {
+      "method": "get",
+      "path": "/auth/status"
+    },
+    {
+      "method": "post",
+      "path": "/sync/stream"
+    },
+    {
+      "method": "get",
+      "path": "/sync/ack"
+    },
+    {
+      "method": "post",
+      "path": "/assets"
+    },
+    {
+      "method": "get",
+      "path": "/assets/{id}"
+    },
+    {
+      "method": "get",
+      "path": "/assets/{id}/original"
+    },
+    {
+      "method": "get",
+      "path": "/assets/{id}/thumbnail"
+    },
+    {
+      "method": "get",
+      "path": "/albums"
+    },
+    {
+      "method": "post",
+      "path": "/albums"
+    },
+    {
+      "method": "get",
+      "path": "/albums/{id}"
+    },
+    {
+      "method": "get",
+      "path": "/search/explore"
+    },
+    {
+      "method": "post",
+      "path": "/trash/restore"
+    },
+    {
+      "method": "post",
+      "path": "/trash/empty"
+    }
+  ],
+  "evidence": {
+    "apiContractTests": "server/src/utils/original-noodle-gallery-contracts.spec.ts",
+    "syncRegressionTests": "server/test/medium/specs/sync/sync-client-compat.spec.ts",
+    "nativeAndroid": "NOT TESTED",
+    "nativeIOS": "NOT TESTED",
+    "realBackend": "NOT TESTED"
+  },
+  "artifacts": {
+    "v5.8.0": {
+      "url": "https://github.com/open-noodle/gallery/releases/download/v5.8.0/gallery-v5.8.0.apk",
+      "tagCommit": "37aa54e632606cc6a62bc6bcbba14c62200147c4",
+      "sha256": "385cd0734530c943bbe09f7d651434d585fbc276c2523c3c5a0357a6e94c2cd0",
+      "package": "de.opennoodle.gallery",
+      "versionCode": "29859492",
+      "versionName": "5.8.0",
+      "signatureScheme": "v2",
+      "certificateSha256": "c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3",
+      "status": "APK_OBTAINED_AND_SIGNATURE_VERIFIED"
+    },
+    "v5.9.0": {
+      "url": "https://github.com/open-noodle/gallery/releases/download/v5.9.0/gallery-v5.9.0.apk",
+      "tagCommit": "40c585e20109a9d9acbba10d2dbab3594c465cc1",
+      "sha256": "a00b7a4168449d5de77efb6d77294c7097721a038e8a5beff0a1a73d73ef7c9d",
+      "package": "de.opennoodle.gallery",
+      "versionCode": "29870542",
+      "versionName": "5.9.0",
+      "signatureScheme": "v2",
+      "certificateSha256": "c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3",
+      "status": "APK_OBTAINED_AND_SIGNATURE_VERIFIED"
+    }
+  },
+  "runtimeChecks": {
+    "androidSdk": "PASS",
+    "apkStaticInspection": "PASS",
+    "androidEmulator": "BLOCKED_NO_KVM",
+    "apkInstall": "NOT_TESTED",
+    "androidE2E": "BLOCKED_NO_EMULATOR",
+    "iosArtifact": "NOT_TESTED",
+    "iosE2E": "BLOCKED_NO_MACOS"
+  }
+}
