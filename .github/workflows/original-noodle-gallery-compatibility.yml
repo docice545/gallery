@@ -29,6 +29,9 @@ concurrency:
   group: original-noodle-gallery-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every workflow-path checkpoint re-runs the complete matrix on that exact
+# commit; historical receipts are never promoted to a newer SHA implicitly.
+
 jobs:
   api-contract:
     name: API contract and compatibility regressions
