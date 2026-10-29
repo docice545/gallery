@@ -90,7 +90,7 @@ root = ET.parse(sys.argv[2]).getroot()
 for node in root.iter('node'):
     if node.attrib.get('enabled', 'true').casefold() != 'true':
         continue
-    if node.attrib.get('clickable', 'false').casefold() != 'true':
+    if node.attrib.get('clickable', 'true').casefold() == 'false':
         continue
     if not node.attrib.get('bounds'):
         continue
@@ -285,10 +285,14 @@ $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
 mark_phase server_endpoint_field
 edit_text_at 0 "$server_url"
 mark_phase enter_server_submit
-$adb_bin shell input keyevent 66
+if ! tap_action_text_any 'Next' 'Continue'; then
+  # The endpoint TextField advertises IME_ACTION_NEXT; retain the semantic
+  # keyboard submission as a fallback for Flutter builds that omit the button
+  # from the Android hierarchy.
+  $adb_bin shell input keyevent 66
+fi
 sleep 1
 dump_ui
-tap_text_any 'Next' 'Continue' 'Login' 'Log in' || true
 mark_phase wait_login
 has_login_fields() {
   python3 - <<'PY'
@@ -299,16 +303,19 @@ for node in root.iter('node'):
     klass = (node.attrib.get('class') or '').lower()
     input_type = (node.attrib.get('input-type') or '').lower()
     if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'false':
+            continue
         fields.append(node)
 print('yes' if len(fields) >= 2 else 'no')
 PY
 }
+login_opened=false
 for _ in $(seq 1 30); do
   sleep 2
   dump_ui
   if grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]; then break; fi
-  if grep -qi 'Login' /tmp/noodle-window.xml; then
-    tap_text_any 'Login' 'Log in'
+  if [[ "$login_opened" == false ]] && tap_action_text_any 'Login' 'Log in'; then
+    login_opened=true
     $adb_bin shell input keyevent 66 || true
   fi
 done
@@ -316,7 +323,7 @@ grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]
 mark_phase credentials
 edit_text_at 0 'admin@immich.cloud'
 edit_text_at 1 'password'
-tap_text_any 'Login' 'Log in'
+tap_action_text_any 'Login' 'Log in'
 sleep 12
 mark_phase authenticated
 dump_ui

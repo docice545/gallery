@@ -297,6 +297,8 @@ for node in root.iter('node'):
     klass = (node.attrib.get('class') or '').lower()
     input_type = (node.attrib.get('input-type') or '').lower()
     if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'false':
+            continue
         fields.append(node)
 print('yes' if len(fields) >= 2 else 'no')
 PY
