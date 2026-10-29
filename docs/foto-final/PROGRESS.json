@@ -184,8 +184,8 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "exact-sha-disposable-api-smoke",
-    "commit": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",
+    "stage": "build22-fixture-dedup-hardening",
+    "commit": "b58e086bd732084c65c897b1d9f740eb9b6c9e85",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": false,
