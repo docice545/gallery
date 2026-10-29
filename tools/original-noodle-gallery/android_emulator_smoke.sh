@@ -94,6 +94,9 @@ edit_text_at() {
   b=$(wait_for_edit_text "$i")
   read -r x y < <(center "$b")
   $adb_bin shell input tap "$x" "$y"
+  # Flutter may expose the bounds before the text input connection has
+  # finished attaching. Give it a turn so the first character is not dropped.
+  sleep 1
   $adb_bin shell input text "$value"
 }
 wait_for_edit_text() {
