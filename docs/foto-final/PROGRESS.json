@@ -146,14 +146,15 @@
       "localDockerServerBuild": "BLOCKED_ENOSPC_REGISTERING_PINNED_BASE_LAYERS",
       "manifestStatusSeparation": "PASS_cbc395bc9",
       "workflowTriggeredOnExactFinalSha": "PASS_PUSH_ca3305567",
-      "sqliteSnapshotRetention": "SOURCE_FIX_f368af9e1"
+      "sqliteSnapshotRetention": "SOURCE_FIX_f368af9e1",
+      "unnamedEdgeCaptureHeuristic": "SOURCE_FIX_02a775ec8"
     },
     "productionChanged": false,
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "sqlite-snapshot-retention-fix",
-    "commit": "f368af9e16d5a6dce642c7157c61fade9d68b6be",
+    "stage": "unnamed-edge-capture-framing-fix",
+    "commit": "02a775ec8fda31cacd893b3a93399489a7f80639",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": true,

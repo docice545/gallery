@@ -195,3 +195,13 @@ commit without repeating destructive work.
   fixture now checks that behavior. The workflow triggered by the mobile source
   change is the authoritative final-SHA run; its runtime result is still
   pending and no release PASS is inferred.
+
+## 2026-10-29 — Stage 5i: unnamed edge-content fixture coverage
+
+- **Source checkpoint:** `02a775ec8fda31cacd893b3a93399489a7f80639` (published;
+  remote branch head verified before this documentation receipt).
+- Edge-content framing now also recognizes display-sized, unnamed phone captures
+  by a bounded aspect/resolution heuristic. Multi-megapixel ordinary portraits
+  retain cover framing. Classification tests cover named screenshots, unnamed
+  captures, ordinary photos and rendered edge pixels. Hosted Flutter/widget and
+  final APK results remain pending.
