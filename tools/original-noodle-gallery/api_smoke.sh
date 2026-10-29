@@ -34,9 +34,12 @@ curl --fail --silent --show-error "$base/trash/empty/preflight" "${auth[@]}" >/d
 echo 'API smoke: auth and discovery passed'
 
 mark_stage media_generation
-convert -size 32x32 xc:'rgb(32,96,160)' -quality 85 "$workdir/noodle-still.jpg"
+run_id="$(date -u +%Y%m%dT%H%M%S%N)-$$"
+still_name="noodle-still-${run_id}.jpg"
+motion_name="noodle-motion-${run_id}.mp4"
+convert -size 32x32 xc:'rgb(32,96,160)' -set comment "$run_id" -quality 85 "$workdir/$still_name"
 ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=16x16:d=1 \
-  -vf format=yuv420p -c:v libx264 -movflags +faststart -y "$workdir/noodle-motion.mp4"
+  -vf format=yuv420p -c:v libx264 -metadata comment="$run_id" -movflags +faststart -y "$workdir/$motion_name"
 
 upload_asset() {
   local file=$1 filename=$2 extra_field=${3:-} response
@@ -55,8 +58,8 @@ upload_asset() {
 }
 
 mark_stage upload
-video_id=$(upload_asset "$workdir/noodle-motion.mp4" 'noodle-motion.mp4')
-still_id=$(upload_asset "$workdir/noodle-still.jpg" 'noodle-still.jpg' "livePhotoVideoId=$video_id")
+video_id=$(upload_asset "$workdir/$motion_name" "$motion_name")
+still_id=$(upload_asset "$workdir/$still_name" "$still_name" "livePhotoVideoId=$video_id")
 echo 'API smoke: upload and Live Photo pair passed'
 mark_stage downloads
 for _ in $(seq 1 30); do
