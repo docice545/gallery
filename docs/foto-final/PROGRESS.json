@@ -203,8 +203,8 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "hosted-p0-proof-bounded-build22-launch-diagnosis",
-    "commit": "99d4a58eabf6cc13f1f4e4fc3151cde051925b03",
+    "stage": "build22-hosted-e2e-exact-sha-pass",
+    "commit": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": false,
@@ -285,6 +285,38 @@
       "fotoLaunchFix": "PASS_LOCAL_SHELL_AND_SOURCE_CHECKS",
       "fotoRerun": "PENDING_RUN_40950288472"
     },
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage9": {
+    "status": "HOSTED_BUILD22_AND_ORIGINAL_CLIENTS_PASS_PRODUCTION_GATES_OPEN",
+    "diagnosticCommit": "a89bcb0c14aec952ea3377504905c1759c2425d2",
+    "sourceCommit": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
+    "diagnosticRun": "40956102162",
+    "finalRun": "40961734970",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "sqliteFileBackedCorruptionRecovery": "PASS_HOSTED_IOS_RUN_40961734970_JOB_123755969746",
+      "sqliteErrorCode": "779_SQLITE_CORRUPT_INDEX",
+      "sqlitePendingAndCursorPreservation": "PASS_HOSTED_IOS_RUN_40961734970_JOB_123755969746",
+      "sqliteCopyRepairAndResume": "PASS_HOSTED_IOS_RUN_40961734970_JOB_123755969746",
+      "syncAckSuppression": "PASS_SOURCE_TEST",
+      "fotoOfflineEmulator": "PASS_RUN_40961734970_JOB_123755969984",
+      "officialAndroid580": "PASS_RUN_40961734970_JOB_123755970131",
+      "officialAndroid590": "PASS_RUN_40961734970_JOB_123755969995",
+      "iosFlutterAndSimulator": "PASS_RUN_40961734970_JOB_123755969746",
+      "androidCache": "PASS_RUN_40961734970_JOB_123755970070",
+      "apiContractAndBackend": "PASS_RUN_40961734970_JOB_123755970160",
+      "api35PermissionDialog": "FIXED_WITH_EMULATOR_ONLY_GRANTS_AND_SEMANTIC_DISMISS",
+      "uiDumpDiagnostics": "PASS_LOCAL_FAKE_ADB_REGRESSION",
+      "shellAndJsonChecks": "PASS_LOCAL"
+    },
+    "openGates": [
+      "SAMSUNG_S23_PHYSICAL_REPLAY",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "HP_NAS_PRODUCTION_VALIDATION",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
     "overall": "NOT_RELEASE_READY"
   }
 }
