@@ -160,3 +160,17 @@ commit without repeating destructive work.
   process-death E2E, Flutter/iOS checks, SQLite runtime replay, Samsung S23 and
   HP gates remain pending or not tested. Overall status remains
   `NOT RELEASE READY`.
+
+## 2026-10-29 — Stage 5f: compatibility status separation
+
+- **Checkpoint:** `cbc395bc99e885900688a59a5813c50187273e7f` (published; remote
+  branch head verified).
+- **Manifest clarification:** Android v5.8.0/v5.9.0 artifacts are marked
+  obtained and signature-verified, while launch and real-client E2E remain
+  pending hosted emulator execution. iOS is explicitly split into source
+  contract checks, TestFlight artifact status, macOS simulator launch and real
+  E2E; no iOS runtime PASS is inferred.
+- **Final-SHA rule:** the prior API smoke receipt is retained as historical
+  evidence, but the manifest now records that a disposable API smoke on the
+  current checkpoint is still required. The overall release stays
+  `NOT RELEASE READY`.

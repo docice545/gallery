@@ -125,10 +125,11 @@
   },
   "stage5e": {
     "status": "FINAL_SHA_PUBLISHED_CI_PENDING_NOT_RELEASE_READY",
-    "commit": "75cc67e87030178523fabbca9ba5d9549f60ab03",
+    "commit": "cbc395bc99e885900688a59a5813c50187273e7f",
     "previousCommits": [
       "0b785c9070fc393e6d9ee14d1e733791a425aaee",
-      "c3facf6b9bb3c20a6e5cfa3a844a7eb8a00b178d"
+      "c3facf6b9bb3c20a6e5cfa3a844a7eb8a00b178d",
+      "62db998618f80a2ad1e9b508759c9ab66a6262e"
     ],
     "tests": {
       "remoteBranchHead": "PASS",
@@ -142,9 +143,17 @@
       "sqliteRecoveryRuntime": "NOT_TESTED",
       "samsungS23": "NOT_TESTED",
       "localDisposablePostgresRedis": "PASS_STARTED_PINNED_IMAGES",
-      "localDockerServerBuild": "BLOCKED_ENOSPC_REGISTERING_PINNED_BASE_LAYERS"
+      "localDockerServerBuild": "BLOCKED_ENOSPC_REGISTERING_PINNED_BASE_LAYERS",
+      "manifestStatusSeparation": "PASS_cbc395bc9"
     },
     "productionChanged": false,
+    "overall": "NOT_RELEASE_READY"
+  },
+  "currentCheckpoint": {
+    "stage": "compatibility-status-separation",
+    "commit": "cbc395bc99e885900688a59a5813c50187273e7f",
+    "published": true,
+    "remoteHeadVerified": true,
     "overall": "NOT_RELEASE_READY"
   }
 }
