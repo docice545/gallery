@@ -59,8 +59,13 @@ video_id=$(upload_asset "$workdir/noodle-motion.mp4" 'noodle-motion.mp4')
 still_id=$(upload_asset "$workdir/noodle-still.jpg" 'noodle-still.jpg' "livePhotoVideoId=$video_id")
 echo 'API smoke: upload and Live Photo pair passed'
 mark_stage downloads
-curl --fail --silent --show-error "$base/assets/$still_id" "${auth[@]}" >/dev/null
-curl --fail --silent --show-error "$base/assets/$still_id/original?download=true" "${auth[@]}" -o "$workdir/original.jpg"
+for _ in $(seq 1 30); do
+  if curl --fail --silent --show-error "$base/assets/$still_id" "${auth[@]}" >/dev/null && \
+     curl --fail --silent --show-error "$base/assets/$still_id/original?download=true" "${auth[@]}" -o "$workdir/original.jpg"; then
+    break
+  fi
+  sleep 2
+done
 test -s "$workdir/original.jpg"
 
 for _ in $(seq 1 30); do
