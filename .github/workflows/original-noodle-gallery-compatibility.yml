@@ -31,6 +31,7 @@ concurrency:
 
 # Every workflow-path checkpoint re-runs the complete matrix on that exact
 # commit; historical receipts are never promoted to a newer SHA implicitly.
+# Final documentation checkpoints may follow without changing the tested code.
 
 jobs:
   api-contract:
