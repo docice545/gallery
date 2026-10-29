@@ -213,15 +213,9 @@ jobs:
         with:
           distribution: zulu
           java-version: '17'
-      - name: Prepare the pinned Flutter Gradle wrapper
-        working-directory: mobile/android
-        run: |
-          set -euo pipefail
-          wrapper="$FLUTTER_ROOT/bin/cache/artifacts/gradle_wrapper"
-          test -s gradle/wrapper/gradle-wrapper.properties
-          test -s "$wrapper/gradle/wrapper/gradle-wrapper.jar"
-          install -m 755 "$wrapper/gradlew" gradlew
-          install -m 644 "$wrapper/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+      - name: Materialize the pinned Flutter Gradle wrapper
+        working-directory: mobile
+        run: flutter build apk --debug --no-tree-shake-icons
       - name: Run Android cache unit tests
         working-directory: mobile/android
         run: ./gradlew --no-daemon :app:testDebugUnitTest --tests 'app.alextran.immich.images.OfflineThumbnailCacheTest' --console=plain
