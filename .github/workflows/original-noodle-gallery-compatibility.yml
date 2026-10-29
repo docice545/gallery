@@ -12,7 +12,9 @@ on:
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
-    branches: ['codex/foto-master-final-20261029']
+    branches:
+      - 'codex/foto-master-final-20261029'
+      - 'codex/foto-build22-resume-20261029'
     paths:
       - 'server/**'
       - 'open-api/**'
