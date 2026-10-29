@@ -4,6 +4,27 @@ apk_path=${1:?APK path is required}
 version=${2:?version is required}
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
+diagnostics_file=${ADB_DIAGNOSTICS_FILE:-/tmp/noodle-android-adb-diagnostics.log}
+adb_diagnostics() {
+  {
+    echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo '--- adb devices ---'
+    "$adb_bin" devices -l || true
+    echo '--- adb state ---'
+    "$adb_bin" get-state || true
+    echo '--- emulator properties ---'
+    "$adb_bin" shell getprop sys.boot_completed || true
+    "$adb_bin" shell getprop ro.kernel.qemu || true
+    echo '--- logcat tail ---'
+    "$adb_bin" logcat -d -t 200 || true
+  } >"$diagnostics_file" 2>&1 || true
+}
+on_error() {
+  rc=$?
+  adb_diagnostics
+  return "$rc"
+}
+trap on_error ERR
 wait_for_boot() {
   for _ in $(seq 1 90); do
     if [[ "$($adb_bin get-state 2>/dev/null || true)" == "device" ]] && [[ "$($adb_bin shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
@@ -56,6 +77,7 @@ PY
   $adb_bin shell input text "$value"
 }
 wait_for_boot
+"$adb_bin" start-server >/dev/null 2>&1 || true
 $adb_bin install -r "$apk_path"
 $adb_bin shell pm clear de.opennoodle.gallery >/dev/null
 $adb_bin shell monkey -p de.opennoodle.gallery 1 >/tmp/noodle-monkey.log
@@ -76,5 +98,6 @@ dump_ui
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
 $adb_bin shell screencap -p /sdcard/noodle-$version.png
 $adb_bin pull /sdcard/noodle-$version.png "${ARTIFACT_DIR:-/tmp}/noodle-$version.png" >/dev/null
+trap - ERR
 echo "Noodle Gallery $version installed, authenticated, and foreground on disposable backend."
 

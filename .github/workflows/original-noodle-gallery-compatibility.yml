@@ -156,6 +156,17 @@ jobs:
             sleep $((attempt * 20))
           done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+      - name: Prepare hosted Android emulator KVM and ADB
+        run: |
+          set -euxo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-gallery-ci-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod 0666 /dev/kvm 2>/dev/null || true
+          ls -l /dev/kvm 2>/dev/null || true
+          adb kill-server || true
+          adb start-server
+          adb version
       - name: Build and start disposable FOTO backend
         run: |
           for attempt in 1 2 3; do
@@ -181,8 +192,12 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -memory 4096 -cores 2 -gpu swiftshader_indirect
+          # Avoid extra post-boot settings calls while the ADB transport is
+          # settling; the smoke script waits for boot and captures diagnostics.
+          disable-animations: false
+          # Keep the AVD below the hosted runner's memory ceiling alongside
+          # the disposable backend and Docker daemon.
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
           emulator-boot-timeout: 900
           force-avd-creation: true
           script: |
@@ -196,6 +211,7 @@ jobs:
           path: |
             apk-signature.txt
             /tmp/noodle-e2e/**
+            /tmp/noodle-android-adb-diagnostics.log
             /tmp/noodle-window.xml
             /tmp/noodle-monkey.log
       - name: Tear down disposable services
@@ -423,6 +439,17 @@ jobs:
               -F "fileCreatedAt=$year-01-01T00:00:00.000Z" -F "fileModifiedAt=$year-01-01T00:00:00.000Z")
             jq -e '.status == "created" and (.id | type == "string")' <<<"$response" >/dev/null
           done
+      - name: Prepare hosted Android emulator KVM and ADB
+        run: |
+          set -euxo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-gallery-ci-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod 0666 /dev/kvm 2>/dev/null || true
+          ls -l /dev/kvm 2>/dev/null || true
+          adb kill-server || true
+          adb start-server
+          adb version
       - name: Run Build 22 offline emulator smoke
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         env:
@@ -433,8 +460,8 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          disable-animations: true
-          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -memory 4096 -cores 2 -gpu swiftshader_indirect
+          disable-animations: false
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
           emulator-boot-timeout: 900
           force-avd-creation: true
           script: |

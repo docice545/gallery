@@ -6,7 +6,28 @@ server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
 package_name=${PACKAGE_NAME:-de.opennoodle.gallery.debug}
 artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
+diagnostics_file=${ADB_DIAGNOSTICS_FILE:-$artifact_dir/adb-diagnostics.log}
 mkdir -p "$artifact_dir"
+adb_diagnostics() {
+  {
+    echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo '--- adb devices ---'
+    "$adb_bin" devices -l || true
+    echo '--- adb state ---'
+    "$adb_bin" get-state || true
+    echo '--- emulator properties ---'
+    "$adb_bin" shell getprop sys.boot_completed || true
+    "$adb_bin" shell getprop ro.kernel.qemu || true
+    echo '--- logcat tail ---'
+    "$adb_bin" logcat -d -t 200 || true
+  } >"$diagnostics_file" 2>&1 || true
+}
+on_error() {
+  rc=$?
+  adb_diagnostics
+  return "$rc"
+}
+trap on_error ERR
 wait_for_boot() {
   for _ in $(seq 1 90); do
     if [[ "$($adb_bin get-state 2>/dev/null || true)" == "device" ]] && [[ "$($adb_bin shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
@@ -59,6 +80,7 @@ PY
   $adb_bin shell input text "$value"
 }
 wait_for_boot
+"$adb_bin" start-server >/dev/null 2>&1 || true
 $adb_bin install -r "$apk_path"
 $adb_bin shell pm clear "$package_name" >/dev/null
 $adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
@@ -116,4 +138,5 @@ assert_rendered_capture "$artifact_dir/offline.png"
 $adb_bin shell svc wifi enable || true
 $adb_bin shell svc data enable || true
 echo "FOTO offline emulator smoke passed: login, synced timeline, force-stop, offline relaunch, and local catalog render."
+trap - ERR
 
