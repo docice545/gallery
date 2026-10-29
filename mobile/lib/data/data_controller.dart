@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:immich_mobile/data/db/logger/database.dart';
 import 'package:immich_mobile/data/db/main/dao/person.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/server/activity.dart';
 import 'package:immich_mobile/data/server/person.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
@@ -28,6 +29,26 @@ class DataController {
 
     final (db, updatePool) = await openSqliteConnectionWithUpdatePool(name: 'immich');
     final drift = Drift.sqlite(db, updatePool);
+
+    // Probe the primary database before creating repositories or starting any
+    // sync work. A corrupt index (including extended code 779) must stop
+    // startup; deleting/resetting immich.sqlite would risk pending uploads,
+    // local-only assets, and sync cursors. Recovery is a separate, user-mediated
+    // operation against a copy.
+    try {
+      final rows = await drift.customSelect('PRAGMA quick_check(1)').get();
+      final result = rows.isEmpty ? null : rows.first.data.values.first.toString().toLowerCase();
+      if (result != 'ok') {
+        await drift.close();
+        throw SqliteDatabaseUnhealthy('PRAGMA quick_check(1)', result ?? 'no result');
+      }
+    } on SqliteException catch (error) {
+      await drift.close();
+      if (isUnsafeToWrite(error)) {
+        throw SqliteDatabaseUnhealthy('PRAGMA quick_check(1)', error.resultCode);
+      }
+      rethrow;
+    }
 
     DriftLogger? logger;
     try {
