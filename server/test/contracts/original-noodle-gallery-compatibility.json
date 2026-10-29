@@ -129,10 +129,11 @@
     "nativeIOS": "NOT TESTED",
     "realBackend": "PASS_RUN_40866220811",
     "apiSmokeCommit": "cb24532f35df70defa117a56685c728bb36ac122",
-    "finalSha": "02a775ec8fda31cacd893b3a93399489a7f80639",
-    "finalShaApiSmoke": "PENDING_HOSTED_RUN",
+    "finalSha": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",
+    "finalShaApiSmoke": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",
+    "finalShaApiSmokeResult": "PASS_LOCAL_DISPOSABLE_POSTGRES_REDIS_2026-10-29",
     "hostedWorkflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
-    "documentationHead": "PENDING"
+    "documentationHead": "docs/foto-final/PROGRESS.md"
   },
   "artifacts": {
     "v5.8.0": {

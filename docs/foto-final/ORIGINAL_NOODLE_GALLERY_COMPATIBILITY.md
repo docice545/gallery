@@ -18,8 +18,10 @@ run `40866220811` at backend commit
 `cb24532f35df70defa117a56685c728bb36ac122`. It covered login, auth status,
 full/incremental sync and ACKs, upload/download, a Live Photo pair, album
 create/detail, search, Trash restore/empty/permanent delete, and reconnect.
-That receipt predates the current final checkpoint, so the final-SHA API smoke
-remains a required rerun; it is not silently reused as a release PASS.
+The same flow was then rebuilt and rerun against the current backend source
+checkpoint `46e013adaddeddf8d9b358bcd10b5f721270e0ed` using disposable pinned
+PostgreSQL/Redis. That exact-SHA local result is **PASS**; the hosted unchanged
+client runtime result is still separate and pending.
 
 Official Android artifacts were obtained from the release URLs and inspected
 with Android SDK Build Tools `35.0.0`: v5.8.0 SHA256
@@ -34,9 +36,9 @@ The statuses are intentionally split:
 
 | Client | Official artifact obtained | APK/app launched | Backend API smoke | Real client E2E |
 |---|---|---|---|---|
-| Android 5.8.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS on run `40866220811`** (pre-final SHA; rerun required) | **PENDING** |
-| Android 5.9.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS on run `40866220811`** (pre-final SHA; rerun required) | **PENDING** |
-| iOS pinned source/TestFlight | **NOT TESTED** — no TestFlight binary is copied into the repository | **PENDING macOS simulator/TestFlight** | **CONTRACT SOURCE PASS; final-SHA smoke rerun required** | **NOT TESTED** |
+| Android 5.8.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS** — exact-SHA disposable backend smoke at `46e013adaddeddf8d9b358bcd10b5f721270e0ed` | **PENDING** |
+| Android 5.9.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS** — exact-SHA disposable backend smoke at `46e013adaddeddf8d9b358bcd10b5f721270e0ed` | **PENDING** |
+| iOS pinned source/TestFlight | **NOT TESTED** — no TestFlight binary is copied into the repository | **PENDING macOS simulator/TestFlight** | **CONTRACT SOURCE PASS; disposable API smoke PASS at exact backend SHA** | **NOT TESTED** |
 
 The local worker has no Android SDK/emulator command or KVM/VMX/SVM
 acceleration, so it cannot install or exercise the APKs here. The repository

@@ -152,12 +152,31 @@
     "productionChanged": false,
     "overall": "NOT_RELEASE_READY"
   },
+  "stage5j": {
+    "status": "EXACT_SHA_DISPOSABLE_API_SMOKE_PASS_RUNTIME_GATES_PENDING",
+    "sourceCommit": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",
+    "tests": {
+      "serverBuild": "PASS",
+      "galleryMigrations": "PASS:79",
+      "disposablePostgresRedis": "PASS_STARTED_PINNED_IMAGES",
+      "apiSmoke": "PASS_LOCAL_DISPOSABLE_POSTGRES_REDIS",
+      "apiSmokeCommand": "bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285",
+      "apiSmokeCoverage": "login,full+incremental sync,ACK,upload,original+thumbnail download,Live Photo,albums,search,trash+restore+permanent delete,reconnect",
+      "officialAndroidRuntime": "PENDING_HOSTED_EMULATOR",
+      "iosRuntime": "NOT_TESTED_NO_MACOS",
+      "build22OfflineProcessDeath": "PENDING_HOSTED_EMULATOR",
+      "flutterRenderedPixels": "PENDING_HOSTED_CI",
+      "sqliteRuntime": "NOT_TESTED",
+      "samsungS23": "NOT_TESTED"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
   "currentCheckpoint": {
-    "stage": "unnamed-edge-capture-framing-fix",
-    "commit": "02a775ec8fda31cacd893b3a93399489a7f80639",
+    "stage": "exact-sha-disposable-api-smoke",
+    "commit": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",
     "published": true,
     "remoteHeadVerified": true,
-    "documentationReceiptPending": true,
+    "documentationReceiptPending": false,
     "overall": "NOT_RELEASE_READY"
   }
 }

@@ -205,3 +205,25 @@ commit without repeating destructive work.
   retain cover framing. Classification tests cover named screenshots, unnamed
   captures, ordinary photos and rendered edge pixels. Hosted Flutter/widget and
   final APK results remain pending.
+
+## 2026-10-29 — Stage 5j: exact-SHA disposable API smoke
+
+- **Source checkpoint:** `46e013adaddeddf8d9b358bcd10b5f721270e0ed` (published on
+  `codex/foto-master-final-20261029` and `main`).
+- **Test harness:** `tools/original-noodle-gallery/api_smoke.sh` now generates
+  unique media bytes and filenames, so a rerun after permanent deletion does
+  not hit the server's intentional reupload suppression.
+- **Backend setup:** `pnpm --dir server build` PASS; 79 Gallery migrations
+  synchronized and disposable pinned PostgreSQL/Redis started. The Node API
+  worker completed migrations and reported no schema drift.
+- **Exact-SHA API result:** PASS on the rebuilt backend at the source checkpoint
+  above. The smoke covered login, auth status, full/incremental sync and ACKs,
+  upload/download, Live Photo pairing, albums, search, Trash restore/empty/
+  permanent delete, and reconnect. Download polling observed transient 404s
+  while processing and then passed once original and thumbnail files were
+  available.
+- **Gate separation:** this closes the disposable API evidence requirement;
+  official Android APK launch and unchanged-client E2E, Build 22 offline
+  process-death replay, Flutter rendered-pixel CI, iOS/macOS, SQLite runtime,
+  Shizuku/device, and Samsung S23 checks remain pending or not tested. Overall
+  status remains `NOT RELEASE READY`.
