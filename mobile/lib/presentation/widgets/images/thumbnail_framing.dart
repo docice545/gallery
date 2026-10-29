@@ -96,8 +96,12 @@ bool shouldPreserveEdgeContent(String name, {int? width, int? height}) {
   if (width == null || height == null || width <= 0 || height <= 0) {
     return false;
   }
-  final aspect = math.max(width, height) / math.min(width, height);
-  return aspect >= 1.65 && aspect <= 2.2 && normalized.contains('screen');
+  final longEdge = math.max(width, height);
+  final aspect = longEdge / math.min(width, height);
+  // Unnamed phone captures are commonly exported at the display resolution
+  // (rather than the multi-megapixel dimensions of ordinary camera photos).
+  // Keep the threshold narrow so a normal portrait photo still uses cover.
+  return longEdge <= 3000 && aspect >= 1.65 && aspect <= 2.25;
 }
 
 bool _isValidSize(Size size) => size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0;

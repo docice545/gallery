@@ -171,7 +171,9 @@ void main() {
   test('edge-content classification covers named screenshots and documents without changing ordinary photos', () {
     expect(shouldPreserveEdgeContent('Screenshot_2026-10-29-09-00-00.png', width: 1080, height: 1920), isTrue);
     expect(shouldPreserveEdgeContent('chat-export.png', width: 1440, height: 2560), isTrue);
+    expect(shouldPreserveEdgeContent('capture-001.png', width: 1080, height: 1920), isTrue);
     expect(shouldPreserveEdgeContent('IMG_1234.jpg', width: 4032, height: 3024), isFalse);
+    expect(shouldPreserveEdgeContent('portrait.jpg', width: 3024, height: 4032), isFalse);
   });
 
   test('non-cover fits preserve their existing centered behavior with known faces', () {
