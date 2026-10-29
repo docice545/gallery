@@ -95,13 +95,15 @@ mark_phase clear_and_launch
 $adb_bin shell pm clear de.opennoodle.gallery >/dev/null
 $adb_bin shell monkey -p de.opennoodle.gallery 1 >/tmp/noodle-monkey.log
 sleep 5
-mark_phase server_endpoint
+mark_phase server_endpoint_dump
 dump_ui
+mark_phase server_endpoint_package
 $adb_bin shell dumpsys package de.opennoodle.gallery | grep -q "versionName=$version"
+mark_phase server_endpoint_activity
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
-tap_text_any 'Server Endpoint URL' 'Endpoint URL' 'Server URL'
-mark_phase enter_server
+mark_phase server_endpoint_field
 edit_text_at 0 "$server_url"
+mark_phase enter_server
 tap_text_any 'Next' 'Continue'
 mark_phase wait_login
 for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
