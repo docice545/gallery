@@ -6,14 +6,14 @@ server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
 wait_for_boot() {
   for _ in $(seq 1 90); do
-    if [[ "$($adb_bin get-state 2>/dev/null || true)" == "device" ]] && [[ "$($adb_bin shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" == "1" ]]; then return 0; fi
+    if [[ "$($adb_bin get-state 2>/dev/null || true)" == "device" ]] && [[ "$($adb_bin shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
     sleep 2
   done
   return 1
 }
 dump_ui() {
   $adb_bin shell uiautomator dump /sdcard/window.xml >/dev/null
-  $adb_bin shell cat /sdcard/window.xml | tr -d '\\r' > /tmp/noodle-window.xml
+  $adb_bin shell cat /sdcard/window.xml | tr -d '\r' > /tmp/noodle-window.xml
 }
 find_bounds() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
@@ -29,13 +29,16 @@ PY
 center() {
   python3 - "$1" <<'PY'
 import re, sys
-m = re.findall(r'\\[(\\d+),(\\d+)\\]', sys.argv[1])
+m = re.findall(r'\[(\d+),(\d+)\]', sys.argv[1])
+if len(m) != 2:
+    raise SystemExit(f'Unable to parse UI bounds: {sys.argv[1]!r}')
 print((int(m[0][0]) + int(m[1][0])) // 2, (int(m[0][1]) + int(m[1][1])) // 2)
 PY
 }
 tap_text() {
   local b x y
   b=$(find_bounds "$1")
+  test -n "$b" || { echo "UI element not found: $1" >&2; return 1; }
   read -r x y < <(center "$b")
   $adb_bin shell input tap "$x" "$y"
 }
@@ -61,7 +64,7 @@ dump_ui
 $adb_bin shell dumpsys package de.opennoodle.gallery | grep -q "versionName=$version"
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
 tap_text 'Server Endpoint URL'
-edit_text_at 0 "${server_url//:/\\\\:}"
+edit_text_at 0 "$server_url"
 tap_text 'Next'
 for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
 grep -qi Email /tmp/noodle-window.xml
