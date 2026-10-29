@@ -183,26 +183,30 @@ jobs:
         run: |
           curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up -H 'content-type: application/json' -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
       - name: Run official client on emulator
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        # reactivecircus/android-emulator-runner has an upstream boot race:
+        # sys.boot_completed may precede Android's input service. Retry the
+        # entire action so a transient adb 224 is retried before declaring the
+        # unchanged client incompatible.
+        uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0
         env:
-          APK_PATH: ${{ steps.apk.outputs.path }}
+          APK_PATH: ${{ github.workspace }}/gallery-v${{ matrix.version }}.apk
           VERSION: ${{ matrix.version }}
           SERVER_URL: http://10.0.2.2:2285
         with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          # Avoid extra post-boot settings calls while the ADB transport is
-          # settling; the smoke script waits for boot and captures diagnostics.
-          disable-animations: false
-          # Keep the AVD below the hosted runner's memory ceiling alongside
-          # the disposable backend and Docker daemon.
-          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
-          emulator-boot-timeout: 900
-          force-avd-creation: true
-          script: |
-            mkdir -p /tmp/noodle-e2e
-            bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
+          action: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+          attempt_limit: 3
+          attempt_delay: 10000
+          with: |
+            api-level: 35
+            target: google_apis
+            arch: x86_64
+            disable-animations: false
+            emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
+            emulator-boot-timeout: 900
+            force-avd-creation: true
+            script: |
+              mkdir -p /tmp/noodle-e2e
+              bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
       - name: Upload Android E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -451,21 +455,25 @@ jobs:
           adb start-server
           adb version
       - name: Run Build 22 offline emulator smoke
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0
         env:
           APK_PATH: ${{ github.workspace }}/mobile/build/app/outputs/flutter-apk/app-debug.apk
           PACKAGE_NAME: de.opennoodle.gallery.debug
           SERVER_URL: http://10.0.2.2:2285
         with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          disable-animations: false
-          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
-          emulator-boot-timeout: 900
-          force-avd-creation: true
-          script: |
-            bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
+          action: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+          attempt_limit: 3
+          attempt_delay: 10000
+          with: |
+            api-level: 35
+            target: google_apis
+            arch: x86_64
+            disable-animations: false
+            emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
+            emulator-boot-timeout: 900
+            force-avd-creation: true
+            script: |
+              bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
       - name: Upload FOTO offline evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
