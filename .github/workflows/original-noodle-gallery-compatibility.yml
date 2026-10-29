@@ -172,16 +172,21 @@ jobs:
           working_directory: ./mobile
       - name: Install pinned mobile dependencies and generated clients
         run: mise //mobile:install:ci && mise //mobile:codegen
-      - name: Run iOS-capable Flutter analysis and tests
+      - name: Run iOS-capable Flutter analysis
         working-directory: mobile
-        run: |
-          flutter analyze --no-pub
-          flutter test --no-pub \
-            test/services \
-            test/repositories \
-            test/domain/services/offline_thumbnail_warmup_test.dart \
-            test/presentation/widgets/images/thumbnail_framing_test.dart \
-            test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart
+        run: flutter analyze --no-pub
+      - name: Run iOS-capable existing service and repository tests
+        working-directory: mobile
+        run: flutter test --no-pub test/services test/repositories
+      - name: Run screenshot framing policy tests
+        working-directory: mobile
+        run: flutter test --no-pub test/presentation/widgets/images/thumbnail_framing_test.dart
+      - name: Run rendered screenshot framing widget tests
+        working-directory: mobile
+        run: flutter test --no-pub test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart
+      - name: Run offline thumbnail warmup policy tests
+        working-directory: mobile
+        run: flutter test --no-pub test/domain/services/offline_thumbnail_warmup_test.dart
       - name: Build unsigned iOS simulator app
         working-directory: mobile
         run: flutter build ios --simulator --no-codesign
