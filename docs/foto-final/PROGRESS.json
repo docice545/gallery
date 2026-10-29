@@ -171,6 +171,18 @@
     },
     "overall": "NOT_RELEASE_READY"
   },
+  "stage5k": {
+    "status": "BUILD22_FIXTURE_DEDUP_HARDENED_HOSTED_RUNTIME_PENDING",
+    "workflowCommit": "b58e086bd732084c65c897b1d9f740eb9b6c9e85",
+    "tests": {
+      "workflowYaml": "PASS",
+      "fixtureSha256": "PASS:2020=0c18beb7...;2024=d07788f3...",
+      "fixtureCenterPixel": "PASS:white",
+      "uploadResponseAssertion": "SOURCE_ASSERT_CREATED",
+      "build22OfflineEmulator": "PENDING_HOSTED_EMULATOR"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
   "currentCheckpoint": {
     "stage": "exact-sha-disposable-api-smoke",
     "commit": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",

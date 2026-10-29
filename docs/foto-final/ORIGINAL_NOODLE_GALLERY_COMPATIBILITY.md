@@ -24,6 +24,11 @@ PostgreSQL/Redis. That exact-SHA local result is **PASS**; the hosted unchanged
 client runtime result is still separate and pending. The detailed receipt is in
 `docs/foto-final/ORIGINAL_NOODLE_API_SMOKE_2026-10-29.md`.
 
+The Build 22 offline workflow fixture is also checksum-safe: its 2020 and 2024
+edge-content PNGs have distinct bytes, and each upload is required to return a
+created asset before the process-death replay begins. This hardening is source
+verified; the hosted emulator replay remains pending.
+
 Official Android artifacts were obtained from the release URLs and inspected
 with Android SDK Build Tools `35.0.0`: v5.8.0 SHA256
 `385cd0734530c943bbe09f7d651434d585fbc276c2523c3c5a0357a6e94c2cd0`, and

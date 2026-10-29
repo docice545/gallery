@@ -227,3 +227,16 @@ commit without repeating destructive work.
   process-death replay, Flutter rendered-pixel CI, iOS/macOS, SQLite runtime,
   Shizuku/device, and Samsung S23 checks remain pending or not tested. Overall
   status remains `NOT RELEASE READY`.
+
+## 2026-10-29 — Stage 5k: Build 22 fixture deduplication hardening
+
+- **Workflow checkpoint:** `b58e086bd732084c65c897b1d9f740eb9b6c9e85`
+  (published on both `codex/foto-master-final-20261029` and `main`).
+- The offline emulator fixture now creates distinct PNG bytes for 2020 and
+  2024 by drawing the year into the edge content while keeping the center
+  white. Local SHA-256 values differ (`0c18beb7…` and `d07788f3…`) and both
+  center pixels are white, so server checksum deduplication cannot collapse
+  the years into one timeline bucket.
+- The workflow now asserts each upload returns `status=created` with an asset
+  id before starting the offline replay. YAML parsing and the fixture pixel/
+  checksum check PASS. Hosted Build 22 emulator execution remains pending.
