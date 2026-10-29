@@ -183,9 +183,28 @@
     },
     "overall": "NOT_RELEASE_READY"
   },
+  "stage5l": {
+    "status": "HOSTED_PARTIAL_RECEIPT_RECOVERED_FINAL_RUN_WAITING",
+    "historicalRun": "40886945546",
+    "historicalWorkflowCommit": "b58e086bd732084c65c897b1d9f740eb9b6c9e85",
+    "finalWorkflowRun": "40890985422",
+    "finalWorkflowCommit": "1f27ec1f15af1351e13b459f1d5709c6c121a3d2",
+    "tests": {
+      "apiContractBeforeInfrastructure": "PASS:11",
+      "androidCacheCloudMedia": "PASS",
+      "iosFlutterP0AndSqliteFixtures": "PASS",
+      "apiDisposableDependencies": "FAIL:GHCR_PULL_STEP",
+      "androidOfficial5_8": "FAIL:GHCR_PULL_BEFORE_EMULATOR",
+      "androidOfficial5_9": "FAIL:GHCR_PULL_BEFORE_EMULATOR",
+      "iosSimulatorBuild": "CANCELLED_BY_NEWER_RUN",
+      "build22OfflineE2E": "CANCELLED_BY_CONCURRENCY",
+      "finalRunStatus": "WAITING"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
   "currentCheckpoint": {
-    "stage": "build22-fixture-dedup-hardening",
-    "commit": "b58e086bd732084c65c897b1d9f740eb9b6c9e85",
+    "stage": "ghcr-auth-final-hosted-run",
+    "commit": "1f27ec1f15af1351e13b459f1d5709c6c121a3d2",
     "published": true,
     "remoteHeadVerified": true,
     "documentationReceiptPending": false,

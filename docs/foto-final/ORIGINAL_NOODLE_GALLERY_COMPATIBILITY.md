@@ -29,6 +29,17 @@ edge-content PNGs have distinct bytes, and each upload is required to return a
 created asset before the process-death replay begins. This hardening is source
 verified; the hosted emulator replay remains pending.
 
+Hosted run `40886945546` at fixture workflow commit `b58e086bd732` is recorded
+separately from the final-SHA run. Its contract tests passed before the
+disposable GHCR dependency pull failed; both official Android jobs verified the
+APK and then failed at the same PostgreSQL/Redis pull step before emulator
+launch. The Android durable-cache/CloudMedia job passed all requested unit
+tests. The iOS job passed Flutter analysis, service/repository tests, both
+rendered thumbnail tests, offline warmup tests and SQLite recovery fixtures;
+its simulator build was cancelled by the newer queued run. Build 22 offline
+E2E was cancelled by concurrency before runtime replay. The final stabilized
+run is `40890985422` for source SHA `1f27ec1f15af1351e13b459f1d5709c6c121a3d2`.
+
 Official Android artifacts were obtained from the release URLs and inspected
 with Android SDK Build Tools `35.0.0`: v5.8.0 SHA256
 `385cd0734530c943bbe09f7d651434d585fbc276c2523c3c5a0357a6e94c2cd0`, and

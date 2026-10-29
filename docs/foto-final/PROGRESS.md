@@ -240,3 +240,32 @@ commit without repeating destructive work.
 - The workflow now asserts each upload returns `status=created` with an asset
   id before starting the offline replay. YAML parsing and the fixture pixel/
   checksum check PASS. Hosted Build 22 emulator execution remains pending.
+
+## 2026-10-29 — Stage 5l: hosted Actions receipt recovered through GitHub web
+
+- **Historical run:** `40886945546` on workflow commit `b58e086bd732` was read
+  from the public GitHub Actions web pages despite the local `gh api` token
+  returning HTTP 403. The run was later cancelled by a newer queued run; the
+  completed job results remain factual.
+- **PASS:** API contract tests (11/11) completed before infrastructure setup;
+  Android durable thumbnail cache + CloudMedia/Shizuku policy job completed
+  successfully; iOS Flutter analyze, service/repository tests, screenshot
+  framing policy, rendered-pixel widget test, offline warmup and SQLite
+  recovery fixture tests all completed successfully.
+- **FAIL/BLOCKED:** disposable PostgreSQL/Redis pull failed in the API job and
+  in both official Android jobs, so server startup and unchanged-client launch
+  were not reached. This is an infrastructure pull failure, not a client
+  compatibility result. The jobs did verify the official APK checksums and v2
+  certificates first.
+- **CANCELLED:** iOS simulator build and Build 22 offline process-death replay
+  were cancelled by concurrency when a newer workflow request entered the
+  queue. They are not PASS and are not treated as NOT TESTED.
+- **Artifacts:** `foto-build22-offline-emulator` digest
+  `sha256:9907bd51817f10bad06b1d88a830fae03d72a69e0c46c99752b69c0da6a752d6`;
+  Android 5.8.0 receipt digest
+  `sha256:a5265e9e1bc383d061d1b73290abf7c142d1d65106f277900af2b32fa56d212b`;
+  Android 5.9.0 receipt digest
+  `sha256:412e29ad2651bb856c4bcbdd016845554b68597c62b9a5017df2ca219fab6f2a`.
+- **Final retry:** GHCR authentication was added in `1f27ec1f15af` with
+  `packages: read`; final stabilized run `40890985422` is waiting on a hosted
+  runner. No further heavy workflow was started after that push.

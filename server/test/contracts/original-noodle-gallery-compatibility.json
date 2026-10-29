@@ -133,6 +133,16 @@
     "finalShaApiSmoke": "46e013adaddeddf8d9b358bcd10b5f721270e0ed",
     "finalShaApiSmokeResult": "PASS_LOCAL_DISPOSABLE_POSTGRES_REDIS_2026-10-29",
     "hostedWorkflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
+    "hostedHistoricalRun": {
+      "run": "40886945546",
+      "commit": "b58e086bd732084c65c897b1d9f740eb9b6c9e85",
+      "apiContract": "PASS:11 before infrastructure setup",
+      "androidCacheCloudMedia": "PASS",
+      "iosFlutterP0Sqlite": "PASS",
+      "apiAndOfficialAndroid": "FAIL:GHCR dependency pull before backend/emulator",
+      "iosSimulatorAndBuild22Offline": "CANCELLED_BY_NEWER_RUN"
+    },
+    "hostedFinalRun": "40890985422",
     "documentationHead": "docs/foto-final/PROGRESS.md"
   },
   "artifacts": {
