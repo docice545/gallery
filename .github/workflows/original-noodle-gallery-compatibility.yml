@@ -262,6 +262,8 @@ jobs:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - name: Build final debug APK for emulator evidence
         working-directory: mobile
+        # Keep this as a standalone retryable receipt: the prior hosted run
+        # built the same APK, while a later runner failed before backend setup.
         run: flutter build apk --debug --no-tree-shake-icons
       - name: Start disposable PostgreSQL and Redis
         run: |
