@@ -35,7 +35,7 @@ macOS, Samsung, iOS, or CI runtime; `NOT TESTED` means no claim is made.
 | 26 | Managed Assets | SOURCE PASS / HP NOT TESTED | HP storage validation remains |
 | 27 | Albums/Faces/Memories | SOURCE PASS | Existing API and sync regressions |
 | 28 | Original Noodle compatibility | API PASS / ANDROID CI PENDING / iOS NOT TESTED | Official APKs obtained and signature-verified; exact-SHA disposable backend smoke PASS at `46e013adaddeddf8d9b358bcd10b5f721270e0ed`; hosted unchanged-client runtime remains open |
-| 29 | PostgreSQL | SOURCE PASS / DISPOSABLE RUN PENDING | Migration and populated upgrade need disposable PG |
+| 29 | PostgreSQL | DISPOSABLE SMOKE PASS / POPULATED UPGRADE PENDING | Exact-SHA API smoke ran against pinned disposable PostgreSQL/Redis; populated upgrade and NFS timing still need dedicated infrastructure |
 | 30 | Backend Docker | SOURCE CONFIG PASS / BUILD PENDING | Disposable image build requires CI registry availability |
 | 31 | Web build | NOT TESTED | Run docs/web build in CI |
 | 32 | APK build/signing | NOT TESTED | Production key remains HP-only; no unsigned APK is release-ready |
