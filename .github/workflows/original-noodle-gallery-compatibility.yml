@@ -318,7 +318,7 @@ jobs:
           heap_mb=$((ram_mb * 45 / 100))
           if (( heap_mb < 4096 )); then heap_mb=4096; fi
           if (( heap_mb > 8192 )); then heap_mb=8192; fi
-          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Dorg.gradle.workers.max=2"
+          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
           # This receipt is deliberately x86_64-only for the hosted emulator.
           # Release workflows continue to build the universal/arm64 artifacts.
           flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64
