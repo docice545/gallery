@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 apk_path=${1:?APK path is required}
 version=${2:?version is required}
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-/tmp/noodle-android-adb-diagnostics.log}
+ui_dump_attempts=${UI_DUMP_ATTEMPTS:-3}
+ui_dump_retry_delay=${UI_DUMP_RETRY_DELAY:-1}
 phase=bootstrap
 mark_phase() { phase=$1; echo "phase=$phase" >&2; }
 ui_summary() {
@@ -52,8 +54,30 @@ wait_for_boot() {
   return 1
 }
 dump_ui() {
-  $adb_bin shell uiautomator dump /sdcard/window.xml >/dev/null
-  $adb_bin shell cat /sdcard/window.xml | tr -d '\r' > /tmp/noodle-window.xml
+  local attempt dump_log=/tmp/noodle-uiautomator-dump.log tmp_xml=/tmp/noodle-window.xml.tmp
+  for attempt in $(seq 1 "$ui_dump_attempts"); do
+    rm -f "$tmp_xml"
+    if "$adb_bin" shell uiautomator dump /sdcard/window.xml >"$dump_log" 2>&1 \
+      && ! grep -Eqi '(^|[[:space:]])(error|exception)(:|[[:space:]])' "$dump_log" \
+      && "$adb_bin" shell cat /sdcard/window.xml | tr -d '\r' >"$tmp_xml" \
+      && python3 - "$tmp_xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+if root.tag.rsplit('}', 1)[-1].casefold() != 'hierarchy':
+    raise SystemExit(f'unexpected UI root: {root.tag!r}')
+PY
+    then
+      mv "$tmp_xml" /tmp/noodle-window.xml
+      return 0
+    fi
+    echo "uiautomator dump failed (attempt $attempt/$ui_dump_attempts): $(tr '\n' ' ' <"$dump_log" | cut -c1-400)" >&2
+    sleep "$ui_dump_retry_delay"
+  done
+  rm -f "$tmp_xml"
+  echo "uiautomator dump failed after $ui_dump_attempts attempts" >&2
+  return 1
 }
 find_bounds() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
