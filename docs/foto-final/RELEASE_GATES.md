@@ -21,3 +21,5 @@ does not imply device or production readiness.
 
 | Original Noodle Gallery Android/iOS compatibility | API contract PASS; APK provenance PASS; hosted Android E2E PENDING; iOS NOT TESTED | `server/src/utils/original-noodle-gallery-contracts.spec.ts`, official APK hashes/signatures, `.github/workflows/original-noodle-gallery-compatibility.yml` | Run workflow on GitHub; complete iOS/macOS and device acceptance before release |
 | SQLite corruption recovery | SOURCE PASS / runtime NOT TESTED | `mobile/lib/data/db/sqlite_health.dart`, checkpoint `a00cc2056` | Add fixtures, run Flutter tests and device recovery replay |
+| `SCREENSHOT_THUMBNAIL_FRAMING` | SOURCE FIX / CI + APK PENDING | `docs/foto-final/SCREENSHOT_THUMBNAIL_FRAMING.md`, `thumbnail_framing_test.dart`, rendered-pixel widget fixture | Run Flutter tests, final APK timeline/album/offline emulator, then Samsung S23 |
+| `OFFLINE_GRAY_SCREEN_RECOVERY` | SOURCE FIX / CI + APK PENDING | `docs/foto-final/OFFLINE_GRAY_SCREEN_RECOVERY.md`, durable Android cache tests, offline emulator workflow | Run cold/offline/process-death/auth-expiry matrix on final APK; then Samsung S23 |

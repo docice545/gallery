@@ -90,3 +90,28 @@ commit without repeating destructive work.
 - **Workflow diagnosis:** hosted run `40835971695` built the disposable backend successfully. The medium Vitest step then failed because its global setup creates a separate Testcontainers PostgreSQL and the pinned GHCR image is unavailable under the runner's registry limit.
 - **Correction:** replaced that environment-dependent step with authenticated disposable API smoke flows (login, auth status, albums, search, Trash preflight) while retaining the medium regression suite in source for dedicated infrastructure. No production services or client binaries were changed.
 - **Next step:** rerun the workflow; Android jobs continue independently on hosted emulators.
+
+## 2026-10-29 — Stage 5c: Build 22 P0 screenshot/offline gates
+
+- **New mandatory gates:** `SCREENSHOT_THUMBNAIL_FRAMING` and
+  `OFFLINE_GRAY_SCREEN_RECOVERY`. They are separate from the older thumbnail
+  warmup and offline catalogue checks and keep the overall release
+  `NOT RELEASE READY` until final-APK evidence exists.
+- **Thumbnail finding:** the actual white-tile cause was the no-face fallback
+  in `faceAwareThumbnailFraming`: centered `BoxFit.cover` cropped edge-only
+  screenshot/document content. The source bytes and EXIF were intact. Edge
+  content now uses an explicit contain framing decision across timeline,
+  albums, and local/offline rendering; ordinary photos retain cover framing.
+- **Offline finding:** durable Android thumbnails were keyed without server
+  identity, committed asynchronously after rendering, and did not fall back on
+  expired-session HTTP failures. The cache now versions keys with server,
+  account, asset/revision and media size, removes corrupt entries, commits
+  before delivery, and serves authorized local thumbnails through 401/403 or
+  network failure paths while preserving 404 diagnostics.
+- **Fixtures/tests:** rendered RGBA edge-content widget fixture,
+  framing/classification tests, Flutter offline warmup policy tests, and
+  Android durable-cache tests were added. A hosted Build 22 emulator job now
+  builds the debug APK, seeds an edge-content asset, force-stops after sync,
+  disables emulator transports, and relaunches offline.
+- **Current status:** source changes and workflow are pending CI; Samsung S23,
+  production-signing APK, and physical offline replay remain NOT TESTED.

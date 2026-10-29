@@ -615,6 +615,11 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                   imageSize: imageSize ?? Size(previewWidth, previewHeight),
                   viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
                   faces: widget.faces,
+                  preserveEdgeContent: shouldPreserveEdgeContent(
+                    widget.asset.name,
+                    width: widget.asset.width,
+                    height: widget.asset.height,
+                  ),
                 );
                 return FittedBox(
                   fit: framing.fit,
@@ -639,6 +644,11 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                               devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                               imageSize: widget.framingImageSize,
                               faces: widget.faces,
+                              preserveEdgeContent: shouldPreserveEdgeContent(
+                                widget.asset.name,
+                                width: widget.asset.width,
+                                height: widget.asset.height,
+                              ),
                             ).requiredSize,
                       previewIsActive: isCurrentLease,
                       onPreviewCompleted: onCompleted,

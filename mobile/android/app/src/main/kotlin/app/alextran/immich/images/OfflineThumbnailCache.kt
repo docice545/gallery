@@ -46,17 +46,19 @@ internal class OfflineThumbnailCache(
       val authorization = requestHeaders.entries.firstOrNull { it.key.equals("authorization", true) }?.value
       val principal = token ?: authorization?.takeIf { it.isNotBlank() } ?: return null
       // Never write a username, token, endpoint, URL or account ID to the filesystem.
-      // A single server may be reached through an internal Wi-Fi address and
-      // a public/mobile-data endpoint. Do not pin offline files to the hostname,
-      // scheme or port: an automatic endpoint switch must keep the same media.
-      // Still separate accounts by credential and assets by media revision.
+      // The endpoint identity is only an input to the digest, so private/public
+      // server switches cannot accidentally present one server's pixels under
+      // another server's identity while no sensitive value is persisted.
       val assetId = segments[segments.size - 2].lowercase(Locale.ROOT)
       val contentIdentity = listOf(
         assetId, params.getValue("size"),
         params["edited"] ?: "true", params.getValue("c")
       ).joinToString("\n")
+      val serverIdentity = listOf(uri.scheme.lowercase(Locale.ROOT), uri.host.lowercase(Locale.ROOT), uri.port)
+        .joinToString(":")
       return MessageDigest.getInstance("SHA-256").digest(
-        ("foto-offline-v2\n" + principal + "\n" + contentIdentity).toByteArray(Charsets.UTF_8)
+        ("foto-offline-v3\n" + serverIdentity + "\n" + principal + "\n" + contentIdentity)
+          .toByteArray(Charsets.UTF_8)
       ).joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 0xff) }
     }
 
@@ -83,7 +85,10 @@ internal class OfflineThumbnailCache(
     if (!file.isFile || file.length() !in 12L..MAX_ITEM_BYTES.toLong()) return null
     return try {
       val bytes = file.readBytes()
-      if (!isSupportedImage(bytes)) return null
+      if (!isSupportedImage(bytes)) {
+        file.delete()
+        return null
+      }
       // Access-based eviction, without trusting server dates or HTTP cache headers.
       file.setLastModified(System.currentTimeMillis())
       bytes

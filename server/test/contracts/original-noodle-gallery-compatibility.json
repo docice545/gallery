@@ -36,8 +36,34 @@
     "trash",
     "restore",
     "permanent_delete",
-    "reconnect_after_backend_upgrade"
+    "reconnect_after_backend_upgrade",
+    "SCREENSHOT_THUMBNAIL_FRAMING",
+    "OFFLINE_GRAY_SCREEN_RECOVERY"
   ],
+  "releaseGates": {
+    "SCREENSHOT_THUMBNAIL_FRAMING": {
+      "status": "SOURCE_FIX_CI_AND_APK_PENDING",
+      "fix": "mobile/lib/presentation/widgets/images/thumbnail_framing.dart",
+      "fixtures": [
+        "mobile/test/presentation/widgets/images/thumbnail_framing_test.dart",
+        "mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart"
+      ],
+      "renderedPixelsRequired": true,
+      "androidEmulatorWorkflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
+      "samsungS23": "NOT_TESTED"
+    },
+    "OFFLINE_GRAY_SCREEN_RECOVERY": {
+      "status": "SOURCE_FIX_CI_AND_APK_PENDING",
+      "fix": "mobile/android/app/src/main/kotlin/app/alextran/immich/images/OfflineThumbnailCache.kt",
+      "fixtures": [
+        "mobile/android/app/src/test/kotlin/app/alextran/immich/images/OfflineThumbnailCacheTest.kt",
+        "mobile/test/domain/services/offline_thumbnail_warmup_test.dart"
+      ],
+      "androidEmulatorWorkflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
+      "processDeathRequired": true,
+      "samsungS23": "NOT_TESTED"
+    }
+  },
   "apiOperations": [
     {
       "method": "post",
@@ -133,6 +159,7 @@
     "androidEmulator": "BLOCKED_NO_KVM",
     "apkInstall": "NOT_TESTED",
     "androidE2E": "BLOCKED_NO_EMULATOR",
+    "fotoOfflineEmulatorE2E": "PENDING_CI",
     "iosArtifact": "NOT_TESTED",
     "iosE2E": "BLOCKED_NO_MACOS"
   }

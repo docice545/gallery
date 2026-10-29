@@ -29,6 +29,7 @@ class Thumbnail extends ConsumerStatefulWidget {
   final Object? sourceRevision;
   final BoxFit fit;
   final List<Rect> faces;
+  final bool preserveEdgeContent;
 
   /// Upright full-image geometry shared with the timeline's motion surface.
   final Size? framingImageSize;
@@ -37,6 +38,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.imageProvider,
     this.fit = BoxFit.cover,
     this.faces = const [],
+    this.preserveEdgeContent = false,
     this.framingImageSize,
     this.thumbhashProvider,
     this.sourceRevision,
@@ -48,6 +50,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     required String thumbhash,
     this.fit = BoxFit.cover,
     this.faces = const [],
+    this.preserveEdgeContent = false,
     this.framingImageSize,
     this.sourceRevision,
 
@@ -86,6 +89,7 @@ class Thumbnail extends ConsumerStatefulWidget {
          ),
          _ => null,
        },
+       preserveEdgeContent = asset != null && shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height),
        imageProvider = asset == null
            ? null
            : getThumbnailImageProvider(asset, size: size, remoteSize: remoteSize, remoteMediaSize: remoteMediaSize);
@@ -318,6 +322,7 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
           fadeValue: _fadeAnimation.value,
           fit: widget.fit,
           faces: widget.faces,
+          preserveEdgeContent: widget.preserveEdgeContent,
           framingImageSize: widget.framingImageSize,
           placeholderGradient: gradient,
         );
@@ -342,6 +347,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
   final double fadeValue;
   final BoxFit fit;
   final List<Rect> faces;
+  final bool preserveEdgeContent;
   final Size? framingImageSize;
   final Gradient placeholderGradient;
 
@@ -351,6 +357,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
     required this.fadeValue,
     required this.fit,
     required this.faces,
+    required this.preserveEdgeContent,
     required this.framingImageSize,
     required this.placeholderGradient,
   });
@@ -363,6 +370,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       fadeValue: fadeValue,
       fit: fit,
       faces: faces,
+      preserveEdgeContent: preserveEdgeContent,
       framingImageSize: framingImageSize,
       placeholderGradient: placeholderGradient,
     );
@@ -376,6 +384,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       ..fadeValue = fadeValue
       ..fit = fit
       ..faces = faces
+      ..preserveEdgeContent = preserveEdgeContent
       ..framingImageSize = framingImageSize
       ..placeholderGradient = placeholderGradient;
   }
@@ -387,6 +396,7 @@ class _ThumbnailRenderBox extends RenderBox {
   double _fadeValue;
   BoxFit _fit;
   List<Rect> _faces;
+  bool _preserveEdgeContent;
   Size? _framingImageSize;
   Gradient _placeholderGradient;
 
@@ -399,6 +409,7 @@ class _ThumbnailRenderBox extends RenderBox {
     required this._fadeValue,
     required this._fit,
     required this._faces,
+    required this._preserveEdgeContent,
     required this._framingImageSize,
     required this._placeholderGradient,
   });
@@ -442,6 +453,7 @@ class _ThumbnailRenderBox extends RenderBox {
     imageSize: _framingImageSize ?? Size(image.width.toDouble(), image.height.toDouble()),
     viewportSize: size,
     faces: _faces,
+    preserveEdgeContent: _preserveEdgeContent,
     fit: _fit,
   );
 
@@ -481,6 +493,13 @@ class _ThumbnailRenderBox extends RenderBox {
   set faces(List<Rect> value) {
     if (_faces != value) {
       _faces = value;
+      markNeedsPaint();
+    }
+  }
+
+  set preserveEdgeContent(bool value) {
+    if (_preserveEdgeContent != value) {
+      _preserveEdgeContent = value;
       markNeedsPaint();
     }
   }

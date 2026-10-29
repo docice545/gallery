@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "API smoke failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 base_url=${1:?base URL is required}
 base=${base_url%/}/api
 workdir=${TMPDIR:-/tmp}/noodle-api-smoke
 mkdir -p "$workdir"
+command -v curl jq node ffmpeg >/dev/null
+node -e "require.resolve('sharp')"
 
 json_header=(-H 'content-type: application/json')
 login_json=$(curl --fail --silent --show-error -X POST "$base/auth/login" "${json_header[@]}" \
@@ -16,6 +19,7 @@ curl --fail --silent --show-error "$base/auth/status" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/albums" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/search/explore" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/trash/empty/preflight" "${auth[@]}" >/dev/null
+echo 'API smoke: auth and discovery passed'
 
 node - "$workdir/noodle-still.jpg" <<'NODE'
 const sharp = require('sharp');
@@ -50,6 +54,7 @@ upload_asset() {
 
 video_id=$(upload_asset "$workdir/noodle-motion.mp4" 'noodle-motion.mp4')
 still_id=$(upload_asset "$workdir/noodle-still.jpg" 'noodle-still.jpg' "livePhotoVideoId=$video_id")
+echo 'API smoke: upload and Live Photo pair passed'
 curl --fail --silent --show-error "$base/assets/$still_id" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/assets/$still_id/original?download=true" "${auth[@]}" -o "$workdir/original.jpg"
 test -s "$workdir/original.jpg"
@@ -61,12 +66,14 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 test -s "$workdir/thumbnail.jpg"
+echo 'API smoke: original and thumbnail downloads passed'
 
 album_json=$(curl --fail --silent --show-error -X POST "$base/albums" "${auth[@]}" "${json_header[@]}" \
   -d "{\"albumName\":\"Noodle compatibility smoke\",\"assetIds\":[\"$still_id\"]}")
 album_id=$(jq -er '.id' <<<"$album_json")
 curl --fail --silent --show-error "$base/albums?id=$album_id" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/albums/$album_id/assets" "${auth[@]}" >/dev/null
+echo 'API smoke: album operations passed'
 
 sync_body='{"types":["UsersV1","AssetsV2","AlbumsV2"],"reset":true}'
 curl --fail --silent --show-error -X POST "$base/sync/stream" "${auth[@]}" "${json_header[@]}" \
@@ -77,6 +84,7 @@ sync_body='{"types":["UsersV1","AssetsV2","AlbumsV2"],"reset":false}'
 curl --fail --silent --show-error -X POST "$base/sync/stream" "${auth[@]}" "${json_header[@]}" \
   -d "$sync_body" -o "$workdir/sync-incremental.jsonl"
 grep -q 'SyncCompleteV1' "$workdir/sync-incremental.jsonl"
+echo 'API smoke: full and incremental sync passed'
 
 acks=$(jq -c -s '[.[] | select(.ack != null) | .ack] | unique' "$workdir/sync-incremental.jsonl")
 if [[ "$acks" != '[]' ]]; then
@@ -93,6 +101,7 @@ curl --fail --silent --show-error -X DELETE "$base/assets" "${auth[@]}" "${json_
 curl --fail --silent --show-error -X POST "$base/trash/empty" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error -X DELETE "$base/assets" "${auth[@]}" "${json_header[@]}" \
   -d "{\"ids\":[\"$video_id\"],\"force\":true}" >/dev/null
+echo 'API smoke: trash, restore, permanent delete passed'
 
 # Re-login after the destructive round trip to exercise reconnect/session renewal.
 curl --fail --silent --show-error -X POST "$base/auth/login" "${json_header[@]}" \

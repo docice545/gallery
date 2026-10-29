@@ -155,6 +155,25 @@ void main() {
     }
   });
 
+  test('edge-content screenshots preserve the full source without faces', () {
+    final framing = faceAwareThumbnailFraming(
+      imageSize: const Size(1080, 1920),
+      viewportSize: square,
+      faces: const [],
+      preserveEdgeContent: true,
+    );
+
+    expect(framing.fit, BoxFit.contain);
+    expect(framing.alignment, Alignment.center);
+    expect(_visibleSource(framing, const Size(1080, 1920), square), const Rect.fromLTRB(0, 0, 1, 1));
+  });
+
+  test('edge-content classification covers named screenshots and documents without changing ordinary photos', () {
+    expect(shouldPreserveEdgeContent('Screenshot_2026-10-29-09-00-00.png', width: 1080, height: 1920), isTrue);
+    expect(shouldPreserveEdgeContent('chat-export.png', width: 1440, height: 2560), isTrue);
+    expect(shouldPreserveEdgeContent('IMG_1234.jpg', width: 4032, height: 3024), isFalse);
+  });
+
   test('non-cover fits preserve their existing centered behavior with known faces', () {
     for (final fit in BoxFit.values.where((fit) => fit != BoxFit.cover)) {
       final framing = faceAwareThumbnailFraming(

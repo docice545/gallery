@@ -267,17 +267,29 @@ private object ImageFetcherManager {
             null
           }
           if (encoded != null) {
-            offlineScope.launch { offlineCache.write(key, encoded) }
+            // Commit the durable snapshot before exposing the image to Flutter.
+            // This closes the process-death window where the tile was visible but
+            // its offline copy had not yet reached filesDir.
+            offlineScope.launch {
+              offlineCache.write(key, encoded)
+              if (signal.isCanceled) {
+                buffer.free()
+              } else {
+                onSuccess(buffer, contentType)
+              }
+            }
+          } else {
+            onSuccess(buffer, contentType)
           }
-          onSuccess(buffer, contentType)
         },
         onFailure = { error ->
           // UI preview requests are larger than the Wi-Fi-warmed thumbnail.
-          // Only a network exception permits the cached small image fallback.
-          // Real 401/403/404 HTTP responses must reach normal authorization
-          // and deletion reconciliation unchanged.
+          // Network failures and an expired session may still use a previously
+          // authorized local thumbnail. Keep 404/other HTTP responses visible to
+          // Flutter so deletion reconciliation and missing-media diagnostics run.
           val fallbackUrl = url.replace("size=preview", "size=thumbnail")
-          val fallbackKey = if (fallbackUrl != url && error !is RemoteImageHttpError) {
+          val allowCachedFallback = error !is RemoteImageHttpError || error.statusCode == 401 || error.statusCode == 403
+          val fallbackKey = if (allowCachedFallback) {
             OfflineThumbnailCache.keyFor(fallbackUrl, HttpClientManager.getAuthHeaders(fallbackUrl))
           } else {
             null

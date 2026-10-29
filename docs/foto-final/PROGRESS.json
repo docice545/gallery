@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "push-and-run-hosted-original-client-compatibility-workflow",
+  "nextStage": "run-hosted-build22-screenshot-and-offline-gates",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -89,5 +89,34 @@
     },
     "commit": "PENDING_CHECKPOINT_COMMIT",
     "nextAttempt": "rerun hosted workflow after 063d03ee7 correction"
+  },
+  "stage5c": {
+    "status": "P0_SOURCE_FIX_CI_AND_APK_PENDING",
+    "productionChanged": false,
+    "gates": {
+      "SCREENSHOT_THUMBNAIL_FRAMING": {
+        "status": "SOURCE_FIX_CI_AND_APK_PENDING",
+        "cause": "Centered BoxFit.cover fallback cropped edge-only screenshot/document pixels when no face bounds existed",
+        "fix": "mobile/lib/presentation/widgets/images/thumbnail_framing.dart",
+        "renderedPixelFixture": "mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart",
+        "classificationTests": "mobile/test/presentation/widgets/images/thumbnail_framing_test.dart"
+      },
+      "OFFLINE_GRAY_SCREEN_RECOVERY": {
+        "status": "SOURCE_FIX_CI_AND_APK_PENDING",
+        "cause": "Durable Android thumbnail cache omitted server identity, wrote after render, and skipped expired-session fallback",
+        "fix": "mobile/android/app/src/main/kotlin/app/alextran/immich/images/OfflineThumbnailCache.kt",
+        "androidCacheTests": "mobile/android/app/src/test/kotlin/app/alextran/immich/images/OfflineThumbnailCacheTest.kt",
+        "flutterPolicyTests": "mobile/test/domain/services/offline_thumbnail_warmup_test.dart"
+      }
+    },
+    "tests": {
+      "gitDiffCheck": "PASS",
+      "flutterWidgetTests": "PENDING_CI",
+      "androidCacheUnitTests": "PENDING_CI",
+      "build22OfflineEmulator": "PENDING_CI",
+      "samsungS23": "NOT_TESTED"
+    },
+    "workflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
+    "apkBuilt": false
   }
 }

@@ -18,10 +18,20 @@ ThumbnailFraming faceAwareThumbnailFraming({
   required Size viewportSize,
   required List<Rect> faces,
   BoxFit fit = BoxFit.cover,
+  bool preserveEdgeContent = false,
 }) {
   final fallback = ThumbnailFraming(fit: fit, alignment: Alignment.center);
   if (fit != BoxFit.cover || !_isValidSize(imageSize) || !_isValidSize(viewportSize)) {
     return fallback;
+  }
+
+  // Screenshots, documents, receipts and conversations often put their only
+  // meaningful pixels at an edge. A centered cover crop turns those assets
+  // into a white/empty tile even though the source thumbnail is valid. Keep
+  // the entire source for this explicit content class; ordinary photographs
+  // retain the existing cover behavior.
+  if (preserveEdgeContent) {
+    return const ThumbnailFraming(fit: BoxFit.contain, alignment: Alignment.center);
   }
 
   Rect? faceBounds;
@@ -68,6 +78,26 @@ ThumbnailFraming faceAwareThumbnailFraming({
     return const ThumbnailFraming(fit: BoxFit.contain, alignment: Alignment.center);
   }
   return ThumbnailFraming(fit: fit, alignment: Alignment(horizontalAlignment, verticalAlignment));
+}
+
+/// Identifies assets whose framing must preserve the full source in a grid.
+/// The name signal covers Android/iOS screenshot and document exports; the
+/// aspect signal catches unnamed phone captures without changing normal 4:3 or
+/// 3:2 photographs.
+bool shouldPreserveEdgeContent(String name, {int? width, int? height}) {
+  final normalized = name.toLowerCase().replaceAll(RegExp(r'[_-]+'), ' ');
+  final edgeContentName = RegExp(
+    r'\b(screen ?shot|screen capture|screenrecord|document|scan|receipt|chat|conversation|whatsapp|telegram|signal)\b',
+  );
+  if (edgeContentName.hasMatch(normalized)) {
+    return true;
+  }
+
+  if (width == null || height == null || width <= 0 || height <= 0) {
+    return false;
+  }
+  final aspect = math.max(width, height) / math.min(width, height);
+  return aspect >= 1.65 && aspect <= 2.2 && normalized.contains('screen');
 }
 
 bool _isValidSize(Size size) => size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0;

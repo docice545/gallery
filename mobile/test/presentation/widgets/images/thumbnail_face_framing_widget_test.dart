@@ -81,6 +81,23 @@ Future<Uint8List> _portraitPng() async {
   }
 }
 
+Future<Uint8List> _edgeContentPng() async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(const Rect.fromLTWH(0, 0, 100, 200), Paint()..color = Colors.white);
+  canvas.drawRect(const Rect.fromLTRB(35, 0, 65, 24), Paint()..color = Colors.black);
+  canvas.drawRect(const Rect.fromLTRB(35, 176, 65, 200), Paint()..color = Colors.blue);
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(100, 200);
+  try {
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return bytes!.buffer.asUint8List();
+  } finally {
+    image.dispose();
+    picture.dispose();
+  }
+}
+
 Future<Uint8List> _capture(WidgetTester tester, GlobalKey key) async {
   return (await tester.runAsync(() async {
     final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
@@ -421,6 +438,30 @@ void main() {
     final pixels = await _capture(tester, captureKey);
     expect(_pixel(pixels, 48, 8), [255, 0, 0, 255]);
     expect(_pixel(pixels, 48, 95), [0, 128, 0, 255]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('edge-content framing renders pixels from the source edge instead of a white center crop', (tester) async {
+    final bytes = (await tester.runAsync(_edgeContentPng))!;
+    final image = MemoryImage(bytes);
+    final captureKey = GlobalKey();
+    await tester.pumpConsumerWidgetRaw(
+      Center(
+        child: RepaintBoundary(
+          key: captureKey,
+          child: SizedBox.square(
+            dimension: 100,
+            child: Thumbnail(imageProvider: image, preserveEdgeContent: true),
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() => precacheImage(image, tester.element(find.byType(Thumbnail))));
+    await tester.pumpAndSettle();
+
+    final pixels = await _capture(tester, captureKey);
+    expect(_pixel(pixels, 50, 5), [0, 0, 0, 255]);
+    expect(_pixel(pixels, 50, 95), [0, 0, 255, 255]);
     expect(tester.takeException(), isNull);
   });
 

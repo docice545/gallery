@@ -39,15 +39,15 @@ class OfflineThumbnailCacheTest {
     assertArrayEquals(jpeg, OfflineThumbnailCache(File(temporaryFolder.root, "offline")).read(keyA))
   }
 
-  @Test fun cachedPhotosSurviveInternalToExternalServerSwitch() {
+  @Test fun serverIdentitySeparatesPrivateAndPublicEndpoints() {
     val privateUrl = "http://10.10.10.80:2283/api/assets/550e8400-e29b-41d4-a716-446655440000/thumbnail?size=thumbnail&edited=true&c=revision1"
     val publicUrl = url
     val keyInternal = OfflineThumbnailCache.keyFor(privateUrl, sessionA)!!
     val keyExternal = OfflineThumbnailCache.keyFor(publicUrl, sessionA)!!
-    assertEquals(keyInternal, keyExternal)
+    assertNotEquals(keyInternal, keyExternal)
     val cache = OfflineThumbnailCache(temporaryFolder.newFolder("endpoint-switch"))
     assertTrue(cache.write(keyInternal, jpeg))
-    assertArrayEquals(jpeg, cache.read(keyExternal))
+    assertNull(cache.read(keyExternal))
     assertNotEquals(keyExternal, OfflineThumbnailCache.keyFor(publicUrl, sessionB))
   }
 
@@ -67,6 +67,17 @@ class OfflineThumbnailCacheTest {
     assertFalse(cache.write("../escape", jpeg))
     assertNull(cache.read("../escape"))
     assertTrue(cache.write(key, jpeg))
+  }
+
+  @Test fun corruptedEntryIsRemovedAndNeverPresentedAsAnImage() {
+    val key = OfflineThumbnailCache.keyFor(url, sessionA)!!
+    val cache = OfflineThumbnailCache(temporaryFolder.newFolder("corrupted"))
+    val file = File(temporaryFolder.root, "corrupted/$key")
+    file.parentFile!!.mkdirs()
+    file.writeBytes("broken-image".toByteArray())
+
+    assertNull(cache.read(key))
+    assertFalse(file.exists())
   }
 
   @Test fun evictsOldestEntriesUnderStorageBudget() {

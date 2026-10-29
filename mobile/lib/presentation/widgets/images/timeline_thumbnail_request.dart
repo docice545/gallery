@@ -37,6 +37,7 @@ TimelineThumbnailRequest buildTimelineThumbnailRequest({
   Size? imageSize,
   List<Rect> faces = const [],
   BoxFit fit = BoxFit.cover,
+  bool preserveEdgeContent = false,
 }) {
   final viewport = _isValidSize(viewportSize) ? viewportSize : _fallbackViewport;
   final dpr = devicePixelRatio.isFinite && devicePixelRatio > 0 ? devicePixelRatio : 1.0;
@@ -58,7 +59,13 @@ TimelineThumbnailRequest buildTimelineThumbnailRequest({
     final decodeLongEdge = _quantizedLongEdge(physicalLongEdge, limit);
     decodeSize = _sizeAtLongEdge(viewport, decodeLongEdge, clampToSource: false);
   } else {
-    final framing = faceAwareThumbnailFraming(imageSize: source, viewportSize: viewport, faces: faces, fit: fit);
+    final framing = faceAwareThumbnailFraming(
+      imageSize: source,
+      viewportSize: viewport,
+      faces: faces,
+      fit: fit,
+      preserveEdgeContent: preserveEdgeContent,
+    );
     final widthScale = physicalViewport.width / source.width;
     final heightScale = physicalViewport.height / source.height;
     final requiredScale = switch (framing.fit) {

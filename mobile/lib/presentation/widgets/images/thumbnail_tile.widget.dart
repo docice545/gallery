@@ -6,6 +6,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/duration_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
+import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/timeline_thumbnail_request.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
@@ -75,6 +76,9 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
         timelineQuality && asset?.isEdited == false && width != null && height != null && width > 0 && height > 0
         ? Size(width.toDouble(), height.toDouble())
         : null;
+    final preserveEdgeContent = asset != null &&
+        asset.isImage &&
+        shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height);
     // PhotoKit aspectFill must not pre-crop the source to a square before Flutter
     // can position its face-aware crop. Keep the existing bounded decode budget.
     final decodeSize = faces.isNotEmpty && width != null && height != null && width > 0 && height > 0
@@ -149,6 +153,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                                 imageSize: framingImageSize,
                                 faces: faces,
                                 fit: widget.fit,
+                                preserveEdgeContent: preserveEdgeContent,
                               );
                               return Thumbnail.fromAsset(
                                 asset: asset,
