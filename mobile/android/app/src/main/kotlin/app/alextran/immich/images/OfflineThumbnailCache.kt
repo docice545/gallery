@@ -28,9 +28,13 @@ internal class OfflineThumbnailCache(
       val uri = try { URI(url) } catch (_: Exception) { return null }
       if (uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank()) return null
 
-      val segments = uri.path?.split('/')?.filter { it.isNotEmpty() } ?: return null
+      val path = uri.path ?: return null
+      val segments = path.split('/').filter { it.isNotEmpty() }
       if (segments.size < 3 || segments[segments.size - 3] != "assets" ||
           !uuid.matches(segments[segments.size - 2]) || segments.last() != "thumbnail") return null
+      val assetsMarker = "/assets/"
+      val assetsIndex = path.lastIndexOf(assetsMarker)
+      if (assetsIndex < 0) return null
 
       val params = uri.rawQuery?.split('&')?.associate {
         it.substringBefore('=') to it.substringAfter('=', "")
@@ -54,10 +58,16 @@ internal class OfflineThumbnailCache(
         assetId, params.getValue("size"),
         params["edited"] ?: "true", params.getValue("c")
       ).joinToString("\n")
-      val serverIdentity = listOf(uri.scheme.lowercase(Locale.ROOT), uri.host.lowercase(Locale.ROOT), uri.port)
+      // Include the server base path as well as host/port. Two Gallery
+      // instances can intentionally share a host while living behind
+      // different reverse-proxy prefixes; their thumbnails must not collide.
+      val serverBasePath = path.substring(0, assetsIndex).trimEnd('/').ifBlank { "/" }
+      val serverIdentity = listOf(
+        uri.scheme.lowercase(Locale.ROOT), uri.host.lowercase(Locale.ROOT), uri.port, serverBasePath,
+      )
         .joinToString(":")
       return MessageDigest.getInstance("SHA-256").digest(
-        ("foto-offline-v3\n" + serverIdentity + "\n" + principal + "\n" + contentIdentity)
+        ("foto-offline-v4\n" + serverIdentity + "\n" + principal + "\n" + contentIdentity)
           .toByteArray(Charsets.UTF_8)
       ).joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 0xff) }
     }

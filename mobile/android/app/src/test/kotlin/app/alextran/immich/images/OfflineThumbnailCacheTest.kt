@@ -51,6 +51,14 @@ class OfflineThumbnailCacheTest {
     assertNotEquals(keyExternal, OfflineThumbnailCache.keyFor(publicUrl, sessionB))
   }
 
+  @Test fun serverIdentitySeparatesReverseProxyBasePaths() {
+    val nested = url.replace("/api/assets", "/gallery/api/assets")
+    assertNotEquals(
+      OfflineThumbnailCache.keyFor(url, sessionA),
+      OfflineThumbnailCache.keyFor(nested, sessionA),
+    )
+  }
+
   @Test fun changedRevisionNeverReadsStalePixels() {
     val oldKey = OfflineThumbnailCache.keyFor(url, sessionA)!!
     val newKey = OfflineThumbnailCache.keyFor(url.replace("revision1", "revision2"), sessionA)!!
