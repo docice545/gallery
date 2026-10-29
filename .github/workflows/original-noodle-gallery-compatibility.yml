@@ -8,6 +8,7 @@ on:
       - 'open-api/**'
       - 'mobile/**'
       - 'e2e/**'
+      - 'tools/original-noodle-gallery/**'
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
@@ -17,6 +18,7 @@ on:
       - 'open-api/**'
       - 'mobile/**'
       - 'e2e/**'
+      - 'tools/original-noodle-gallery/**'
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
 
