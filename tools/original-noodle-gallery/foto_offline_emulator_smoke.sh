@@ -26,7 +26,9 @@ adb_diagnostics() {
 }
 on_error() {
   rc=$?
-  echo "::error title=FOTO offline smoke phase::phase=$phase rc=$rc"
+  ui=''
+  if [[ -s /tmp/noodle-window.xml ]]; then ui=$(tr '\n' ' ' < /tmp/noodle-window.xml | cut -c1-1800); fi
+  echo "::error title=FOTO offline smoke phase::phase=$phase rc=$rc ui=$ui"
   adb_diagnostics
   return "$rc"
 }
@@ -104,8 +106,8 @@ mark_phase server_endpoint_activity
 $adb_bin shell dumpsys activity activities | grep -q "$package_name"
 mark_phase server_endpoint_field
 edit_text_at 0 "$server_url"
-mark_phase enter_server
-tap_text_any 'Next' 'Continue'
+mark_phase enter_server_submit
+$adb_bin shell input keyevent 66
 mark_phase wait_login
 for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
 grep -qi Email /tmp/noodle-window.xml
