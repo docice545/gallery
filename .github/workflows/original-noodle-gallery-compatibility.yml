@@ -404,9 +404,10 @@ jobs:
             convert -size 1080x1920 xc:white -fill black -draw 'rectangle 100,30 980,210' \
               -fill blue -draw 'rectangle 100,1710 980,1890' \
               -fill white -pointsize 80 -gravity North -annotate +0+65 "$year" "$fixture"
-            curl --fail --silent -X POST "$base/assets" -H "Authorization: Bearer $token" \
+            response=$(curl --fail --silent -X POST "$base/assets" -H "Authorization: Bearer $token" \
               -F "assetData=@$fixture" -F "filename=Screenshot_edge-content-$year.png" \
-              -F "fileCreatedAt=$year-01-01T00:00:00.000Z" -F "fileModifiedAt=$year-01-01T00:00:00.000Z"
+              -F "fileCreatedAt=$year-01-01T00:00:00.000Z" -F "fileModifiedAt=$year-01-01T00:00:00.000Z")
+            jq -e '.status == "created" and (.id | type == "string")' <<<"$response" >/dev/null
           done
       - name: Run Build 22 offline emulator smoke
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
