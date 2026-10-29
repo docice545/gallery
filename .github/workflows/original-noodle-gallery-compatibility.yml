@@ -52,6 +52,11 @@ jobs:
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
           docker compose -f e2e/docker-compose.yml logs immich-server
           exit 1
+      - name: Seed disposable login account
+        run: |
+          curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up \
+            -H 'content-type: application/json' \
+            -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
       - name: Run disposable backend API smoke flows
         run: |
           set -euo pipefail
