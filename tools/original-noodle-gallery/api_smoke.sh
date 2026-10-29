@@ -1,26 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trap 'echo "API smoke failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 base_url=${1:?base URL is required}
 base=${base_url%/}/api
 workdir=${TMPDIR:-/tmp}/noodle-api-smoke
 mkdir -p "$workdir"
+stage=preflight
+trap 'printf "%s\n%s\n" "$stage" "$BASH_COMMAND" > "$workdir/failure.txt"; echo "API smoke failed at stage $stage (line $LINENO): $BASH_COMMAND" >&2' ERR
+mark_stage() { stage=$1; printf '%s\n' "$stage" > "$workdir/stage.txt"; }
+mark_stage preflight
 command -v curl jq node ffmpeg >/dev/null
 node -e "require.resolve('sharp')"
 
+mark_stage login
 json_header=(-H 'content-type: application/json')
 login_json=$(curl --fail --silent --show-error -X POST "$base/auth/login" "${json_header[@]}" \
   -d '{"email":"admin@immich.cloud","password":"password"}')
 token=$(jq -er '.accessToken' <<<"$login_json")
 auth=(-H "Authorization: Bearer $token")
 
+mark_stage discovery
 curl --fail --silent --show-error "$base/auth/status" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/albums" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/search/explore" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/trash/empty/preflight" "${auth[@]}" >/dev/null
 echo 'API smoke: auth and discovery passed'
 
+mark_stage media_generation
 node - "$workdir/noodle-still.jpg" <<'NODE'
 const sharp = require('sharp');
 const output = process.argv[2];
@@ -52,9 +58,11 @@ upload_asset() {
   jq -er '.id' <<<"$response"
 }
 
+mark_stage upload
 video_id=$(upload_asset "$workdir/noodle-motion.mp4" 'noodle-motion.mp4')
 still_id=$(upload_asset "$workdir/noodle-still.jpg" 'noodle-still.jpg' "livePhotoVideoId=$video_id")
 echo 'API smoke: upload and Live Photo pair passed'
+mark_stage downloads
 curl --fail --silent --show-error "$base/assets/$still_id" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/assets/$still_id/original?download=true" "${auth[@]}" -o "$workdir/original.jpg"
 test -s "$workdir/original.jpg"
@@ -68,6 +76,7 @@ done
 test -s "$workdir/thumbnail.jpg"
 echo 'API smoke: original and thumbnail downloads passed'
 
+mark_stage albums
 album_json=$(curl --fail --silent --show-error -X POST "$base/albums" "${auth[@]}" "${json_header[@]}" \
   -d "{\"albumName\":\"Noodle compatibility smoke\",\"assetIds\":[\"$still_id\"]}")
 album_id=$(jq -er '.id' <<<"$album_json")
@@ -75,6 +84,7 @@ curl --fail --silent --show-error "$base/albums?id=$album_id" "${auth[@]}" >/dev
 curl --fail --silent --show-error "$base/albums/$album_id/assets" "${auth[@]}" >/dev/null
 echo 'API smoke: album operations passed'
 
+mark_stage sync
 sync_body='{"types":["UsersV1","AssetsV2","AlbumsV2"],"reset":true}'
 curl --fail --silent --show-error -X POST "$base/sync/stream" "${auth[@]}" "${json_header[@]}" \
   -d "$sync_body" -o "$workdir/sync-full.jsonl"
@@ -86,6 +96,7 @@ curl --fail --silent --show-error -X POST "$base/sync/stream" "${auth[@]}" "${js
 grep -q 'SyncCompleteV1' "$workdir/sync-incremental.jsonl"
 echo 'API smoke: full and incremental sync passed'
 
+mark_stage acks_and_trash
 acks=$(jq -c -s '[.[] | select(.ack != null) | .ack] | unique' "$workdir/sync-incremental.jsonl")
 if [[ "$acks" != '[]' ]]; then
   curl --fail --silent --show-error -X POST "$base/sync/ack" "${auth[@]}" "${json_header[@]}" -d "{\"acks\":$acks}"
@@ -103,6 +114,7 @@ curl --fail --silent --show-error -X DELETE "$base/assets" "${auth[@]}" "${json_
   -d "{\"ids\":[\"$video_id\"],\"force\":true}" >/dev/null
 echo 'API smoke: trash, restore, permanent delete passed'
 
+mark_stage reconnect
 # Re-login after the destructive round trip to exercise reconnect/session renewal.
 curl --fail --silent --show-error -X POST "$base/auth/login" "${json_header[@]}" \
   -d '{"email":"admin@immich.cloud","password":"password"}' | jq -e '.accessToken | type == "string"' >/dev/null
