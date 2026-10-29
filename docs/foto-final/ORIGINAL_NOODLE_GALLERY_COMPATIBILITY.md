@@ -21,7 +21,8 @@ create/detail, search, Trash restore/empty/permanent delete, and reconnect.
 The same flow was then rebuilt and rerun against the current backend source
 checkpoint `46e013adaddeddf8d9b358bcd10b5f721270e0ed` using disposable pinned
 PostgreSQL/Redis. That exact-SHA local result is **PASS**; the hosted unchanged
-client runtime result is still separate and pending.
+client runtime result is still separate and pending. The detailed receipt is in
+`docs/foto-final/ORIGINAL_NOODLE_API_SMOKE_2026-10-29.md`.
 
 Official Android artifacts were obtained from the release URLs and inspected
 with Android SDK Build Tools `35.0.0`: v5.8.0 SHA256
