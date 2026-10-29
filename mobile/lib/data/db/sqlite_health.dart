@@ -99,7 +99,13 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
 
   await outputDirectory.create(recursive: true);
   final capturedAt = (now ?? DateTime.now)().toUtc();
-  final snapshotName = 'sqlite-recovery-${capturedAt.millisecondsSinceEpoch}';
+  final baseName = 'sqlite-recovery-${capturedAt.microsecondsSinceEpoch}';
+  var snapshotName = baseName;
+  var suffix = 0;
+  while (await Directory(p.join(outputDirectory.path, snapshotName)).exists()) {
+    suffix++;
+    snapshotName = '$baseName-$suffix';
+  }
   final staging = Directory(p.join(outputDirectory.path, '.$snapshotName.staging'));
   final destination = Directory(p.join(outputDirectory.path, snapshotName));
 
@@ -153,7 +159,6 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
       };
       await manifest.writeAsString(const JsonEncoder.withIndent('  ').convert(manifestData));
 
-      await destination.delete(recursive: true).catchError((_) => destination);
       await staging.rename(destination.path);
       return SqliteRecoverySnapshot(
         directory: destination,

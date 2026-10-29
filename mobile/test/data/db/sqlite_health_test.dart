@@ -31,6 +31,14 @@ void main() {
     expect(await File('${database.path}-shm').readAsString(), 'shm-bytes');
     expect(snapshot.files, hasLength(3));
     expect(await snapshot.manifest.readAsString(), contains('quick_check failed'));
+
+    final second = await captureSqliteRecoverySnapshot(
+      database: database,
+      outputDirectory: output,
+      now: () => DateTime.utc(2026, 10, 29, 12),
+    );
+    expect(second.directory.path, isNot(snapshot.directory.path));
+    expect(snapshot.directory.existsSync(), isTrue);
   });
 
   test('omits absent sidecars and refuses a missing primary database', () async {
