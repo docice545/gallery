@@ -48,6 +48,7 @@ class BackgroundSyncManager {
   Cancelable<void>? _hashTask;
   Cancelable<void>? _trashTask;
   bool _sqliteRecoveryRequired = false;
+  int? _sqliteRecoveryReleaseEpoch;
 
   BackgroundSyncManager({
     this.onRemoteSyncStart,
@@ -100,6 +101,7 @@ class BackgroundSyncManager {
   /// flow has validated and explicitly restored the repaired copy.
   void clearSqliteRecoveryAfterValidatedRecovery() {
     _sqliteRecoveryRequired = false;
+    _sqliteRecoveryReleaseEpoch = (_sqliteRecoveryReleaseEpoch ?? 0) + 1;
     SqliteRecoveryGate.clearAfterValidatedRecovery();
   }
 
@@ -315,7 +317,11 @@ class BackgroundSyncManager {
 
   @protected
   Cancelable<bool?> createRemoteSyncTask() =>
-      runInIsolateGentle(computation: (ref) => ref.read(syncStreamServiceProvider).sync(), debugLabel: 'remote-sync');
+      runInIsolateGentle(
+        computation: (ref) => ref.read(syncStreamServiceProvider).sync(),
+        debugLabel: 'remote-sync',
+        sqliteRecoveryReleaseEpoch: _sqliteRecoveryReleaseEpoch,
+      );
 
   Future<void> syncWebsocketBatchV1(List<dynamic> batchData) {
     if (_sqliteRecoveryRequired) {
@@ -325,7 +331,7 @@ class BackgroundSyncManager {
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetUploadReadyV1Batch(batchData);
+    _syncWebsocketTask = _handleWsAssetUploadReadyV1Batch(batchData, _sqliteRecoveryReleaseEpoch);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
@@ -339,7 +345,7 @@ class BackgroundSyncManager {
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetUploadReadyV2Batch(batchData);
+    _syncWebsocketTask = _handleWsAssetUploadReadyV2Batch(batchData, _sqliteRecoveryReleaseEpoch);
     _observeSqliteRecovery(_syncWebsocketTask!.future);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
@@ -354,7 +360,7 @@ class BackgroundSyncManager {
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetEditReadyV1(data);
+    _syncWebsocketTask = _handleWsAssetEditReadyV1(data, _sqliteRecoveryReleaseEpoch);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
@@ -368,7 +374,7 @@ class BackgroundSyncManager {
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetEditReadyV2(data);
+    _syncWebsocketTask = _handleWsAssetEditReadyV2(data, _sqliteRecoveryReleaseEpoch);
     _observeSqliteRecovery(_syncWebsocketTask!.future);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
@@ -414,22 +420,28 @@ class BackgroundSyncManager {
   }
 }
 
-Cancelable<void> _handleWsAssetUploadReadyV1Batch(List<dynamic> batchData) => runInIsolateGentle(
-  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV1Batch(batchData),
-  debugLabel: 'websocket-batch',
-);
+Cancelable<void> _handleWsAssetUploadReadyV1Batch(List<dynamic> batchData, int? sqliteRecoveryReleaseEpoch) =>
+    runInIsolateGentle(
+      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV1Batch(batchData),
+      debugLabel: 'websocket-batch',
+      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+    );
 
-Cancelable<void> _handleWsAssetUploadReadyV2Batch(List<dynamic> batchData) => runInIsolateGentle(
-  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV2Batch(batchData),
-  debugLabel: 'websocket-batch',
-);
+Cancelable<void> _handleWsAssetUploadReadyV2Batch(List<dynamic> batchData, int? sqliteRecoveryReleaseEpoch) =>
+    runInIsolateGentle(
+      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV2Batch(batchData),
+      debugLabel: 'websocket-batch',
+      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+    );
 
-Cancelable<void> _handleWsAssetEditReadyV1(dynamic data) => runInIsolateGentle(
-  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV1(data),
-  debugLabel: 'websocket-edit',
-);
+Cancelable<void> _handleWsAssetEditReadyV1(dynamic data, int? sqliteRecoveryReleaseEpoch) => runInIsolateGentle(
+      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV1(data),
+      debugLabel: 'websocket-edit',
+      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+    );
 
-Cancelable<void> _handleWsAssetEditReadyV2(dynamic data) => runInIsolateGentle(
-  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV2(data),
-  debugLabel: 'websocket-edit',
-);
+Cancelable<void> _handleWsAssetEditReadyV2(dynamic data, int? sqliteRecoveryReleaseEpoch) => runInIsolateGentle(
+      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV2(data),
+      debugLabel: 'websocket-edit',
+      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+    );

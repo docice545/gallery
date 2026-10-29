@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/user/auth_user.drift.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/models/pending_local_trash.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
@@ -294,6 +295,42 @@ void main() {
     });
     await sut.sync();
   }
+
+  test('does not advance the sync cursor when updateAssetsV2 reports SQLite corruption', () async {
+    final asset = SyncAssetV2(
+      id: 'corrupt-asset',
+      checksum: 'corrupt-checksum',
+      originalFileName: 'corrupt.jpg',
+      type: AssetTypeEnum.IMAGE,
+      ownerId: 'owner',
+      isFavorite: false,
+      fileCreatedAt: DateTime(2026, 10, 29),
+      fileModifiedAt: DateTime(2026, 10, 29),
+      createdAt: DateTime(2026, 10, 29),
+      localDateTime: DateTime(2026, 10, 29),
+      visibility: AssetVisibility.timeline,
+      width: 100,
+      height: 100,
+      deletedAt: null,
+      duration: null,
+      libraryId: null,
+      livePhotoVideoId: null,
+      stackId: null,
+      thumbhash: null,
+      isEdited: false,
+    );
+    when(() => mockSyncStreamRepo.updateAssetsV2(any())).thenThrow(
+      const SqliteDatabaseUnhealthy('updateAssetsV2[user]', 779),
+    );
+
+    await expectLater(
+      simulateEvents([
+        SyncEvent(type: SyncEntityType.assetV2, data: asset, ack: 'cursor-after-corruption'),
+      ]),
+      throwsA(isA<SqliteDatabaseUnhealthy>()),
+    );
+    verifyNever(() => mockSyncApiRepo.ack(any()));
+  });
 
   group('SyncStreamService - authoritative restore confirmation', () {
     late MediumRepositoryContext context;

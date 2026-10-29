@@ -64,6 +64,11 @@ typedef AssetTrashSnapshot = ({
   String? retainedValue,
 });
 
+typedef SqliteSyncRecoveryCapture = Future<SqliteRecoverySnapshot?> Function({
+  required String debugLabel,
+  required SqliteException error,
+});
+
 @DriftAccessor()
 class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepositoryMixin {
   final Logger _logger = Logger('SyncStreamRepository');
@@ -72,8 +77,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   // SyncCompleteV1. Bounded by the links delivered in a single sync pass and cleared on every
   // flush, so it never accumulates across syncs. See updateMemoryAssetsV1.
   final Set<(String memoryId, String assetId)> _deferredMemoryAssets = {};
+  final SqliteSyncRecoveryCapture? recoverySnapshotCapture;
 
-  SyncStreamRepository(super.attachedDatabase);
+  SyncStreamRepository(super.attachedDatabase, {this.recoverySnapshotCapture});
 
   Drift get _db => attachedDatabase;
 
@@ -936,6 +942,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     required SqliteException error,
   }) async {
     try {
+      if (recoverySnapshotCapture != null) {
+        return await recoverySnapshotCapture!(debugLabel: debugLabel, error: error);
+      }
       final database = await sqliteDatabaseFile(name: 'immich');
       final safeLabel = debugLabel.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
       final snapshot = await captureSqliteRecoverySnapshot(

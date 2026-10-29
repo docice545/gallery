@@ -60,10 +60,51 @@ find_bounds() {
 import sys
 import xml.etree.ElementTree as ET
 needle = sys.argv[1].lower()
-for node in ET.parse(sys.argv[2]).getroot().iter('node'):
-    text = ' '.join((node.attrib.get(k) or '') for k in ('text', 'content-desc', 'resource-id')).lower()
-    if needle in text and node.attrib.get('bounds'):
+nodes = list(ET.parse(sys.argv[2]).getroot().iter('node'))
+def label(node):
+    return ' '.join((node.attrib.get(k) or '') for k in ('text', 'content-desc')).strip().lower()
+# Prefer an exact semantic button label. Flutter's accessibility tree can also
+# expose the same label on a parent/container resource id; tapping that broad
+# node reports success but does not activate the form action.
+for exact_button in (True, False):
+    for node in nodes:
+        value = label(node)
+        klass = (node.attrib.get('class') or '').lower()
+        is_button = ('button' in klass or node.attrib.get('clickable') == 'true') and node.attrib.get('enabled', 'true') != 'false'
+        if node.attrib.get('bounds') and (value == needle if exact_button else needle in value) and (not exact_button or is_button):
+            print(node.attrib['bounds']); raise SystemExit(0)
+# Fall back to the old resource-id/substring match for endpoint variants.
+for node in nodes:
+    value = ' '.join((node.attrib.get(k) or '') for k in ('text', 'content-desc', 'resource-id')).lower()
+    if needle in value and node.attrib.get('bounds'):
         print(node.attrib['bounds']); break
+PY
+}
+find_action_bounds() {
+  python3 - "$1" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+needle = sys.argv[1].strip().casefold()
+root = ET.parse(sys.argv[2]).getroot()
+for node in root.iter('node'):
+    if node.attrib.get('enabled', 'true').casefold() != 'true':
+        continue
+    if node.attrib.get('clickable', 'false').casefold() != 'true':
+        continue
+    if not node.attrib.get('bounds'):
+        continue
+    klass = (node.attrib.get('class') or '').casefold()
+    if 'button' not in klass:
+        continue
+    labels = [
+        (node.attrib.get('text') or '').strip().casefold(),
+        (node.attrib.get('content-desc') or '').strip().casefold(),
+        (node.attrib.get('resource-id') or '').strip().casefold(),
+    ]
+    if needle in labels:
+        print(node.attrib['bounds'])
+        break
 PY
 }
 center() {
@@ -89,15 +130,109 @@ tap_text_any() {
   done
   return 1
 }
-edit_text_at() {
-  local i=$1 value=$2 b x y
-  b=$(wait_for_edit_text "$i")
+tap_action_text() {
+  local b x y
+  b=$(find_action_bounds "$1")
+  test -n "$b" || { echo "Enabled clickable button not found: $1" >&2; return 1; }
   read -r x y < <(center "$b")
   $adb_bin shell input tap "$x" "$y"
-  # Flutter may expose the bounds before the text input connection has
-  # finished attaching. Give it a turn so the first character is not dropped.
-  sleep 1
-  $adb_bin shell input text "$value"
+}
+tap_action_text_any() {
+  local needle
+  for needle in "$@"; do
+    if tap_action_text "$needle"; then return 0; fi
+  done
+  return 1
+}
+edit_text_count_at_least() {
+  local count=$1
+  python3 - "$count" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[2]).getroot()
+items = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').casefold()
+    input_type = (node.attrib.get('input-type') or '').casefold()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'true':
+            items.append(node)
+raise SystemExit(0 if len(items) >= int(sys.argv[1]) else 1)
+PY
+}
+focused_edit_text() {
+  local bounds=$1
+  python3 - "$bounds" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[2]).getroot()
+for node in root.iter('node'):
+    if node.attrib.get('bounds') == sys.argv[1] and node.attrib.get('focused', 'false').casefold() == 'true':
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+clear_focused_edit_text() {
+  # MOVE_END followed by a bounded delete sequence clears a stale endpoint or
+  # autofilled credential without guessing coordinates or relying on clipboard.
+  local deletes
+  printf -v deletes ' 67%.0s' {1..128}
+  $adb_bin shell input keyevent 123$deletes
+}
+read_edit_text_at() {
+  python3 - "$1" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[2]).getroot()
+items = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').casefold()
+    input_type = (node.attrib.get('input-type') or '').casefold()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'true':
+            items.append(node)
+index = int(sys.argv[1])
+if index < len(items):
+    print(items[index].attrib.get('text', ''))
+PY
+}
+set_edit_text() {
+  local i=$1 value=$2 b x y timeout=${UI_WAIT_SECONDS:-90}
+  for attempt in 1 2 3; do
+    b=$(wait_for_edit_text "$i")
+    read -r x y < <(center "$b")
+    $adb_bin shell input tap "$x" "$y"
+    for _ in $(seq 1 20); do
+      dump_ui || true
+      if focused_edit_text "$b"; then break; fi
+      sleep 0.25
+    done
+    clear_focused_edit_text
+    # Send the complete value only after the focused state is observable. The
+    # readback catches Flutter's first-character loss and retries from empty.
+    $adb_bin shell input text "$value"
+    # Password fields are intentionally masked in the accessibility tree, so
+    # verify the observable text only for the endpoint/email field.
+    if [[ "$i" != 0 ]]; then
+      sleep 1
+      return 0
+    fi
+    for _ in $(seq 1 20); do
+      sleep 0.25
+      dump_ui || true
+      if [[ "$(read_edit_text_at "$i")" == "$value" ]]; then return 0; fi
+    done
+    echo "Input readback mismatch at index $i (attempt $attempt; expected=$value actual=$(read_edit_text_at "$i"))" >&2
+  done
+  echo "Failed to set EditText index $i with verified readback" >&2
+  return 1
+}
+edit_text_at() {
+  local i=$1 value=$2
+  set_edit_text "$i" "$value"
 }
 wait_for_edit_text() {
   local i=$1 timeout=${UI_WAIT_SECONDS:-90} b
@@ -155,17 +290,29 @@ sleep 1
 dump_ui
 tap_text_any 'Next' 'Continue' 'Login' 'Log in' || true
 mark_phase wait_login
-login_opened=false
+has_login_fields() {
+  python3 - <<'PY'
+import xml.etree.ElementTree as ET
+root = ET.parse('/tmp/noodle-window.xml').getroot()
+fields = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').lower()
+    input_type = (node.attrib.get('input-type') or '').lower()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        fields.append(node)
+print('yes' if len(fields) >= 2 else 'no')
+PY
+}
 for _ in $(seq 1 30); do
   sleep 2
   dump_ui
-  if grep -qi Email /tmp/noodle-window.xml; then break; fi
-  if [[ "$login_opened" == false ]] && grep -qi 'Login' /tmp/noodle-window.xml; then
+  if grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]; then break; fi
+  if grep -qi 'Login' /tmp/noodle-window.xml; then
     tap_text_any 'Login' 'Log in'
-    login_opened=true
+    $adb_bin shell input keyevent 66 || true
   fi
 done
-grep -qi Email /tmp/noodle-window.xml
+grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]
 mark_phase credentials
 edit_text_at 0 'admin@immich.cloud'
 edit_text_at 1 'password'

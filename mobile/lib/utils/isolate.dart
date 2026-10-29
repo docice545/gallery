@@ -27,6 +27,7 @@ Cancelable<T?> runInIsolateGentle<T>({
   String? debugLabel,
   bool awaitCancellationDrain = false,
   bool dedicated = false,
+  int? sqliteRecoveryReleaseEpoch,
 }) {
   final token = RootIsolateToken.instance;
   if (token == null) {
@@ -51,6 +52,13 @@ Cancelable<T?> runInIsolateGentle<T>({
       );
 
       try {
+        // A release epoch is supplied only by the explicit, user-mediated
+        // recovery action in BackgroundSyncManager. This lets a reused worker
+        // isolate forget its stale process-local gate without auto-clearing a
+        // failure when a normal worker starts.
+        if (sqliteRecoveryReleaseEpoch != null) {
+          SqliteRecoveryGate.clearAfterValidatedRecovery();
+        }
         return await computation(ref);
       } catch (error, stack) {
         log.severe("Error in runInIsolateGentle${debugLabel == null ? '' : ' for $debugLabel'}", error, stack);

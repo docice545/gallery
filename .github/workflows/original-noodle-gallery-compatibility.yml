@@ -270,6 +270,7 @@ jobs:
           test/data/db/sqlite_health_test.dart
           test/data/db/sqlite_recovery_test.dart
           test/infrastructure/repositories/sqlite_sync_recovery_test.dart
+          test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart
           2>&1 | tee ci-receipts/sqlite-recovery-tests.log
       - name: Build unsigned iOS simulator app
         if: always()
