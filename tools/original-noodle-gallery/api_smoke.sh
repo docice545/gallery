@@ -81,8 +81,7 @@ mark_stage albums
 album_json=$(curl --fail --silent --show-error -X POST "$base/albums" "${auth[@]}" "${json_header[@]}" \
   -d "{\"albumName\":\"Noodle compatibility smoke\",\"assetIds\":[\"$still_id\"]}")
 album_id=$(jq -er '.id' <<<"$album_json")
-curl --fail --silent --show-error "$base/albums?id=$album_id" "${auth[@]}" >/dev/null
-curl --fail --silent --show-error "$base/albums/$album_id/assets" "${auth[@]}" >/dev/null
+curl --fail --silent --show-error "$base/albums/$album_id" "${auth[@]}" >/dev/null
 echo 'API smoke: album operations passed'
 
 mark_stage sync
