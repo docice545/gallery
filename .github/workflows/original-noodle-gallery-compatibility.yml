@@ -39,6 +39,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,6 +51,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir server exec vitest run src/utils/client-contracts.spec.ts src/utils/original-noodle-gallery-contracts.spec.ts --config test/vitest.config.mjs
+      - name: Authenticate GHCR pulls
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
       - name: Start disposable backend dependencies
         run: |
           for attempt in 1 2 3; do
@@ -114,6 +119,7 @@ jobs:
         version: ['5.8.0', '5.9.0']
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,7 +144,10 @@ jobs:
           grep -q 'Signer #1 certificate SHA-256 digest: c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3' apk-signature.txt
           echo "path=$PWD/gallery-v$VERSION.apk" >> "$GITHUB_OUTPUT"
       - name: Start disposable PostgreSQL and Redis
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
           for attempt in 1 2 3; do
             docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
               docker compose -f e2e/docker-compose.yml up -d database redis && break
@@ -262,6 +271,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -317,6 +327,7 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -351,7 +362,10 @@ jobs:
           # Release workflows continue to build the universal/arm64 artifacts.
           flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64
       - name: Start disposable PostgreSQL and Redis
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
           for attempt in 1 2 3; do
             docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
               docker compose -f e2e/docker-compose.yml up -d database redis && break
