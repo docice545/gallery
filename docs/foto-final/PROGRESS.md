@@ -118,8 +118,8 @@ commit without repeating destructive work.
 
 ## 2026-10-29 — Stage 5d: disposable API evidence
 
-- **API result:** GitHub Actions run `40864366678` passed the disposable
-  backend smoke at commit `4c123818fc03cc7f4ca434f12ae41dade047b4c6` after
+- **API result:** GitHub Actions run `40866220811` passed the disposable
+  backend smoke at commit `cb24532f35df70defa117a56685c728bb36ac122` after
   correcting the album detail route. The receipt covers login, full and
   incremental sync/ACKs, upload/download, Live Photo pairing, album detail,
   search, Trash restore/empty/permanent delete, and reconnect.
@@ -130,4 +130,5 @@ commit without repeating destructive work.
 - **CI update:** Android durable-cache unit tests passed in run
   `40865110861`; the same run also built the Build22 debug APK successfully.
   The Build22 emulator replay and Flutter rendered-pixel tests are still
-  running, so the two P0 gates remain open.
+  pending; the split iOS-capable run `40867551167` stopped at
+  `flutter analyze` before those tests, so the two P0 gates remain open.

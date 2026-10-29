@@ -14,8 +14,8 @@ in the OpenAPI surface. The existing medium regression suite in
 projection and ACK behavior against a disposable PostgreSQL database.
 
 The disposable real-backend API smoke completed successfully in GitHub Actions
-run `40864366678` at backend commit
-`4c123818fc03cc7f4ca434f12ae41dade047b4c6`. It covered login, auth status,
+run `40866220811` at backend commit
+`cb24532f35df70defa117a56685c728bb36ac122`. It covered login, auth status,
 full/incremental sync and ACKs, upload/download, a Live Photo pair, album
 create/detail, search, Trash restore/empty/permanent delete, and reconnect.
 

@@ -127,8 +127,8 @@
     "syncRegressionTests": "server/test/medium/specs/sync/sync-client-compat.spec.ts",
     "nativeAndroid": "NOT TESTED",
     "nativeIOS": "NOT TESTED",
-    "realBackend": "PASS_RUN_40864366678",
-    "apiSmokeCommit": "4c123818fc03cc7f4ca434f12ae41dade047b4c6"
+    "realBackend": "PASS_RUN_40866220811",
+    "apiSmokeCommit": "cb24532f35df70defa117a56685c728bb36ac122"
   },
   "artifacts": {
     "v5.8.0": {
