@@ -5,8 +5,12 @@ version=${2:?version is required}
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
 adb_timeout=${ADB_COMMAND_TIMEOUT:-60}
+adb_clear_timeout=${ADB_CLEAR_TIMEOUT:-15}
 adb_run() {
   timeout --signal=TERM --kill-after=5s "$adb_timeout" "$adb_bin" "$@"
+}
+adb_clear() {
+  timeout --signal=TERM --kill-after=5s "$adb_clear_timeout" "$adb_bin" "$@"
 }
 package_name=${PACKAGE_NAME:-de.opennoodle.gallery.debug}
 artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
@@ -272,8 +276,16 @@ wait_for_boot
 mark_phase install
 adb_run start-server >/dev/null 2>&1 || true
 adb_run install -r "$apk_path"
-mark_phase clear_and_launch
-adb_run shell pm clear "$package_name" >/dev/null
+mark_phase clear_data
+# A package-manager clear can wait on a stale process after an emulator retry.
+# The emulator is disposable, so a bounded best-effort clear is safer than
+# spending the whole ADB timeout before trying the actual launcher. The launch
+# phase remains strict and will still fail if the installed package is absent.
+adb_run shell am force-stop "$package_name" >/dev/null 2>&1 || true
+if ! adb_clear shell pm clear "$package_name" >"$artifact_dir/pm-clear.log" 2>&1; then
+  echo "warning: pm clear did not complete within ${adb_clear_timeout}s; continuing with a disposable emulator" >&2
+fi
+mark_phase launch
 adb_run shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
 sleep 5
 mark_phase server_endpoint_dump
