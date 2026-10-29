@@ -82,10 +82,11 @@
       "official_apk_5_8_0": "PASS:sha256+apk-v2-certificate",
       "official_apk_5_9_0": "PASS:sha256+apk-v2-certificate",
       "local_android_emulator": "BLOCKED:no KVM/VMX/SVM",
-      "hosted_android_emulator": "PENDING",
+      "hosted_android_emulator": "FAIL:run 40835596166 action pin/apksigner path; corrected in next checkpoint",
       "ios_testflight_or_simulator": "NOT TESTED:no macOS",
       "disposable_backend": "PENDING:registry rate limit in Cloud"
     },
-    "commit": "PENDING_CHECKPOINT_COMMIT"
+    "commit": "PENDING_CHECKPOINT_COMMIT",
+    "nextAttempt": "rerun hosted workflow after 063d03ee7 correction"
   }
 }

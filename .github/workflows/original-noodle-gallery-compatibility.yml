@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02d # v6.3.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -100,7 +100,7 @@ jobs:
           esac
           curl --fail --location --retry 3 "$url" -o "gallery-v$VERSION.apk"
           echo "$sha  gallery-v$VERSION.apk" | sha256sum --check
-          apksigner verify --verbose --print-certs "gallery-v$VERSION.apk" | tee apk-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "gallery-v$VERSION.apk" | tee apk-signature.txt
           grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' apk-signature.txt
           grep -q 'Signer #1 certificate SHA-256 digest: c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3' apk-signature.txt
           echo "path=$PWD/gallery-v$VERSION.apk" >> "$GITHUB_OUTPUT"

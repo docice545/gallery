@@ -78,3 +78,9 @@ commit without repeating destructive work.
 - **SQLite:** primary database startup health guard integrated from checkpoint `5aa533cc9e42cc940bfc88e8577588ba36d0d8e0`; Flutter compile/device validation remains pending.
 - **Production:** unchanged; no HP, NAS, production database, or real user data touched.
 - **Next stage:** push this checkpoint, verify remote SHA, then run the hosted compatibility workflow and disposable PostgreSQL regressions.
+
+## 2026-10-29 — Stage 5a: hosted workflow diagnosis
+
+- **Workflow run:** GitHub Actions run `40835596166` failed in 34s before tests. The API job used an invalid pinned `actions/setup-node` SHA; both Android jobs exited 127 because `apksigner` was not on PATH.
+- **Correction:** replaced the setup-node pin with the repository's valid v7 pin and invoked `$ANDROID_HOME/build-tools/35.0.0/apksigner` explicitly. No client or production files changed.
+- **Next step:** publish the correction and rerun the hosted workflow; retain the failed run as a diagnostic receipt.
