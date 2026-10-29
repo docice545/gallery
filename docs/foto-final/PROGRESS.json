@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "run-hosted-build22-screenshot-and-offline-gates",
+  "nextStage": "run-hosted-final-sha-p0-and-original-client-gates",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -112,13 +112,37 @@
     "tests": {
       "gitDiffCheck": "PASS",
       "disposableApiSmoke": "PASS_RUN_40866220811_COMMIT_cb24532f35df70defa117a56685c728bb36ac122",
-      "flutterWidgetTests": "BLOCKED_FLUTTER_ANALYZE_RUN_40867551167",
+      "flutterWidgetTests": "PENDING_CI_AFTER_0b785c907_DIRECTIVE_FIX",
       "androidCacheUnitTests": "PASS_RUN_40865110861",
-      "build22OfflineEmulator": "PENDING_CI",
-      "samsungS23": "NOT_TESTED"
+      "build22OfflineEmulator": "PENDING_CI_AFTER_75cc67e87",
+      "samsungS23": "NOT_TESTED",
+      "sqliteRecoveryFixtures": "PENDING_CI_AFTER_c3facf6b9",
+      "shizukuPolicyTests": "SOURCE_PRESENT_DEVICE_RUNTIME_NOT_TESTED"
     },
     "workflow": ".github/workflows/original-noodle-gallery-compatibility.yml",
     "apkBuilt": true,
     "apkBuildEvidence": "RUN_40865110861"
+  },
+  "stage5e": {
+    "status": "FINAL_SHA_PUBLISHED_CI_PENDING_NOT_RELEASE_READY",
+    "commit": "75cc67e87030178523fabbca9ba5d9549f60ab03",
+    "previousCommits": [
+      "0b785c9070fc393e6d9ee14d1e733791a425aaee",
+      "c3facf6b9bb3c20a6e5cfa3a844a7eb8a00b178d"
+    ],
+    "tests": {
+      "remoteBranchHead": "PASS",
+      "serverContractTests": "PASS:11",
+      "shellAndJsonValidation": "PASS",
+      "apiSmoke": "PASS_RUN_40866220811_COMMIT_cb24532f35df70defa117a56685c728bb36ac122",
+      "flutterAnalyzeAndRenderedWidgets": "PENDING_HOSTED_CI_AFTER_DIRECTIVE_FIX",
+      "androidCacheAndBuild22": "PENDING_HOSTED_CI_AFTER_X86_64_GRADLE_HARDENING",
+      "officialAndroidE2E": "PENDING_HOSTED_EMULATOR",
+      "iosSimulator": "PENDING_MACOS_CI",
+      "sqliteRecoveryRuntime": "NOT_TESTED",
+      "samsungS23": "NOT_TESTED"
+    },
+    "productionChanged": false,
+    "overall": "NOT_RELEASE_READY"
   }
 }

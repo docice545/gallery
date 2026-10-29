@@ -519,6 +519,10 @@ Future<File> _databaseFile(String name) async {
   return File(p.join(dbFolder.path, '$name.sqlite'));
 }
 
+/// Returns the primary file path for diagnostics and user-mediated recovery.
+/// Callers must not delete or replace this file as part of health handling.
+Future<File> sqliteDatabaseFile({required String name}) => _databaseFile(name);
+
 SqliteDatabase _openImmichDatabase(File file) {
   return SqliteDatabase.withFactory(
     ImmichSqliteOpenFactory(

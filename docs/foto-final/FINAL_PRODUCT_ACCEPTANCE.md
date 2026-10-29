@@ -12,9 +12,10 @@ macOS, Samsung, iOS, or CI runtime; `NOT TESTED` means no claim is made.
 | 4 | Wi-Fi/cellular | PASS | Existing network preference tests |
 | 5 | `SCREENSHOT_THUMBNAIL_FRAMING` | SOURCE FIX / CI + APK PENDING | Edge-content contain framing and rendered-pixel fixture; hosted Flutter/APK/Samsung evidence required |
 | 6 | `OFFLINE_GRAY_SCREEN_RECOVERY` | SOURCE FIX / CI + APK PENDING | Versioned durable cache, auth/DNS fallback, corrupt-entry removal; hosted Android offline process-death evidence required |
-| 7 | SQLite corruption recovery | SOURCE PASS / DEVICE NOT TESTED | Startup health guard added; recovery fixtures and device replay remain |
+| 7 | `SQLITE_CORRUPTION_RECOVERY` | SOURCE FIX / FLUTTER + DEVICE NOT TESTED | Non-destructive DB/WAL/SHM snapshot and manifest added; fixture test and device replay remain |
 | 8 | Android CloudMediaProvider | SOURCE PASS / DEVICE NOT TESTED | Existing provider sources; Samsung/Photo Picker runtime remains |
 | 9 | Shizuku admission | SOURCE PASS / DEVICE NOT TESTED | Existing admission policy; real Shizuku permission cycle remains |
+| 9a | `ANDROID_CLOUD_MEDIA_SHIZUKU` | SOURCE PASS / DEVICE NOT TESTED | Typed Shizuku admission/read/verify/undo and reversible journal are covered by Kotlin policy tests; Android 16 Photo Picker/account isolation remain |
 | 10 | Samsung Gallery compatibility | NOT TESTED | Requires Galaxy S23 / One UI |
 | 11 | System Photo Picker | NOT TESTED | Requires Android system provider selection |
 | 12 | MediaStore/SAF/Share | NOT TESTED | Requires Android runtime |

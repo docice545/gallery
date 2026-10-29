@@ -132,3 +132,26 @@ commit without repeating destructive work.
   The Build22 emulator replay and Flutter rendered-pixel tests are still
   pending; the split iOS-capable run `40867551167` stopped at
   `flutter analyze` before those tests, so the two P0 gates remain open.
+
+## 2026-10-29 — Stage 5e: final-SHA recovery and CI hardening
+
+- **Checkpoint:** `75cc67e87030178523fabbca9ba5d9549f60ab03` (published; remote
+  branch head verified).
+- **Flutter blocker correction:** reordered the `thumbnail_tile.widget.dart`
+  directives that caused the reported `directives_ordering` failure (`0b785c907`).
+  Flutter analysis and rendered-pixel tests are intentionally still pending on
+  the next hosted run; no PASS is inferred from the source edit.
+- **SQLite P0:** added a non-destructive, staged DB/WAL/SHM snapshot with
+  stability checks and a manifest, plus fixture coverage for sidecars and a
+  missing primary file (`c3facf6b9`). The primary database is never deleted or
+  reset; repair remains a user-mediated operation on a captured copy.
+- **CI hardening:** the compatibility workflow now records runner RAM/CPU,
+  bounds Gradle workers and heap, builds an x86_64-only emulator APK while
+  leaving release/universal builds unchanged, serializes official APK matrix
+  jobs, adds emulator cold-boot diagnostics, and retries pinned Docker pulls
+  and disposable backend builds with backoff (`75cc67e87`).
+- **Current gate status:** API smoke remains PASS on run `40866220811`; official
+  APK provenance remains PASS; Android unchanged-client E2E, Build22 offline
+  process-death E2E, Flutter/iOS checks, SQLite runtime replay, Samsung S23 and
+  HP gates remain pending or not tested. Overall status remains
+  `NOT RELEASE READY`.
