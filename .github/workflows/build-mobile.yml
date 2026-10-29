@@ -71,6 +71,45 @@ jobs:
             - '.github/workflows/build-mobile.yml'
           force-events: 'workflow_call,workflow_dispatch'
 
+  flutter-tests:
+    name: Flutter tests and coverage
+    needs: pre-job
+    if: ${{ fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+          token: ${{ github.token }}
+
+      - name: Setup Mise
+        uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+
+      - name: Install dependencies
+        run: mise //mobile:install:ci
+
+      - name: Perform codegen
+        run: mise //mobile:codegen
+
+      - name: Run Flutter tests with coverage
+        working-directory: ./mobile
+        run: flutter test --coverage
+
+      - name: Upload Flutter coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flutter-test-coverage
+          path: mobile/coverage/
+          if-no-files-found: warn
+
   build-sign-android:
     name: Build and sign Android
     needs: pre-job
