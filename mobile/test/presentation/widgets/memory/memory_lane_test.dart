@@ -67,10 +67,12 @@ void main() {
             memoryCandidatesProvider.overrideWith((ref) async => const []),
           ],
           child: MaterialApp(
-            home: SizedBox(
-              width: width,
-              child: MemoryLane(
-                thumbnailBuilder: (_) => const ColoredBox(color: Colors.blue),
+            home: Material(
+              child: SizedBox(
+                width: width,
+                child: MemoryLane(
+                  thumbnailBuilder: (_) => const ColoredBox(color: Colors.blue),
+                ),
               ),
             ),
           ),
