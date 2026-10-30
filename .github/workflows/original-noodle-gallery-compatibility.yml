@@ -59,23 +59,30 @@ jobs:
         run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
       - name: Start disposable backend dependencies
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
               docker compose -f e2e/docker-compose.yml up -d database redis && break
             rc=$?
-            if [[ $attempt -eq 3 ]]; then exit $rc; fi
-            sleep $((attempt * 20))
+            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+            if [[ $attempt -eq 5 ]]; then
+              docker compose -f e2e/docker-compose.yml ps || true
+              exit $rc
+            fi
+            sleep $((attempt * 30))
           done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
       - name: Build and start disposable FOTO backend
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             docker compose -f e2e/docker-compose.yml build immich-server && break
             rc=$?
-            if [[ $attempt -eq 3 ]]; then exit $rc; fi
-            sleep $((attempt * 20))
+            if [[ $attempt -eq 5 ]]; then
+              docker compose -f e2e/docker-compose.yml ps || true
+              exit $rc
+            fi
+            sleep $((attempt * 30))
           done
           docker compose -f e2e/docker-compose.yml up -d immich-server
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
@@ -150,12 +157,16 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
               docker compose -f e2e/docker-compose.yml up -d database redis && break
             rc=$?
-            if [[ $attempt -eq 3 ]]; then exit $rc; fi
-            sleep $((attempt * 20))
+            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+            if [[ $attempt -eq 5 ]]; then
+              docker compose -f e2e/docker-compose.yml ps || true
+              exit $rc
+            fi
+            sleep $((attempt * 30))
           done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
       - name: Prepare hosted Android emulator KVM and ADB
@@ -172,11 +183,14 @@ jobs:
           adb version
       - name: Build and start disposable FOTO backend
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             docker compose -f e2e/docker-compose.yml build immich-server && break
             rc=$?
-            if [[ $attempt -eq 3 ]]; then exit $rc; fi
-            sleep $((attempt * 20))
+            if [[ $attempt -eq 5 ]]; then
+              docker compose -f e2e/docker-compose.yml ps || true
+              exit $rc
+            fi
+            sleep $((attempt * 30))
           done
           docker compose -f e2e/docker-compose.yml up -d immich-server
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
@@ -433,12 +447,16 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
               docker compose -f e2e/docker-compose.yml up -d database redis && break
             rc=$?
-            if [[ $attempt -eq 3 ]]; then exit $rc; fi
-            sleep $((attempt * 20))
+            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+            if [[ $attempt -eq 5 ]]; then
+              docker compose -f e2e/docker-compose.yml ps || true
+              exit $rc
+            fi
+            sleep $((attempt * 30))
           done
           for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
       - name: Record Build 22 APK receipt
@@ -455,11 +473,14 @@ jobs:
           fi
       - name: Build and start disposable FOTO backend
         run: |
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             docker compose -f e2e/docker-compose.yml build immich-server && break
             rc=$?
-            if [[ $attempt -eq 3 ]]; then exit $rc; fi
-            sleep $((attempt * 20))
+            if [[ $attempt -eq 5 ]]; then
+              docker compose -f e2e/docker-compose.yml ps || true
+              exit $rc
+            fi
+            sleep $((attempt * 30))
           done
           docker compose -f e2e/docker-compose.yml up -d immich-server
           for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
