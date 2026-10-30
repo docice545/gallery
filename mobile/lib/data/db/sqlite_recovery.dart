@@ -291,7 +291,9 @@ Future<Directory> _copySnapshot({
   final staging = Directory('${destination.path}.staging');
   await staging.create(recursive: true);
   await for (final entity in snapshot.list(followLinks: false)) {
-    if (entity is! File || p.basename(entity.path) == 'manifest.json') continue;
+    if (entity is! File || p.basename(entity.path) == 'manifest.json') {
+      continue;
+    }
     await entity.copy(p.join(staging.path, p.basename(entity.path)));
   }
   final manifest = File(p.join(snapshot.path, 'manifest.json'));
@@ -302,7 +304,9 @@ Future<Directory> _copySnapshot({
 
 String _integrityCheck(Database db) {
   final rows = db.select('PRAGMA integrity_check');
-  if (rows.isEmpty) return 'no result';
+  if (rows.isEmpty) {
+    return 'no result';
+  }
   return rows.map((row) => row[0].toString()).join('; ');
 }
 
@@ -333,14 +337,20 @@ Map<String, String> _tableFingerprints(Database db) {
 }
 
 Object? _jsonCell(Object? value) {
-  if (value is Uint8List) return base64Encode(value);
-  if (value is List<int>) return base64Encode(value);
+  if (value is Uint8List) {
+    return base64Encode(value);
+  }
+  if (value is List<int>) {
+    return base64Encode(value);
+  }
   return value;
 }
 
 bool _isIndexOnlyFailure(String integrity, Database db) {
   final indexes = _allIndexes(db);
-  if (indexes.isEmpty) return false;
+  if (indexes.isEmpty) {
+    return false;
+  }
   final lines = integrity.split(';').map((line) => line.trim()).where((line) => line.isNotEmpty);
   var namedIndexError = false;
   for (final line in lines) {
@@ -351,7 +361,9 @@ bool _isIndexOnlyFailure(String integrity, Database db) {
     // Removing an index cell leaves a small free fragment on the index page.
     // SQLite reports that alongside the named index errors; it is still safe
     // to rebuild the named index on the isolated candidate copy.
-    if (line.toLowerCase().contains('fragmentation')) continue;
+    if (line.toLowerCase().contains('fragmentation')) {
+      continue;
+    }
     return false;
   }
   return namedIndexError;
@@ -369,7 +381,9 @@ List<String> _allIndexes(Database db) {
     final table = row[0].toString();
     for (final index in db.select('PRAGMA index_list(${_quoteIdentifier(table)})')) {
       final name = index[1]?.toString();
-      if (name != null && name.isNotEmpty) indexes.add(name);
+      if (name != null && name.isNotEmpty) {
+        indexes.add(name);
+      }
     }
   }
   return indexes;
