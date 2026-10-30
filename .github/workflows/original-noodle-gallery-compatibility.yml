@@ -262,6 +262,19 @@ jobs:
         run: |
           set -o pipefail
           flutter analyze --no-pub 2>&1 | tee ci-receipts/flutter-analyze.log
+      - name: Surface Flutter analysis failure details
+        if: failure()
+        working-directory: mobile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('ci-receipts/flutter-analyze.log')
+          if path.exists():
+              tail = '\n'.join(path.read_text(errors='replace').splitlines()[-160:])
+              encoded = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Flutter analysis failure::{encoded}')
+          PY
       - name: Run iOS-capable existing service and repository tests
         if: always()
         working-directory: mobile
@@ -317,6 +330,19 @@ jobs:
             test/infrastructure/repositories/sqlite_sync_recovery_test.dart \
             test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart \
             2>&1 | tee ci-receipts/sqlite-recovery-tests.log
+      - name: Surface SQLite fixture failure details
+        if: failure()
+        working-directory: mobile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('ci-receipts/sqlite-recovery-tests.log')
+          if path.exists():
+              tail = '\n'.join(path.read_text(errors='replace').splitlines()[-240:])
+              encoded = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=SQLite fixture failure::{encoded}')
+          PY
       - name: Build unsigned iOS simulator app
         if: always()
         working-directory: mobile
