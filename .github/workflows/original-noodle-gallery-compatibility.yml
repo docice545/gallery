@@ -271,9 +271,16 @@ jobs:
 
           path = Path('ci-receipts/flutter-analyze.log')
           if path.exists():
-              tail = '\n'.join(path.read_text(errors='replace').splitlines()[-160:])
-              encoded = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print(f'::error title=Flutter analysis failure::{encoded}')
+              diagnostics = [
+                  line.strip()
+                  for line in path.read_text(errors='replace').splitlines()
+                  if ' warning • ' in line or ' error • ' in line
+              ]
+              for diagnostic in diagnostics:
+                  encoded = diagnostic.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f'::error title=Flutter analyzer diagnostic::{encoded}')
+              if not diagnostics:
+                  print('::notice title=Flutter analyzer diagnostics::No warning or error diagnostics were emitted.')
           PY
       - name: Run iOS-capable existing service and repository tests
         if: always()
