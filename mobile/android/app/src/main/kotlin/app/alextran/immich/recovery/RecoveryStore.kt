@@ -88,6 +88,12 @@ class RecoveryStore(
     return mapOf("token" to token, "path" to path, "probe" to (!validated).toString())
   }
 
+  /** Native read-only consumers must not bypass the startup WAL/health probe. */
+  @Synchronized fun acquireNativeRead(): Map<String, String>? {
+    if (closed || blocked || selectionUncertain || !validated || probeOwner != null || recoveryOwner != null) return null
+    return acquire()
+  }
+
   @Synchronized fun probeComplete(token: String) {
     check(probeOwner == token && leases.contains(token) && !blocked)
     validated = true

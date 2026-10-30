@@ -43,6 +43,28 @@ class RecoveryStoreTest {
       store.release(first.getValue("token")); store.release(second.getValue("token"))
     }
   }
+  @Test fun nativeReadersWaitForProbeAndDrainBeforeRecovery() {
+    RecoveryStore(root(), source(), ::sync).use { store ->
+      assertNull(store.acquireNativeRead())
+      val first = store.acquire()
+      assertNull(store.acquireNativeRead())
+      store.probeComplete(first.getValue("token"))
+      store.release(first.getValue("token"))
+      val reader = checkNotNull(store.acquireNativeRead())
+      refuses { store.begin() }
+      assertNull(store.acquireNativeRead())
+      store.release(reader.getValue("token"))
+      val session = store.begin()
+      val replacement = candidate()
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      assertNull(store.acquireNativeRead())
+      val next = store.acquire()
+      store.probeComplete(next.getValue("token"))
+      val newReader = checkNotNull(store.acquireNativeRead())
+      assertEquals(replacement.canonicalPath, File(newReader.getValue("path")).canonicalPath)
+      store.release(newReader.getValue("token")); store.release(next.getValue("token"))
+    }
+  }
   @Test fun failedAttemptSurvivesRestartAndKeepsOriginal() {
     val original = source()
     RecoveryStore(root(), original, ::sync).use { store -> store.begin(); candidate() }

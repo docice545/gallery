@@ -25,7 +25,7 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     private var owner: RecoveryStore? = null
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    @Synchronized private fun store(ctx: Context): RecoveryStore = owner ?: RecoveryStore(
+    @Synchronized internal fun store(ctx: Context): RecoveryStore = owner ?: RecoveryStore(
       File(ctx.noBackupFilesDir, "sqlite-recovery"), File(ctx.getDir("flutter", 0), "immich.sqlite"),
     ) { directory ->
       check(directory.isDirectory)
@@ -56,7 +56,12 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
           val store = store(ctx)
           val value: Any? = when (call.method) {
             "acquire" -> store.acquire()
-            "probeComplete" -> { store.probeComplete(call.argument<String>("token")!!); null }
+            "probeComplete" -> {
+              store.probeComplete(call.argument<String>("token")!!)
+              app.alextran.immich.cloudmedia.CloudMediaChanges.start(ctx)
+              app.alextran.immich.cloudmedia.CloudMediaChanges.changed()
+              null
+            }
             "release" -> { store.release(call.argument<String>("token")!!); null }
             "halt" -> { store.halt(); null }
             "begin" -> store.begin()

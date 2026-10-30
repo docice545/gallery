@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.os.CancellationSignal
 import android.os.Build
 import app.alextran.immich.R
-import io.flutter.util.PathUtils
+import app.alextran.immich.recovery.SqliteRecoveryPlugin
 import java.io.File
 import java.security.MessageDigest
 
@@ -34,25 +34,38 @@ internal class CloudMediaCatalog(private val context: Context) {
     private val collectionLock = Any()
   }
   private val prefs = context.getSharedPreferences("gallery.cloudmedia", Context.MODE_PRIVATE)
-  private val file get() = File(PathUtils.getDataDirectory(context), "immich.sqlite")
+  private val file get() = SqliteRecoveryPlugin.store(context).selected()
   private val projection by lazy {
     context.resources.openRawResource(R.raw.gallery_cloud_media).bufferedReader().use { it.readText() }
   }
   private var snapshotCache: Triple<String, String, Pair<String, Long>>? = null
   private fun revision(): String {
+    val file = file
     val wal = File("${file.path}-wal")
-    return "${CloudMediaChanges.revision.get()}:${file.lastModified()}:${file.length()}:${wal.lastModified()}:${wal.length()}"
+    return "${file.canonicalPath}:${CloudMediaChanges.revision.get()}:${file.lastModified()}:${file.length()}:${wal.lastModified()}:${wal.length()}"
   }
 
   private fun <T> read(block: (SQLiteDatabase) -> T): T? {
-    if (!file.isFile) return null
-    return SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+    if (Build.VERSION.SDK_INT < 35) return null
+    val store = SqliteRecoveryPlugin.store(context)
+    val lease = store.acquireNativeRead() ?: return null
+    var db: SQLiteDatabase? = null
+    try {
+      val file = File(lease.getValue("path"))
+      if (!file.isFile) return null
+      // Android's default corruption handler deletes database files, including
+      // for read-only connections. Retain evidence and block admission instead.
+      val connection = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY) { store.halt() }
+      db = connection
       // Never read a migration's half-built schema. No PRAGMA/schema writes.
-      val ready = db.rawQuery("PRAGMA user_version", null).use { it.moveToFirst() && it.getInt(0) == 38 }
-      if (!ready) return@use null
-      if (Build.VERSION.SDK_INT < 35) return@use null
-      db.beginTransactionReadOnly()
-      try { block(db).also { db.setTransactionSuccessful() } } finally { db.endTransaction() }
+      val ready = connection.rawQuery("PRAGMA user_version", null).use { it.moveToFirst() && it.getInt(0) == 38 }
+      if (!ready) return null
+      connection.beginTransactionReadOnly()
+      return try { block(connection).also { connection.setTransactionSuccessful() } } finally { connection.endTransaction() }
+    } finally {
+      // A failed close retains its lease; recovery cannot guess this handle closed.
+      db?.close()
+      store.release(lease.getValue("token"))
     }
   }
 

@@ -6,8 +6,7 @@ import android.os.FileObserver
 import android.os.Handler
 import android.os.HandlerThread
 import android.provider.MediaStore
-import io.flutter.util.PathUtils
-import java.io.File
+import app.alextran.immich.recovery.SqliteRecoveryPlugin
 import java.util.concurrent.atomic.AtomicLong
 
 /** One native observer over the existing DB/WAL, not a second sync client. */
@@ -15,6 +14,7 @@ internal object CloudMediaChanges {
   val revision = AtomicLong()
   private var context: Context? = null
   private var observer: FileObserver? = null
+  private var observedDirectory: String? = null
   private val thread by lazy { HandlerThread("gallery-cloud-notify").apply { start() } }
   private val handler by lazy { Handler(thread.looper) }
   private val notify = Runnable {
@@ -31,9 +31,13 @@ internal object CloudMediaChanges {
   }
 
   @Synchronized fun start(ctx: Context) {
-    if (Build.VERSION.SDK_INT < 35 || observer != null) return
+    if (Build.VERSION.SDK_INT < 35) return
     context = ctx.applicationContext
-    observer = object : FileObserver(File(PathUtils.getDataDirectory(ctx)), MODIFY or CLOSE_WRITE or DELETE or MOVED_TO) {
+    val directory = runCatching { SqliteRecoveryPlugin.store(ctx).selected().parentFile!!.canonicalFile }.getOrNull() ?: return
+    if (observedDirectory == directory.path) return
+    observer?.stopWatching()
+    observedDirectory = directory.path
+    observer = object : FileObserver(directory, MODIFY or CLOSE_WRITE or DELETE or MOVED_TO) {
       override fun onEvent(event: Int, path: String?) {
         if (path == "immich.sqlite" || path == "immich.sqlite-wal") changed()
       }
