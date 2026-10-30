@@ -93,7 +93,9 @@ void main() {
       expect(tester.getSize(cards.at(1)), firstSize);
 
       final firstBeforeScroll = tester.getRect(cards.at(0));
-      await tester.drag(laneFinder, const Offset(-80, 0));
+      // Start the gesture on a card so the horizontal scroll recognizer gets
+      // a real hit target even when the ListView is partially off-screen.
+      await tester.fling(cards.at(0), const Offset(-240, 0), 1000);
       await tester.pumpAndSettle();
       expect(tester.getRect(cards.at(0)).left, lessThan(firstBeforeScroll.left));
       expect(tester.getSize(cards.at(0)), firstSize);
