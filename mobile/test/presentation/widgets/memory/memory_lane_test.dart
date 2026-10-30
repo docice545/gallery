@@ -62,7 +62,16 @@ void main() {
         ProviderScope(
           overrides: [
             visibleMemoryLaneProvider.overrideWithValue(
-              AsyncData([_memory('one'), _memory('two'), _memory('three'), _memory('four'), _memory('five')]),
+              AsyncData([
+                _memory('one'),
+                _memory('two'),
+                _memory('three'),
+                _memory('four'),
+                _memory('five'),
+                _memory('six'),
+                _memory('seven'),
+                _memory('eight'),
+              ]),
             ),
             memoryCandidatesProvider.overrideWith((ref) async => const []),
           ],
