@@ -6,7 +6,7 @@ absent. `NOT TESTED` means no claim is made.
 
 Evidence baseline: source `d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552`, final
 hosted run [40961734970](https://github.com/docice545/gallery/actions/runs/40961734970),
-documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`.
+last remote documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`; local final handoff `f087c5fef4918058d20fdb89660bee51c4e63896` is not remotely verified because the GitHub proxy is unavailable.
 
 | # | Acceptance area | Status | Evidence / open condition |
 |---:|---|---|---|

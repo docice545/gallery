@@ -1,6 +1,6 @@
 # FOTO Build 22 release handoff
 
-Current source checkpoint: `aa15c6ce9b20fb65abf4534c21bf154777970d8c`.
+Last remote source checkpoint: `aa15c6ce9b20fb65abf4534c21bf154777970d8c`. Local final handoff: `f087c5fef4918058d20fdb89660bee51c4e63896` (push blocked by unavailable GitHub proxy).
 The tested code checkpoint is `d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552`.
 Hosted acceptance run: [40961734970](https://github.com/docice545/gallery/actions/runs/40961734970).
 

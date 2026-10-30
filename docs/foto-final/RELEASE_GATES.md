@@ -4,7 +4,7 @@ This is the current gate ledger for the published branch
 `codex/foto-build22-resume-20261029`. The final hosted source verification is
 [run 40961734970](https://github.com/docice545/gallery/actions/runs/40961734970)
 on source commit `d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552`; the branch now ends at
-documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`.
+last remote documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`; local final handoff `f087c5fef4918058d20fdb89660bee51c4e63896` is awaiting push because the GitHub proxy is unavailable.
 
 | Gate | Status | Evidence | Remaining condition |
 |---|---|---|---|
