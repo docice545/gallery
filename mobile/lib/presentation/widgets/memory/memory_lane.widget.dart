@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
 import 'package:immich_mobile/presentation/pages/memory.page.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
@@ -20,7 +21,11 @@ double memoryLaneCardWidth(double viewportWidth) => (viewportWidth * 0.4).clamp(
 double memoryLaneCardHeight(double viewportWidth) => memoryLaneCardWidth(viewportWidth) / MemoryCard.aspectRatio;
 
 class MemoryLane extends ConsumerWidget {
-  const MemoryLane({super.key});
+  const MemoryLane({super.key, this.thumbnailBuilder});
+
+  /// Optional deterministic thumbnail used by widget tests. The production path
+  /// keeps using the normal remote thumbnail loader.
+  final Widget Function(RemoteAsset asset)? thumbnailBuilder;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -70,7 +75,11 @@ class MemoryLane extends ConsumerWidget {
                           MemoryPage.setMemory(ref, memory);
                           unawaited(context.pushRoute(MemoryRoute(memories: memories, memoryIndex: index)));
                         },
-                        child: MemoryCard(key: Key(memory.id), memory: memory),
+                      child: MemoryCard(
+                        key: Key(memory.id),
+                        memory: memory,
+                        thumbnailBuilder: thumbnailBuilder,
+                      ),
                       ),
                     ),
                   );
@@ -85,17 +94,26 @@ class MemoryLane extends ConsumerWidget {
 }
 
 class MemoryCard extends StatelessWidget {
-  const MemoryCard({super.key, required this.memory});
+  const MemoryCard({super.key, required this.memory, this.thumbnailBuilder});
 
   /// Width-to-height ratio matching the tall cards used by the iOS Gallery lane.
   static const aspectRatio = 0.74;
 
   final Memory memory;
+  final Widget Function(RemoteAsset asset)? thumbnailBuilder;
 
   @override
   Widget build(BuildContext context) {
     final title = getMemoryTitle(context, memory);
     final colorScheme = Theme.of(context).colorScheme;
+    final thumbnail = memory.assets.isEmpty
+        ? null
+        : thumbnailBuilder?.call(memory.assets.first) ??
+            Thumbnail.remote(
+              remoteId: memory.assets.first.id,
+              thumbhash: memory.assets.first.thumbHash ?? '',
+              fit: BoxFit.cover,
+            );
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
@@ -113,12 +131,7 @@ class MemoryCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (memory.assets.isNotEmpty)
-              Thumbnail.remote(
-                remoteId: memory.assets.first.id,
-                thumbhash: memory.assets.first.thumbHash ?? '',
-                fit: BoxFit.cover,
-              ),
+            if (thumbnail != null) thumbnail,
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(

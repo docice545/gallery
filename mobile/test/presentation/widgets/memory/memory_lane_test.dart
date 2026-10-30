@@ -66,7 +66,14 @@ void main() {
             ),
             memoryCandidatesProvider.overrideWith((ref) async => const []),
           ],
-          child: MaterialApp(home: SizedBox(width: width, child: const MemoryLane())),
+          child: MaterialApp(
+            home: SizedBox(
+              width: width,
+              child: MemoryLane(
+                thumbnailBuilder: (_) => const ColoredBox(color: Colors.blue),
+              ),
+            ),
+          ),
         ),
       );
       await tester.pump();
