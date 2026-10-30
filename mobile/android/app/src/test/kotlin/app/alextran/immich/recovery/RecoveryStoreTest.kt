@@ -86,8 +86,26 @@ class RecoveryStoreTest {
       store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
     }
     replacement.delete()
-    refuses { RecoveryStore(root(), original, ::sync) }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.acquire() }; refuses { store.begin() }
+      assertEquals("selection_unavailable", store.exportReason())
+    }
     assertTrue(original.exists())
+  }
+  @Test fun lostSelectorNeverRollsBackToStaleOriginal() {
+    val original = source()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin()
+      val replacement = File(root(), "attempt-real/candidate/immich.sqlite").apply { parentFile!!.mkdirs(); writeText("new data") }
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+    }
+    File(root(), "selection").delete()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.acquire() }; refuses { store.begin() }
+      assertEquals("selection_unavailable", store.exportReason())
+      assertTrue(store.canExport())
+      assertFalse(File(root(), "selection").exists())
+    }
   }
   @Test fun fsyncFailureRetainsAdmissionBarrier() {
     val original = source()
@@ -97,6 +115,26 @@ class RecoveryStoreTest {
       refuses { store.begin() }
       refuses { store.acquire() }
       assertEquals(original.path, store.selected().path)
+    }
+  }
+  @Test fun exportIncludesPrimaryWalShmAndRedactedReportWithoutCacheArchive() {
+    val original = source()
+    File("$original-wal").writeText("committed WAL evidence")
+    File("$original-shm").writeText("WAL-index evidence")
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin(); store.finish(session.getValue("token"))
+      val bytes = java.io.ByteArrayOutputStream()
+      RecoveryExport.write(store, bytes)
+      val entries = mutableMapOf<String, String>()
+      java.util.zip.ZipInputStream(bytes.toByteArray().inputStream()).use { zip ->
+        while (true) { val entry = zip.nextEntry ?: break; entries[entry.name] = zip.readBytes().toString(Charsets.UTF_8) }
+      }
+      assertEquals("original database evidence", entries["source/immich.sqlite"])
+      assertEquals("committed WAL evidence", entries["source/immich.sqlite-wal"])
+      assertEquals("WAL-index evidence", entries["source/immich.sqlite-shm"])
+      assertTrue(entries.getValue("export-report.json").contains(RecoveryStore.hash(original)))
+      assertFalse(entries.getValue("export-report.json").contains("original database evidence"))
+      assertFalse(entries.keys.any { it.endsWith("owner.lock") || it.endsWith("selection") })
     }
   }
   @Test fun orphanSelectionNextIsNeverInterpretedAsCommitted() {

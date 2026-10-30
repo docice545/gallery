@@ -118,6 +118,19 @@ void main() {
   });
   tearDown(() => directory.delete(recursive: true));
 
+  test('startup read-only detection leaves committed primary and WAL bytes intact', () async {
+    final probe = sqlite3.open(source.path, mode: OpenMode.readOnly);
+    try {
+      expect(probe.select('PRAGMA integrity_check(1)').single.values.single, isNot('ok'));
+    } finally {
+      probe.close();
+    }
+    final after = await recoveryFileHashes(source);
+    expect(after[''], before['']);
+    expect(after['-wal'], before['-wal']);
+    await OneTapSqliteRecovery(host).run();
+    expect(host.selected.path, isNot(source.path));
+  });
   test('one tap preserves every table, WAL-only queues, account and confirmed cursor', () async {
     await OneTapSqliteRecovery(host).run();
     expect(host.blocked, false);

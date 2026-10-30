@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart';
 
 /// Platform boundary: admission, capacity, fsync and atomic selection. Tests use
 /// real SQLite files and a durable file selector, never mocked SQLite results.
@@ -58,8 +60,9 @@ final class RecoveryRefused implements Exception {
 final class OneTapSqliteRecovery {
   final RecoveryHost host;
   final Future<void> Function(String step)? checkpoint;
+  final void Function(Database candidate)? beforeReindex;
   bool _running = false;
-  OneTapSqliteRecovery(this.host, {this.checkpoint});
+  OneTapSqliteRecovery(this.host, {this.checkpoint, this.beforeReindex});
 
   Future<void> run() async {
     if (_running) {
@@ -113,12 +116,19 @@ final class OneTapSqliteRecovery {
           ((bytesHeader[18] == 2 || bytesHeader[19] == 2) && (!wal.existsSync() || await wal.length() == 0))) {
         throw const RecoveryRefused('missing_or_unprovable_wal');
       }
-      report = await diagnoseAndRepairSqliteSnapshot(
-        snapshot: snapshot.directory,
-        outputDirectory: attempt,
-        allowedIndexes: const {'idx_trashed_local_asset_album'},
-        repairCheckpoint: checkpoint,
-      );
+      // Keep SQLite scans/REINDEX off the UI isolate. The native admission
+      // owner remains held while this worker touches copies only.
+      if (checkpoint == null && beforeReindex == null) {
+        report = await _diagnoseInWorker(snapshot.directory.path, attempt.path);
+      } else {
+        report = await diagnoseAndRepairSqliteSnapshot(
+          snapshot: snapshot.directory,
+          outputDirectory: attempt,
+          allowedIndexes: const {'idx_trashed_local_asset_album'},
+          repairCheckpoint: checkpoint,
+          beforeReindex: beforeReindex,
+        );
+      }
       if (report.status != SqliteRecoveryStatus.repairedIndex ||
           report.candidate == null ||
           report.candidateIntegrity != 'ok' ||
@@ -129,7 +139,7 @@ final class OneTapSqliteRecovery {
       final candidate = File(p.join(report.candidate!.path, p.basename(session.source.path)));
       // Independently reopen the final, checkpointed candidate. Schema, rowid,
       // user_version and sqlite_sequence are part of the content comparison.
-      validateRecoveredSqlite(candidate, report.sourceTableFingerprints);
+      await _validateInWorker(candidate.path, report.sourceTableFingerprints);
       if (!_equal(hashes, await recoveryFileHashes(session.source)) ||
           !_equal(hashes, await recoveryFileHashes(backup))) {
         throw const RecoveryRefused('source_or_backup_changed');
@@ -139,7 +149,7 @@ final class OneTapSqliteRecovery {
       await _at('before_promotion');
       // Repeat after any asynchronous boundary; promotion checks the exact file
       // hash again natively under the same admission owner.
-      validateRecoveredSqlite(candidate, report.sourceTableFingerprints);
+      await _validateInWorker(candidate.path, report.sourceTableFingerprints);
       final digest = await recoveryFileHash(candidate);
       await host.promote(token, candidate, digest);
       promoted = true;
@@ -210,3 +220,13 @@ Future<void> _receipt(Directory directory, String outcome, SqliteRecoveryReport?
       }),
       flush: true,
     );
+
+Future<SqliteRecoveryReport> _diagnoseInWorker(String snapshot, String output) => Isolate.run(
+  () => diagnoseAndRepairSqliteSnapshot(
+    snapshot: Directory(snapshot),
+    outputDirectory: Directory(output),
+    allowedIndexes: const {'idx_trashed_local_asset_album'},
+  ),
+);
+Future<void> _validateInWorker(String candidate, Map<String, String> fingerprints) =>
+    Isolate.run(() => validateRecoveredSqlite(File(candidate), fingerprints));

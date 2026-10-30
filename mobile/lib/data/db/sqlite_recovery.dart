@@ -64,6 +64,7 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
   DateTime Function()? now,
   Set<String>? allowedIndexes,
   Future<void> Function(String step)? repairCheckpoint,
+  void Function(Database candidate)? beforeReindex,
 }) async {
   final sourceDir = await _copySnapshot(
     snapshot: snapshot,
@@ -188,6 +189,7 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
         );
       }
       await repairCheckpoint?.call('before_reindex');
+      beforeReindex?.call(repaired);
       for (final index in indexes) {
         repaired.execute('REINDEX ${_quoteIdentifier(index)}');
       }
@@ -364,6 +366,7 @@ Future<void> _validateWalIndex(File wal, File shm, File primary) async {
   final frames = (await wal.length() - 32) ~/ (24 + pageSize);
   if (data.getUint32(0, Endian.host) != 3007000 ||
       index[12] != 1 ||
+      index[13] != (walHeader.getUint32(0) & 1) ||
       (indexPageSize == 1 ? 65536 : indexPageSize) != pageSize ||
       (dbSize == 1 ? 65536 : dbSize) != pageSize ||
       data.getUint32(16, Endian.host) != frames ||
@@ -503,9 +506,7 @@ List<String> _foreignKeyErrors(Database db) => [
 ];
 
 Map<String, String> _tableFingerprints(Database db) {
-  final tables = db.select(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND (name NOT LIKE 'sqlite_%' OR name = 'sqlite_sequence') ORDER BY name",
-  );
+  final tables = db.select("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
   final result = <String, String>{};
   for (final row in tables) {
     final name = row.values.first.toString();

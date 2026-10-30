@@ -75,6 +75,29 @@ void main() {
     expect(taps, 1);
     await tester.pumpAndSettle();
   });
+  testWidgets('a second tap cannot start concurrent recovery', (tester) async {
+    final pending = Completer<void>();
+    var calls = 0;
+    await tester.pumpWidget(
+      localized(
+        SqliteRecoveryPage(
+          recoverAndOpen: () async {
+            calls++;
+            await pending.future;
+          },
+          exportBackup: () async => false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    await tester.tap(find.byType(FilledButton));
+    expect(calls, 1);
+    pending.complete();
+    await tester.pumpAndSettle();
+  });
   testWidgets('failure preserves screen and exposes system-export action', (tester) async {
     var exported = 0;
     await tester.pumpWidget(

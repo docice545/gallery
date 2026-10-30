@@ -72,7 +72,15 @@ void main() async {
         child: SqliteRecoveryPage(
           recoverAndOpen: () async {
             await recovery.run();
-            await openFoto();
+            try {
+              await openFoto();
+            } on SqliteDatabaseUnhealthy {
+              rethrow;
+            } catch (error, stack) {
+              // A later, unrelated bootstrap error must not offer another
+              // REINDEX against the already committed healthy generation.
+              runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+            }
           },
           exportBackup: () async => (await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export')) ?? false,
         ),

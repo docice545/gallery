@@ -23,6 +23,7 @@ class RecoveryStore(
   private val stateFile = File(root, "selection")
   private var blocked = false
   private var active: String = ""
+  private var selectionUncertain = false
   private var recoveryOwner: String? = null
 
   init {
@@ -30,18 +31,32 @@ class RecoveryStore(
     syncDirectory(root.parentFile!!)
     lockFile = RandomAccessFile(File(root, "owner.lock"), "rw")
     processLock = checkNotNull(lockFile.channel.tryLock()) { "another process owns SQLite" }
-    if (stateFile.exists()) {
-      val fields = stateFile.readText().split('\n')
-      check(fields.size == 3 && fields[0] == "FOTO23" && fields[1] in listOf("blocked", "ready"))
-      blocked = fields[1] == "blocked"
-      active = fields[2]
-      selected() // Validate before admitting any connection.
+    try {
+      if (stateFile.exists()) {
+        val fields = stateFile.readText().split('\n')
+        check(fields.size == 3 && fields[0] == "FOTO23" && fields[1] in listOf("blocked", "ready"))
+        blocked = fields[1] == "blocked"
+        active = fields[2]
+        selected()
+      } else {
+        // A lost selector must never silently return to an older generation
+        // and replay already acknowledged operations.
+        check(root.listFiles()!!.none { it.isDirectory && it.name.startsWith("attempt-") })
+      }
+    } catch (_: Exception) {
+      selectionUncertain = true
+      blocked = true
     }
   }
 
-  @Synchronized fun selected(): File = if (active.isEmpty()) original else safeFile(active).also {
-    check(it.isFile) { "selected database missing" }
+  @Synchronized fun selected(): File {
+    check(!selectionUncertain) { "selected database cannot be established" }
+    return if (active.isEmpty()) original else safeFile(active).also {
+      check(it.isFile) { "selected database missing" }
+    }
   }
+  @Synchronized fun exportSource(): File = if (selectionUncertain) original else selected()
+  @Synchronized fun exportReason(): String = if (selectionUncertain) "selection_unavailable" else "recovery_blocked"
 
   private fun safeFile(relative: String): File {
     val file = File(root, relative).canonicalFile
@@ -84,6 +99,7 @@ class RecoveryStore(
 
   @Synchronized fun halt() {
     blocked = true // Even a failed fsync must stop this process.
+    check(!selectionUncertain) { "manual selection recovery required" }
     persist(true, active)
   }
 

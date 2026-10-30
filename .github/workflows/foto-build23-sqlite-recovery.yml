@@ -37,7 +37,7 @@ jobs:
   android:
     name: Android compilation and recovery admission tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 65
     permissions:
       contents: read
       packages: read
@@ -105,6 +105,28 @@ jobs:
             --tests 'app.alextran.immich.places.PlaceNamePolicyTest' \
             --tests 'app.alextran.immich.sync.MediaMimePolicyTest' \
             --console=plain
+      - name: Prepare bounded Android emulator build
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat > "$HOME/.gradle/gradle.properties" <<'PROPERTIES'
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.workers.max=1
+          org.gradle.parallel=false
+          kotlin.compiler.execution.strategy=in-process
+          PROPERTIES
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android real-file one-tap recovery
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
+          emulator-boot-timeout: 900
+          script: bash tools/foto-automation/foto-sqlite-recovery-emulator.sh
       - name: Upload Android cache and CloudMedia receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -113,4 +135,5 @@ jobs:
           path: |
             mobile/build/app/test-results/**
             mobile/build/app/reports/**
+            mobile/ci-receipts/**
           if-no-files-found: error

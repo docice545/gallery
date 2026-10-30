@@ -15,8 +15,6 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener {
   private lateinit var ctx: Context
@@ -30,7 +28,10 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
     @Synchronized private fun store(ctx: Context): RecoveryStore = owner ?: RecoveryStore(
       File(ctx.noBackupFilesDir, "sqlite-recovery"), File(ctx.getDir("flutter", 0), "immich.sqlite"),
     ) { directory ->
-      val fd = Os.open(directory.path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+      check(directory.isDirectory)
+      // O_DIRECTORY is not exposed by the public Android OsConstants API.
+      // Opening an existing directory read-only gives the descriptor for fsync.
+      val fd = Os.open(directory.path, OsConstants.O_RDONLY, 0)
       try { Os.fsync(fd) } finally { Os.close(fd) }
     }.also { owner = it }
   }
@@ -46,6 +47,7 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
           activity.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/zip"
+            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
             putExtra(Intent.EXTRA_TITLE, "FOTO-SQLite-backup.zip")
           }, 23023)
         } catch (_: Exception) { exportResult = null; result.error("export_unavailable", "Export unavailable", null) }
@@ -81,16 +83,7 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
         val store = store(ctx)
         check(store.canExport())
         ctx.contentResolver.openOutputStream(uri, "wt").use { raw ->
-          ZipOutputStream(checkNotNull(raw)).use { zip ->
-            fun add(file: File, name: String) {
-              zip.putNextEntry(ZipEntry(name)); file.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
-            }
-            val source = store.selected()
-            listOf(source, File("$source-wal"), File("$source-shm"), File("$source-journal")).filter { it.isFile }.forEach { add(it, "source/${it.name}") }
-            store.root.walkTopDown().filter { it.isFile && it.name !in listOf("owner.lock", "selection", "selection.next") }.forEach {
-              add(it, "recovery/${it.relativeTo(store.root).path}")
-            }
-          }
+          RecoveryExport.write(store, checkNotNull(raw))
         }
         main.post { result.success(true) }
       } catch (_: Exception) { main.post { result.error("export_failed", "Export failed; internal originals retained", null) } }
