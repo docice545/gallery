@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "run-hosted-final-sha-p0-and-original-client-gates",
+  "nextStage": "strict-ios-rerun-and-owner-device-hp-gates",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -319,8 +319,8 @@
       "PRODUCTION_SERVICE_OPERATIONS"
     ],
     "overall": "NOT_RELEASE_READY"
-  }
-  ,"stage10": {
+  },
+  "stage10": {
     "status": "FINAL_MATRIX_AND_RELEASE_HANDOFF_COMMITTED_REMOTE_PUSH_PENDING",
     "documentationCommit": "535827a295bf1efaf46ebdf48e5aba3b61e305ab",
     "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
@@ -364,6 +364,39 @@
     "openGates": [
       "HOSTED_FLUTTER_MEMORY_LANE_TEST",
       "WEB_CHROMIUM_E2E",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "SAMSUNG_S23_AND_PHYSICAL_IOS",
+      "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage12": {
+    "status": "MEMORIES_SOURCE_FIX_HOSTED_TEST_FAIL_WEB_BIG_LAMA_PASS_COMPAT_PENDING_IOS_STRICT_RERUN",
+    "sourceCommit": "314f65373fe9a48ee5e187b4f06b4a69de478279",
+    "productSourceCommit": "e37c4cbb9ab92e5fe11b723feaf5ce59102d3e88",
+    "memoryLaneCommit": "8c8905e2e012cdf0fa40bd38f8a7b383663af730",
+    "compatibilityRun": "41004224774",
+    "previousCompatibilityRun": "41000215760",
+    "webRun": "41002023786",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "memoryLaneWidgetCoverage": "FAIL_HOSTED_RUN_41000215760_JOB_123884087117_0_PASSED_1_FAILED",
+      "memoryLanePixelGolden": "BLOCKED_REFERENCE_IMAGES_NOT_AVAILABLE_IN_WORKSPACE",
+      "bigLamaWorkerSuite": "PASS:55;SKIPPED:1_ENV_GATED",
+      "bigLamaVerifiedLocalModel": "PASS",
+      "bigLamaDockerHealthAndInference": "PASS",
+      "webBuildAndChromium": "PASS_HOSTED_RUN_41002023786_JOBS_123888388605_123888388822",
+      "compatibilityPrevious": "FAIL_RUN_41000215760_ONLY_STOCK_ANDROID_580_DEPENDENCY_STARTUP",
+      "compatibilityExactHead": "PENDING_RUN_41004224774",
+      "iosStrictContract": "UNRESOLVED_RUN_41000215760_ANNOTATIONS_3_OF_5_0_OF_1_10_OF_2",
+      "gitDiffCheck": "PASS"
+    },
+    "openGates": [
+      "EXACT_HEAD_COMPATIBILITY_RUN_41004224774",
+      "MEMORIES_WIDGET_TEST_DIAGNOSIS_AND_STRICT_RERUN",
+      "STRICT_IOS_TEST_RERUN_WITH_PIPEFAIL",
       "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
       "SAMSUNG_S23_AND_PHYSICAL_IOS",
       "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",

@@ -1,25 +1,36 @@
 # FOTO Build 22 release handoff
 
-Last remote source checkpoint: `aa15c6ce9b20fb65abf4534c21bf154777970d8c`. Local final handoff: `f087c5fef4918058d20fdb89660bee51c4e63896` (push blocked by unavailable GitHub proxy).
-The tested code checkpoint is `d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552`.
-Hosted acceptance run: [40961734970](https://github.com/docice545/gallery/actions/runs/40961734970).
+Published branch head: `314f65373fe9a48ee5e187b4f06b4a69de478279`.
+The Memories/Big-LaMa source checkpoint is published; Web build and Chromium
+acceptance passed in [run 41002023786](https://github.com/docice545/gallery/actions/runs/41002023786).
+The retry-hardened exact-head compatibility receipt is
+[run 41004224774](https://github.com/docice545/gallery/actions/runs/41004224774).
 
 ## What is proven
 
-- Disposable API/backend, PostgreSQL/Redis, Android emulator, iOS simulator,
-  SQLite recovery fixture, cache policy tests, and unchanged Noodle Android
-  5.8.0/5.9.0 E2E pass on the final source checkpoint.
+- Disposable API/backend, PostgreSQL/Redis, Android emulator, SQLite recovery
+  fixture and cache policy checks have hosted receipts. Historical run
+  40961734970 passed unchanged Noodle Android 5.8.0/5.9.0; run 41000215760
+  reproduced a transient 5.8.0 dependency-start failure while 5.9.0 and FOTO
+  Build 22 completed. Run 41004224774 is the exact-head retry.
 - Build 22 debug emulator APK passes online sync, timeline rendering,
   process-death and offline relaunch.
 - SQLite recovery remains copy-only: the primary/device DB is never reset,
   replaced or promoted.
-- The Memories lane fix is published in `8c8905e2e` (on top of the requested
-  branch head) with a fixed-height horizontal carousel, stable portrait cards,
-  adaptive width, edge peeks and widget geometry/drag coverage. Hosted Flutter
-  execution is still required before calling the visual gate PASS.
+- The Memories lane fix is published in `8c8905e2e` with a fixed-height
+  horizontal carousel, stable portrait cards, adaptive width, edge peeks and
+  widget geometry/drag coverage. The hosted command in iOS job `123884087117`
+  of run `41000215760` reported `0 tests passed, 1 failed`; the test failure
+  must be diagnosed before this gate can be called PASS. Pixel comparison with
+  the supplied images is also open because those images were unavailable in
+  the workspace.
 - Big-LaMa is verified in an isolated cloud Docker build: the pinned model
   checksum, 55-worker test suite, real local inference and authenticated
   container `/inpaint` request all passed. HP staging remains a separate gate.
+- The hosted Web acceptance workflow passed the production build, TypeScript and
+  Svelte checks, Web Vitest suite, and a deterministic Chromium slice against a
+  disposable backend. Broader authenticated media fixture coverage remains a
+  separate gate.
 
 ## Signed APK status
 
@@ -46,6 +57,6 @@ and [`specs/testing/2026-10-24-foto-build18-android-release.md`](../../specs/tes
 
 Samsung S23/Android 16, physical iPhone/original iOS device acceptance,
 read-only HP/Synology inventory, populated migration/restore/NFS benchmarks,
-Web final build/browser E2E, production signing and any production switch remain
-open. Do not deploy, migrate or alter HP/NAS/user data until the owner approves
-the concrete step.
+strict iOS test rerun (the current workflow swallows piped test failures),
+production signing and any production switch remain open. Do not deploy,
+migrate or alter HP/NAS/user data until the owner approves the concrete step.
