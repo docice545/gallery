@@ -39,19 +39,19 @@ final class SqliteRecoveryReport {
   /// A redacted receipt suitable for support export. It contains no paths to
   /// media and no row values, only hashes and health outcomes.
   Map<String, Object?> toJson() => {
-        'status': status.name,
-        'sourceIntegrity': sourceIntegrity,
-        if (candidateIntegrity != null) 'candidateIntegrity': candidateIntegrity,
-        // Foreign-key rows can include account and asset identifiers; export
-        // only their count so support receipts remain free of user data.
-        'foreignKeyErrorCount': foreignKeyErrors.length,
-        'diagnostics': diagnostics,
-        'tables': sourceTableFingerprints.keys.toList()..sort(),
-        'tableFingerprintsMatch': candidateTableFingerprints == null
-            ? null
-            : _sameFingerprints(sourceTableFingerprints, candidateTableFingerprints!),
-        'promotionAllowed': false,
-      };
+    'status': status.name,
+    'sourceIntegrity': sourceIntegrity,
+    if (candidateIntegrity != null) 'candidateIntegrity': candidateIntegrity,
+    // Foreign-key rows can include account and asset identifiers; export
+    // only their count so support receipts remain free of user data.
+    'foreignKeyErrorCount': foreignKeyErrors.length,
+    'diagnostics': diagnostics,
+    'tables': sourceTableFingerprints.keys.toList()..sort(),
+    'tableFingerprintsMatch': candidateTableFingerprints == null
+        ? null
+        : _sameFingerprints(sourceTableFingerprints, candidateTableFingerprints!),
+    'promotionAllowed': false,
+  };
 }
 
 /// Diagnose and, only for a proven index-only failure, repair a captured
@@ -105,10 +105,7 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
     final sourceTables = _tableFingerprints(source);
 
     if (sourceIntegrity == 'ok' && sourceForeignKeys.isEmpty) {
-      await _writeReceipt(sourceDir, const {
-        'status': 'healthy',
-        'promotionAllowed': false,
-      });
+      await _writeReceipt(sourceDir, const {'status': 'healthy', 'promotionAllowed': false});
       return SqliteRecoveryReport(
         status: SqliteRecoveryStatus.healthy,
         snapshot: snapshot,
@@ -183,7 +180,8 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
       final candidateIntegrity = _integrityCheck(repaired);
       final candidateForeignKeys = _foreignKeyErrors(repaired);
       final candidateTables = _tableFingerprints(repaired);
-      final matches = candidateIntegrity == 'ok' &&
+      final matches =
+          candidateIntegrity == 'ok' &&
           candidateForeignKeys.isEmpty &&
           _sameFingerprints(sourceTables, candidateTables);
       diagnostics.addAll([
@@ -270,7 +268,115 @@ Future<String> _databaseName(Directory snapshot) async {
   if (!File(p.join(snapshot.path, name)).existsSync()) {
     throw const FormatException('SQLite recovery database is missing');
   }
+  // SQLite can open a checkpointed primary without its WAL and report "ok"
+  // while committed pending operations exist only in the missing WAL. A
+  // best-effort evidence capture is not necessarily a complete recovery copy.
+  final omitted = value['omittedSidecars'];
+  if (omitted != null && (omitted is! List || omitted.isNotEmpty)) {
+    throw const FormatException('SQLite recovery snapshot omitted sidecars');
+  }
+  final files = value['files'];
+  if (value['format'] != 1 || files is! List || files.isEmpty) {
+    throw const FormatException('SQLite recovery file manifest is invalid');
+  }
+  final expectedNames = {name, '$name-wal', '$name-shm'};
+  final recordedNames = <String>{};
+  for (final entry in files) {
+    if (entry is! Map || entry['name'] is! String || entry['bytes'] is! int) {
+      throw const FormatException('SQLite recovery file entry is invalid');
+    }
+    final fileName = entry['name'] as String;
+    final bytes = entry['bytes'] as int;
+    if (!expectedNames.contains(fileName) || !recordedNames.add(fileName) || bytes < 0) {
+      throw const FormatException('SQLite recovery file entry is invalid');
+    }
+    final file = File(p.join(snapshot.path, fileName));
+    if (!file.existsSync() || await file.length() != bytes) {
+      throw const FormatException('SQLite recovery file is missing or truncated');
+    }
+  }
+  if (!recordedNames.contains(name) ||
+      expectedNames.any(
+        (fileName) => File(p.join(snapshot.path, fileName)).existsSync() && !recordedNames.contains(fileName),
+      )) {
+    throw const FormatException('SQLite recovery snapshot has unrecorded files');
+  }
+  await _validateSnapshotWal(File(p.join(snapshot.path, '$name-wal')));
   return name;
+}
+
+/// SQLite deliberately ignores an invalid WAL header or frame suffix. That is
+/// useful for ordinary crash recovery, but integrity_check can then report
+/// "ok" for an older database missing pending operations. Do not certify that
+/// partial view. Ambiguous/recycled tails also require manual review; preserve
+/// all captured evidence instead of guessing which frames can be discarded.
+Future<void> _validateSnapshotWal(File wal) async {
+  if (!wal.existsSync() || await wal.length() == 0) {
+    return;
+  }
+  final input = await wal.open();
+  try {
+    final header = await input.read(32);
+    if (header.length != 32) {
+      throw const FormatException('SQLite recovery WAL header is truncated');
+    }
+    final data = ByteData.sublistView(header);
+    final magic = data.getUint32(0);
+    final pageSize = data.getUint32(8);
+    if ((magic != 0x377f0682 && magic != 0x377f0683) ||
+        data.getUint32(4) != 3007000 ||
+        pageSize < 512 ||
+        pageSize > 65536 ||
+        (pageSize & (pageSize - 1)) != 0) {
+      throw const FormatException('SQLite recovery WAL header is invalid');
+    }
+    // WAL fields/checksums are stored big-endian; only checksum input words
+    // use the byte order selected by the magic. See sqlite.org/fileformat2.html.
+    final order = magic == 0x377f0682 ? Endian.little : Endian.big;
+    var checksum = _walChecksum(Uint8List.sublistView(header, 0, 24), order, (0, 0));
+    if (checksum != (data.getUint32(24), data.getUint32(28))) {
+      throw const FormatException('SQLite recovery WAL header checksum failed');
+    }
+    var hasFrames = false;
+    var endsWithCommit = false;
+    while (true) {
+      final frame = await input.read(24 + pageSize);
+      if (frame.isEmpty) {
+        break;
+      }
+      if (frame.length != 24 + pageSize) {
+        throw const FormatException('SQLite recovery WAL frame is truncated');
+      }
+      hasFrames = true;
+      final frameData = ByteData.sublistView(frame);
+      if (frameData.getUint32(0) == 0 ||
+          frameData.getUint32(8) != data.getUint32(16) ||
+          frameData.getUint32(12) != data.getUint32(20)) {
+        throw const FormatException('SQLite recovery WAL frame is ambiguous');
+      }
+      checksum = _walChecksum(Uint8List.sublistView(frame, 0, 8), order, checksum);
+      checksum = _walChecksum(Uint8List.sublistView(frame, 24), order, checksum);
+      if (checksum != (frameData.getUint32(16), frameData.getUint32(20))) {
+        throw const FormatException('SQLite recovery WAL frame checksum failed');
+      }
+      endsWithCommit = frameData.getUint32(4) != 0;
+    }
+    if (hasFrames && !endsWithCommit) {
+      throw const FormatException('SQLite recovery WAL has an uncommitted tail');
+    }
+  } finally {
+    await input.close();
+  }
+}
+
+(int, int) _walChecksum(Uint8List bytes, Endian order, (int, int) seed) {
+  final data = ByteData.sublistView(bytes);
+  var (first, second) = seed;
+  for (var offset = 0; offset < bytes.length; offset += 8) {
+    first = (first + data.getUint32(offset, order) + second) & 0xffffffff;
+    second = (second + data.getUint32(offset + 4, order) + first) & 0xffffffff;
+  }
+  return (first, second);
 }
 
 Future<Directory> _copySnapshot({
@@ -311,8 +417,8 @@ String _integrityCheck(Database db) {
 }
 
 List<String> _foreignKeyErrors(Database db) => [
-      for (final row in db.select('PRAGMA foreign_key_check')) row.values.join(':'),
-    ];
+  for (final row in db.select('PRAGMA foreign_key_check')) row.values.join(':'),
+];
 
 Map<String, String> _tableFingerprints(Database db) {
   final tables = db.select(
@@ -323,8 +429,7 @@ Map<String, String> _tableFingerprints(Database db) {
     final name = row.values.first.toString();
     final rows = db.select('SELECT * FROM ${_quoteIdentifier(name)}');
     final encoded = [
-      for (final value in rows)
-        [for (final cell in value.values) _jsonCell(cell)],
+      for (final value in rows) [for (final cell in value.values) _jsonCell(cell)],
     ];
     // SELECT without an ORDER BY is allowed to return rows in a different
     // order after a repair. Fingerprint the row set rather than an incidental
@@ -371,7 +476,10 @@ bool _isIndexOnlyFailure(String integrity, Database db) {
 
 List<String> _corruptIndexes(String integrity, Database db) {
   final indexes = _allIndexes(db);
-  return [for (final index in indexes) if (integrity.contains(index)) index];
+  return [
+    for (final index in indexes)
+      if (integrity.contains(index)) index,
+  ];
 }
 
 List<String> _allIndexes(Database db) {
@@ -404,7 +512,7 @@ bool _sameFingerprints(Map<String, String> first, Map<String, String> second) {
 }
 
 Future<void> _writeReceipt(Directory directory, Map<String, Object?> data) async {
-  await File(p.join(directory.path, 'recovery-receipt.json')).writeAsString(
-    const JsonEncoder.withIndent('  ').convert(data),
-  );
+  await File(
+    p.join(directory.path, 'recovery-receipt.json'),
+  ).writeAsString(const JsonEncoder.withIndent('  ').convert(data));
 }

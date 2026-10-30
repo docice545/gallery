@@ -13,8 +13,7 @@ enum SqliteHealthFailure { corrupt, notADatabase, io, full, other }
 // SQLITE_CORRUPT_INDEX is SQLITE_CORRUPT (11) with extended code 3.
 const _sqliteCorruptIndexResultCode = SqlError.SQLITE_CORRUPT | (3 << 8);
 
-SqliteHealthFailure classifySqliteFailure(SqliteException error) =>
-    classifySqliteResultCode(error.extendedResultCode);
+SqliteHealthFailure classifySqliteFailure(SqliteException error) => classifySqliteResultCode(error.extendedResultCode);
 
 /// Classifies both primary and extended SQLite result codes. Keep this
 /// separate from [classifySqliteFailure] so the recovery gate can be tested
@@ -86,10 +85,7 @@ final class SqliteRecoveryGate {
     if (!_halted) {
       return;
     }
-    throw SqliteDatabaseUnhealthy(
-      operation ?? _check ?? 'SQLite sync write',
-      _resultCode ?? 'recovery required',
-    );
+    throw SqliteDatabaseUnhealthy(operation ?? _check ?? 'SQLite sync write', _resultCode ?? 'recovery required');
   }
 
   /// Releases the barrier after a user-mediated recovery has validated a
@@ -171,11 +167,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
       await staging.delete(recursive: true).catchError((_) => staging);
       await staging.create(recursive: true);
 
-      final sourcePaths = <String>[
-        database.path,
-        '${database.path}-wal',
-        '${database.path}-shm',
-      ];
+      final sourcePaths = <String>[database.path, '${database.path}-wal', '${database.path}-shm'];
       final before = await _sqliteFileStats(sourcePaths);
       if (before[database.path]?.exists != true) {
         throw const SqliteRecoveryCaptureException('Primary SQLite database disappeared before capture');
@@ -216,6 +208,9 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
       for (final sourcePath in sourcePaths.skip(1)) {
         final copiedFile = copied[sourcePath];
         if (copiedFile == null) {
+          if (before[sourcePath] != after[sourcePath]) {
+            omittedSidecars.add(p.basename(sourcePath));
+          }
           continue;
         }
         if (before[sourcePath] == after[sourcePath]) {
@@ -280,10 +275,7 @@ final class _SqliteFileStat {
 
   @override
   bool operator ==(Object other) {
-    return other is _SqliteFileStat &&
-        exists == other.exists &&
-        bytes == other.bytes &&
-        modifiedAt == other.modifiedAt;
+    return other is _SqliteFileStat && exists == other.exists && bytes == other.bytes && modifiedAt == other.modifiedAt;
   }
 
   @override
@@ -295,7 +287,9 @@ Future<Map<String, _SqliteFileStat>> _sqliteFileStats(List<String> paths) async 
   for (final path in paths) {
     try {
       final stat = File(path).statSync();
-      result[path] = _SqliteFileStat(exists: true, bytes: stat.size, modifiedAt: stat.modified);
+      result[path] = stat.type == FileSystemEntityType.notFound
+          ? const _SqliteFileStat(exists: false)
+          : _SqliteFileStat(exists: true, bytes: stat.size, modifiedAt: stat.modified);
     } on FileSystemException {
       result[path] = const _SqliteFileStat(exists: false);
     }

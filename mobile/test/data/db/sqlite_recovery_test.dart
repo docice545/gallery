@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery.dart';
@@ -55,9 +57,9 @@ void main() {
     }
     db.execute("INSERT INTO pending_delete VALUES ('asset-1')");
     final pageSize = db.select('PRAGMA page_size').single.values.single! as int;
-    final indexRoot = db
-        .select("SELECT rootpage FROM sqlite_master WHERE name = 'remote_asset_checksum'")
-        .single.values.single! as int;
+    final indexRoot =
+        db.select("SELECT rootpage FROM sqlite_master WHERE name = 'remote_asset_checksum'").single.values.single!
+            as int;
     db.close();
 
     // Change the serial-type byte in one index cell. SQLite's integrity check
@@ -85,7 +87,14 @@ void main() {
 
     // The failed write must not alter the primary file or its pending rows.
     expect(await database.readAsBytes(), corruptedBytes);
-    final before = corruptedBytes;
+    final pending = sqlite3.open(database.path);
+    addTearDown(pending.close);
+    pending.execute('PRAGMA journal_mode = WAL');
+    pending.execute('PRAGMA wal_autocheckpoint = 0');
+    pending.execute('CREATE TABLE pending_upload (id TEXT PRIMARY KEY)');
+    pending.execute("INSERT INTO pending_upload VALUES ('upload-in-wal')");
+    final before = await database.readAsBytes();
+    final walBefore = await File('${database.path}-wal').readAsBytes();
     final snapshot = await captureSqliteRecoverySnapshot(database: database, outputDirectory: output);
     final report = await diagnoseAndRepairSqliteSnapshot(snapshot: snapshot.directory, outputDirectory: output);
 
@@ -95,12 +104,18 @@ void main() {
     expect(report.candidateTableFingerprints, report.sourceTableFingerprints);
     expect(report.toJson()['promotionAllowed'], isFalse);
     expect(await database.readAsBytes(), before);
+    expect(await File('${database.path}-wal').readAsBytes(), walBefore);
 
     final candidateDb = sqlite3.open('${report.candidate!.path}/immich.sqlite');
+    expect(candidateDb.select('SELECT id FROM pending_upload').single.values.single, 'upload-in-wal');
     expect(candidateDb.select('SELECT id FROM pending_delete').single.values.single, 'asset-1');
     candidateDb.execute("INSERT INTO remote_asset_entity VALUES ('asset-after-recovery', 'checksum-after')");
     expect(
-      candidateDb.select("SELECT checksum FROM remote_asset_entity WHERE id = 'asset-after-recovery'").single.values.single,
+      candidateDb
+          .select("SELECT checksum FROM remote_asset_entity WHERE id = 'asset-after-recovery'")
+          .single
+          .values
+          .single,
       'checksum-after',
     );
     expect(candidateDb.select('SELECT id FROM pending_delete').single.values.single, 'asset-1');
@@ -124,4 +139,77 @@ void main() {
     expect(report.toJson()['promotionAllowed'], isFalse);
     expect(await database.readAsString(), 'not-a-sqlite-database');
   });
+
+  for (final omission in ['none', 'recorded', 'unrecorded', 'truncated', 'corrupt header', 'corrupt frame']) {
+    test('preserves pending operations when diagnosing a WAL snapshot: $omission', () async {
+      final root = await Directory.systemTemp.createTemp('foto-recovery-wal-');
+      final database = File('${root.path}/immich.sqlite');
+      final db = sqlite3.open(database.path);
+      addTearDown(() async {
+        db.close();
+        await root.delete(recursive: true);
+      });
+      db.execute('CREATE TABLE pending_upload (id TEXT PRIMARY KEY)');
+      db.execute('CREATE TABLE pending_delete (id TEXT PRIMARY KEY)');
+      db.execute('PRAGMA journal_mode = WAL');
+      db.execute('PRAGMA wal_autocheckpoint = 0');
+      db.execute("INSERT INTO pending_upload VALUES ('upload-in-wal')");
+      db.execute("INSERT INTO pending_delete VALUES ('delete-in-wal')");
+      final before = await database.readAsBytes();
+      final walBefore = await File('${database.path}-wal').readAsBytes();
+      final snapshot = await captureSqliteRecoverySnapshot(
+        database: database,
+        outputDirectory: Directory('${root.path}/snapshots'),
+      );
+      final snapshotWal = File('${snapshot.directory.path}/immich.sqlite-wal');
+      if (omission == 'truncated') {
+        await snapshotWal.writeAsBytes(walBefore.sublist(0, 32), flush: true);
+      } else if (omission.startsWith('corrupt')) {
+        final damaged = Uint8List.fromList(walBefore);
+        damaged[omission == 'corrupt header' ? 24 : damaged.length - 1] ^= 1;
+        await snapshotWal.writeAsBytes(damaged, flush: true);
+      } else if (omission != 'none') {
+        await snapshotWal.delete();
+      }
+      if (omission == 'recorded') {
+        // Capture can retain partial evidence when a sidecar changes/disappears.
+        // Such evidence must never be certified healthy or used for index repair.
+        final manifest = jsonDecode(await snapshot.manifest.readAsString()) as Map<String, dynamic>;
+        manifest['omittedSidecars'] = ['immich.sqlite-wal'];
+        final files = manifest['files']! as List<dynamic>;
+        files.removeWhere((dynamic file) => file['name'] == 'immich.sqlite-wal');
+        await snapshot.manifest.writeAsString(jsonEncode(manifest));
+      }
+
+      final report = await diagnoseAndRepairSqliteSnapshot(
+        snapshot: snapshot.directory,
+        outputDirectory: Directory('${root.path}/diagnosis'),
+      );
+
+      expect(
+        report.status,
+        omission == 'none' ? SqliteRecoveryStatus.healthy : SqliteRecoveryStatus.requiresManualRecovery,
+      );
+      if (omission == 'none') {
+        // The diagnostic fingerprints must include committed WAL-only rows.
+        final copied = sqlite3.open('${snapshot.directory.path}/immich.sqlite', mode: OpenMode.readOnly);
+        try {
+          expect(copied.select('SELECT id FROM pending_upload').single.values.single, 'upload-in-wal');
+          expect(copied.select('SELECT id FROM pending_delete').single.values.single, 'delete-in-wal');
+        } finally {
+          copied.close();
+        }
+        expect(report.sourceTableFingerprints, {
+          'pending_upload': sha256.convert(utf8.encode('[["upload-in-wal"]]')).toString(),
+          'pending_delete': sha256.convert(utf8.encode('[["delete-in-wal"]]')).toString(),
+        });
+      }
+      expect(report.candidate, isNull);
+      expect(report.toJson()['promotionAllowed'], isFalse);
+      expect(await database.readAsBytes(), before);
+      expect(await File('${database.path}-wal').readAsBytes(), walBefore);
+      expect(db.select('SELECT id FROM pending_upload').single.values.single, 'upload-in-wal');
+      expect(db.select('SELECT id FROM pending_delete').single.values.single, 'delete-in-wal');
+    });
+  }
 }

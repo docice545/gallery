@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -28,13 +29,7 @@ void main() {
     expect(SqliteRecoveryGate.resultCode, 779);
     expect(
       () => SqliteRecoveryGate.throwIfRequired('remote sync'),
-      throwsA(
-        isA<SqliteDatabaseUnhealthy>().having(
-          (error) => error.cause,
-          'cause',
-          779,
-        ),
-      ),
+      throwsA(isA<SqliteDatabaseUnhealthy>().having((error) => error.cause, 'cause', 779)),
     );
 
     // Only the explicit, user-mediated recovery path may release the barrier.
@@ -92,12 +87,11 @@ void main() {
     final snapshot = await captureSqliteRecoverySnapshot(database: database, outputDirectory: output);
     expect(snapshot.files, hasLength(1));
     expect(File('${snapshot.directory.path}/immich.sqlite-wal').existsSync(), isFalse);
+    final manifest = jsonDecode(await snapshot.manifest.readAsString()) as Map<String, dynamic>;
+    expect(manifest['omittedSidecars'], isNull, reason: 'Absent sidecars are not lost evidence');
 
     await expectLater(
-      captureSqliteRecoverySnapshot(
-        database: File('${source.path}/missing.sqlite'),
-        outputDirectory: output,
-      ),
+      captureSqliteRecoverySnapshot(database: File('${source.path}/missing.sqlite'), outputDirectory: output),
       throwsA(isA<SqliteRecoveryCaptureException>()),
     );
   });
