@@ -68,7 +68,7 @@ class MemoryLane extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
                 padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-                scrollCacheExtent: cardWidth * 2,
+                scrollCacheExtent: ScrollCacheExtent.pixels(cardWidth * 2),
                 itemCount: memories.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
