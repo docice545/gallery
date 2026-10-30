@@ -148,7 +148,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
     throw ArgumentError.value(maxAttempts, 'maxAttempts', 'must be at least one');
   }
 
-  final exists = await database.exists();
+  final exists = database.existsSync();
   if (!exists) {
     throw SqliteRecoveryCaptureException('Primary SQLite database does not exist: ${database.path}');
   }
@@ -158,7 +158,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
   final baseName = 'sqlite-recovery-${capturedAt.microsecondsSinceEpoch}';
   var snapshotName = baseName;
   var suffix = 0;
-  while (await Directory(p.join(outputDirectory.path, snapshotName)).exists()) {
+  while (Directory(p.join(outputDirectory.path, snapshotName)).existsSync()) {
     suffix++;
     snapshotName = '$baseName-$suffix';
   }
@@ -178,7 +178,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
       ];
       final before = await _sqliteFileStats(sourcePaths);
       if (before[database.path]?.exists != true) {
-        throw SqliteRecoveryCaptureException('Primary SQLite database disappeared before capture');
+        throw const SqliteRecoveryCaptureException('Primary SQLite database disappeared before capture');
       }
 
       final copied = <String, File>{};
@@ -205,7 +205,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
 
       final after = await _sqliteFileStats(sourcePaths);
       if (before[database.path] != after[database.path]) {
-        throw SqliteRecoveryCaptureException('SQLite files changed during capture; retrying safely');
+        throw const SqliteRecoveryCaptureException('SQLite files changed during capture; retrying safely');
       }
 
       // A sidecar is evidence only when it remained byte-addressable for the
@@ -232,7 +232,6 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
         'format': 1,
         'capturedAt': capturedAt.toIso8601String(),
         'database': p.basename(database.path),
-        if (reason != null) 'reason': reason,
         if (omittedSidecars.isNotEmpty) 'omittedSidecars': omittedSidecars.toSet().toList()..sort(),
         'files': [
           for (final sourcePath in stableSourcePaths)
@@ -244,6 +243,9 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
               },
         ],
       };
+      if (reason != null) {
+        manifestData['reason'] = reason;
+      }
       await manifest.writeAsString(const JsonEncoder.withIndent('  ').convert(manifestData));
 
       await staging.rename(destination.path);
@@ -292,7 +294,7 @@ Future<Map<String, _SqliteFileStat>> _sqliteFileStats(List<String> paths) async 
   final result = <String, _SqliteFileStat>{};
   for (final path in paths) {
     try {
-      final stat = await File(path).stat();
+      final stat = File(path).statSync();
       result[path] = _SqliteFileStat(exists: true, bytes: stat.size, modifiedAt: stat.modified);
     } on FileSystemException {
       result[path] = const _SqliteFileStat(exists: false);

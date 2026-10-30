@@ -19,7 +19,7 @@ void main() {
     final db = sqlite3.open(database.path);
     db.execute('CREATE TABLE pending_upload (id TEXT PRIMARY KEY, path TEXT NOT NULL)');
     db.execute("INSERT INTO pending_upload VALUES ('local-1', '/safe/local.jpg')");
-    db.dispose();
+    db.close();
 
     final snapshot = await captureSqliteRecoverySnapshot(database: database, outputDirectory: output);
     final report = await diagnoseAndRepairSqliteSnapshot(snapshot: snapshot.directory, outputDirectory: output);
@@ -29,8 +29,8 @@ void main() {
     expect(report.toJson()['promotionAllowed'], isFalse);
     expect(database.existsSync(), isTrue);
     final reopened = sqlite3.open(database.path);
-    expect(reopened.select('SELECT path FROM pending_upload').single[0], '/safe/local.jpg');
-    reopened.dispose();
+    expect(reopened.select('SELECT path FROM pending_upload').single.values.single, '/safe/local.jpg');
+    reopened.close();
   });
 
   test('repairs only a corrupt index on a copy and preserves pending rows', () async {
@@ -54,11 +54,11 @@ void main() {
       db.execute("INSERT INTO remote_asset_entity VALUES ('asset-$index', 'checksum-$suffix')");
     }
     db.execute("INSERT INTO pending_delete VALUES ('asset-1')");
-    final pageSize = db.select('PRAGMA page_size').single[0] as int;
+    final pageSize = db.select('PRAGMA page_size').single.values.single as int;
     final indexRoot = db
         .select("SELECT rootpage FROM sqlite_master WHERE name = 'remote_asset_checksum'")
-        .single[0] as int;
-    db.dispose();
+        .single.values.single as int;
+    db.close();
 
     // Change the serial-type byte in one index cell. SQLite's integrity check
     // reports a named index failure while the table and pending-delete rows
@@ -81,7 +81,7 @@ void main() {
       () => probe.execute("UPDATE remote_asset_entity SET checksum = 'checksum-new' WHERE id = 'asset-1'"),
       throwsA(isA<SqliteException>().having((error) => error.extendedResultCode, 'extendedResultCode', 779)),
     );
-    probe.dispose();
+    probe.close();
 
     // The failed write must not alter the primary file or its pending rows.
     expect(await database.readAsBytes(), corruptedBytes);
@@ -97,14 +97,14 @@ void main() {
     expect(await database.readAsBytes(), before);
 
     final candidateDb = sqlite3.open('${report.candidate!.path}/immich.sqlite');
-    expect(candidateDb.select('SELECT id FROM pending_delete').single[0], 'asset-1');
+    expect(candidateDb.select('SELECT id FROM pending_delete').single.values.single, 'asset-1');
     candidateDb.execute("INSERT INTO remote_asset_entity VALUES ('asset-after-recovery', 'checksum-after')");
     expect(
-      candidateDb.select("SELECT checksum FROM remote_asset_entity WHERE id = 'asset-after-recovery'").single[0],
+      candidateDb.select("SELECT checksum FROM remote_asset_entity WHERE id = 'asset-after-recovery'").single.values.single,
       'checksum-after',
     );
-    expect(candidateDb.select('SELECT id FROM pending_delete').single[0], 'asset-1');
-    candidateDb.dispose();
+    expect(candidateDb.select('SELECT id FROM pending_delete').single.values.single, 'asset-1');
+    candidateDb.close();
   });
 
   test('refuses a malformed page instead of inventing a recovery', () async {

@@ -229,7 +229,7 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
         candidateTableFingerprints: null,
       );
     } finally {
-      repaired?.dispose();
+      repaired?.close();
     }
   } on Object catch (error) {
     final diagnostics = ['snapshot could not be read safely: ${error.runtimeType}'];
@@ -250,13 +250,13 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
       candidateTableFingerprints: null,
     );
   } finally {
-    source?.dispose();
+    source?.close();
   }
 }
 
 Future<String> _databaseName(Directory snapshot) async {
   final manifest = File(p.join(snapshot.path, 'manifest.json'));
-  if (!await manifest.exists()) {
+  if (!manifest.existsSync()) {
     throw const FormatException('SQLite recovery manifest is missing');
   }
   final value = jsonDecode(await manifest.readAsString());
@@ -267,7 +267,7 @@ Future<String> _databaseName(Directory snapshot) async {
   if (name.isEmpty || p.basename(name) != name || name.contains('..')) {
     throw const FormatException('SQLite recovery manifest has an unsafe database name');
   }
-  if (!await File(p.join(snapshot.path, name)).exists()) {
+  if (!File(p.join(snapshot.path, name)).existsSync()) {
     throw const FormatException('SQLite recovery database is missing');
   }
   return name;
@@ -284,7 +284,7 @@ Future<Directory> _copySnapshot({
   final base = p.join(destinationRoot.path, 'sqlite-$prefix-$stamp');
   var destination = Directory(base);
   var suffix = 0;
-  while (await destination.exists()) {
+  while (destination.existsSync()) {
     suffix++;
     destination = Directory('$base-$suffix');
   }
@@ -307,7 +307,7 @@ String _integrityCheck(Database db) {
   if (rows.isEmpty) {
     return 'no result';
   }
-  return rows.map((row) => row[0].toString()).join('; ');
+  return rows.map((row) => row.values.first.toString()).join('; ');
 }
 
 List<String> _foreignKeyErrors(Database db) => [
@@ -320,7 +320,7 @@ Map<String, String> _tableFingerprints(Database db) {
   );
   final result = <String, String>{};
   for (final row in tables) {
-    final name = row[0].toString();
+    final name = row.values.first.toString();
     final rows = db.select('SELECT * FROM ${_quoteIdentifier(name)}');
     final encoded = [
       for (final value in rows)
@@ -378,9 +378,9 @@ List<String> _allIndexes(Database db) {
   final tables = db.select("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'");
   final indexes = <String>[];
   for (final row in tables) {
-    final table = row[0].toString();
+    final table = row.values.first.toString();
     for (final index in db.select('PRAGMA index_list(${_quoteIdentifier(table)})')) {
-      final name = index[1]?.toString();
+      final name = index.values.elementAt(1)?.toString();
       if (name != null && name.isNotEmpty) {
         indexes.add(name);
       }

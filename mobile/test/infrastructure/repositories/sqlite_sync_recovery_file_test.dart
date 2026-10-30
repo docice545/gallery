@@ -48,11 +48,11 @@ SyncAssetV2 _asset({required String id, required String checksum}) => SyncAssetV
 
 Future<Uint8List> corruptOwnerChecksumIndex(File database) async {
   final raw = sqlite.sqlite3.open(database.path);
-  final pageSize = raw.select('PRAGMA page_size').single[0] as int;
+  final pageSize = raw.select('PRAGMA page_size').single.values.single as int;
   final indexRoot = raw
       .select("SELECT rootpage FROM sqlite_master WHERE type = 'index' AND name = 'UQ_remote_assets_owner_checksum'")
-      .single[0] as int;
-  raw.dispose();
+      .single.values.single as int;
+  raw.close();
 
   final bytes = await database.readAsBytes();
   final pageOffset = (indexRoot - 1) * pageSize;

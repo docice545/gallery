@@ -16,7 +16,16 @@ import 'package:immich_mobile/utils/memory_card_text.dart';
 /// The timeline reserves this height for the lane so its vertical scrubber remains aligned.
 const memoryLaneMaxHeight = 200.0;
 
-double memoryLaneCardWidth(double viewportWidth) => (viewportWidth * 0.4).clamp(132.0, 148.0).toDouble();
+double memoryLaneCardWidth(double viewportWidth) {
+  final width = viewportWidth * 0.4;
+  if (width < 132.0) {
+    return 132.0;
+  }
+  if (width > 148.0) {
+    return 148.0;
+  }
+  return width;
+}
 
 double memoryLaneCardHeight(double viewportWidth) => memoryLaneCardWidth(viewportWidth) / MemoryCard.aspectRatio;
 
@@ -59,7 +68,7 @@ class MemoryLane extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
                 padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-                cacheExtent: cardWidth * 2,
+                scrollCacheExtent: cardWidth * 2,
                 itemCount: memories.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
@@ -131,7 +140,7 @@ class MemoryCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (thumbnail != null) thumbnail,
+            ?thumbnail,
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
