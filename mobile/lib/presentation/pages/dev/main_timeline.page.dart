@@ -31,8 +31,6 @@ import 'package:logging/logging.dart';
 
 /// Scroll offset the memories strip occupies at the top of the timeline —
 /// matches [MemoryLane]'s own max height so the scrubber lines up.
-const double _memoryLaneHeight = 200;
-
 @RoutePage()
 class MainTimelinePage extends ConsumerStatefulWidget {
   const MainTimelinePage({super.key});
@@ -193,7 +191,7 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
                         if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
                       ],
                     ),
-                    topSliverWidgetHeight: showMemories ? _memoryLaneHeight : 0,
+                    topSliverWidgetHeight: showMemories ? memoryLaneMaxHeight : 0,
                     showStorageIndicator: true,
                     appBar: const PhotosTimelineAppBar(),
                     bottomSliverWidget: const _SearchLoadMoreFooter(),

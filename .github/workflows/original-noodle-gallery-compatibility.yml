@@ -258,6 +258,10 @@ jobs:
         if: always()
         working-directory: mobile
         run: flutter test --no-pub test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart 2>&1 | tee ci-receipts/thumbnail-rendered-tests.log
+      - name: Run Memories lane geometry and text widget tests
+        if: always()
+        working-directory: mobile
+        run: flutter test --no-pub test/presentation/widgets/memory/memory_lane_test.dart 2>&1 | tee ci-receipts/memory-lane-tests.log
       - name: Run offline thumbnail warmup policy tests
         if: always()
         working-directory: mobile
