@@ -54,10 +54,10 @@ void main() {
       db.execute("INSERT INTO remote_asset_entity VALUES ('asset-$index', 'checksum-$suffix')");
     }
     db.execute("INSERT INTO pending_delete VALUES ('asset-1')");
-    final pageSize = db.select('PRAGMA page_size').single.values.single as int;
+    final pageSize = db.select('PRAGMA page_size').single.values.single! as int;
     final indexRoot = db
         .select("SELECT rootpage FROM sqlite_master WHERE name = 'remote_asset_checksum'")
-        .single.values.single as int;
+        .single.values.single! as int;
     db.close();
 
     // Change the serial-type byte in one index cell. SQLite's integrity check

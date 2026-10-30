@@ -3,7 +3,6 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
-import 'package:immich_mobile/domain/models/sync_event.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:openapi/api.dart';
 

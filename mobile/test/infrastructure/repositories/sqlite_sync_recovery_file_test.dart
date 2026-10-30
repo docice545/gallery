@@ -10,7 +10,6 @@ import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
 import 'package:openapi/api.dart';
-import 'package:sqlite3/common.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 SyncUserV1 _owner() => SyncUserV1(
@@ -48,10 +47,10 @@ SyncAssetV2 _asset({required String id, required String checksum}) => SyncAssetV
 
 Future<Uint8List> corruptOwnerChecksumIndex(File database) async {
   final raw = sqlite.sqlite3.open(database.path);
-  final pageSize = raw.select('PRAGMA page_size').single.values.single as int;
+  final pageSize = raw.select('PRAGMA page_size').single.values.single! as int;
   final indexRoot = raw
       .select("SELECT rootpage FROM sqlite_master WHERE type = 'index' AND name = 'UQ_remote_assets_owner_checksum'")
-      .single.values.single as int;
+      .single.values.single! as int;
   raw.close();
 
   final bytes = await database.readAsBytes();
@@ -87,12 +86,12 @@ void main() {
 
     try {
       db = Drift(drift.DatabaseConnection(NativeDatabase(primary), closeStreamsSynchronously: true));
-      final repository = SyncStreamRepository(db!);
+      final repository = SyncStreamRepository(db);
       await repository.updateUsersV1([_owner()]);
-      await db!.into(db!.settingsEntity).insert(
+      await db.into(db.settingsEntity).insert(
         SettingsEntityCompanion.insert(key: pendingKey, value: const drift.Value(pendingValue)),
       );
-      await db!.into(db!.settingsEntity).insert(
+      await db.into(db.settingsEntity).insert(
         SettingsEntityCompanion.insert(key: cursorKey, value: const drift.Value(cursorValue)),
       );
 
@@ -101,14 +100,14 @@ void main() {
           _asset(id: 'asset-$index', checksum: 'checksum-${index.toString().padLeft(3, '0')}'),
       ];
       await repository.updateAssetsV2(seed);
-      await db!.close();
+      await db.close();
       db = null;
 
       final corruptedBytes = await corruptOwnerChecksumIndex(primary);
       db = Drift(drift.DatabaseConnection(NativeDatabase(primary), closeStreamsSynchronously: true));
       final failingAsset = _asset(id: 'asset-1', checksum: 'checksum-recovered');
       final failingRepository = SyncStreamRepository(
-        db!,
+        db,
         recoverySnapshotCapture: ({required debugLabel, required error}) async {
           captured = await captureSqliteRecoverySnapshot(
             database: primary,
@@ -133,14 +132,14 @@ void main() {
       expect(captured, isNotNull);
       expect(await primary.readAsBytes(), corruptedBytes);
       expect(
-        (await db!.settingsEntity.select().get()).where((row) => row.key == pendingKey).single.value,
+        (await db.settingsEntity.select().get()).where((row) => row.key == pendingKey).single.value,
         pendingValue,
       );
       expect(
-        (await db!.settingsEntity.select().get()).where((row) => row.key == cursorKey).single.value,
+        (await db.settingsEntity.select().get()).where((row) => row.key == cursorKey).single.value,
         cursorValue,
       );
-      await db!.close();
+      await db.close();
       db = null;
 
       final report = await diagnoseAndRepairSqliteSnapshot(
@@ -156,20 +155,20 @@ void main() {
       candidateDb = Drift(
         drift.DatabaseConnection(NativeDatabase(candidateFile), closeStreamsSynchronously: true),
       );
-      final candidateRepository = SyncStreamRepository(candidateDb!);
+      final candidateRepository = SyncStreamRepository(candidateDb);
       await candidateRepository.updateAssetsV2([failingAsset], debugLabel: 'file-backed-resume');
-      final candidateRow = await (candidateDb!.remoteAssetEntity.select()..where((row) => row.id.equals('asset-1')))
+      final candidateRow = await (candidateDb.remoteAssetEntity.select()..where((row) => row.id.equals('asset-1')))
           .getSingle();
       expect(candidateRow.checksum, 'checksum-recovered');
       expect(
-        (await candidateDb!.settingsEntity.select().get()).where((row) => row.key == pendingKey).single.value,
+        (await candidateDb.settingsEntity.select().get()).where((row) => row.key == pendingKey).single.value,
         pendingValue,
       );
       expect(
-        (await candidateDb!.settingsEntity.select().get()).where((row) => row.key == cursorKey).single.value,
+        (await candidateDb.settingsEntity.select().get()).where((row) => row.key == cursorKey).single.value,
         cursorValue,
       );
-      await candidateDb!.close();
+      await candidateDb.close();
       candidateDb = null;
 
       // The repaired candidate continues the exact event while the primary
