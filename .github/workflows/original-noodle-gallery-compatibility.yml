@@ -261,6 +261,7 @@ jobs:
       - name: Run Memories lane geometry and text widget tests
         if: always()
         working-directory: mobile
+        # Keep the Build 22 memory-lane gate on every exact final-SHA matrix run.
         run: flutter test --no-pub test/presentation/widgets/memory/memory_lane_test.dart 2>&1 | tee ci-receipts/memory-lane-tests.log
       - name: Run offline thumbnail warmup policy tests
         if: always()

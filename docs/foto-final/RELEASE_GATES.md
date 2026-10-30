@@ -24,6 +24,7 @@ last remote documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`;
 | Duplicates/NAS/External Library | BLOCKED | Read-only tools and guarded backend tests exist | Owner-approved HP/Synology inventory required |
 | Empty-Trash scale benchmark | PASS (source) / BLOCKED (HP/NFS) | Server regression coverage | Disposable NFS/HP benchmark required |
 | Big-LaMa/Magic Eraser | PASS (source/API) / BLOCKED (HP) | Inference integration tests/source | Staging inference on approved HP required |
+| Memories lane carousel | SOURCE FIX / HOSTED FLUTTER PENDING | Stable portrait `ListView.separated`, adaptive width, edge peeks, title overflow and drag/geometry tests in `mobile/test/presentation/widgets/memory/memory_lane_test.dart` | Hosted Flutter test and screenshot evidence on the final SHA |
 | Web build/Chromium E2E | NOT TESTED on final hosted run | Focused web tests are available | Run final web build and browser E2E |
 | Android production release APK | BLOCKED | No `key.jks`, `key.properties`, or release secrets in Cloud | Owner runs HP procedure with existing `foto` key |
 | Samsung S23 / Android 16 | BLOCKED | No physical device in Cloud | Synthetic test account/device approval required |

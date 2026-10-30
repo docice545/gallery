@@ -13,6 +13,13 @@ Hosted acceptance run: [40961734970](https://github.com/docice545/gallery/action
   process-death and offline relaunch.
 - SQLite recovery remains copy-only: the primary/device DB is never reset,
   replaced or promoted.
+- The Memories lane fix is published in `8c8905e2e` (on top of the requested
+  branch head) with a fixed-height horizontal carousel, stable portrait cards,
+  adaptive width, edge peeks and widget geometry/drag coverage. Hosted Flutter
+  execution is still required before calling the visual gate PASS.
+- Big-LaMa is verified in an isolated cloud Docker build: the pinned model
+  checksum, 55-worker test suite, real local inference and authenticated
+  container `/inpaint` request all passed. HP staging remains a separate gate.
 
 ## Signed APK status
 

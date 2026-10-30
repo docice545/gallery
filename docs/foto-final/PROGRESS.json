@@ -346,5 +346,29 @@
       "PRODUCTION_SERVICE_OPERATIONS"
     ],
     "overall": "NOT_RELEASE_READY"
+  },
+  "stage11": {
+    "status": "MEMORIES_SOURCE_FIX_AND_BIG_LAMA_CLOUD_PASS_HOSTED_FINAL_PENDING",
+    "sourceCommit": "dd9c10444",
+    "memoryLaneCommit": "8c8905e2e012cdf0fa40bd38f8a7b383663af730",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "memoryLaneWidgetCoverage": "SOURCE_PASS_HOSTED_FLUTTER_PENDING",
+      "bigLamaWorkerSuite": "PASS:55;SKIPPED:1_ENV_GATED",
+      "bigLamaVerifiedLocalModel": "PASS",
+      "bigLamaDockerHealthAndInference": "PASS",
+      "webBuildAndFocusedTests": "PASS_LOCAL;CHROMIUM_E2E_PENDING",
+      "gitDiffCheck": "PASS"
+    },
+    "openGates": [
+      "HOSTED_FLUTTER_MEMORY_LANE_TEST",
+      "WEB_CHROMIUM_E2E",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "SAMSUNG_S23_AND_PHYSICAL_IOS",
+      "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
   }
 }

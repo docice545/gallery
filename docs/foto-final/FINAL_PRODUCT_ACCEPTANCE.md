@@ -26,7 +26,7 @@ last remote documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`;
 | 14 | Places / MapLibre | PASS (source/unit) / BLOCKED (device) | Place provider/repository tests pass; map runtime and large-library behavior open |
 | 15 | Russian geodata/local geocoder | PASS (source/unit) / BLOCKED (device) | Localization tests pass; physical geocoder/map rendering open |
 | 16 | Compact editor | PASS (source/tests) / BLOCKED (installed APK) | Crop/drawing/text/history/Magic Eraser tests exist; physical editor route open |
-| 17 | Magic Eraser / Big-LaMa | PASS (source/API) / BLOCKED (HP staging) | Auth/inference source coverage exists; approved staging inference required |
+| 17 | Magic Eraser / Big-LaMa | PASS (cloud isolated Docker) / BLOCKED (HP staging) | Pinned model SHA verified; 55 worker tests, real local model inference, health and authenticated container inference passed; approved HP staging remains required |
 | 18 | Android Trash/restore/sync ACK | PASS (source/API/hosted) / BLOCKED (device) | API/FOTO flow passes; MediaStore expiry/retry requires device |
 | 19 | Stack deletion/selection | PASS (source/medium) / BLOCKED (device) | Focused server/mobile stack tests pass; physical media replay is open |
 | 20 | `chudo_anna` duplicate pairs | BLOCKED | Requires read-only HP/NAS inventory; no production access authorized |
@@ -45,6 +45,11 @@ last remote documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`;
 | 33 | Production switch/deployment | NOT RELEASE READY | Requires owner approval after every open gate closes |
 
 ## Supplemental P0 gates (not part of the 33 required rows)
+
+- **MEMORIES_LANE_CAROUSEL:** `SOURCE FIX / HOSTED FLUTTER PENDING` — `CarouselView`
+  was replaced with a fixed-height horizontal `ListView.separated` using stable
+  portrait cards, edge peeks, adaptive width, title overflow handling, and
+  geometry/drag tests in `mobile/test/presentation/widgets/memory/memory_lane_test.dart`.
 
 - **SCREENSHOT_THUMBNAIL_FRAMING:** `PASS (hosted)` — rendered-pixel fixture and
   final emulator evidence passed; Samsung visual acceptance remains part of row 8.
