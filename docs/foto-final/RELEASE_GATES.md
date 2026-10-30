@@ -1,41 +1,69 @@
 # FOTO Build 22 release gates
 
-This is the current gate ledger for the published branch
-`codex/foto-build22-resume-20261029`, ending at
-`314f65373fe9a48ee5e187b4f06b4a69de478279`. Web acceptance passed in
-[run 41002023786](https://github.com/docice545/gallery/actions/runs/41002023786).
-The retry-hardened exact-head compatibility run is
-[41004224774](https://github.com/docice545/gallery/actions/runs/41004224774).
+Source/CI checkpoint: `0719bf7042d128b09a3591f3a084af1edf2b5ae6` on
+`codex/foto-build22-resume-20261029`. Local checks are complete. Final hosted
+verdicts are stored by GitHub against the exact published checkout, including
+this handoff. Do not substitute an older successful run or a debug APK for a
+release/device gate. **NOT RELEASE READY** remains the overall verdict.
 
-| Gate | Status | Evidence | Remaining condition |
-|---|---|---|---|
-| Git source/checkpoint | PASS | Remote branch SHA `314f65373fe9a48ee5e187b4f06b4a69de478279`; no force-push or history rewrite | Keep release artifact tied to this source |
-| GitHub PR integration | BLOCKED (Cloud auth) | Branch is published; prior `gh pr create` returned HTTP 403 with invalid `GH_TOKEN` | Restore authorized GitHub token or use the compare URL; no merge was performed |
-| API contract/backend | PASS | [API job 123755970160](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755970160) | Populated upgrade/NAS staging remains separate |
-| Disposable PostgreSQL/Redis | PASS | Same API/FOTO jobs; pinned images and GHCR auth | Populated upgrade and restore benchmark remain open |
-| Official Noodle Android 5.8.0 | PASS | [job 123755970131](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755970131) | No production install performed |
-| Official Noodle Android 5.9.0 | PASS | [job 123755969995](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755969995) | No production install performed |
-| FOTO Build 22 debug APK/offline process death | PASS | [job 123755969984](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755969984) | Debug emulator APK is not the signed release APK |
-| Android cache/CloudMedia policy tests | PASS | [job 123755970070](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755970070) | Shizuku/Android 16/Samsung runtime remains open |
-| iOS Flutter/source/simulator | UNRESOLVED | Run 41000215760 built the simulator app and Memories test, but its annotations reported 3/5, 0/1 and 10/2 failed tests; shell pipelines omit `pipefail` | Fix/classify failed groups and require a strict rerun; this is not an original iOS TestFlight/device E2E |
-| SQLite `SQLITE_CORRUPT_INDEX` recovery | PASS | Hosted file-backed fixture in iOS job: result 779, rollback, pending/cursor preservation, copy-only repair and replay | Physical device replay still requires approved device |
-| Screenshot framing | PASS (hosted) | Rendered-pixel tests plus final FOTO emulator run | Samsung visual acceptance open |
-| Offline gray-screen recovery | PASS (hosted) | Durable cache tests plus final process-death/offline emulator run | Device/account-rotation matrix open |
-| Editor/Live Photo/Places/Trash/Stacks | PASS (source/API tests) | Focused source suites and hosted API/FOTO gates | Physical codec, MediaStore, map and editor acceptance open |
-| Duplicates/NAS/External Library | BLOCKED | Read-only tools and guarded backend tests exist | Owner-approved HP/Synology inventory required |
-| Empty-Trash scale benchmark | PASS (source) / BLOCKED (HP/NFS) | Server regression coverage | Disposable NFS/HP benchmark required |
-| Big-LaMa/Magic Eraser | PASS (isolated cloud Docker) / BLOCKED (HP) | Pinned model SHA, 55 tests + 1 env skip, real model inference and authenticated container `/inpaint` passed | Staging inference on approved HP required |
-| Memories lane carousel | FAIL (hosted widget command; source fix published) / PIXEL COMPARISON OPEN | iOS job `123884087117` of run `41000215760` reported `0 tests passed, 1 failed`; unauthenticated log view exposes no failure body; supplied reference images were unavailable in workspace | Diagnose/fix the widget test, run it with strict exit propagation, then run screenshot/golden comparison |
-| Web build/Chromium E2E | PASS (hosted deterministic slice) | Run 41002023786, jobs `123888388605` and `123888388822`: production build, type checks, Web Vitest and disposable-backend Chromium slice passed | Broader authenticated media fixture suite remains separate |
-| Android production release APK | BLOCKED | No `key.jks`, `key.properties`, or release secrets in Cloud | Owner runs HP procedure with existing `foto` key |
-| Samsung S23 / Android 16 | BLOCKED | No physical device in Cloud | Synthetic test account/device approval required |
-| Physical iPhone/original iOS client | BLOCKED | macOS simulator build only | Physical iPhone/TestFlight acceptance required |
-| Backup/rollback/NAS production switch | BLOCKED | Source runbooks and non-destructive code | Owner-approved staging and rollback only |
-| Overall Build 22 release | **NOT RELEASE READY** | Mandatory HP/device/signing gates remain open | Do not deploy or publish production APK |
+## Resolve the final hosted receipts
 
-The previous failures are retained as diagnosis, not hidden: run
-`40956102162` exposed the missing `ERR` receipt, run `40950288472` exposed the
-Android 35 photo permission dialog, and run `41000215760` exposed a transient
-GHCR dependency-start failure in the 5.8.0 matrix child. Retry/cleanup
-hardening is published in `314f65373`; no production HP, Synology NAS, user
-data, signing key or primary SQLite database was changed.
+Run from the checkout selected for the HP build. Both workflows must report
+`completed / success` for the same `headSha` as `git rev-parse HEAD`:
+
+```bash
+foto_sha=$(git rev-parse HEAD)
+for foto_workflow in original-noodle-gallery-compatibility.yml foto-build22-web-acceptance.yml; do
+  gh run list --repo docice545/gallery --commit "$foto_sha" \
+    --workflow "$foto_workflow" --limit 10 \
+    --json headSha,status,conclusion,url \
+    --jq '.[] | {headSha,status,conclusion,url}'
+done
+```
+
+Receipts are accessible through [compatibility Actions](https://github.com/docice545/gallery/actions/workflows/original-noodle-gallery-compatibility.yml?query=branch%3Acodex%2Ffoto-build22-resume-20261029)
+and [web Actions](https://github.com/docice545/gallery/actions/workflows/foto-build22-web-acceptance.yml?query=branch%3Acodex%2Ffoto-build22-resume-20261029).
+The final delivery includes the resolved run URLs and published SHA. A missing,
+queued, cancelled or failed run leaves that hosted gate open.
+
+| Gate                              | Evidence and requirement                                                                                          | Open boundary                                                                        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Flutter analysis                  | Local PASS, zero issues; strict final iOS job must also pass                                                      | No analyzer exclusions or severity changes                                           |
+| SQLite recovery                   | Local PASS, 15 tests; same files in strict iOS job                                                                | Physical recovery/low-storage/crash matrix                                           |
+| Existing Flutter features         | Local PASS, 1962 selected tests                                                                                   | Physical editor, maps, MediaStore, codecs                                            |
+| Memories portrait lane            | Local PASS, 2 widget tests; included in iOS job                                                                   | Visual comparison on installed APK                                                   |
+| Screenshot framing/offline warmup | Local PASS; strict iOS test groups + FOTO emulator gate                                                           | Samsung visual/network/storage matrix                                                |
+| Live Photo timeline               | Local PASS, 74 tests; all three suites added to iOS job                                                           | Physical remote/local playback/export                                                |
+| Android cache/CloudMedia          | Final Kotlin job must pass cache, admission, MIME and range tests                                                 | Real Shizuku/Photo Picker/Android user lifecycle                                     |
+| Android media policies            | Five existing Kotlin suites added to final gate: HTTP errors, Motion layout, Trash, Places, MIME                  | Native runtime is not certified by JVM tests                                         |
+| API/backend compatibility         | Local contracts unchanged; final API/Docker/smoke job must pass                                                   | Populated upgrade and HP/NAS                                                         |
+| Stock Android 5.8.0 and 5.9.0     | Both unchanged official APK matrix children must pass                                                             | Original iOS device client remains untested                                          |
+| FOTO offline emulator             | Final debug APK → online sync → process death → offline relaunch must pass                                        | Release signature/physical device                                                    |
+| iOS source/simulator              | Final strict analyzer/tests and unsigned simulator build must pass                                                | No physical/TestFlight/original iOS E2E claim                                        |
+| Backend features/migrations       | Local PASS: 263 unit + 67 real PostgreSQL tests, 175 fresh migrations                                             | HP restored-data upgrade; no new server migration in this continuation               |
+| Web                               | Local PASS: 78 focused tests; final workflow requires production build, TS/Svelte, full Vitest and Chromium slice | Authenticated media fixture E2E is broader than `reskin-computed`                    |
+| Magic Eraser inference            | Prior isolated cloud model/inference evidence retained; mobile/backend tests pass locally                         | HP existing model/service staging required                                           |
+| Git provenance                    | Branch continuation; final normal push and exact SHA receipts                                                     | No merge/production publishing implied                                               |
+| Release APK                       | HP builds with existing `foto` identity                                                                           | Certificate, package/version and update acceptance                                   |
+| HP PostgreSQL / backups           | Owner runbook prepared                                                                                            | Verified dump restore, populated migration rehearsal and explicit migration approval |
+| Synology/NFS/dedup/scale          | Guarded source + synthetic fixtures                                                                               | Owner-approved read-only inventory and disposable benchmarks                         |
+| Samsung/iPhone                    | Open physical gates                                                                                               | Build 21 → 22 app-data preservation and full checklist                               |
+| Production rollout                | **NOT RELEASE READY**                                                                                             | Owner approval after every applicable HP/device gate                                 |
+
+## Provenance and corrections
+
+The starting SHA was confirmed remotely as
+`0b0e924b75b2e3417dd3a35a96771b94b15fc69f`. Its compatibility run
+[41052091521](https://github.com/docice545/gallery/actions/runs/41052091521)
+passed every job except iOS analysis. The full authenticated log showed exactly
+21 diagnostics in three SQLite test files. Service/repository tests (351),
+framing policy (15), rendered framing (12), Memories (2), warmup (4), SQLite
+fixtures (9) and the unsigned simulator build succeeded in that failed job.
+These historical counts are not the new WAL regression count or a final-SHA pass.
+
+The continuation fixes those diagnostics, rejects incomplete/corrupt WAL
+snapshots instead of certifying an older SQLite view, and updates an obsolete
+Live Photo thumbnail assertion to the remote-pair playback already implemented
+in `abcf9c341`. No existing Memories/editor/provider/backend implementation was
+replaced. GitHub authentication worked for remote, logs and workflow operations;
+the old PR-token blocker is not a current release gate.

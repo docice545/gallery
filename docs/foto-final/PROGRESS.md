@@ -329,3 +329,33 @@ commit without repeating destructive work.
   Samsung/Android 16 and physical iOS, HP/Synology/NFS and populated-restore
   checks, final Web/Chromium build, signed release artifact and production
   operations remain open. Overall status stays `NOT_RELEASE_READY`.
+
+## 2026-10-30 — Stage 13: continuation from confirmed remote HEAD
+
+- Resumed `0b0e924b75b2e3417dd3a35a96771b94b15fc69f`; inspected full run
+  `41052091521` logs. Its only failed job was iOS analysis with 21 diagnostics.
+  Other jobs, strict Flutter test groups and the simulator build passed.
+- Source/workflow checkpoint: `0719bf7042d128b09a3591f3a084af1edf2b5ae6`.
+  Commits `ff0824c31`, `d6ade5d15`, `70ae8ac2f` and `0719bf704` fix test
+  diagnostics, reject incomplete/corrupt WAL recovery evidence, align the
+  obsolete Live Photo thumbnail test with existing remote playback, and bring
+  existing Kotlin media policies into the final gate. No architecture rewrite.
+- Local results: analyzer zero issues; SQLite 15 pass; feature Flutter selection
+  1962 pass (includes all 74 timeline Live Photo tests); server 263 unit and 67
+  real PostgreSQL tests pass with 175 fresh migrations; web 78 focused tests pass.
+  The new WAL tests first reproduced false `healthy` results for missing,
+  truncated and checksum-damaged WALs, then passed after the fix. Primary DB/WAL
+  bytes and pending upload/delete rows are preserved; 779 repair stays copy-only.
+- The original feature run had 1961 passes and one stale thumbnail assertion.
+  Existing commit `abcf9c341` already enabled remote-only motion playback.
+  The updated test retains Hero/static image/badge/tap assertions; the complete
+  selected run then passed all 1962 tests. Product playback was not rewritten.
+- Final hosted results must be resolved for the exact published handoff SHA
+  using `RELEASE_GATES.md`. Final delivery provides the completed run links;
+  historical runs above are not promoted to that SHA. The handoff describes
+  existing-key HP APK build, immutable backend build, backup/restore rehearsal,
+  separately approved migrations, server-only update and data-preserving
+  rollback boundaries. Seven shell blocks passed syntax validation only.
+- No HP/NAS connection, production signing/deployment/migration, real duplicate
+  deletion or primary-device database change occurred. `NOT RELEASE READY`
+  remains until the owner completes HP and physical-device acceptance.

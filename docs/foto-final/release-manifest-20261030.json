@@ -2,21 +2,36 @@
   "schemaVersion": 1,
   "repository": "docice545/gallery",
   "sourceRef": "codex/foto-build22-resume-20261029",
-  "sourceSha": "8b1b837b426fc29148cc3aea33f248cfbe83f787",
-  "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
-  "lastRemoteSha": "aa15c6ce9b20fb65abf4534c21bf154777970d8c",
-  "remotePushStatus": "BLOCKED_GITHUB_PROXY_UNAVAILABLE",
-  "workflowRun": "40961734970",
+  "sourceSha": "0719bf7042d128b09a3591f3a084af1edf2b5ae6",
+  "sourceShaScope": "Product and workflow checkpoint; documentation follows. Use git rev-parse HEAD and the final delivery for the exact published handoff SHA.",
+  "baselineRemoteSha": "0b0e924b75b2e3417dd3a35a96771b94b15fc69f",
+  "publicationPolicy": "Normal push only; verify remote SHA before HP build",
+  "hostedCi": {
+    "requiredConclusion": "success",
+    "requiredHead": "exact published handoff SHA",
+    "workflows": ["original-noodle-gallery-compatibility.yml", "foto-build22-web-acceptance.yml"],
+    "receiptLookup": "RELEASE_GATES.md"
+  },
+  "localChecks": {
+    "flutterAnalyze": "PASS:NO_ISSUES",
+    "sqliteRecovery": "PASS:15",
+    "flutterFeatureSelection": "PASS:1962",
+    "livePhotoTimeline": "PASS:74_INCLUDED_IN_FEATURE_SELECTION",
+    "backendUnit": "PASS:263",
+    "backendPostgres": "PASS:67;FRESH_MIGRATIONS:175",
+    "webFocused": "PASS:78",
+    "hpRunbookShellSyntax": "PASS:7_BLOCKS_NOT_EXECUTED"
+  },
   "android": {
     "packageId": "de.opennoodle.gallery",
     "versionName": "5.7.3",
     "versionCode": 22,
     "requiredCertificateSha256": "ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18",
     "apkSha256": null,
-    "status": "BLOCKED_OLD_KEY_HP_ONLY"
+    "status": "OWNER_HP_BUILD_AND_EXISTING_KEY_REQUIRED"
   },
   "productionChanged": false,
-  "primaryDatabaseChanged": false,
+  "primaryDeviceDatabaseChanged": false,
   "deployment": "NOT_AUTHORIZED",
   "releaseStatus": "NOT_RELEASE_READY"
 }

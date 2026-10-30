@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "strict-ios-rerun-and-owner-device-hp-gates",
+  "nextStage": "verify-exact-published-sha-actions-then-owner-hp-device-gates",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -203,12 +203,11 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "final-acceptance-matrix-and-hp-signing-handoff",
-    "commit": "535827a295bf1efaf46ebdf48e5aba3b61e305ab",
-    "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
-    "published": false,
-    "remoteHeadVerified": false,
-    "documentationReceiptPending": true,
+    "stage": "build22-cloud-source-validation-and-hp-handoff",
+    "sourceCommit": "0719bf7042d128b09a3591f3a084af1edf2b5ae6",
+    "remoteHeadAtResume": "0b0e924b75b2e3417dd3a35a96771b94b15fc69f",
+    "localValidationComplete": true,
+    "hostedReceiptPolicy": "Require completed/success for compatibility and web workflows at the exact published checkout SHA; see RELEASE_GATES.md",
     "overall": "NOT_RELEASE_READY"
   },
   "stage6": {
@@ -401,6 +400,43 @@
       "SAMSUNG_S23_AND_PHYSICAL_IOS",
       "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
       "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage13": {
+    "status": "LOCAL_SOURCE_VALIDATED_FINAL_HOSTED_GATES_BY_SHA",
+    "sourceCommit": "0719bf7042d128b09a3591f3a084af1edf2b5ae6",
+    "baselineCommit": "0b0e924b75b2e3417dd3a35a96771b94b15fc69f",
+    "baselineCompatibilityRun": "41052091521",
+    "baselineMemoriesRun": "41052091513",
+    "tests": {
+      "flutterAnalyze": "PASS:NO_ISSUES",
+      "sqliteRecovery": "PASS:15",
+      "flutterFeatureSelection": "PASS:1962",
+      "livePhotoTimeline": "PASS:74_INCLUDED_IN_FEATURE_SELECTION",
+      "backendUnit": "PASS:263",
+      "backendPostgres": "PASS:67;FRESH_MIGRATIONS:175",
+      "webFocused": "PASS:78",
+      "hpRunbookShellSyntax": "PASS:7_BLOCKS_NOT_EXECUTED"
+    },
+    "changes": [
+      "Fix all 21 baseline SQLite test analyzer diagnostics",
+      "Validate snapshot completeness and WAL checksums before SQLite diagnosis; preserve primary and pending operations",
+      "Align obsolete thumbnail expectation with existing remote Live Photo playback; include it in strict CI",
+      "Include five existing Android media policy suites in the final Kotlin gate"
+    ],
+    "hostedWorkflows": ["original-noodle-gallery-compatibility.yml", "foto-build22-web-acceptance.yml"],
+    "productionChanged": false,
+    "primaryDeviceDatabaseChanged": false,
+    "releaseApkBuilt": false,
+    "openOwnerGates": [
+      "EXISTING_KEY_SIGNED_BUILD22_APK",
+      "SAMSUNG_BUILD21_TO_22_AND_SHIZUKU_PICKER",
+      "PHYSICAL_IPHONE_ORIGINAL_IOS",
+      "HP_POPULATED_BACKUP_RESTORE_UPGRADE",
+      "SYNOLOGY_NFS_AND_READ_ONLY_DUPLICATE_INVENTORY",
+      "HP_BIG_LAMA_STAGING",
+      "OWNER_PRODUCTION_APPROVAL"
     ],
     "overall": "NOT_RELEASE_READY"
   }
