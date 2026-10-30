@@ -199,7 +199,7 @@ void main() {
         } finally {
           copied.close();
         }
-        expect(report.sourceTableFingerprints, {
+        expect(Map.fromEntries(report.sourceTableFingerprints.entries.where((entry) => !entry.key.startsWith('@'))), {
           'pending_upload': sha256.convert(utf8.encode('[["upload-in-wal"]]')).toString(),
           'pending_delete': sha256.convert(utf8.encode('[["delete-in-wal"]]')).toString(),
         });

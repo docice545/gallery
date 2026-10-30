@@ -62,6 +62,8 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
   required Directory snapshot,
   required Directory outputDirectory,
   DateTime Function()? now,
+  Set<String>? allowedIndexes,
+  Future<void> Function(String step)? repairCheckpoint,
 }) async {
   final sourceDir = await _copySnapshot(
     snapshot: snapshot,
@@ -71,7 +73,7 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
   );
   late final String databaseName;
   try {
-    databaseName = await _databaseName(sourceDir);
+    databaseName = await _databaseName(sourceDir, requireWalIndex: allowedIndexes != null);
   } on Object catch (error) {
     final diagnostics = ['snapshot manifest is invalid: ${error.runtimeType}'];
     await _writeReceipt(sourceDir, {
@@ -124,7 +126,19 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
       if (sourceForeignKeys.isNotEmpty) 'foreign_key_check: ${sourceForeignKeys.length} row(s)',
     ];
     final indexOnly = sourceIntegrity != 'ok' && _isIndexOnlyFailure(sourceIntegrity, source);
-    if (!indexOnly || sourceForeignKeys.isNotEmpty) {
+    final permitted =
+        allowedIndexes == null ||
+        (_corruptIndexes(sourceIntegrity, source).every(allowedIndexes.contains) &&
+            sourceIntegrity
+                .split(';')
+                .every(
+                  (line) => allowedIndexes.any(
+                    (index) =>
+                        line.trim() == 'wrong # of entries in index $index' ||
+                        RegExp('^row [0-9]+ missing from index ${RegExp.escape(index)}\$').hasMatch(line.trim()),
+                  ),
+                ));
+    if (!indexOnly || !permitted || sourceForeignKeys.isNotEmpty) {
       await _writeReceipt(sourceDir, {
         'status': SqliteRecoveryStatus.requiresManualRecovery.name,
         'promotionAllowed': false,
@@ -173,10 +187,15 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
           candidateTableFingerprints: null,
         );
       }
+      await repairCheckpoint?.call('before_reindex');
       for (final index in indexes) {
         repaired.execute('REINDEX ${_quoteIdentifier(index)}');
       }
-      repaired.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+      await repairCheckpoint?.call('after_reindex');
+      final checkpoint = repaired.select('PRAGMA wal_checkpoint(TRUNCATE)');
+      if (checkpoint.single.values.first != 0) {
+        throw StateError('candidate checkpoint busy');
+      }
       final candidateIntegrity = _integrityCheck(repaired);
       final candidateForeignKeys = _foreignKeyErrors(repaired);
       final candidateTables = _tableFingerprints(repaired);
@@ -252,7 +271,7 @@ Future<SqliteRecoveryReport> diagnoseAndRepairSqliteSnapshot({
   }
 }
 
-Future<String> _databaseName(Directory snapshot) async {
+Future<String> _databaseName(Directory snapshot, {bool requireWalIndex = false}) async {
   final manifest = File(p.join(snapshot.path, 'manifest.json'));
   if (!manifest.existsSync()) {
     throw const FormatException('SQLite recovery manifest is missing');
@@ -301,8 +320,71 @@ Future<String> _databaseName(Directory snapshot) async {
       )) {
     throw const FormatException('SQLite recovery snapshot has unrecorded files');
   }
-  await _validateSnapshotWal(File(p.join(snapshot.path, '$name-wal')));
+  final wal = File(p.join(snapshot.path, '$name-wal'));
+  await _validateSnapshotWal(wal);
+  if (requireWalIndex && wal.existsSync() && wal.lengthSync() > 0) {
+    await _validateWalIndex(wal, File(p.join(snapshot.path, '$name-shm')), File(p.join(snapshot.path, name)));
+  }
   return name;
+}
+
+/// Startup must not let SQLite silently discard a malformed WAL before the
+/// user gets the recovery screen. This does not repair or checkpoint anything.
+Future<void> validateStartupSqliteFiles(File primary) async {
+  if (primary.lengthSync() < 100 || File('${primary.path}-journal').existsSync()) {
+    throw const FormatException('Primary header incomplete or rollback journal present');
+  }
+  await _validateSnapshotWal(File('${primary.path}-wal'));
+}
+
+/// Require the captured WAL-index to confirm the last committed frame. CRCs
+/// alone cannot detect a WAL truncated exactly at an earlier commit boundary.
+Future<void> _validateWalIndex(File wal, File shm, File primary) async {
+  Future<Uint8List> header(File file, int count) async {
+    final input = await file.open();
+    try {
+      return await input.read(count);
+    } finally {
+      await input.close();
+    }
+  }
+
+  final walBytes = await header(wal, 32);
+  final index = await header(shm, 100);
+  final database = await header(primary, 100);
+  if (index.length != 100 || database.length != 100 || !index.take(48).indexed.every((e) => e.$2 == index[e.$1 + 48])) {
+    throw const FormatException('WAL-index headers incomplete or inconsistent');
+  }
+  final data = ByteData.sublistView(index);
+  final walHeader = ByteData.sublistView(walBytes);
+  final pageSize = walHeader.getUint32(8);
+  final dbSize = ByteData.sublistView(database).getUint16(16);
+  final indexPageSize = data.getUint16(14, Endian.host);
+  final checksum = _walChecksum(Uint8List.sublistView(index, 0, 40), Endian.host, (0, 0));
+  final frames = (await wal.length() - 32) ~/ (24 + pageSize);
+  if (data.getUint32(0, Endian.host) != 3007000 ||
+      index[12] != 1 ||
+      (indexPageSize == 1 ? 65536 : indexPageSize) != pageSize ||
+      (dbSize == 1 ? 65536 : dbSize) != pageSize ||
+      data.getUint32(16, Endian.host) != frames ||
+      frames == 0 ||
+      checksum != (data.getUint32(40, Endian.host), data.getUint32(44, Endian.host)) ||
+      !walBytes.skip(16).take(8).indexed.every((e) => e.$2 == index[e.$1 + 32])) {
+    throw const FormatException('WAL-index does not prove the committed WAL extent');
+  }
+  final input = await wal.open();
+  try {
+    await input.setPosition(32 + (frames - 1) * (24 + pageSize));
+    final last = ByteData.sublistView(await input.read(24));
+    if (last.getUint32(4) != data.getUint32(20, Endian.host) ||
+        last.getUint32(16) != data.getUint32(24, Endian.host) ||
+        last.getUint32(20) != data.getUint32(28, Endian.host) ||
+        data.getUint32(96, Endian.host) > frames) {
+      throw const FormatException('WAL-index commit differs from WAL');
+    }
+  } finally {
+    await input.close();
+  }
 }
 
 /// SQLite deliberately ignores an invalid WAL header or frame suffix. That is
@@ -422,12 +504,12 @@ List<String> _foreignKeyErrors(Database db) => [
 
 Map<String, String> _tableFingerprints(Database db) {
   final tables = db.select(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND (name NOT LIKE 'sqlite_%' OR name = 'sqlite_sequence') ORDER BY name",
   );
   final result = <String, String>{};
   for (final row in tables) {
     final name = row.values.first.toString();
-    final rows = db.select('SELECT * FROM ${_quoteIdentifier(name)}');
+    final rows = db.select('SELECT * FROM ${_quoteIdentifier(name)} NOT INDEXED');
     final encoded = [
       for (final value in rows) [for (final cell in value.values) _jsonCell(cell)],
     ];
@@ -437,16 +519,70 @@ Map<String, String> _tableFingerprints(Database db) {
     // false differences.
     encoded.sort((a, b) => jsonEncode(a).compareTo(jsonEncode(b)));
     result[name] = sha256.convert(utf8.encode(jsonEncode(encoded))).toString();
+    final definition = db
+        .select('SELECT sql FROM sqlite_master WHERE name = ?', [name])
+        .single
+        .values
+        .single
+        .toString();
+    if (definition.toUpperCase().contains('CREATE VIRTUAL TABLE')) {
+      throw StateError('Virtual tables need manual recovery');
+    }
+    if (!definition.toUpperCase().contains('WITHOUT ROWID')) {
+      final columns = db
+          .select('PRAGMA table_info(${_quoteIdentifier(name)})')
+          .map((r) => r['name'].toString().toLowerCase())
+          .toSet();
+      final alias = ['rowid', '_rowid_', 'oid'].where((v) => !columns.contains(v)).firstOrNull;
+      if (alias == null) {
+        throw StateError('Hidden rowid cannot be verified');
+      }
+      final identities = db.select('SELECT $alias, * FROM ${_quoteIdentifier(name)} NOT INDEXED ORDER BY $alias');
+      result['@rowid:$name'] = sha256
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                for (final row in identities) [for (final value in row.values) _jsonCell(value)],
+              ]),
+            ),
+          )
+          .toString();
+    }
+  }
+  final schema = db.select("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name");
+  result['@schema'] = sha256
+      .convert(utf8.encode(jsonEncode([for (final row in schema) row.values.toList()])))
+      .toString();
+  for (final pragma in ['user_version', 'application_id']) {
+    result['@$pragma'] = db.select('PRAGMA $pragma').single.values.single.toString();
   }
   return result;
 }
 
+/// Independent final-file check used only by the explicit promotion coordinator.
+void validateRecoveredSqlite(File candidate, Map<String, String> expected) {
+  final wal = File('${candidate.path}-wal');
+  if ((wal.existsSync() && wal.lengthSync() != 0) || File('${candidate.path}-journal').existsSync()) {
+    throw StateError('Candidate still has a journal');
+  }
+  final db = sqlite3.open(candidate.path, mode: OpenMode.readOnly);
+  try {
+    if (_integrityCheck(db) != 'ok' ||
+        _foreignKeyErrors(db).isNotEmpty ||
+        !_sameFingerprints(expected, _tableFingerprints(db))) {
+      throw StateError('Candidate failed independent validation');
+    }
+  } finally {
+    db.close();
+  }
+}
+
 Object? _jsonCell(Object? value) {
   if (value is Uint8List) {
-    return base64Encode(value);
+    return {'blob': base64Encode(value)};
   }
   if (value is List<int>) {
-    return base64Encode(value);
+    return {'blob': base64Encode(value)};
   }
   return value;
 }

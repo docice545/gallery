@@ -14,12 +14,16 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/constants/locales.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
 import 'package:immich_mobile/data/store.dart';
 import 'package:immich_mobile/domain/services/background_worker.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/infrastructure/repositories/network.repository.dart';
 import 'package:immich_mobile/pages/common/splash_screen.page.dart';
+import 'package:immich_mobile/pages/common/sqlite_recovery.page.dart';
 import 'package:immich_mobile/platform/background_worker_lock_api.g.dart';
 import 'package:immich_mobile/providers/app_life_cycle.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/share_intent_upload.provider.dart';
@@ -47,25 +51,57 @@ import 'package:logging/logging.dart';
 import 'package:timezone/data/latest.dart';
 
 void main() async {
+  ImmichWidgetsBinding();
   try {
-    ImmichWidgetsBinding();
-    unawaited(BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock());
+    // Cancellation/admission must precede Bootstrap and creation of any pool.
+    await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();
     await EasyLocalization.ensureInitialized();
-    final (dataController, apiService) = await Bootstrap.initDomain();
+    await openFoto();
+  } on SqliteDatabaseUnhealthy {
+    if (!Platform.isAndroid) {
+      rethrow;
+    }
+    final recovery = OneTapSqliteRecovery(const AndroidRecoveryHost());
+    runApp(
+      EasyLocalization(
+        supportedLocales: locales.values.toList(),
+        path: translationsPath,
+        useFallbackTranslations: true,
+        fallbackLocale: locales.values.first,
+        assetLoader: const AppAssetLoader(),
+        child: SqliteRecoveryPage(
+          recoverAndOpen: () async {
+            await recovery.run();
+            await openFoto();
+          },
+          exportBackup: () async => (await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export')) ?? false,
+        ),
+      ),
+    );
+  } catch (error, stack) {
+    runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+  }
+}
+
+/// Normal startup is reused after recovery, including the existing account's
+/// Store and router. No account/setup state is synthesized by recovery.
+Future<void> openFoto() async {
+  final (dataController, apiService) = await Bootstrap.initDomain();
+  try {
     await initApp();
-    // Warm-up isolate pool for worker manager
     await workerManagerPatch.init(dynamicSpawning: true, isolatesCount: max(Platform.numberOfProcessors - 1, 5));
     await migrateDatabaseIfNeeded(dataController.db);
     await dataController.db.syncStreamRepository.recoverPendingTrashOperations();
-
     runApp(
       ProviderScope(
         overrides: Store.overrideWith(dataController: dataController, apiService: apiService),
         child: const MainWidget(),
       ),
     );
-  } catch (error, stack) {
-    runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+  } catch (_) {
+    await workerManagerPatch.dispose();
+    await dataController.close();
+    rethrow;
   }
 }
 

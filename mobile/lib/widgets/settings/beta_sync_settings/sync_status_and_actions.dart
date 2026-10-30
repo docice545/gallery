@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/server_capability.model.dart';
 import 'package:immich_mobile/domain/services/local_album.service.dart';
 import 'package:immich_mobile/domain/services/memory.service.dart';
@@ -38,7 +39,7 @@ class SyncStatusAndActions extends HookConsumerWidget {
         // WAL Checkpoint to ensure all changes are written to the database
         await ref.read(driftProvider).customStatement("pragma wal_checkpoint(truncate)");
         final documentsDir = await getApplicationDocumentsDirectory();
-        final dbFile = File(path.join(documentsDir.path, 'immich.sqlite'));
+        final dbFile = await sqliteDatabaseFile(name: 'immich');
 
         // ignore: avoid_slow_async_io
         if (!await dbFile.exists()) {

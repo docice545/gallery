@@ -45,6 +45,9 @@ import 'package:immich_mobile/data/db/main/table/user/auth_user.dart';
 import 'package:immich_mobile/data/db/main/table/user/metadata.dart';
 import 'package:immich_mobile/data/db/main/table/user/partner.dart';
 import 'package:immich_mobile/data/db/main/table/user/user.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
 import 'package:immich_mobile/infrastructure/repositories/backup.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
@@ -134,17 +137,29 @@ import 'package:sqlite_async/sqlite_async.dart';
 )
 class Drift extends $Drift {
   final SqliteConnectionPool? _updatePool;
+  final SqliteConnection? _ownedConnection;
+  Future<void>? _closing;
 
-  Drift(super.executor) : _updatePool = null;
+  Drift(super.executor) : _updatePool = null, _ownedConnection = null;
 
   Drift.sqlite(SqliteConnection db, SqliteConnectionPool updatePool)
     : _updatePool = updatePool,
+      _ownedConnection = db,
       super(DatabaseConnection(SqliteAsyncQueryExecutor(db), streamQueries: _DriftPoolStreamQueries(updatePool)));
 
   @override
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _closeOwned();
+
+  Future<void> _closeOwned() async {
+    // Drift's sqlite_async adapter explicitly does NOT own/close this handle.
+    // A failed drain retains the native admission lease (fail closed).
     await super.close();
+    await _ownedConnection?.close();
     _updatePool?.close();
+    final token = _ownedConnection == null ? null : _primaryLeases[_ownedConnection];
+    if (token != null) {
+      await SqliteRecoveryPlatform.release(token);
+    }
   }
 
   Future<void> reset() async {
@@ -500,21 +515,86 @@ Future<void> deleteSqliteDatabase({required String name}) async {
 }
 
 Future<SqliteConnection> openSqliteConnection({required String name}) async {
+  if (name == 'immich') {
+    throw StateError('Primary connections require an admission lease');
+  }
   return _openImmichDatabase(await _databaseFile(name));
 }
 
+final _primaryLeases = Expando<String>();
+
 Future<(SqliteConnection, SqliteConnectionPool)> openSqliteConnectionWithUpdatePool({required String name}) async {
-  final file = await _databaseFile(name);
-  final db = _openImmichDatabase(file);
-  await db.initialize();
-  final updatePool = SqliteConnectionPool.open(
-    name: file.path,
-    openConnections: () => throw StateError('Pool for "$name" should already be open via sqlite_async'),
-  );
-  return (db, updatePool);
+  String? lease;
+  SqliteDatabase? db;
+  try {
+    final File file;
+    var needsProbe = true;
+    if (name == 'immich' && Platform.isAndroid) {
+      final admission = await SqliteRecoveryPlatform.acquire();
+      lease = admission['token']!;
+      needsProbe = admission['probe'] == 'true';
+      file = File(admission['path']!);
+    } else {
+      file = await _databaseFile(name);
+    }
+    // No writer, migrations or connection pool exists during this probe.
+    if (needsProbe && file.existsSync()) {
+      Database? probe;
+      try {
+        try {
+          if (Platform.isAndroid) {
+            await validateStartupSqliteFiles(file);
+          }
+        } catch (_) {
+          throw const SqliteDatabaseUnhealthy('file validation', 'SQLite evidence needs recovery');
+        }
+        probe = sqlite3.open(file.path, mode: OpenMode.readOnly);
+        final rows = probe.select('PRAGMA integrity_check(1)');
+        if (rows.length != 1 || rows.single.values.single != 'ok') {
+          throw const SqliteDatabaseUnhealthy('integrity_check(1)', 'local database needs recovery');
+        }
+      } on SqliteException catch (error) {
+        if (!isUnsafeToWrite(error)) {
+          rethrow;
+        }
+        throw SqliteDatabaseUnhealthy('integrity_check(1)', error.extendedResultCode);
+      } finally {
+        probe?.close();
+      }
+    }
+    if (lease != null && needsProbe) {
+      await SqliteRecoveryPlatform.probeComplete(lease);
+    }
+    db = _openImmichDatabase(file);
+    await db.initialize();
+    final updatePool = SqliteConnectionPool.open(
+      name: file.path,
+      openConnections: () => throw StateError('Pool for "$name" should already be open via sqlite_async'),
+    );
+    if (lease != null) {
+      _primaryLeases[db] = lease;
+    }
+    return (db, updatePool);
+  } catch (error) {
+    if (error is SqliteDatabaseUnhealthy && Platform.isAndroid) {
+      try {
+        await SqliteRecoveryPlatform.halt();
+      } catch (_) {
+        /* Admission remains blocked in native memory. */
+      }
+    }
+    await db?.close();
+    if (lease != null) {
+      await SqliteRecoveryPlatform.release(lease);
+    }
+    rethrow;
+  }
 }
 
 Future<File> _databaseFile(String name) async {
+  if (name == 'immich' && Platform.isAndroid) {
+    return SqliteRecoveryPlatform.selected();
+  }
   final dbFolder = await getApplicationDocumentsDirectory();
   return File(p.join(dbFolder.path, '$name.sqlite'));
 }

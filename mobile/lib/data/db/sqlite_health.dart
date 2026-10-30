@@ -139,6 +139,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
   String? reason,
   DateTime Function()? now,
   int maxAttempts = 3,
+  Future<void> Function(String name)? afterFileCopied,
 }) async {
   if (maxAttempts < 1) {
     throw ArgumentError.value(maxAttempts, 'maxAttempts', 'must be at least one');
@@ -184,6 +185,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
         try {
           await File(sourcePath).copy(target.path);
           copied[sourcePath] = target;
+          await afterFileCopied?.call(p.basename(sourcePath));
         } on FileSystemException catch (error) {
           // SQLite may remove a WAL/SHM sidecar while a connection closes.
           // The primary file is still mandatory; a sidecar that vanished is

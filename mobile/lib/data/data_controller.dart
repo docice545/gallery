@@ -1,16 +1,12 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:immich_mobile/data/db/logger/database.dart';
 import 'package:immich_mobile/data/db/main/dao/person.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
-import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/server/activity.dart';
 import 'package:immich_mobile/data/server/person.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
-import 'package:path/path.dart' as p;
 import 'package:sqlite3/common.dart';
 
 /// Controls all data access. Serves request against the HTTP API and the Drift DB
@@ -33,28 +29,6 @@ class DataController {
     final (db, updatePool) = await openSqliteConnectionWithUpdatePool(name: 'immich');
     final drift = Drift.sqlite(db, updatePool);
 
-    // Probe the primary database before creating repositories or starting any
-    // sync work. A corrupt index (including extended code 779) must stop
-    // startup; deleting/resetting immich.sqlite would risk pending uploads,
-    // local-only assets, and sync cursors. Recovery is a separate, user-mediated
-    // operation against a copy.
-    try {
-      final rows = await drift.customSelect('PRAGMA quick_check(1)').get();
-      final result = rows.isEmpty ? null : rows.first.data.values.first.toString().toLowerCase();
-      if (result != 'ok') {
-        await drift.close();
-        await _capturePrimaryRecoverySnapshot('PRAGMA quick_check(1): ${result ?? 'no result'}');
-        throw SqliteDatabaseUnhealthy('PRAGMA quick_check(1)', result ?? 'no result');
-      }
-    } on SqliteException catch (error) {
-      await drift.close();
-      if (isUnsafeToWrite(error)) {
-        await _capturePrimaryRecoverySnapshot('PRAGMA quick_check(1) error ${error.extendedResultCode}');
-        throw SqliteDatabaseUnhealthy('PRAGMA quick_check(1)', error.extendedResultCode);
-      }
-      rethrow;
-    }
-
     DriftLogger? logger;
     try {
       final (logDb, wasRecreated) = await _openLoggerDatabase();
@@ -68,23 +42,6 @@ class DataController {
         await logger?.close();
       }
       rethrow;
-    }
-  }
-
-  /// Capture evidence before surfacing a primary-database failure. This is
-  /// deliberately best-effort: a full disk or unreadable database must still
-  /// report the original health failure, and no recovery action may replace or
-  /// delete the primary file.
-  static Future<void> _capturePrimaryRecoverySnapshot(String reason) async {
-    try {
-      final database = await sqliteDatabaseFile(name: 'immich');
-      await captureSqliteRecoverySnapshot(
-        database: database,
-        outputDirectory: Directory(p.join(database.parent.path, 'sqlite-recovery')),
-        reason: reason,
-      );
-    } catch (_) {
-      // Keep the original diagnostic and leave the source database untouched.
     }
   }
 

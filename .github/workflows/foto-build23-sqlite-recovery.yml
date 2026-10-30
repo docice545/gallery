@@ -1,0 +1,116 @@
+name: FOTO Build 23 SQLite recovery
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/foto-build23-sqlite-one-tap-recovery]
+permissions:
+  contents: read
+concurrency:
+  group: foto-build23-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Analyze and run real SQLite, UI, sync and startup regressions
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          mkdir -p ci-receipts
+          flutter analyze --no-pub 2>&1 | tee ci-receipts/analyze.log
+          flutter test --no-pub test/data/db test/pages/common/sqlite_recovery_page_test.dart test/infrastructure/repositories test/domain/utils/background_sync_test.dart test/domain/services test/services test/repositories 2>&1 | tee ci-receipts/tests.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: foto23-flutter-receipts
+          path: mobile/ci-receipts
+          if-no-files-found: error
+  android:
+    name: Android compilation and recovery admission tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Install mobile dependencies and generated clients
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: zulu
+          java-version: '21.0.2'
+      - name: Prepare the pinned Flutter Gradle wrapper
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          flutter_root=$(flutter --version --machine | python3 -c 'import json, sys; print(json.load(sys.stdin)["flutterRoot"])')
+          wrapper="$flutter_root/bin/cache/artifacts/gradle_wrapper"
+          if [[ ! -s "$wrapper/gradle/wrapper/gradle-wrapper.jar" ]]; then
+            flutter precache --android
+          fi
+          test -s gradle/wrapper/gradle-wrapper.properties
+          test -s "$wrapper/gradle/wrapper/gradle-wrapper.jar"
+          install -m 755 "$wrapper/gradlew" gradlew
+          install -m 644 "$wrapper/gradle/wrapper/gradle-wrapper.jar" gradle/wrapper/gradle-wrapper.jar
+      - name: Run Android cache unit tests
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          # Jetifier can transform the Flutter x86/ARM debug artifacts in a
+          # single worker.  Keep the daemon off and pass the JVM settings on
+          # the command line so they take precedence over a stale project or
+          # user gradle.properties value.  The cap leaves room for the runner,
+          # Android toolchain and test process instead of blindly allocating
+          # the whole machine to one Java heap.
+          ram_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+          heap_mb=$((ram_mb * 50 / 100))
+          if (( heap_mb < 4096 )); then heap_mb=4096; fi
+          if (( heap_mb > 6144 )); then heap_mb=6144; fi
+          gradle_jvmargs="-Xmx${heap_mb}m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          echo "Runner memory: ${ram_mb} MiB; Gradle heap: ${heap_mb} MiB"
+          ./gradlew --version
+          ./gradlew --no-daemon --max-workers=1 \
+            -Dorg.gradle.jvmargs="$gradle_jvmargs" \
+            -Dorg.gradle.workers.max=1 \
+            -Dorg.gradle.parallel=false \
+            -Dkotlin.daemon.jvm.options=-Xmx2048m \
+            :app:testDebugUnitTest \
+            --tests 'app.alextran.immich.recovery.RecoveryStoreTest' \
+            --tests 'app.alextran.immich.images.OfflineThumbnailCacheTest' \
+            --tests 'app.alextran.immich.cloudmedia.CloudAdmissionPolicyTest' \
+            --tests 'app.alextran.immich.cloudmedia.CloudMimeTest' \
+            --tests 'app.alextran.immich.cloudmedia.CloudRangeReaderTest' \
+            --tests 'app.alextran.immich.images.RemoteImageHttpErrorTest' \
+            --tests 'app.alextran.immich.localfiles.LocalMotionPhotoLayoutTest' \
+            --tests 'app.alextran.immich.localfiles.SyncTrashPolicyTest' \
+            --tests 'app.alextran.immich.places.PlaceNamePolicyTest' \
+            --tests 'app.alextran.immich.sync.MediaMimePolicyTest' \
+            --console=plain
+      - name: Upload Android cache and CloudMedia receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-cache-cloudmedia-test-receipts
+          path: |
+            mobile/build/app/test-results/**
+            mobile/build/app/reports/**
+          if-no-files-found: error
