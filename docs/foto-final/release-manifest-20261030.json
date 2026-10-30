@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "repository": "docice545/gallery",
+  "sourceRef": "codex/foto-build22-resume-20261029",
+  "sourceSha": "aa15c6ce9b20fb65abf4534c21bf154777970d8c",
+  "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
+  "workflowRun": "40961734970",
+  "android": {
+    "packageId": "de.opennoodle.gallery",
+    "versionName": "5.7.3",
+    "versionCode": 22,
+    "requiredCertificateSha256": "ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18",
+    "apkSha256": null,
+    "status": "BLOCKED_OLD_KEY_HP_ONLY"
+  },
+  "productionChanged": false,
+  "primaryDatabaseChanged": false,
+  "deployment": "NOT_AUTHORIZED",
+  "releaseStatus": "NOT_RELEASE_READY"
+}
