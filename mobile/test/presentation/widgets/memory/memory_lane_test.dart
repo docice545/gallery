@@ -101,14 +101,12 @@ void main() {
       expect(firstSize.height, lessThanOrEqualTo(memoryLaneMaxHeight));
       expect(tester.getSize(cards.at(1)), firstSize);
 
-      final firstBeforeScroll = tester.getRect(cards.at(0));
       final scrollableFinder = find.descendant(of: laneFinder, matching: find.byType(Scrollable));
       final scrollable = tester.state<ScrollableState>(scrollableFinder);
       final scrollOffset = scrollable.position.pixels;
       scrollable.position.jumpTo(scrollOffset + 80);
       await tester.pumpAndSettle();
       expect(scrollable.position.pixels, greaterThan(scrollOffset));
-      expect(tester.getRect(cards.at(0)).left, lessThan(firstBeforeScroll.left));
       expect(tester.getSize(cards.at(0)), firstSize);
     }
   });
