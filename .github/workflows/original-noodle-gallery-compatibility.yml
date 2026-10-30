@@ -448,6 +448,11 @@ jobs:
             --tests 'app.alextran.immich.cloudmedia.CloudAdmissionPolicyTest' \
             --tests 'app.alextran.immich.cloudmedia.CloudMimeTest' \
             --tests 'app.alextran.immich.cloudmedia.CloudRangeReaderTest' \
+            --tests 'app.alextran.immich.images.RemoteImageHttpErrorTest' \
+            --tests 'app.alextran.immich.localfiles.LocalMotionPhotoLayoutTest' \
+            --tests 'app.alextran.immich.localfiles.SyncTrashPolicyTest' \
+            --tests 'app.alextran.immich.places.PlaceNamePolicyTest' \
+            --tests 'app.alextran.immich.sync.MediaMimePolicyTest' \
             --console=plain
       - name: Upload Android cache and CloudMedia receipts
         if: always()
