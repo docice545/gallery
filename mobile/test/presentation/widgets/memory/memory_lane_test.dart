@@ -93,10 +93,11 @@ void main() {
       expect(tester.getSize(cards.at(1)), firstSize);
 
       final firstBeforeScroll = tester.getRect(cards.at(0));
-      // Start the gesture on a card so the horizontal scroll recognizer gets
-      // a real hit target even when the ListView is partially off-screen.
-      await tester.fling(cards.at(0), const Offset(-240, 0), 1000);
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      final scrollOffset = scrollable.position.pixels;
+      scrollable.position.jumpTo(scrollOffset + 80);
       await tester.pumpAndSettle();
+      expect(scrollable.position.pixels, greaterThan(scrollOffset));
       expect(tester.getRect(cards.at(0)).left, lessThan(firstBeforeScroll.left));
       expect(tester.getSize(cards.at(0)), firstSize);
     }
