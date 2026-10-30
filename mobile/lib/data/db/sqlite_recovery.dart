@@ -392,9 +392,13 @@ List<String> _allIndexes(Database db) {
 String _quoteIdentifier(String value) => '"${value.replaceAll('"', '""')}"';
 
 bool _sameFingerprints(Map<String, String> first, Map<String, String> second) {
-  if (first.length != second.length) return false;
+  if (first.length != second.length) {
+    return false;
+  }
   for (final entry in first.entries) {
-    if (second[entry.key] != entry.value) return false;
+    if (second[entry.key] != entry.value) {
+      return false;
+    }
   }
   return true;
 }
