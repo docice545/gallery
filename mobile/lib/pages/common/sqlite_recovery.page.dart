@@ -88,8 +88,9 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                     const SizedBox(height: 24),
                     if (_busy) ...[const CircularProgressIndicator(), const SizedBox(height: 16)],
                     FilledButton(onPressed: _busy ? null : _recover, child: Text('sqlite_recovery_open'.tr())),
-                    if (_failed)
-                      TextButton(onPressed: _busy ? null : _export, child: Text('sqlite_recovery_export'.tr())),
+                    // Also available after process death/OOM, before another
+                    // repair attempt could repeat the same failure.
+                    TextButton(onPressed: _busy ? null : _export, child: Text('sqlite_recovery_export'.tr())),
                     if (_exportFailed) Text('sqlite_recovery_export_failed'.tr()),
                   ],
                 ),

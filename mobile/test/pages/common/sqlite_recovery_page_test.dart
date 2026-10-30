@@ -68,6 +68,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(taps, 0);
     expect(find.text('Требуется восстановление FOTO'), findsOneWidget);
+    expect(find.text('Экспортировать резервную копию'), findsOneWidget);
     expect(find.text('Восстановить и открыть FOTO'), findsOneWidget);
     await tester.tap(find.byType(FilledButton));
     await completed.future;
