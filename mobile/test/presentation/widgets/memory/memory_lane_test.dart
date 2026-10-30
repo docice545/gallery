@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/entities/store.entity.dart';
 import 'package:immich_mobile/presentation/widgets/memory/memory_lane.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
 
@@ -32,7 +34,13 @@ Memory _emptyMemory() => Memory(
 );
 
 void main() {
-  setUpAll(TestUtils.init);
+  setUpAll(() async {
+    TestUtils.init();
+    // MemoryCard creates a RemoteImageProvider synchronously. Give the URL
+    // builder the same deterministic endpoint used by other widget tests;
+    // TestUtils' HTTP override then supplies the transparent fixture.
+    await Store.put(StoreKey.serverEndpoint, 'http://localhost:0');
+  });
 
   testWidgets('uses a stable portrait card size and exposes adjacent cards', (tester) async {
     for (final width in [320.0, 390.0, 600.0]) {
