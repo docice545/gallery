@@ -204,7 +204,7 @@
   },
   "currentCheckpoint": {
     "stage": "final-acceptance-matrix-and-hp-signing-handoff",
-    "commit": "aad9b91fd",
+    "commit": "8b1b837b426fc29148cc3aea33f248cfbe83f787",
     "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
     "published": false,
     "remoteHeadVerified": false,
@@ -322,7 +322,7 @@
   }
   ,"stage10": {
     "status": "FINAL_MATRIX_AND_RELEASE_HANDOFF_COMMITTED_REMOTE_PUSH_PENDING",
-    "documentationCommit": "aad9b91fd",
+    "documentationCommit": "8b1b837b426fc29148cc3aea33f248cfbe83f787",
     "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
     "hostedRun": "40961734970",
     "productionChanged": false,
@@ -331,8 +331,8 @@
       "acceptanceMatrix": "PASS:33_REQUIRED_ROWS_PLUS_2_SUPPLEMENTAL_P0_GATES",
       "releaseGates": "PASS:EXACT_RUN_AND_JOB_RECEIPTS",
       "releaseManifest": "PASS:JSON_VALID",
-      "serverFocusedTests": "PASS:87",
-      "webFocusedTests": "PASS:65",
+      "serverFocusedTests": "PASS:102_LOCAL_UNIT; PASS:87_TARGETED_MEDIUM_RECEIPT",
+      "webFocusedTests": "PASS:84_LOCAL_SUBSET; PASS:65_TARGETED_RECEIPT",
       "gitDiffCheck": "PASS",
       "signedReleaseApk": "BLOCKED:OLD_KEY_HP_ONLY",
       "githubPr": "BLOCKED:INVALID_TOKEN_403"
