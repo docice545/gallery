@@ -192,6 +192,18 @@ void main() {
       expect(await recoveryFileHashes(source), before);
     });
   }
+  test('a completed coordinator cannot halt the healthy promoted generation again', () async {
+    final recovery = OneTapSqliteRecovery(host);
+    await recovery.run();
+    final selected = host.selected.path;
+    await expectLater(
+      recovery.run(),
+      throwsA(isA<RecoveryRefused>().having((e) => e.reason, 'reason', 'already_committed')),
+    );
+    expect(host.blocked, false);
+    expect(host.selected.path, selected);
+    expect(await recoveryFileHashes(source), before);
+  });
   test('insufficient storage refuses before creating a backup', () async {
     host.space = 1;
     await expectLater(

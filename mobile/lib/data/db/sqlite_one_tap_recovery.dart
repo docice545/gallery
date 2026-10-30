@@ -62,9 +62,13 @@ final class OneTapSqliteRecovery {
   final Future<void> Function(String step)? checkpoint;
   final void Function(Database candidate)? beforeReindex;
   bool _running = false;
+  bool _committed = false;
   OneTapSqliteRecovery(this.host, {this.checkpoint, this.beforeReindex});
 
   Future<void> run() async {
+    if (_committed) {
+      throw const RecoveryRefused('already_committed');
+    }
     if (_running) {
       throw const RecoveryRefused('already_running');
     }
@@ -153,6 +157,7 @@ final class OneTapSqliteRecovery {
       final digest = await recoveryFileHash(candidate);
       await host.promote(token, candidate, digest);
       promoted = true;
+      _committed = true;
       SqliteRecoveryGate.clearAfterValidatedRecovery();
     } catch (error) {
       if (attempt != null) {

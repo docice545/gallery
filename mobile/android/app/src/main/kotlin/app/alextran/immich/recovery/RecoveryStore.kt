@@ -121,7 +121,10 @@ class RecoveryStore(
   @Synchronized fun promote(token: String, path: String, expectedHash: String) {
     check(recoveryOwner == token && leases.isEmpty() && blocked)
     val file = File(path).canonicalFile
-    check(file == safeFile(file.relativeTo(root).path) && file.name == "immich.sqlite")
+    // Android /data/user/0 can alias /data/data at a different path depth.
+    // Compute the persisted relative pointer in one canonical coordinate space.
+    val relative = file.relativeTo(root.canonicalFile).path
+    check(file == safeFile(relative) && file.name == "immich.sqlite")
     check(file != selected().canonicalFile)
     check(!File("$path-wal").exists() || File("$path-wal").length() == 0L)
     check(!File("$path-journal").exists())
@@ -134,7 +137,7 @@ class RecoveryStore(
       parent = parent.parentFile
     }
     validated = false
-    persist(false, file.relativeTo(root).path)
+    persist(false, relative)
     recoveryOwner = null
   }
 

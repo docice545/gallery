@@ -78,6 +78,27 @@ class RecoveryStoreTest {
       assertEquals(original.path, store.selected().path)
     }
   }
+  @Test fun androidDataDirectoryAliasUsesCanonicalRelativeSelection() {
+    val original = source()
+    root().mkdirs()
+    val user = File(temporary.root, "user").apply { mkdirs() }
+    val aliasParent = File(user, "0")
+    java.nio.file.Files.createSymbolicLink(aliasParent.toPath(), temporary.root.toPath())
+    val alias = File(aliasParent, "recovery")
+    val replacement = candidate()
+    RecoveryStore(alias, original, ::sync).use { store ->
+      val session = store.begin()
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      assertEquals(replacement.canonicalPath, store.selected().canonicalPath)
+    }
+    RecoveryStore(alias, original, ::sync).use { store ->
+      val lease = store.acquire()
+      assertEquals(replacement.canonicalPath, File(lease.getValue("path")).canonicalPath)
+      store.release(lease.getValue("token"))
+    }
+    assertEquals("original database evidence", original.readText())
+    assertEquals("FOTO23\nready\nattempt/candidate/immich.sqlite", File(root(), "selection").readText())
+  }
   @Test fun missingSelectedDatabaseFailsInsteadOfCreatingEmptyDatabase() {
     val original = source()
     val replacement = candidate()

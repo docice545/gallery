@@ -98,6 +98,9 @@ void main() {
     expect(calls, 1);
     pending.complete();
     await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+    await tester.tap(find.byType(FilledButton));
+    expect(calls, 1);
   });
   testWidgets('failure preserves screen and exposes system-export action', (tester) async {
     var exported = 0;

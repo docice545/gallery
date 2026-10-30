@@ -15,10 +15,11 @@ class SqliteRecoveryPage extends StatefulWidget {
 class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
   bool _busy = false;
   bool _failed = false;
+  bool _completed = false;
   bool _exportFailed = false;
 
   Future<void> _recover() async {
-    if (_busy) {
+    if (_busy || _completed) {
       return;
     }
     setState(() {
@@ -27,6 +28,7 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
     });
     try {
       await widget.recoverAndOpen();
+      _completed = true;
     } catch (_) {
       if (mounted) {
         setState(() => _failed = true);
@@ -87,10 +89,16 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                     ),
                     const SizedBox(height: 24),
                     if (_busy) ...[const CircularProgressIndicator(), const SizedBox(height: 16)],
-                    FilledButton(onPressed: _busy ? null : _recover, child: Text('sqlite_recovery_open'.tr())),
+                    FilledButton(
+                      onPressed: _busy || _completed ? null : _recover,
+                      child: Text('sqlite_recovery_open'.tr()),
+                    ),
                     // Also available after process death/OOM, before another
                     // repair attempt could repeat the same failure.
-                    TextButton(onPressed: _busy ? null : _export, child: Text('sqlite_recovery_export'.tr())),
+                    TextButton(
+                      onPressed: _busy || _completed ? null : _export,
+                      child: Text('sqlite_recovery_export'.tr()),
+                    ),
                     if (_exportFailed) Text('sqlite_recovery_export_failed'.tr()),
                   ],
                 ),
