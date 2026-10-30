@@ -33,8 +33,29 @@ jobs:
       - name: Run Memories widget test with strict exit propagation
         working-directory: mobile
         run: |
-          set -o pipefail
-          flutter test --no-pub test/presentation/widgets/memory/memory_lane_test.dart 2>&1 | tee ci-receipts/memory-lane-debug.log
+          set +e
+          flutter test --no-pub --machine test/presentation/widgets/memory/memory_lane_test.dart > ci-receipts/memory-lane-debug.log 2>&1
+          rc=$?
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('ci-receipts/memory-lane-debug.log')
+          failures = []
+          for line in path.read_text(errors='replace').splitlines():
+              try:
+                  event = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              if event.get('type') == 'error':
+                  failures.append(event)
+          for event in failures[-5:]:
+              message = str(event.get('error', 'Flutter test error'))
+              stack = str(event.get('stackTrace', ''))
+              detail = f'{message} {stack}'.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Memories Flutter failure::{detail[:60000]}')
+          PY
+          exit "$rc"
       - name: Surface failure tail
         if: failure()
         working-directory: mobile
