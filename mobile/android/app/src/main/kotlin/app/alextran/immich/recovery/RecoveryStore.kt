@@ -55,6 +55,7 @@ class RecoveryStore(
       check(it.isFile) { "selected database missing" }
     }
   }
+  fun legacySnapshots(): File = File(original.parentFile!!, "sqlite-recovery")
   @Synchronized fun exportSource(): File = if (selectionUncertain) original else selected()
   @Synchronized fun exportReason(): String = if (selectionUncertain) "selection_unavailable" else "recovery_blocked"
 

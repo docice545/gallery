@@ -485,12 +485,21 @@ Future<Directory> _copySnapshot({
     if (entity is! File || p.basename(entity.path) == 'manifest.json') {
       continue;
     }
-    await entity.copy(p.join(staging.path, p.basename(entity.path)));
+    await _copyVerified(entity, File(p.join(staging.path, p.basename(entity.path))));
   }
   final manifest = File(p.join(snapshot.path, 'manifest.json'));
-  await manifest.copy(p.join(staging.path, 'manifest.json'));
+  await _copyVerified(manifest, File(p.join(staging.path, 'manifest.json')));
   await staging.rename(destination.path);
   return destination;
+}
+
+Future<void> _copyVerified(File source, File target) async {
+  Future<String> hash(File file) async => (await sha256.bind(file.openRead()).first).toString();
+  final before = await hash(source);
+  await source.copy(target.path);
+  if (await hash(target) != before || await hash(source) != before) {
+    throw const FormatException('Diagnostic copy changed or failed checksum verification');
+  }
 }
 
 String _integrityCheck(Database db) {

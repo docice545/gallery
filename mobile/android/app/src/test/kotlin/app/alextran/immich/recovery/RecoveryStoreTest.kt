@@ -121,6 +121,7 @@ class RecoveryStoreTest {
     val original = source()
     File("$original-wal").writeText("committed WAL evidence")
     File("$original-shm").writeText("WAL-index evidence")
+    File(temporary.root, "sqlite-recovery/build22/immich.sqlite-wal").apply { parentFile!!.mkdirs(); writeText("retained Build 22 WAL") }
     RecoveryStore(root(), original, ::sync).use { store ->
       val session = store.begin(); store.finish(session.getValue("token"))
       val bytes = java.io.ByteArrayOutputStream()
@@ -132,6 +133,7 @@ class RecoveryStoreTest {
       assertEquals("original database evidence", entries["source/immich.sqlite"])
       assertEquals("committed WAL evidence", entries["source/immich.sqlite-wal"])
       assertEquals("WAL-index evidence", entries["source/immich.sqlite-shm"])
+      assertEquals("retained Build 22 WAL", entries["build22-recovery/build22/immich.sqlite-wal"])
       assertTrue(entries.getValue("export-report.json").contains(RecoveryStore.hash(original)))
       assertFalse(entries.getValue("export-report.json").contains("original database evidence"))
       assertFalse(entries.keys.any { it.endsWith("owner.lock") || it.endsWith("selection") })

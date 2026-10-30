@@ -21,6 +21,13 @@ object RecoveryExport {
         check(it.canonicalPath.startsWith(store.root.canonicalPath + File.separator))
         add(it, "recovery/${it.relativeTo(store.root).path}")
       }
+      // Build 22 may have retained the only complete older WAL snapshot. Make
+      // that evidence available without USB/ADB, especially after WAL refusal.
+      val legacy = store.legacySnapshots()
+      if (legacy.isDirectory) legacy.walkTopDown().filter { it.isFile }.forEach {
+        check(it.canonicalPath.startsWith(legacy.canonicalPath + File.separator))
+        add(it, "build22-recovery/${it.relativeTo(legacy).path}")
+      }
       // Available even when disk-space preflight failed before a report could
       // be saved internally. Detailed attempt reports, when present, are above.
       val hashes = files.joinToString(",") { "\"${it.name}\":\"${RecoveryStore.hash(it)}\"" }
