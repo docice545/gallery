@@ -13,7 +13,8 @@ enum SqliteHealthFailure { corrupt, notADatabase, io, full, other }
 // SQLITE_CORRUPT_INDEX is SQLITE_CORRUPT (11) with extended code 3.
 const _sqliteCorruptIndexResultCode = SqlError.SQLITE_CORRUPT | (3 << 8);
 
-SqliteHealthFailure classifySqliteFailure(SqliteException error) => classifySqliteResultCode(error.resultCode);
+SqliteHealthFailure classifySqliteFailure(SqliteException error) =>
+    classifySqliteResultCode(error.extendedResultCode);
 
 /// Classifies both primary and extended SQLite result codes. Keep this
 /// separate from [classifySqliteFailure] so the recovery gate can be tested

@@ -79,7 +79,7 @@ void main() {
     final probe = sqlite3.open(database.path);
     expect(
       () => probe.execute("UPDATE remote_asset_entity SET checksum = 'checksum-new' WHERE id = 'asset-1'"),
-      throwsA(isA<SqliteException>().having((error) => error.resultCode, 'resultCode', 779)),
+      throwsA(isA<SqliteException>().having((error) => error.extendedResultCode, 'extendedResultCode', 779)),
     );
     probe.dispose();
 

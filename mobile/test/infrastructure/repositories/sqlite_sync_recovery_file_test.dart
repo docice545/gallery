@@ -113,7 +113,7 @@ void main() {
           captured = await captureSqliteRecoverySnapshot(
             database: primary,
             outputDirectory: snapshots,
-            reason: 'test $debugLabel SQLite result ${error.resultCode}',
+            reason: 'test $debugLabel SQLite result ${error.extendedResultCode}',
           );
           return captured;
         },

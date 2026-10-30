@@ -926,9 +926,12 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsV2 - $debugLabel', error, stack);
       if (error is SqliteException && isUnsafeToWrite(error)) {
-        SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[$debugLabel]', resultCode: error.resultCode);
+        SqliteRecoveryGate.markRequired(
+          check: 'updateAssetsV2[$debugLabel]',
+          resultCode: error.extendedResultCode,
+        );
         await _captureSyncRecoverySnapshot(debugLabel: debugLabel, error: error);
-        throw SqliteDatabaseUnhealthy('updateAssetsV2[$debugLabel]', error.resultCode);
+        throw SqliteDatabaseUnhealthy('updateAssetsV2[$debugLabel]', error.extendedResultCode);
       }
       rethrow;
     }
@@ -950,7 +953,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       final snapshot = await captureSqliteRecoverySnapshot(
         database: database,
         outputDirectory: Directory(p.join(database.parent.path, 'sqlite-recovery')),
-        reason: 'updateAssetsV2[$safeLabel] SQLite result ${error.resultCode}',
+        reason: 'updateAssetsV2[$safeLabel] SQLite result ${error.extendedResultCode}',
       );
       _logger.warning('Captured copy-only SQLite recovery snapshot for updateAssetsV2[$safeLabel]');
       return snapshot;

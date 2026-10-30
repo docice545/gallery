@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:sqlite3/common.dart';
 
 void main() {
   setUp(() {
@@ -14,6 +15,9 @@ void main() {
 
   test('classifies SQLite SQLITE_CORRUPT_INDEX 779 as unsafe corruption', () {
     expect(classifySqliteResultCode(779), SqliteHealthFailure.corrupt);
+    final error = SqliteException(extendedResultCode: 779, message: 'corrupt index');
+    expect(error.resultCode, SqlError.SQLITE_CORRUPT);
+    expect(classifySqliteFailure(error), SqliteHealthFailure.corrupt);
   });
 
   test('holds sync after SQLITE_CORRUPT_INDEX until validated recovery clears it', () {

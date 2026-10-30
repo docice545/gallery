@@ -49,8 +49,8 @@ class DataController {
     } on SqliteException catch (error) {
       await drift.close();
       if (isUnsafeToWrite(error)) {
-        await _capturePrimaryRecoverySnapshot('PRAGMA quick_check(1) error ${error.resultCode}');
-        throw SqliteDatabaseUnhealthy('PRAGMA quick_check(1)', error.resultCode);
+        await _capturePrimaryRecoverySnapshot('PRAGMA quick_check(1) error ${error.extendedResultCode}');
+        throw SqliteDatabaseUnhealthy('PRAGMA quick_check(1)', error.extendedResultCode);
       }
       rethrow;
     }
