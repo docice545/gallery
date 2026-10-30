@@ -1,9 +1,14 @@
+import 'package:drift/drift.dart' as drift;
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
+import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/presentation/widgets/memory/memory_lane.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
 
@@ -34,12 +39,21 @@ Memory _emptyMemory() => Memory(
 );
 
 void main() {
+  late Drift db;
   setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
     TestUtils.init();
+    db = Drift(drift.DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
+    await StoreService.init(storeRepository: StoreRepository(db), listenUpdates: false);
     // MemoryCard creates a RemoteImageProvider synchronously. Give the URL
     // builder the same deterministic endpoint used by other widget tests;
     // TestUtils' HTTP override then supplies the transparent fixture.
     await Store.put(StoreKey.serverEndpoint, 'http://localhost:0');
+  });
+
+  tearDownAll(() async {
+    await Store.clear();
+    await db.close();
   });
 
   testWidgets('uses a stable portrait card size and exposes adjacent cards', (tester) async {
