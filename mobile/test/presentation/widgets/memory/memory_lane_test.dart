@@ -102,7 +102,8 @@ void main() {
       expect(tester.getSize(cards.at(1)), firstSize);
 
       final firstBeforeScroll = tester.getRect(cards.at(0));
-      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      final scrollableFinder = find.descendant(of: laneFinder, matching: find.byType(Scrollable));
+      final scrollable = tester.state<ScrollableState>(scrollableFinder);
       final scrollOffset = scrollable.position.pixels;
       scrollable.position.jumpTo(scrollOffset + 80);
       await tester.pumpAndSettle();
