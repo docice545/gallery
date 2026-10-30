@@ -34,6 +34,7 @@ jobs:
         working-directory: mobile
         run: |
           set +e
+          mkdir -p ci-receipts
           flutter test --no-pub --machine test/presentation/widgets/memory/memory_lane_test.dart > ci-receipts/memory-lane-debug.log 2>&1
           rc=$?
           python3 - <<'PY'

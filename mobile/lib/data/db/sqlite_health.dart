@@ -10,10 +10,23 @@ import 'package:sqlite3/common.dart';
 /// sync failure.
 enum SqliteHealthFailure { corrupt, notADatabase, io, full, other }
 
-SqliteHealthFailure classifySqliteFailure(SqliteException error) {
+// SQLITE_CORRUPT_INDEX is SQLITE_CORRUPT (11) with extended code 3.
+const _sqliteCorruptIndexResultCode = SqlError.SQLITE_CORRUPT | (3 << 8);
+
+SqliteHealthFailure classifySqliteFailure(SqliteException error) => classifySqliteResultCode(error.resultCode);
+
+/// Classifies both primary and extended SQLite result codes. Keep this
+/// separate from [classifySqliteFailure] so the recovery gate can be tested
+/// against the exact SQLITE_CORRUPT_INDEX value (779) without manufacturing a
+/// platform exception.
+SqliteHealthFailure classifySqliteResultCode(int resultCode) {
+  if (resultCode == _sqliteCorruptIndexResultCode) {
+    return SqliteHealthFailure.corrupt;
+  }
+
   // sqlite3 exposes extended result codes (for example SQLITE_CORRUPT_INDEX =
   // 779). The low byte is always the primary result code.
-  final primaryCode = error.resultCode & 0xff;
+  final primaryCode = resultCode & 0xff;
   return switch (primaryCode) {
     SqlError.SQLITE_CORRUPT => SqliteHealthFailure.corrupt,
     SqlError.SQLITE_NOTADB => SqliteHealthFailure.notADatabase,
@@ -167,20 +180,50 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
         throw SqliteRecoveryCaptureException('Primary SQLite database disappeared before capture');
       }
 
-      final copied = <File>[];
+      final copied = <String, File>{};
+      final omittedSidecars = <String>[];
       for (final sourcePath in sourcePaths) {
         final stat = before[sourcePath];
         if (stat?.exists != true) {
           continue;
         }
         final target = File(p.join(staging.path, p.basename(sourcePath)));
-        await File(sourcePath).copy(target.path);
-        copied.add(target);
+        try {
+          await File(sourcePath).copy(target.path);
+          copied[sourcePath] = target;
+        } on FileSystemException catch (error) {
+          // SQLite may remove a WAL/SHM sidecar while a connection closes.
+          // The primary file is still mandatory; a sidecar that vanished is
+          // omitted and recorded rather than turning recovery into a reset.
+          if (sourcePath == database.path || !_isMissingFile(error)) {
+            rethrow;
+          }
+          omittedSidecars.add(p.basename(sourcePath));
+        }
       }
 
       final after = await _sqliteFileStats(sourcePaths);
-      if (!_sameFileStats(before, after)) {
+      if (before[database.path] != after[database.path]) {
         throw SqliteRecoveryCaptureException('SQLite files changed during capture; retrying safely');
+      }
+
+      // A sidecar is evidence only when it remained byte-addressable for the
+      // whole copy. Keep the stable files, drop a sidecar that disappeared or
+      // changed, and make the omission explicit in the manifest. The primary
+      // database is never replaced or checkpointed by this path.
+      final stableSourcePaths = <String>[database.path];
+      for (final sourcePath in sourcePaths.skip(1)) {
+        final copiedFile = copied[sourcePath];
+        if (copiedFile == null) {
+          continue;
+        }
+        if (before[sourcePath] == after[sourcePath]) {
+          stableSourcePaths.add(sourcePath);
+        } else {
+          await copiedFile.delete().catchError((_) => copiedFile);
+          copied.remove(sourcePath);
+          omittedSidecars.add(p.basename(sourcePath));
+        }
       }
 
       final manifest = File(p.join(staging.path, 'manifest.json'));
@@ -189,9 +232,10 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
         'capturedAt': capturedAt.toIso8601String(),
         'database': p.basename(database.path),
         if (reason != null) 'reason': reason,
+        if (omittedSidecars.isNotEmpty) 'omittedSidecars': omittedSidecars.toSet().toList()..sort(),
         'files': [
-          for (final sourcePath in sourcePaths)
-            if (before[sourcePath]?.exists == true)
+          for (final sourcePath in stableSourcePaths)
+            if (copied[sourcePath] != null)
               {
                 'name': p.basename(sourcePath),
                 'bytes': before[sourcePath]!.bytes,
@@ -205,7 +249,7 @@ Future<SqliteRecoverySnapshot> captureSqliteRecoverySnapshot({
       return SqliteRecoverySnapshot(
         directory: destination,
         manifest: File(p.join(destination.path, 'manifest.json')),
-        files: [for (final file in copied) File(p.join(destination.path, p.basename(file.path)))],
+        files: [for (final file in copied.values) File(p.join(destination.path, p.basename(file.path)))],
         capturedAt: capturedAt,
       );
     } on SqliteRecoveryCaptureException catch (error) {
@@ -256,14 +300,7 @@ Future<Map<String, _SqliteFileStat>> _sqliteFileStats(List<String> paths) async 
   return result;
 }
 
-bool _sameFileStats(Map<String, _SqliteFileStat> first, Map<String, _SqliteFileStat> second) {
-  if (first.length != second.length) {
-    return false;
-  }
-  for (final entry in first.entries) {
-    if (entry.value != second[entry.key]) {
-      return false;
-    }
-  }
-  return true;
+bool _isMissingFile(FileSystemException error) {
+  final code = error.osError?.errorCode;
+  return code == 2 || code == 3;
 }

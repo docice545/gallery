@@ -12,6 +12,10 @@ void main() {
     SqliteRecoveryGate.clearAfterValidatedRecovery();
   });
 
+  test('classifies SQLite SQLITE_CORRUPT_INDEX 779 as unsafe corruption', () {
+    expect(classifySqliteResultCode(779), SqliteHealthFailure.corrupt);
+  });
+
   test('holds sync after SQLITE_CORRUPT_INDEX until validated recovery clears it', () {
     SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[user]', resultCode: 779);
 

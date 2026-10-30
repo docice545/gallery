@@ -78,9 +78,10 @@ void main() {
       );
       await tester.pump();
 
-      final lane = tester.widget<ListView>(find.byType(ListView));
+      final laneFinder = find.byType(ListView);
+      final lane = tester.widget<ListView>(laneFinder);
       expect(lane.scrollDirection, Axis.horizontal);
-      expect(tester.getSize(lane).height, memoryLaneMaxHeight);
+      expect(tester.getSize(laneFinder).height, memoryLaneMaxHeight);
 
       final cards = find.byType(MemoryCard);
       expect(cards, findsAtLeastNWidgets(2));
@@ -90,7 +91,7 @@ void main() {
       expect(tester.getSize(cards.at(1)), firstSize);
 
       final firstBeforeScroll = tester.getRect(cards.at(0));
-      await tester.drag(find.byType(ListView), const Offset(-80, 0));
+      await tester.drag(laneFinder, const Offset(-80, 0));
       await tester.pumpAndSettle();
       expect(tester.getRect(cards.at(0)).left, lessThan(firstBeforeScroll.left));
       expect(tester.getSize(cards.at(0)), firstSize);

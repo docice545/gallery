@@ -96,6 +96,14 @@ bool shouldPreserveEdgeContent(String name, {int? width, int? height}) {
   if (width == null || height == null || width <= 0 || height <= 0) {
     return false;
   }
+  // Keep the aspect-ratio fallback for display captures that do not carry a
+  // descriptive filename. Camera photos in the same portrait aspect must
+  // retain the normal cover framing; the test fixture and most camera assets
+  // use JPEG while screen exports use PNG/WebP.
+  final displayCaptureFormat = normalized.endsWith('.png') || normalized.endsWith('.webp');
+  if (!displayCaptureFormat) {
+    return false;
+  }
   final longEdge = math.max(width, height);
   final aspect = longEdge / math.min(width, height);
   // Unnamed phone captures are commonly exported at the display resolution

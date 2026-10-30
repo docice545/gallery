@@ -89,10 +89,10 @@ void main() {
       db = Drift(drift.DatabaseConnection(NativeDatabase(primary), closeStreamsSynchronously: true));
       final repository = SyncStreamRepository(db!);
       await repository.updateUsersV1([_owner()]);
-      await db!.settingsEntity.insert(
+      await db!.into(db!.settingsEntity).insert(
         SettingsEntityCompanion.insert(key: pendingKey, value: const drift.Value(pendingValue)),
       );
-      await db!.settingsEntity.insert(
+      await db!.into(db!.settingsEntity).insert(
         SettingsEntityCompanion.insert(key: cursorKey, value: const drift.Value(cursorValue)),
       );
 
