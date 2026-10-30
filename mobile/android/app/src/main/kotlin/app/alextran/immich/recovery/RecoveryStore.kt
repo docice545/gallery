@@ -29,6 +29,9 @@ class RecoveryStore(
   init {
     root.mkdirs()
     syncDirectory(root.parentFile!!)
+    // Context.noBackupFilesDir may itself have just been created. Persist its
+    // entry in the installed app directory before any selector can be committed.
+    syncDirectory(root.parentFile!!.parentFile!!)
     lockFile = RandomAccessFile(File(root, "owner.lock"), "rw")
     processLock = checkNotNull(lockFile.channel.tryLock()) { "another process owns SQLite" }
     try {

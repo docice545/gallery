@@ -3,6 +3,8 @@
 set -euo pipefail
 [[ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" == 1 ]]
 mkdir -p mobile/ci-receipts
+adb logcat -v threadtime > mobile/ci-receipts/emulator-logcat.log 2>&1 &
+foto_logcat_pid=$!
 python3 - <<'PY' > mobile/ci-receipts/saf-picker.log 2>&1 &
 import re, subprocess, time, xml.etree.ElementTree as ET
 end = time.monotonic() + 1800
@@ -27,10 +29,20 @@ while time.monotonic() < end:
 raise SystemExit('SAF picker did not appear')
 PY
 foto_picker_pid=$!
-trap 'kill "$foto_picker_pid" 2>/dev/null || true' EXIT
+foto_emulator_cleanup() {
+  kill "$foto_picker_pid" 2>/dev/null || true
+  kill "$foto_logcat_pid" 2>/dev/null || true
+  # This emulator contains only the synthetic debug fixture. Retain diagnostics
+  # on timeout/failure as well as success; never run against a real phone.
+  timeout 10s adb logcat -b crash -d > mobile/ci-receipts/emulator-crashes.log 2>&1 || true
+}
+trap foto_emulator_cleanup EXIT
 (
   cd mobile
-  flutter test integration_test/sqlite_one_tap_recovery_test.dart --reporter expanded
+  # Bound build + VM-service connection too: testWidgets' timeout starts only
+  # after Dart connects and cannot catch an Android launch failure.
+  timeout --signal=TERM --kill-after=20s 15m flutter test --verbose \
+    integration_test/sqlite_one_tap_recovery_test.dart --reporter expanded
 ) 2>&1 | tee mobile/ci-receipts/android-one-tap.log
 wait "$foto_picker_pid"
 adb pull /sdcard/Download/FOTO-SQLite-backup.zip mobile/ci-receipts/synthetic-recovery.zip

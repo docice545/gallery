@@ -160,6 +160,17 @@ class RecoveryStoreTest {
       assertEquals(original.path, store.selected().path)
     }
   }
+  @Test fun newlyCreatedNoBackupDirectoryIsDurableBeforeAdmission() {
+    val original = source()
+    val noBackup = File(temporary.root, "no_backup")
+    val synced = mutableListOf<File>()
+    RecoveryStore(File(noBackup, "sqlite-recovery"), original) { synced.add(it.canonicalFile); sync(it) }.use { store ->
+      assertTrue(synced.contains(noBackup.canonicalFile))
+      assertTrue(synced.contains(temporary.root.canonicalFile))
+      val lease = store.acquire()
+      store.release(lease.getValue("token"))
+    }
+  }
   @Test fun exportIncludesPrimaryWalShmAndRedactedReportWithoutCacheArchive() {
     val original = source()
     File("$original-wal").writeText("committed WAL evidence")

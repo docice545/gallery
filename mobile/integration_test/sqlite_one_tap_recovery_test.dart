@@ -78,5 +78,5 @@ void main() {
       true,
     );
     await tester.pumpAndSettle();
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }
