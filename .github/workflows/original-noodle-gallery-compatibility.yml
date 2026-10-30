@@ -326,6 +326,16 @@ jobs:
         run: |
           set -o pipefail
           flutter test --no-pub test/domain/services/offline_thumbnail_warmup_test.dart 2>&1 | tee ci-receipts/offline-warmup-tests.log
+      - name: Run Live Photo timeline regressions
+        if: always()
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub \
+            test/presentation/widgets/images/thumbnail_live_photo_test.dart \
+            test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            2>&1 | tee ci-receipts/live-photo-timeline-tests.log
       - name: Run SQLite recovery fixture tests
         if: always()
         working-directory: mobile

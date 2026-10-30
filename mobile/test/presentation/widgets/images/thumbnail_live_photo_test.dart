@@ -186,20 +186,22 @@ void main() {
     expect(find.byType(Hero), findsOneWidget);
   });
 
-  testWidgets('server-only Live Photo keeps its still and motion badge without creating an autoplay source', (
-    tester,
-  ) async {
+  testWidgets('server-only Live Photo previews its known pair without resolving a local source', (tester) async {
     final asset = RemoteAssetFactory.create().copyWith(livePhotoVideoId: 'server-paired-video');
     await mountTile(tester, asset);
     await tester.pump(const Duration(seconds: 5));
 
     expect(sourceResolutions, 0);
-    expect(previews, 0);
-    expect(find.byKey(previewKey), findsNothing);
+    expect(previews, 1);
+    expect(find.byKey(previewKey), findsOneWidget);
+    expect(find.descendant(of: find.byType(Hero), matching: find.byKey(previewKey)), findsNothing);
     expect(find.byIcon(Icons.motion_photos_on_rounded), findsOneWidget);
     expect(find.byType(Thumbnail), findsOneWidget);
     await tester.tap(find.byKey(tileKey));
+    await tester.pump();
     expect(taps, 1, reason: 'the existing fullscreen-opening gesture remains available');
+    expect(find.byKey(previewKey), findsNothing);
+    expect(find.byType(Thumbnail), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
