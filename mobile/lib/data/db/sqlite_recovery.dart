@@ -336,7 +336,26 @@ Future<void> validateStartupSqliteFiles(File primary) async {
   if (primary.lengthSync() < 100 || File('${primary.path}-journal').existsSync()) {
     throw const FormatException('Primary header incomplete or rollback journal present');
   }
-  await _validateSnapshotWal(File('${primary.path}-wal'));
+  final wal = File('${primary.path}-wal');
+  final shm = File('${primary.path}-shm');
+  await _validateSnapshotWal(wal);
+  if (wal.existsSync() && wal.lengthSync() > 0) {
+    // Even a read-only SQLite open can rebuild SHM. Preserve its independent
+    // proof of the committed extent BEFORE SQLite sees a truncated WAL prefix.
+    await _validateWalIndex(wal, shm, primary);
+  } else if (shm.existsSync()) {
+    final handle = await shm.open();
+    try {
+      final header = await handle.read(96);
+      if (header.length != 96 ||
+          ByteData.sublistView(header).getUint32(16, Endian.host) != 0 ||
+          ByteData.sublistView(header).getUint32(64, Endian.host) != 0) {
+        throw const FormatException('WAL-index references a missing WAL');
+      }
+    } finally {
+      await handle.close();
+    }
+  }
 }
 
 /// Require the captured WAL-index to confirm the last committed frame. CRCs

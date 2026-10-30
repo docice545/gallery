@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// A real-file platform harness. Native atomic selection/admission/fsync are
@@ -119,6 +120,7 @@ void main() {
   tearDown(() => directory.delete(recursive: true));
 
   test('startup read-only detection leaves committed primary and WAL bytes intact', () async {
+    await validateStartupSqliteFiles(source);
     final probe = sqlite3.open(source.path, mode: OpenMode.readOnly);
     try {
       expect(probe.select('PRAGMA integrity_check(1)').single.values.single, isNot('ok'));
@@ -130,6 +132,7 @@ void main() {
     expect(after['-wal'], before['-wal']);
     await OneTapSqliteRecovery(host).run();
     expect(host.selected.path, isNot(source.path));
+    await validateStartupSqliteFiles(host.selected);
   });
   test('one tap preserves every table, WAL-only queues, account and confirmed cursor', () async {
     await OneTapSqliteRecovery(host).run();
@@ -237,6 +240,8 @@ void main() {
         await wal.writeAsBytes(fault == 'truncated' ? bytes.sublist(0, bytes.length - 1) : bytes, flush: true);
       }
       final damaged = await recoveryFileHashes(source);
+      await expectLater(validateStartupSqliteFiles(source), throwsA(anything));
+      expect(await recoveryFileHashes(source), damaged);
       await expectLater(OneTapSqliteRecovery(host).run(), throwsA(anything));
       expect(host.selected.path, source.path);
       expect(await recoveryFileHashes(source), damaged);

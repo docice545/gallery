@@ -42,6 +42,8 @@ FOTO» блокируется до завершения операции.
    последняя подтверждённая транзакция и обе копии заголовка WAL-index в SHM.
    SHM подтверждает число кадров и commit checksum: корректной контрольной суммы
    усечённого префикса WAL недостаточно.
+   Проверка WAL/SHM выполняется также до первого SQLite startup probe, чтобы
+   даже read-only открытие не успело пересоздать SHM и затереть это свидетельство.
 7. Кандидат проходит полный `integrity_check`, `foreign_key_check`, checkpoint
    и сравнение всех таблиц через `NOT INDEXED`. Сравниваются также скрытые rowid,
    `sqlite_sequence`, схема, `user_version` и `application_id`. Blob и text
