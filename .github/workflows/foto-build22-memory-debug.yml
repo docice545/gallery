@@ -1,0 +1,57 @@
+name: FOTO Build 22 Memories widget debug
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/foto-build22-resume-20261029
+    paths:
+      - 'mobile/lib/presentation/widgets/memory/**'
+      - 'mobile/test/presentation/widgets/memory/**'
+      - 'mobile/lib/presentation/widgets/images/thumbnail.widget.dart'
+      - '.github/workflows/foto-build22-memory-debug.yml'
+
+permissions: {}
+
+jobs:
+  memory-widget:
+    name: Memories widget strict Flutter test
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Install pinned Flutter dependencies and generated clients
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Run Memories widget test with strict exit propagation
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub test/presentation/widgets/memory/memory_lane_test.dart 2>&1 | tee ci-receipts/memory-lane-debug.log
+      - name: Surface failure tail
+        if: failure()
+        working-directory: mobile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('ci-receipts/memory-lane-debug.log')
+          if path.exists():
+              tail = '\n'.join(path.read_text(errors='replace').splitlines()[-120:])
+              encoded = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Memories strict test output::{encoded}')
+          PY
+      - name: Upload Memories debug receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: foto-build22-memory-debug
+          path: mobile/ci-receipts/memory-lane-debug.log
+          if-no-files-found: ignore
