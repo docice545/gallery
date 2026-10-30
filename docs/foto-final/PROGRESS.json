@@ -204,7 +204,7 @@
   },
   "currentCheckpoint": {
     "stage": "final-acceptance-matrix-and-hp-signing-handoff",
-    "commit": "8b1b837b426fc29148cc3aea33f248cfbe83f787",
+    "commit": "535827a29",
     "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
     "published": false,
     "remoteHeadVerified": false,
@@ -322,7 +322,7 @@
   }
   ,"stage10": {
     "status": "FINAL_MATRIX_AND_RELEASE_HANDOFF_COMMITTED_REMOTE_PUSH_PENDING",
-    "documentationCommit": "8b1b837b426fc29148cc3aea33f248cfbe83f787",
+    "documentationCommit": "535827a29",
     "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
     "hostedRun": "40961734970",
     "productionChanged": false,

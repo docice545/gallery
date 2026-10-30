@@ -310,7 +310,7 @@ commit without repeating destructive work.
 
 ## 2026-10-30 — Stage 10: final acceptance matrix and release handoff
 
-- **Documentation checkpoint:** `aad9b91fd` records the exact 33-row master
+- **Documentation checkpoint:** `535827a29` records the exact 33-row master
   acceptance matrix, two supplemental P0 gates, the current release-gate ledger,
   `RELEASE_README.md`, and `release-manifest-20261030.json`.
 - **Authoritative hosted evidence:** run `40961734970` is complete/successful;
