@@ -203,11 +203,12 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "build22-hosted-e2e-exact-sha-pass",
-    "commit": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
-    "published": true,
-    "remoteHeadVerified": true,
-    "documentationReceiptPending": false,
+    "stage": "final-acceptance-matrix-and-hp-signing-handoff",
+    "commit": "aad9b91fd",
+    "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
+    "published": false,
+    "remoteHeadVerified": false,
+    "documentationReceiptPending": true,
     "overall": "NOT_RELEASE_READY"
   },
   "stage6": {
@@ -315,6 +316,33 @@
       "SAMSUNG_S23_PHYSICAL_REPLAY",
       "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
       "HP_NAS_PRODUCTION_VALIDATION",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  }
+  ,"stage10": {
+    "status": "FINAL_MATRIX_AND_RELEASE_HANDOFF_COMMITTED_REMOTE_PUSH_PENDING",
+    "documentationCommit": "aad9b91fd",
+    "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
+    "hostedRun": "40961734970",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "acceptanceMatrix": "PASS:33_REQUIRED_ROWS_PLUS_2_SUPPLEMENTAL_P0_GATES",
+      "releaseGates": "PASS:EXACT_RUN_AND_JOB_RECEIPTS",
+      "releaseManifest": "PASS:JSON_VALID",
+      "serverFocusedTests": "PASS:87",
+      "webFocusedTests": "PASS:65",
+      "gitDiffCheck": "PASS",
+      "signedReleaseApk": "BLOCKED:OLD_KEY_HP_ONLY",
+      "githubPr": "BLOCKED:INVALID_TOKEN_403"
+    },
+    "openGates": [
+      "REMOTE_PUSH_AND_SHA_VERIFICATION",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "SAMSUNG_S23_AND_PHYSICAL_IOS",
+      "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
+      "WEB_FINAL_BUILD_AND_CHROMIUM_E2E",
       "PRODUCTION_SERVICE_OPERATIONS"
     ],
     "overall": "NOT_RELEASE_READY"

@@ -307,3 +307,25 @@ commit without repeating destructive work.
 - **Exact-SHA hosted PASS:** run `40961734970` completed all jobs on `d9b64f1a…`: API contract/backend (`123755970160`), iOS analysis/service/repository/rendered tests and SQLite recovery fixture (`123755969746`), Android cache unit tests (`123755970070`), Build 22 APK/backend/seed/KVM and offline process-death replay (`123755969984`), and unchanged official Android 5.8.0 (`123755970131`) plus 5.9.0 (`123755969995`). The FOTO smoke reached credentials, login, endpoint and offline phases and completed successfully; no compatibility-version error or permission-dialog failure remained.
 - **P0 SQLite state:** the file-backed hosted fixture remains PASS for real `SQLITE_CORRUPT_INDEX` result `779` in `updateAssetsV2`, rollback, pending/cursor preservation, copy-only `REINDEX`, promotion prohibition and replay on the repaired copy. No primary/device database was reset, replaced or promoted.
 - **Release status:** `NOT_RELEASE_READY` still reflects unperformed production gates: Samsung S23 physical replay, production signing key/release artifact, HP/Synology/NAS validation and production-service operations. No production HP, Synology NAS, signing key or user data was changed.
+
+## 2026-10-30 — Stage 10: final acceptance matrix and release handoff
+
+- **Documentation checkpoint:** `aad9b91fd` records the exact 33-row master
+  acceptance matrix, two supplemental P0 gates, the current release-gate ledger,
+  `RELEASE_README.md`, and `release-manifest-20261030.json`.
+- **Authoritative hosted evidence:** run `40961734970` is complete/successful;
+  Build 22 emulator, API/backend, Android cache policy, iOS simulator/source and
+  unchanged Android Noodle 5.8.0/5.9.0 jobs are all PASS. The file-backed
+  SQLite fixture reproduces result `779` at `updateAssetsV2`, preserves pending
+  operations/cursors, repairs only a copied candidate and resumes on that copy.
+- **Focused source checks:** server duplicate/stack/trash suites report 87 passing
+  tests; focused Web editor/live-photo/Places/motion suite reports 65 passing
+  tests. Medium suites requiring a container runtime remain blocked before tests.
+- **Release handoff:** package `de.opennoodle.gallery`, version `5.7.3+22`, and
+  prior certificate `ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`
+  are recorded. The old key is not present in Cloud, so the signed APK is
+  `BLOCKED_OLD_KEY_HP_ONLY`; no replacement key was created or copied.
+- **Open gates:** PR creation remains blocked by the configured HTTP 403 token;
+  Samsung/Android 16 and physical iOS, HP/Synology/NFS and populated-restore
+  checks, final Web/Chromium build, signed release artifact and production
+  operations remain open. Overall status stays `NOT_RELEASE_READY`.

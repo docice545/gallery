@@ -10,7 +10,7 @@ documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`.
 
 | # | Acceptance area | Status | Evidence / open condition |
 |---:|---|---|---|
-| 1 | Git integration and provenance | PASS | Remote branch SHA verified; exact-SHA hosted run and receipts recorded |
+| 1 | Git integration and provenance | PASS (branch) / BLOCKED (PR auth) | Remote branch SHA and exact-SHA hosted run are recorded; PR creation remains blocked by the configured 403 token |
 | 2 | Offline catalogue/timeline | PASS | FOTO debug emulator online sync, force-stop and offline relaunch passed |
 | 3 | Persistent thumbnail warmup/cache | PASS | Android cache unit tests and hosted offline replay passed |
 | 4 | Wi-Fi/cellular/reconnect behavior | PASS (hosted) | Smoke disables transports, relaunches and renders local catalog; physical network matrix open |

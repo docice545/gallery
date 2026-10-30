@@ -9,6 +9,7 @@ documentation checkpoint `aa15c6ce9b20fb65abf4534c21bf154777970d8c`.
 | Gate | Status | Evidence | Remaining condition |
 |---|---|---|---|
 | Git source/checkpoint | PASS | Remote branch SHA `aa15c6ce9b20fb65abf4534c21bf154777970d8c`; tested source `d9b64f1a…` | Keep release artifact tied to this source |
+| GitHub PR integration | BLOCKED (Cloud auth) | Branch is published; prior `gh pr create` returned HTTP 403 with invalid `GH_TOKEN` | Restore authorized GitHub token or use the compare URL; no merge was performed |
 | API contract/backend | PASS | [API job 123755970160](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755970160) | Populated upgrade/NAS staging remains separate |
 | Disposable PostgreSQL/Redis | PASS | Same API/FOTO jobs; pinned images and GHCR auth | Populated upgrade and restore benchmark remain open |
 | Official Noodle Android 5.8.0 | PASS | [job 123755970131](https://github.com/docice545/gallery/actions/runs/40961734970/job/123755970131) | No production install performed |
