@@ -111,11 +111,13 @@ abstract final class SqliteCloudBridge {
   static SqliteCloudReader? _reader;
 
   static Future<void> attach(SqliteConnection connection, {required int schemaVersion}) async {
-    if (!Platform.isAndroid) {
+    if (!Platform.isAndroid || ServicesBinding.rootIsolateToken == null) {
       return;
     }
-    // Foreground and background engines have separate bridges. Native binds a
-    // reader only after successful schema/Store/bootstrap initialization.
+    // Foreground and background ENGINES have separate root-isolate bridges.
+    // Worker isolates also call Bootstrap but cannot register inbound platform
+    // handlers. They must neither replace nor unregister their engine's root
+    // handler while opening/closing their ordinary shared-pool connections.
     final previous = _reader;
     if (previous != null) {
       if (identical(previous.connection, connection)) {

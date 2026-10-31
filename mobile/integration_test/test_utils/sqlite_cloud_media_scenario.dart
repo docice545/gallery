@@ -39,6 +39,7 @@ void cloudMediaScenario({required bool restart}) {
     addTearDown(server.close);
     await EasyLocalization.ensureInitialized();
     await openFotoForTest(); // real full integrity startup probe, existing account/router/pool
+    await verifyWorkerKeepsNativeReader();
     await waitUntil(tester, () async => find.byType(ThumbnailTile).evaluate().isNotEmpty, pumpFrames: true);
     expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
     expect(SettingsRepository.instance.appConfig.backup.enabled, false);

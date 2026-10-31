@@ -20,7 +20,7 @@ class RecoveryHttpServer {
     'email': 'owner@example.test',
     'profileChangedAt': stamp,
     'avatarColor': 'primary',
-    'clusterGroupId': null,
+    'clusterGroupId': '44444444-4444-4444-8444-444444444444',
     'createdAt': stamp,
     'deletedAt': null,
     'isAdmin': false,
@@ -104,6 +104,23 @@ class RecoveryHttpServer {
         response.headers.set('location', '$endpoint/forbidden');
       } else if (request.uri.path == '/api/users/me') {
         response.write(jsonEncode({...profile, 'id': mode == 'wrong_owner' ? 'other-owner' : 'existing-owner'}));
+      } else if (fullFoto && request.uri.path == '/api/users/me/preferences') {
+        response.write(
+          jsonEncode({
+            'albums': {'defaultAssetOrder': 'desc'},
+            'cast': {'gCastEnabled': false},
+            'download': {'archiveSize': 1073741824, 'includeEmbeddedVideos': false},
+            'emailNotifications': {'albumInvite': false, 'albumUpdate': false, 'enabled': false},
+            'folders': {'enabled': false, 'sidebarWeb': false},
+            'memories': {'duration': 5, 'enabled': false, 'sidebarWeb': false, 'types': <String, bool>{}},
+            'people': {'enabled': false, 'sidebarWeb': false},
+            'purchase': {'hideBuyButtonUntil': stamp, 'showSupportBadge': false},
+            'ratings': {'enabled': false},
+            'recentlyAdded': {'sidebarWeb': true},
+            'sharedLinks': {'enabled': false, 'sidebarWeb': false},
+            'tags': {'enabled': false, 'sidebarWeb': false},
+          }),
+        );
       } else if (fullFoto && request.uri.path == '/api/auth/validateToken' && request.method == 'POST') {
         response.write('{"authStatus":true}');
       } else if (fullFoto && request.uri.path == '/api/server/version') {
@@ -142,6 +159,7 @@ class RecoveryHttpServer {
       } else if (fullFoto && request.uri.path == '/api/server/config') {
         response.write(
           jsonEncode({
+            'availableMemoryTypes': <String>[],
             'externalDomain': '',
             'isInitialized': true,
             'isOnboarded': true,

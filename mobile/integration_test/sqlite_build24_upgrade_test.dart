@@ -122,6 +122,7 @@ void main() {
     await tester.pump();
     await tester.tap(confirm);
     await opened.future.timeout(const Duration(seconds: 60));
+    await verifyWorkerKeepsNativeReader();
     await waitFor(tester, find.byType(ThumbnailTile));
     expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
     expect(SettingsRepository.instance.appConfig.backup.enabled, false);

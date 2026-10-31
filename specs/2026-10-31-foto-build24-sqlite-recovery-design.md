@@ -192,6 +192,12 @@ Schema readiness uses the actual Drift schema version, not another native
 hard-coded number. Native read leases still honor RecoveryStore admission.
 Closing an engine first unregisters the bridge and drains pending read callbacks
 before closing the owning sqlite_async pool and its admission lease.
+Only an engine's root isolate registers that inbound channel. Ordinary sync
+worker isolates also call Bootstrap but use BackgroundIsolateBinaryMessenger,
+which cannot install inbound handlers. They retain their normal pool access
+without replacing or unregistering the root bridge. Android acceptance explicitly
+boots and closes a real production worker and verifies that the foreground reader
+remains admitted before checking gallery sync and the system picker.
 
 The audit also reproduced a pool shutdown race with real queued read/write
 transactions. `sqlite_async` 0.14.2 `close()` closes its response port without

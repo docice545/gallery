@@ -14,6 +14,7 @@ import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/user_api.repository.dart';
 import 'package:immich_mobile/utils/semver.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart';
@@ -58,6 +59,23 @@ class _LoopbackSyncApi extends SyncApiRepository {
 }
 
 void main() {
+  test('full app HTTP fixture satisfies the generated account, preferences and server contracts', () async {
+    final server = (await RecoveryHttpServer.start())..fullFoto = true;
+    addTearDown(server.close);
+    final transport = _AuthorizedTransport();
+    addTearDown(transport.close);
+    final client = ApiClient(basePath: server.endpoint)..client = transport;
+    final api = MockApiService();
+    when(() => api.usersApi).thenReturn(UsersApi(client));
+    final user = await UserApiRepository(api).getMyUser();
+    expect(user?.id, 'existing-owner');
+    expect(user?.memoryEnabled, false);
+    final info = ServerApi(client);
+    expect((await info.getServerConfig())?.isInitialized, true);
+    expect((await info.getServerFeatures())?.passwordLogin, true);
+    expect((await info.getServerVersion())?.major, 5);
+    expect(server.requests.every((r) => r.method == 'GET' && r.authenticated), true);
+  });
   test(
     'fresh generation reuses login and downloads actual photos/albums through production sync; no asset writes',
     () async {
