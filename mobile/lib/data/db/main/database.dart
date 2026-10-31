@@ -163,8 +163,22 @@ class Drift extends $Drift {
     // A failed drain retains the native admission lease (fail closed).
     await SqliteCloudBridge.detach(_ownedConnection);
     await super.close();
-    await _ownedConnection?.close();
-    _updatePool?.close();
+    final updatePool = _updatePool;
+    if (updatePool != null) {
+      // Drift and the native bridge now reject new work. sqlite_async.close()
+      // closes the response port even for queued requests, so it cannot be used
+      // as a drain: those requests would keep native leases forever. Acquire
+      // every reader and writer while its port/workers are still alive first.
+      final drained = await updatePool.exclusiveAccess();
+      try {
+        await _ownedConnection?.close();
+        updatePool.close();
+      } finally {
+        drained.close();
+      }
+    } else {
+      await _ownedConnection?.close();
+    }
     final token = _ownedConnection == null ? null : _primaryLeases[_ownedConnection];
     if (token != null) {
       await SqliteRecoveryPlatform.release(token);

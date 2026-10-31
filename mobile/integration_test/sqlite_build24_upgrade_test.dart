@@ -16,7 +16,6 @@ import 'package:immich_mobile/domain/services/background_worker.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/cloud_media.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
-import 'package:immich_mobile/main.dart' as application;
 import 'package:immich_mobile/pages/common/sqlite_recovery.page.dart';
 import 'package:immich_mobile/platform/background_worker_lock_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
@@ -26,6 +25,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../test/data/db/fixtures/recovery_http_server.dart';
+import 'test_utils/open_foto.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -73,7 +73,7 @@ void main() {
             try {
               expect(preparation.needsLogin, false);
               await fresh.run(preparation, consent: true);
-              await application.openFoto();
+              await openFotoForTest();
               opened.complete();
             } catch (error, stack) {
               opened.completeError(error, stack);
@@ -122,7 +122,7 @@ void main() {
     await tester.pump();
     await tester.tap(confirm);
     await opened.future.timeout(const Duration(seconds: 60));
-    await waitFor(tester, find.byType(ThumbnailTile).first);
+    await waitFor(tester, find.byType(ThumbnailTile));
     expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
     expect(SettingsRepository.instance.appConfig.backup.enabled, false);
     expect(SettingsRepository.instance.appConfig.backup.syncAlbums, false);

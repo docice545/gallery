@@ -14,13 +14,13 @@ import 'package:immich_mobile/domain/services/background_worker.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/cloud_media.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
-import 'package:immich_mobile/main.dart' as application;
 import 'package:immich_mobile/platform/background_worker_lock_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../test/data/db/fixtures/recovery_http_server.dart';
+import 'open_foto.dart';
 
 void cloudMediaScenario({required bool restart}) {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +38,7 @@ void cloudMediaScenario({required bool restart}) {
       ..fullDownloadResets = 1; // The same server session already completed its first full download.
     addTearDown(server.close);
     await EasyLocalization.ensureInitialized();
-    await application.openFoto(); // real full integrity startup probe, existing account/router/pool
+    await openFotoForTest(); // real full integrity startup probe, existing account/router/pool
     await waitUntil(tester, () async => find.byType(ThumbnailTile).evaluate().isNotEmpty);
     expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
     expect(SettingsRepository.instance.appConfig.backup.enabled, false);

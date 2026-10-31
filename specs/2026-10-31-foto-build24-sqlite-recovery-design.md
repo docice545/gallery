@@ -169,6 +169,20 @@ hard-coded number. Native read leases still honor RecoveryStore admission.
 Closing an engine first unregisters the bridge and drains pending read callbacks
 before closing the owning sqlite_async pool and its admission lease.
 
+The audit also reproduced a pool shutdown race with real queued read/write
+transactions. `sqlite_async` 0.14.2 `close()` closes its response port without
+draining already queued requests; those requests can retain native leases and
+never receive their completion. Drift's adapter does not drain them either.
+After closing Drift/bridge admission, `Drift.close()` now obtains exclusive access
+to all readers and the writer **before** closing sqlite_async and the update-pool
+reference. Only after releasing that exclusive lease can the native recovery
+lease be released. A real-file regression holds a reader and a write transaction,
+queues additional queries, starts shutdown, then verifies both committed rows,
+last-connection WAL/SHM closure and successful integrity-check on reopen.
+The same test fails on the pinned original Build 23: `close()` has already
+completed while the test still holds its transaction. That proves the shutdown
+race, not that it caused the reported Samsung corruption.
+
 No Shizuku connection is involved in media reads. Existing opt-in, owner scope,
 projection visibility and original/preview HTTP behavior remain. A cold system
 provider without a validated Flutter pool reports unavailable and never opens a

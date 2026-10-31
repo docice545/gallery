@@ -58,6 +58,9 @@ foto_emulator_cleanup() {
   # This emulator contains only the synthetic debug fixture. Retain diagnostics
   # on timeout/failure as well as success; never run against a real phone.
   timeout 10s adb logcat -b crash -d > mobile/ci-receipts/emulator-${foto_mode}-crashes.log 2>&1 || true
+  timeout 10s adb exec-out screencap -p > mobile/ci-receipts/emulator-${foto_mode}-last-screen.png || true
+  timeout 15s adb shell uiautomator dump /sdcard/foto24-last-window.xml >/dev/null 2>&1 || true
+  timeout 10s adb exec-out cat /sdcard/foto24-last-window.xml > mobile/ci-receipts/emulator-${foto_mode}-last-window.xml || true
 }
 trap foto_emulator_cleanup EXIT
 (
