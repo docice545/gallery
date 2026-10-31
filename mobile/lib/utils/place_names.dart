@@ -70,6 +70,21 @@ bool matchesPlaceName(Place place, String label, String query) {
   return folded.isEmpty || foldPlaceName(place.name).contains(folded) || foldPlaceName(label).contains(folded);
 }
 
+/// Deterministic order while geocoder/cache results arrive asynchronously.
+/// Sorting never reads the mutable localized-label providers.
+int comparePlacesForDisplay(Place a, Place b, {required String languageCode}) {
+  final comparison = comparePlaceNames(
+    localizedPlaceNameFallback(a, languageCode),
+    localizedPlaceNameFallback(b, languageCode),
+    languageCode: languageCode,
+  );
+  if (comparison != 0) {
+    return comparison;
+  }
+  final byName = a.name.compareTo(b.name);
+  return byName != 0 ? byName : a.sourceRegion.compareTo(b.sourceRegion);
+}
+
 int comparePlaceNames(String first, String second, {required String languageCode}) {
   // Dart's code-point ordering puts Ё before А. Use the Russian alphabet when
   // requested, keeping unsupported source names intact rather than guessing.
