@@ -25,12 +25,16 @@ while time.monotonic() - start < 1200:
     phase = adb('shell', 'run-as', package, 'cat', phase_file, check=False)
     if phase == 'healthy' and not started:
         dump = adb('shell', 'dumpsys', 'package', 'moe.shizuku.privileged.api')
-        library = re.search(r'nativeLibraryDir=(\S+)', dump).group(1)
+        (receipts / f'cloud-{mode}-shizuku-package.txt').write_text(dump)
         apk = adb('shell', 'pm', 'path', 'moe.shizuku.privileged.api').removeprefix('package:')
-        # These are package-manager paths to a pinned APK, not arbitrary commands.
-        assert re.fullmatch(r'/data/app/[A-Za-z0-9_./=+~-]+', library)
         assert re.fullmatch(r'/data/app/[A-Za-z0-9_./=+~-]+', apk)
-        print(adb('shell', f'{library}/libshizuku.so', f'--apk={apk}'), flush=True)
+        # Android 16 dumpsys does not expose ApplicationInfo.nativeLibraryDir.
+        # This harness uses only x86_64 AVDs and the pinned universal APK; ask
+        # PackageManager for its installed base, then verify its actual starter.
+        assert adb('shell', 'getprop', 'ro.product.cpu.abi') == 'x86_64'
+        starter = str(pathlib.PurePosixPath(apk).parent / 'lib/x86_64/libshizuku.so')
+        adb('shell', 'test', '-x', starter)
+        print(adb('shell', starter, f'--apk={apk}'), flush=True)
         started = True
     if phase == 'picker' and not picker:
         launch = adb('shell', 'am', 'start', '-a', 'android.provider.action.PICK_IMAGES', '-t', 'image/*')
