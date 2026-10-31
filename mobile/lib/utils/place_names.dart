@@ -64,7 +64,6 @@ String localizedPlaceRegion(Place place, String languageCode) {
   return [state, country].where((part) => part.isNotEmpty).join(', ');
 }
 
-
 bool matchesPlaceName(Place place, String label, String query) {
   final folded = foldPlaceName(query);
   return folded.isEmpty || foldPlaceName(place.name).contains(folded) || foldPlaceName(label).contains(folded);

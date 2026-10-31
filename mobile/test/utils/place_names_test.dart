@@ -26,11 +26,7 @@ void main() {
   test('Russian display fallbacks cover visible cities, regions and countries without mutating source fields', () {
     const cases = [
       (Place(name: 'Belek', assetId: 'b', state: 'Antalya', country: 'Türkiye'), 'Белек', 'Анталья, Турция'),
-      (
-        Place(name: 'Moscow', assetId: 'm', state: 'Moscow', country: 'Russian Federation'),
-        'Москва',
-        'Москва, Россия',
-      ),
+      (Place(name: 'Moscow', assetId: 'm', state: 'Moscow', country: 'Russian Federation'), 'Москва', 'Москва, Россия'),
       (
         Place(name: 'Khot\'kovo', assetId: 'k', state: 'Moscow Oblast', country: 'Russian Federation'),
         'Хотьково',
@@ -65,13 +61,10 @@ void main() {
       const Place(name: 'Belek', assetId: 'b'),
       const Place(name: 'Annino', assetId: 'a'),
     ]..sort((a, b) => comparePlacesForDisplay(a, b, languageCode: 'ru'));
-    expect(places.map((place) => place.name), ['Annino', 'Belek', 'Moscow', 'Vnukovo']);
+    expect(places.map((place) => place.name), ['Annino', 'Belek', 'Vnukovo', 'Moscow']);
     // A different native spelling can change the visible row label, but the
     // comparator cannot be influenced by asynchronously resolved names.
-    expect(
-      comparePlacesForDisplay(places.first, places.last, languageCode: 'ru'),
-      lessThan(0),
-    );
+    expect(comparePlacesForDisplay(places.first, places.last, languageCode: 'ru'), lessThan(0));
     expect(comparePlacesForDisplay(places[2], places[2], languageCode: 'ru'), 0);
   });
 
