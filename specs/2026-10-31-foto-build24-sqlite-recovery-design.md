@@ -186,6 +186,22 @@ are now constructed first, then posted only after service cleanup and flag
 release. The emulator checks consecutive status replies plus immediate repeated
 enable on both activation and restart; it does not conceal `busy` errors by retry.
 
+The next emulator run completed first activation, real system picker reads and
+unchanged SQLite/original hashes, then reproduced a separate immediate-rebind
+failure after restarting Shizuku. In the pinned Shizuku API 13.1.5,
+`ShizukuServiceConnections` caches by tag; `unbindUserService(remove=true)` leaves
+that entry until a later `died()` callback. Reusing the tag can attach a new caller
+to that old callback list and disconnect it before its new service connects.
+Each bounded non-daemon admission operation now uses its own tag. Late callbacks
+and cleanup address only that operation; the durable DeviceConfig ownership
+journal remains in the application and retains its existing format.
+
+The host now builds one cloud-test APK and uses `flutter drive` with that identical
+binary for both runs. PackageManager install path and last-update time must match:
+the restart test must not replace an APK and thereby reset the system picker's
+selection. Its mode is selected by a private synthetic-test marker, not a build
+flag or production code path.
+
 The new Samsung report does not include a post-Shizuku database or native error
 receipt. We cannot retrospectively distinguish a newly corrupt file from the
 persisted Build 23 admission block. Activating Shizuku is not evidence of a new
