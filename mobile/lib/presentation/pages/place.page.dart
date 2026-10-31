@@ -180,12 +180,7 @@ class _PlaceList extends ConsumerWidget {
                   foldPlaceName(place.sourceRegion).contains(foldPlaceName(query ?? '')) ||
                   aliasScopes.contains(place.scopeIdentity);
             }).toList()..sort((a, b) {
-              final comparison = comparePlaceNames(stableLabel(a), stableLabel(b), languageCode: locale.languageCode);
-              if (comparison != 0) {
-                return comparison;
-              }
-              final sourceComparison = a.name.compareTo(b.name);
-              return sourceComparison != 0 ? sourceComparison : a.sourceRegion.compareTo(b.sourceRegion);
+              return comparePlacesForDisplay(a, b, languageCode: locale.languageCode);
             });
 
         if (filtered.isEmpty) {
