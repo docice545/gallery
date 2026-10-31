@@ -45,6 +45,7 @@ import 'package:immich_mobile/data/db/main/table/user/auth_user.dart';
 import 'package:immich_mobile/data/db/main/table/user/metadata.dart';
 import 'package:immich_mobile/data/db/main/table/user/partner.dart';
 import 'package:immich_mobile/data/db/main/table/user/user.dart';
+import 'package:immich_mobile/data/db/sqlite_cloud_reader.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
@@ -147,12 +148,20 @@ class Drift extends $Drift {
       _ownedConnection = db,
       super(DatabaseConnection(SqliteAsyncQueryExecutor(db), streamQueries: _DriftPoolStreamQueries(updatePool)));
 
+  Future<void> attachCloudReader() async {
+    final connection = _ownedConnection;
+    if (connection != null) {
+      await SqliteCloudBridge.attach(connection, schemaVersion: schemaVersion);
+    }
+  }
+
   @override
   Future<void> close() => _closing ??= _closeOwned();
 
   Future<void> _closeOwned() async {
     // Drift's sqlite_async adapter explicitly does NOT own/close this handle.
     // A failed drain retains the native admission lease (fail closed).
+    await SqliteCloudBridge.detach(_ownedConnection);
     await super.close();
     await _ownedConnection?.close();
     _updatePool?.close();
@@ -578,7 +587,13 @@ Future<(SqliteConnection, SqliteConnectionPool)> openSqliteConnectionWithUpdateP
   } catch (error) {
     if (error is SqliteDatabaseUnhealthy && Platform.isAndroid) {
       try {
-        await SqliteRecoveryPlatform.halt();
+        await SqliteRecoveryPlatform.halt(
+          reason: error.check == 'admission'
+              ? null
+              : error.check == 'file validation'
+              ? 'startup_file_validation_failed'
+              : 'startup_integrity_failed',
+        );
       } catch (_) {
         /* Admission remains blocked in native memory. */
       }

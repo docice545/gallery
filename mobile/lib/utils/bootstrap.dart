@@ -94,6 +94,7 @@ abstract final class Bootstrap {
 
       // TODO: Remove once all asset operations are migrated to Native APIs
       await PhotoManager.setIgnorePermissionCheck(true);
+      await dataController.db.attachCloudReader();
       return (dataController, apiService);
     } catch (_) {
       // Background entrypoints must not leave sqlite alive after failed init.

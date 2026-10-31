@@ -28,6 +28,18 @@ void main() {
     () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null),
   );
 
+  testWidgets('a saved SQLite block is distinguished from logout and exposes the exact code', (tester) async {
+    status = {
+      ...status,
+      'signedIn': false,
+      'sqliteReaderReady': false,
+      'sqlite': {'status': 'persisted_recovery_block', 'reason': 'startup_integrity_failed', 'sqliteCode': 779},
+    };
+    await tester.pumpConsumerWidget(const CloudMediaSettings());
+    expect(find.text(t.cloud_media_signed_out), findsNothing);
+    expect(find.textContaining('persisted_recovery_block / startup_integrity_failed / SQLITE 779'), findsOneWidget);
+    expect(calls, ['status']);
+  });
   testWidgets('opt-in starts disabled and never activates automatically', (tester) async {
     await tester.pumpConsumerWidget(const CloudMediaSettings());
     expect(calls, ['status']);

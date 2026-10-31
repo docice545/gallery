@@ -65,7 +65,8 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
               null
             }
             "release" -> { store.release(call.argument<String>("token")!!); null }
-            "halt" -> { store.halt(); null }
+            "halt" -> { store.halt(call.argument<String>("reason"), call.argument<Int>("sqliteCode")); null }
+            "diagnostic" -> store.diagnostic()
             "begin" -> store.begin()
             "beginFresh" -> store.beginFresh(call.argument<String>("exportToken")!!)
             "finish" -> { store.finish(call.argument<String>("token")!!); null }
@@ -78,7 +79,7 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
             else -> throw IllegalArgumentException("unknown method")
           }
           main.post { result.success(value) }
-        } catch (_: Exception) { main.post { result.error("sqlite_recovery_required", "SQLite admission or durability check failed", null) } }
+        } catch (_: Exception) { main.post { result.error("sqlite_recovery_required", "SQLite admission or durability check failed", runCatching { store(ctx).diagnostic() }.getOrNull()) } }
       }
     }
   }

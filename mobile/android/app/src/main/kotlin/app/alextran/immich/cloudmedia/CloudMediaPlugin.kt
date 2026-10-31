@@ -91,7 +91,10 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
       "enabled" to (session != null && prefs.getString("enabledScope", null) == session.scope),
       "admitted" to admitted, "selected" to selected,
       "shizukuRunning" to shizukuReady(), "permissionGranted" to hasPermission(),
-      "recoveryPending" to prefs.contains("recoveryJournal"))
+      "recoveryPending" to prefs.contains("recoveryJournal"),
+      "sqlite" to app.alextran.immich.recovery.SqliteRecoveryPlugin.store(ctx).diagnostic(),
+      "sqliteReaderReady" to CloudSqliteReaders.available(),
+      "pickerQueries" to CloudSqliteReaders.pickerQueries.get(), "pickerRows" to CloudSqliteReaders.pickerRows.get())
   }
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {

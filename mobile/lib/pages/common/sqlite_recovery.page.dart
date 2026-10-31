@@ -8,6 +8,8 @@ import 'package:immich_mobile/services/recovery_server.service.dart';
 /// Deliberately independent of Riverpod, Store, account routing and log DB.
 /// A second tap is disabled until completion; no repair runs from initState.
 class SqliteRecoveryPage extends StatefulWidget {
+  final String? initialReason;
+  final String? initialDetail;
   final Future<void> Function() recoverAndOpen;
   final Future<bool> Function() exportBackup;
   final Future<RecoveryServerClient> Function()? openServerPhotos;
@@ -15,6 +17,8 @@ class SqliteRecoveryPage extends StatefulWidget {
   final Future<void> Function(FreshStartPreparation)? startFreshAndOpen;
   const SqliteRecoveryPage({
     super.key,
+    this.initialReason,
+    this.initialDetail,
     required this.recoverAndOpen,
     required this.exportBackup,
     this.openServerPhotos,
@@ -33,6 +37,12 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
   bool _completed = false;
   bool _exportFailed = false;
   String? _reason;
+
+  @override
+  void initState() {
+    super.initState();
+    _reason = widget.initialReason;
+  }
 
   Future<void> _recover() async {
     if (_busy || _completed) {
@@ -193,6 +203,7 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                     if (_reason != null) ...[
                       Text(recoveryReasonKey(_reason!).tr(), textAlign: TextAlign.center),
                       SelectableText('${'sqlite_recovery_code'.tr()}: $_reason'),
+                      if (_reason == widget.initialReason && widget.initialDetail != null) Text(widget.initialDetail!),
                       const SizedBox(height: 16),
                     ],
                     Text(

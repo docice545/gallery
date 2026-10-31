@@ -18,14 +18,19 @@ abstract final class SqliteRecoveryPlatform {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       throw const SqliteDatabaseUnhealthy('admission', 'startup probe did not finish');
-    } on PlatformException {
-      throw const SqliteDatabaseUnhealthy('admission', 'recovery required');
+    } on PlatformException catch (error) {
+      final details = error.details;
+      final reason = details is Map ? details['status'] : null;
+      throw SqliteDatabaseUnhealthy('admission', reason is String ? reason : 'admission_blocked');
     }
   }
 
   static Future<void> probeComplete(String token) => channel.invokeMethod('probeComplete', {'token': token});
 
   static Future<void> release(String token) => channel.invokeMethod('release', {'token': token});
-  static Future<void> halt() => channel.invokeMethod('halt');
+  static Future<void> halt({String? reason, int? sqliteCode}) =>
+      channel.invokeMethod('halt', {'reason': ?reason, 'sqliteCode': ?sqliteCode});
+  static Future<Map<String, Object?>> diagnostic() async =>
+      (await channel.invokeMapMethod<String, Object?>('diagnostic')) ?? const {};
   static Future<File> selected() async => File((await channel.invokeMethod<String>('path'))!);
 }

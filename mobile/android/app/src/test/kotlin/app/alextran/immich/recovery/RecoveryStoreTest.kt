@@ -20,6 +20,48 @@ class RecoveryStoreTest {
     try { action(); fail("unsafe operation was accepted") } catch (_: IllegalStateException) { }
   }
 
+  @Test fun retainedRecoveryBlockHasItsOriginalCauseAndCannotBeClearedByNativeReactivation() {
+    val original = source(); val before = RecoveryStore.hash(original)
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt("startup_integrity_failed", 779)
+      assertEquals("recovery_blocked", store.diagnostic()["status"])
+    }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      repeat(5) { assertNull(store.acquireNativeRead()) }
+      assertEquals("persisted_recovery_block", store.diagnostic()["status"])
+      assertEquals("startup_integrity_failed", store.diagnostic()["reason"])
+      assertEquals(779, store.diagnostic()["sqliteCode"])
+      refuses { store.acquire() }
+      assertEquals(before, RecoveryStore.hash(original))
+    }
+  }
+
+  @Test fun nativeReadFailuresDoNotManufactureCorruptionOrChangeTheActiveGeneration() {
+    val original = source(); val before = RecoveryStore.hash(original)
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val flutter = store.acquire(); store.probeComplete(flutter.getValue("token"))
+      repeat(20) {
+        val native = store.acquireNativeRead()!!
+        store.noteNativeReadFailure("cloud_reader_timeout")
+        store.release(native.getValue("token"))
+        assertEquals("ready", store.diagnostic()["status"])
+        assertEquals("cloud_reader_timeout", store.diagnostic()["readerError"])
+        store.noteNativeReadSuccess()
+        assertFalse(store.diagnostic().containsKey("readerError"))
+        assertEquals(original, store.selected())
+      }
+      store.release(flutter.getValue("token"))
+      assertEquals(before, RecoveryStore.hash(original))
+    }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      assertEquals("startup_probe_pending", store.diagnostic()["status"])
+      assertNull(store.acquireNativeRead())
+      val first = store.acquire(); store.probeComplete(first.getValue("token"))
+      assertEquals("ready", store.diagnostic()["status"])
+      store.release(first.getValue("token"))
+    }
+  }
+
   @Test fun allLeasesMustCloseAndNoNewPoolCanStart() {
     RecoveryStore(root(), source(), ::sync).use { store ->
       val first = store.acquire(); store.probeComplete(first.getValue("token")); val second = store.acquire()

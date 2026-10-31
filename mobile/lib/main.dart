@@ -63,6 +63,10 @@ void main() async {
     if (!Platform.isAndroid) {
       rethrow;
     }
+    final diagnostic = await SqliteRecoveryPlatform.diagnostic().catchError((_) => <String, Object?>{});
+    final initialReason = diagnostic['status'] as String?;
+    final sourceReason = diagnostic['reason'] as String?;
+    final sqliteCode = diagnostic['sqliteCode'] as int?;
     final recovery = OneTapSqliteRecovery(const AndroidRecoveryHost());
     final freshStart = FreshSqliteStart(const AndroidFreshStartHost());
     runApp(
@@ -73,6 +77,10 @@ void main() async {
         fallbackLocale: locales.values.first,
         assetLoader: const AppAssetLoader(),
         child: SqliteRecoveryPage(
+          initialReason: initialReason,
+          initialDetail: sourceReason == null
+              ? null
+              : '$sourceReason${sqliteCode == null ? '' : ' / SQLITE $sqliteCode'}',
           recoverAndOpen: () async {
             await recovery.run();
             try {

@@ -103,3 +103,7 @@ with zipfile.ZipFile('mobile/ci-receipts/synthetic-before-new-start.zip') as z:
 print('PASS: separate verified external ZIP retained before consented fresh start')
 PYZIP
 fi
+
+if [[ "$foto_mode" == upgrade ]]; then
+  bash tools/foto-automation/foto-build24-cloud-emulator.sh
+fi

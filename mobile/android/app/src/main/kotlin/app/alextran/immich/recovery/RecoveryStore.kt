@@ -21,6 +21,11 @@ class RecoveryStore(
   private var probeOwner: String? = null
   private var validated = false
   private val stateFile = File(root, "selection")
+  private var restoredBlock = false
+  private var blockReason = ""
+  private var blockSqliteCode: Int? = null
+  private var readerError: String? = null
+  private var readerSqliteCode: Int? = null
   private var blocked = false
   private var active: String = ""
   private var selectionUncertain = false
@@ -42,6 +47,12 @@ class RecoveryStore(
         val fields = stateFile.readText().split('\n')
         check(fields.size == 3 && fields[0] == "FOTO23" && fields[1] in listOf("blocked", "ready"))
         blocked = fields[1] == "blocked"
+        restoredBlock = blocked
+        if (blocked) {
+          val reason = File(root, "halt-reason").takeIf { it.isFile }?.readLines() ?: emptyList()
+          blockReason = reason.firstOrNull()?.takeIf { it.matches(Regex("[a-z_]{1,80}")) } ?: "legacy_recovery_block"
+          blockSqliteCode = reason.getOrNull(1)?.toIntOrNull()
+        }
         active = fields[2]
         selected()
       } else {
@@ -111,10 +122,38 @@ class RecoveryStore(
     if (probeOwner == token) probeOwner = null
   }
 
-  @Synchronized fun halt() {
+  @Synchronized fun diagnostic(): Map<String, Any> = buildMap {
+    put("status", when { selectionUncertain -> "selection_unavailable"; blocked && restoredBlock -> "persisted_recovery_block"; blocked -> "recovery_blocked"; !validated -> "startup_probe_pending"; else -> "ready" })
+    if (blocked) { put("reason", blockReason.ifEmpty { "recovery_requested" }); blockSqliteCode?.let { put("sqliteCode", it) } }
+    readerError?.let { put("readerError", it) }; readerSqliteCode?.let { put("readerSqliteCode", it) }
+  }
+
+  @Synchronized fun noteNativeReadSuccess() { readerError = null; readerSqliteCode = null }
+
+  @Synchronized fun noteNativeReadFailure(reason: String, code: Int? = null) {
+    readerError = reason; readerSqliteCode = code
+    check(reason.matches(Regex("[a-z_]{1,80}")))
+    val temporary = File(root, "native-reader-report.next")
+    FileOutputStream(temporary).use {
+      it.write("{\"format\":24,\"origin\":\"cloud_reader\",\"reason\":\"$reason\",\"sqliteCode\":${code ?: "null"},\"recoveryBlocked\":$blocked}".toByteArray())
+      it.fd.sync()
+    }
+    check(temporary.renameTo(File(root, "native-reader-report.json")))
+    syncDirectory(root)
+  }
+
+  @Synchronized fun halt(reason: String? = null, sqliteCode: Int? = null) {
     blocked = true // Even a failed fsync must stop this process.
     check(!selectionUncertain) { "manual selection recovery required" }
     persist(true, active)
+    if (reason != null) {
+      check(reason.matches(Regex("[a-z_]{1,80}")))
+      blockReason = reason; blockSqliteCode = sqliteCode; restoredBlock = false
+      val temporary = File(root, "halt-reason.next")
+      FileOutputStream(temporary).use { it.write("$reason\n${sqliteCode ?: ""}".toByteArray()); it.fd.sync() }
+      check(temporary.renameTo(File(root, "halt-reason")))
+      syncDirectory(root)
+    }
   }
 
   @Synchronized fun begin(): Map<String, String> {

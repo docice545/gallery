@@ -28,6 +28,23 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await EasyLocalization.ensureInitialized();
   });
+  testWidgets('persisted admission explains an old block without claiming new corruption', (tester) async {
+    var recovered = false;
+    await tester.pumpWidget(
+      localized(
+        SqliteRecoveryPage(
+          initialReason: 'persisted_recovery_block',
+          initialDetail: 'startup_integrity_failed / SQLITE 779',
+          recoverAndOpen: () async => recovered = true,
+          exportBackup: () async => false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Само по себе это не означает новое повреждение'), findsOneWidget);
+    expect(find.text('startup_integrity_failed / SQLITE 779'), findsOneWidget);
+    expect(recovered, false);
+  });
   testWidgets('Russian screen waits for one tap and returns the existing account from real WAL recovery', (
     tester,
   ) async {

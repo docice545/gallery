@@ -83,9 +83,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(server.requests.any((r) => r.uri.queryParameters['size'] == 'preview'), true);
     expect(server.requests.every((r) => r.method == 'GET' && r.authenticated), true);
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(await recoveryFileHashes(source), hashes);
     expect((await SqliteRecoveryPlatform.selected()).path, source.path);

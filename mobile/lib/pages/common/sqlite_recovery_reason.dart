@@ -13,6 +13,7 @@ String recoveryReasonCode(Object error) {
 }
 
 String recoveryReasonKey(String code) => switch (code) {
+  'persisted_recovery_block' => 'sqlite_recovery_reason_persisted_block',
   'external_backup_unverified' => 'sqlite_fresh_export_failed',
   'insufficient_space' => 'sqlite_recovery_reason_space',
   'empty_wal_evidence_missing' ||

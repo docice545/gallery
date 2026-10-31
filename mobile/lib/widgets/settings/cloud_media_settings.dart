@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
@@ -77,6 +78,14 @@ class _CloudMediaSettingsState extends ConsumerState<CloudMediaSettings> with Wi
   Widget build(BuildContext context) {
     final t = context.t;
     final enabled = _status['enabled'] == true;
+    final sqlite = _status['sqlite'] is Map ? _status['sqlite']! as Map : const {};
+    final sqliteStatus = sqlite['status'];
+    final readerError = sqlite['readerError'];
+    final readerUnavailable =
+        _status['supported'] == true &&
+        (_status['sqliteReaderReady'] == false ||
+            (sqliteStatus != null && sqliteStatus != 'ready') ||
+            readerError != null);
     final status = _failed
         ? t.cloud_media_failed
         : _status['supported'] == false
@@ -100,7 +109,13 @@ class _CloudMediaSettingsState extends ConsumerState<CloudMediaSettings> with Wi
           const SizedBox(height: 8),
           Text(t.cloud_media_instructions),
           const SizedBox(height: 8),
-          Text(status),
+          Text(readerUnavailable ? 'cloud_media_reader_unavailable'.tr() : status),
+          if (readerUnavailable)
+            Text(
+              '${'sqlite_recovery_code'.tr()}: ${readerError ?? sqliteStatus ?? 'cloud_reader_unavailable'}'
+              '${sqlite['reason'] == null ? '' : ' / ${sqlite['reason']}'}'
+              '${sqlite['sqliteCode'] == null ? '' : ' / SQLITE ${sqlite['sqliteCode']}'}',
+            ),
           if (_status['recoveryPending'] == true && !enabled) Text(t.cloud_media_recovery_pending),
           if (_busy) ...[
             const LinearProgressIndicator(),

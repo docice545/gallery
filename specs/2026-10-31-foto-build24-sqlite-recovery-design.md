@@ -138,3 +138,60 @@ an isolated checkout of the original Build 23 SHA. Those player/Live Photo files
 are unchanged here. The release CI's recovery/bootstrap/sync/UI regression suite
 is the scoped gate; the entire pre-existing app suite must not be described as
 all green.
+
+## Shizuku / system Photo Picker acceptance (Build 24 P0 extension)
+
+The new Samsung report does not include a post-Shizuku database or native error
+receipt. We cannot retrospectively distinguish a newly corrupt file from the
+persisted Build 23 admission block. Activating Shizuku is not evidence of a new
+SQLite failure: its shell service only manages the explicitly journaled
+DeviceConfig admission keys, never database paths, media or credentials.
+
+The audit did find two concrete reader defects/risks. CloudMediaCatalog required
+`user_version == 38`, while the pinned Build 23 Drift schema is already **39**.
+That condition reports no signed-in catalog; it does not itself call `halt()`.
+It also repeatedly opened the active database using Android's system SQLite
+library, separately from Flutter's bundled SQLite and pool. Separate SQLite
+libraries in one process do not share their internal POSIX lock bookkeeping;
+opening/closing those file descriptors and WAL/SHM handles is an avoidable risk.
+This is not a claim that we proved that mechanism caused the Samsung corruption.
+
+The provider now borrows a read transaction from the already admitted Flutter
+pool. The native bridge never opens SQLite or WAL/SHM, creates a pool, copies a
+live file, changes a generation or checkpoints. It accepts only single SELECT/
+WITH statements which SQLite confirms are read-only; PRAGMA/ATTACH/writes/trailing
+statements are refused. Query responses are bounded to 201 rows / 4 MiB. The
+collection digest streams rows in one read snapshot in the existing pool's
+worker, not a full in-memory mirror. Album pagination remains bounded too.
+Schema readiness uses the actual Drift schema version, not another native
+hard-coded number. Native read leases still honor RecoveryStore admission.
+Closing an engine first unregisters the bridge and drains pending read callbacks
+before closing the owning sqlite_async pool and its admission lease.
+
+No Shizuku connection is involved in media reads. Existing opt-in, owner scope,
+projection visibility and original/preview HTTP behavior remain. A cold system
+provider without a validated Flutter pool reports unavailable and never opens a
+second SQLite connection. Bootstrap/bridge readiness wakes the existing change
+observer; normal app restart must complete its health probe first.
+
+Admission now distinguishes `persisted_recovery_block`, a new `recovery_blocked`,
+`startup_probe_pending` and `ready`. A durable enumerated cause and SQLite code
+survive restart. Temporary reader timeout/cancellation/engine unavailability is
+reported separately and does not manufacture corruption or clear an old block.
+Real unsafe SQLite failures halt admission; `native-reader-report.json` and the
+retained cause file are included in the normal diagnostic ZIP. Reports contain
+no SQL text, paths, rows or credentials. Both the recovery screen and Cloud Media
+settings expose the reason; the Russian screen explicitly explains that an old
+block alone does not mean newly damaged data.
+
+Real pool tests cover concurrent writer/reader snapshots, WAL-only changes,
+read draining, result limits, attempted write/checkpoint rejection and retained
+corruption gates. Native tests cover repeated native admissions, transient errors
+without generation changes and durable block causes across process recreation.
+Android acceptance additionally installs a SHA-256-pinned Shizuku 13.6.0 on the
+synthetic API 36 emulator (shell UID 2000), operates its real permission dialog,
+selects FOTO through actual Photo Picker settings, requires actual provider query
+and returned-row counters, then force-stops/restarts FOTO and Shizuku and repeats.
+It asserts the same recovered generation, original Build 23 checksums, account,
+disabled automatic backup and a successful next startup health probe. Screenshots
+and anonymized native counters are CI receipts, not physical Samsung validation.

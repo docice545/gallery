@@ -2,7 +2,6 @@ package app.alextran.immich.cloudmedia
 
 import android.content.Context
 import android.database.Cursor
-import android.database.sqlite.SQLiteDatabase
 import android.os.CancellationSignal
 import android.os.Build
 import app.alextran.immich.R
@@ -45,26 +44,21 @@ internal class CloudMediaCatalog(private val context: Context) {
     return "${file.canonicalPath}:${CloudMediaChanges.revision.get()}:${file.lastModified()}:${file.length()}:${wal.lastModified()}:${wal.length()}"
   }
 
-  private fun <T> read(block: (SQLiteDatabase) -> T): T? {
-    if (Build.VERSION.SDK_INT < 35) return null
+  private class Reader {
+    fun rawQuery(sql: String, args: Array<String>?, cancellation: CancellationSignal? = null): Cursor =
+      CloudSqliteReaders.query(sql, args ?: emptyArray(), cancellation)
+  }
+
+  private fun <T> read(block: (Reader) -> T): T? {
+    if (Build.VERSION.SDK_INT < 35 || !CloudSqliteReaders.available()) return null
     val store = SqliteRecoveryPlugin.store(context)
     val lease = store.acquireNativeRead() ?: return null
-    var db: SQLiteDatabase? = null
     try {
-      val file = File(lease.getValue("path"))
-      if (!file.isFile) return null
-      // Android's default corruption handler deletes database files, including
-      // for read-only connections. Retain evidence and block admission instead.
-      val connection = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY) { store.halt() }
-      db = connection
-      // Never read a migration's half-built schema. No PRAGMA/schema writes.
-      val ready = connection.rawQuery("PRAGMA user_version", null).use { it.moveToFirst() && it.getInt(0) == 38 }
-      if (!ready) return null
-      connection.beginTransactionReadOnly()
-      return try { block(connection).also { connection.setTransactionSuccessful() } } finally { connection.endTransaction() }
+      return block(Reader()).also { store.noteNativeReadSuccess() }
+    } catch (error: CloudReaderFailure) {
+      store.noteNativeReadFailure(error.code, error.sqliteCode)
+      throw error
     } finally {
-      // A failed close retains its lease; recovery cannot guess this handle closed.
-      db?.close()
       store.release(lease.getValue("token"))
     }
   }
@@ -101,30 +95,20 @@ internal class CloudMediaCatalog(private val context: Context) {
     requireSession(session.scope)
     val revision = revision()
     snapshotCache?.takeIf { it.first == session.scope && it.second == revision }?.let { return@synchronized it.third }
-    val digest = MessageDigest.getInstance("SHA-256")
-    digest.update(session.scope.toByteArray())
-    read { db ->
-      db.rawQuery("WITH eligible AS ($projection) SELECT * FROM eligible ORDER BY asset_id", arrayOf(session.owner))
-        .use { cursor ->
-          while (cursor.moveToNext()) for (i in 0 until cursor.columnCount) {
-            val value = if (cursor.isNull(i)) "" else cursor.getString(i)
-            digest.update(value.toByteArray()); digest.update(0)
-          }
-        }
-      // Album labels/membership affect the same snapshot, including deletions.
-      for (table in listOf("remote_album_entity", "remote_album_asset_entity", "remote_album_user_entity",
-        "shared_space_album_entity", "shared_space_album_asset_entity", "shared_space_album_link_entity",
-        "shared_space_album_hidden_entity", "shared_space_member_entity", "partner_entity")) {
-        db.rawQuery("SELECT * FROM $table ORDER BY 1,2", null).use { cursor ->
-          while (cursor.moveToNext()) for (i in 0 until cursor.columnCount) {
-            digest.update((if (cursor.isNull(i)) "" else cursor.getString(i)).toByteArray()); digest.update(0)
-          }
-        }
-      }
-    } ?: throw IllegalStateException("Gallery catalog is unavailable")
+    val queries = mutableListOf<Map<String, Any>>(
+      mapOf("sql" to "WITH eligible AS ($projection) SELECT * FROM eligible ORDER BY asset_id", "args" to listOf(session.owner)),
+    )
+    for (table in listOf("remote_album_entity", "remote_album_asset_entity", "remote_album_user_entity",
+      "shared_space_album_entity", "shared_space_album_asset_entity", "shared_space_album_link_entity",
+      "shared_space_album_hidden_entity", "shared_space_member_entity", "partner_entity")) {
+      queries.add(mapOf("sql" to "SELECT * FROM $table ORDER BY 1,2", "args" to emptyList<String>()))
+    }
+    // One pool read transaction and incremental digest, never materialize the
+    // full library over the platform channel and never open a second SQLite library.
+    val hash = read { CloudSqliteReaders.digest(session.scope, queries) }
+      ?: throw IllegalStateException("Gallery catalog is unavailable")
     requireSession(session.scope)
     check(revision == revision()) { "Gallery catalog changed during snapshot; retry query" }
-    val hash = digest.digest().joinToString("") { "%02x".format(it) }
     val key = "snapshot.${session.scope}"
     val generationKey = "generation.${session.scope}"
     if (prefs.getString(key, null) != hash || !prefs.contains(generationKey)) {
@@ -167,7 +151,7 @@ internal class CloudMediaCatalog(private val context: Context) {
       number("is_favorite") != 0L, orientation, text("local_id"))
   }
 
-  fun albums(session: CloudSession, mimeCondition: String, mimeArgs: List<String>, consume: (Cursor) -> Unit) {
+  fun albums(session: CloudSession, mimeCondition: String, mimeArgs: List<String>, limit: Int, offset: Int, consume: (Cursor) -> Unit) {
     requireSession(session.scope)
     read { db ->
       db.rawQuery("""
@@ -185,8 +169,8 @@ internal class CloudMediaCatalog(private val context: Context) {
         SELECT a.id,a.name,MAX(e.date_taken_millis) AS date_taken_millis,
           MIN(e.asset_id) AS cover_id,COUNT(DISTINCT e.asset_id) AS media_count
         FROM labels a JOIN memberships m ON m.album_id=a.id JOIN eligible e ON e.asset_id=m.asset_id
-        GROUP BY a.id,a.name ORDER BY a.name,a.id
-      """.trimIndent(), (listOf(session.owner) + mimeArgs).toTypedArray()).use(consume)
+        GROUP BY a.id,a.name ORDER BY a.name,a.id LIMIT ? OFFSET ?
+      """.trimIndent(), (listOf(session.owner) + mimeArgs + listOf(limit.coerceIn(1, 201).toString(), offset.coerceAtLeast(0).toString())).toTypedArray()).use(consume)
     }
     requireSession(session.scope)
   }

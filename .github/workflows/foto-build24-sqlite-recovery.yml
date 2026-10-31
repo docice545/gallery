@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           mkdir -p ci-receipts
           flutter analyze --no-pub 2>&1 | tee ci-receipts/analyze.log
-          flutter test --no-pub test/data/db test/pages/common/sqlite_recovery_page_test.dart test/pages/common/sqlite_recovery_server_page_test.dart test/pages/common/sqlite_fresh_backup_review_test.dart test/infrastructure/repositories test/domain/utils/background_sync_test.dart test/domain/services test/services test/repositories 2>&1 | tee ci-receipts/tests.log
+          flutter test --no-pub test/data/db test/pages/common/sqlite_recovery_page_test.dart test/pages/common/sqlite_recovery_server_page_test.dart test/pages/common/sqlite_fresh_backup_review_test.dart test/widgets/settings/cloud_media_settings_test.dart test/infrastructure/repositories test/domain/utils/background_sync_test.dart test/domain/services test/services test/repositories 2>&1 | tee ci-receipts/tests.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
@@ -37,7 +37,7 @@ jobs:
   android:
     name: Android compilation and recovery admission tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 120
     permissions:
       contents: read
       packages: read
@@ -131,7 +131,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Android 16 actual Build 23 to 24 update, Samsung WAL and server viewer
+      - name: Android 16 Build 23 to 24, Samsung WAL, fresh library, Shizuku and real Photo Picker
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 36

@@ -211,6 +211,10 @@ class RecoveryHttpServer {
             'isImage': [true, true],
           }),
         );
+      } else if (request.uri.path == '/api/assets/$photoId') {
+        response.write(
+          jsonEncode({'id': photoId, 'ownerId': 'existing-owner', 'isTrashed': false, 'visibility': 'timeline'}),
+        );
       } else if (request.uri.path == '/api/assets/$photoId/thumbnail') {
         response.headers.contentType = ContentType('image', 'png');
         response.add(
