@@ -17,7 +17,19 @@ void main() {
   setUp(() async => directory = await Directory.systemTemp.createTemp('foto24-checkpoint-'));
   tearDown(() => directory.delete(recursive: true));
 
-  test('completed checkpoint with retained commit witness preserves WAL-only rows', () async {
+  test('stale retained checkpoint SHM plus an older full snapshot cannot authorize lost later commits', () async {
+    final source = await createCheckpointFixture(directory, loseLaterCommit: true);
+    final before = await recoveryFileHashes(source);
+    final host = FileRecoveryHost(source, Directory('${source.parent.path}/recovery'));
+    await expectLater(
+      OneTapSqliteRecovery(host).run(),
+      throwsA(isA<RecoveryRefused>().having((e) => e.reason, 'reason', 'checkpoint_history_not_terminal')),
+    );
+    expect(host.selected.path, source.path);
+    expect(await recoveryFileHashes(source), before);
+  });
+
+  test('completed checkpoint is diagnosed but a historical witness cannot prove it was the last commit', () async {
     final source = await createCheckpointFixture(directory);
     expect(File('${source.path}-wal').lengthSync(), 0);
     final before = await recoveryFileHashes(source);
@@ -29,11 +41,12 @@ void main() {
     probe.close();
     expect(await recoveryFileHashes(source), before);
     final host = FileRecoveryHost(source, Directory('${source.parent.path}/recovery'));
-    await OneTapSqliteRecovery(host).run();
-    expect(host.selected.path, isNot(source.path));
-    final db = sqlite3.open(host.selected.path, mode: OpenMode.readOnly);
-    expect(db.select('PRAGMA integrity_check').single.values.single, 'ok');
-    expect(db.select('PRAGMA foreign_key_check'), isEmpty);
+    await expectLater(
+      OneTapSqliteRecovery(host).run(),
+      throwsA(isA<RecoveryRefused>().having((e) => e.reason, 'reason', 'checkpoint_history_not_terminal')),
+    );
+    expect(host.selected.path, source.path);
+    final db = openSqliteStartupProbe(source);
     expect(db.select('SELECT id FROM pending_upload').single.values.single, 'upload-wal-only');
     expect(db.select('SELECT * FROM pending_delete'), hasLength(2));
     db.close();
@@ -43,7 +56,9 @@ void main() {
         .whereType<File>()
         .singleWhere((f) => f.path.endsWith('/recovery-report.json'));
     final report = jsonDecode(receipt.readAsStringSync());
-    expect(report['walEvidence']['code'], 'checkpoint_with_matching_wal_snapshot');
+    expect(report['walEvidence']['code'], 'checkpoint_history_not_terminal');
+    expect(report['walEvidence']['complete'], false);
+    expect(report['integrityStatus'], 'passed'); // Candidate only, never promoted.
     expect(report['contentMatch'], true);
   });
 
@@ -112,8 +127,8 @@ void main() {
     expect(host.selected.path, source.path);
   });
 
-  for (final stop in ['copy:immich.sqlite', 'after_reindex', 'before_promotion']) {
-    test('checkpoint recovery interrupted at $stop preserves evidence and can retry', () async {
+  for (final stop in ['copy:immich.sqlite', 'backup_durable', 'after_reindex']) {
+    test('checkpoint diagnosis interrupted at $stop preserves evidence and remains blocked on retry', () async {
       final source = await createCheckpointFixture(directory);
       final before = await recoveryFileHashes(source);
       final host = FileRecoveryHost(source, Directory('${source.parent.path}/recovery'));
@@ -130,8 +145,11 @@ void main() {
       );
       expect(host.selected.path, source.path);
       expect(await recoveryFileHashes(source), before);
-      await OneTapSqliteRecovery(FileRecoveryHost(source, host.root)).run();
-      expect(host.selected.path, isNot(source.path));
+      await expectLater(
+        OneTapSqliteRecovery(FileRecoveryHost(source, host.root)).run(),
+        throwsA(isA<RecoveryRefused>().having((e) => e.reason, 'reason', 'checkpoint_history_not_terminal')),
+      );
+      expect(host.selected.path, source.path);
       expect(await recoveryFileHashes(source), before);
     });
   }

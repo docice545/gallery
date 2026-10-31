@@ -11,7 +11,7 @@ import 'sqlite_one_tap_recovery_test.dart' show FileRecoveryHost, createRecovery
 void main() {
   for (final checkpoint in [false, true]) {
     test(
-      'SIGKILL during real REINDEX never promotes; next process recovers all rows; checkpoint=$checkpoint',
+      'SIGKILL during real REINDEX preserves evidence; retry requires complete WAL; checkpoint=$checkpoint',
       () async {
         final directory = await Directory.systemTemp.createTemp('foto23-interrupt-');
         addTearDown(() => directory.delete(recursive: true));
@@ -47,8 +47,16 @@ void main() {
         }
         expect(host.selected.path, source.path);
         expect(await recoveryFileHashes(source), before);
-        await OneTapSqliteRecovery(FileRecoveryHost(source, host.root)).run();
-        expect(host.selected.path, isNot(source.path));
+        if (checkpoint) {
+          await expectLater(
+            OneTapSqliteRecovery(FileRecoveryHost(source, host.root)).run(),
+            throwsA(isA<RecoveryRefused>().having((e) => e.reason, 'reason', 'checkpoint_history_not_terminal')),
+          );
+          expect(host.selected.path, source.path);
+        } else {
+          await OneTapSqliteRecovery(FileRecoveryHost(source, host.root)).run();
+          expect(host.selected.path, isNot(source.path));
+        }
         expect(await recoveryFileHashes(source), before);
       },
       skip: !Platform.isLinux,

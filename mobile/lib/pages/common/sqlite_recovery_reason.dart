@@ -18,6 +18,7 @@ String recoveryReasonKey(String code) => switch (code) {
   'insufficient_space' => 'sqlite_recovery_reason_space',
   'empty_wal_evidence_missing' ||
   'checkpoint_witness_missing' ||
+  'checkpoint_history_not_terminal' ||
   'checkpoint_primary_mismatch' ||
   'missing_committed_wal' ||
   'wal_or_index_invalid' ||

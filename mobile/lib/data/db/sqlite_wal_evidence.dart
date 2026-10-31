@@ -5,9 +5,9 @@ import 'package:crypto/crypto.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery.dart';
 import 'package:path/path.dart' as p;
 
-/// A past snapshot alone is NOT evidence that no newer WAL transactions were
-/// lost. Empty-WAL promotion additionally requires the CURRENT, non-rebuilt
-/// checkpoint header, its last commit identity, and exact primary page images.
+/// A past snapshot and retained SHM cannot prove that no newer WAL transactions
+/// were lost: SHM is transient, not a durable last-commit record. Historical
+/// checkpoint matches aid diagnosis; they never authorize empty-WAL promotion.
 final class SqliteWalEvidence {
   final bool complete;
   final String code;
@@ -161,8 +161,13 @@ Future<SqliteWalEvidence> assessSqliteWalEvidence({
         if (!before.indexed.every((e) => e.$2 == after[e.$1])) {
           continue;
         }
-        return SqliteWalEvidence(true, 'checkpoint_with_matching_wal_snapshot', {
+        // SHM is a transient index, not a durable last-commit record. These
+        // bytes prove a historical checkpoint, but may themselves be stale
+        // after loss of a later WAL. No Build 22/23 snapshot contains a durable
+        // terminal-write witness. Never authorize promotion from this match.
+        return SqliteWalEvidence(false, 'checkpoint_history_not_terminal', {
           ...details,
+          'historicalCheckpointMatches': true,
           'snapshotsChecked': checked,
           'witnessChecksums': before,
         });

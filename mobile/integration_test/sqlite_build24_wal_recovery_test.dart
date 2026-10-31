@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -19,7 +20,7 @@ import '../test/data/db/fixtures/sqlite_account_fixture.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  testWidgets('Android 16 one tap proves checkpoint, promotes and reopens original production account and queues', (
+  testWidgets('Android 16 one tap validates complete WAL, promotes and reopens production account and queues', (
     tester,
   ) async {
     final info = await PackageInfo.fromPlatform();
@@ -27,10 +28,15 @@ void main() {
     expect(info.buildNumber, '24');
     final source = await SqliteRecoveryPlatform.selected();
     expect(source.existsSync(), false); // separate fresh AVD, never erase an old fixture
-    await createAccountRecoveryFixture(source.parent, checkpoint: true);
-    final hashes = await recoveryFileHashes(source);
+    await createAccountRecoveryFixture(source.parent);
+    expect(File('${source.path}-wal').lengthSync(), greaterThan(32));
+    final beforeProbe = await recoveryFileHashes(source);
     await expectLater(openSqliteConnectionWithUpdatePool(name: 'immich'), throwsA(isA<SqliteDatabaseUnhealthy>()));
-    expect(await recoveryFileHashes(source), hashes); // new probe preserves checkpoint SHM too
+    final hashes = await recoveryFileHashes(source);
+    // A reader of a live WAL may update SHM read marks, but never table/WAL bytes.
+    // Recovery retains all three source files exactly as admitted after the probe.
+    expect(hashes[''], beforeProbe['']);
+    expect(hashes['-wal'], beforeProbe['-wal']);
     await EasyLocalization.ensureInitialized();
     final completed = Completer<void>();
     var calls = 0;

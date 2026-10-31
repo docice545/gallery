@@ -33,6 +33,16 @@ void main() {
         'localIds': ['deleted-local'],
       });
       final host = FileRecoveryHost(source, Directory('${directory.path}/recovery'));
+      if (checkpoint) {
+        final before = await recoveryFileHashes(source);
+        await expectLater(
+          OneTapSqliteRecovery(host).run(),
+          throwsA(isA<RecoveryRefused>().having((e) => e.reason, 'reason', 'checkpoint_history_not_terminal')),
+        );
+        expect(host.selected.path, source.path);
+        expect(await recoveryFileHashes(source), before);
+        return;
+      }
       await OneTapSqliteRecovery(host).run();
       final restored = Drift(NativeDatabase(host.selected));
       final store = await StoreService.create(storeRepository: StoreRepository(restored), listenUpdates: false);

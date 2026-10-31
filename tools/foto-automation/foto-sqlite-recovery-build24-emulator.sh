@@ -2,10 +2,10 @@
 # Synthetic debug-package emulator test only. Never target a production device.
 set -euo pipefail
 [[ "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" == 1 ]]
-foto_mode=${1:?upgrade or checkpoint}
+foto_mode=${1:?upgrade or wal}
 case "$foto_mode" in
   upgrade) foto_test=integration_test/sqlite_build24_upgrade_test.dart ;;
-  checkpoint) foto_test=integration_test/sqlite_build24_checkpoint_test.dart ;;
+  wal) foto_test=integration_test/sqlite_build24_wal_recovery_test.dart ;;
   *) exit 2 ;;
 esac
 export FOTO24_TEST_MODE="$foto_mode"
@@ -90,7 +90,7 @@ with zipfile.ZipFile('mobile/ci-receipts/synthetic-'+os.environ['FOTO24_TEST_MOD
         assert z.read('source/immich.sqlite-wal')==b''
         assert any(n.endswith('server-view-report.json') for n in z.namelist())
     else:
-        assert any(r['format']==24 and r['outcome']=='validated' and r['contentMatch'] and r['tablesChecked']>50 and r['walEvidence']['code']=='checkpoint_with_matching_wal_snapshot' for r in attempts)
+        assert any(r['format']==24 and r['outcome']=='validated' and r['contentMatch'] and r['tablesChecked']>50 and r['walEvidence']['code']=='complete_wal_and_index' for r in attempts)
 print('PASS: Build24 '+os.environ['FOTO24_TEST_MODE']+', real SAF ZIP, exact source checksums and retained historical WAL')
 PY
 

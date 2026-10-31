@@ -33,13 +33,27 @@ rollback originals remain. `diagnoseAndRepairSqliteSnapshot.promotionAllowed`
 remains false. Only explicit one-tap coordination may select a validated candidate.
 
 Nonempty WAL must pass the existing complete manifest, frame checksum, commit and
-SHM extent checks. For empty WAL in WAL mode, exact repair requires a coherent
-CURRENT retained checkpoint SHM plus a fully validated historical WAL snapshot.
-Last change counter, page size/count, frame checksum and salt transition must
-match; reconstructing the old primary plus committed WAL must produce exactly the
-current primary page-image SHA-256. This includes non-table pages. Canonical
-rebuilt SHM, missing witnesses, truncation, mismatches and scan-limit exhaustion
-are safe refusals. Previous attempts are read, never overwritten.
+SHM extent checks. Empty WAL in WAL mode does **not** authorize exact promotion.
+The historical audit compares retained SHM change counters, page size/count,
+frame checksum and salt transition to a fully validated old WAL snapshot, then
+reconstructs all primary page bytes, including freelists and non-table pages.
+Even a complete match is only historical evidence: SQLite's WAL-index is
+[transient](https://www.sqlite.org/walformat.html), not a durable last-commit
+journal. It cannot establish that no later committed WAL was lost. Build 22/23
+do not supply a durable terminal-write witness. Such matches report
+`checkpoint_history_not_terminal` and stay blocked, as do canonical rebuilt SHM,
+missing witnesses, truncation, mismatches and scan-limit exhaustion. Previous
+attempts are read, never overwritten.
+
+A real-file regression models the persistence image after lost later WAL:
+perform a real checkpoint, retain its primary/SHM bytes, then commit a new upload
+and a deletion acknowledgement into a new WAL. If that later WAL is lost and SHM
+retains its older persisted image, the files still match the old full snapshot.
+The initial Build 24 checkpoint inference accepted this image; the corrected
+version refuses it. This is a simulated persistence image using actual SQLite
+commits, not a hardware power-cut test. A checkpoint performed on our candidate
+under the held recovery barrier remains valid; no external historical inference
+is needed to apply a candidate recovered from the source's complete WAL.
 
 Diagnosis runs on expendable copies even when WAL proof is absent. Report format
 24 distinguishes `not_run`, `passed`, `failed`; unavailable integrity results are
@@ -108,7 +122,8 @@ Imported old queued operations must never be replayed onto this new generation.
 ## Validation boundaries
 
 Real-file tests cover the exact index diagnostic, WAL-only rows, production
-account/queues, both indistinguishable canonical-SHM histories, proven checkpoints,
+account/queues, both indistinguishable canonical-SHM histories, real checkpoints,
+stale retained SHM after lost later commits,
 corrupt data pages/WAL, interrupted copy/REINDEX/promotion and process SIGKILL.
 New-library tests cover verified identity/login fallback, consent, disk full,
 changed candidate, interruptions/retry, empty queues and disabled backup.
@@ -121,7 +136,8 @@ Native tests cover ZIP content, full readback mismatch, source change, restart
 capability invalidation and durable selector/admission failures. Android CI uses
 actual pinned Build 23 production code, updates it without uninstall to Build 24
 on Android 16, exercises real SAF twice, then normal FOTO startup and a server
-thumbnail. A separate fresh emulator exercises proven checkpoint exact recovery.
+thumbnail. A separate fresh emulator exercises exact recovery with a complete
+source WAL and the candidate's verified checkpoint.
 Only a successful run at the delivered SHA is release evidence.
 
 The cloud does not hold the HP signing key or a physical Samsung/database. CI's

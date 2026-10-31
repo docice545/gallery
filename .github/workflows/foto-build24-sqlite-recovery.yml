@@ -142,17 +142,17 @@ jobs:
           emulator-boot-timeout: 900
           avd-name: foto24-upgrade
           script: bash tools/foto-automation/foto-sqlite-recovery-build24-emulator.sh upgrade
-      - name: Android 16 proven checkpoint one-tap recovery on a separate fresh device
+      - name: Android 16 complete WAL one-tap recovery on a separate fresh device
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 36
           target: google_apis
           arch: x86_64
-          avd-name: foto24-checkpoint
+          avd-name: foto24-wal
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -camera-back none -memory 2048 -cores 2 -gpu swiftshader_indirect
           emulator-boot-timeout: 900
-          script: bash tools/foto-automation/foto-sqlite-recovery-build24-emulator.sh checkpoint
+          script: bash tools/foto-automation/foto-sqlite-recovery-build24-emulator.sh wal
       - name: Build unsigned release from the local Pub cache with release plugin registration
         working-directory: mobile
         run: |
