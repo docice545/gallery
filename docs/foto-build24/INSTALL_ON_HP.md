@@ -47,6 +47,7 @@ python3 "$foto_runner" --repo "$foto_repo" --state "$foto_state" --resume flutte
   test/data/db test/pages/common/sqlite_recovery_page_test.dart \
   test/pages/common/sqlite_fresh_backup_review_test.dart \
   test/pages/common/sqlite_recovery_server_page_test.dart \
+  test/widgets/settings/cloud_media_settings_test.dart \
   test/infrastructure/repositories/sqlite_sync_recovery_test.dart \
   test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart \
   test/domain/utils/background_sync_test.dart
@@ -55,8 +56,12 @@ test -s mobile/android/key.jks
 python3 "$foto_runner" --repo "$foto_repo" --state "$foto_state" --resume android-apk
 foto_apk="$foto_repo/mobile/build/app/outputs/flutter-apk/app-release.apk"
 test -s "$foto_apk"
-apksigner verify --verbose --print-certs "$foto_apk"
-aapt dump badging "$foto_apk"
+foto_signing=$(apksigner verify --verbose --print-certs "$foto_apk")
+printf '%s\n' "$foto_signing"
+printf '%s\n' "$foto_signing" | rg -iq '^Signer #1 certificate SHA-256 digest: ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18$'
+foto_badging=$(aapt dump badging "$foto_apk")
+printf '%s\n' "$foto_badging"
+printf '%s\n' "$foto_badging" | rg "^package: name='de.opennoodle.gallery' versionCode='24' versionName='5.7.3'"
 sha256sum "$foto_apk"
 git diff --exit-code -- mobile/pubspec.yaml mobile/pubspec.lock mobile/android/app/build.gradle
 ```
@@ -132,3 +137,19 @@ Android обычно не допускает установку Build 23 пов�
 данные и токены: храните его у себя, не публикуйте в GitHub и не отправляйте
 сторонним сервисам. Отмена экспорта/согласия или ошибка проверки сохраняют
 старую базу; для новой попытки после завершения процесса потребуется новый экспорт.
+
+## Проверка Shizuku и системного выбора фотографий
+
+После успешного открытия галереи запустите Shizuku, включите Cloud Media Provider
+в FOTO и выберите FOTO в системных настройках Photo Picker. Откройте системный
+выбор фотографий, затем остановите и снова откройте FOTO. Проверьте тот же аккаунт,
+галерею и состояние резервного копирования. Активация Shizuku не должна выбирать
+другую локальную базу или запускать восстановление.
+
+Если экран восстановления появляется повторно, сохраните технический код и новый
+диагностический ZIP. `persisted_recovery_block` означает сохранённую блокировку;
+сам по себе он не доказывает новое повреждение. `cloud_reader_sqlite_failure`
+указывает на ошибку SQLite при чтении через проверенный Flutter-пул. Временная
+недоступность native reader отражается отдельно и не сбрасывает базу. Не очищайте
+данные и не удаляйте приложение. ZIP содержит приватные данные: передавать его
+публично нельзя; для первичного разбора достаточно обезличенного отчёта.

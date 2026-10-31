@@ -14,6 +14,7 @@ import 'package:immich_mobile/data/db/sqlite_recovery_server.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/background_worker.service.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
+import 'package:immich_mobile/infrastructure/repositories/cloud_media.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/main.dart' as application;
 import 'package:immich_mobile/pages/common/sqlite_recovery.page.dart';
@@ -39,6 +40,17 @@ void main() {
     expect(await recoveryFileHashes(source), hashes);
     expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
     await expectLater(openSqliteConnectionWithUpdatePool(name: 'immich'), throwsA(isA<SqliteDatabaseUnhealthy>()));
+    // A system/native reader must not open or rewrite the damaged generation,
+    // including when the Build 23 stop marker survived an APK upgrade.
+    const cloud = CloudMediaRepository();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final blocked = await cloud.status();
+      expect(blocked['sqliteReaderReady'], false);
+      expect(blocked['signedIn'], false);
+      expect((blocked['sqlite']! as Map)['status'], 'persisted_recovery_block');
+      expect(await recoveryFileHashes(source), hashes);
+      expect((await SqliteRecoveryPlatform.selected()).path, source.path);
+    }
     final server = await RecoveryHttpServer.start(port: 8765);
     addTearDown(server.close);
     final fresh = FreshSqliteStart(const AndroidFreshStartHost());

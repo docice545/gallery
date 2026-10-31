@@ -94,6 +94,23 @@ void main() {
     expect(connection.closed, false);
   });
 
+  test('owning pool checkpoints WAL while the native client keeps the same admitted generation', () async {
+    await connection.execute('UPDATE cloud_regression SET value=42');
+    expect(File('${file.path}-wal').lengthSync(), greaterThan(32));
+    final before = await reader.read(query('SELECT id,value FROM cloud_regression ORDER BY id'));
+    final checkpoint = await connection.writeLock(
+      (tx) => tx.computeWithDatabase((db) async => db.select('PRAGMA wal_checkpoint(TRUNCATE)').single.values.toList()),
+    );
+    expect(checkpoint.first, 0);
+    expect(File('${file.path}-wal').lengthSync(), 0);
+    expect(await reader.read(query('SELECT id,value FROM cloud_regression ORDER BY id')), before);
+    await connection.execute('UPDATE cloud_regression SET value=43');
+    expect(((await reader.read(query('SELECT value FROM cloud_regression WHERE id=1')))! as Map)['rows'], [
+      [43],
+    ]);
+    expect((await connection.get('PRAGMA integrity_check'))['integrity_check'], 'ok');
+  });
+
   test('native requests cannot write, checkpoint, attach, reset schema or add a trailing statement', () async {
     for (final sql in [
       'DELETE FROM cloud_regression RETURNING id',

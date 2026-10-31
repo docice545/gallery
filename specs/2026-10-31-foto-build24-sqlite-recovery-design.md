@@ -137,7 +137,8 @@ widgets. Three assertions fail in `timeline_video_viewer_test.dart` and
 an isolated checkout of the original Build 23 SHA. Those player/Live Photo files
 are unchanged here. The release CI's recovery/bootstrap/sync/UI regression suite
 is the scoped gate; the entire pre-existing app suite must not be described as
-all green.
+all green. `networking_settings_test.dart` also stalls in the expanded run; a
+separate bounded run reproduces that stall on the pinned Build 23 baseline.
 
 ## Shizuku / system Photo Picker acceptance (Build 24 P0 extension)
 
@@ -185,7 +186,8 @@ settings expose the reason; the Russian screen explicitly explains that an old
 block alone does not mean newly damaged data.
 
 Real pool tests cover concurrent writer/reader snapshots, WAL-only changes,
-read draining, result limits, attempted write/checkpoint rejection and retained
+the owning pool's WAL checkpoint with an attached native client, read draining,
+result limits, attempted native write/checkpoint rejection and retained
 corruption gates. Native tests cover repeated native admissions, transient errors
 without generation changes and durable block causes across process recreation.
 Android acceptance additionally installs a SHA-256-pinned Shizuku 13.6.0 on the
@@ -195,3 +197,6 @@ and returned-row counters, then force-stops/restarts FOTO and Shizuku and repeat
 It asserts the same recovered generation, original Build 23 checksums, account,
 disabled automatic backup and a successful next startup health probe. Screenshots
 and anonymized native counters are CI receipts, not physical Samsung validation.
+Before the consented new-library flow, repeated native status requests against
+the damaged Build 23 generation must retain its persisted block, expose no
+reader, leave every original checksum unchanged and keep the same selection.
