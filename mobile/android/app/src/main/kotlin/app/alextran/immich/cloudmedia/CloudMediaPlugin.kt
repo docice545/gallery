@@ -147,7 +147,7 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
     cancelled.set(false)
     val ctx = context ?: run { busy.set(false); return }
     worker.submit {
-      try {
+      val reply = try {
         val value = if (method == "status") status() else withService(ctx) { remote ->
           val prefs = ctx.getSharedPreferences("gallery.cloudmedia", Context.MODE_PRIVATE)
           val catalog = CloudMediaCatalog(ctx)
@@ -203,13 +203,17 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
             }
           }
         }
-        main.post { if (attached) result.success(value) }
+        Runnable { if (attached) result.success(value) }
       } catch (e: Exception) {
         // Exception text can contain system/media/private details; expose only
         // fixed reason codes. A journal survives every uncertain outcome.
         val code = when (e.message) { "signedOut", "accountChanged", "externallyChanged", "cancelled" -> e.message!!; else -> "operationFailed" }
-        main.post { if (attached) result.error(code, "Cloud provider operation could not be verified; inspect recovery status", null) }
+        Runnable { if (attached) result.error(code, "Cloud provider operation could not be verified; inspect recovery status", null) }
       } finally { busy.set(false) }
+      // Finish/unbind and release admission BEFORE the main thread can deliver
+      // the reply. Otherwise an immediately awaited status/enable sees busy;
+      // clearing again after delivery could also unlock a newer operation.
+      main.post(reply)
     }
   }
 

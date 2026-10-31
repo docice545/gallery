@@ -178,6 +178,14 @@ unchanged. Policy regressions cover the exception's boundaries, and emulator
 receipts capture the real shell exit/stdout/stderr without changing settings.
 This admission failure is not evidence of a new SQLite corruption on Samsung.
 
+After that fix, the real Shizuku test reached successful enable/admission and
+exposed a reply-order race: `CloudMediaPlugin` posted its result before releasing
+the busy flag in the worker's `finally`. The Dart caller could receive that result
+and start its next awaited operation while the old flag was still set. Replies
+are now constructed first, then posted only after service cleanup and flag
+release. The emulator checks consecutive status replies plus immediate repeated
+enable on both activation and restart; it does not conceal `busy` errors by retry.
+
 The new Samsung report does not include a post-Shizuku database or native error
 receipt. We cannot retrospectively distinguish a newly corrupt file from the
 persisted Build 23 admission block. Activating Shizuku is not evidence of a new

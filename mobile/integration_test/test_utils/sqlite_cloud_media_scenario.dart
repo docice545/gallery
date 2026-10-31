@@ -65,6 +65,11 @@ void cloudMediaScenario({required bool restart}) {
     expect(before['signedIn'], true);
     expect(before['sqliteReaderReady'], true);
     expect((before['sqlite']! as Map)['status'], 'ready');
+    // Native replies must be delivered after releasing the operation flag.
+    // Back-to-back awaited calls are sequential, not competing operations.
+    for (var read = 0; read < 20; read++) {
+      expect((await cloud.status())['sqliteReaderReady'], true);
+    }
     await phase.writeAsString('healthy', flush: true);
     await waitUntil(tester, () async => (await cloud.status())['shizukuRunning'] == true);
     final enabled = await cloud.enable().timeout(const Duration(seconds: 60));
