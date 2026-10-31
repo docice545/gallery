@@ -39,7 +39,7 @@ void cloudMediaScenario({required bool restart}) {
     addTearDown(server.close);
     await EasyLocalization.ensureInitialized();
     await openFotoForTest(); // real full integrity startup probe, existing account/router/pool
-    await waitUntil(tester, () async => find.byType(ThumbnailTile).evaluate().isNotEmpty);
+    await waitUntil(tester, () async => find.byType(ThumbnailTile).evaluate().isNotEmpty, pumpFrames: true);
     expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
     expect(SettingsRepository.instance.appConfig.backup.enabled, false);
     expect(StoreService.I.get(StoreKey.manageLocalMediaAndroid), false);
@@ -70,7 +70,9 @@ void cloudMediaScenario({required bool restart}) {
     await phase.writeAsString('picker', flush: true);
     await waitUntil(tester, () async {
       final status = await cloud.status();
-      return (status['pickerQueries']! as num) > 0 && (status['pickerRows']! as num) > 0;
+      return File('${directory.path}/cloud24-picker-opened-${restart ? 'restart' : 'first'}').existsSync() &&
+          (status['pickerQueries']! as num) > 0 &&
+          (status['pickerRows']! as num) > 0;
     });
     await phase.writeAsString('verified', flush: true);
     await waitUntil(
@@ -96,6 +98,7 @@ void cloudMediaScenario({required bool restart}) {
         'shizukuRunning': after['shizukuRunning'],
         'permissionGranted': after['permissionGranted'],
         'selected': after['selected'],
+        'systemPickerOpened': true,
         'pickerQueries': after['pickerQueries'],
         'pickerRows': after['pickerRows'],
       }),
@@ -106,13 +109,18 @@ void cloudMediaScenario({required bool restart}) {
   }, timeout: const Timeout(Duration(minutes: 8)));
 }
 
-Future<void> waitUntil(WidgetTester tester, Future<bool> Function() condition) async {
+Future<void> waitUntil(WidgetTester tester, Future<bool> Function() condition, {bool pumpFrames = false}) async {
   final deadline = DateTime.now().add(const Duration(seconds: 90));
   while (DateTime.now().isBefore(deadline)) {
     if (await condition()) {
       return;
     }
-    await tester.pump(const Duration(milliseconds: 100));
+    // Real settings/permission/picker activities pause Flutter's vsync. Native
+    // platform messages and timers still run; waiting for a frame here would
+    // deadlock the host helper's request/verification/return handshake.
+    if (pumpFrames) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
   fail('Native/cloud scenario condition did not complete');

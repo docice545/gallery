@@ -42,7 +42,7 @@ for mode in ['first', 'restart']:
     r=json.load(open(f'mobile/ci-receipts/cloud-{mode}-report.json'))
     assert r['sameGeneration'] and r['sameOriginalChecksums'] and r['accountRetained']
     assert r['sqlite']['status']=='ready' and r['backupEnabled'] is False
-    assert r['shizukuRunning'] and r['permissionGranted'] and r['selected']
+    assert r['shizukuRunning'] and r['permissionGranted'] and r['selected'] and r['systemPickerOpened']
     assert r['pickerQueries']>0 and r['pickerRows']>0
 print('PASS: real Shizuku activation/reactivation, picker reads, force-stop/restart; same healthy generation and originals')
 PY

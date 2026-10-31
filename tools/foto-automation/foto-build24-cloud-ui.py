@@ -33,8 +33,12 @@ while time.monotonic() - start < 1200:
         print(adb('shell', f'{library}/libshizuku.so', f'--apk={apk}'), flush=True)
         started = True
     if phase == 'picker' and not picker:
-        adb('shell', 'am', 'start', '-a', 'android.provider.action.PICK_IMAGES', '-t', 'image/*')
+        launch = adb('shell', 'am', 'start', '-a', 'android.provider.action.PICK_IMAGES', '-t', 'image/*')
+        if 'Error:' in launch:
+            raise SystemExit('System Photo Picker launch failed')
         picker = True
+        adb('shell', 'run-as', package, 'touch', f'app_flutter/cloud24-picker-opened-{mode}')
+        print('Opened real ACTION_PICK_IMAGES activity', flush=True)
     if phase in ('healthy', 'settings', 'picker', 'verified'):
         adb('shell', 'uiautomator', 'dump', '/sdcard/cloud24-window.xml', check=False)
         xml = adb('shell', 'cat', '/sdcard/cloud24-window.xml', check=False)
