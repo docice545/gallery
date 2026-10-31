@@ -656,6 +656,11 @@ final class ImmichSqliteOpenFactory extends NativeSqliteOpenFactory {
   List<String> pragmaStatements(SqliteOpenOptions options) {
     return [
       ...super.pragmaStatements(options),
+      // Only the admitted SQLite writer may manage its journal. On WAL reuse,
+      // SQLite truncates checkpointed retired frames after committing the new
+      // cycle; otherwise a normal restart looks ambiguous to the strict WAL
+      // evidence validator. This neither checkpoints nor edits a blocked source.
+      if (!options.readOnly) 'PRAGMA journal_size_limit = 0',
       'PRAGMA cache_size = -32000', // 32MB
       'PRAGMA temp_store = MEMORY',
       'PRAGMA foreign_keys = ON',

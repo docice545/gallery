@@ -213,6 +213,17 @@ The same test fails on the pinned original Build 23: `close()` has already
 completed while the test still holds its transaction. That proves the shutdown
 race, not that it caused the reported Samsung corruption.
 
+A second real-file regression exposed a healthy-restart false positive: after
+PASSIVE/automatic checkpoint and WAL reuse, SQLite normally retains retired
+frames at the end of the file. The strict existing validator refuses that tail.
+Build 24 keeps this validator unchanged and configures only the already-admitted
+writer with `journal_size_limit=0`. SQLite then truncates checkpointed retired
+frames when it safely reuses the WAL; this is not a limit on live transactions,
+a forced checkpoint, or any operation on the blocked original. Repeated passive
+and automatic cycles, an unclean-stop file image, and a concurrent pinned reader
+retain all rows and pass startup validation. Unknown legacy recycled tails remain
+blocked and unchanged; they are not retrospectively certified as safe.
+
 No Shizuku connection is involved in media reads. Existing opt-in, owner scope,
 projection visibility and original/preview HTTP behavior remain. A cold system
 provider without a validated Flutter pool reports unavailable and never opens a
@@ -241,6 +252,8 @@ and returned-row counters, then force-stops/restarts FOTO and Shizuku and repeat
 It asserts the same recovered generation, original Build 23 checksums, account,
 disabled automatic backup and a successful next startup health probe. Screenshots
 and anonymized native counters are CI receipts, not physical Samsung validation.
+On the synthetic restart fixture a favorite change also changes the collection,
+forcing actual provider reads instead of relying on Photo Picker's previous cache.
 Before the consented new-library flow, repeated native status requests against
 the damaged Build 23 generation must retain its persisted block, expose no
 reader, leave every original checksum unchanged and keep the same selection.

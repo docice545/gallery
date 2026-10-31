@@ -25,18 +25,21 @@ Future<void> openFotoForTest() async {
 Future<void> verifyWorkerKeepsNativeReader() async {
   final worker = runInIsolateGentle<Map<String, Object?>>(
     debugLabel: 'recovery-worker-admission',
-    computation: (ref) async => {
-      'root': ServicesBinding.rootIsolateToken != null,
-      'tables':
-          (await ref
-                  .read(Store.db)
-                  .customSelect("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'")
-                  .getSingle())
-              .data['n'],
+    computation: (ref) async {
+      final db = ref.read(Store.db);
+      final tables = (await db.customSelect("SELECT name FROM sqlite_master WHERE type='table'").get())
+          .map((row) => row.data['name'])
+          .toSet();
+      return {
+        'root': ServicesBinding.rootIsolateToken != null,
+        'completeSchema': db.allTables.every((table) => tables.contains(table.actualTableName)),
+        'version': (await db.customSelect('PRAGMA user_version').getSingle()).data['user_version'],
+      };
     },
   );
   final result = await worker.future.timeout(const Duration(seconds: 60));
   expect(result?['root'], false);
-  expect(result?['tables'], greaterThan(50));
+  expect(result?['completeSchema'], true);
+  expect(result?['version'], 39);
   expect((await const CloudMediaRepository().status())['sqliteReaderReady'], true);
 }

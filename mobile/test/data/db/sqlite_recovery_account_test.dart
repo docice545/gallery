@@ -47,6 +47,15 @@ void main() {
       final restored = Drift(NativeDatabase(host.selected));
       final store = await StoreService.create(storeRepository: StoreRepository(restored), listenUpdates: false);
       try {
+        final tables =
+            (await restored.customSelect("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'").getSingle())
+                .data['n'];
+        final report = host.root
+            .listSync(recursive: true)
+            .whereType<File>()
+            .singleWhere((file) => file.path.endsWith('/recovery-report.json'));
+        expect(tables, 33); // Pinned production schema 39, excluding extra rowid/schema fingerprints.
+        expect((jsonDecode(report.readAsStringSync()) as Map)['tablesChecked'], tables);
         // AuthGuard checks this exact StoreKey; no login/setup state is recreated.
         expect(store.get(StoreKey.currentUser).id, 'existing-owner');
         await restored.syncStreamRepository.recoverPendingTrashOperations();

@@ -82,15 +82,16 @@ with zipfile.ZipFile('mobile/ci-receipts/synthetic-'+os.environ['FOTO24_TEST_MOD
     assert any(n.endswith('immich.sqlite-wal') and z.getinfo(n).file_size > 32 for n in z.namelist())
     attempts=[json.loads(z.read(n)) for n in z.namelist() if n.endswith('recovery-report.json')]
     assert report['format']==24
+    # Pinned Drift schema 39 has 33 tables; rowid/schema fingerprints are extra.
     if os.environ['FOTO24_TEST_MODE']=='upgrade':
         assert any(r['format']==23 and r['outcome']=='missing_or_unprovable_wal' and r['tablesChecked']==0 for r in attempts)
-        assert any(r['format']==24 and r['outcome']=='empty_wal_evidence_missing' and r['tablesChecked']>50 for r in attempts)
+        assert any(r['format']==24 and r['outcome']=='empty_wal_evidence_missing' and r['tablesChecked']==33 for r in attempts)
         assert not any(r['outcome']=='validated' for r in attempts)
         assert hashlib.sha256(z.read('source/immich.sqlite-shm')).hexdigest()=='fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb'
         assert z.read('source/immich.sqlite-wal')==b''
         assert any(n.endswith('server-view-report.json') for n in z.namelist())
     else:
-        assert any(r['format']==24 and r['outcome']=='validated' and r['contentMatch'] and r['tablesChecked']>50 and r['walEvidence']['code']=='complete_wal_and_index' for r in attempts)
+        assert any(r['format']==24 and r['outcome']=='validated' and r['contentMatch'] and r['tablesChecked']==33 and r['walEvidence']['code']=='complete_wal_and_index' for r in attempts)
 print('PASS: Build24 '+os.environ['FOTO24_TEST_MODE']+', real SAF ZIP, exact source checksums and retained historical WAL')
 PY
 

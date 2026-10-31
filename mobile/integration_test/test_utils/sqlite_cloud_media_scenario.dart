@@ -35,6 +35,7 @@ void cloudMediaScenario({required bool restart}) {
     final phase = File('${directory.path}/cloud24-phase-${restart ? 'restart' : 'first'}');
     final server = (await RecoveryHttpServer.start(port: 8765))
       ..fullFoto = true
+      ..favorite = restart
       ..fullDownloadResets = 1; // The same server session already completed its first full download.
     addTearDown(server.close);
     await EasyLocalization.ensureInitialized();
@@ -50,6 +51,13 @@ void cloudMediaScenario({required bool restart}) {
     await inspect.customStatement('INSERT OR REPLACE INTO remote_exif_entity(asset_id,file_size) VALUES (?,?)', [
       RecoveryHttpServer.photoId,
       68,
+    ]);
+    // A real metadata change on restart forces a new provider collection. The
+    // system picker must query our reader again rather than reuse its old cache.
+    // The loopback server agrees, including any sync triggered by app resume.
+    await inspect.customStatement('UPDATE remote_asset_entity SET is_favorite=? WHERE id=?', [
+      restart ? 1 : 0,
+      RecoveryHttpServer.photoId,
     ]);
     await inspect.close();
     const cloud = CloudMediaRepository();

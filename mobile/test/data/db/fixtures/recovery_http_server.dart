@@ -7,6 +7,7 @@ class RecoveryHttpServer {
   final requests = <({String method, Uri uri, bool authenticated})>[];
   String mode = 'normal';
   bool fullFoto = false;
+  bool favorite = false;
   int fullDownloadResets = 0;
   int syncStreams = 0;
   final acknowledged = <String>[];
@@ -37,7 +38,7 @@ class RecoveryHttpServer {
     'pinCode': null,
   };
 
-  static String get libraryStream {
+  String get libraryStream {
     final events = <String, Map<String, Object?>>{
       'AuthUserV1': profile,
       'UserV1': profile,
@@ -53,7 +54,7 @@ class RecoveryHttpServer {
         'height': 1,
         'width': 1,
         'isEdited': false,
-        'isFavorite': false,
+        'isFavorite': favorite,
         'isTrashed': false,
         'libraryId': null,
         'livePhotoVideoId': null,
