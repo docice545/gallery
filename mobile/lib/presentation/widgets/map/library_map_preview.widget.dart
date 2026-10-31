@@ -35,6 +35,10 @@ class LibraryMapPreview extends ConsumerWidget {
         return Stack(
           children: [
             MapThumbnail(
+              // Fill the Places header and the Library card. MapThumbnail's
+              // generic 100x100 defaults left most of the preview blank.
+              width: double.infinity,
+              height: double.infinity,
               // A preview's calculated camera is not an intentional location
               // override: the full map must fit its own, larger viewport.
               onTap: onTap == null ? null : (_, _) => onTap!(initialLocation),

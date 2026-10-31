@@ -249,7 +249,7 @@ void main() {
     expect(rect.height, greaterThan(160));
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     final stackCount = tester.getRect(_inTile(asset.id, find.text(' 3')));
-    final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.burst_mode_rounded)));
+    final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.photo_library_outlined)));
     final cloud = tester.getRect(_inTile(asset.id, find.byIcon(Icons.cloud_outlined)));
     expect(motion.right, closeTo(rect.right - 10, 0.001));
     expect(motion.top, closeTo(rect.top + 6, 0.001));

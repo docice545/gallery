@@ -3500,6 +3500,7 @@
   "spaces_stop_sharing_person_metadata": "Stop sharing person names",
   "spaces_toggle_people_failed": "Failed to update face recognition",
   "spaces_toggle_pets_failed": "Failed to update pets setting",
+  "spaces_unavailable": "Could not load spaces. Please retry.",
   "spaces_unlink": "Unlink",
   "spaces_unlink_library": "Unlink library",
   "spaces_unlink_library_confirmation": "Remove \"{name}\" from this space? Assets from this library will no longer appear in the space.",

@@ -274,7 +274,7 @@ class SpacesPage extends HookConsumerWidget {
             children: [
               const Icon(Icons.error_outline, size: 48),
               const SizedBox(height: 16),
-              Text(context.t.spaces_load_failed(error: '$error')),
+              Text(context.t.spaces_unavailable, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               ElevatedButton(onPressed: () => ref.invalidate(sharedSpacesProvider), child: Text(context.t.retry)),
             ],

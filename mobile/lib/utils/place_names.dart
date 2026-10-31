@@ -7,9 +7,82 @@ import 'package:immich_mobile/domain/models/place.model.dart';
 /// available alongside its localized label; unknown names are shown unchanged.
 String foldPlaceName(String value) => removeDiacritics(value.trim().toLowerCase()).replaceAll('ё', 'е');
 
+/// Offline Russian display fallbacks for common source spellings. The native
+/// geocoder may replace these labels when it returns a trusted localized name.
+/// These labels never change stored place/EXIF metadata or photo grouping.
+const _russianPlaceNames = <String, String>{
+  'annino': 'Аннино',
+  'belek': 'Белек',
+  'druzhba': 'Дружба',
+  'khimki': 'Химки',
+  "khot'kovo": 'Хотьково',
+  'khot’kovo': 'Хотьково',
+  'moscow': 'Москва',
+  'mui ne': 'Муйне',
+  'nemchinovka': 'Немчиновка',
+  'vnukovo': 'Внуково',
+  'vostochnoye degunino': 'Восточное Дегунино',
+  'yakovlevskoye': 'Яковлевское',
+};
+
+const _russianCountryNames = <String, String>{
+  'russian federation': 'Россия',
+  'russia': 'Россия',
+  'turkiye': 'Турция',
+  'turkey': 'Турция',
+  'vietnam': 'Вьетнам',
+};
+
+const _russianRegionNames = <String, String>{
+  'moscow oblast': 'Московская область',
+  'moscow': 'Москва',
+  'antalya': 'Анталья',
+  'lam dong': 'Ламдонг',
+};
+
+/// Stable, synchronous labels keep rows readable while native localization
+/// resolves. Sorting by these values also avoids reordering the scrollable
+/// list whenever an asynchronous geocoder result arrives.
+String localizedPlaceNameFallback(Place place, String languageCode) {
+  final source = place.name.trim();
+  if (languageCode != 'ru') {
+    return source;
+  }
+  return _russianPlaceNames[foldPlaceName(source)] ?? source;
+}
+
+/// Region/country labels are presentation-only. Unrecognized source data
+/// remains intact instead of guessing an administrative name.
+String localizedPlaceRegion(Place place, String languageCode) {
+  if (languageCode != 'ru') {
+    return place.sourceRegion;
+  }
+  final countrySource = place.country?.trim() ?? '';
+  final country = _russianCountryNames[foldPlaceName(countrySource)] ?? countrySource;
+  final stateSource = place.state?.trim() ?? '';
+  final state = _russianRegionNames[foldPlaceName(stateSource)] ?? stateSource;
+  return [state, country].where((part) => part.isNotEmpty).join(', ');
+}
+
+
 bool matchesPlaceName(Place place, String label, String query) {
   final folded = foldPlaceName(query);
   return folded.isEmpty || foldPlaceName(place.name).contains(folded) || foldPlaceName(label).contains(folded);
+}
+
+/// Deterministic order while geocoder/cache results arrive asynchronously.
+/// Sorting never reads the mutable localized-label providers.
+int comparePlacesForDisplay(Place a, Place b, {required String languageCode}) {
+  final comparison = comparePlaceNames(
+    localizedPlaceNameFallback(a, languageCode),
+    localizedPlaceNameFallback(b, languageCode),
+    languageCode: languageCode,
+  );
+  if (comparison != 0) {
+    return comparison;
+  }
+  final byName = a.name.compareTo(b.name);
+  return byName != 0 ? byName : a.sourceRegion.compareTo(b.sourceRegion);
 }
 
 int comparePlaceNames(String first, String second, {required String languageCode}) {

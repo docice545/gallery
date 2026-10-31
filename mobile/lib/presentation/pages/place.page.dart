@@ -139,9 +139,15 @@ class _PlaceList extends ConsumerWidget {
         ? ref.watch(placeSearchAliasesProvider(query!)).valueOrNull ?? const []
         : const [];
 
-    String label(Place place) => labels[PlaceNameService.key(place, locale.toLanguageTag())] ?? place.name.trim();
+    String stableLabel(Place place) => localizedPlaceNameFallback(place, locale.languageCode);
+    String label(Place place) => labels[PlaceNameService.key(place, locale.toLanguageTag())] ?? stableLabel(place);
 
     return places.when(
+      // Preserve the existing sliver during sync refresh, instead of replacing
+      // it with a small spinner and clamping the scroll offset back to zero.
+      skipLoadingOnRefresh: true,
+      skipLoadingOnReload: true,
+      skipError: true,
       loading: () => const SliverToBoxAdapter(
         child: Center(
           child: Padding(padding: EdgeInsets.all(20.0), child: CircularProgressIndicator()),
@@ -174,12 +180,7 @@ class _PlaceList extends ConsumerWidget {
                   foldPlaceName(place.sourceRegion).contains(foldPlaceName(query ?? '')) ||
                   aliasScopes.contains(place.scopeIdentity);
             }).toList()..sort((a, b) {
-              final comparison = comparePlaceNames(label(a), label(b), languageCode: locale.languageCode);
-              if (comparison != 0) {
-                return comparison;
-              }
-              final sourceComparison = a.name.compareTo(b.name);
-              return sourceComparison != 0 ? sourceComparison : a.sourceRegion.compareTo(b.sourceRegion);
+              return comparePlacesForDisplay(a, b, languageCode: locale.languageCode);
             });
 
         if (filtered.isEmpty) {
@@ -221,11 +222,12 @@ class _PlaceTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final localized = ref.watch(localizedPlaceLabelProvider((place: place, locale: context.locale)));
-    final label = localized.valueOrNull ?? cachedLabel;
+    final nativeLabel = localized.valueOrNull;
+    final label = nativeLabel != null && nativeLabel.trim() != place.name.trim() ? nativeLabel : cachedLabel;
     return PlaceListTile(
       name: label,
       sourceName: place.name,
-      regionName: place.sourceRegion,
+      regionName: localizedPlaceRegion(place, context.locale.languageCode),
       onTap: () => context.pushRoute(PlaceDetailRoute(place: place.name, selectedPlace: place)),
       thumbnail: Thumbnail.remote(remoteId: place.assetId, fit: BoxFit.cover, thumbhash: ''),
     );

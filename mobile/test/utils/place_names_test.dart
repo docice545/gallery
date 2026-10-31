@@ -23,6 +23,58 @@ void main() {
     expect(foldPlaceName('Москва'), isNot('moskva'));
   });
 
+  test('Russian display fallbacks cover visible cities, regions and countries without mutating source fields', () {
+    const cases = [
+      (Place(name: 'Belek', assetId: 'b', state: 'Antalya', country: 'Türkiye'), 'Белек', 'Анталья, Турция'),
+      (
+        Place(name: 'Moscow', assetId: 'm', state: 'Moscow', country: 'Russian Federation'),
+        'Москва',
+        'Москва, Россия',
+      ),
+      (
+        Place(name: 'Khot\'kovo', assetId: 'k', state: 'Moscow Oblast', country: 'Russian Federation'),
+        'Хотьково',
+        'Московская область, Россия',
+      ),
+      (Place(name: 'Mũi Né', assetId: 'v', state: 'Lam Dong', country: 'Vietnam'), 'Муйне', 'Ламдонг, Вьетнам'),
+      (Place(name: 'Annino', assetId: 'a', state: 'Moscow', country: 'Russian Federation'), 'Аннино', 'Москва, Россия'),
+      (Place(name: 'Khimki', assetId: 'h'), 'Химки', ''),
+      (Place(name: 'Druzhba', assetId: 'd'), 'Дружба', ''),
+      (Place(name: 'Vnukovo', assetId: 'n'), 'Внуково', ''),
+      (Place(name: 'Nemchinovka', assetId: 'e'), 'Немчиновка', ''),
+      (Place(name: 'Vostochnoye Degunino', assetId: 'o'), 'Восточное Дегунино', ''),
+      (Place(name: 'Yakovlevskoye', assetId: 'y'), 'Яковлевское', ''),
+    ];
+    for (final (place, name, region) in cases) {
+      final identity = place.scopeIdentity;
+      expect(localizedPlaceNameFallback(place, 'ru'), name);
+      expect(localizedPlaceRegion(place, 'ru'), region);
+      expect(localizedPlaceNameFallback(place, 'en'), place.name);
+      expect(localizedPlaceRegion(place, 'en'), place.sourceRegion);
+      expect(place.scopeIdentity, identity);
+    }
+    const unknown = Place(name: 'Unknown Village', assetId: 'u', state: 'Unknown Province', country: 'Unknownland');
+    expect(localizedPlaceNameFallback(unknown, 'ru'), 'Unknown Village');
+    expect(localizedPlaceRegion(unknown, 'ru'), 'Unknown Province, Unknownland');
+  });
+
+  test('stable Russian order never depends on asynchronous geocoder labels', () {
+    final places = [
+      const Place(name: 'Vnukovo', assetId: 'v'),
+      const Place(name: 'Moscow', assetId: 'm'),
+      const Place(name: 'Belek', assetId: 'b'),
+      const Place(name: 'Annino', assetId: 'a'),
+    ]..sort((a, b) => comparePlacesForDisplay(a, b, languageCode: 'ru'));
+    expect(places.map((place) => place.name), ['Annino', 'Belek', 'Moscow', 'Vnukovo']);
+    // A different native spelling can change the visible row label, but the
+    // comparator cannot be influenced by asynchronously resolved names.
+    expect(
+      comparePlacesForDisplay(places.first, places.last, languageCode: 'ru'),
+      lessThan(0),
+    );
+    expect(comparePlacesForDisplay(places[2], places[2], languageCode: 'ru'), 0);
+  });
+
   test('search accepts both localized and original names, casing and ё', () {
     const place = Place(name: 'Moscow', assetId: 'preview');
     expect(matchesPlaceName(place, 'Москва', ' МОСКВА '), isTrue);
