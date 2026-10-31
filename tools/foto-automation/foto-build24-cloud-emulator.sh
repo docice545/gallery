@@ -20,6 +20,7 @@ rm "$foto_shizuku" # test dependency, not a FOTO release artifact
     --target-platform android-x64 --target integration_test/sqlite_cloud_media_test.dart
 ) 2>&1 | tee "$foto_receipts/cloud-build.log"
 sha256sum mobile/build/app/outputs/flutter-apk/app-debug.apk > "$foto_receipts/cloud-installed-apk.sha256"
+adb install -t -r mobile/build/app/outputs/flutter-apk/app-debug.apk
 for foto_cloud_mode in first restart; do
   adb shell am force-stop de.opennoodle.gallery.debug
   if [[ "$foto_cloud_mode" == restart ]]; then
@@ -32,12 +33,13 @@ for foto_cloud_mode in first restart; do
     > "$foto_receipts/cloud-$foto_cloud_mode-ui.log" 2>&1 &
   foto_cloud_ui_pid=$!
   trap 'kill "$foto_cloud_ui_pid" 2>/dev/null || true' EXIT
+  foto_cloud_vm_url=$(python3 tools/foto-automation/foto-build24-cloud-attach.py)
   (
     cd mobile
     timeout --signal=TERM --kill-after=20s 20m flutter drive --verbose --no-pub \
-      --use-application-binary build/app/outputs/flutter-apk/app-debug.apk \
+      --use-existing-app "$foto_cloud_vm_url" \
       --target integration_test/sqlite_cloud_media_test.dart \
-      --driver integration_test/test_utils/sqlite_cloud_media_driver.dart --no-keep-app-running
+      --driver integration_test/test_utils/sqlite_cloud_media_driver.dart --keep-app-running
   ) 2>&1 | tee "$foto_receipts/cloud-$foto_cloud_mode-test.log"
   wait "$foto_cloud_ui_pid"
   adb exec-out run-as de.opennoodle.gallery.debug cat "app_flutter/cloud24-$foto_cloud_mode-report.json" \

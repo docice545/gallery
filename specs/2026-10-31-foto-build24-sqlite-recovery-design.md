@@ -196,8 +196,11 @@ Each bounded non-daemon admission operation now uses its own tag. Late callbacks
 and cleanup address only that operation; the durable DeviceConfig ownership
 journal remains in the application and retains its existing format.
 
-The host now builds one cloud-test APK and uses `flutter drive` with that identical
-binary for both runs. PackageManager install path and last-update time must match:
+The host builds and installs one cloud-test APK, launches its existing activity
+and attaches `flutter drive --use-existing-app` for both runs. Flutter 3.47.2's
+ordinary drive path reinstalls even a supplied binary and its stop path uninstalls;
+the harness therefore keeps the installed app and explicitly force-stops it.
+PackageManager install path and last-update time must match:
 the restart test must not replace an APK and thereby reset the system picker's
 selection. Its mode is selected by a private synthetic-test marker, not a build
 flag or production code path.
