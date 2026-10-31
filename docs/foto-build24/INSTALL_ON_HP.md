@@ -35,7 +35,7 @@ test -z "$(git status --porcelain)"
   git switch --detach "$foto_sha"
 ) 9>"$foto_state/heavy-stage.lock"
 test "$(git rev-parse HEAD)" = "$foto_sha"
-rg '^version: 5\.7\.3\+24$' mobile/pubspec.yaml
+grep -E '^version: 5\.7\.3\+24$' mobile/pubspec.yaml
 flutter --version
 "${JAVA_HOME:?Используйте установленный JDK}/bin/javac" -version
 export FOTO_PUB_OFFLINE=1
@@ -56,12 +56,13 @@ test -s mobile/android/key.jks
 python3 "$foto_runner" --repo "$foto_repo" --state "$foto_state" --resume android-apk
 foto_apk="$foto_repo/mobile/build/app/outputs/flutter-apk/app-release.apk"
 test -s "$foto_apk"
-foto_signing=$(apksigner verify --verbose --print-certs "$foto_apk")
+foto_android_tools="${ANDROID_HOME:?Активируйте установленный Android SDK}/build-tools/36.0.0"
+foto_signing=$("$foto_android_tools/apksigner" verify --verbose --print-certs "$foto_apk")
 printf '%s\n' "$foto_signing"
-printf '%s\n' "$foto_signing" | rg -iq '^Signer #1 certificate SHA-256 digest: ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18$'
-foto_badging=$(aapt dump badging "$foto_apk")
+printf '%s\n' "$foto_signing" | grep -iEq '^Signer #1 certificate SHA-256 digest: ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18$'
+foto_badging=$("$foto_android_tools/aapt2" dump badging "$foto_apk")
 printf '%s\n' "$foto_badging"
-printf '%s\n' "$foto_badging" | rg "^package: name='de.opennoodle.gallery' versionCode='24' versionName='5.7.3'"
+printf '%s\n' "$foto_badging" | grep -E "^package: name='de\.opennoodle\.gallery' versionCode='24' versionName='5\.7\.3'( |$)"
 sha256sum "$foto_apk"
 git diff --exit-code -- mobile/pubspec.yaml mobile/pubspec.lock mobile/android/app/build.gradle
 ```

@@ -159,11 +159,20 @@ jobs:
           set -euo pipefail
           FOTO_PUB_OFFLINE=1 bash ../tools/foto-automation/foto-android-build.sh 2>&1 | tee ci-receipts/release-offline.log
           test -s build/app/outputs/flutter-apk/app-release.apk
-          if rg 'IntegrationTestPlugin' android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java; then
-            echo 'Dev-only plugin leaked into release registration'; exit 1
-          fi
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging build/app/outputs/flutter-apk/app-release.apk > ci-receipts/release-package.txt
-          rg "package: name='de.opennoodle.gallery' versionCode='24' versionName='5.7.3'" ci-receipts/release-package.txt
+          python3 - <<'PY'
+          import pathlib, re
+          registrant = pathlib.Path('android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java').read_text()
+          pathlib.Path('ci-receipts/release-plugin-registration.java').write_text(registrant)
+          for plugin in ['GeneratedPluginRegistrant', 'PathProviderPlugin', 'PhotoManagerPlugin']:
+              assert plugin in registrant, f'Release plugin registration missing: {plugin}'
+          assert 'IntegrationTestPlugin' not in registrant, 'Dev-only plugin leaked into release registration'
+          badging = pathlib.Path('ci-receipts/release-package.txt').read_text()
+          package = re.search(r"^package: name='de\.opennoodle\.gallery' versionCode='24' versionName='5\.7\.3'(?: |$).*", badging, re.MULTILINE)
+          assert package, 'Unexpected release package or version'
+          print(package.group(0))
+          print('PASS: release plugin registration, production package ID and Build 24 version')
+          PY
           sha256sum build/app/outputs/flutter-apk/app-release.apk > ci-receipts/unsigned-apk.sha256
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
