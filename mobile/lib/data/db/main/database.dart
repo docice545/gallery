@@ -529,6 +529,9 @@ final class _DriftPoolStreamQueries extends StreamQueryStore {
 }
 
 Future<void> deleteSqliteDatabase({required String name}) async {
+  if (name == 'immich') {
+    throw StateError('The primary SQLite database must be retained; use verified recovery');
+  }
   final file = await _databaseFile(name);
   await [
     file.path,

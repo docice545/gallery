@@ -66,6 +66,14 @@ Every original/copy is checked again before promotion. Only a healthy candidate
 with a drained/absent WAL can enter the existing fsync + atomic selector commit.
 SIGKILL before/after selection cannot implicitly choose an older generation.
 
+The generic bootstrap-error screen no longer offers its legacy destructive
+SQLite reset. This matters when a later, unrelated bootstrap step fails after
+recovery. The file-deletion helper also refuses the primary database before
+resolving or touching any path; recreating the separate diagnostic log remains
+supported. A real WAL-only pending-upload regression fails on pinned Build 23
+(its helper deletes the files) and verifies unchanged primary/WAL/SHM hashes
+with the Build 24 guard. The error-screen widget has no delete action.
+
 ## Safe server viewing without local bootstrap
 
 A separate HTTP client can display already uploaded server photographs without

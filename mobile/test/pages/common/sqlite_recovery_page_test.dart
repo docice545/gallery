@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/sqlite_fresh_start.dart';
 import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
+import 'package:immich_mobile/pages/common/splash_screen.page.dart';
 import 'package:immich_mobile/pages/common/sqlite_recovery.page.dart';
 import 'package:immich_mobile/utils/app_asset_loader.dart';
 // ignore: depend_on_referenced_packages
@@ -27,6 +28,13 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await EasyLocalization.ensureInitialized();
+  });
+  testWidgets('later bootstrap failures cannot offer a destructive SQLite reset', (tester) async {
+    await tester.pumpWidget(const BootstrapErrorWidget(error: 'synthetic later bootstrap failure', stack: 'test'));
+    await tester.pumpAndSettle();
+    expect(find.text('synthetic later bootstrap failure'), findsOneWidget);
+    expect(find.byIcon(Icons.delete_outline), findsNothing);
+    expect(find.textContaining('Clear App Data'), findsNothing);
   });
   testWidgets('persisted admission explains an old block without claiming new corruption', (tester) async {
     var recovered = false;

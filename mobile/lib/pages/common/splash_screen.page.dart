@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/locales.dart';
-import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
@@ -88,59 +87,10 @@ class BootstrapErrorWidget extends StatelessWidget {
   }
 }
 
-class _BottomPanel extends StatefulWidget {
+// Bootstrap failures must never offer destructive recovery. Exact repair and
+// consented fresh generations are exclusively coordinated by SqliteRecoveryPage.
+class _BottomPanel extends StatelessWidget {
   const _BottomPanel();
-
-  @override
-  State<_BottomPanel> createState() => _BottomPanelState();
-}
-
-class _BottomPanelState extends State<_BottomPanel> {
-  bool _cleared = false;
-
-  Future<void> _clearDatabase() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text(context.t.reset_sqlite_clear_app_data),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(context.t.reset_sqlite_confirmation),
-            const SizedBox(height: 12),
-            Text(
-              context.t.reset_sqlite_confirmation_note,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogCtx).pop(false), child: Text(context.t.cancel)),
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
-            child: Text(context.t.confirm, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) {
-      return;
-    }
-
-    try {
-      await deleteSqliteDatabase(name: 'immich');
-    } catch (_) {
-      return;
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() => _cleared = true);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +99,7 @@ class _BottomPanelState extends State<_BottomPanel> {
       spacing: 8,
       children: [
         Text(
-          _cleared ? context.t.reset_sqlite_done : context.t.scaffold_body_error_unrecoverable,
+          context.t.scaffold_body_error_unrecoverable,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall,
         ),
@@ -169,12 +119,6 @@ class _BottomPanelState extends State<_BottomPanel> {
                 mode: LaunchMode.externalApplication,
               ),
             ),
-            if (!_cleared)
-              _ActionLink(
-                icon: Icons.delete_outline,
-                label: context.t.reset_sqlite_clear_app_data,
-                onTap: _clearDatabase,
-              ),
           ],
         ),
       ],
