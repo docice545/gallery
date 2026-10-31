@@ -1,6 +1,8 @@
 package app.alextran.immich.recovery
 
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import org.junit.Assert.*
@@ -30,6 +32,64 @@ class RecoveryStoreTest {
       refuses { store.acquire() }
       store.finish(recovery.getValue("token"))
       refuses { store.acquire() }
+    }
+  }
+  @Test fun verifiedExternalZipAloneEnablesSeparateFreshPromotionAndRetainsOriginals() {
+    val original = source()
+    File("$original-wal").writeBytes(byteArrayOf())
+    File("$original-shm").writeText("synthetic checkpoint evidence")
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt()
+      val output = ByteArrayOutputStream()
+      val proof = RecoveryExport.writeVerified(store, output) { ByteArrayInputStream(output.toByteArray()) }
+      assertEquals(64, proof.getValue("zipHash").length)
+      val names = mutableListOf<String>()
+      java.util.zip.ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
+        while (true) { val entry = zip.nextEntry ?: break; names.add(entry.name); zip.readBytes() }
+      }
+      assertTrue(names.containsAll(listOf("source/immich.sqlite", "source/immich.sqlite-wal", "source/immich.sqlite-shm", "export-report.json")))
+      val session = store.beginFresh(proof.getValue("token"))
+      val replacement = candidate()
+      refuses { store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement)) }
+      store.promoteFresh(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      assertEquals(replacement.path, store.selected().path)
+      assertEquals("original database evidence", original.readText())
+      assertTrue(File("$original-shm").isFile)
+    }
+  }
+  @Test fun unreadableOrTruncatedExternalZipNeverAuthorizesFreshStart() {
+    RecoveryStore(root(), source(), ::sync).use { store ->
+      store.halt()
+      refuses { RecoveryExport.writeVerified(store, ByteArrayOutputStream()) { ByteArrayInputStream(byteArrayOf()) } }
+      refuses { store.beginFresh("not-issued") }
+      refuses { store.acquire() }
+    }
+  }
+  @Test fun sourceChangedAfterVerifiedExportCannotBeDiscarded() {
+    val original = source()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt()
+      val output = ByteArrayOutputStream()
+      val proof = RecoveryExport.writeVerified(store, output) { ByteArrayInputStream(output.toByteArray()) }
+      File("$original-wal").writeText("new transaction")
+      refuses { store.beginFresh(proof.getValue("token")) }
+      assertEquals(original.path, store.selected().path)
+    }
+  }
+  @Test fun processDeathRequiresNewExportAndConsentInsteadOfResumingFreshStart() {
+    val original = source()
+    var proof = ""
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt()
+      val output = ByteArrayOutputStream()
+      proof = RecoveryExport.writeVerified(store, output) { ByteArrayInputStream(output.toByteArray()) }.getValue("token")
+      store.beginFresh(proof)
+      candidate()
+    }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.beginFresh(proof) }
+      refuses { store.acquire() }
+      assertEquals(original.path, store.selected().path)
     }
   }
   @Test fun parallelEnginesWaitForFirstReadOnlyProbe() {

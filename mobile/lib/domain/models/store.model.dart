@@ -23,6 +23,9 @@ enum StoreKey<T> {
   libraryLayoutPreferences<String>._(145),
   localizedPlaceNames<String>._(146),
   offlineThumbnailAnyNetwork<bool>._(147),
+  recoveryFreshStartReview<bool>._(148),
+  recoveryFreshStartNeedsSync<bool>._(149),
+  recoveryFreshStartLibraryReady<bool>._(150),
 
   syncMigrationStatus<String>._(1013),
 

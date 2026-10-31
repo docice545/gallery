@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           mkdir -p ci-receipts
           flutter analyze --no-pub 2>&1 | tee ci-receipts/analyze.log
-          flutter test --no-pub test/data/db test/pages/common/sqlite_recovery_page_test.dart test/pages/common/sqlite_recovery_server_page_test.dart test/infrastructure/repositories test/domain/utils/background_sync_test.dart test/domain/services test/services test/repositories 2>&1 | tee ci-receipts/tests.log
+          flutter test --no-pub test/data/db test/pages/common/sqlite_recovery_page_test.dart test/pages/common/sqlite_recovery_server_page_test.dart test/pages/common/sqlite_fresh_backup_review_test.dart test/infrastructure/repositories test/domain/utils/background_sync_test.dart test/domain/services test/services test/repositories 2>&1 | tee ci-receipts/tests.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

@@ -52,7 +52,7 @@ void main() {
         }),
         flush: true,
       );
-      await const AndroidRecoveryHost().sync(source.parent);
+      await const AndroidRecoveryHost().sync(reports.single.parent);
     } finally {
       await const AndroidRecoveryHost().finish(session.token);
     }

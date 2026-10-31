@@ -90,18 +90,24 @@ final class RecoveryServerClient {
   };
 
   Future<List<String>> buckets() async {
-    _authorized = false;
-    final user = await _json('users/me');
-    if (user is! Map || user['id'] != _credentials.ownerId) {
-      throw const RecoveryRefused('server_owner_mismatch');
-    }
-    accountName = user['name'] is String ? user['name'] as String : '';
-    _authorized = true;
+    await account();
     final value = await _json('timeline/buckets', query: _scope);
     if (value is! List || value.any((v) => v is! Map || v['timeBucket'] is! String)) {
       throw const RecoveryRefused('server_response_invalid');
     }
     return [for (final item in value) item['timeBucket'] as String];
+  }
+
+  /// Fresh-start may transfer a saved session only after this owner check.
+  Future<Map<String, dynamic>> account() async {
+    _authorized = false;
+    final user = await _json('users/me');
+    if (user is! Map<String, dynamic> || user['id'] != _credentials.ownerId) {
+      throw const RecoveryRefused('server_owner_mismatch');
+    }
+    accountName = user['name'] is String ? user['name'] as String : '';
+    _authorized = true;
+    return user;
   }
 
   Future<List<RecoveryServerPhoto>> photos(String bucket) async {

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-
 import 'package:auto_route/auto_route.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -14,6 +13,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/constants/locales.dart';
+import 'package:immich_mobile/data/db/sqlite_fresh_start.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
@@ -64,6 +64,7 @@ void main() async {
       rethrow;
     }
     final recovery = OneTapSqliteRecovery(const AndroidRecoveryHost());
+    final freshStart = FreshSqliteStart(const AndroidFreshStartHost());
     runApp(
       EasyLocalization(
         supportedLocales: locales.values.toList(),
@@ -87,6 +88,17 @@ void main() async {
           exportBackup: () async => (await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export')) ?? false,
           openServerPhotos: () async =>
               RecoveryServerClient(await captureRecoveryServerCredentials(const AndroidRecoveryHost())),
+          prepareFreshStart: freshStart.prepare,
+          startFreshAndOpen: (preparation) async {
+            await freshStart.run(preparation, consent: true);
+            try {
+              await openFoto();
+            } catch (error, stack) {
+              // The new generation is already committed. Never offer another
+              // fresh start in response to an unrelated later bootstrap error.
+              runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+            }
+          },
         ),
       ),
     );

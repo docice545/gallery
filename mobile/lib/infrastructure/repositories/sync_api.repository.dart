@@ -24,6 +24,11 @@ class SyncApiRepository {
     return _api.syncApi.deleteSyncAck(SyncAckDeleteDto(types: Optional.present(types)));
   }
 
+  /// Forget only this authenticated session's download cursors. This endpoint
+  /// does not delete photos/albums or acknowledge a pending asset operation.
+  Future<void> restartLibraryDownload() =>
+      _api.syncApi.deleteSyncAck(SyncAckDeleteDto(types: const Optional.absent()));
+
   /// Core sync types introduced after capability signalling (M14). These must ONLY be sent
   /// when the server explicitly declares support via GET /server/features (syncRequestTypes).
   /// They are not included in the version-gate fallback because no pre-declaration server

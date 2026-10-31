@@ -125,6 +125,17 @@ class SyncStreamService {
     }
     final migrations = (jsonDecode(value) as List).cast<String>();
     int previousLength = migrations.length;
+    if (await _syncStreamRepository.needsFreshLibraryDownload()) {
+      // A reused login token still has SERVER-side cursors. Clear those before
+      // the first stream into the explicitly consented empty generation, or
+      // existing photos/albums would be skipped. Retrying before local commit
+      // is idempotent; no old local operation journal is copied or executed.
+      await _syncApiRepository.restartLibraryDownload();
+      if (isCancelled) {
+        return false;
+      }
+      await _syncStreamRepository.markFreshLibraryDownloadStarted();
+    }
     await _runPreSyncTasks(migrations, serverSemVer);
     if (isCancelled) {
       return false;
@@ -174,6 +185,7 @@ class SyncStreamService {
       await Store.put(StoreKey.syncMigrationStatus, jsonEncode(migrations));
     }
 
+    await _syncStreamRepository.markFreshLibraryDownloadReady();
     return true;
   }
 

@@ -604,6 +604,10 @@ Map<String, String> _tableFingerprints(Database db) {
   return result;
 }
 
+/// Used by the separate, explicitly consented fresh-start path to validate its
+/// newly seeded candidate. This never establishes equality with the old DB.
+Map<String, String> fingerprintSqliteTables(Database db) => _tableFingerprints(db);
+
 /// Independent final-file check used only by the explicit promotion coordinator.
 void validateRecoveredSqlite(File candidate, Map<String, String> expected) {
   final wal = File('${candidate.path}-wal');

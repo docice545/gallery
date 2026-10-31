@@ -1,7 +1,11 @@
+import 'package:flutter/services.dart';
 import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
 
 /// Never show raw SQLite, platform or HTTP exceptions (paths, rows or tokens).
 String recoveryReasonCode(Object error) {
+  if (error is PlatformException && error.code == 'export_failed') {
+    return 'external_backup_unverified';
+  }
   if (error is RecoveryRefused && RegExp(r'^[a-z_]{1,80}$').hasMatch(error.reason)) {
     return error.reason;
   }
@@ -9,6 +13,7 @@ String recoveryReasonCode(Object error) {
 }
 
 String recoveryReasonKey(String code) => switch (code) {
+  'external_backup_unverified' => 'sqlite_fresh_export_failed',
   'insufficient_space' => 'sqlite_recovery_reason_space',
   'empty_wal_evidence_missing' ||
   'checkpoint_witness_missing' ||

@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:immich_mobile/data/db/sqlite_fresh_start.dart';
 import 'package:immich_mobile/pages/common/sqlite_recovery_reason.dart';
 import 'package:immich_mobile/pages/common/sqlite_recovery_server.page.dart';
 import 'package:immich_mobile/services/recovery_server.service.dart';
@@ -10,11 +11,15 @@ class SqliteRecoveryPage extends StatefulWidget {
   final Future<void> Function() recoverAndOpen;
   final Future<bool> Function() exportBackup;
   final Future<RecoveryServerClient> Function()? openServerPhotos;
+  final Future<FreshStartPreparation?> Function()? prepareFreshStart;
+  final Future<void> Function(FreshStartPreparation)? startFreshAndOpen;
   const SqliteRecoveryPage({
     super.key,
     required this.recoverAndOpen,
     required this.exportBackup,
     this.openServerPhotos,
+    this.prepareFreshStart,
+    this.startFreshAndOpen,
   });
 
   @override
@@ -23,6 +28,7 @@ class SqliteRecoveryPage extends StatefulWidget {
 
 class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
   bool _busy = false;
+  bool _confirming = false;
   bool _failed = false;
   bool _completed = false;
   bool _exportFailed = false;
@@ -101,6 +107,70 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
     }
   }
 
+  Future<void> _fresh(BuildContext navigatorContext) async {
+    if (_busy || _completed) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _reason = null;
+    });
+    try {
+      final preparation = await widget.prepareFreshStart!();
+      if (preparation == null || !navigatorContext.mounted) {
+        return;
+      }
+      var acceptsLoss = false;
+      setState(() => _confirming = true);
+      final consent = await showDialog<bool>(
+        context: navigatorContext,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (_, update) => AlertDialog(
+            title: Text('sqlite_fresh_title'.tr()),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('sqlite_fresh_warning'.tr()),
+                  if (preparation.needsLogin) Text('sqlite_fresh_login'.tr()),
+                  CheckboxListTile(
+                    value: acceptsLoss,
+                    onChanged: (value) => update(() => acceptsLoss = value == true),
+                    title: Text('sqlite_fresh_accept_loss'.tr()),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text('cancel'.tr())),
+              FilledButton(
+                onPressed: acceptsLoss ? () => Navigator.of(dialogContext).pop(true) : null,
+                child: Text('sqlite_fresh_confirm'.tr()),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (mounted) {
+        setState(() => _confirming = false);
+      }
+      if (consent != true) {
+        return;
+      }
+      await widget.startFreshAndOpen!(preparation);
+      _completed = true;
+    } catch (error) {
+      if (mounted) {
+        setState(() => _reason = recoveryReasonCode(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
@@ -136,7 +206,7 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 24),
-                    if (_busy) ...[const CircularProgressIndicator(), const SizedBox(height: 16)],
+                    if (_busy && !_confirming) ...[const CircularProgressIndicator(), const SizedBox(height: 16)],
                     FilledButton(
                       onPressed: _busy || _completed ? null : _recover,
                       child: Text('sqlite_recovery_open'.tr()),
@@ -145,6 +215,11 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                       OutlinedButton(
                         onPressed: _busy || _completed ? null : () => _server(context),
                         child: Text('sqlite_recovery_server_open'.tr()),
+                      ),
+                    if (widget.prepareFreshStart != null && widget.startFreshAndOpen != null)
+                      OutlinedButton(
+                        onPressed: _busy || _completed ? null : () => _fresh(context),
+                        child: Text('sqlite_fresh_title'.tr(), textAlign: TextAlign.center),
                       ),
                     // Also available after process death/OOM, before another
                     // repair attempt could repeat the same failure.

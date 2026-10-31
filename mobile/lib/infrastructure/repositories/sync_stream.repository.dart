@@ -45,6 +45,7 @@ import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/models/user_metadata.model.dart';
 import 'package:immich_mobile/extensions/string_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/space_album.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.drift.dart';
 import 'package:immich_mobile/infrastructure/utils/exif.converter.dart';
 import 'package:logging/logging.dart';
@@ -64,10 +65,8 @@ typedef AssetTrashSnapshot = ({
   String? retainedValue,
 });
 
-typedef SqliteSyncRecoveryCapture = Future<SqliteRecoverySnapshot?> Function({
-  required String debugLabel,
-  required SqliteException error,
-});
+typedef SqliteSyncRecoveryCapture =
+    Future<SqliteRecoverySnapshot?> Function({required String debugLabel, required SqliteException error});
 
 @DriftAccessor()
 class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepositoryMixin {
@@ -82,6 +81,22 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   SyncStreamRepository(super.attachedDatabase, {this.recoverySnapshotCapture});
 
   Drift get _db => attachedDatabase;
+
+  // Recovery policy reads durable values directly. Store's asynchronous cache
+  // can briefly contain an older watcher snapshot after a write.
+  Future<bool> needsFreshLibraryDownload() async =>
+      await StoreRepository(_db).tryGet(StoreKey.recoveryFreshStartNeedsSync) == true;
+
+  Future<void> markFreshLibraryDownloadStarted() async {
+    await StoreRepository(_db).upsert(StoreKey.recoveryFreshStartNeedsSync, false);
+  }
+
+  Future<void> markFreshLibraryDownloadReady() async {
+    final store = StoreRepository(_db);
+    if (await store.tryGet(StoreKey.recoveryFreshStartReview) == true) {
+      await store.upsert(StoreKey.recoveryFreshStartLibraryReady, true);
+    }
+  }
 
   Future<void> reset({bool retainTrash = true}) async {
     _logger.fine("SyncResetV1 received. Resetting remote entities");
@@ -926,10 +941,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsV2 - $debugLabel', error, stack);
       if (error is SqliteException && isUnsafeToWrite(error)) {
-        SqliteRecoveryGate.markRequired(
-          check: 'updateAssetsV2[$debugLabel]',
-          resultCode: error.extendedResultCode,
-        );
+        SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[$debugLabel]', resultCode: error.extendedResultCode);
         await _captureSyncRecoverySnapshot(debugLabel: debugLabel, error: error);
         throw SqliteDatabaseUnhealthy('updateAssetsV2[$debugLabel]', error.extendedResultCode);
       }

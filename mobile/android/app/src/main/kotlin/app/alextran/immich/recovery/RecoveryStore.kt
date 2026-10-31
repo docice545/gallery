@@ -25,6 +25,9 @@ class RecoveryStore(
   private var active: String = ""
   private var selectionUncertain = false
   private var recoveryOwner: String? = null
+  private data class VerifiedExport(val token: String, val source: String, val hashes: Map<String, String>, val zipHash: String)
+  private var verifiedExport: VerifiedExport? = null
+  private var freshExport: VerifiedExport? = null
 
   init {
     root.mkdirs()
@@ -59,6 +62,7 @@ class RecoveryStore(
     }
   }
   fun legacySnapshots(): File = File(original.parentFile!!, "sqlite-recovery")
+  fun originalSource(): File = original
   @Synchronized fun exportSource(): File = if (selectionUncertain) original else selected()
   @Synchronized fun exportReason(): String = if (selectionUncertain) "selection_unavailable" else "recovery_blocked"
 
@@ -125,9 +129,44 @@ class RecoveryStore(
   @Synchronized fun finish(token: String) {
     check(recoveryOwner == token)
     recoveryOwner = null // Keep the durable stop marker after failure.
+    freshExport = null
+  }
+
+  fun sourceChecksums(): Map<String, String> = listOf("", "-wal", "-shm", "-journal")
+    .map { it to File("${exportSource()}$it") }.filter { it.second.isFile }.associate { it.first to hash(it.second) }
+
+  /** Issued ONLY after the SAF destination was closed, reopened and hashed. A
+   * process death invalidates this capability: export + consent are required again. */
+  @Synchronized fun recordVerifiedExport(hashes: Map<String, String>, zipHash: String): Map<String, String> {
+    check(canExport() && !selectionUncertain && hashes == sourceChecksums() && hashes.containsKey(""))
+    check(zipHash.matches(Regex("[0-9a-f]{64}")))
+    val proof = VerifiedExport(UUID.randomUUID().toString(), selected().canonicalPath, hashes.toMap(), zipHash)
+    verifiedExport = proof
+    return mapOf("token" to proof.token, "zipHash" to zipHash)
+  }
+
+  @Synchronized fun beginFresh(exportToken: String): Map<String, String> {
+    val proof = checkNotNull(verifiedExport)
+    check(proof.token == exportToken && selected().canonicalPath == proof.source && sourceChecksums() == proof.hashes)
+    val session = begin()
+    freshExport = proof
+    return session
+  }
+
+  @Synchronized fun promoteFresh(token: String, path: String, expectedHash: String) {
+    val proof = checkNotNull(freshExport)
+    check(proof == verifiedExport && selected().canonicalPath == proof.source && sourceChecksums() == proof.hashes)
+    selectValidatedCandidate(token, path, expectedHash)
+    freshExport = null
+    verifiedExport = null
   }
 
   @Synchronized fun promote(token: String, path: String, expectedHash: String) {
+    check(freshExport == null) { "fresh start requires its verified export capability" }
+    selectValidatedCandidate(token, path, expectedHash)
+  }
+
+  private fun selectValidatedCandidate(token: String, path: String, expectedHash: String) {
     check(recoveryOwner == token && leases.isEmpty() && blocked)
     val file = File(path).canonicalFile
     // Android /data/user/0 can alias /data/data at a different path depth.

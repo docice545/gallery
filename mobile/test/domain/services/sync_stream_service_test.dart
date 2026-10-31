@@ -119,6 +119,8 @@ void main() {
 
   setUp(() async {
     mockSyncStreamRepo = MockSyncStreamRepository();
+    when(() => mockSyncStreamRepo.needsFreshLibraryDownload()).thenAnswer((_) async => false);
+    when(() => mockSyncStreamRepo.markFreshLibraryDownloadReady()).thenAnswer((_) async {});
     when(() => mockSyncStreamRepo.flushDeferredMemoryAssetsV2()).thenAnswer((_) async {});
     when(() => mockSyncStreamRepo.getRestoreCandidates(any())).thenAnswer((_) async => []);
     mockSyncApiRepo = MockSyncApiRepository();
@@ -319,14 +321,12 @@ void main() {
       thumbhash: null,
       isEdited: false,
     );
-    when(() => mockSyncStreamRepo.updateAssetsV2(any())).thenThrow(
-      const SqliteDatabaseUnhealthy('updateAssetsV2[user]', 779),
-    );
+    when(
+      () => mockSyncStreamRepo.updateAssetsV2(any()),
+    ).thenThrow(const SqliteDatabaseUnhealthy('updateAssetsV2[user]', 779));
 
     await expectLater(
-      simulateEvents([
-        SyncEvent(type: SyncEntityType.assetV2, data: asset, ack: 'cursor-after-corruption'),
-      ]),
+      simulateEvents([SyncEvent(type: SyncEntityType.assetV2, data: asset, ack: 'cursor-after-corruption')]),
       throwsA(isA<SqliteDatabaseUnhealthy>()),
     );
     verifyNever(() => mockSyncApiRepo.ack(any()));
@@ -1397,6 +1397,44 @@ void main() {
       verifyNever(() => mockAssetMediaRepo.restoreAssetsFromTrash(any()));
       verifyNever(() => mockTrashedLocalAssetRepo.applyRestoredAssets(any()));
       verifyNever(() => mockAssetMediaRepo.deleteAll(any(), trash: false));
+    });
+  });
+
+  group('Fresh-start library download', () {
+    setUp(() async {
+      final store = StoreRepository(db);
+      await store.upsert(StoreKey.recoveryFreshStartNeedsSync, true);
+      await store.upsert(StoreKey.recoveryFreshStartReview, true);
+      await store.upsert(StoreKey.recoveryFreshStartLibraryReady, false);
+      when(
+        () => mockSyncStreamRepo.needsFreshLibraryDownload(),
+      ).thenAnswer((_) => db.syncStreamRepository.needsFreshLibraryDownload());
+      when(
+        () => mockSyncStreamRepo.markFreshLibraryDownloadStarted(),
+      ).thenAnswer((_) => db.syncStreamRepository.markFreshLibraryDownloadStarted());
+      when(
+        () => mockSyncStreamRepo.markFreshLibraryDownloadReady(),
+      ).thenAnswer((_) => db.syncStreamRepository.markFreshLibraryDownloadReady());
+      when(() => mockSyncApiRepo.restartLibraryDownload()).thenAnswer((_) async {});
+    });
+    tearDown(() async {
+      await Store.delete(StoreKey.recoveryFreshStartNeedsSync);
+      await Store.delete(StoreKey.recoveryFreshStartReview);
+      await Store.delete(StoreKey.recoveryFreshStartLibraryReady);
+    });
+    test('clears saved-session download cursors once and unlocks review only after completed sync', () async {
+      expect(await sut.sync(), true);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartNeedsSync), false);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartLibraryReady), true);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartReview), true);
+      await sut.sync();
+      verify(() => mockSyncApiRepo.restartLibraryDownload()).called(1);
+    });
+    test('failed cursor reset remains pending and cannot mark the library ready', () async {
+      when(() => mockSyncApiRepo.restartLibraryDownload()).thenThrow(StateError('synthetic connection failure'));
+      await expectLater(sut.sync(), throwsStateError);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartNeedsSync), true);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartLibraryReady), false);
     });
   });
 

@@ -4,10 +4,10 @@ import 'dart:io';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/data/db/sqlite_fresh_start.dart';
 import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
 import 'package:immich_mobile/pages/common/sqlite_recovery.page.dart';
 import 'package:immich_mobile/utils/app_asset_loader.dart';
-// easy_localization uses this transitive plugin during initialization.
 // ignore: depend_on_referenced_packages
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -123,5 +123,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(exported, 1);
     expect(find.text('Требуется восстановление FOTO'), findsOneWidget);
+  });
+  testWidgets('fresh start requires verified export, unchecked loss consent and a separate confirmation', (
+    tester,
+  ) async {
+    var exported = 0;
+    var restarted = 0;
+    await tester.pumpWidget(
+      localized(
+        SqliteRecoveryPage(
+          recoverAndOpen: () async {},
+          exportBackup: () async => false,
+          prepareFreshStart: () async {
+            exported++;
+            return const FreshStartPreparation(VerifiedRecoveryExport('native-proof', 'test-zip-hash'));
+          },
+          startFreshAndOpen: (_) async {
+            restarted++;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Начать заново с серверными фотографиями'));
+    await tester.pumpAndSettle();
+    expect(exported, 1);
+    expect(restarted, 0);
+    final confirmation = find.widgetWithText(FilledButton, 'Создать новую локальную библиотеку');
+    expect(tester.widget<FilledButton>(confirmation).onPressed, isNull);
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    await tester.tap(confirmation);
+    await tester.pumpAndSettle();
+    expect(restarted, 1);
+  });
+
+  testWidgets('cancelling external export never shows loss consent or creates a fresh database', (tester) async {
+    var restarted = 0;
+    await tester.pumpWidget(
+      localized(
+        SqliteRecoveryPage(
+          recoverAndOpen: () async {},
+          exportBackup: () async => false,
+          prepareFreshStart: () async => null,
+          startFreshAndOpen: (_) async {
+            restarted++;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Начать заново с серверными фотографиями'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(restarted, 0);
   });
 }

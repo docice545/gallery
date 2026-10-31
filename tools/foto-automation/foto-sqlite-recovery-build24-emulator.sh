@@ -18,11 +18,15 @@ if [[ "$foto_mode" == upgrade ]]; then
   ) 2>&1 | tee mobile/ci-receipts/android-build23-fixture.log
   # A real app process death, followed by APK replacement; no clear/uninstall.
   adb shell am force-stop de.opennoodle.gallery.debug
+  adb shell pm grant de.opennoodle.gallery.debug android.permission.READ_MEDIA_IMAGES
+  adb shell pm grant de.opennoodle.gallery.debug android.permission.READ_MEDIA_VIDEO
 fi
 adb logcat -v threadtime > mobile/ci-receipts/emulator-${foto_mode}-logcat.log 2>&1 &
 foto_logcat_pid=$!
 python3 - <<'PY' > mobile/ci-receipts/saf-${foto_mode}-picker.log 2>&1 &
-import re, subprocess, time, xml.etree.ElementTree as ET
+import os, re, subprocess, time, xml.etree.ElementTree as ET
+saved = 0
+expected = 2 if os.environ["FOTO24_TEST_MODE"] == "upgrade" else 1
 end = time.monotonic() + 1800
 while time.monotonic() < end:
     focus = subprocess.run(['adb','shell','dumpsys','window','windows'],capture_output=True,text=True,timeout=10).stdout
@@ -38,7 +42,10 @@ while time.monotonic() < end:
                 x1,y1,x2,y2 = bounds
                 subprocess.run(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)],check=True,timeout=10)
                 print('Selected Save in Android DocumentsUI',flush=True)
-                raise SystemExit(0)
+                saved += 1
+                if saved == expected: raise SystemExit(0)
+                time.sleep(3)
+                break
         except ET.ParseError:
             pass
     time.sleep(1)
@@ -83,3 +90,16 @@ with zipfile.ZipFile('mobile/ci-receipts/synthetic-'+os.environ['FOTO24_TEST_MOD
         assert any(r['format']==24 and r['outcome']=='validated' and r['contentMatch'] and r['tablesChecked']>50 and r['walEvidence']['code']=='checkpoint_with_matching_wal_snapshot' for r in attempts)
 print('PASS: Build24 '+os.environ['FOTO24_TEST_MODE']+', real SAF ZIP, exact source checksums and retained historical WAL')
 PY
+
+if [[ "$foto_mode" == upgrade ]]; then
+  adb pull /sdcard/Download/FOTO-before-new-start.zip mobile/ci-receipts/synthetic-before-new-start.zip
+  python3 - <<'PYZIP'
+import hashlib,zipfile
+with zipfile.ZipFile('mobile/ci-receipts/synthetic-before-new-start.zip') as z:
+    assert z.testzip() is None
+    assert hashlib.sha256(z.read('source/immich.sqlite-shm')).hexdigest()=='fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb'
+    assert z.read('source/immich.sqlite-wal')==b''
+    assert any(n.startswith('build22-recovery/') and n.endswith('immich.sqlite-wal') and z.getinfo(n).file_size>32 for n in z.namelist())
+print('PASS: separate verified external ZIP retained before consented fresh start')
+PYZIP
+fi
