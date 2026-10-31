@@ -372,9 +372,9 @@ void main() {
       overrides: [sharedSpacesProvider.overrideWith((_) async => throw Exception('Network error'))],
     );
 
-    expect(find.textContaining('Failed to load spaces'), findsOneWidget);
+    expect(find.textContaining('Could not load spaces. Please retry.'), findsOneWidget);
     // The raw error is kept, not swallowed by the translation.
-    expect(find.textContaining('Network error'), findsOneWidget);
+    expect(find.textContaining('Network error'), findsNothing);
     expect(find.byKey(const Key('spaces-search-field')), findsNothing);
     expect(find.byKey(const Key('collection-sort-button-pill')), findsNothing);
     // Create still reachable even on error.
