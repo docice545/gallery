@@ -204,6 +204,11 @@ PackageManager install path and last-update time must match:
 the restart test must not replace an APK and thereby reset the system picker's
 selection. Its mode is selected by a private synthetic-test marker, not a build
 flag or production code path.
+The standalone APK registers the test synchronously and reads its mode inside
+that test. Unlike `flutter test`'s wrapper, standalone `flutter_test` starts its
+declarer on the next event turn; awaiting a platform call before registration
+can run an empty suite and reject the later test. The host requires the in-app
+completion receipt immediately after the driver returns, before waiting on UI.
 
 The new Samsung report does not include a post-Shizuku database or native error
 receipt. We cannot retrospectively distinguish a newly corrupt file from the

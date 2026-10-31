@@ -41,9 +41,11 @@ for foto_cloud_mode in first restart; do
       --target integration_test/sqlite_cloud_media_test.dart \
       --driver integration_test/test_utils/sqlite_cloud_media_driver.dart --keep-app-running
   ) 2>&1 | tee "$foto_receipts/cloud-$foto_cloud_mode-test.log"
-  wait "$foto_cloud_ui_pid"
+  # A standalone Flutter driver can return success for an empty suite. Require
+  # the in-app completion receipt immediately, before waiting on the UI helper.
   adb exec-out run-as de.opennoodle.gallery.debug cat "app_flutter/cloud24-$foto_cloud_mode-report.json" \
     > "$foto_receipts/cloud-$foto_cloud_mode-report.json"
+  wait "$foto_cloud_ui_pid"
   adb shell pm path de.opennoodle.gallery.debug > "$foto_receipts/cloud-$foto_cloud_mode-apk-path.txt"
   adb shell dumpsys package de.opennoodle.gallery.debug > "$foto_receipts/cloud-$foto_cloud_mode-installed-package.txt"
 done

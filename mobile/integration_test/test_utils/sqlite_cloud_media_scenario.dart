@@ -22,11 +22,14 @@ import 'package:path_provider/path_provider.dart';
 import '../../test/data/db/fixtures/recovery_http_server.dart';
 import 'open_foto.dart';
 
-void cloudMediaScenario({required bool restart}) {
+void cloudMediaScenario() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  testWidgets('restored generation survives real Shizuku, native picker reads and restart=$restart', (tester) async {
+  testWidgets('restored generation survives real Shizuku, native picker reads and process restart', (tester) async {
     await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();
     final directory = await getApplicationDocumentsDirectory();
+    final mode = (await File('${directory.path}/cloud24-mode').readAsString()).trim();
+    expect(mode, isIn(['first', 'restart']));
+    final restart = mode == 'restart';
     final original = File('${directory.path}/immich.sqlite');
     final marker = jsonDecode(await File('${directory.path}/build23-upgrade.json').readAsString()) as Map;
     expect(await recoveryFileHashes(original), marker['sourceChecksums']);
