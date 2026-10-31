@@ -124,9 +124,7 @@ enum ActionButtonType {
         context.isOwner && //
             context.isInLockedView && //
             context.asset.hasRemote,
-      ActionButtonType.deleteLocal =>
-        !context.isInLockedView && //
-            context.asset.hasLocal,
+      ActionButtonType.deleteLocal => false,
       // Gallery uses two independent deletion actions:
       // move to Trash, or remove the device copy.
       ActionButtonType.deleteEverywhere => false,
@@ -196,7 +194,7 @@ enum ActionButtonType {
       ActionButtonType.delete => ActionMenuItem(action: DeleteAction(source: context.source)),
       ActionButtonType.moveToLockFolder ||
       ActionButtonType.removeFromLockFolder => ActionMenuItem(action: LockAction(source: context.source)),
-      ActionButtonType.deleteLocal => ActionMenuItem(action: CleanupLocalAction(source: context.source)),
+      ActionButtonType.deleteLocal => const SizedBox.shrink(),
       ActionButtonType.deleteEverywhere => ActionMenuItem(action: DeleteEverywhereAction(source: context.source)),
       ActionButtonType.upload => ActionMenuItem(
         action: UploadAction(source: context.source, showProgress: context.source == ActionSource.viewer),

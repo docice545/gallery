@@ -84,7 +84,7 @@ class FixedRowLayout {
     }
     // Bound panoramic/very tall assets so every tile remains usable for badges
     // and selection. Unknown or malformed dimensions use a square fallback.
-    final weights = aspectRatios.map((ratio) => ratio.isFinite && ratio > 0 ? ratio.clamp(0.65, 1.65) : 1.0).toList();
+    final weights = aspectRatios.map((ratio) => ratio.isFinite && ratio > 0 ? ratio.clamp(0.35, 2.5) : 1.0).toList();
     final availableWidth = math.max(0.0, width - spacing * (weights.length - 1));
     final minimumWidth = math.min(72.0, availableWidth / weights.length);
     final remainingWidth = availableWidth - minimumWidth * weights.length;

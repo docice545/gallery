@@ -76,7 +76,8 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
         timelineQuality && asset?.isEdited == false && width != null && height != null && width > 0 && height > 0
         ? Size(width.toDouble(), height.toDouble())
         : null;
-    final preserveEdgeContent = asset != null &&
+    final preserveEdgeContent =
+        asset != null &&
         asset.isImage &&
         shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height);
     // PhotoKit aspectFill must not pre-crop the source to a square before Flutter
@@ -219,10 +220,19 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          _AssetTypeIcons(asset: asset),
-                          if (widget.showStackIndicator) _StackIndicator(asset: asset),
-                        ],
+                        children: [_AssetTypeIcons(asset: asset)],
+                      ),
+                    ),
+                  ),
+                if (asset != null && widget.showStackIndicator)
+                  AnimatedOpacity(
+                    opacity: _hideIndicators ? 0.0 : 1.0,
+                    duration: Durations.short4,
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: asset.isFavorite ? 28.0 : 0.0),
+                        child: _StackIndicator(asset: asset),
                       ),
                     ),
                   ),
@@ -404,7 +414,7 @@ class _StackIndicator extends ConsumerWidget {
     final stackId = (asset as RemoteAsset).stackId!;
     final count = ref.watch(stackCountsProvider.select((counts) => counts.value?[stackId]));
     return Padding(
-      padding: const EdgeInsets.only(right: 10.0, top: 6.0),
+      padding: const EdgeInsets.only(left: 8.0, bottom: 8.0),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
