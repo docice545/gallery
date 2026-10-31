@@ -99,6 +99,7 @@ void main() {
     // The second, distinct SAF document must pass native fsync + full readback.
     // Only then can this unchecked loss warning authorize a new generation.
     server.fullFoto = true;
+    await tester.ensureVisible(find.text('Начать заново с серверными фотографиями'));
     await tester.tap(find.text('Начать заново с серверными фотографиями'));
     await waitFor(tester, find.byType(CheckboxListTile));
     final confirm = find.widgetWithText(FilledButton, 'Создать новую локальную библиотеку');

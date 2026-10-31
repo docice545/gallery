@@ -91,6 +91,10 @@ is a separate operation, never labelled exact recovery or an automatic fallback.
    before/after the reset retryable. Normal sync then downloads current photos,
    albums and account metadata and acknowledges only these new events. No old
    deletion or upload intent is replayed; no asset mutation endpoint is invoked.
+   Bootstrap explicitly binds the retained token to the native HTTP cookie jar
+   before any ordinary API/sync work. A fresh database has no old application
+   migration version, so the historical cookie migration would otherwise be
+   skipped. This also covers a background launch after interrupted promotion.
 7. Automatic backup, album backup and phone-file management start disabled. After
    the library stream and post-processing finish, a durable ready flag permits a
    separate library-review confirmation in the existing backup toggle. The user

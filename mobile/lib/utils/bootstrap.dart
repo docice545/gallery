@@ -70,6 +70,17 @@ abstract final class Bootstrap {
         apiService.setEndpoint(endpoint);
       }
 
+      // A consented fresh generation can retain a verified SQLite token while
+      // the native cookie jar is absent or still belongs to an older session.
+      // New databases skip historical cookie migrations. Rebind before ANY
+      // normal API/sync work, including a background launch after process death.
+      if (Store.get(StoreKey.recoveryFreshStartReview, false)) {
+        final token = Store.tryGet(StoreKey.accessToken);
+        if (token != null && token.isNotEmpty) {
+          await NetworkRepository.setHeaders(ApiService.getRequestHeaders(), ApiService.getServerUrls(), token: token);
+        }
+      }
+
       // Take DataController's logging DB and register it with the logging service
       logService = await LogService.init(
         logRepository: LogRepository(dataController.logDb),
