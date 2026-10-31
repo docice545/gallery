@@ -387,8 +387,8 @@
         {#if asset.stack && showStackedIcon}
           <div
             class={[
-              'pointer-events-none absolute z-2 flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white',
-              asset.isImage && !asset.livePhotoVideoId ? 'end-1 top-1' : 'end-1 top-7',
+              'pointer-events-none absolute z-2 flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white',
+              asset.isImage && !asset.livePhotoVideoId ? 'inset-e-1 top-1' : 'inset-e-1 top-7',
             ]}
           >
             <span class="flex items-center gap-1">
