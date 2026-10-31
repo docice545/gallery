@@ -24,6 +24,19 @@ start = time.monotonic()
 while time.monotonic() - start < 1200:
     phase = adb('shell', 'run-as', package, 'cat', phase_file, check=False)
     if phase == 'healthy' and not started:
+        # Read-only receipts of the real Android shell contract. In particular,
+        # AOSP device_config help exits 255 even when it prints valid help.
+        probes = {}
+        for name, command in {
+            'help': ['device_config', 'help'],
+            'overrides': ['device_config', 'list_local_overrides'],
+            'providers': ['device_config', 'get', 'mediaprovider', 'allowed_cloud_providers'],
+            'feature': ['device_config', 'get', 'mediaprovider', 'cloud_media_feature_enabled'],
+            'selected': ['content', 'call', '--uri', 'content://media', '--method', 'get_cloud_provider'],
+        }.items():
+            result = subprocess.run(['adb', 'shell', *command], capture_output=True, text=True, timeout=20)
+            probes[name] = {'exit': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
+        (receipts / f'cloud-{mode}-shell-probes.json').write_text(json.dumps(probes, indent=2))
         dump = adb('shell', 'dumpsys', 'package', 'moe.shizuku.privileged.api')
         (receipts / f'cloud-{mode}-shizuku-package.txt').write_text(dump)
         apk = adb('shell', 'pm', 'path', 'moe.shizuku.privileged.api').removeprefix('package:')

@@ -48,6 +48,23 @@ internal object CloudAdmissionPolicy {
   // println adds one terminator. Preserve actual flag whitespace for exact undo.
   fun commandValue(stdout: String): String = stdout.removeSuffix("\n").removeSuffix("\r")
 
+  fun commandSucceeded(args: List<String>, exitCode: Int, stdout: String, stderr: String): Boolean {
+    if (stderr.isNotBlank() ||
+      Regex("(?im)^\\s*(error|exception|permission denial|unknown command|invalid command)[: ]").containsMatchIn(stdout)) {
+      return false
+    }
+    if (exitCode == 0) return true
+    // AOSP Android 16 DeviceConfigService.onCommand("help") prints valid help
+    // and returns -1 (process exit 255). This exception is ONLY for this fixed
+    // read-only probe with its expected header and reversible-override verbs.
+    // Every get/list/mutation still requires exit 0 and clean stderr.
+    return args == listOf("/system/bin/device_config", "help") && exitCode == 255 &&
+      stdout.startsWith("Device Config (device_config) commands:\n") &&
+      listOf("override NAMESPACE KEY VALUE", "clear_override NAMESPACE KEY", "list_local_overrides").all { verb ->
+        stdout.lineSequence().any { it.trim() == verb }
+      }
+  }
+
   fun verifyOverrideSnapshot(listed: List<String>, raw: String?, effective: String?): Boolean {
     if (listed.size > 1 || listed.isNotEmpty() != (raw != null)) return false
     if (raw == null) return true

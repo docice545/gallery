@@ -73,8 +73,7 @@ class CloudAdmissionService(private val context: Context) : ICloudAdmission.Stub
       if (!process.waitFor(8, TimeUnit.SECONDS)) throw IOException("Admission command timed out")
       val out = CloudAdmissionPolicy.commandValue(stdout.get(1, TimeUnit.SECONDS))
       val err = stderr.get(1, TimeUnit.SECONDS).trim()
-      if (cancelled || process.exitValue() != 0 || err.isNotEmpty() ||
-        Regex("(?im)^(error|exception|permission denial|unknown command)[: ]").containsMatchIn(out)) {
+      if (cancelled || !CloudAdmissionPolicy.commandSucceeded(args.toList(), process.exitValue(), out, err)) {
         throw IOException("System rejected admission operation")
       }
       return out

@@ -166,6 +166,18 @@ separate bounded run reproduces that stall on the pinned Build 23 baseline.
 
 ## Shizuku / system Photo Picker acceptance (Build 24 P0 extension)
 
+The real API 36 emulator also exposed a pre-existing admission error unrelated to
+SQLite: `CloudAdmissionService` rejected `device_config help` before inspecting or
+writing any settings. AOSP Android 16's
+[`DeviceConfigService.onCommand`](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android16-release/packages/SettingsProvider/src/com/android/providers/settings/DeviceConfigService.java)
+prints valid help and returns -1 (process exit 255). The command validator now
+accepts that result only for the exact read-only help invocation, with its
+expected header, all three reversible-override verbs and empty stderr. Failed
+get/list/write commands remain rejected; ownership, readback and undo checks are
+unchanged. Policy regressions cover the exception's boundaries, and emulator
+receipts capture the real shell exit/stdout/stderr without changing settings.
+This admission failure is not evidence of a new SQLite corruption on Samsung.
+
 The new Samsung report does not include a post-Shizuku database or native error
 receipt. We cannot retrospectively distinguish a newly corrupt file from the
 persisted Build 23 admission block. Activating Shizuku is not evidence of a new

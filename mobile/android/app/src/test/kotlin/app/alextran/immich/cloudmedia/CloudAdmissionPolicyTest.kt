@@ -4,6 +4,44 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CloudAdmissionPolicyTest {
+  // Android 16 DeviceConfigService.onCommand returns -1 after onHelp, unlike
+  // its get/list/override verbs. This is the stdout contract from AOSP's onHelp.
+  private val help = """
+    Device Config (device_config) commands:
+      help
+          Print this help text.
+      override NAMESPACE KEY VALUE
+      clear_override NAMESPACE KEY
+      list_local_overrides
+  """.trimIndent()
+
+  @Test fun android16HelpExit255IsAcceptedOnlyWithItsCapabilityText() {
+    val args = listOf("/system/bin/device_config", "help")
+    assertTrue(CloudAdmissionPolicy.commandSucceeded(args, 255, help, ""))
+    assertTrue(CloudAdmissionPolicy.commandSucceeded(args, 0, help, ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(args, 1, help, ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(args, 255, "", ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(args, 255, help.replace("list_local_overrides", "list"), ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(args, 255, help, "Permission denied"))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(args, 255, "$help\nError: unavailable", ""))
+  }
+
+  @Test fun helpExceptionNeverAcceptsFailedReadsOrWrites() {
+    for (args in listOf(
+      listOf("/system/bin/device_config", "override", "mediaprovider", "cloud_media_feature_enabled", "true"),
+      listOf("/system/bin/device_config", "clear_override", "mediaprovider", "cloud_media_feature_enabled"),
+      listOf("/system/bin/device_config", "list_local_overrides"),
+      listOf("/system/bin/device_config", "get", "mediaprovider", "allowed_cloud_providers"),
+      listOf("/system/bin/device_config", "help", "extra"),
+      listOf("/system/bin/other", "help"),
+    )) assertFalse(CloudAdmissionPolicy.commandSucceeded(args, 255, help, ""))
+    val read = listOf("/system/bin/device_config", "get", "mediaprovider", "allowed_cloud_providers")
+    assertTrue(CloudAdmissionPolicy.commandSucceeded(read, 0, "com.example.photos", ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(read, 0, "Error: rejected", ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(read, 0, "Invalid command: get", ""))
+    assertFalse(CloudAdmissionPolicy.commandSucceeded(read, 0, "com.example.photos", "Permission denied"))
+  }
+
   @Test fun commandValuePreservesFlagWhitespaceForExactUndo() {
     assertEquals(" a.b,b.c ", CloudAdmissionPolicy.commandValue(" a.b,b.c \n"))
     assertEquals("", CloudAdmissionPolicy.commandValue("\n"))
