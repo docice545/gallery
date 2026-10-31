@@ -387,13 +387,13 @@
         {#if asset.stack && showStackedIcon}
           <div
             class={[
-              'absolute z-2 flex place-items-center gap-1 text-xs font-medium text-white',
-              asset.isImage && !asset.livePhotoVideoId ? 'inset-e-0 top-0' : 'inset-e-1 top-7',
+              'pointer-events-none absolute z-2 flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white',
+              asset.isImage && !asset.livePhotoVideoId ? 'end-1 top-1' : 'end-1 top-7',
             ]}
           >
-            <span class="flex place-items-center gap-1 pe-2 pt-2">
+            <span class="flex items-center gap-1">
               <p>{asset.stack.assetCount.toLocaleString($locale)}</p>
-              <Icon icon={mdiCameraBurst} size="24" />
+              <Icon icon={mdiCameraBurst} size="14" />
             </span>
           </div>
         {/if}

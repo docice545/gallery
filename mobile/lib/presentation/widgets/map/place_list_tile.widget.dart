@@ -43,7 +43,7 @@ class PlaceListTile extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(name, style: context.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w500)),
-                    if (name != sourceName)
+                    if (name != sourceName && Localizations.localeOf(context).languageCode != 'ru')
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(

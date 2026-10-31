@@ -3445,6 +3445,7 @@
   "spaces_linked_libraries_unlink": "Unlink library",
   "spaces_linked_libraries_unlink_confirmation": "Remove \"{name}\" from this space? Assets from this library will no longer appear in the space.",
   "spaces_load_failed": "Failed to load spaces: {error}",
+  "spaces_unavailable": "Could not load spaces. Please retry.",
   "spaces_load_more": "Load more",
   "spaces_loading_libraries": "Loading libraries...",
   "spaces_member_active": "Active {ago}",

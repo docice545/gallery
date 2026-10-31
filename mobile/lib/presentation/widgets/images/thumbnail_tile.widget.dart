@@ -408,7 +408,7 @@ class _StackIndicator extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _TileOverlayIcon(Icons.burst_mode_rounded),
+          const _TileOverlayIcon(Icons.photo_library_outlined),
           if (count != null)
             Text(
               ' $count',
