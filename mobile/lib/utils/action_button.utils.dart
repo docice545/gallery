@@ -124,11 +124,9 @@ enum ActionButtonType {
         context.isOwner && //
             context.isInLockedView && //
             context.asset.hasRemote,
-      ActionButtonType.deleteLocal =>
-        !context.isInLockedView && //
-            context.asset.hasLocal,
-      // Gallery uses two independent deletion actions:
-      // move to Trash, or remove the device copy.
+      // FOTO keeps device cleanup out of everyday menus to avoid confusion
+      // with the recoverable server Trash action. The cleanup implementation stays intact.
+      ActionButtonType.deleteLocal => false,
       ActionButtonType.deleteEverywhere => false,
       ActionButtonType.upload =>
         !context.isInLockedView && //
