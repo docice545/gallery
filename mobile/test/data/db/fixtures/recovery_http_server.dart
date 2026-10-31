@@ -93,13 +93,19 @@ class RecoveryHttpServer {
             request.cookies.any((c) => c.name == 'immich_access_token' && c.value == 'synthetic-token-stays-private'),
       ));
       final response = request.response;
-      if (mode == 'unauthorized') {
+      if (mode == 'unauthorized' ||
+          (fullFoto &&
+              request.uri.path.startsWith('/api/') &&
+              !request.uri.path.startsWith('/api/server/') &&
+              !requests.last.authenticated)) {
         response.statusCode = 401;
       } else if (mode == 'redirect') {
         response.statusCode = 302;
         response.headers.set('location', '$endpoint/forbidden');
       } else if (request.uri.path == '/api/users/me') {
         response.write(jsonEncode({...profile, 'id': mode == 'wrong_owner' ? 'other-owner' : 'existing-owner'}));
+      } else if (fullFoto && request.uri.path == '/api/auth/validateToken' && request.method == 'POST') {
+        response.write('{"authStatus":true}');
       } else if (fullFoto && request.uri.path == '/api/server/version') {
         response.write(jsonEncode({'major': 5, 'minor': 7, 'patch': 3, 'prerelease': null}));
       } else if (fullFoto && request.uri.path == '/api/server/features') {

@@ -119,7 +119,11 @@ void main() {
     expect(
       server.requests
           .where((r) => r.method != 'GET')
-          .every((r) => ['/api/sync/ack', '/api/sync/stream'].contains(r.uri.path)),
+          .every(
+            (r) =>
+                ['/api/sync/ack', '/api/sync/stream', '/api/auth/validateToken'].contains(r.uri.path) &&
+                r.authenticated,
+          ),
       true,
     );
     expect(await recoveryFileHashes(source), hashes);

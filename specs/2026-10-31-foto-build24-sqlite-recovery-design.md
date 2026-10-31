@@ -126,3 +126,11 @@ signed Samsung update. Hardware-specific storage/power loss and real-account
 installation remain owner-side checks after signing on HP. Canonical SHM cannot
 promise lossless exact recovery; verified ZIP + informed new-library consent is
 the supported path when completeness remains unknowable.
+
+The extended local whole-app test run also includes unrelated timeline video
+widgets. Three assertions fail in `timeline_video_viewer_test.dart` and
+`timeline_preview_video_viewer_test.dart`; the same three failures reproduce in
+an isolated checkout of the original Build 23 SHA. Those player/Live Photo files
+are unchanged here. The release CI's recovery/bootstrap/sync/UI regression suite
+is the scoped gate; the entire pre-existing app suite must not be described as
+all green.
