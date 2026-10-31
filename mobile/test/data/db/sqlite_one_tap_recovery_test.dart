@@ -41,6 +41,8 @@ class FileRecoveryHost implements RecoveryHost {
   @override
   Future<void> finish(String token) async {}
   @override
+  Future<List<Directory>> historyRoots() async => [root, Directory('${source.parent.path}/sqlite-recovery')];
+  @override
   Future<void> promote(String token, File file, String hash) async {
     expect(await recoveryFileHash(file), hash);
     candidate = file;

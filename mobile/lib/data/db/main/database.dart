@@ -548,7 +548,7 @@ Future<(SqliteConnection, SqliteConnectionPool)> openSqliteConnectionWithUpdateP
         } catch (_) {
           throw const SqliteDatabaseUnhealthy('file validation', 'SQLite evidence needs recovery');
         }
-        probe = sqlite3.open(file.path, mode: OpenMode.readOnly);
+        probe = openSqliteStartupProbe(file);
         final rows = probe.select('PRAGMA integrity_check(1)');
         if (rows.length != 1 || rows.single.values.single != 'ok') {
           throw const SqliteDatabaseUnhealthy('integrity_check(1)', 'local database needs recovery');

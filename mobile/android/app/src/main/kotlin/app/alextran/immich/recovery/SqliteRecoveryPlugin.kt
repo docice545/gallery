@@ -67,6 +67,7 @@ class SqliteRecoveryPlugin : FlutterPlugin, ActivityAware, PluginRegistry.Activi
             "begin" -> store.begin()
             "finish" -> { store.finish(call.argument<String>("token")!!); null }
             "path" -> store.selected().path
+            "historyRoots" -> listOf(store.root.path, store.legacySnapshots().path)
             "space" -> StatFs(store.root.path).availableBytes
             "sync" -> { store.syncTree(File(call.argument<String>("path")!!)); null }
             "promote" -> { store.promote(call.argument<String>("token")!!, call.argument<String>("path")!!, call.argument<String>("hash")!!); null }

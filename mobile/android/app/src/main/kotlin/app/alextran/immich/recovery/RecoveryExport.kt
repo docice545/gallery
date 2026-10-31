@@ -32,7 +32,7 @@ object RecoveryExport {
       // be saved internally. Detailed attempt reports, when present, are above.
       val hashes = files.joinToString(",") { "\"${it.name}\":\"${RecoveryStore.hash(it)}\"" }
       zip.putNextEntry(ZipEntry("export-report.json"))
-      zip.write("{\"format\":23,\"reason\":\"${store.exportReason()}\",\"tablesChecked\":0,\"sourceChecksums\":{$hashes}}".toByteArray())
+      zip.write("{\"format\":24,\"reason\":\"${store.exportReason()}\",\"tablesChecked\":0,\"sourceChecksums\":{$hashes}}".toByteArray())
       zip.closeEntry()
     }
   }

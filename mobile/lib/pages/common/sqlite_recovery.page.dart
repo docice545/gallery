@@ -1,12 +1,21 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:immich_mobile/pages/common/sqlite_recovery_reason.dart';
+import 'package:immich_mobile/pages/common/sqlite_recovery_server.page.dart';
+import 'package:immich_mobile/services/recovery_server.service.dart';
 
 /// Deliberately independent of Riverpod, Store, account routing and log DB.
 /// A second tap is disabled until completion; no repair runs from initState.
 class SqliteRecoveryPage extends StatefulWidget {
   final Future<void> Function() recoverAndOpen;
   final Future<bool> Function() exportBackup;
-  const SqliteRecoveryPage({super.key, required this.recoverAndOpen, required this.exportBackup});
+  final Future<RecoveryServerClient> Function()? openServerPhotos;
+  const SqliteRecoveryPage({
+    super.key,
+    required this.recoverAndOpen,
+    required this.exportBackup,
+    this.openServerPhotos,
+  });
 
   @override
   State<SqliteRecoveryPage> createState() => _SqliteRecoveryPageState();
@@ -17,6 +26,7 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
   bool _failed = false;
   bool _completed = false;
   bool _exportFailed = false;
+  String? _reason;
 
   Future<void> _recover() async {
     if (_busy || _completed) {
@@ -25,15 +35,48 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
     setState(() {
       _busy = true;
       _failed = false;
+      _reason = null;
     });
     try {
       await widget.recoverAndOpen();
       _completed = true;
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        setState(() => _failed = true);
+        setState(() {
+          _failed = true;
+          _reason = recoveryReasonCode(error);
+        });
       }
     } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _server(BuildContext navigatorContext) async {
+    if (_busy || _completed) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _reason = null;
+    });
+    RecoveryServerClient? client;
+    try {
+      client = await widget.openServerPhotos!();
+      if (!navigatorContext.mounted) {
+        return;
+      }
+      await Navigator.of(
+        navigatorContext,
+      ).push<void>(MaterialPageRoute(builder: (_) => SqliteRecoveryServerPage(client: client!)));
+    } catch (error) {
+      if (mounted) {
+        setState(() => _reason = recoveryReasonCode(error));
+      }
+    } finally {
+      client?.close();
       if (mounted) {
         setState(() => _busy = false);
       }
@@ -77,6 +120,11 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                   children: [
                     const Icon(Icons.health_and_safety_outlined, size: 64),
                     const SizedBox(height: 24),
+                    if (_reason != null) ...[
+                      Text(recoveryReasonKey(_reason!).tr(), textAlign: TextAlign.center),
+                      SelectableText('${'sqlite_recovery_code'.tr()}: $_reason'),
+                      const SizedBox(height: 16),
+                    ],
                     Text(
                       'sqlite_recovery_title'.tr(),
                       style: const TextStyle(fontSize: 26),
@@ -93,6 +141,11 @@ class _SqliteRecoveryPageState extends State<SqliteRecoveryPage> {
                       onPressed: _busy || _completed ? null : _recover,
                       child: Text('sqlite_recovery_open'.tr()),
                     ),
+                    if (widget.openServerPhotos != null)
+                      OutlinedButton(
+                        onPressed: _busy || _completed ? null : () => _server(context),
+                        child: Text('sqlite_recovery_server_open'.tr()),
+                      ),
                     // Also available after process death/OOM, before another
                     // repair attempt could repeat the same failure.
                     TextButton(

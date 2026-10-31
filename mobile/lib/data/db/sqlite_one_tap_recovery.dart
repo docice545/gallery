@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery.dart';
 import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
+import 'package:immich_mobile/data/db/sqlite_wal_evidence.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
@@ -17,6 +18,7 @@ abstract interface class RecoveryHost {
   Future<void> sync(Directory directory);
   Future<void> promote(String token, File candidate, String hash);
   Future<void> finish(String token);
+  Future<List<Directory>> historyRoots();
 }
 
 final class AndroidRecoveryHost implements RecoveryHost {
@@ -48,6 +50,11 @@ final class AndroidRecoveryHost implements RecoveryHost {
       SqliteRecoveryPlatform.channel.invokeMethod('promote', {'token': token, 'path': candidate.path, 'hash': hash});
   @override
   Future<void> finish(String token) => SqliteRecoveryPlatform.channel.invokeMethod('finish', {'token': token});
+  @override
+  Future<List<Directory>> historyRoots() async => [
+    for (final path in (await SqliteRecoveryPlatform.channel.invokeListMethod<String>('historyRoots'))!)
+      Directory(path),
+  ];
 }
 
 final class RecoveryRefused implements Exception {
@@ -76,6 +83,7 @@ final class OneTapSqliteRecovery {
     String? token;
     Directory? attempt;
     SqliteRecoveryReport? report;
+    SqliteWalEvidence? walEvidence;
     Map<String, String>? hashes;
     var promoted = false;
     try {
@@ -106,20 +114,9 @@ final class OneTapSqliteRecovery {
       }
       await host.sync(snapshot.directory);
       await _at('backup_durable');
-      // A WAL-mode header cannot establish that an absent WAL never contained
-      // committed transactions. Preserve evidence and refuse this ambiguity.
-      final header = await backup.open();
-      final List<int> bytesHeader;
-      try {
-        bytesHeader = await header.read(100);
-      } finally {
-        await header.close();
-      }
-      final wal = File('${backup.path}-wal');
-      if (bytesHeader.length < 100 ||
-          ((bytesHeader[18] == 2 || bytesHeader[19] == 2) && (!wal.existsSync() || await wal.length() == 0))) {
-        throw const RecoveryRefused('missing_or_unprovable_wal');
-      }
+      final history = (await host.historyRoots()).map((d) => d.path).toList();
+      final proof = await _assessInWorker(snapshot.directory.path, history, attempt.path);
+      walEvidence = proof;
       // Keep SQLite scans/REINDEX off the UI isolate. The native admission
       // owner remains held while this worker touches copies only.
       if (checkpoint == null && beforeReindex == null) {
@@ -132,6 +129,12 @@ final class OneTapSqliteRecovery {
           repairCheckpoint: checkpoint,
           beforeReindex: beforeReindex,
         );
+      }
+      // Diagnose copies even when completeness is unproven. The report can now
+      // distinguish a failed check from one that never ran. Never promote merely
+      // because a REINDEX made an older/incomplete view internally consistent.
+      if (!proof.complete) {
+        throw RecoveryRefused(proof.code);
       }
       if (report.status != SqliteRecoveryStatus.repairedIndex ||
           report.candidate == null ||
@@ -148,7 +151,7 @@ final class OneTapSqliteRecovery {
           !_equal(hashes, await recoveryFileHashes(backup))) {
         throw const RecoveryRefused('source_or_backup_changed');
       }
-      await _receipt(attempt, 'validated', report, hashes);
+      await _receipt(attempt, 'validated', report, hashes, walEvidence);
       await host.sync(attempt);
       await _at('before_promotion');
       // Repeat after any asynchronous boundary; promotion checks the exact file
@@ -162,7 +165,13 @@ final class OneTapSqliteRecovery {
     } catch (error) {
       if (attempt != null) {
         try {
-          await _receipt(attempt, error is RecoveryRefused ? error.reason : 'io_or_validation_failure', report, hashes);
+          await _receipt(
+            attempt,
+            error is RecoveryRefused ? error.reason : 'io_or_validation_failure',
+            report,
+            hashes,
+            walEvidence,
+          );
           await host.sync(attempt);
         } catch (_) {
           /* A full disk must not cause cleanup of the original. */
@@ -209,28 +218,46 @@ Future<Map<String, String>> recoveryFileHashes(File database) async {
 
 bool _equal(Map<String, String> a, Map<String, String> b) =>
     a.length == b.length && a.entries.every((entry) => b[entry.key] == entry.value);
-Future<void> _receipt(Directory directory, String outcome, SqliteRecoveryReport? report, Map<String, String>? hashes) =>
-    File(p.join(directory.path, 'recovery-report.json')).writeAsString(
-      jsonEncode({
-        'format': 23, 'outcome': outcome, 'sourceChecksums': hashes,
-        'tablesChecked': report?.sourceTableFingerprints.keys.where((key) => !key.startsWith('@')).length ?? 0,
-        'contentMatch':
-            report?.candidateTableFingerprints != null &&
-            _equal(report!.sourceTableFingerprints, report.candidateTableFingerprints!),
-        // Raw SQLite messages can contain row identifiers: only structural counts
-        // and enumerated reasons go into the automatic support receipt.
-        'integrityOk': report?.candidateIntegrity == 'ok',
-        'foreignKeyErrors': report?.foreignKeyErrors.length,
-        'diagnosticStatus': report?.status.name,
-      }),
-      flush: true,
-    );
+Future<void> _receipt(
+  Directory directory,
+  String outcome,
+  SqliteRecoveryReport? report,
+  Map<String, String>? hashes,
+  SqliteWalEvidence? walEvidence,
+) => File(p.join(directory.path, 'recovery-report.json')).writeAsString(
+  jsonEncode({
+    'format': 24, 'outcome': outcome, 'sourceChecksums': hashes,
+    'walEvidence': walEvidence?.toJson(),
+    'tablesChecked': report?.sourceTableFingerprints.keys.where((key) => !key.startsWith('@')).length ?? 0,
+    'contentMatch': report?.candidateTableFingerprints == null
+        ? null
+        : _equal(report!.sourceTableFingerprints, report.candidateTableFingerprints!),
+    // Raw SQLite messages can contain row identifiers: only structural counts
+    // and enumerated reasons go into the automatic support receipt.
+    'integrityOk': report?.candidateIntegrity == null ? null : report!.candidateIntegrity == 'ok',
+    'integrityStatus': report?.candidateIntegrity == null
+        ? 'not_run'
+        : report!.candidateIntegrity == 'ok'
+        ? 'passed'
+        : 'failed',
+    'foreignKeyErrors': report?.foreignKeyErrors.length,
+    'diagnosticStatus': report?.status.name,
+  }),
+  flush: true,
+);
 
 Future<SqliteRecoveryReport> _diagnoseInWorker(String snapshot, String output) => Isolate.run(
   () => diagnoseAndRepairSqliteSnapshot(
     snapshot: Directory(snapshot),
     outputDirectory: Directory(output),
     allowedIndexes: const {'idx_trashed_local_asset_album'},
+  ),
+);
+Future<SqliteWalEvidence> _assessInWorker(String snapshot, List<String> history, String attempt) => Isolate.run(
+  () => assessSqliteWalEvidence(
+    snapshot: Directory(snapshot),
+    historyRoots: history.map(Directory.new).toList(),
+    excludedAttempt: Directory(attempt),
   ),
 );
 Future<void> _validateInWorker(String candidate, Map<String, String> fingerprints) =>

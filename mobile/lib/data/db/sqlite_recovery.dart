@@ -330,6 +330,22 @@ Future<String> _databaseName(Directory snapshot, {bool requireWalIndex = false})
   return name;
 }
 
+/// Validates retained evidence without asking SQLite to rebuild its WAL-index.
+Future<String> validateSqliteRecoverySnapshotFiles(Directory snapshot) =>
+    _databaseName(snapshot, requireWalIndex: true);
+
+/// With no WAL, SQLite's ordinary read-only open can create/rebuild SHM and
+/// erase checkpoint evidence. The admission owner excludes every writer here.
+/// immutable=1 reads only the primary and never creates or changes sidecars.
+Database openSqliteStartupProbe(File primary) {
+  final wal = File('${primary.path}-wal');
+  if (!wal.existsSync() || wal.lengthSync() == 0) {
+    final uri = Uri.file(primary.absolute.path).replace(queryParameters: {'immutable': '1', 'mode': 'ro'});
+    return sqlite3.open(uri.toString(), uri: true, mode: OpenMode.readOnly);
+  }
+  return sqlite3.open(primary.path, mode: OpenMode.readOnly);
+}
+
 /// Startup must not let SQLite silently discard a malformed WAL before the
 /// user gets the recovery screen. This does not repair or checkpoint anything.
 Future<void> validateStartupSqliteFiles(File primary) async {
@@ -677,7 +693,15 @@ bool _sameFingerprints(Map<String, String> first, Map<String, String> second) {
 }
 
 Future<void> _writeReceipt(Directory directory, Map<String, Object?> data) async {
+  // SQLite's missing-index-entry diagnostics include rowids. Keep those out of
+  // support receipts; only the private SQLite evidence contains actual rows.
+  Object? redact(Object? value) => switch (value) {
+    final String text => text.replaceAll(RegExp(r'\brow [0-9]+\b'), 'row [redacted]'),
+    final List values => values.map(redact).toList(),
+    final Map values => values.map((key, value) => MapEntry(key, redact(value))),
+    _ => value,
+  };
   await File(
     p.join(directory.path, 'recovery-receipt.json'),
-  ).writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+  ).writeAsString(const JsonEncoder.withIndent('  ').convert(redact(data)));
 }

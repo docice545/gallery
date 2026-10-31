@@ -178,6 +178,20 @@ if sys.argv[1:3] == ['build','apk']:
         self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
             [['pub', 'get', '--enforce-lockfile']])
 
+    def test_android_offline_cache_preserves_release_plugin_generation(self):
+        env = dict(self.android_fixture(), FOTO_PUB_OFFLINE='1')
+        r = subprocess.run(self.argv('android-apk'), env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
+            [['pub', 'get', '--offline', '--enforce-lockfile'], ['build', 'apk', '--release']])
+
+    def test_android_missing_offline_cache_does_not_fall_back_to_network(self):
+        env = dict(self.android_fixture(), FOTO_PUB_OFFLINE='1', MODE='error')
+        r = subprocess.run(self.argv('android-apk'), env=env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
+            [['pub', 'get', '--offline', '--enforce-lockfile']])
+
     def test_host_wrapper_term_is_not_deferred_until_unit_finishes(self):
         unit_pid = self.base / 'unit-pid'
         stopped = self.base / 'unit-stopped'

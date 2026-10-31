@@ -173,7 +173,8 @@ def command(repo, stage, files):
     if stage == 'openapi-dart':
         return repo / 'open-api', ['/bin/bash', 'bin/generate-dart-sdk.sh']
     if stage == 'flutter-dependencies' and flutter:
-        return repo / 'mobile', [flutter, 'pub', 'get', '--enforce-lockfile']
+        offline = ['--offline'] if os.environ.get('FOTO_PUB_OFFLINE') == '1' else []
+        return repo / 'mobile', [flutter, 'pub', 'get', *offline, '--enforce-lockfile']
     if stage == 'flutter-codegen' and flutter:
         return repo / 'mobile', ['/bin/bash', str(Path(__file__).with_name('foto-mobile-codegen.sh'))]
     if stage == 'editor-codegen' and flutter:
@@ -347,6 +348,8 @@ def main():
         generation_inputs = source_identity(repo, generated_paths) if generated_paths else None
         request = {'source': source, 'repo': str(repo), 'stage': args.stage, 'argv': cmd,
             'runnerSHA256': digest(Path(__file__).read_bytes())}
+        if args.stage in ('android-apk', 'flutter-dependencies'):
+            request['pubOffline'] = os.environ.get('FOTO_PUB_OFFLINE') == '1'
         # Installing/upgrading the tools invalidates cached successes even at the same Git HEAD.
         request['tool'] = {'path': cmd[0], 'mtime': Path(cmd[0]).stat().st_mtime_ns,
             'size': Path(cmd[0]).stat().st_size}
