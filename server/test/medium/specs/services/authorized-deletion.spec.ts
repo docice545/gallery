@@ -451,10 +451,10 @@ describe('durable per-library authorization with real PostgreSQL and disposable 
         JobStatus.Success,
       );
       expect(await sut.permanentlyDelete(auth, [f.asset.id])).toEqual([
-        { id: f.asset.id, state: 'complete', scope: f.scope },
+        { id: f.asset.id, state: 'complete', scope: f.scope, accepted: true },
       ]);
       expect(await sut.permanentlyDelete(auth, [f.asset.id])).toEqual([
-        { id: f.asset.id, state: 'complete', scope: f.scope },
+        { id: f.asset.id, state: 'complete', scope: f.scope, accepted: true },
       ]);
       expect(mocks.event.emit).toHaveBeenCalledTimes(1);
       expect(mocks.event.emit).toHaveBeenCalledWith(
@@ -799,8 +799,8 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         await renameActual(source, target);
       });
       expect(await sut.permanentlyDelete(authFor(f), [f.asset.id, video.id])).toEqual([
-        { id: f.asset.id, scope: f.scope, state: 'complete' },
-        { id: video.id, scope: f.scope, state: 'complete' },
+        { id: f.asset.id, scope: f.scope, state: 'complete', accepted: true },
+        { id: video.id, scope: f.scope, state: 'complete', accepted: true },
       ]);
       expect(chmod).toHaveBeenCalledExactlyOnceWith(0o700);
       expect(process.getuid?.()).toBe(0);
@@ -907,7 +907,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     expect(await fs.readdir(quarantinePath(revokedPolicy?.rootIdentities[0]))).toEqual([]);
     await sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
     expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
-      { id: f.asset.id, scope: f.scope, state: 'complete' },
+      { id: f.asset.id, scope: f.scope, state: 'complete', accepted: true },
     ]);
   });
 
@@ -1104,7 +1104,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
         return handle;
       });
       expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
-        { id: f.asset.id, scope: f.scope, state: 'failed', code: 'ORIGINAL_DELETE_FAILED' },
+        { id: f.asset.id, scope: f.scope, state: 'failed', code: 'ORIGINAL_DELETE_FAILED', accepted: true },
       ]);
       const receipt = await f.repo.getDeletionReceipt(f.user.id, f.asset.id);
       expect(receipt).toMatchObject({ state: 'failed' });
@@ -1130,7 +1130,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     const f = await fixture(true);
     const { sut } = await externalConsent(f);
     expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
-      { id: f.asset.id, scope: f.scope, state: 'complete' },
+      { id: f.asset.id, scope: f.scope, state: 'complete', accepted: true },
     ]);
     await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
     expect(await f.repo.getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({ state: 'complete' });
@@ -1200,7 +1200,7 @@ describe('external selective deletion, Empty Trash and NFS-like failure recovery
     expect(await readFile(f.asset.originalPath, 'utf8')).toContain('synthetic');
     await sut.setLibraryDeletionConsent(authFor(f), f.scope, true);
     expect(await sut.permanentlyDelete(authFor(f), [f.asset.id])).toEqual([
-      { id: f.asset.id, scope: f.scope, state: 'complete' },
+      { id: f.asset.id, scope: f.scope, state: 'complete', accepted: true },
     ]);
   });
 

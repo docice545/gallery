@@ -17,6 +17,7 @@ export const newAssetRepositoryMock = (): Mocked<RepositoryInterface<AssetReposi
     getDeletionReceipt: vitest.fn(),
     getDeletionReceipts: vitest.fn(),
     preparePermanentDeletion: vitest.fn(),
+    acceptPermanentDeletion: vitest.fn(),
     removeAuthorizedOriginals: vitest.fn(),
     getPermanentDeletionTargets: vitest.fn(),
     isOriginalReferenced: vitest.fn(),

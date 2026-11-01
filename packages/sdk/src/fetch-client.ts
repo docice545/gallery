@@ -1552,6 +1552,8 @@ export type DeletionPolicyDto = {
   verifiedExclusiveRoots: true;
 };
 export type PermanentDeletionResultDto = {
+  /** An owner-scoped irreversible PostgreSQL intent is committed. */
+  accepted?: true;
   /** Durable batch job id when deletion is queued. */
   batchId?: string;
   code?: string;
@@ -1632,6 +1634,8 @@ export type AssetMetadataBulkResponseDto = {
   };
 };
 export type PermanentDeletionDto = {
+  /** Commit an irreversible decision and delete files in the background. */
+  acceptOnly?: true;
   confirmed: true;
   ids: string[];
 };

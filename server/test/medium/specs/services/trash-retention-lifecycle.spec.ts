@@ -451,7 +451,7 @@ describe('isolated original files, real repositories and real file deletion work
         ctx.getMock(StorageRepository).unlinkOriginal.mockImplementation(unlinkOriginal);
         ctx.getMock(StorageRepository).validateDeletionRoots.mockImplementation(validateDeletionRoots);
         expect(await sut.permanentlyDelete(auth, [asset.id])).toEqual([
-          { id: asset.id, state: 'complete', scope: asset.libraryId ?? 'managed' },
+          { id: asset.id, state: 'complete', scope: asset.libraryId ?? 'managed', accepted: true },
         ]);
         expect(await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true })).toBe(JobStatus.Skipped);
         await expect(readFile(original)).rejects.toMatchObject({ code: 'ENOENT' });

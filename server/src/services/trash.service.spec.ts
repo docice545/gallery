@@ -45,7 +45,7 @@ describe(TrashService.name, () => {
 
       await sut.restoreAssets(authStub.user1, { ids: ['asset1', 'asset2'] });
 
-      expect(mocks.trash.restoreAll).toHaveBeenCalledWith(['asset1', 'asset2']);
+      expect(mocks.trash.restoreAll).toHaveBeenCalledWith(['asset1', 'asset2'], 'user-id');
       expect(mocks.job.queue.mock.calls).toEqual([]);
     });
 

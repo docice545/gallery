@@ -142,6 +142,7 @@ export class AssetJobRepository {
       .select((eb) => withVideoStream(eb).as('videoStream'))
       .select((eb) => withVideoFormat(eb).as('format'))
       .where('asset.id', '=', id)
+      .where('asset.status', '!=', sql.lit(AssetStatus.Deleted))
       .executeTakeFirst();
   }
 
@@ -155,6 +156,7 @@ export class AssetJobRepository {
       .innerJoin('user', 'user.id', 'asset.ownerId')
       .select(['user.clusterGroupId'])
       .where('asset.id', '=', id)
+      .where('asset.status', '!=', sql.lit(AssetStatus.Deleted))
       .executeTakeFirst();
   }
 
@@ -404,6 +406,7 @@ export class AssetJobRepository {
       .select((eb) => withVideoStream(eb).$notNull().as('videoStream'))
       .select((eb) => withVideoFormat(eb).$notNull().as('format'))
       .where('asset.id', '=', id)
+      .where('asset.status', '!=', sql.lit(AssetStatus.Deleted))
       .where('asset.type', '=', sql.lit(AssetType.Video))
       .executeTakeFirst();
   }

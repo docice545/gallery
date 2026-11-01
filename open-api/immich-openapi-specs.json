@@ -8682,6 +8682,11 @@
       },
       "PermanentDeletionDto": {
         "properties": {
+          "acceptOnly": {
+            "description": "Commit an irreversible decision and delete files in the background.",
+            "enum": [true],
+            "type": "boolean"
+          },
           "confirmed": {
             "enum": [true],
             "type": "boolean"
@@ -8702,6 +8707,11 @@
       },
       "PermanentDeletionResultDto": {
         "properties": {
+          "accepted": {
+            "description": "An owner-scoped irreversible PostgreSQL intent is committed.",
+            "enum": [true],
+            "type": "boolean"
+          },
           "batchId": {
             "description": "Durable batch job id when deletion is queued.",
             "type": "string"

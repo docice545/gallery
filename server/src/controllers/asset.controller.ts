@@ -211,7 +211,9 @@ export class AssetController {
   @Post('permanent-deletion')
   @Authenticated({ permission: Permission.AssetDelete })
   permanentDeletion(@Auth() auth: AuthDto, @Body() dto: PermanentDeletionDto): Promise<PermanentDeletionResultDto[]> {
-    return this.service.permanentlyDelete(auth, dto.ids);
+    return dto.acceptOnly
+      ? this.service.acceptPermanentDeletion(auth, dto.ids)
+      : this.service.permanentlyDelete(auth, dto.ids);
   }
 
   @Post('deletion-status')

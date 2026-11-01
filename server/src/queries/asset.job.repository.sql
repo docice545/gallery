@@ -304,6 +304,7 @@ from
   left join "asset_video" on "asset_video"."assetId" = "asset"."id"
 where
   "asset"."id" = $4
+  and "asset"."status" != 'deleted'
 
 -- AssetJobRepository.getForMetadataExtraction
 select
@@ -363,6 +364,7 @@ from
   inner join "user" on "user"."id" = "asset"."ownerId"
 where
   "asset"."id" = $3
+  and "asset"."status" != 'deleted'
 
 -- AssetJobRepository.getLockedPropertiesForMetadataExtraction
 select
@@ -740,6 +742,7 @@ from
   left join "asset_audio" on "asset_audio"."assetId" = "asset"."id"
 where
   "asset"."id" = $1
+  and "asset"."status" != 'deleted'
   and "asset"."type" = 'VIDEO'
 
 -- AssetJobRepository.streamForMetadataExtraction

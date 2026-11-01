@@ -3,15 +3,16 @@ import { Insertable } from 'kysely';
 import { createReadStream } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import sanitize from 'sanitize-filename';
-import type { ClassConstructor, GenerateThumbnailOptions, ImageDimensions } from 'src/types.js';
+import type { ClassConstructor, GenerateThumbnailOptions, IDeleteFilesJob, ImageDimensions } from 'src/types.js';
+import { DiskStorageBackend } from 'src/backends/disk-storage.backend.js';
 import { FACE_THUMBNAIL_SIZE, SALT_ROUNDS } from 'src/constants.js';
 import { StorageCore } from 'src/cores/storage.core.js';
 import { AssetFace, UserAdmin } from 'src/database.js';
 import { SystemConfig } from 'src/dtos/config.dto.js';
 import { AssetEditAction, type CropParameters } from 'src/dtos/editing.dto.js';
-import { AssetFileType, CacheControl, ImageFormat } from 'src/enum.js';
+import { AssetFileType, CacheControl, ImageFormat, JobStatus, StorageFolder } from 'src/enum.js';
 import { computePhysicalUsage } from 'src/gallery/storage-usage.js';
 import { RangeNotSatisfiableError, ServeStrategy } from 'src/interfaces/storage-backend.interface.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
@@ -83,6 +84,7 @@ import { UserTable } from 'src/schema/tables/user.table.js';
 import { FaceVerdictService } from 'src/services/face-verdict.service.js';
 import { IdentityMergePropagationService } from 'src/services/identity-merge-propagation.service.js';
 import { AccessRequest, checkAccess, requireAccess } from 'src/utils/access.js';
+import { below } from 'src/utils/authorized-deletion.js';
 import { getConfig, updateConfig } from 'src/utils/config.js';
 import {
   ContentDisposition,
@@ -266,6 +268,66 @@ export class BaseService {
       faceRepairDeclineRepository,
       logger: this.logger,
     });
+  }
+
+  /** Shared guarded cleanup for disposable files; authorization receipts never use bare original unlink. */
+  protected async deleteDisposableFiles(
+    job: IDeleteFilesJob,
+    isReferenced: (path: string) => Promise<boolean> = (path) => this.assetRepository.isOriginalReferenced(path),
+  ): Promise<JobStatus> {
+    // StorageService extends this class; defer importing it until an actual cleanup.
+    const { StorageService } = await import('./storage.service.js');
+    const { files } = job;
+
+    let failed = false;
+    for (const file of files) {
+      if (!file) {
+        continue;
+      }
+      try {
+        const candidate = isAbsolute(file) ? resolve(file) : resolve(StorageCore.getMediaLocation(), file);
+        const roots = [StorageFolder.Thumbnails, StorageFolder.EncodedVideo, StorageFolder.Profile].map((folder) =>
+          StorageCore.getBaseFolder(folder),
+        );
+        const disposable = roots.some((root) => below(root, candidate));
+        const temporary =
+          job.temporaryOwnerId &&
+          /^[a-f0-9-]{36}$/.test(job.temporaryOwnerId) &&
+          below(StorageCore.getFolderLocation(StorageFolder.Upload, job.temporaryOwnerId), candidate);
+        // Bare legacy jobs may delete derivatives, never upload/library/external originals.
+        if (
+          (!disposable && !temporary) ||
+          (await isReferenced(file)) ||
+          (candidate !== file && (await isReferenced(candidate)))
+        ) {
+          failed = true;
+          this.logger.warn('FileDelete blocked: path is not an unreferenced disposable file');
+          continue;
+        }
+        if (isAbsolute(file)) {
+          await this.storageRepository.verifyDisposablePath(candidate, [
+            ...roots,
+            ...(temporary ? [StorageCore.getFolderLocation(StorageFolder.Upload, job.temporaryOwnerId!)] : []),
+          ]);
+          await this.storageRepository.unlink(file);
+        } else {
+          const backend = StorageService.resolveBackendForKey(file);
+          if (backend instanceof DiskStorageBackend) {
+            await this.storageRepository.verifyDisposablePath(candidate, [
+              ...roots,
+              ...(temporary ? [StorageCore.getFolderLocation(StorageFolder.Upload, job.temporaryOwnerId!)] : []),
+            ]);
+          }
+          await backend.delete(file);
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          failed = true;
+          this.logger.warn('FileDelete failed; file remains recoverable');
+        }
+      }
+    }
+    return failed ? JobStatus.Failed : JobStatus.Success;
   }
 
   static create<T extends ClassConstructor<typeof BaseService>>(Service: T, ctx: BaseService) {
