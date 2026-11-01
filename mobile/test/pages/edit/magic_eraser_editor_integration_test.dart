@@ -212,7 +212,7 @@ void main() {
         find.text(
           'Works on the original photo without your current edits. Your edits will still be in the editor when you return.',
         ),
-        findsOneWidget,
+        findsNothing,
       );
       if (saveResult) {
         final canvas = find.byKey(const Key('eraser-canvas'));
