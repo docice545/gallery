@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
@@ -37,6 +38,10 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   Size? _sourceSize;
   MagicEraserMask _mask = MagicEraserMask();
   final _strokePoints = <Offset>[];
+  final _imageKey = GlobalKey();
+  final _pointers = <int>{};
+  int? _strokePointer;
+  Size? _strokeSize;
   double _brushSize = 32;
   double _strokeRadius = 0.02;
   bool _drawing = false;
@@ -61,6 +66,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   void initState() {
     super.initState();
     _repository = ref.read(magicEraserRepositoryProvider);
+    _transform.addListener(_discardStroke);
     unawaited(_load());
   }
 
@@ -267,6 +273,70 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     }
   }
 
+  // Track pointers over the entire viewport, including the letterbox. Raw
+  // events keep the brush independent of InteractiveViewer's gesture arena.
+  void _pointerDown(PointerDownEvent event) {
+    _pointers.add(event.pointer);
+    if (_pointers.length != 1) {
+      _discardStroke();
+      return;
+    }
+    final box = _imageKey.currentContext?.findRenderObject() as RenderBox?;
+    if (_busy ||
+        _zoom ||
+        _result != null ||
+        event.buttons != kPrimaryButton ||
+        box == null ||
+        !box.size.contains(box.globalToLocal(event.position))) {
+      return;
+    }
+    _strokePointer = event.pointer;
+    _strokeSize = box.size;
+    _startStroke(box.globalToLocal(event.position), box.size);
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    if (_strokePointer != event.pointer) {
+      return;
+    }
+    final box = _imageKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || box.size != _strokeSize) {
+      _discardStroke();
+      return;
+    }
+    // globalToLocal already inverts the InteractiveViewer transform.
+    _addPoint(box.globalToLocal(event.position), box.size);
+  }
+
+  void _pointerUp(PointerUpEvent event) {
+    if (_strokePointer == event.pointer) {
+      final box = _imageKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.size == _strokeSize) {
+        _addPoint(box.globalToLocal(event.position), box.size);
+        _strokePointer = null;
+        _finishStroke();
+      } else {
+        _discardStroke();
+      }
+    }
+    _pointers.remove(event.pointer);
+  }
+
+  void _pointerCancel(PointerCancelEvent event) {
+    _pointers.remove(event.pointer);
+    _discardStroke();
+  }
+
+  void _discardStroke() {
+    _strokePointer = null;
+    if (_drawing) {
+      setState(() {
+        _drawing = false;
+        _strokePoints.clear();
+      });
+    }
+  }
+
   void _startStroke(Offset point, Size size) {
     _drawing = false;
     _strokePoints.clear();
@@ -418,15 +488,6 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Text(
-                            widget.asset.isMotionPhoto
-                                ? context.t.magic_eraser_live_notice
-                                : context.t.magic_eraser_original_notice,
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                        ),
                         if (_failed || _timeout)
                           Padding(
                             padding: const EdgeInsets.all(12),
@@ -492,42 +553,30 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
         final showMask = _result == null;
         return Stack(
           children: [
-            InteractiveViewer(
-              transformationController: _transform,
-              panEnabled: _zoom && !_busy,
-              scaleEnabled: _zoom && !_busy,
-              minScale: 1,
-              maxScale: 6,
-              child: SizedBox(
-                width: constraints.maxWidth,
-                height: constraints.maxHeight,
-                child: Center(
-                  child: Semantics(
-                    label: context.t.magic_eraser_brush,
-                    child: GestureDetector(
-                      key: const Key('eraser-canvas'),
-                      onPanStart: _busy || _zoom || !showMask
-                          ? null
-                          : (details) => _startStroke(details.localPosition, size),
-                      onPanUpdate: _busy || _zoom || !showMask
-                          ? null
-                          : (details) => _addPoint(details.localPosition, size),
-                      onPanEnd: _busy || _zoom || !showMask ? null : (_) => _finishStroke(),
-                      onPanCancel: _busy || _zoom || !showMask ? null : _finishStroke,
-                      onTapDown: _busy || _zoom || !showMask
-                          ? null
-                          : (details) => _startStroke(details.localPosition, size),
-                      onTapUp: _busy || _zoom || !showMask ? null : (_) => _finishStroke(),
-                      onTapCancel: _busy || _zoom || !showMask
-                          ? null
-                          : () => setState(() {
-                              _drawing = false;
-                              _strokePoints.clear();
-                            }),
+            Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: _pointerDown,
+              onPointerMove: _pointerMove,
+              onPointerUp: _pointerUp,
+              onPointerCancel: _pointerCancel,
+              child: InteractiveViewer(
+                transformationController: _transform,
+                panEnabled: _zoom && !_busy,
+                scaleEnabled: _zoom && !_busy,
+                minScale: 1,
+                maxScale: 6,
+                child: SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  child: Center(
+                    child: Semantics(
+                      label: context.t.magic_eraser_brush,
                       child: SizedBox(
+                        key: const Key('eraser-canvas'),
                         width: size.width,
                         height: size.height,
                         child: Stack(
+                          key: _imageKey,
                           fit: StackFit.expand,
                           children: [
                             Image.memory(displayed, fit: BoxFit.fill, gaplessPlayback: true),
