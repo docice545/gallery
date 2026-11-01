@@ -2316,6 +2316,7 @@
   "magic_eraser_queued": "Warten auf Verarbeitung…",
   "magic_eraser_redo": "Wiederholen",
   "magic_eraser_save_copy": "Kopie speichern",
+  "magic_eraser_saved_sync_pending": "Kopie gespeichert. Die Mediathek konnte nicht aktualisiert werden. Ziehe die Zeitleiste zum erneuten Versuchen nach unten.",
   "magic_eraser_service_unavailable": "Der KI-Radierdienst ist nicht verfügbar. Versuche es später erneut.",
   "magic_eraser_sign_in_required": "Melde dich erneut an, um die Verfügbarkeit des magischen Radierers zu prüfen.",
   "magic_eraser_timeout": "Die Verarbeitung dauert zu lange. Versuche es später erneut.",

@@ -24,6 +24,7 @@ import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart'
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/markup_controls.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
+import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
@@ -33,6 +34,7 @@ import 'package:immich_mobile/utils/editor_geometry.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_ui/immich_ui.dart';
+import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
 
 export 'editor_mode.dart';
@@ -50,6 +52,7 @@ class EditImagePage extends ConsumerStatefulWidget {
 }
 
 class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProviderStateMixin {
+  final _log = Logger('MagicEraserCopySync');
   final _annotations = AnnotationEditor();
   late EditorMode _mode;
   AnnotationTool _tool = AnnotationTool.pen;
@@ -234,7 +237,14 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         }
         final asset = widget.asset;
         if (asset != null) {
-          await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => MagicEraserPage(asset: asset)));
+          final savedAssetId = await Navigator.of(
+            context,
+          ).push<String>(MaterialPageRoute<String>(builder: (_) => MagicEraserPage(asset: asset)));
+          if (savedAssetId != null && savedAssetId.isNotEmpty && mounted) {
+            // A server save is already committed. Refresh the normal Drift
+            // stream independently, without blocking the editor or re-uploading.
+            unawaited(_refreshMagicEraserLibrary());
+          }
           return;
         }
         final retry = await showDialog<bool>(
@@ -258,6 +268,23 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
       }
     } finally {
       _magicEraserOpen = false;
+    }
+  }
+
+  Future<void> _refreshMagicEraserLibrary() async {
+    try {
+      // enqueue also requests one follow-up pass if the current stream took
+      // its checkpoint before the copy was saved. Its Future may represent
+      // that existing pass, so success is not proof the new ID is imported yet.
+      if (await ref.read(backgroundSyncProvider).syncRemote(enqueue: true)) {
+        return;
+      }
+      _log.warning('Server copy saved; remote library refresh did not complete');
+    } catch (error, stack) {
+      _log.warning('Server copy saved; remote library refresh failed', error, stack);
+    }
+    if (mounted) {
+      ImmichToast.show(context: context, msg: context.t.magic_eraser_saved_sync_pending, toastType: ToastType.info);
     }
   }
 

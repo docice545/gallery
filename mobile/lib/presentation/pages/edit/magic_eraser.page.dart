@@ -256,12 +256,12 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     }
     setState(() => _saving = true);
     try {
-      await _repository.save(widget.asset.id, jobId);
+      final savedAssetId = await _repository.save(widget.asset.id, jobId);
       // A successful save must not race dispose's cancellation request.
       _jobId = null;
       if (mounted) {
         ImmichToast.show(context: context, msg: context.t.success, toastType: ToastType.success);
-        Navigator.of(context).pop(true);
+        Navigator.of(context).pop(savedAssetId);
       }
     } catch (_) {
       if (mounted) {
@@ -512,7 +512,13 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
                     : Column(
                         children: [
                           Expanded(child: canvas),
-                          SizedBox(height: math.min(264, constraints.maxHeight * .42), child: panel),
+                          // Reserve only the controls' content height. The cap
+                          // keeps the photo visible when large text or status
+                          // messages need a scrollable panel.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxHeight: constraints.maxHeight * .42),
+                            child: panel,
+                          ),
                         ],
                       );
               },
@@ -648,7 +654,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   );
 
   Widget _controls() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -704,22 +710,38 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
             ),
           ],
         ),
-        Column(
-          children: [
-            Text(context.t.magic_eraser_brush_size, style: const TextStyle(color: Colors.white)),
-            Slider(
-              key: const Key('eraser-brush-size'),
-              min: 4,
-              max: 96,
-              value: _brushSize,
-              onChanged: _busy || _drawing ? null : (size) => setState(() => _brushSize = size),
-            ),
-            FilledButton(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final brush = Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(context.t.magic_eraser_brush_size, style: const TextStyle(color: Colors.white)),
+                Slider(
+                  key: const Key('eraser-brush-size'),
+                  min: 4,
+                  max: 96,
+                  value: _brushSize,
+                  onChanged: _busy || _drawing ? null : (size) => setState(() => _brushSize = size),
+                ),
+              ],
+            );
+            final remove = FilledButton(
               key: const Key('eraser-remove'),
+              style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
               onPressed: _busy || _drawing || !_mask.hasSelection || _result != null ? null : _remove,
               child: Text(context.t.remove),
-            ),
-          ],
+            );
+            if (constraints.maxWidth >= 280 && MediaQuery.textScalerOf(context).scale(14) <= 20) {
+              return Row(
+                children: [
+                  Expanded(child: brush),
+                  const SizedBox(width: 8),
+                  remove,
+                ],
+              );
+            }
+            return Column(mainAxisSize: MainAxisSize.min, children: [brush, remove]);
+          },
         ),
       ],
     ),

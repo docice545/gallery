@@ -2316,6 +2316,7 @@
   "magic_eraser_queued": "Esperando el procesamiento…",
   "magic_eraser_redo": "Rehacer",
   "magic_eraser_save_copy": "Guardar una copia",
+  "magic_eraser_saved_sync_pending": "Copia guardada. No se pudo actualizar la biblioteca. Desliza hacia abajo en la cronología para reintentarlo.",
   "magic_eraser_service_unavailable": "El servicio de borrador con IA no está disponible. Inténtalo de nuevo más tarde.",
   "magic_eraser_sign_in_required": "Vuelve a iniciar sesión para comprobar la disponibilidad del borrador mágico.",
   "magic_eraser_timeout": "El procesamiento está tardando demasiado. Inténtalo de nuevo más tarde.",

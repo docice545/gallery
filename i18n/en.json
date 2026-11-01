@@ -2322,6 +2322,7 @@
   "magic_eraser_queued": "Waiting for processing…",
   "magic_eraser_redo": "Redo",
   "magic_eraser_save_copy": "Save a copy",
+  "magic_eraser_saved_sync_pending": "Copy saved. Could not refresh the library. Pull down in the timeline to retry.",
   "magic_eraser_service_unavailable": "The AI eraser service is unavailable. Please try again later.",
   "magic_eraser_sign_in_required": "Sign in again to check magic eraser availability.",
   "magic_eraser_timeout": "Processing is taking too long. Please try again later.",

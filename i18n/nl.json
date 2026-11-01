@@ -2317,6 +2317,7 @@
   "magic_eraser_queued": "Wachten op verwerking…",
   "magic_eraser_redo": "Opnieuw uitvoeren",
   "magic_eraser_save_copy": "Een kopie opslaan",
+  "magic_eraser_saved_sync_pending": "Kopie opgeslagen. De bibliotheek kon niet worden vernieuwd. Trek de tijdlijn omlaag om het opnieuw te proberen.",
   "magic_eraser_service_unavailable": "De AI-gumservice is niet beschikbaar. Probeer het later opnieuw.",
   "magic_eraser_sign_in_required": "Meld je opnieuw aan om de beschikbaarheid van de magische gum te controleren.",
   "magic_eraser_timeout": "De verwerking duurt te lang. Probeer het later opnieuw.",

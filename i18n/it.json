@@ -2317,6 +2317,7 @@
   "magic_eraser_queued": "In attesa di elaborazione…",
   "magic_eraser_redo": "Ripeti",
   "magic_eraser_save_copy": "Salva una copia",
+  "magic_eraser_saved_sync_pending": "Copia salvata. Impossibile aggiornare la raccolta. Scorri verso il basso nella cronologia per riprovare.",
   "magic_eraser_service_unavailable": "Il servizio gomma IA non è disponibile. Riprova più tardi.",
   "magic_eraser_sign_in_required": "Accedi di nuovo per verificare la disponibilità della gomma magica.",
   "magic_eraser_timeout": "L’elaborazione richiede troppo tempo. Riprova più tardi.",

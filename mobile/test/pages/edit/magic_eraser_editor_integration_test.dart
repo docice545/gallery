@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -12,10 +13,12 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
 import 'package:immich_mobile/domain/models/exif.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
+import 'package:immich_mobile/domain/utils/background_sync.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
+import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
@@ -30,8 +33,11 @@ import '../../widget_tester_extensions.dart';
 
 class _MockMagicEraserRepository extends Mock implements MagicEraserRepository {}
 
+class _MockBackgroundSyncManager extends Mock implements BackgroundSyncManager {}
+
 void main() {
   late _MockMagicEraserRepository repository;
+  late _MockBackgroundSyncManager backgroundSync;
   late RemoteAsset asset;
   final magicEraser = find.byType(MagicEraserPage);
 
@@ -40,6 +46,8 @@ void main() {
   setUp(() {
     TestUtils.init();
     repository = _MockMagicEraserRepository();
+    backgroundSync = _MockBackgroundSyncManager();
+    when(() => backgroundSync.syncRemote(enqueue: any(named: 'enqueue'))).thenAnswer((_) async => true);
     asset = TestUtils.createRemoteAsset(id: 'asset-id', width: 1, height: 1);
     when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => false);
     when(
@@ -58,6 +66,7 @@ void main() {
         ),
         overrides: [
           magicEraserRepositoryProvider.overrideWithValue(repository),
+          backgroundSyncProvider.overrideWithValue(backgroundSync),
           immichThemeProvider.overrideWith(
             (ref) => ImmichTheme(
               light: ColorScheme.fromSeed(seedColor: Colors.purple),
@@ -107,6 +116,122 @@ void main() {
     }
     await tester.pumpAndSettle();
   }
+
+  Future<void> saveMagicCopy(WidgetTester tester) async {
+    when(() => repository.isEnabled(any(), abortTrigger: any(named: 'abortTrigger'))).thenAnswer((_) async => true);
+    when(
+      () => repository.create(asset.id, any()),
+    ).thenAnswer((_) async => const MagicEraserJob(id: 'ready-job', status: MagicEraserStatus.ready));
+    when(
+      () => repository.preview(any(), any(), abortTrigger: any(named: 'abortTrigger')),
+    ).thenAnswer((_) async => Uint8List.fromList(kTransparentImage));
+    when(() => repository.save(asset.id, 'ready-job')).thenAnswer((_) async => 'saved-server-copy');
+    await pumpEditor(tester);
+    await selectMode(tester, 'magicEraser');
+    final canvas = find.byKey(const Key('eraser-canvas'));
+    for (var attempt = 0; attempt < 100 && canvas.evaluate().isEmpty; attempt++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump();
+    }
+    expect(canvas, findsOneWidget);
+    await tester.dragFrom(tester.getCenter(canvas) - const Offset(20, 0), const Offset(40, 0));
+    await tester.pump();
+    final remove = find.byKey(const Key('eraser-remove'));
+    expect(tester.widget<FilledButton>(remove).onPressed, isNotNull);
+    await tester.ensureVisible(remove);
+    await tester.runAsync(() async {
+      await tester.tap(remove);
+      await tester.pump();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pump();
+    final save = find.byKey(const Key('eraser-save'));
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(magicEraser, findsNothing);
+  }
+
+  void verifyOnlyRemoteRefresh() {
+    verify(() => backgroundSync.syncRemote(enqueue: true)).called(1);
+    verifyNever(() => backgroundSync.syncLocal(full: any(named: 'full')));
+    verifyNever(() => backgroundSync.hashAssets());
+  }
+
+  testWidgets('Build28 saved server copy requests one queued remote refresh and preserves the original', (
+    tester,
+  ) async {
+    final before = asset;
+    await saveMagicCopy(tester);
+    verifyOnlyRemoteRefresh();
+    verify(() => repository.save(asset.id, 'ready-job')).called(1);
+    verifyNever(() => repository.cancel(asset.id, 'ready-job'));
+    expect(asset, same(before));
+    expect(asset.id, 'asset-id');
+    expect(find.byType(EditImagePage), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final throws in [false, true]) {
+    testWidgets(
+      'Build28 ${throws ? 'throwing' : 'unsuccessful'} refresh does not turn a saved copy into a save failure',
+      (tester) async {
+        final pending = Completer<bool>();
+        when(() => backgroundSync.syncRemote(enqueue: true)).thenAnswer((_) => pending.future);
+        await saveMagicCopy(tester);
+        verifyOnlyRemoteRefresh();
+        verify(() => repository.save(asset.id, 'ready-job')).called(1);
+        verifyNever(() => repository.cancel(asset.id, 'ready-job'));
+        expect(find.byType(EditImagePage), findsOneWidget);
+        // The server already saved the object and the AI route has returned.
+        // Clear only the existing success toast, keeping the refresh unresolved.
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pumpAndSettle();
+        if (throws) {
+          pending.completeError(StateError('synthetic remote-sync failure'));
+        } else {
+          pending.complete(false);
+        }
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Copy saved. Could not refresh the library. Pull down in the timeline to retry.'),
+          findsOneWidget,
+        );
+        expect(magicEraser, findsNothing);
+        verifyNever(() => repository.save(any(), any()));
+        expect(tester.takeException(), isNull);
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
+  testWidgets('Build28 pending refresh never blocks the editor and can finish after its disposal', (tester) async {
+    final pending = Completer<bool>();
+    when(() => backgroundSync.syncRemote(enqueue: true)).thenAnswer((_) => pending.future);
+    await saveMagicCopy(tester);
+    verifyOnlyRemoteRefresh();
+    final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+    final before = container.read(editorStateProvider);
+    await tester.tap(find.byKey(const Key('editor-mode-crop')));
+    await tester.pumpAndSettle();
+    // Selecting the tool and expanding its settings are separate actions.
+    await tester.tap(find.byKey(const Key('editor-mode-crop')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.rotate_left));
+    await tester.pump();
+    expect(container.read(editorStateProvider).rotationAngle, isNot(before.rotationAngle));
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    pending.completeError(StateError('synthetic late failure'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    verifyNever(() => repository.cancel(asset.id, 'ready-job'));
+  });
 
   testWidgets('the only save command offers a copy without unavailable replacement controls', (tester) async {
     await pumpEditor(tester);
@@ -233,6 +358,7 @@ void main() {
         await tester.tap(find.byKey(const Key('eraser-save')));
         await tester.pumpAndSettle();
         verify(() => repository.save(asset.id, 'ready-job')).called(1);
+        verify(() => backgroundSync.syncRemote(enqueue: true)).called(1);
         verifyNever(() => repository.cancel(asset.id, 'ready-job'));
       } else {
         await tester.pageBack();

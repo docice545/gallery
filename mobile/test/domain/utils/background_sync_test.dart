@@ -60,7 +60,88 @@ class _ControlledBackgroundSyncManager extends BackgroundSyncManager {
   }
 }
 
+class _QueuedRemoteSyncManager extends BackgroundSyncManager {
+  final runs = <Completer<bool?>>[];
+  int localRequests = 0;
+  int hashRequests = 0;
+
+  _QueuedRemoteSyncManager({super.onRemoteSyncComplete, super.onRemoteSyncError});
+
+  @override
+  Cancelable<bool?> createRemoteSyncTask() {
+    final result = Completer<bool?>();
+    runs.add(result);
+    return Cancelable(
+      completer: result,
+      onCancel: () {
+        if (!result.isCompleted) {
+          result.completeError(CanceledError());
+        }
+      },
+    );
+  }
+
+  @override
+  Future<void> syncDeviceTrash() async {}
+
+  @override
+  Future<void> syncLocal({bool full = false}) async => localRequests++;
+
+  @override
+  Future<void> hashAssets() async => hashRequests++;
+}
+
 void main() {
+  test('Build28 concurrent saved-copy refreshes coalesce into one follow-up server pass', () async {
+    final completions = <bool?>[];
+    final manager = _QueuedRemoteSyncManager(onRemoteSyncComplete: completions.add);
+    final first = manager.syncRemote();
+    final refreshes = [for (var index = 0; index < 4; index++) manager.syncRemote(enqueue: true)];
+    expect(manager.runs, hasLength(1));
+    manager.runs.first.complete(true);
+    expect(await first, isTrue);
+    expect(await Future.wait(refreshes), everyElement(isTrue));
+    // Those Futures refer to the pre-existing pass. The queued pass still owns
+    // the next server checkpoint, so callers must not declare the copy imported.
+    expect(manager.runs, hasLength(2));
+    expect(manager.runs.last.isCompleted, isFalse);
+    expect(completions, [true]);
+    manager.runs.last.complete(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(completions, [true, true]);
+    expect(manager.runs, hasLength(2));
+    expect(manager.localRequests, 0);
+    expect(manager.hashRequests, 0);
+    await manager.cancel();
+  });
+
+  for (final throws in [false, true]) {
+    test('Build28 queued follow-up ${throws ? 'error' : 'false result'} stops without an active retry loop', () async {
+      final errors = <String>[];
+      final completions = <bool?>[];
+      final manager = _QueuedRemoteSyncManager(onRemoteSyncComplete: completions.add, onRemoteSyncError: errors.add);
+      final first = manager.syncRemote();
+      final request = manager.syncRemote(enqueue: true);
+      manager.runs.first.complete(true);
+      expect(await first, isTrue);
+      expect(await request, isTrue);
+      expect(manager.runs, hasLength(2));
+      if (throws) {
+        manager.runs.last.completeError(StateError('synthetic follow-up failure'));
+      } else {
+        manager.runs.last.complete(false);
+      }
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.runs, hasLength(2));
+      expect(completions, throws ? [true] : [true, false]);
+      expect(errors, throws ? hasLength(1) : isEmpty);
+      expect(manager.localRequests, 0);
+      expect(manager.hashRequests, 0);
+      await manager.cancel();
+    });
+  }
+
   test('syncRemoteThenLocal defers full local sync until remote sync has completed', () async {
     final manager = _FakeBackgroundSyncManager();
 

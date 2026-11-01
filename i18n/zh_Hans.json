@@ -2298,6 +2298,7 @@
   "magic_eraser_queued": "等待处理…",
   "magic_eraser_redo": "重做",
   "magic_eraser_save_copy": "保存副本",
+  "magic_eraser_saved_sync_pending": "副本已保存，但无法刷新图库。请在时间线中下拉重试。",
   "magic_eraser_service_unavailable": "AI 橡皮擦服务不可用，请稍后重试。",
   "magic_eraser_sign_in_required": "请重新登录以检查神奇橡皮擦的可用性。",
   "magic_eraser_timeout": "处理耗时过长。请稍后重试。",

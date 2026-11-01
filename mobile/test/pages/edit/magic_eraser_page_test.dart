@@ -338,7 +338,9 @@ void main() {
   testWidgets('Build27 letterbox starts are ignored and excursions keep all mask coordinates in bounds', (
     tester,
   ) async {
-    await pumpGestureEditor(tester);
+    // The compact controls let a portrait photo almost fill this viewport.
+    // Use a wide photo to preserve a real letterbox for this boundary test.
+    await pumpGestureEditor(tester, width: 1200, height: 800);
     final outside = letterboxPoint(tester);
     final outsidePixel = await pixelAt(tester, outside);
     final ignored = await tester.startGesture(outside);
@@ -391,7 +393,7 @@ void main() {
     for (final liftFirstPointer in [false, true]) {
       testWidgets('Build27 second pointer ${outsideImage ? 'outside' : 'inside'} image cancels drawing; '
           '${liftFirstPointer ? 'first' : 'second'} pointer lifts first', (tester) async {
-        await pumpGestureEditor(tester);
+        await pumpGestureEditor(tester, width: outsideImage ? 1200 : 600, height: outsideImage ? 800 : 1000);
         await seedUndoAndRedo(tester);
         const activeEnd = Offset(.55, .7);
         final first = await tester.startGesture(imagePoint(tester, const Offset(.35, .7)), pointer: 1);
@@ -505,7 +507,7 @@ void main() {
       () => repository.create(original.id, any()),
     ).thenAnswer((_) async => const MagicEraserJob(id: 'build27-ready-job', status: MagicEraserStatus.ready));
     when(() => repository.save(original.id, 'build27-ready-job')).thenAnswer((_) => saved.future);
-    bool? routeResult;
+    String? routeResult;
     await pumpEditor(
       tester,
       photo: original,
@@ -515,7 +517,7 @@ void main() {
             child: FilledButton(
               key: const Key('build27-open-editor'),
               onPressed: () async {
-                routeResult = await Navigator.of(context).push<bool>(MaterialPageRoute<bool>(builder: (_) => page));
+                routeResult = await Navigator.of(context).push<String>(MaterialPageRoute<String>(builder: (_) => page));
               },
               child: const Text('Open editor'),
             ),
@@ -568,7 +570,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(MagicEraserPage), findsNothing);
     expect(find.byKey(const Key('build27-open-editor')), findsOneWidget);
-    expect(routeResult, isTrue);
+    expect(routeResult, 'build27-new-copy-id');
     verify(() => repository.save(original.id, 'build27-ready-job')).called(1);
     verifyNever(() => repository.cancel(original.id, 'build27-ready-job'));
     verifyNever(() => repository.create('build27-linked-video', any()));
@@ -584,6 +586,139 @@ void main() {
     // Let the existing success toast finish its bounded dismissal timer.
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final (screen, textScale) in <(Size, double)>[
+    (const Size(390, 844), 1),
+    (const Size(320, 568), 1),
+    (const Size(568, 320), 1),
+    (const Size(844, 390), 1),
+    (const Size(800, 1280), 1),
+    (const Size(390, 844), 2),
+    (const Size(320, 568), 2),
+    (const Size(568, 320), 2),
+    (const Size(844, 390), 2),
+    (const Size(800, 1280), 2),
+  ]) {
+    for (final photo in [const Size(600, 1000), const Size(1200, 800)]) {
+      testWidgets(
+        'Build28 content-sized panel keeps an uncropped $photo photo and usable controls at $screen/$textScale',
+        (tester) async {
+          tester.view.physicalSize = screen;
+          tester.view.devicePixelRatio = 1;
+          tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+          tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
+          tester.platformDispatcher.textScaleFactorTestValue = textScale;
+          addTearDown(() {
+            tester.view.reset();
+            tester.platformDispatcher.clearTextScaleFactorTestValue();
+          });
+          await setSourceSize(tester, width: photo.width.toInt(), height: photo.height.toInt());
+          await pumpEditor(tester);
+          await waitForGestureSource(tester);
+          await EasyLocalization.of(tester.element(canvas))!.setLocale(const Locale('ru'));
+          await tester.pumpAndSettle();
+
+          final region = tester.getRect(find.byKey(const Key('eraser-canvas-region')));
+          final panel = find.byKey(const Key('eraser-controls-panel'));
+          final panelRect = tester.getRect(panel);
+          final image = tester.getRect(canvas);
+          final fitted = applyBoxFit(BoxFit.contain, photo, region.size).destination;
+          expect(image.width, closeTo(fitted.width, .001));
+          expect(image.height, closeTo(fitted.height, .001));
+          expect(image.width / image.height, closeTo(photo.width / photo.height, .00001));
+          expect(image.center.dx, closeTo(region.center.dx, .001));
+          expect(image.center.dy, closeTo(region.center.dy, .001));
+          expect(image.left, greaterThanOrEqualTo(region.left - .001));
+          expect(image.top, greaterThanOrEqualTo(region.top - .001));
+          expect(image.right, lessThanOrEqualTo(region.right + .001));
+          expect(image.bottom, lessThanOrEqualTo(region.bottom + .001));
+          expect(image.width, greaterThan(80));
+          expect(image.height, greaterThan(80));
+
+          final sidePanel = screen.width >= 560 && screen.width > screen.height;
+          if (sidePanel) {
+            expect(panelRect.left, greaterThanOrEqualTo(region.right));
+          } else {
+            expect(panelRect.top, greaterThanOrEqualTo(region.bottom));
+            final bodyHeight = region.height + panelRect.height;
+            expect(panelRect.height, lessThanOrEqualTo(bodyHeight * .42 + .001));
+            // Build27 always reserved min(264, bodyHeight*.42), independent
+            // of how much space its controls actually needed.
+            final oldPanelHeight = bodyHeight * .42 < 264 ? bodyHeight * .42 : 264.0;
+            final oldRegion = Size(region.width, bodyHeight - oldPanelHeight);
+            final oldPhoto = applyBoxFit(BoxFit.contain, photo, oldRegion).destination;
+            if (screen == const Size(390, 844) && textScale == 1) {
+              expect(panelRect.height, lessThan(oldPanelHeight - 80));
+              expect(region.height, greaterThan(oldRegion.height + 80));
+              expect(image.width * image.height, greaterThanOrEqualTo(oldPhoto.width * oldPhoto.height));
+              if (photo.height > photo.width) {
+                debugPrint(
+                  'Build28 layout measurement: canvasHeight=${region.height}, panelHeight=${panelRect.height}, '
+                  'photoArea=${image.width * image.height}, build27PhotoArea=${oldPhoto.width * oldPhoto.height}',
+                );
+                expect(image.width * image.height, greaterThan(oldPhoto.width * oldPhoto.height * 1.3));
+              }
+            }
+          }
+
+          for (final target in [
+            find.byIcon(Icons.brush),
+            find.byIcon(Icons.auto_fix_off),
+            find.byIcon(Icons.zoom_in),
+            find.descendant(of: panel, matching: find.byType(TextButton)).first,
+            find.byKey(const Key('eraser-brush-size')),
+            remove,
+          ]) {
+            await tester.ensureVisible(target);
+            await tester.pump();
+            expect(target.hitTestable(), findsOneWidget);
+          }
+          expect(tester.takeException(), isNull);
+          verifyNever(() => repository.create(any(), any()));
+          verifyNever(() => repository.save(any(), any()));
+        },
+      );
+    }
+  }
+
+  testWidgets('Build28 oversized failure status scrolls while preserving the photo and mask', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(() {
+      tester.view.reset();
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+    });
+    await setSourceSize(tester);
+    await pumpEditor(tester);
+    await waitForGestureSource(tester);
+    await EasyLocalization.of(tester.element(canvas))!.setLocale(const Locale('ru'));
+    await tester.pumpAndSettle();
+    await tapImage(tester, const Offset(.5, .5));
+    when(
+      () => repository.create(asset.id, any()),
+    ).thenAnswer((_) async => const MagicEraserJob(id: 'build28-failed-job', status: MagicEraserStatus.failed));
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
+    await tester.pump();
+    expect(displayedImage(tester).bytes, same(source));
+    expect(canRemove(tester), isTrue);
+    expect(tester.getSize(find.byKey(const Key('eraser-canvas-region'))).height, greaterThan(100));
+    // The existing failure message remains in the scrollable controls rather
+    // than enlarging the panel past its photo-preserving maximum.
+    final statusText = find.descendant(
+      of: find.byKey(const Key('eraser-controls-panel')),
+      matching: find.byWidgetPredicate((widget) => widget is Text && widget.style?.color == Colors.orangeAccent),
+    );
+    expect(statusText, findsOneWidget);
+    await tester.ensureVisible(statusText);
+    await tester.pump();
+    expect(statusText.hitTestable(), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('eraser-brush-size')));
+    await tester.pump();
+    expect(find.byKey(const Key('eraser-brush-size')).hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

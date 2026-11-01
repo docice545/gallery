@@ -2335,6 +2335,7 @@
   "magic_eraser_queued": "Oczekiwanie na przetwarzanie…",
   "magic_eraser_redo": "Ponów",
   "magic_eraser_save_copy": "Zapisz kopię",
+  "magic_eraser_saved_sync_pending": "Kopia zapisana. Nie udało się odświeżyć biblioteki. Przeciągnij oś czasu w dół, aby spróbować ponownie.",
   "magic_eraser_service_unavailable": "Usługa gumki AI jest niedostępna. Spróbuj ponownie później.",
   "magic_eraser_sign_in_required": "Zaloguj się ponownie, aby sprawdzić dostępność magicznej gumki.",
   "magic_eraser_timeout": "Przetwarzanie trwa zbyt długo. Spróbuj ponownie później.",
