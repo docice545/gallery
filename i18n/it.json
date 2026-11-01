@@ -3656,6 +3656,8 @@
   "trash": "Cestino",
   "trash_action_prompt": "{count} elementi spostati nel cestino",
   "trash_all": "Cestina Tutto",
+  "trash_cleanup_accepted": "Cestino svuotato. I file sul server vengono eliminati in background.",
+  "trash_cleanup_partial": "Accettati per l’eliminazione definitiva: {count}. Rimanenti: {remaining}. {reasons}",
   "trash_count": "Cancella {count, number}",
   "trash_delete_asset": "Cestina/Cancella Risorsa",
   "trash_manual_retention_info": "La scadenza automatica del cestino è disabilitata. Puoi ripristinare gli elementi o eliminarli definitivamente; le librerie di sola lettura restano protette.",

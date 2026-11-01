@@ -3676,6 +3676,8 @@
   "trash": "Kosz",
   "trash_action_prompt": "{count} przeniesione do kosza",
   "trash_all": "Usuń wszystkie",
+  "trash_cleanup_accepted": "Kosz opróżniony. Pliki na serwerze są usuwane w tle.",
+  "trash_cleanup_partial": "Przyjęto do trwałego usunięcia: {count}. Pozostało: {remaining}. {reasons}",
   "trash_count": "Usuń {count, number}",
   "trash_delete_asset": "Kosz/Usuń zasób",
   "trash_manual_retention_info": "Automatyczne opróżnianie kosza jest wyłączone. Możesz przywrócić elementy lub trwale je usunąć; biblioteki tylko do odczytu pozostają chronione.",

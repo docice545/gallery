@@ -3651,6 +3651,8 @@
   "trash": "Corbeille",
   "trash_action_prompt": "{count} média(s) mis à la corbeille",
   "trash_all": "Tout supprimer",
+  "trash_cleanup_accepted": "Corbeille vidée. La suppression des fichiers du serveur se poursuit en arrière-plan.",
+  "trash_cleanup_partial": "Suppression définitive acceptée pour {count} éléments. Restants : {remaining}. {reasons}",
   "trash_count": "Corbeille {count, number}",
   "trash_delete_asset": "Mettre à la corbeille/Supprimer un média",
   "trash_manual_retention_info": "L’expiration automatique de la corbeille est désactivée. Vous pouvez restaurer les éléments ou les supprimer définitivement ; les bibliothèques en lecture seule restent protégées.",

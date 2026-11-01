@@ -3635,6 +3635,8 @@
   "trash": "垃圾桶",
   "trash_action_prompt": "{count} 個丟入垃圾桶",
   "trash_all": "全部丟掉",
+  "trash_cleanup_accepted": "垃圾桶已清空。伺服器檔案正在背景刪除。",
+  "trash_cleanup_partial": "已接受永久刪除：{count}。剩餘：{remaining}。{reasons}",
   "trash_count": "丟掉 {count, number} 個檔案",
   "trash_delete_asset": "將檔案丟進垃圾桶 / 刪除",
   "trash_manual_retention_info": "回收桶自動到期已停用。您可以還原項目或永久刪除它們；唯讀圖庫仍受保護。",

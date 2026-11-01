@@ -3648,6 +3648,8 @@
   "trash": "Papierkorb",
   "trash_action_prompt": "{count} in den Papierkorb verschoben",
   "trash_all": "Alle löschen",
+  "trash_cleanup_accepted": "Papierkorb geleert. Die Serverdateien werden im Hintergrund gelöscht.",
+  "trash_cleanup_partial": "Zur endgültigen Löschung angenommen: {count}. Verbleibend: {remaining}. {reasons}",
   "trash_count": "Papierkorb {count, number}",
   "trash_delete_asset": "Datei löschen/in den Papierkorb verschieben",
   "trash_manual_retention_info": "Das automatische Leeren des Papierkorbs ist deaktiviert. Du kannst Elemente wiederherstellen oder endgültig löschen; schreibgeschützte Bibliotheken bleiben geschützt.",

@@ -449,7 +449,7 @@ void main() {
   });
 
   test(
-    'permanent bulk results remove only complete rows; failed remains retryable and blocked stays ordinary Trash',
+    'permanent bulk results retire accepted rows; failed remains durable and blocked stays ordinary Trash',
     () async {
       await ctx.newRemoteAsset(id: 'failed', ownerId: 'owner');
       await ctx.newRemoteAsset(id: 'blocked', ownerId: 'owner');
@@ -464,7 +464,7 @@ void main() {
       final results = await assets.deleteWithResults(['asset', 'failed', 'blocked']);
       expect(results.where((result) => result.complete).map((result) => result.id), ['asset']);
       expect(await remote.get('asset'), isNull);
-      expect((await remote.get('failed'))!.isTrashed, isTrue);
+      expect(await remote.get('failed'), isNull);
       expect((await remote.get('blocked'))!.isTrashed, isTrue);
       expect(jsonDecode((await marker('failed'))!)['permanent'], isTrue);
       expect(jsonDecode((await marker('blocked'))!)['permanent'], isNot(true));

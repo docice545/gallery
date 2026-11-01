@@ -3650,6 +3650,8 @@
   "trash": "Papelera",
   "trash_action_prompt": "{count} movidos a la papelera",
   "trash_all": "Descartar todo",
+  "trash_cleanup_accepted": "Papelera vaciada. Los archivos del servidor se están eliminando en segundo plano.",
+  "trash_cleanup_partial": "Aceptados para eliminación permanente: {count}. Restantes: {remaining}. {reasons}",
   "trash_count": "Descartar {count, number}",
   "trash_delete_asset": "Borrar/Eliminar recurso",
   "trash_manual_retention_info": "La caducidad automática de la papelera está desactivada. Puedes restaurar elementos o eliminarlos permanentemente; las bibliotecas de solo lectura siguen protegidas.",

@@ -252,6 +252,27 @@ class RemoteAssetRepository extends DatabaseAccessor<Drift> with $RemoteAssetRep
     await deleteAssets(completedIds);
   });
 
+  /// Retire only IDs with an irreversible owner-scoped server receipt. The
+  /// marker is committed in the same transaction as reactive row retirement;
+  /// pending physical cleanup is never mislabeled as complete.
+  Future<void> acceptPermanentDeletion(
+    List<AssetTrashSnapshot> snapshots,
+    List<String> acceptedIds,
+    List<String> completeIds,
+  ) => _db.transaction(() async {
+    final accepted = acceptedIds.toSet();
+    final completed = completeIds.toSet();
+    for (final snapshot in snapshots) {
+      if (accepted.contains(snapshot.id)) {
+        await _db.syncStreamRepository.resolvePermanentDeletion(
+          snapshot,
+          accepted: true,
+          complete: completed.contains(snapshot.id),
+        );
+      }
+    }
+  });
+
   Future<void> retainPermanentDeletion(List<String> ids) => _db.syncStreamRepository.retainPermanentDeletion(ids);
 
   Future<List<String>> getDeletionLocalIds(List<String> ids) => _db.syncStreamRepository.getDeletionLocalIds(ids);

@@ -251,6 +251,35 @@ class AssetService {
     }
   }
 
+  /// Completes once the server has durably admitted the captured selection.
+  /// Files are deleted by the existing server worker, never by MediaStore here.
+  Future<List<PermanentDeletionResult>> acceptPermanentDeletion(List<String> remoteIds) async {
+    if (remoteIds.isEmpty) {
+      return const [];
+    }
+    final snapshots = await _remoteRepository.beginPermanentDeletion(remoteIds);
+    try {
+      final results = await _apiRepository.acceptPermanentDeletion(remoteIds);
+      await _remoteRepository.acceptPermanentDeletion(
+        snapshots,
+        results.where((result) => result.accepted).map((result) => result.id).toList(),
+        results.where((result) => result.complete).map((result) => result.id).toList(),
+      );
+      for (final result in results.where((result) => !result.accepted)) {
+        final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
+        await _remoteRepository.completeTrashOperation(
+          checked,
+          success: false,
+          definiteFailure: result.state == 'blocked',
+        );
+      }
+      return results;
+    } catch (error, stack) {
+      await _remoteRepository.completeTrashOperation(snapshots, success: false);
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
   Future<List<PermanentDeletionResult>> deleteWithResults(
     List<String> remoteIds, {
     void Function(PermanentDeletionBatchStatus status)? onBatchStatus,

@@ -71,11 +71,20 @@ class SyncStreamService {
       }
       final end = start + 200 < ids.length ? start + 200 : ids.length;
       try {
-        final completed = await AssetApiRepository(_api).completedDeletions(ids.sublist(start, end));
+        final receipts = await AssetApiRepository(_api).deletionReceipts(ids.sublist(start, end));
         if (isCancelled) {
           return;
         }
-        await _syncStreamRepository.retainPermanentDeletion(completed.toList());
+        await _syncStreamRepository.retainPermanentDeletion(
+          receipts.where((receipt) => receipt.complete).map((receipt) => receipt.id).toList(),
+        );
+        final pending = receipts
+            .where((receipt) => receipt.accepted && !receipt.complete)
+            .map((receipt) => receipt.id)
+            .toList();
+        if (pending.isNotEmpty) {
+          await _syncStreamRepository.retainPermanentDeletion(pending, complete: false);
+        }
       } catch (_) {
         // Do not acknowledge a deletion sync on unknown network outcome: retry the same sync checkpoint.
         // An older backend does not implement this candidate's durable deletion contract.
@@ -357,7 +366,7 @@ class SyncStreamService {
         }
         await _syncStreamRepository.resolvePermanentDeletion(
           snapshot,
-          accepted: receipt.state != 'blocked',
+          accepted: receipt.accepted,
           complete: receipt.complete,
         );
         continue;

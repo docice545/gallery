@@ -3611,6 +3611,8 @@
   "trash": "回收站",
   "trash_action_prompt": "已将 {count} 项移至回收站",
   "trash_all": "全部删除",
+  "trash_cleanup_accepted": "回收站已清空。服务器文件正在后台删除。",
+  "trash_cleanup_partial": "已接受永久删除：{count}。剩余：{remaining}。{reasons}",
   "trash_count": "删除{count, number}项",
   "trash_delete_asset": "将项目放入回收站/删除",
   "trash_manual_retention_info": "回收站自动到期已禁用。您可以恢复项目或永久删除它们；只读图库仍受保护。",

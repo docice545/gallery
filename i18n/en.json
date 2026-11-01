@@ -3661,6 +3661,8 @@
   "trash": "Trash",
   "trash_action_prompt": "{count} moved to trash",
   "trash_all": "Trash All",
+  "trash_cleanup_accepted": "Trash cleared. Server files are being deleted in the background.",
+  "trash_cleanup_partial": "Accepted for permanent deletion: {count}. Remaining: {remaining}. {reasons}",
   "trash_count": "Trash {count, number}",
   "trash_delete_asset": "Trash/Delete Asset",
   "trash_manual_retention_info": "Automatic Trash expiration is disabled. You can restore items or delete them permanently; read-only libraries remain protected.",
