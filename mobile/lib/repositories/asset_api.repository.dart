@@ -455,13 +455,18 @@ class AssetApiRepository extends ApiRepository {
   }
 
   Future<List<PermanentDeletionResult>> _deletionStatuses(List<String> ids) async {
+    // Logical and physical deletion events may repeat an asset ID. The server
+    // returns one receipt per requested ID, while receipt validation requires
+    // exactly one result for each distinct asset. Normalize before batching.
+    final uniqueIds = ids.toSet().toList(growable: false);
     final results = <PermanentDeletionResult>[];
-    for (var start = 0; start < ids.length; start += 200) {
+    for (var start = 0; start < uniqueIds.length; start += 200) {
+      final batch = uniqueIds.skip(start).take(200).toSet();
       final response = await _apiService.apiClient.invokeAPI(
         '/assets/deletion-status',
         'POST',
         <QueryParam>[],
-        {'ids': ids.skip(start).take(200).toList()},
+        {'ids': batch.toList()},
         <String, String>{},
         <String, String>{},
         'application/json',
@@ -469,10 +474,9 @@ class AssetApiRepository extends ApiRepository {
       if (response.statusCode != 200) {
         throw ApiException(response.statusCode, 'Deletion statuses unavailable');
       }
-      final batch = ids.skip(start).take(200).toSet();
       results.addAll(_parseDeletionResults(jsonDecode(utf8.decode(response.bodyBytes)), batch));
     }
-    if (results.length != ids.toSet().length || results.map((result) => result.id).toSet().length != results.length) {
+    if (results.length != uniqueIds.length || results.map((result) => result.id).toSet().length != results.length) {
       throw StateError('Incomplete deletion statuses');
     }
     return results;

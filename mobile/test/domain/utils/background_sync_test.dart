@@ -92,6 +92,27 @@ class _QueuedRemoteSyncManager extends BackgroundSyncManager {
 }
 
 void main() {
+  test('a receipt validation failure releases remote sync so a later successful pass can resume backup', () async {
+    final errors = <String>[];
+    final completions = <bool?>[];
+    final manager = _QueuedRemoteSyncManager(onRemoteSyncComplete: completions.add, onRemoteSyncError: errors.add);
+
+    final failed = manager.syncRemote();
+    manager.runs.single.completeError(StateError('Incomplete deletion acknowledgement'));
+    expect(await failed, isFalse);
+    expect(manager.sqliteRecoveryRequired, isFalse);
+    expect(errors.single, contains('Incomplete deletion acknowledgement'));
+
+    final recovered = manager.syncRemote();
+    expect(manager.runs, hasLength(2));
+    manager.runs.last.complete(true);
+    expect(await recovered, isTrue);
+    expect(completions, [true]);
+    expect(errors, hasLength(1));
+    expect(manager.runs, hasLength(2));
+    await manager.cancel();
+  });
+
   test('Build28 concurrent saved-copy refreshes coalesce into one follow-up server pass', () async {
     final completions = <bool?>[];
     final manager = _QueuedRemoteSyncManager(onRemoteSyncComplete: completions.add);

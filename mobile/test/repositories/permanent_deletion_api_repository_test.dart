@@ -31,6 +31,83 @@ void main() {
     return AssetApiRepository(service);
   }
 
+  group('durable deletion receipt lookup', () {
+    test('replayed IDs are requested once using the Build29 per-input response contract', () async {
+      final requested = <List<String>>[];
+      final sut = repository((request) async {
+        expect(request.url.path, '/api/assets/deletion-status');
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requested.add(ids);
+        // Production Build29 returns one response for each input ID. It does
+        // not deduplicate replayed logical/physical deletion audit events.
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()), 200);
+      });
+
+      final receipts = await sut.deletionReceipts(['same', 'same']);
+
+      expect(requested, [
+        ['same'],
+      ]);
+      expect(receipts.map((receipt) => receipt.id), ['same']);
+      expect(receipts.single.accepted, isTrue);
+      expect(receipts.single.complete, isFalse);
+    });
+
+    test('deduplicates the whole receipt lookup before applying 200-ID batch limits', () async {
+      final unique = List.generate(201, (index) => 'asset-$index');
+      final requests = <List<String>>[];
+      final sut = repository((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'complete'}).toList()), 200);
+      });
+
+      final receipts = await sut.deletionReceipts([...unique.take(200), unique.first, unique.last, unique[199]]);
+
+      expect(requests.map((batch) => batch.length), [200, 1]);
+      expect(requests.expand((batch) => batch), unique);
+      expect(receipts.map((receipt) => receipt.id), unique);
+    });
+
+    for (final response in [
+      '[{"id":"one","state":"complete"}]',
+      '[{"id":"one","state":"complete"},{"id":"one","state":"complete"}]',
+      '[{"id":"one","state":"complete"},{"id":"foreign","state":"complete"}]',
+      '[{"id":"one","state":"complete"},{"id":"two","state":"pending","accepted":"yes"}]',
+    ]) {
+      test('keeps strict receipt validation for an incomplete, duplicate or malformed response: $response', () async {
+        final sut = repository((_) async => Response(response, 200));
+        await expectLater(sut.deletionReceipts(['one', 'two', 'one']), throwsStateError);
+      });
+    }
+
+    test('an incomplete response remains retryable and a later complete lookup resolves the same unique IDs', () async {
+      var attempt = 0;
+      final requests = <List<String>>[];
+      final sut = repository((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return Response(
+          jsonEncode([
+            {'id': 'one', 'state': 'pending', 'accepted': true},
+            if (++attempt > 1) {'id': 'two', 'state': 'complete'},
+          ]),
+          200,
+        );
+      });
+
+      await expectLater(sut.deletionReceipts(['one', 'two', 'one']), throwsStateError);
+      final receipts = await sut.deletionReceipts(['one', 'two', 'one']);
+
+      expect(requests, [
+        ['one', 'two'],
+        ['one', 'two'],
+      ]);
+      expect(receipts.map((receipt) => receipt.id), ['one', 'two']);
+      expect(receipts.every((receipt) => receipt.accepted), isTrue);
+    });
+  });
+
   group('instant durable acceptance', () {
     test('500 selected IDs preflight in 200-item chunks and finish on admission without physical polling', () async {
       final selected = List.generate(500, (index) => 'selected-$index');
