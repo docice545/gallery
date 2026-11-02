@@ -43,13 +43,29 @@ describe('pinned client contracts', () => {
       baseline.operationKeys.map((key: string) => {
         const [method, path] = key.split(' ', 2);
         const operation = structuredClone(api.paths[path]?.[method]);
-        // Only an additive, explicitly tested error response is new to this
-        // legacy operation. Every pre-existing definition remains pinned.
-        if (key === 'get /sync/ack') delete operation.responses['409'];
+        // Normalize only explicitly tested additive extensions. Every
+        // pre-existing definition remains pinned to the immutable digest.
+        if (key === 'get /sync/ack') {
+          delete operation.responses['409'];
+        } else if (key === 'post /assets/{id}/magic-eraser/{jobId}/save') {
+          // The save hint is optional; bodyless clients retain this exact legacy
+          // operation. Check the additive contract before comparing the rest.
+          expect(operation.requestBody).toEqual({
+            required: false,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/MagicEraserSaveDto' } } },
+          });
+          delete operation.requestBody;
+        }
         return [key, operation];
       }),
     );
     expect(digest(operations)).toBe(baseline.operationsDigest);
+  });
+  it('keeps the new save offset hint optional for existing bodyless clients', () => {
+    const schema = api.components.schemas.MagicEraserSaveDto;
+    expect(schema.default).toEqual({});
+    expect(schema.required ?? []).toEqual([]);
+    expect(schema.properties.timeZoneOffsetMinutes).toMatchObject({ type: 'integer', minimum: -720, maximum: 840 });
   });
   it('preserves every existing schema except additive sync enum extensions', () => {
     const schemas = Object.fromEntries(
