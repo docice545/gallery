@@ -445,7 +445,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('edge-content framing renders pixels from the source edge instead of a white center crop', (tester) async {
+  testWidgets('edge-content framing renders pixels from the source edge instead of a white center crop', (
+    tester,
+  ) async {
     final bytes = (await tester.runAsync(_edgeContentPng))!;
     final image = MemoryImage(bytes);
     final captureKey = GlobalKey();
@@ -453,10 +455,7 @@ void main() {
       Center(
         child: RepaintBoundary(
           key: captureKey,
-          child: SizedBox.square(
-            dimension: 100,
-            child: Thumbnail(imageProvider: image, preserveEdgeContent: true),
-          ),
+          child: SizedBox.square(dimension: 100, child: Thumbnail(imageProvider: image, preserveEdgeContent: true)),
         ),
       ),
     );
@@ -485,7 +484,7 @@ void main() {
     expect(tester.widget<TimelineLivePhotoTile>(find.byType(TimelineLivePhotoTile)).faces, same(faces));
     expect(tester.widget<Hero>(find.byType(Hero)).tag, '${asset.heroTag}_7');
     expect(find.text(' 3'), findsOneWidget);
-    expect(find.byIcon(Icons.burst_mode_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
     expect(find.byIcon(Icons.motion_photos_on_rounded), findsOneWidget);
 
     await tester.pump(livePhotoSettlingDelay);

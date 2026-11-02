@@ -30,7 +30,8 @@ const _fallbackViewport = Size.square(320);
 ///
 /// [imageSize] is the asset's upright source size. The requested size preserves
 /// its entire aspect ratio, including the parts outside a cover crop. Face
-/// unions that need contain framing use the smaller contain decode instead.
+/// unions that need contain framing use the smaller contain decode instead,
+/// unless a filled mosaic cell disables [allowContain].
 TimelineThumbnailRequest buildTimelineThumbnailRequest({
   required Size viewportSize,
   required double devicePixelRatio,
@@ -38,6 +39,7 @@ TimelineThumbnailRequest buildTimelineThumbnailRequest({
   List<Rect> faces = const [],
   BoxFit fit = BoxFit.cover,
   bool preserveEdgeContent = false,
+  bool allowContain = true,
 }) {
   final viewport = _isValidSize(viewportSize) ? viewportSize : _fallbackViewport;
   final dpr = devicePixelRatio.isFinite && devicePixelRatio > 0 ? devicePixelRatio : 1.0;
@@ -65,6 +67,7 @@ TimelineThumbnailRequest buildTimelineThumbnailRequest({
       faces: faces,
       fit: fit,
       preserveEdgeContent: preserveEdgeContent,
+      allowContain: allowContain,
     );
     final widthScale = physicalViewport.width / source.width;
     final heightScale = physicalViewport.height / source.height;

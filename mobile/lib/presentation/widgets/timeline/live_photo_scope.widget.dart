@@ -469,11 +469,13 @@ class TimelineLivePhotoTile extends StatefulWidget {
     this.faces = const [],
     this.framingImageSize,
     this.requireMatchingFraming = false,
+    this.fillCell = false,
   });
   final BaseAsset asset;
   final List<Rect> faces;
   final Size? framingImageSize;
   final bool requireMatchingFraming;
+  final bool fillCell;
 
   @override
   State<TimelineLivePhotoTile> createState() => _TimelineLivePhotoTileState();
@@ -615,6 +617,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                   imageSize: imageSize ?? Size(previewWidth, previewHeight),
                   viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
                   faces: widget.faces,
+                  allowContain: !widget.fillCell,
                   preserveEdgeContent: shouldPreserveEdgeContent(
                     widget.asset.name,
                     width: widget.asset.width,
@@ -644,6 +647,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                               devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                               imageSize: widget.framingImageSize,
                               faces: widget.faces,
+                              allowContain: !widget.fillCell,
                               preserveEdgeContent: shouldPreserveEdgeContent(
                                 widget.asset.name,
                                 width: widget.asset.width,

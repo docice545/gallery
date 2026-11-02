@@ -140,7 +140,7 @@ void main() {
     expect(find.byKey(previewKey), findsOneWidget);
     expect(find.byType(Thumbnail), findsOneWidget);
     expect(find.text(' 3'), findsOneWidget);
-    expect(find.byIcon(Icons.burst_mode_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
     expect(find.byIcon(Icons.motion_photos_on_rounded), findsOneWidget);
     expect(tester.widget<Hero>(find.byType(Hero)).tag, '${asset.heroTag}_7');
     expect(find.descendant(of: find.byType(Hero), matching: find.byKey(previewKey)), findsNothing);

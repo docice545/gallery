@@ -31,6 +31,10 @@ class Thumbnail extends ConsumerStatefulWidget {
   final List<Rect> faces;
   final bool preserveEdgeContent;
 
+  /// Keep a mosaic cell filled while retaining the source image proportions.
+  /// Other thumbnail surfaces preserve their existing edge/face framing.
+  final bool fillCell;
+
   /// Upright full-image geometry shared with the timeline's motion surface.
   final Size? framingImageSize;
 
@@ -39,6 +43,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.preserveEdgeContent = false,
+    this.fillCell = false,
     this.framingImageSize,
     this.thumbhashProvider,
     this.sourceRevision,
@@ -51,6 +56,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.preserveEdgeContent = false,
+    this.fillCell = false,
     this.framingImageSize,
     this.sourceRevision,
 
@@ -65,6 +71,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.framingImageSize,
+    this.fillCell = false,
 
     /// Decode size for local thumbnails. This does not affect the widget size.
     Size size = kThumbnailResolution,
@@ -89,7 +96,10 @@ class Thumbnail extends ConsumerStatefulWidget {
          ),
          _ => null,
        },
-       preserveEdgeContent = asset != null && shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height),
+       preserveEdgeContent =
+           !fillCell &&
+           asset != null &&
+           shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height),
        imageProvider = asset == null
            ? null
            : getThumbnailImageProvider(asset, size: size, remoteSize: remoteSize, remoteMediaSize: remoteMediaSize);
@@ -323,6 +333,7 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
           fit: widget.fit,
           faces: widget.faces,
           preserveEdgeContent: widget.preserveEdgeContent,
+          fillCell: widget.fillCell,
           framingImageSize: widget.framingImageSize,
           placeholderGradient: gradient,
         );
@@ -348,6 +359,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
   final BoxFit fit;
   final List<Rect> faces;
   final bool preserveEdgeContent;
+  final bool fillCell;
   final Size? framingImageSize;
   final Gradient placeholderGradient;
 
@@ -358,6 +370,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
     required this.fit,
     required this.faces,
     required this.preserveEdgeContent,
+    required this.fillCell,
     required this.framingImageSize,
     required this.placeholderGradient,
   });
@@ -371,6 +384,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       fit: fit,
       faces: faces,
       preserveEdgeContent: preserveEdgeContent,
+      fillCell: fillCell,
       framingImageSize: framingImageSize,
       placeholderGradient: placeholderGradient,
     );
@@ -385,6 +399,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       ..fit = fit
       ..faces = faces
       ..preserveEdgeContent = preserveEdgeContent
+      ..fillCell = fillCell
       ..framingImageSize = framingImageSize
       ..placeholderGradient = placeholderGradient;
   }
@@ -397,6 +412,7 @@ class _ThumbnailRenderBox extends RenderBox {
   BoxFit _fit;
   List<Rect> _faces;
   bool _preserveEdgeContent;
+  bool _fillCell;
   Size? _framingImageSize;
   Gradient _placeholderGradient;
 
@@ -410,6 +426,7 @@ class _ThumbnailRenderBox extends RenderBox {
     required this._fit,
     required this._faces,
     required this._preserveEdgeContent,
+    required this._fillCell,
     required this._framingImageSize,
     required this._placeholderGradient,
   });
@@ -454,6 +471,7 @@ class _ThumbnailRenderBox extends RenderBox {
     viewportSize: size,
     faces: _faces,
     preserveEdgeContent: _preserveEdgeContent,
+    allowContain: !_fillCell,
     fit: _fit,
   );
 
@@ -500,6 +518,13 @@ class _ThumbnailRenderBox extends RenderBox {
   set preserveEdgeContent(bool value) {
     if (_preserveEdgeContent != value) {
       _preserveEdgeContent = value;
+      markNeedsPaint();
+    }
+  }
+
+  set fillCell(bool value) {
+    if (_fillCell != value) {
+      _fillCell = value;
       markNeedsPaint();
     }
   }

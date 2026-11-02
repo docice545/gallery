@@ -24,6 +24,7 @@ class ThumbnailTile extends ConsumerStatefulWidget {
     this.size = kThumbnailResolution,
     this.remoteSize,
     this.fit = BoxFit.cover,
+    this.fillCell = false,
     this.showStorageIndicator = false,
     this.lockSelection = false,
     this.heroOffset,
@@ -37,6 +38,9 @@ class ThumbnailTile extends ConsumerStatefulWidget {
   /// Physical size to decode for remote thumbnails.
   final Size? remoteSize;
   final BoxFit fit;
+
+  /// Mosaic cells keep image/selection geometry fixed and always fill the cell.
+  final bool fillCell;
   final bool showStorageIndicator;
   final bool lockSelection;
   final int? heroOffset;
@@ -58,22 +62,24 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
   @override
   Widget build(BuildContext context) {
     final asset = widget.asset;
+    final fit = widget.fillCell ? BoxFit.cover : widget.fit;
     // Only synchronized geometry is used. Edited previews have another coordinate
     // system; keep their existing framing until an edit-aware transform exists.
     final remoteId = asset?.remoteId;
     final timelineQuality = FaceAwareThumbnailScope.enabledOf(context);
     final faces =
-        timelineQuality &&
-            asset?.isImage == true &&
-            asset?.isEdited == false &&
-            remoteId != null &&
-            widget.fit == BoxFit.cover
+        timelineQuality && asset?.isImage == true && asset?.isEdited == false && remoteId != null && fit == BoxFit.cover
         ? ref.watch(thumbnailFaceBoundsProvider(remoteId)).value ?? const <Rect>[]
         : const <Rect>[];
     final width = asset?.width;
     final height = asset?.height;
     final framingImageSize =
-        timelineQuality && asset?.isEdited == false && width != null && height != null && width > 0 && height > 0
+        (timelineQuality || widget.fillCell) &&
+            asset?.isEdited == false &&
+            width != null &&
+            height != null &&
+            width > 0 &&
+            height > 0
         ? Size(width.toDouble(), height.toDouble())
         : null;
     final preserveEdgeContent =
@@ -128,9 +134,12 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
               _showSelectionContainer = false;
             }
           },
-          padding: EdgeInsets.all(isSelected || widget.lockSelection ? 6 : 0),
+          padding: EdgeInsets.all(!widget.fillCell && (isSelected || widget.lockSelection) ? 6 : 0),
           child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0.0, end: (isSelected || widget.lockSelection) ? 15.0 : 0.0),
+            tween: Tween<double>(
+              begin: 0.0,
+              end: !widget.fillCell && (isSelected || widget.lockSelection) ? 15.0 : 0.0,
+            ),
             duration: Durations.short4,
             curve: Curves.decelerate,
             builder: (context, value, child) {
@@ -145,7 +154,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                     // but other solutions have failed thus far.
                     key: ValueKey(isCurrentAsset),
                     tag: '${asset?.heroTag}_$heroIndex',
-                    child: timelineQuality
+                    child: timelineQuality || widget.fillCell
                         ? LayoutBuilder(
                             builder: (context, constraints) {
                               final request = buildTimelineThumbnailRequest(
@@ -153,8 +162,9 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                                 devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                                 imageSize: framingImageSize,
                                 faces: faces,
-                                fit: widget.fit,
+                                fit: fit,
                                 preserveEdgeContent: preserveEdgeContent,
+                                allowContain: !widget.fillCell,
                               );
                               return Thumbnail.fromAsset(
                                 asset: asset,
@@ -162,7 +172,8 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                                 remoteSize: request.decodeSize,
                                 remoteMediaSize: request.remoteMediaSize,
                                 framingImageSize: framingImageSize,
-                                fit: widget.fit,
+                                fit: fit,
+                                fillCell: widget.fillCell,
                                 faces: faces,
                               );
                             },
@@ -171,7 +182,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                             asset: asset,
                             size: decodeSize,
                             remoteSize: widget.remoteSize,
-                            fit: widget.fit,
+                            fit: fit,
                             faces: faces,
                           ),
                     // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
@@ -209,6 +220,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                       faces: faces,
                       framingImageSize: framingImageSize,
                       requireMatchingFraming: timelineQuality,
+                      fillCell: widget.fillCell,
                     ),
                   ),
                 if (asset != null)
@@ -282,13 +294,29 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
             ),
           ),
         ),
+        if (widget.fillCell)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: isSelected || widget.lockSelection ? 1 : 0,
+                duration: Durations.short4,
+                child: ColoredBox(color: context.primaryColor.withValues(alpha: 0.25)),
+              ),
+            ),
+          ),
         TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: 0.0, end: (isSelected || widget.lockSelection) ? 1.0 : 0.0),
           duration: Durations.short4,
           curve: Curves.decelerate,
           builder: (context, value, child) {
             return Padding(
-              padding: EdgeInsets.all((isSelected || widget.lockSelection) ? value * 3.0 : 3.0),
+              padding: EdgeInsets.all(
+                widget.fillCell
+                    ? 8
+                    : (isSelected || widget.lockSelection)
+                    ? value * 3.0
+                    : 3.0,
+              ),
               child: Align(
                 alignment: Alignment.topLeft,
                 child: Opacity(
