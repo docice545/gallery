@@ -32,6 +32,8 @@ class FixedSegment extends Segment {
   final int columnCount;
   final double mainAxisExtend;
   final bool denseLayout;
+  final FixedRowLayout? rowLayout;
+  final double topCornerRadius;
 
   const FixedSegment({
     required super.firstIndex,
@@ -43,19 +45,23 @@ class FixedSegment extends Segment {
     required this.tileHeight,
     required this.columnCount,
     this.denseLayout = false,
+    this.rowLayout,
+    this.topCornerRadius = 30,
     required super.headerExtent,
     required super.spacing,
     required super.header,
   }) : assert(tileHeight != 0),
        mainAxisExtend = tileHeight + spacing;
 
-  FixedRowLayout get rows => FixedRowLayout(
-    assetCount: bucket.assetCount,
-    columnCount: columnCount,
-    tileHeight: tileHeight,
-    spacing: spacing,
-    denseLayout: denseLayout,
-  );
+  FixedRowLayout get rows =>
+      rowLayout ??
+      FixedRowLayout(
+        assetCount: bucket.assetCount,
+        columnCount: columnCount,
+        tileHeight: tileHeight,
+        spacing: spacing,
+        denseLayout: denseLayout,
+      );
 
   @override
   double indexToLayoutOffset(int index) {
@@ -94,7 +100,13 @@ class FixedSegment extends Segment {
   @override
   Widget builder(BuildContext context, int index) {
     if (index == firstIndex) {
-      return TimelineHeader(bucket: bucket, header: header, height: headerExtent, assetOffset: firstAssetIndex);
+      return TimelineHeader(
+        bucket: bucket,
+        header: header,
+        height: headerExtent,
+        assetOffset: firstAssetIndex,
+        compact: denseLayout,
+      );
     }
 
     final rowIndexInSegment = index - gridIndex;
@@ -108,6 +120,8 @@ class FixedSegment extends Segment {
       columnCount: columnCount,
       rowWidth: layout.width,
       denseLayout: denseLayout,
+      rowWidths: denseLayout ? layout.widthsForRow(rowIndexInSegment) : null,
+      topCornerRadius: rowIndexInSegment == 0 ? topCornerRadius : 0,
     );
   }
 
@@ -118,10 +132,13 @@ class FixedSegment extends Segment {
       other.tileHeight == tileHeight &&
       other.columnCount == columnCount &&
       other.denseLayout == denseLayout &&
+      other.topCornerRadius == topCornerRadius &&
+      other.rows == rows &&
       other.bucket.assetCount == bucket.assetCount;
 
   @override
-  int get hashCode => Object.hash(super.hashCode, tileHeight, columnCount, denseLayout, bucket.assetCount);
+  int get hashCode =>
+      Object.hash(super.hashCode, tileHeight, columnCount, denseLayout, topCornerRadius, rows, bucket.assetCount);
 }
 
 class _FixedSegmentRow extends ConsumerWidget {
@@ -132,6 +149,8 @@ class _FixedSegmentRow extends ConsumerWidget {
   final int columnCount;
   final double rowWidth;
   final bool denseLayout;
+  final List<double>? rowWidths;
+  final double topCornerRadius;
 
   const _FixedSegmentRow({
     required this.assetIndex,
@@ -141,6 +160,8 @@ class _FixedSegmentRow extends ConsumerWidget {
     required this.columnCount,
     required this.rowWidth,
     required this.denseLayout,
+    this.rowWidths,
+    this.topCornerRadius = 0,
   });
 
   @override
@@ -175,22 +196,39 @@ class _FixedSegmentRow extends ConsumerWidget {
 
   Widget _buildPlaceholder(BuildContext context) {
     if (denseLayout) {
-      final widths = FixedRowLayout.justifiedWidths(
-        width: rowWidth,
-        spacing: spacing,
-        aspectRatios: List.filled(assetCount, 1.0),
-      );
+      final widths =
+          rowWidths ??
+          FixedRowLayout.justifiedWidths(width: rowWidth, spacing: spacing, aspectRatios: List.filled(assetCount, 1.0));
       return RepaintBoundary(
         child: TimelineRow(
           height: tileHeight,
           widths: widths,
           spacing: spacing,
           textDirection: Directionality.of(context),
-          children: [for (final width in widths) ThumbnailPlaceholder(width: width, height: tileHeight)],
+          children: [
+            for (var i = 0; i < widths.length; i++)
+              _clipMosaicEdge(context, i, widths.length, ThumbnailPlaceholder(width: widths[i], height: tileHeight)),
+          ],
         ),
       );
     }
     return SegmentBuilder.buildPlaceholder(context, assetCount, size: Size.square(tileHeight), spacing: spacing);
+  }
+
+  Widget _clipMosaicEdge(BuildContext context, int index, int count, Widget child) {
+    if (!denseLayout) {
+      return child;
+    }
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final left = rtl ? index == count - 1 : index == 0;
+    final right = rtl ? index == 0 : index == count - 1;
+    return ClipRRect(
+      borderRadius: BorderRadius.only(
+        topLeft: Radius.circular(left ? topCornerRadius : 0),
+        topRight: Radius.circular(right ? topCornerRadius : 0),
+      ),
+      child: child,
+    );
   }
 
   Widget _buildAssetRow(
@@ -200,11 +238,12 @@ class _FixedSegmentRow extends ConsumerWidget {
     bool isDynamicLayout,
   ) {
     final widths = denseLayout
-        ? FixedRowLayout.justifiedWidths(
-            width: rowWidth,
-            spacing: spacing,
-            aspectRatios: assets.map((asset) => (asset.width ?? 1) / (asset.height ?? 1)).toList(),
-          )
+        ? rowWidths ??
+              FixedRowLayout.justifiedWidths(
+                width: rowWidth,
+                spacing: spacing,
+                aspectRatios: assets.map((asset) => (asset.width ?? 1) / (asset.height ?? 1)).toList(),
+              )
         : List.filled(assets.length, tileHeight);
 
     if (isDynamicLayout && !denseLayout) {
@@ -239,11 +278,17 @@ class _FixedSegmentRow extends ConsumerWidget {
         TimelineAssetIndexWrapper(
           assetIndex: assetIndex + i,
           segmentIndex: 0, // For simplicity, using 0 for now
-          child: _AssetTileWidget(
-            key: ValueKey(Object.hash(assets[i].heroTag, assetIndex + i, timelineService.hashCode)),
-            asset: assets[i],
-            assetIndex: assetIndex + i,
-            size: Size(widths[i], tileHeight),
+          child: _clipMosaicEdge(
+            context,
+            i,
+            assets.length,
+            _AssetTileWidget(
+              key: ValueKey(Object.hash(assets[i].heroTag, assetIndex + i, timelineService.hashCode)),
+              asset: assets[i],
+              assetIndex: assetIndex + i,
+              size: Size(widths[i], tileHeight),
+              fillCell: denseLayout,
+            ),
           ),
         ),
     ];
@@ -264,8 +309,15 @@ class _AssetTileWidget extends ConsumerWidget {
   final BaseAsset asset;
   final int assetIndex;
   final Size size;
+  final bool fillCell;
 
-  const _AssetTileWidget({super.key, required this.asset, required this.assetIndex, required this.size});
+  const _AssetTileWidget({
+    super.key,
+    required this.asset,
+    required this.assetIndex,
+    required this.size,
+    this.fillCell = false,
+  });
 
   Future _handleOnTap(
     BuildContext ctx,
@@ -346,6 +398,7 @@ class _AssetTileWidget extends ConsumerWidget {
           children: [
             ThumbnailTile(
               asset,
+              fillCell: fillCell,
               remoteSize: remoteSize,
               lockSelection: lockSelection,
               showStorageIndicator: showStorageIndicator,

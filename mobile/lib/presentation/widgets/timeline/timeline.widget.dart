@@ -142,6 +142,8 @@ class Timeline extends ConsumerWidget {
                 showStorageIndicator: showStorageIndicator,
                 withStack: withStack,
                 denseLayout: denseLayout && context.isMobile,
+                spacing: denseLayout && context.isMobile ? 3 : kTimelineSpacing,
+                textScale: MediaQuery.textScalerOf(context).scale(24) / 24,
                 groupBy: groupBy,
               ),
             ),

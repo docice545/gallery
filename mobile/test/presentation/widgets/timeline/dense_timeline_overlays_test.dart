@@ -161,7 +161,15 @@ void main() {
     ScrollController? scroll,
     _PlaybackLog? playback,
   }) async {
-    final buckets = (groups ?? [assets.length]).map((count) => Bucket(assetCount: count)).toList();
+    var offset = 0;
+    final buckets = (groups ?? [assets.length]).map((count) {
+      final rowAssets = assets.skip(offset).take(count);
+      offset += count;
+      return Bucket(
+        assetCount: count,
+        aspectRatios: [for (final asset in rowAssets) (asset.width ?? 1) / (asset.height ?? 1)],
+      );
+    }).toList();
     final service = TimelineService((
       origin: TimelineOrigin.main,
       bucketSource: () => Stream.value(buckets),
@@ -239,13 +247,13 @@ void main() {
     return ProviderScope.containerOf(tester.element(find.byType(ListView)));
   }
 
-  testWidgets('a single dense tile fills the row and retains top-right motion and stack badges', (tester) async {
+  testWidgets('an incomplete portrait row stays compact and retains motion and stack badges', (tester) async {
     final asset = _asset('single', ratio: 0.6, live: true, stack: true);
     await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
 
     final rect = tester.getRect(_tile(asset.id));
-    expect(rect.width, closeTo(_viewportWidth, 0.001));
+    expect(rect.width, lessThan(_viewportWidth));
     expect(rect.height, greaterThan(160));
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     final stackCount = tester.getRect(_inTile(asset.id, find.text(' 3')));
@@ -253,7 +261,9 @@ void main() {
     final cloud = tester.getRect(_inTile(asset.id, find.byIcon(Icons.cloud_outlined)));
     expect(motion.right, closeTo(rect.right - 10, 0.001));
     expect(motion.top, closeTo(rect.top + 6, 0.001));
-    expect(stackCount.right, closeTo(rect.right - 10, 0.001));
+    expect(burst.left, closeTo(rect.left + 8, 0.001));
+    expect(stackCount.bottom, closeTo(rect.bottom - 8, 0.001));
+    expect(stackCount.left, closeTo(burst.right, 0.001));
     expect(burst.top, greaterThan(motion.bottom));
     expect(cloud.right, closeTo(rect.right - 10, 0.001));
     expect(cloud.bottom, closeTo(rect.bottom - 6, 0.001));
@@ -275,7 +285,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('all rendered dense rows fill the width even when the last row is incomplete', (tester) async {
+  testWidgets('completed dense rows fill the width and the final incomplete row stays compact', (tester) async {
     final assets = [
       _asset('one', ratio: 0.5),
       _asset('two', ratio: 1.8),
@@ -293,13 +303,14 @@ void main() {
       final rect = tester.getRect(_tile(asset.id));
       rowRects.putIfAbsent(rect.top, () => []).add(rect);
     }
-    expect(rowRects.length, 2);
-    for (final rects in rowRects.values) {
+    expect(rowRects.length, 3);
+    for (final rects in rowRects.values.take(rowRects.length - 1)) {
       expect(
         rects.fold<double>(0, (sum, rect) => sum + rect.width) + _spacing * (rects.length - 1),
         closeTo(_viewportWidth, 0.001),
       );
     }
+    expect(rowRects.values.last.single.width, lessThan(_viewportWidth));
     expect(tester.takeException(), isNull);
   });
 
@@ -323,7 +334,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('long press and selection taps keep dense row size, selection inset, Hero and badges', (tester) async {
+  testWidgets('long press and selection taps preserve dense image geometry, Hero and badges', (tester) async {
     final asset = _asset('selected', live: true, stack: true);
     final container = await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
@@ -335,11 +346,11 @@ void main() {
     expect(container.read(multiSelectProvider).selectedAssets, contains(asset));
     expect(tester.getRect(_tile(asset.id)), before);
     final hero = tester.getRect(_inTile(asset.id, find.byType(Hero)));
-    expect(hero, before.deflate(6));
+    expect(hero, before);
     expect(tester.widget<Hero>(_inTile(asset.id, find.byType(Hero))).tag, '${asset.heroTag}_0');
     final selection = tester.getRect(_inTile(asset.id, find.byIcon(Icons.check_circle_rounded)));
-    expect(selection.left, closeTo(before.left + 3, 0.001));
-    expect(selection.top, closeTo(before.top + 3, 0.001));
+    expect(selection.left, closeTo(before.left + 8, 0.001));
+    expect(selection.top, closeTo(before.top + 8, 0.001));
     expect(_inTile(asset.id, find.text(' 3')), findsOneWidget);
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     expect(motion.right, closeTo(hero.right - 10, 0.001));
@@ -355,9 +366,9 @@ void main() {
   testWidgets('dense geometry selects one central visible motion tile and completion never cascades', (tester) async {
     final playback = _PlaybackLog();
     final assets = [
-      _asset('left', live: true, localVideo: true),
-      _asset('center', live: true, localVideo: true),
-      _asset('right', live: true, localVideo: true),
+      _asset('left', ratio: 0.6, live: true, localVideo: true),
+      _asset('center', ratio: 0.6, live: true, localVideo: true),
+      _asset('right', ratio: 0.6, live: true, localVideo: true),
     ];
     await mountRows(tester, assets, playback: playback);
     expect(playback.starts, isEmpty);
@@ -379,12 +390,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a cropped viewport below the visibility threshold does not autoplay a full-width motion tile', (
-    tester,
-  ) async {
+  testWidgets('a cropped viewport below the visibility threshold does not autoplay a motion tile', (tester) async {
     final playback = _PlaybackLog();
-    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 210, playback: playback);
-    expect(tester.getSize(_tile('cropped')).height, 270);
+    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 120, playback: playback);
+    expect(tester.getSize(_tile('cropped')).height, greaterThan(180));
     await _settlePreview(tester);
     expect(playback.starts, isEmpty);
   });

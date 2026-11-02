@@ -18,6 +18,7 @@ class TimelineHeader extends HookWidget {
   final HeaderType header;
   final double height;
   final int assetOffset;
+  final bool compact;
 
   const TimelineHeader({
     super.key,
@@ -25,6 +26,7 @@ class TimelineHeader extends HookWidget {
     required this.header,
     required this.height,
     required this.assetOffset,
+    this.compact = false,
   });
 
   String _formatMonth(BuildContext context, DateTime date) {
@@ -55,8 +57,10 @@ class TimelineHeader extends HookWidget {
     final isMonthHeader = header == HeaderType.month || header == HeaderType.monthAndDay;
     final isDayHeader = header == HeaderType.day || header == HeaderType.monthAndDay;
 
-    return Padding(
-      padding: EdgeInsets.only(top: isYearHeader || isMonthHeader ? 8.0 : 0.0, left: 12.0, right: 12.0),
+    final content = Padding(
+      // Compact padding is inside the measured segment extent. The legacy
+      // header keeps its existing presentation on other timeline routes.
+      padding: EdgeInsets.only(top: !compact && (isYearHeader || isMonthHeader) ? 8.0 : 0.0, left: 12.0, right: 12.0),
       child: SizedBox(
         height: height,
         child: Column(
@@ -118,6 +122,7 @@ class TimelineHeader extends HookWidget {
         ),
       ),
     );
+    return compact ? SizedBox(height: height, child: content) : content;
   }
 }
 

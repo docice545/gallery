@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -108,7 +109,11 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
         )
         .map((row) {
           final date = row.bucketDate.truncateDate(groupBy);
-          return TimeBucket(date: date, assetCount: row.assetCount);
+          return TimeBucket(
+            date: date,
+            assetCount: row.assetCount,
+            aspectRatios: _decodeAspectRatios(row.aspectRatios),
+          );
         })
         .watch();
   }
@@ -211,7 +216,11 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     return query.map((row) {
       final timeline = row.read<String>('bucket_date').truncateDate(groupBy);
       final assetCount = row.read<int>('asset_count');
-      return TimeBucket(date: timeline, assetCount: assetCount);
+      return TimeBucket(
+        date: timeline,
+        assetCount: assetCount,
+        aspectRatios: _decodeAspectRatios(row.read<String>('aspect_ratios')),
+      );
     }).watch();
   }
 
@@ -787,7 +796,9 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
   }
 
   TimelineQuery fromAssets(List<BaseAsset> assets, TimelineOrigin origin) => (
-    bucketSource: () => Stream.value(_generateBuckets(assets.length)),
+    bucketSource: () => Stream.value(
+      assets.isEmpty ? const [] : [Bucket(assetCount: assets.length, aspectRatios: _assetAspectRatios(assets))],
+    ),
     assetSource: (offset, count) => Future.value(assets.skip(offset).take(count).toList(growable: false)),
     origin: origin,
   );
@@ -812,14 +823,16 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
   TimelineQuery fromAssetsWithBuckets(List<BaseAsset> assets, TimelineOrigin origin) {
     // Sort assets by date descending and group by day
     final sorted = List<BaseAsset>.from(assets)..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final Map<DateTime, int> bucketCounts = {};
+    final Map<DateTime, List<double>> bucketRatios = {};
     for (final asset in sorted) {
       final localTime = asset.createdAt.toLocal();
       final date = DateTime(localTime.year, localTime.month, localTime.day);
-      bucketCounts[date] = (bucketCounts[date] ?? 0) + 1;
+      (bucketRatios[date] ??= []).add(_assetAspectRatio(asset));
     }
 
-    final buckets = bucketCounts.entries.map((e) => TimeBucket(date: e.key, assetCount: e.value)).toList();
+    final buckets = bucketRatios.entries
+        .map((e) => TimeBucket(date: e.key, assetCount: e.value.length, aspectRatios: List.unmodifiable(e.value)))
+        .toList();
 
     return (
       bucketSource: () => Stream.value(buckets),
@@ -1499,15 +1512,27 @@ List<OrderingTerm Function($RemoteAssetEntityTable)> _assetDateOrder(GroupAssets
 // Date-less segments (flat) for `none`; dated TimeBuckets in `descending` order otherwise.
 List<Bucket> _buildBuckets(List<BaseAsset> assets, GroupAssetsBy groupBy, bool descending) {
   if (groupBy == GroupAssetsBy.none) {
-    return _generateBuckets(assets.length);
+    return assets.isEmpty ? const [] : [Bucket(assetCount: assets.length, aspectRatios: _assetAspectRatios(assets))];
   }
-  final counts = <DateTime, int>{}; // LinkedHashMap: insertion order follows the pre-ordered list
+  final ratios = <DateTime, List<double>>{}; // Insertion order follows the pre-ordered list.
   for (final asset in _orderedForGrouping(assets, groupBy, descending)) {
     final key = _localBucketDate(asset.createdAt, groupBy);
-    counts[key] = (counts[key] ?? 0) + 1;
+    (ratios[key] ??= []).add(_assetAspectRatio(asset));
   }
-  return [for (final e in counts.entries) TimeBucket(date: e.key, assetCount: e.value)];
+  return [
+    for (final e in ratios.entries)
+      TimeBucket(date: e.key, assetCount: e.value.length, aspectRatios: List.unmodifiable(e.value)),
+  ];
 }
+
+List<double> _assetAspectRatios(List<BaseAsset> assets) => List.unmodifiable(assets.map(_assetAspectRatio));
+
+double _assetAspectRatio(BaseAsset asset) =>
+    (asset.width ?? 0) > 0 && (asset.height ?? 0) > 0 ? asset.width! / asset.height! : 1.0;
+
+List<double>? _decodeAspectRatios(String? value) => value == null
+    ? null
+    : List.unmodifiable((jsonDecode(value) as List).map((ratio) => ratio is num ? ratio.toDouble() : 1.0));
 
 List<BaseAsset> _orderedForGrouping(List<BaseAsset> assets, GroupAssetsBy groupBy, bool descending) {
   if (groupBy == GroupAssetsBy.none) {
@@ -1635,16 +1660,23 @@ String _scopedMainBucketSql(List<String> userIds, GroupAssetsBy groupBy) {
   };
 
   return '''
-SELECT COUNT(*) AS asset_count, bucket_date
+SELECT COUNT(*) AS asset_count, bucket_date, JSON_GROUP_ARRAY(aspect_ratio) AS aspect_ratios
 FROM (
-  SELECT $remoteBucketDate AS bucket_date
+  SELECT $remoteBucketDate AS bucket_date,
+    COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) AS sort_date,
+    rae.created_at AS sort_created_at, rae.id AS sort_remote_id, NULL AS sort_local_id,
+    CASE WHEN rae.width > 0 AND rae.height > 0 THEN rae.width * 1.0 / rae.height ELSE 1.0 END AS aspect_ratio
   FROM remote_asset_entity rae
   LEFT JOIN stack_entity se ON rae.stack_id = se.id
   WHERE ${_scopedMainRemoteWhere(userIds)}
   UNION ALL
-  SELECT $localBucketDate AS bucket_date
+  SELECT $localBucketDate AS bucket_date,
+    STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') AS sort_date,
+    lae.created_at AS sort_created_at, NULL AS sort_remote_id, lae.id AS sort_local_id,
+    CASE WHEN lae.width > 0 AND lae.height > 0 THEN lae.width * 1.0 / lae.height ELSE 1.0 END AS aspect_ratio
   FROM local_asset_entity lae
   WHERE ${_scopedMainLocalWhere(userIds)}
+  ORDER BY sort_date DESC, sort_created_at DESC, sort_remote_id DESC, sort_local_id DESC
 )
 GROUP BY bucket_date
 ORDER BY bucket_date DESC
@@ -1677,7 +1709,8 @@ FROM (
     NULL AS longitude,
     NULL AS adjustment_time,
     rae.is_edited,
-    0 AS playback_style
+    0 AS playback_style,
+    COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) AS sort_date
   FROM remote_asset_entity rae
   LEFT JOIN stack_entity se ON rae.stack_id = se.id
   WHERE ${_scopedMainRemoteWhere(userIds)}
@@ -1704,11 +1737,12 @@ FROM (
     lae.longitude,
     lae.adjustment_time,
     0 AS is_edited,
-    lae.playback_style
+    lae.playback_style,
+    STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') AS sort_date
   FROM local_asset_entity lae
   WHERE ${_scopedMainLocalWhere(userIds)}
 )
-ORDER BY created_at DESC
+ORDER BY sort_date DESC, created_at DESC, remote_id DESC, local_id DESC
 LIMIT ?${userIds.length + 4} OFFSET ?${userIds.length + 5}
 ''';
 }
