@@ -161,7 +161,13 @@ class MagicEraserRepository {
   }
 
   Future<String> save(String assetId, String jobId) async {
-    final response = await _request('${_job(assetId, jobId)}/save', 'POST');
+    final response = await _request(
+      '${_job(assetId, jobId)}/save',
+      'POST',
+      // The server chooses the actual instant. Only the device's current UTC
+      // offset is needed to place the new copy under the right local date.
+      body: {'timeZoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes},
+    );
     return (jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>)['id'] as String;
   }
 

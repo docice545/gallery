@@ -466,6 +466,9 @@ void main() {
       expect(requests, hasLength(1));
       expect(requests.single.method, 'POST');
       expect(requests.single.url.path, '$basePath/$jobId/save');
+      expect(jsonDecode((requests.single as http.Request).body), {
+        'timeZoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+      });
     });
 
     test('surfaces ownership and expired job errors for save and cancel', () async {

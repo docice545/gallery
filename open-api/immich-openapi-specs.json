@@ -6329,6 +6329,18 @@
         "required": ["id", "status"],
         "type": "object"
       },
+      "MagicEraserSaveDto": {
+        "default": {},
+        "properties": {
+          "timeZoneOffsetMinutes": {
+            "description": "Current device UTC offset for the new copy, supported by EXIF extraction. Unsupported offsets are rejected. The server chooses the save instant; omitted means UTC.",
+            "maximum": 840,
+            "minimum": -720,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "MaintenanceAction": {
         "description": "Maintenance action",
         "enum": ["start", "end", "select_database_restore", "restore_database"],
@@ -26479,6 +26491,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicEraserSaveDto"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "201": {
             "content": {
