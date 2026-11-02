@@ -131,6 +131,22 @@ void main() {
     expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
   });
 
+  test('an empty native display name also retains the editor request identity', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(photos, (call) async {
+      photosCalls.add(call);
+      return {'id': '17', 'type': 1, 'width': 100, 'height': 100, 'title': ''};
+    });
+    const repository = FileMediaRepository(isAndroid: true);
+    final saved = await repository.saveImageWithFile(
+      original.path,
+      title: 'gallery-edit-789.png',
+      preserveCreatedAssetOnFailure: true,
+    );
+    expect(saved?.title, 'gallery-edit-789.png');
+    expect(photosCalls, hasLength(1));
+  });
+
   test('metadata retry failures preserve the same editor ID and never remove device originals', () async {
     const repository = FileMediaRepository(isAndroid: true);
     final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);

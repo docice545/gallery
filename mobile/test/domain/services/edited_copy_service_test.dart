@@ -195,6 +195,14 @@ void main() {
     expect(await timelineIds(), ['copy']);
   });
 
+  test('a newly created row with unset date and path imports after fresh indexing', () async {
+    final pending = copy().copyWith(createDateSecond: 0, relativePath: '');
+    await service.importSavedCopy(pending);
+    expect(await timelineIds(), ['copy']);
+    expect((await db.select(db.localAssetEntity).get()).single.createdAt, createdAt);
+    expect(await db.select(db.settingsEntity).get(), isEmpty);
+  });
+
   test('failed native read retains durable ID without enabling an unverified album', () async {
     var reads = 0;
     final failed = EditedCopyService(

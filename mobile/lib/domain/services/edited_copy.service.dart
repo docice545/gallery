@@ -116,7 +116,7 @@ class EditedCopyService {
     if (saved.title == null || !RegExp(r'^gallery-edit-\d+\.png$').hasMatch(saved.title!)) {
       throw StateError('The saved copy has no reliable editor filename');
     }
-    if (saved.relativePath != null && _normalizePath(saved.relativePath) != outputRelativePath) {
+    if (saved.relativePath?.isNotEmpty == true && _normalizePath(saved.relativePath) != outputRelativePath) {
       throw StateError('The saved copy is outside the editor output album');
     }
     await _db
@@ -302,7 +302,7 @@ class EditedCopyService {
         fresh.width <= 0 ||
         fresh.height <= 0 ||
         (saved.title != null && saved.title != name) ||
-        (saved.createDateSecond != null && saved.createDateSecond != created)) {
+        (saved.createDateSecond != null && saved.createDateSecond! > 0 && saved.createDateSecond != created)) {
       throw StateError('MediaStore returned incomplete or changed identity for the saved copy');
     }
     if (_normalizePath(fresh.relativePath) != outputRelativePath) {
@@ -314,7 +314,11 @@ class EditedCopyService {
     await _nativeRequest(() => _completeMetadata(fresh));
     final album = await _findEditorAlbum(fresh);
     final createdAt = DateTime.fromMillisecondsSinceEpoch(created * 1000, isUtc: true);
-    final updatedAt = DateTime.fromMillisecondsSinceEpoch((fresh.modifiedDateSecond ?? created) * 1000, isUtc: true);
+    final modified = fresh.modifiedDateSecond;
+    final updatedAt = DateTime.fromMillisecondsSinceEpoch(
+      (modified != null && modified > 0 ? modified : created) * 1000,
+      isUtc: true,
+    );
     await _db.transaction(() async {
       await _checkAccount();
       final previous = await (_db.select(_db.localAssetEntity)..where((a) => a.id.equals(fresh.id))).getSingleOrNull();

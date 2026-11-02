@@ -36,7 +36,9 @@ class FileMediaRepository {
     final saved = await PhotoManager.editor.saveImageWithPath(filePath, title: title, relativePath: relativePath);
     // Keep the editor's unique requested filename if MediaStore returns before
     // its display name is indexed. Recovery must not trust a reused bare ID.
-    final entity = preserveCreatedAssetOnFailure && saved.title == null ? saved.copyWith(title: title) : saved;
+    final entity = preserveCreatedAssetOnFailure && (saved.title?.isEmpty ?? true)
+        ? saved.copyWith(title: title)
+        : saved;
     await _setOriginalMimeType(entity, mimeType, preserveCreatedAssetOnFailure: preserveCreatedAssetOnFailure);
     return entity;
   }
