@@ -99,7 +99,10 @@ class FixedRowLayout {
         previousHeight = rowHeight;
       }
       final last = first + count == ratios.length;
-      var justified = !last || rowHeight <= maximum;
+      // A day containing one asset must span the full mosaic width.
+      // Cover-crop tall portraits instead of leaving a narrow left tile.
+      final singleAssetDay = ratios.length == 1;
+      var justified = singleAssetDay || !last || rowHeight <= maximum;
       final available = math.max(0.0, width - spacing * (count - 1));
       List<double> widths;
       final rowRatios = ratios.sublist(first, first + count);
@@ -107,8 +110,10 @@ class FixedRowLayout {
         // A normal row keeps the exact source proportions. If no partition can
         // meet both height bounds, cover-crop its cells rather than create an
         // excessively tall/short row. Images are never geometrically stretched.
-        rowHeight = rowHeight.clamp(minimum, maximum);
-        widths = _boundedWidths(rowRatios, available);
+        rowHeight = singleAssetDay
+            ? math.min(maximum, math.max(minimum, width / rowRatios.first))
+            : rowHeight.clamp(minimum, maximum);
+        widths = singleAssetDay ? [width] : _boundedWidths(rowRatios, available);
       } else {
         rowHeight = target;
         final minimumWidth = math.min(72.0, available / count);

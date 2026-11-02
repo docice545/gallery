@@ -55,7 +55,7 @@ void main() {
     expect(layout.extent, layout.rowCount == 0 ? 0 : layout.offsetForRow(layout.rowCount) - layout.spacing);
   }
 
-  test('a single photograph fills when safe, and a tall final portrait is not artificially stretched', () {
+  test('a single photograph fills the width with bounded cover-crop height', () {
     final landscape = mosaic([1.5]);
     expect(landscape.rowCount, 1);
     expect(landscape.isJustifiedRow(0), isTrue);
@@ -63,9 +63,9 @@ void main() {
     expect(landscape.widthsForRow(0), [390]);
     final portrait = mosaic([.45]);
     expect(portrait.rowCount, 1);
-    expect(portrait.isJustifiedRow(0), isFalse);
-    expect(portrait.heightForRow(0), 200);
-    expect(portrait.widthsForRow(0), [90]);
+    expect(portrait.isJustifiedRow(0), isTrue);
+    expect(portrait.heightForRow(0), 320);
+    expect(portrait.widthsForRow(0), [390]);
     verify(landscape);
     verify(portrait);
   });

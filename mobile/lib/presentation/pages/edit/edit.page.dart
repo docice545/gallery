@@ -360,6 +360,13 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         throw StateError('Unable to save edited copy');
       }
       saved = true;
+      // Import the newly saved MediaStore asset into the local timeline.
+      // The remote backup pipeline remains responsible for uploading it.
+      try {
+        await ref.read(backgroundSyncProvider).syncLocal(full: true);
+      } catch (syncError, syncStack) {
+        _log.warning('Edited copy saved, but local timeline refresh failed', syncError, syncStack);
+      }
     } catch (error) {
       if (mounted && !_cancelSave) {
         ImmichToast.show(

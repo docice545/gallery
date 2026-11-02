@@ -121,7 +121,7 @@ class FixedSegment extends Segment {
       rowWidth: layout.width,
       denseLayout: denseLayout,
       rowWidths: denseLayout ? layout.widthsForRow(rowIndexInSegment) : null,
-      topCornerRadius: rowIndexInSegment == 0 ? topCornerRadius : 0,
+      topCornerRadius: 0,
     );
   }
 
@@ -219,16 +219,7 @@ class _FixedSegmentRow extends ConsumerWidget {
     if (!denseLayout) {
       return child;
     }
-    final rtl = Directionality.of(context) == TextDirection.rtl;
-    final left = rtl ? index == count - 1 : index == 0;
-    final right = rtl ? index == 0 : index == count - 1;
-    return ClipRRect(
-      borderRadius: BorderRadius.only(
-        topLeft: Radius.circular(left ? topCornerRadius : 0),
-        topRight: Radius.circular(right ? topCornerRadius : 0),
-      ),
-      child: child,
-    );
+    return ClipRRect(borderRadius: BorderRadius.circular(6), child: child);
   }
 
   Widget _buildAssetRow(

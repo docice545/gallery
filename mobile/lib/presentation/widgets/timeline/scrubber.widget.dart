@@ -12,6 +12,7 @@ import 'package:immich_mobile/presentation/widgets/timeline/scrubber_segments.da
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
+import 'package:intl/intl.dart';
 
 /// A widget that will display a BoxScrollView with a ScrollThumb that can be dragged
 /// for quick navigation of the BoxScrollView.
@@ -63,6 +64,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
 
   late AnimationController _thumbAnimationController;
   Timer? _fadeOutTimer;
+  Timer? _labelFadeTimer;
   late Animation<double> _thumbAnimation;
 
   late AnimationController _labelAnimationController;
@@ -77,7 +79,11 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
       return 0.0;
     }
 
-    return _scrollController.offset * _scrubberHeight / _scrollController.position.maxScrollExtent;
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    if (maxExtent <= 0 || _scrubberHeight <= 0) {
+      return 0.0;
+    }
+    return (_scrollController.offset / maxExtent * _scrubberHeight).clamp(0.0, _scrubberHeight);
   }
 
   @override
@@ -130,6 +136,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     _thumbAnimationController.dispose();
     _labelAnimationController.dispose();
     _fadeOutTimer?.cancel();
+    _labelFadeTimer?.cancel();
     super.dispose();
   }
 
@@ -139,6 +146,51 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
       unawaited(_thumbAnimationController.reverse());
       _fadeOutTimer = null;
     });
+  }
+
+  void _scheduleLabelFade() {
+    _labelFadeTimer?.cancel();
+    _labelFadeTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (!mounted || _isDragging) {
+        return;
+      }
+      unawaited(_labelAnimationController.reverse());
+    });
+  }
+
+  String? _visibleDateLabel() {
+    if (!_scrollController.hasClients) {
+      return null;
+    }
+    final offset = _scrollController.offset;
+    // Read the actual layout bucket rather than the scaled month scrubber label.
+    // The list is ordered by startOffset, so the last started bucket is visible.
+    TimeBucket? bucket;
+    for (final segment in widget.layoutSegments) {
+      if (segment.startOffset > offset + 1) {
+        break;
+      }
+      if (segment.bucket is TimeBucket) {
+        bucket = segment.bucket as TimeBucket;
+      }
+    }
+    if (bucket == null) {
+      for (final segment in widget.layoutSegments) {
+        if (segment.bucket is TimeBucket) {
+          bucket = segment.bucket as TimeBucket;
+          break;
+        }
+      }
+    }
+    if (bucket == null) {
+      return null;
+    }
+    final date = bucket.date;
+    return widget.groupBy == GroupAssetsBy.year
+        ? DateFormat.y().format(date)
+        : widget.groupBy == GroupAssetsBy.month
+        ? DateFormat.yMMMM().format(date)
+        : DateFormat.yMMMd().format(date);
   }
 
   int getSnapSegmentCount() {
@@ -160,9 +212,10 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     setState(() {
       if (notification is ScrollUpdateNotification) {
         _thumbTopOffset = _currentOffset;
-        if (_labelAnimation.status != AnimationStatus.reverse) {
-          unawaited(_labelAnimationController.reverse());
+        if (_labelAnimationController.status != AnimationStatus.forward && _labelAnimationController.value < 1.0) {
+          unawaited(_labelAnimationController.forward());
         }
+        _scheduleLabelFade();
         if (_thumbAnimationController.status != AnimationStatus.forward) {
           unawaited(_thumbAnimationController.forward());
         }
@@ -176,6 +229,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   void _onDragStart(DragStartDetails _) {
     setState(() {
       _isDragging = true;
+      _labelFadeTimer?.cancel();
       unawaited(_labelAnimationController.forward());
       _fadeOutTimer?.cancel();
       _lastLabel = null;
@@ -302,7 +356,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   void _onDragEnd(DragEndDetails _) {
-    unawaited(_labelAnimationController.reverse());
+    _scheduleLabelFade();
     setState(() {
       _isDragging = false;
     });
@@ -316,9 +370,10 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     if (_scrollController.hasClients == true) {
       // Cache to avoid multiple calls to [_currentOffset]
       final scrollOffset = _currentOffset;
-      final labelText =
-          _segments.lastWhereOrNull((segment) => segment.startOffset <= scrollOffset)?.scrollLabel ??
-          _segments.firstOrNull?.scrollLabel;
+      final labelText = _isDragging
+          ? (_segments.lastWhereOrNull((segment) => segment.startOffset <= scrollOffset)?.scrollLabel ??
+                _segments.firstOrNull?.scrollLabel)
+          : _visibleDateLabel();
       label = labelText != null
           ? Text(
               labelText,
@@ -416,37 +471,6 @@ class _SegmentWidget extends StatelessWidget {
   }
 }
 
-class _ScrollLabel extends StatelessWidget {
-  final Text label;
-  final Color backgroundColor;
-  final Animation<double> animation;
-
-  const _ScrollLabel({required this.label, required this.backgroundColor, required this.animation});
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: FadeTransition(
-        opacity: animation,
-        child: Container(
-          margin: const EdgeInsets.only(right: 12.0),
-          child: Material(
-            elevation: 4.0,
-            color: backgroundColor,
-            borderRadius: const BorderRadius.all(Radius.circular(16.0)),
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 28),
-              padding: const EdgeInsets.symmetric(horizontal: 10.0),
-              alignment: Alignment.center,
-              child: label,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _Scrubber extends StatelessWidget {
   final Text? label;
   final Animation<double> thumbAnimation;
@@ -466,7 +490,7 @@ class _Scrubber extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          if (label != null) _ScrollLabel(label: label!, backgroundColor: backgroundColor, animation: labelAnimation),
+          // FOTO Build 32: floating date label intentionally disabled (thumb remains).
           _CircularThumb(backgroundColor),
         ],
       ),
