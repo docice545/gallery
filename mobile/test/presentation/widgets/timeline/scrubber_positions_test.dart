@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -135,39 +136,68 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a second attachment during a drag cannot broadcast a stale jump and recovery keeps the thumb usable', (
-    tester,
-  ) async {
+  testWidgets('a second attachment during a real thumb drag does not leave ordinary scrolling locked', (tester) async {
     final controller = ScrollController();
     final secondAttached = ValueNotifier(false);
     addTearDown(controller.dispose);
     addTearDown(secondAttached.dispose);
     await _mount(tester, controller, secondAttached: secondAttached);
     await _revealThumb(tester);
-    final handlers = tester.widget<GestureDetector>(_thumb);
-    handlers.onVerticalDragStart!(DragStartDetails());
+    final beforeDrag = controller.offset;
+    final thumbGesture = await tester.startGesture(tester.getCenter(_thumb));
+    await thumbGesture.moveBy(const Offset(0, 30));
+    await thumbGesture.moveBy(const Offset(0, 10));
     await tester.pump();
+    expect(controller.offset, greaterThan(beforeDrag), reason: 'The thumb must have accepted the real pointer drag');
     secondAttached.value = true;
     await tester.pump();
     expect(controller.positions, hasLength(2));
     final positions = controller.positions.toList();
     final before = positions.map((position) => position.pixels).toList();
-    handlers.onVerticalDragUpdate!(
-      DragUpdateDetails(globalPosition: const Offset(790, 200), delta: const Offset(0, 50)),
-    );
+    await thumbGesture.moveBy(const Offset(0, 50));
     await tester.pump();
     expect(positions.map((position) => position.pixels).toList(), before);
     expect(tester.takeException(), isNull);
-    handlers.onVerticalDragEnd!(DragEndDetails());
+    // Rebuilding while both positions are attached removes the thumb detector.
+    // Its disposed recognizer will not deliver onEnd for this accepted gesture.
     secondAttached.value = false;
     await tester.pump();
-    await _revealThumb(tester);
+    expect(_thumb, findsNothing);
+    await thumbGesture.up();
+    final container = ProviderScope.containerOf(tester.element(find.byType(Scrubber)));
+    final listGesture = await tester.startGesture(tester.getCenter(find.byKey(_scrollKey)));
+    await listGesture.moveBy(const Offset(0, -60));
+    await tester.pump();
+    expect(container.read(timelineStateProvider).isScrolling, isTrue);
+    await listGesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
     expect(controller.positions, hasLength(1));
     expect(_thumb, findsOneWidget);
     final offset = controller.offset;
     await tester.drag(_thumb, const Offset(0, 30));
     await tester.pump();
     expect(controller.offset, greaterThan(offset));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cancelling an accepted thumb gesture restores ordinary scroll notifications', (tester) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await _mount(tester, controller);
+    await _revealThumb(tester);
+    final thumbGesture = await tester.startGesture(tester.getCenter(_thumb));
+    await thumbGesture.moveBy(const Offset(0, 30));
+    await thumbGesture.moveBy(const Offset(0, 10));
+    await tester.pump();
+    await thumbGesture.cancel();
+    final container = ProviderScope.containerOf(tester.element(find.byType(Scrubber)));
+    final listGesture = await tester.startGesture(tester.getCenter(find.byKey(_scrollKey)));
+    await listGesture.moveBy(const Offset(0, -60));
+    await tester.pump();
+    expect(container.read(timelineStateProvider).isScrolling, isTrue);
+    await listGesture.up();
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 }

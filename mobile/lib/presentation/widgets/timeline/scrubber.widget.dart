@@ -384,18 +384,30 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     position.jumpTo(centeredOffset.clamp(0.0, maxScrollExtent));
   }
 
-  void _onDragEnd(DragEndDetails _) {
+  void _finishDrag() {
+    _isDragging = false;
     _scheduleLabelFade();
-    setState(() {
-      _isDragging = false;
-    });
-
     _resetThumbTimer();
+  }
+
+  void _onDragEnd(DragEndDetails _) => _onDragCancel();
+
+  void _onDragCancel() {
+    if (!_isDragging) {
+      return;
+    }
+    setState(_finishDrag);
   }
 
   @override
   Widget build(BuildContext ctx) {
     final position = _position;
+    if (_isDragging && (position == null || position.maxScrollExtent <= 0)) {
+      // Removing an accepted drag's detector disposes its recognizer without
+      // delivering onEnd/onCancel. End its bookkeeping in this rebuild so later
+      // list scroll notifications are not mistaken for an active thumb drag.
+      _finishDrag();
+    }
     Text? label;
     if (position != null) {
       // Cache to avoid multiple calls to [_currentOffset]
@@ -435,6 +447,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
                   onVerticalDragStart: _onDragStart,
                   onVerticalDragUpdate: _onDragUpdate,
                   onVerticalDragEnd: _onDragEnd,
+                  onVerticalDragCancel: _onDragCancel,
                   child: _Scrubber(thumbAnimation: _thumbAnimation, labelAnimation: _labelAnimation, label: label),
                 ),
               ),
