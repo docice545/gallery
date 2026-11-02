@@ -46,6 +46,7 @@ class BackgroundSyncManager {
   Cancelable<void>? _deviceAlbumSyncTask;
   Cancelable<void>? _linkedAlbumSyncTask;
   Cancelable<void>? _hashTask;
+  Completer<void>? _queuedHash;
   Cancelable<void>? _trashTask;
   bool _sqliteRecoveryRequired = false;
   int? _sqliteRecoveryReleaseEpoch;
@@ -81,6 +82,7 @@ class BackgroundSyncManager {
 
   Future<void> cancel() async {
     _syncQueued = false;
+    _cancelQueuedHash();
     final tasks = _allTasks;
     _syncTask = null;
     _syncWebsocketTask = null;
@@ -124,6 +126,7 @@ class BackgroundSyncManager {
 
   Future<void> cancelResumeSyncs() async {
     _syncQueued = false;
+    _cancelQueuedHash();
     final tasks = _resumeSyncTasks;
     _syncTask = null;
     _deviceAlbumSyncTask = null;
@@ -243,31 +246,78 @@ class BackgroundSyncManager {
     return RemoteThenLocalSync(remoteSync: remoteSync, deferredLocalSync: deferredLocalSync);
   }
 
-  Future<void> hashAssets() {
+  void _cancelQueuedHash() {
+    _rejectQueuedHash(CanceledError());
+  }
+
+  void _rejectQueuedHash(Object error, [StackTrace? stack]) {
+    final queued = _queuedHash;
+    _queuedHash = null;
+    queued?.completeError(error, stack);
+  }
+
+  /// A saved copy can miss the asset snapshot of a running hash pass. Queue one
+  /// shared follow-up in that case, and wait for that pass rather than the old
+  /// snapshot. Explicit enqueue callers observe failures/cancellation so they
+  /// cannot start backup as though the requested pass completed successfully.
+  Future<void> hashAssets({bool enqueue = false}) {
+    if (_sqliteRecoveryRequired) {
+      final error = StateError('Primary SQLite database requires validated recovery before hashing can continue');
+      onHashingError?.call(error.toString());
+      return enqueue ? Future.error(error) : Future.value();
+    }
     if (_hashTask != null) {
+      if (enqueue) {
+        return (_queuedHash ??= Completer<void>()).future;
+      }
       return _hashTask!.future.catchError((_) {}, test: (error) => error is CanceledError);
     }
 
     onHashingStart?.call();
 
-    final task = _hashTask = runInIsolateGentle(
-      computation: (ref) => ref.read(hashServiceProvider).hashAssets(),
-      debugLabel: 'hash-assets',
-    );
+    final task = _hashTask = createHashTask();
 
     return task
+        .catchError((Object error, StackTrace stack) {
+          if (error is SqliteDatabaseUnhealthy) {
+            // Observe before the completion hook can schedule another writer.
+            _sqliteRecoveryRequired = true;
+            _rejectQueuedHash(error, stack);
+          }
+          Error.throwWithStackTrace(error, stack);
+        })
         .whenComplete(() {
           onHashingComplete?.call();
           if (identical(_hashTask, task)) {
             _hashTask = null;
+            final queued = _queuedHash;
+            _queuedHash = null;
+            if (queued != null) {
+              unawaited(
+                Future.sync(() => hashAssets(enqueue: true)).then<void>(
+                  (_) => queued.complete(),
+                  onError: (Object error, StackTrace stack) => queued.completeError(error, stack),
+                ),
+              );
+            }
           }
         })
-        .catchError((error) {
+        .catchError((Object error, StackTrace stack) {
           if (error is! CanceledError) {
             onHashingError?.call(error.toString());
           }
+          if (enqueue) {
+            Error.throwWithStackTrace(error, stack);
+          }
         });
   }
+
+  @protected
+  Cancelable<void> createHashTask() => runInIsolateGentle(
+    computation: (ref) => ref.read(hashServiceProvider).hashAssets(),
+    debugLabel: 'hash-assets',
+    sqliteRecoveryReleaseEpoch: _sqliteRecoveryReleaseEpoch,
+  );
 
   Future<bool> syncRemote({bool enqueue = false}) {
     if (_sqliteRecoveryRequired) {
@@ -316,12 +366,11 @@ class BackgroundSyncManager {
   }
 
   @protected
-  Cancelable<bool?> createRemoteSyncTask() =>
-      runInIsolateGentle(
-        computation: (ref) => ref.read(syncStreamServiceProvider).sync(),
-        debugLabel: 'remote-sync',
-        sqliteRecoveryReleaseEpoch: _sqliteRecoveryReleaseEpoch,
-      );
+  Cancelable<bool?> createRemoteSyncTask() => runInIsolateGentle(
+    computation: (ref) => ref.read(syncStreamServiceProvider).sync(),
+    debugLabel: 'remote-sync',
+    sqliteRecoveryReleaseEpoch: _sqliteRecoveryReleaseEpoch,
+  );
 
   Future<void> syncWebsocketBatchV1(List<dynamic> batchData) {
     if (_sqliteRecoveryRequired) {
@@ -435,13 +484,13 @@ Cancelable<void> _handleWsAssetUploadReadyV2Batch(List<dynamic> batchData, int? 
     );
 
 Cancelable<void> _handleWsAssetEditReadyV1(dynamic data, int? sqliteRecoveryReleaseEpoch) => runInIsolateGentle(
-      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV1(data),
-      debugLabel: 'websocket-edit',
-      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
-    );
+  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV1(data),
+  debugLabel: 'websocket-edit',
+  sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+);
 
 Cancelable<void> _handleWsAssetEditReadyV2(dynamic data, int? sqliteRecoveryReleaseEpoch) => runInIsolateGentle(
-      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV2(data),
-      debugLabel: 'websocket-edit',
-      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
-    );
+  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV2(data),
+  debugLabel: 'websocket-edit',
+  sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+);

@@ -88,10 +88,202 @@ class _QueuedRemoteSyncManager extends BackgroundSyncManager {
   Future<void> syncLocal({bool full = false}) async => localRequests++;
 
   @override
-  Future<void> hashAssets() async => hashRequests++;
+  Future<void> hashAssets({bool enqueue = false}) async => hashRequests++;
+}
+
+class _ControlledHashManager extends BackgroundSyncManager {
+  _ControlledHashManager({super.onHashingError, this.drainOnCancel = false});
+
+  final bool drainOnCancel;
+  final catalog = <String>{'older-photo'};
+  final hashed = <String>{};
+  final snapshots = <Set<String>>[];
+  final runs = <Completer<void>>[];
+  int cancellations = 0;
+
+  @override
+  Cancelable<void> createHashTask() {
+    final result = Completer<void>();
+    runs.add(result);
+    // HashService obtains its album/candidate list once for each pass.
+    snapshots.add(Set.of(catalog));
+    return Cancelable(
+      completer: result,
+      onCancel: () {
+        cancellations++;
+        if (!drainOnCancel && !result.isCompleted) {
+          result.completeError(CanceledError());
+        }
+      },
+    );
+  }
+
+  void finish(int index) {
+    hashed.addAll(snapshots[index]);
+    runs[index].complete();
+  }
 }
 
 void main() {
+  group('saved-copy hashing after an older snapshot', () {
+    test('coalesces editor requests and awaits the follow-up that includes each saved copy', () async {
+      final manager = _ControlledHashManager();
+      final existing = manager.hashAssets();
+      manager.catalog.add('edited-copy');
+      var importedCopiesReadyForBackup = false;
+      final refreshes = [for (var i = 0; i < 4; i++) manager.hashAssets(enqueue: true)];
+      final waiting = Future.wait(refreshes).then((_) => importedCopiesReadyForBackup = true);
+
+      expect(manager.snapshots, [
+        {'older-photo'},
+      ]);
+      manager.finish(0);
+      await existing;
+      expect(manager.runs, hasLength(2));
+      expect(manager.hashed, {'older-photo'});
+      expect(importedCopiesReadyForBackup, isFalse);
+      expect(manager.snapshots.last, {'older-photo', 'edited-copy'});
+
+      manager.finish(1);
+      await waiting;
+      expect(importedCopiesReadyForBackup, isTrue);
+      expect(manager.hashed, contains('edited-copy'));
+      expect(manager.runs, hasLength(2));
+      await manager.cancel();
+    });
+
+    test('an idle enqueue starts one pass and normal concurrent callers do not request another', () async {
+      final manager = _ControlledHashManager();
+      final saved = manager.hashAssets(enqueue: true);
+      final existing = manager.hashAssets();
+      expect(manager.runs, hasLength(1));
+      manager.finish(0);
+      await Future.wait([saved, existing]);
+      expect(manager.runs, hasLength(1));
+      await manager.cancel();
+    });
+
+    test('a copy saved during the follow-up waits for one further shared pass', () async {
+      final manager = _ControlledHashManager();
+      final existing = manager.hashAssets();
+      manager.catalog.add('first-copy');
+      final first = manager.hashAssets(enqueue: true);
+      manager.finish(0);
+      await existing;
+      manager.catalog.add('later-copy');
+      var laterFinished = false;
+      final later = manager.hashAssets(enqueue: true).then((_) => laterFinished = true);
+      manager.finish(1);
+      await first;
+      expect(laterFinished, isFalse);
+      expect(manager.runs, hasLength(3));
+      manager.finish(2);
+      await later;
+      expect(manager.hashed, containsAll(['first-copy', 'later-copy']));
+      await manager.cancel();
+    });
+
+    test('a failed follow-up reports failure without a retry loop and a later explicit request can recover', () async {
+      final errors = <String>[];
+      final manager = _ControlledHashManager(onHashingError: errors.add);
+      final existing = manager.hashAssets();
+      final saved = manager.hashAssets(enqueue: true);
+      final rejected = expectLater(saved, throwsStateError);
+      manager.finish(0);
+      await existing;
+      manager.runs.last.completeError(StateError('synthetic hash failure'));
+      await rejected;
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.runs, hasLength(2));
+      expect(errors, hasLength(1));
+
+      final retry = manager.hashAssets(enqueue: true);
+      expect(manager.runs, hasLength(3));
+      manager.finish(2);
+      await retry;
+      await manager.cancel();
+    });
+
+    test(
+      'SQLite failure rejects the follow-up before another writer and blocks hashing until validated recovery',
+      () async {
+        final manager = _ControlledHashManager();
+        final existing = manager.hashAssets();
+        final saved = manager.hashAssets(enqueue: true);
+        final rejected = expectLater(saved, throwsA(isA<SqliteDatabaseUnhealthy>()));
+        manager.runs.single.completeError(const SqliteDatabaseUnhealthy('hash-assets', 779));
+        await Future.wait([existing, rejected]);
+        expect(manager.sqliteRecoveryRequired, isTrue);
+        expect(manager.runs, hasLength(1));
+        await manager.hashAssets();
+        await expectLater(manager.hashAssets(enqueue: true), throwsStateError);
+        expect(manager.runs, hasLength(1));
+
+        manager.clearSqliteRecoveryAfterValidatedRecovery();
+        final recovered = manager.hashAssets(enqueue: true);
+        manager.finish(1);
+        await recovered;
+        expect(manager.sqliteRecoveryRequired, isFalse);
+        await manager.cancel();
+      },
+    );
+
+    test('an explicit idle hash request observes cancellation instead of continuing backup', () async {
+      final manager = _ControlledHashManager();
+      final saved = manager.hashAssets(enqueue: true);
+      final cancelled = expectLater(saved, throwsA(isA<CanceledError>()));
+      await manager.cancel();
+      await cancelled;
+      expect(manager.runs, hasLength(1));
+    });
+
+    test('cancelling the active follow-up also rejects the original editor waiter', () async {
+      final manager = _ControlledHashManager();
+      final existing = manager.hashAssets();
+      final saved = manager.hashAssets(enqueue: true);
+      final cancelled = expectLater(saved, throwsA(isA<CanceledError>()));
+      manager.finish(0);
+      await existing;
+      expect(manager.runs, hasLength(2));
+      await manager.cancelResumeSyncs();
+      await cancelled;
+      expect(manager.runs, hasLength(2));
+      await manager.cancel();
+    });
+
+    for (final resumeOnly in [false, true]) {
+      test('${resumeOnly ? 'resume' : 'full'} cancellation rejects queued waits and prevents follow-up work', () async {
+        final manager = _ControlledHashManager();
+        final existing = manager.hashAssets();
+        final saved = manager.hashAssets(enqueue: true);
+        final cancelled = expectLater(saved, throwsA(isA<CanceledError>()));
+        await (resumeOnly ? manager.cancelResumeSyncs() : manager.cancel());
+        await Future.wait([existing, cancelled]);
+        expect(manager.runs, hasLength(1));
+        expect(manager.cancellations, 1);
+        await manager.cancel();
+      });
+    }
+
+    test('a draining old pass cannot queue work or clear the replacement hash owner after cancellation', () async {
+      final manager = _ControlledHashManager(drainOnCancel: true);
+      final existing = manager.hashAssets();
+      final saved = manager.hashAssets(enqueue: true);
+      final cancelled = expectLater(saved, throwsA(isA<CanceledError>()));
+      final stopping = manager.cancelResumeSyncs();
+      final replacement = manager.hashAssets(enqueue: true);
+      manager.finish(0);
+      await Future.wait([existing, stopping, cancelled]);
+      expect(manager.runs, hasLength(2));
+      final joined = manager.hashAssets();
+      expect(manager.runs, hasLength(2));
+      manager.finish(1);
+      await Future.wait([replacement, joined]);
+      expect(manager.runs, hasLength(2));
+      await manager.cancel();
+    });
+  });
+
   test('a receipt validation failure releases remote sync so a later successful pass can resume backup', () async {
     final errors = <String>[];
     final completions = <bool?>[];
