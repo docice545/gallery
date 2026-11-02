@@ -1565,6 +1565,7 @@
   "editor_brush": "Pędzel",
   "editor_contrast": "Kontrast",
   "editor_copy_explanation": "Kopia PNG jest zapisywana na tym urządzeniu. Włączona automatyczna kopia zapasowa może ją wysłać. Oryginał na serwerze nie zmienia się.",
+  "editor_copy_saved_import_pending": "Kopia jest zapisana na urządzeniu, ale nie udało się jeszcze dodać jej do FOTO. Spróbuj ponownie dodać tę samą kopię.",
   "editor_crop_frame": "Kadr",
   "editor_crop_rotate": "Przytnij / obróć",
   "editor_delete_layer": "Usuń warstwę",

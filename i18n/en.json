@@ -1567,6 +1567,7 @@
   "editor_brush": "Brush",
   "editor_contrast": "Contrast",
   "editor_copy_explanation": "A PNG copy is saved on this device. Automatic backup can upload it if enabled. The server original stays unchanged.",
+  "editor_copy_saved_import_pending": "The copy is saved on your device, but could not be added to FOTO yet. Retry to add the same copy.",
   "editor_crop_frame": "Frame",
   "editor_crop_rotate": "Crop / rotate",
   "editor_delete_layer": "Delete layer",

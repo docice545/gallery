@@ -12,6 +12,7 @@ import 'package:immich_mobile/constants/aspect_ratios.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
+import 'package:immich_mobile/domain/services/edited_copy.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
@@ -36,6 +37,7 @@ import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_ui/immich_ui.dart';
 import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart' show AssetEntity;
 
 export 'editor_mode.dart';
 
@@ -62,6 +64,8 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   String? _selectedId;
   bool _cancelSave = false;
   bool _writingCopy = false;
+  AssetEntity? _pendingCopy;
+  EditedCopyService? _pendingImporter;
   bool _settingsExpanded = false;
   bool _straightening = false;
   bool _magicEraserOpen = false;
@@ -226,7 +230,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   }
 
   Future<void> _openMagicEraser() async {
-    if (_magicEraserOpen || ref.read(editorStateProvider).isApplyingEdits) {
+    if (_magicEraserOpen || _pendingCopy != null || ref.read(editorStateProvider).isApplyingEdits) {
       return;
     }
     _magicEraserOpen = true;
@@ -307,75 +311,102 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     }
     _cancelSave = false;
     _cancelLoad = Completer<void>();
-    _writingCopy = false;
+    _writingCopy = _pendingCopy != null;
     ref.read(editorStateProvider.notifier).setIsEditing(true);
     String? path;
     ui.Image? source;
     ui.Image? rendered;
-    var saved = false;
+    var imported = false;
     try {
-      final asset = widget.asset;
-      if (asset?.width != null && asset?.height != null) {
-        EditedImageExporter.validateDimensions(asset!.width!, asset.height!);
-      }
-      source = await _loadOriginalImage();
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      final state = ref.read(editorStateProvider);
-      rendered = await EditedImageExporter.render(
-        source: source,
-        crop: state.crop,
-        rotationDegrees: state.rotationAngle,
-        straightenDegrees: state.straightenDegrees,
-        flipHorizontal: state.flipHorizontal,
-        flipVertical: state.flipVertical,
-        annotations: _annotations.elements,
-        adjustments: state.adjustments,
-        selectedFilterIndex: state.selectedFilterIndex,
-        filterIntensity: state.filterIntensity,
-      );
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      final bytes = await EditedImageExporter.encodePng(rendered);
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      final directory = await getTemporaryDirectory();
-      path = '${directory.path}/gallery-edit-${DateTime.now().microsecondsSinceEpoch}.png';
-      await File(path).writeAsBytes(bytes, flush: true);
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      setState(() => _writingCopy = true);
-      final copy = await ref
-          .read(fileMediaRepositoryProvider)
-          .saveImageWithFile(
+      // Resolve both services before MediaStore creates anything. A late native
+      // result can then be indexed even if this editor was removed meanwhile.
+      final media = ref.read(fileMediaRepositoryProvider);
+      final EditedCopyService importer = _pendingImporter ?? ref.read(editedCopyServiceProvider);
+      _pendingImporter = importer;
+      if (_pendingCopy == null) {
+        final asset = widget.asset;
+        if (asset?.width != null && asset?.height != null) {
+          EditedImageExporter.validateDimensions(asset!.width!, asset.height!);
+        }
+        source = await _loadOriginalImage();
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        final state = ref.read(editorStateProvider);
+        rendered = await EditedImageExporter.render(
+          source: source,
+          crop: state.crop,
+          rotationDegrees: state.rotationAngle,
+          straightenDegrees: state.straightenDegrees,
+          flipHorizontal: state.flipHorizontal,
+          flipVertical: state.flipVertical,
+          annotations: _annotations.elements,
+          adjustments: state.adjustments,
+          selectedFilterIndex: state.selectedFilterIndex,
+          filterIntensity: state.filterIntensity,
+        );
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        final bytes = await EditedImageExporter.encodePng(rendered);
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        final directory = await getTemporaryDirectory();
+        path = '${directory.path}/gallery-edit-${DateTime.now().microsecondsSinceEpoch}.png';
+        await File(path).writeAsBytes(bytes, flush: true);
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        setState(() => _writingCopy = true);
+        AssetEntity? copy;
+        try {
+          copy = await media.saveImageWithFile(
             path,
             title: 'gallery-edit-${DateTime.now().millisecondsSinceEpoch}.png',
             relativePath: 'DCIM/Noodle Gallery',
+            preserveCreatedAssetOnFailure: true,
           );
-      if (copy == null) {
-        throw StateError('Unable to save edited copy');
+        } on SavedMediaImportException catch (error, stack) {
+          // A file exists even when its MIME update failed. The importer first
+          // records this exact ID durably, then retries metadata and indexing.
+          copy = error.asset;
+          _log.warning('Edited copy ${copy.id} needs metadata completion', error.cause, stack);
+        }
+        if (copy == null) {
+          throw StateError('Unable to save edited copy');
+        }
+        _pendingCopy = copy;
+        if (mounted) {
+          setState(() {});
+        }
       }
-      saved = true;
-      // Import the newly saved MediaStore asset into the local timeline.
-      // The remote backup pipeline remains responsible for uploading it.
-      try {
-        await ref.read(backgroundSyncProvider).syncLocal(full: true);
-      } catch (syncError, syncStack) {
-        _log.warning('Edited copy saved, but local timeline refresh failed', syncError, syncStack);
-      }
-    } catch (error) {
+      final copy = _pendingCopy!;
+      await importer.importSavedCopy(copy);
+      _pendingCopy = null;
+      imported = true;
+    } catch (error, stack) {
+      final copy = _pendingCopy;
+      _log.warning(
+        copy == null
+            ? 'Edited image export failed before a copy was returned'
+            : 'Edited copy ${copy.id} import pending',
+        error,
+        stack,
+      );
       if (mounted && !_cancelSave) {
         ImmichToast.show(
           context: context,
-          msg: context.tr(error is ImageExportLimitException ? 'editor_export_too_large' : 'editor_export_failed'),
-          toastType: ToastType.error,
+          msg: copy != null
+              ? context.t.editor_copy_saved_import_pending
+              : context.tr(error is ImageExportLimitException ? 'editor_export_too_large' : 'editor_export_failed'),
+          toastType: copy == null ? ToastType.error : ToastType.info,
         );
       }
     } finally {
+      if (_pendingCopy == null) {
+        _pendingImporter = null;
+      }
       source?.dispose();
       rendered?.dispose();
       if (path != null) {
@@ -389,7 +420,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         ref.read(editorStateProvider.notifier).setIsEditing(false);
       }
     }
-    if (saved && mounted) {
+    if (imported && mounted) {
       ImmichToast.show(context: context, msg: context.tr('editor_save_copy_device'), toastType: ToastType.success);
       Navigator.of(context).pop();
     }
@@ -510,6 +541,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     });
     final notifier = ref.read(editorStateProvider.notifier);
     final allowTransformEdits = widget.asset?.isEditable ?? true;
+    final documentLocked = state.isApplyingEdits || _pendingCopy != null;
 
     return PopScope(
       canPop: !hasUnsavedEdits && !state.isApplyingEdits,
@@ -544,16 +576,16 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                 IconButton(
                   key: const Key('editor-header-undo'),
                   tooltip: context.t.undo,
-                  onPressed: !state.isApplyingEdits && state.canUndo ? notifier.undo : null,
+                  onPressed: !documentLocked && state.canUndo ? notifier.undo : null,
                   icon: const Icon(Icons.undo),
                 ),
                 IconButton(
                   key: const Key('editor-header-redo'),
                   tooltip: context.t.magic_eraser_redo,
-                  onPressed: !state.isApplyingEdits && state.canRedo ? notifier.redo : null,
+                  onPressed: !documentLocked && state.canRedo ? notifier.redo : null,
                   icon: const Icon(Icons.redo),
                 ),
-                _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits),
+                _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits, retryImport: _pendingCopy != null),
               ],
             ),
             backgroundColor: Colors.black,
@@ -634,7 +666,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     onGestureEnd: notifier.endGesture,
                   );
                   final content = AbsorbPointer(
-                    absorbing: state.isApplyingEdits,
+                    absorbing: documentLocked,
                     child: sidePanel
                         ? Row(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1274,13 +1306,15 @@ double _editorHeaderHeight(BuildContext context) {
 class _SaveEditsButton extends ConsumerWidget {
   final VoidCallback onSave;
   final bool enabled;
+  final bool retryImport;
 
-  const _SaveEditsButton({required this.onSave, required this.enabled});
+  const _SaveEditsButton({required this.onSave, required this.enabled, this.retryImport = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isApplyingEdits = ref.watch(editorStateProvider.select((state) => state.isApplyingEdits));
     final hasUnsavedEdits = ref.watch(editorStateProvider.select((state) => state.hasUnsavedEdits));
+    final label = retryImport ? context.t.retry : context.t.magic_eraser_save_copy;
     return SizedBox(
       width: _editorSaveWidth(context),
       height: _editorHeaderHeight(context),
@@ -1290,16 +1324,16 @@ class _SaveEditsButton extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           minimumSize: const Size(48, 48),
         ),
-        onPressed: enabled && hasUnsavedEdits && !isApplyingEdits ? onSave : null,
+        onPressed: enabled && (hasUnsavedEdits || retryImport) && !isApplyingEdits ? onSave : null,
         child: Tooltip(
-          message: context.t.magic_eraser_save_copy,
+          message: label,
           child: Semantics(
-            label: context.t.magic_eraser_save_copy,
+            label: label,
             excludeSemantics: true,
             child: isApplyingEdits
                 ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
                 : Text(
-                    context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
+                    label.replaceFirst(' ', '\n'),
                     textAlign: TextAlign.center,
                     style: _editorSaveLabelStyle(context),
                   ),

@@ -1562,6 +1562,7 @@
   "editor_brush": "Pincel",
   "editor_contrast": "Contraste",
   "editor_copy_explanation": "Se guarda una copia PNG en este dispositivo. La copia automática puede subirla si está activada. El original del servidor no cambia.",
+  "editor_copy_saved_import_pending": "La copia está guardada en tu dispositivo, pero aún no se ha podido añadir a FOTO. Reinténtalo para añadir la misma copia.",
   "editor_crop_frame": "Marco",
   "editor_crop_rotate": "Recortar / girar",
   "editor_delete_layer": "Eliminar capa",

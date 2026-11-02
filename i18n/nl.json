@@ -1563,6 +1563,7 @@
   "editor_brush": "Kwast",
   "editor_contrast": "Contrast",
   "editor_copy_explanation": "Een PNG-kopie wordt op dit apparaat opgeslagen. Automatische back-up kan deze uploaden indien ingeschakeld. Het serverorigineel blijft ongewijzigd.",
+  "editor_copy_saved_import_pending": "De kopie is op je apparaat opgeslagen, maar kon nog niet aan FOTO worden toegevoegd. Probeer opnieuw om dezelfde kopie toe te voegen.",
   "editor_crop_frame": "Kader",
   "editor_crop_rotate": "Bijsnijden / draaien",
   "editor_delete_layer": "Laag verwijderen",

@@ -1559,6 +1559,7 @@
   "editor_brush": "畫筆",
   "editor_contrast": "對比度",
   "editor_copy_explanation": "PNG 副本儲存在此裝置上。啟用自動備份後可上傳。伺服器原件保持不變。",
+  "editor_copy_saved_import_pending": "副本已儲存在裝置上，但暫時無法加入 FOTO。請重試以加入同一副本。",
   "editor_crop_frame": "裁切框",
   "editor_crop_rotate": "裁切 / 旋轉",
   "editor_delete_layer": "刪除圖層",

@@ -1551,6 +1551,7 @@
   "editor_brush": "画笔",
   "editor_contrast": "对比度",
   "editor_copy_explanation": "PNG 副本保存在此设备上。启用自动备份后可上传。服务器原件保持不变。",
+  "editor_copy_saved_import_pending": "副本已保存在设备上，但暂时无法添加到 FOTO。请重试以添加同一副本。",
   "editor_crop_frame": "裁剪框",
   "editor_crop_rotate": "裁剪 / 旋转",
   "editor_delete_layer": "删除图层",

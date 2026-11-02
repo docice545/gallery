@@ -1562,6 +1562,7 @@
   "editor_brush": "Pinsel",
   "editor_contrast": "Kontrast",
   "editor_copy_explanation": "Eine PNG-Kopie wird auf diesem Gerät gespeichert. Die automatische Sicherung kann sie bei Aktivierung hochladen. Das Serveroriginal bleibt unverändert.",
+  "editor_copy_saved_import_pending": "Die Kopie ist auf deinem Gerät gespeichert, konnte aber noch nicht zu FOTO hinzugefügt werden. Versuche es erneut, um dieselbe Kopie hinzuzufügen.",
   "editor_crop_frame": "Rahmen",
   "editor_crop_rotate": "Zuschnitt / Drehen",
   "editor_delete_layer": "Ebene löschen",

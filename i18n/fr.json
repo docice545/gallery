@@ -1561,6 +1561,7 @@
   "editor_brush": "Pinceau",
   "editor_contrast": "Contraste",
   "editor_copy_explanation": "Une copie PNG est enregistrée sur cet appareil. La sauvegarde automatique peut la téléverser si activée. L’original du serveur reste intact.",
+  "editor_copy_saved_import_pending": "La copie est enregistrée sur votre appareil, mais n’a pas encore pu être ajoutée à FOTO. Réessayez pour ajouter cette même copie.",
   "editor_crop_frame": "Cadre",
   "editor_crop_rotate": "Recadrer / tourner",
   "editor_delete_layer": "Supprimer le calque",

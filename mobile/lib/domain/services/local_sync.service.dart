@@ -39,6 +39,7 @@ class LocalSyncService {
   final DevicePermissionRepository _permissionRepository;
   final Completer<void>? _cancellation;
   final bool rethrowErrors;
+  final Future<void> Function()? recoverEditedCopies;
   Future<void>? _nativeCancellation;
   Future<List<HashResult>>? _checksumRefreshTask;
   final Logger _log = Logger("DeviceSyncService");
@@ -51,6 +52,7 @@ class LocalSyncService {
     required this._permissionRepository,
     this._cancellation,
     this.rethrowErrors = false,
+    this.recoverEditedCopies,
   }) {
     unawaited(_cancellation?.future.then((_) => cancelNativeWork().onError(_log.warning)));
   }
@@ -160,6 +162,13 @@ class LocalSyncService {
         rethrow;
       }
     } finally {
+      if (!_isCancelled) {
+        try {
+          await recoverEditedCopies?.call();
+        } catch (error, stack) {
+          _log.warning('Editor copy import will retry on a later local sync', error, stack);
+        }
+      }
       // Device trash is independent maintenance. Discover/checkpoint new media
       // first, including the no-delta and full-sync paths above.
       if (!_isCancelled) {

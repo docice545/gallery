@@ -98,12 +98,17 @@ void main() {
     const repository = FileMediaRepository(isAndroid: true);
     late SavedMediaImportException pending;
     try {
-      await repository.saveImageWithFile(original.path, preserveCreatedAssetOnFailure: true);
+      await repository.saveImageWithFile(
+        original.path,
+        title: 'gallery-edit-123.png',
+        preserveCreatedAssetOnFailure: true,
+      );
       fail('Metadata failure must not be reported as a completed import');
     } on SavedMediaImportException catch (error) {
       pending = error;
     }
     expect(pending.asset.id, '17');
+    expect(pending.asset.title, 'gallery-edit-123.png');
     expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
     updateSucceeds = true;
     await repository.completeImageImport(pending.asset, mimeType: 'image/png');
@@ -111,6 +116,19 @@ void main() {
     expect(filesCalls.map((call) => call.method), ['updateDownloadedAssetMimeType', 'updateDownloadedAssetMimeType']);
     expect(filesCalls.last.arguments, {'mediaId': '17', 'type': 1, 'mimeType': 'image/png'});
     expect(await original.readAsBytes(), [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  test('editor imports retain the unique requested name before native title indexing completes', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    const repository = FileMediaRepository(isAndroid: true);
+    final saved = await repository.saveImageWithFile(
+      original.path,
+      title: 'gallery-edit-456.png',
+      preserveCreatedAssetOnFailure: true,
+    );
+    expect(saved?.id, '17');
+    expect(saved?.title, 'gallery-edit-456.png');
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
   });
 
   test('metadata retry failures preserve the same editor ID and never remove device originals', () async {
