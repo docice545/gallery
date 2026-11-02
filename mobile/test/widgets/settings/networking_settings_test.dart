@@ -76,7 +76,7 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
     TestUtils.init();
     db = Drift(drift.DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
-    await StoreService.init(storeRepository: StoreRepository(db));
+    await StoreService.init(storeRepository: StoreRepository(db), listenUpdates: false);
     await SettingsRepository.ensureInitialized(db);
   });
 
@@ -195,6 +195,10 @@ void main() {
 
     expect(find.text(StaticTranslations.instance.location_permission), findsNothing);
 
+    await tester.ensureVisible(
+      find.text(StaticTranslations.instance.use_current_connection),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text(StaticTranslations.instance.use_current_connection));
     await tester.pumpAndSettle();
 
