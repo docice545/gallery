@@ -236,11 +236,35 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
 
     final index = _pageController.page?.round() ?? 0;
     final target = index >= _totalAssets - 1 ? index - 1 : index + 1;
-    unawaited(_pageController.animateToPage(target, duration: Durations.medium1, curve: Curves.easeInOut));
-    unawaited(_onAssetChanged(target));
+    unawaited(_animateToAssetPage(target));
+  }
+
+  Future<void> _animateToAssetPage(int target) async {
+    if (!_pageController.hasClients) {
+      return;
+    }
+
+    await _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+
+    if (!mounted || !_pageController.hasClients) {
+      return;
+    }
+
+    if (_currentPage != target) {
+      await _onAssetChanged(target);
+    }
   }
 
   Future<void> _onViewerStackAssetDeletedEvent(ViewerStackAssetDeletedEvent event) async {
+    final currentAsset = ref.read(assetViewerProvider).currentAsset;
+    if (currentAsset is! RemoteAsset || currentAsset.id != event.assetId || currentAsset.stackId != event.stackId) {
+      return;
+    }
+
     final timelineAsset = ref.read(timelineServiceProvider).getAssetSafe(_currentPage);
     if (timelineAsset == null) {
       _onViewerReloadEvent();
@@ -256,8 +280,17 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
       return;
     }
 
+    final activeAsset = ref.read(assetViewerProvider).currentAsset;
+    if (activeAsset is! RemoteAsset || activeAsset.id != event.assetId || activeAsset.stackId != event.stackId) {
+      return;
+    }
+
     if (stack.isEmpty) {
-      _onViewerReloadEvent();
+      if (_totalAssets <= 1) {
+        await context.maybePop();
+      } else {
+        _onViewerReloadEvent();
+      }
       return;
     }
 

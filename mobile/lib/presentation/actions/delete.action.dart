@@ -3,11 +3,14 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
+import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
+import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
@@ -111,6 +114,9 @@ class DeleteAction extends AssetActionBuilder {
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
     final clearSelection = ref.read(clearSelectionProvider(source));
+    final viewerState = source == .viewer ? ref.read(assetViewerProvider) : null;
+    final deletedStackIndex = viewerState?.stackIndex ?? 0;
+    final deletedStackAsset = viewerState?.currentAsset;
     final guard = trash ? null : ref.read(_permanentDeletionGuardProvider(source));
     if (guard?.running == true) {
       return;
@@ -161,6 +167,19 @@ class DeleteAction extends AssetActionBuilder {
         toastService.success(result.message, toast: undo);
         if (trash) {
           clearSelection();
+          if (source == .viewer &&
+              remoteIds.length == 1 &&
+              deletedStackAsset is RemoteAsset &&
+              deletedStackAsset.stackId != null &&
+              deletedStackAsset.id == remoteIds.single) {
+            EventStream.shared.emit(
+              ViewerStackAssetDeletedEvent(
+                stackIndex: deletedStackIndex,
+                assetId: deletedStackAsset.id,
+                stackId: deletedStackAsset.stackId!,
+              ),
+            );
+          }
         }
       } else {
         // Keep failed device/server selections available for review and retry.
