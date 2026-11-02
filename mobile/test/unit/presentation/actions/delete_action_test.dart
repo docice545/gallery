@@ -255,17 +255,17 @@ void main() {
         verify(() => assetService.trash([mine.id])).called(1);
       });
 
-      testWidgets('Unified Trash moves a backed-up device copy to Android Trash', (tester) async {
+      testWidgets('Gallery-only Trash leaves a backed-up device copy intact', (tester) async {
         final asset = owned(localId: 'local');
 
         await pumpDelete(tester, {asset});
         await tester.pumpAndSettle();
 
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['local'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
         verify(() => assetService.trash([asset.id])).called(1);
       });
 
-      testWidgets('Unified Trash processes owned server and selected local copies', (tester) async {
+      testWidgets('Gallery-only mixed selection trashes only owned server assets', (tester) async {
         final backedUp = owned(localId: 'backed-up-local');
         final localOnly = LocalAssetFactory.create(id: 'local-only');
 
@@ -273,15 +273,17 @@ void main() {
         await tester.pumpAndSettle();
 
         verify(() => assetService.trash([backedUp.id])).called(1);
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['backed-up-local', 'local-only'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
-      testWidgets('Unified Trash processes the backed-up local-album device copy', (tester) async {
+      testWidgets('Gallery-only deletion of a backed-up local-album representation preserves the device copy', (
+        tester,
+      ) async {
         final local = LocalAssetFactory.create(id: 'local-album-copy', remoteId: 'own-cloud-id');
         await pumpDelete(tester, {local});
         await tester.pumpAndSettle();
         verify(() => assetService.trash(['own-cloud-id'])).called(1);
-        verify(() => cleanupService.deleteLocalAssetsDetailed(['local-album-copy'])).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
       testWidgets('offers an undo that restores the trashed assets', (tester) async {
@@ -464,15 +466,15 @@ void main() {
         verifyNever(() => assetService.deleteWithResults(any()));
       });
 
-      testWidgets('Unified trash action is visible for a local-only asset', (tester) async {
+      testWidgets('Default trash action is hidden for a local-only asset', (tester) async {
         await tester.pumpTestWidget(
           context,
           const ActionButton(action: DeleteAction(source: .timeline)),
           overrides: context.selected({LocalAssetFactory.create()}),
         );
 
-        expect(find.byType(ImmichTextButton), findsOneWidget);
-        expect(find.text('В корзину'), findsOneWidget);
+        expect(find.byType(ImmichTextButton), findsNothing);
+        expect(find.text('В корзину'), findsNothing);
         expect(find.text(StaticTranslations.instance.delete_from_gallery), findsNothing);
       });
     });

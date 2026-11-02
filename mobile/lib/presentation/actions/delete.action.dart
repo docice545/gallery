@@ -71,9 +71,7 @@ class DeleteAction extends AssetActionBuilder {
   @override
   ActionItem? create(BuildContext context, WidgetRef ref) {
     final state = ref.watch(_stateProvider(source));
-    if (state == null ||
-        (state.remoteIds.isEmpty && state.localIds.isEmpty) ||
-        (removeLocalCopies && (!state.trash || state.localIds.isEmpty || state.remoteIds.isEmpty))) {
+    if (state == null || state.remoteIds.isEmpty || (removeLocalCopies && (!state.trash || state.localIds.isEmpty))) {
       return null;
     }
 
@@ -125,17 +123,9 @@ class DeleteAction extends AssetActionBuilder {
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
       ToastOption? undo;
       if (trash) {
-        if (trashIds.isEmpty) {
-          final local = await _cleanupLocalAssetsDetailed(context, ref, localIds);
-          if (!context.mounted) {
-            return;
-          }
-          result = (message: _deviceResult(context, ref, local), complete: local.remainingIds.isEmpty);
-        } else {
-          result = await _moveToTrash(context, ref, trashIds, localIds);
-          if (localIds.isEmpty) {
-            undo = .new(onUndo: () => assetService.restoreTrash(trashIds));
-          }
+        result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const []);
+        if (!removeLocalCopies) {
+          undo = .new(onUndo: () => assetService.restoreTrash(trashIds));
         }
       } else {
         result = await _deletePermanently(context, ref, remoteIds);
@@ -181,7 +171,7 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
     final message = context.t.trash_action_prompt(count: remoteIds.length);
-    if (localIds.isEmpty) {
+    if (!removeLocalCopies) {
       return (message: message, complete: true);
     }
     // Server acceptance precedes any device operation: an offline/uncertain
