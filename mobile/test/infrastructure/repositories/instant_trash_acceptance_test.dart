@@ -120,6 +120,54 @@ void main() {
     expect((await marker(id: 'rejected'))?['permanent'], isNot(true));
   });
 
+  for (final acceptedCount in [500, 307]) {
+    test(
+      '500-item selection retires exactly $acceptedCount durable receipts and retains every other Trash row',
+      () async {
+        final selected = ['accepted', for (var index = 1; index < 500; index++) 'selected-$index'];
+        await ctx.db.transaction(() async {
+          for (final id in selected.skip(1)) {
+            await ctx.newRemoteAsset(id: id, ownerId: 'owner', checksum: 'checksum-$id', deletedAt: deletedAt);
+          }
+        });
+        final snapshots = await remote.beginPermanentDeletion(selected);
+        expect(snapshots, hasLength(500));
+        // A photograph arriving after the captured selection is not authorized
+        // merely because the user confirmed all previously selected objects.
+        await ctx.newRemoteAsset(id: 'outside-selection', ownerId: 'owner', deletedAt: deletedAt);
+        final stream = StreamIterator(TimelineRepository(ctx.db).trash('owner', GroupAssetsBy.day).bucketSource());
+        addTearDown(stream.cancel);
+        expect(await stream.moveNext().timeout(const Duration(seconds: 2)), isTrue);
+        expect(stream.current.fold(0, (count, bucket) => count + bucket.assetCount), 501);
+
+        final accepted = selected.take(acceptedCount).toList();
+        final changed = stream.moveNext();
+        await remote.acceptPermanentDeletion(snapshots, accepted, const []);
+        expect(await changed.timeout(const Duration(seconds: 2)), isTrue);
+        expect(stream.current.fold(0, (count, bucket) => count + bucket.assetCount), 501 - acceptedCount);
+        await remote.completeTrashOperation(
+          snapshots.where((snapshot) => !accepted.contains(snapshot.id)).toList(),
+          success: false,
+          definiteFailure: true,
+        );
+
+        expect(
+          await remote.getTrashIds('owner'),
+          unorderedEquals([...selected.skip(acceptedCount), 'outside-selection']),
+        );
+        expect((await marker(id: accepted.last))?['permanent'], isTrue);
+        expect((await marker(id: accepted.last))?['permanentComplete'], isNot(true));
+        expect(await marker(id: 'outside-selection'), isNull);
+        expect((await sync.getPendingTrashOperations()).map((snapshot) => snapshot.id), unorderedEquals(accepted));
+        await expectLater(remote.beginTrashOperation(accepted, restore: true), throwsStateError);
+        final restorable = selected.skip(acceptedCount).toList();
+        if (restorable.isNotEmpty) {
+          expect(await remote.beginTrashOperation(restorable, restore: true), hasLength(restorable.length));
+        }
+      },
+    );
+  }
+
   for (final alreadyReplied in [false, true]) {
     test(
       'authoritative acceptance wins a stale Restore ${alreadyReplied ? 'already completed' : 'in flight'}',

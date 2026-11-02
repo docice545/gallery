@@ -2727,6 +2727,7 @@
   "people_edits_count": "已編輯 {count, plural, one {# 位人物} other {# 位人物}}",
   "people_feature_description": "以人物分類瀏覽相片和影片",
   "people_search_description": "選擇一個或多個人物以尋找他們存在的照片。",
+  "permanent_deletion_accepted": "已從垃圾桶移除所選項目：{count}。伺服器檔案正在背景刪除。",
   "permanent_deletion_result": "伺服器原始檔案：已永久刪除 {removed} 個，未完成 {remaining} 個。{reasons}",
   "permanent_deletion_warning": "永久刪除警告",
   "permanent_deletion_warning_setting_description": "在永久刪除檔案時顯示警告",

@@ -2740,6 +2740,7 @@
   "people_edits_count": "Edited {count, plural, one {# person} other {# people}}",
   "people_feature_description": "Browsing photos and videos grouped by people",
   "people_search_description": "Select one or more people to find photos they appear in.",
+  "permanent_deletion_accepted": "Selected items removed from Trash: {count}. Server files are being deleted in the background.",
   "permanent_deletion_result": "Server originals: {removed} permanently deleted, {remaining} incomplete. {reasons}",
   "permanent_deletion_warning": "Permanent deletion warning",
   "permanent_deletion_warning_setting_description": "Show a warning when permanently deleting assets",

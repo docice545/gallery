@@ -2730,6 +2730,7 @@
   "people_edits_count": "{count, plural, one {# Person} other {# Personen}} bearbeitet",
   "people_feature_description": "Fotos und Videos nach Personen gruppiert durchsuchen",
   "people_search_description": "Wähle eine oder mehr Personen aus, um Bilder zu sehen, in denen sie abgebildet sind.",
+  "permanent_deletion_accepted": "Ausgewählte Elemente aus dem Papierkorb entfernt: {count}. Die Serverdateien werden im Hintergrund gelöscht.",
   "permanent_deletion_result": "Serveroriginale: {removed} endgültig gelöscht, {remaining} nicht abgeschlossen. {reasons}",
   "permanent_deletion_warning": "Warnung vor endgültiger Löschung",
   "permanent_deletion_warning_setting_description": "Anzeige einer Warnung beim endgültigen Löschen von Objekten",

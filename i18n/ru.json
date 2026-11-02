@@ -2738,6 +2738,7 @@
   "people_edits_count": "{count, plural, one {Изменён # человек} many {Изменено # человек} other {Изменено # человека}}",
   "people_feature_description": "Просмотр фото и видео, сгруппированных по людям",
   "people_search_description": "Выберите человека или нескольких людей, чтобы найти фотографии с ними.",
+  "permanent_deletion_accepted": "Из корзины удалены выбранные объекты: {count}. Файлы удаляются на сервере в фоне.",
   "permanent_deletion_result": "Оригиналы на сервере: удалено {removed}, не завершено {remaining}. {reasons}",
   "permanent_deletion_warning": "Предупреждение об удалении",
   "permanent_deletion_warning_setting_description": "Предупреждать перед безвозвратным удалением объектов",

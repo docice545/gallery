@@ -2753,6 +2753,7 @@
   "people_edits_count": "Edytowano {count, plural, one {# osoba} few {# osoby} many {# osób} other {# osób}}",
   "people_feature_description": "Przeglądanie zdjęć i filmów pogrupowanych według osób",
   "people_search_description": "Wybierz jedną lub więcej osób, aby znaleźć zdjęcia, na których się pojawiają.",
+  "permanent_deletion_accepted": "Wybrane elementy usunięte z kosza: {count}. Pliki na serwerze są usuwane w tle.",
   "permanent_deletion_result": "Oryginały na serwerze: trwale usunięto {removed}, nie ukończono {remaining}. {reasons}",
   "permanent_deletion_warning": "Ostrzeżenie o trwałym usunięciu",
   "permanent_deletion_warning_setting_description": "Pokaż ostrzeżenie przy trwałym usuwaniu zasobów",

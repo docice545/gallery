@@ -2730,6 +2730,7 @@
   "people_edits_count": "{count, plural, one {# personne éditée} other {# personnes éditées}}",
   "people_feature_description": "Parcourir les photos et vidéos groupées par personnes",
   "people_search_description": "Sélectionnez une personne ou plus pour trouver les photos dans lesquelles elles apparaissent.",
+  "permanent_deletion_accepted": "Éléments sélectionnés retirés de la corbeille : {count}. Les fichiers du serveur sont supprimés en arrière-plan.",
   "permanent_deletion_result": "Originaux sur le serveur : {removed} supprimés définitivement, {remaining} opérations incomplètes. {reasons}",
   "permanent_deletion_warning": "Avertissement avant suppression définitive",
   "permanent_deletion_warning_setting_description": "Afficher un avertissement avant la suppression définitive d'un média",

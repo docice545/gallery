@@ -38,14 +38,15 @@ void main() {
     assetService = context.service.asset.service;
     cleanupService = context.service.cleanup.service;
     when(() => assetService.getDeletionLocalIds(any())).thenAnswer((_) async => []);
-    when(() => assetService.deleteWithResults(any())).thenAnswer(
+    when(() => assetService.acceptPermanentDeletion(any())).thenAnswer(
       (call) async => (call.positionalArguments.first as List<String>)
-          .map((id) => PermanentDeletionResult(id: id, state: 'complete'))
+          .map((id) => PermanentDeletionResult(id: id, state: 'pending', serverAccepted: true))
           .toList(),
     );
   });
 
   tearDown(() async {
+    verifyNever(() => assetService.deleteWithResults(any()));
     debugDefaultTargetPlatformOverride = null;
     await StoreService.I.put(StoreKey.manageLocalMediaAndroid, false);
     await context.dispose();
@@ -132,7 +133,7 @@ void main() {
           verify(() => assetService.trash(ids)).called(1);
           expect(find.text('$count moved to trash'), findsOneWidget);
           verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
-          verifyNever(() => assetService.deleteWithResults(any()));
+          verifyNever(() => assetService.acceptPermanentDeletion(any()));
           await tester.tap(find.text('Undo'));
           await tester.pumpAndSettle();
           verify(() => assetService.restoreTrash(ids)).called(1);
@@ -147,7 +148,7 @@ void main() {
         await tester.pumpAndSettle();
 
         verifyNever(() => assetService.trash(any()));
-        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
         final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
         expect(scope.read(multiSelectProvider).selectedAssets, {cover});
@@ -227,7 +228,7 @@ void main() {
         await pumpDelete(tester, {asset}, origin: TimelineOrigin.trash);
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => assetService.acceptPermanentDeletion([asset.id])).called(1);
         verifyNever(() => assetService.resolveStackTrashIds(any(), any()));
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
@@ -241,7 +242,7 @@ void main() {
         await tester.pumpAndSettle();
 
         verify(() => assetService.trash([asset.id])).called(1);
-        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
@@ -317,7 +318,7 @@ void main() {
         await pumpDelete(tester, {asset}, everywhere: true);
         await tester.pumpAndSettle();
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
-        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
       });
 
       testWidgets('bulk local denial reports remaining copies and preserves selection', (tester) async {
@@ -361,7 +362,7 @@ void main() {
           expect(find.textContaining('0 removed, 6 remain'), findsOneWidget);
           final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
           expect(scope.read(multiSelectProvider).selectedAssets, assets);
-          verifyNever(() => assetService.deleteWithResults(any()));
+          verifyNever(() => assetService.acceptPermanentDeletion(any()));
           expect(find.text('Undo'), findsNothing);
         } finally {
           debugDefaultTargetPlatformOverride = null;
@@ -401,7 +402,7 @@ void main() {
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await tester.pumpAndSettle();
         verify(() => assetService.trash([asset.id])).called(1);
-        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
       });
 
       testWidgets('offers no undo for a permanent delete', (tester) async {
@@ -419,7 +420,7 @@ void main() {
         await pumpDelete(tester, {asset}, trashEnabled: false);
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => assetService.acceptPermanentDeletion([asset.id])).called(1);
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
@@ -429,7 +430,7 @@ void main() {
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => assetService.acceptPermanentDeletion([asset.id])).called(1);
         verifyNever(() => assetService.trash(any()));
       });
 
@@ -439,7 +440,7 @@ void main() {
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: true);
 
-        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => assetService.acceptPermanentDeletion([asset.id])).called(1);
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
@@ -449,7 +450,7 @@ void main() {
         await pumpDelete(tester, {asset});
         await respondToDialog(tester, confirm: false);
 
-        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
     });
@@ -463,7 +464,7 @@ void main() {
 
         verify(() => cleanupService.deleteLocalAssetsDetailed([asset.id])).called(1);
         verifyNever(() => assetService.trash(any()));
-        verifyNever(() => assetService.deleteWithResults(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
       });
 
       testWidgets('Default trash action is hidden for a local-only asset', (tester) async {
@@ -491,7 +492,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text(StaticTranslations.instance.move_to_device_trash), findsNothing);
-        verify(() => assetService.deleteWithResults([asset.id])).called(1);
+        verify(() => assetService.acceptPermanentDeletion([asset.id])).called(1);
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
 
@@ -573,7 +574,7 @@ void main() {
 
       verify(() => cleanupService.deleteLocalAssetsDetailed([backedUp.id, localOnly.id])).called(1);
       verifyNever(() => assetService.trash(any()));
-      verifyNever(() => assetService.deleteWithResults(any()));
+      verifyNever(() => assetService.acceptPermanentDeletion(any()));
     });
 
     testWidgets('device-only permission denial never changes the cloud or clears selection', (tester) async {
@@ -584,7 +585,7 @@ void main() {
       await pumpDelete(tester, {asset}, device: true);
       await tester.pumpAndSettle();
       verifyNever(() => assetService.trash(any()));
-      verifyNever(() => assetService.deleteWithResults(any()));
+      verifyNever(() => assetService.acceptPermanentDeletion(any()));
       expect(find.textContaining('0 removed, 1 remain'), findsOneWidget);
       final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
       expect(scope.read(multiSelectProvider).selectedAssets, {asset});

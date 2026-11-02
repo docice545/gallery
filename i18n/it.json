@@ -2735,6 +2735,7 @@
   "people_edits_count": "{count, plural, one {Modificata # persona} other {Modificate # persone}}",
   "people_feature_description": "Navigare foto e video raggruppati da persone",
   "people_search_description": "Seleziona una o più persone per trovare foto in cui appaiono.",
+  "permanent_deletion_accepted": "Elementi selezionati rimossi dal cestino: {count}. I file sul server vengono eliminati in background.",
   "permanent_deletion_result": "Originali sul server: {removed} eliminati definitivamente, {remaining} operazioni incomplete. {reasons}",
   "permanent_deletion_warning": "Avviso eliminazione permanente",
   "permanent_deletion_warning_setting_description": "Mostra un avviso all'eliminazione definitiva di una risorsa",

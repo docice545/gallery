@@ -12,6 +12,7 @@ import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
+import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/toast.service.dart';
@@ -19,7 +20,18 @@ import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 
-typedef _DeletionMessage = ({String message, bool complete});
+typedef _DeletionMessage = ({String message, bool success});
+
+// Shared by the action's button/menu variants. Retained callbacks must not
+// submit a second confirmation or request while the first snapshot is pending.
+class _PermanentDeletionGuard {
+  bool running = false;
+}
+
+final _permanentDeletionGuardProvider = Provider.family<_PermanentDeletionGuard, ActionSource>(
+  (ref, source) => _PermanentDeletionGuard(),
+  dependencies: [assetsActionProvider],
+);
 
 typedef _State = ({List<String> localIds, List<String> remoteIds, bool trash});
 
@@ -74,6 +86,9 @@ class DeleteAction extends AssetActionBuilder {
     if (state == null || state.remoteIds.isEmpty || (removeLocalCopies && (!state.trash || state.localIds.isEmpty))) {
       return null;
     }
+    if (!state.trash) {
+      ref.watch(_permanentDeletionGuardProvider(source));
+    }
 
     return .new(
       icon: Icons.delete_outline,
@@ -96,6 +111,13 @@ class DeleteAction extends AssetActionBuilder {
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
     final clearSelection = ref.read(clearSelectionProvider(source));
+    final guard = trash ? null : ref.read(_permanentDeletionGuardProvider(source));
+    if (guard?.running == true) {
+      return;
+    }
+    if (guard != null) {
+      guard.running = true;
+    }
 
     try {
       var trashIds = remoteIds;
@@ -135,15 +157,21 @@ class DeleteAction extends AssetActionBuilder {
         return;
       }
 
-      if (result.complete) {
+      if (result.success) {
         toastService.success(result.message, toast: undo);
-        clearSelection();
+        if (trash) {
+          clearSelection();
+        }
       } else {
         // Keep failed device/server selections available for review and retry.
         toastService.error(result.message);
       }
     } catch (error, stack) {
       handleError(error, stack: stack, description: "Failed to delete assets");
+    } finally {
+      if (guard != null) {
+        guard.running = false;
+      }
     }
   }
 
@@ -172,7 +200,7 @@ class DeleteAction extends AssetActionBuilder {
     }
     final message = context.t.trash_action_prompt(count: remoteIds.length);
     if (!removeLocalCopies) {
-      return (message: message, complete: true);
+      return (message: message, success: true);
     }
     // Server acceptance precedes any device operation: an offline/uncertain
     // server request must not remove the phone's only available copy.
@@ -180,7 +208,7 @@ class DeleteAction extends AssetActionBuilder {
     if (!context.mounted) {
       return null;
     }
-    return (message: '$message. ${_deviceResult(context, ref, local)}', complete: local.remainingIds.isEmpty);
+    return (message: '$message. ${_deviceResult(context, ref, local)}', success: local.remainingIds.isEmpty);
   }
 
   Future<_DeletionMessage?> _deletePermanently(BuildContext context, WidgetRef ref, List<String> remoteIds) async {
@@ -197,23 +225,42 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
 
-    final results = await assetService.deleteWithResults(remoteIds);
+    final results = await assetService.acceptPermanentDeletion(remoteIds);
     if (!context.mounted) {
       return null;
     }
-    final completed = results.where((result) => result.complete).map((result) => result.id).toSet();
-    final incomplete = results
-        .where((result) => !result.complete)
+    final requested = remoteIds.toSet();
+    final accepted = results
+        .where((result) => result.accepted && requested.contains(result.id))
+        .map((result) => result.id)
+        .toSet();
+    if (source == ActionSource.timeline) {
+      // The service already retired only server-acknowledged Drift rows. Remove
+      // those exact IDs from selection too; rejected/new selections stay usable.
+      final selection = ref.read(multiSelectProvider.notifier);
+      final acceptedAssets = ref
+          .read(assetsActionProvider(source))
+          .where((asset) => asset is RemoteAsset && accepted.contains(asset.id))
+          .toList(growable: false);
+      for (final asset in acceptedAssets) {
+        selection.deselectAsset(asset);
+      }
+    }
+    if (accepted.length == requested.length) {
+      return (message: context.t.permanent_deletion_accepted(count: accepted.length), success: true);
+    }
+    final reasons = results
+        .where((result) => !result.accepted)
         .map((result) => deletionMessage(context, result))
-        .take(25)
+        .toSet()
         .join(', ');
     return (
-      message: context.t.permanent_deletion_result(
-        removed: completed.length,
-        remaining: results.length - completed.length,
-        reasons: incomplete,
+      message: context.t.trash_cleanup_partial(
+        count: accepted.length,
+        remaining: requested.length - accepted.length,
+        reasons: reasons,
       ),
-      complete: completed.length == results.length,
+      success: false,
     );
   }
 }

@@ -2707,6 +2707,7 @@
   "people": "人物",
   "people_edits_count": "{count, plural, one {#个人物} other {#个人物}}已编辑",
   "people_feature_description": "按人物分组浏览照片和视频",
+  "permanent_deletion_accepted": "已从回收站移除所选项目：{count}。服务器文件正在后台删除。",
   "permanent_deletion_result": "服务器原件：已永久删除 {removed} 项，未完成 {remaining} 项。{reasons}",
   "permanent_deletion_warning": "永久删除警告",
   "permanent_deletion_warning_setting_description": "永久删除照片/视频时显示警告",

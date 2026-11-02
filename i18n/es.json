@@ -2732,6 +2732,7 @@
   "people_edits_count": "Editada {count, plural, one {# persona} other {# personas}}",
   "people_feature_description": "Explorar fotos y vídeos agrupados por personas",
   "people_search_description": "Selecciona una o más personas para encontrar las fotos en las que aparecen.",
+  "permanent_deletion_accepted": "Elementos seleccionados retirados de la papelera: {count}. Los archivos del servidor se están eliminando en segundo plano.",
   "permanent_deletion_result": "Originales del servidor: {removed} eliminados permanentemente, {remaining} sin completar. {reasons}",
   "permanent_deletion_warning": "Advertencia de eliminación permanente",
   "permanent_deletion_warning_setting_description": "Mostrar una advertencia al eliminar recursos permanentemente",

@@ -2735,6 +2735,7 @@
   "people_edits_count": "{count, plural, one {# persoon} other {# mensen}} bijgewerkt",
   "people_feature_description": "Bladeren door foto's en video's gegroepeerd op personen",
   "people_search_description": "Selecteer een of meer mensen om foto's te vinden waar zij op staan.",
+  "permanent_deletion_accepted": "Geselecteerde items uit de prullenbak verwijderd: {count}. De serverbestanden worden op de achtergrond verwijderd.",
   "permanent_deletion_result": "Serveroriginelen: {removed} permanent verwijderd, {remaining} onvoltooid. {reasons}",
   "permanent_deletion_warning": "Waarschuwing voor permanent verwijderen",
   "permanent_deletion_warning_setting_description": "Toon een waarschuwing bij het permanent verwijderen van items",
