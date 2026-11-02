@@ -1,3 +1,4 @@
+import { validTzOffsetMinutes } from 'exiftool-vendored';
 import { createZodDto } from 'nestjs-zod';
 import z from 'zod';
 
@@ -55,6 +56,23 @@ const CapabilitiesSchema = z
 
 export type MagicEraserStatus = z.infer<typeof StatusSchema>;
 export class MagicEraserCreateDto extends createZodDto(CreateSchema) {}
+export class MagicEraserSaveDto extends createZodDto(
+  z
+    .object({
+      timeZoneOffsetMinutes: z
+        .number()
+        .int()
+        .min(-720)
+        .max(840)
+        .refine(validTzOffsetMinutes, 'UTC offset is not supported by metadata extraction')
+        .optional()
+        .describe(
+          'Current device UTC offset for the new copy, supported by EXIF extraction. Unsupported offsets are rejected. The server chooses the save instant; omitted means UTC.',
+        ),
+    })
+    .default({})
+    .meta({ id: 'MagicEraserSaveDto' }),
+) {}
 export class MagicEraserJobParamsDto extends createZodDto(JobParamsSchema) {}
 export class MagicEraserJobResponseDto extends createZodDto(JobSchema) {}
 export class MagicEraserCapabilitiesDto extends createZodDto(CapabilitiesSchema) {}

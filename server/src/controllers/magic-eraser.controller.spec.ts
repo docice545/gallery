@@ -1,7 +1,8 @@
+import { Reflector } from '@nestjs/core';
 import request from 'supertest';
 import { MagicEraserController } from 'src/controllers/magic-eraser.controller.js';
 import { AssetMediaStatus } from 'src/dtos/asset-media-response.dto.js';
-import { MagicEraserCreateDto } from 'src/dtos/magic-eraser.dto.js';
+import { MagicEraserCreateDto, MagicEraserSaveDto } from 'src/dtos/magic-eraser.dto.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { MagicEraserService } from 'src/services/magic-eraser.service.js';
 import { factory } from 'test/small.factory.js';
@@ -75,6 +76,38 @@ describe(MagicEraserController.name, () => {
     const response = await request(ctx.getHttpServer()).post(`/assets/${id}/magic-eraser/${jobId}/save`);
     expect(response.status).toBe(201);
     expect(response.body.status).toBe('created');
-    expect(service.save).toHaveBeenCalledWith(undefined, id, jobId);
+    expect(service.save).toHaveBeenCalledWith(undefined, id, jobId, {});
   });
+
+  it('documents the save body as optional for existing bodyless clients', () => {
+    const parameters = new Reflector().get<unknown[]>(
+      'swagger/apiParameters',
+      MagicEraserController.prototype.saveMagicEraserCopy,
+    );
+    expect(parameters).toEqual(
+      expect.arrayContaining([expect.objectContaining({ in: 'body', type: MagicEraserSaveDto, required: false })]),
+    );
+  });
+
+  it('accepts the current device offset without accepting a client-selected save timestamp', async () => {
+    const id = factory.uuid();
+    const jobId = factory.uuid();
+    service.save.mockResolvedValue({ id: factory.uuid(), status: AssetMediaStatus.CREATED });
+    const response = await request(ctx.getHttpServer())
+      .post(`/assets/${id}/magic-eraser/${jobId}/save`)
+      .send({ timeZoneOffsetMinutes: 330, savedAt: '2020-01-01T00:00:00Z' });
+    expect(response.status).toBe(201);
+    expect(service.save).toHaveBeenCalledWith(undefined, id, jobId, { timeZoneOffsetMinutes: 330 });
+  });
+
+  it.each([-841, -721, -720, 841, 1, 1.5, '180', null])(
+    'rejects an invalid save offset %s',
+    async (timeZoneOffsetMinutes) => {
+      const response = await request(ctx.getHttpServer())
+        .post(`/assets/${factory.uuid()}/magic-eraser/${factory.uuid()}/save`)
+        .send({ timeZoneOffsetMinutes });
+      expect(response.status).toBe(400);
+      expect(service.save).not.toHaveBeenCalled();
+    },
+  );
 });

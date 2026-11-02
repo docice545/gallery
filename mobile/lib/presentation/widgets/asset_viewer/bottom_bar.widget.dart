@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
@@ -55,7 +56,12 @@ class ViewerBottomBar extends ConsumerWidget {
           ]),
           if (asset.hasRemote) ImmichColorOverride(color: null, child: AddActionButton(originalTheme: originalTheme)),
         ],
-        ..._actionColumnButtons(context, ref, const [DeleteAction(source: .viewer)]),
+        ..._actionColumnButtons(context, ref, [
+          if (asset.storage == AssetState.local)
+            const CleanupLocalAction(source: .viewer)
+          else
+            const DeleteAction(source: .viewer),
+        ]),
       ],
     ];
 

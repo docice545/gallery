@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/services/edited_copy.service.dart';
 import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
@@ -21,10 +22,12 @@ import '../../widget_tester_extensions.dart';
 
 class _MockFileMediaRepository extends Mock implements FileMediaRepository {}
 
-class _MockAssetEntity extends Mock implements AssetEntity {}
+class _MockEditedCopyService extends Mock implements EditedCopyService {}
 
 void main() {
   late _MockFileMediaRepository media;
+  late _MockEditedCopyService importer;
+  final savedCopy = AssetEntity(id: 'saved-copy-id', typeInt: 1, width: 48, height: 64);
   late EditorTestImageProvider imageProvider;
   var applyEditsCalls = 0;
   final save = find.byKey(const Key('editor-save'));
@@ -44,6 +47,8 @@ void main() {
     TestUtils.init();
     imageProvider = EditorTestImageProvider();
     media = _MockFileMediaRepository();
+    importer = _MockEditedCopyService();
+    when(() => importer.importSavedCopy(savedCopy)).thenAnswer((_) async {});
     applyEditsCalls = 0;
   });
 
@@ -67,6 +72,7 @@ void main() {
         ),
         overrides: [
           fileMediaRepositoryProvider.overrideWithValue(media),
+          editedCopyServiceProvider.overrideWithValue(importer),
           immichThemeProvider.overrideWith(
             (ref) => ImmichTheme(
               light: ColorScheme.fromSeed(seedColor: Colors.purple),
@@ -129,6 +135,7 @@ void main() {
           any(),
           title: any(named: 'title'),
           relativePath: any(named: 'relativePath'),
+          preserveCreatedAssetOnFailure: true,
         ),
       );
 
@@ -148,12 +155,13 @@ void main() {
           any(),
           title: any(named: 'title'),
           relativePath: any(named: 'relativePath'),
+          preserveCreatedAssetOnFailure: true,
         ),
       ).thenAnswer((invocation) async {
         savedPath = invocation.positionalArguments.single as String;
         savedBytes = await File(savedPath!).readAsBytes();
         expect(container.read(editorStateProvider).isApplyingEdits, isTrue);
-        return _MockAssetEntity();
+        return savedCopy;
       });
       final retry = EditorTestImageCompleter()..emitImage(ImageInfo(image: source.clone()));
       await tester.pump(const Duration(seconds: 4));
@@ -192,8 +200,10 @@ void main() {
           any(),
           title: any(named: 'title'),
           relativePath: 'DCIM/Noodle Gallery',
+          preserveCreatedAssetOnFailure: true,
         ),
       ).called(1);
+      verify(() => importer.importSavedCopy(savedCopy)).called(1);
       expect(applyEditsCalls, 0);
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 4));
@@ -240,6 +250,7 @@ void main() {
             any(),
             title: any(named: 'title'),
             relativePath: any(named: 'relativePath'),
+            preserveCreatedAssetOnFailure: true,
           ),
         );
         await tester.pump(const Duration(seconds: 4));
@@ -277,6 +288,7 @@ void main() {
         any(),
         title: any(named: 'title'),
         relativePath: any(named: 'relativePath'),
+        preserveCreatedAssetOnFailure: true,
       ),
     );
     expect(applyEditsCalls, 0);
@@ -308,6 +320,7 @@ void main() {
         any(),
         title: any(named: 'title'),
         relativePath: any(named: 'relativePath'),
+        preserveCreatedAssetOnFailure: true,
       ),
     );
     expect(applyEditsCalls, 0);
@@ -333,8 +346,9 @@ void main() {
         any(),
         title: any(named: 'title'),
         relativePath: any(named: 'relativePath'),
+        preserveCreatedAssetOnFailure: true,
       ),
-    ).thenAnswer((_) async => ++attempts == 1 ? null : _MockAssetEntity());
+    ).thenAnswer((_) async => ++attempts == 1 ? null : savedCopy);
     final container = await openEditor(tester);
     await chooseCopy(tester, EditorTestImageCompleter()..emitImage(ImageInfo(image: source.clone())));
     for (var i = 0; i < 100 && container.read(editorStateProvider).isApplyingEdits; i++) {

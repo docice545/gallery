@@ -6,6 +6,8 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/user/auth_user.drift.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
@@ -1397,6 +1399,125 @@ void main() {
       verifyNever(() => mockAssetMediaRepo.restoreAssetsFromTrash(any()));
       verifyNever(() => mockTrashedLocalAssetRepo.applyRestoredAssets(any()));
       verifyNever(() => mockAssetMediaRepo.deleteAll(any(), trash: false));
+    });
+  });
+
+  group('durable deletion receipt replay', () {
+    setUp(() {
+      final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+      when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+      when(() => mockSyncStreamRepo.retainPermanentDeletion(any())).thenAnswer((_) async {});
+      when(() => mockSyncStreamRepo.retainPermanentDeletion(any(), complete: false)).thenAnswer((_) async {});
+    });
+
+    SyncEvent deletion(String id, String ack) => SyncEvent(
+      type: SyncEntityType.assetDeleteV1,
+      data: SyncAssetDeleteV1(assetId: id),
+      ack: ack,
+    );
+
+    void receipts(Future<http.Response> Function(http.Request) handler) {
+      final client = ApiClient(basePath: 'https://fixture.invalid/api')..client = MockClient(handler);
+      when(() => mockApi.apiClient).thenReturn(client);
+      addTearDown(client.client.close);
+    }
+
+    test('logical and physical events retain one receipt but apply every event before ACK', () async {
+      final requests = <List<String>>[];
+      receipts((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return http.Response(
+          jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()),
+          200,
+        );
+      });
+      final events = [deletion('same', 'logical'), deletion('same', 'physical')];
+
+      await simulateEvents(events);
+      await simulateEvents(events);
+
+      expect(requests, [
+        ['same'],
+        ['same'],
+      ]);
+      final applied = verify(() => mockSyncStreamRepo.deleteAssetsV1(captureAny())).captured;
+      expect(applied, hasLength(2));
+      for (final batch in applied.cast<List<SyncAssetDeleteV1>>()) {
+        expect(batch.map((event) => event.assetId), ['same', 'same']);
+      }
+      verify(() => mockSyncStreamRepo.retainPermanentDeletion(['same'], complete: false)).called(2);
+      verify(() => mockSyncApiRepo.ack(['physical'])).called(2);
+    });
+
+    test('incomplete receipts keep the checkpoint and retry the same events after recovery', () async {
+      final requests = <List<String>>[];
+      receipts((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return http.Response(
+          jsonEncode([
+            {'id': 'one', 'state': 'pending', 'accepted': true},
+            if (requests.length > 1) {'id': 'two', 'state': 'complete'},
+          ]),
+          200,
+        );
+      });
+      final events = [deletion('one', 'one'), deletion('two', 'two'), deletion('one', 'last')];
+
+      await expectLater(simulateEvents(events), throwsStateError);
+
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      verifyNever(() => mockSyncStreamRepo.deleteAssetsV1(any()));
+      verifyNever(() => mockSyncStreamRepo.retainPermanentDeletion(any()));
+      verifyNever(() => mockSyncStreamRepo.retainPermanentDeletion(any(), complete: false));
+
+      await simulateEvents(events);
+
+      expect(requests, [
+        ['one', 'two'],
+        ['one', 'two'],
+      ]);
+      verifyInOrder([
+        () => mockSyncStreamRepo.retainPermanentDeletion(['two']),
+        () => mockSyncStreamRepo.retainPermanentDeletion(['one'], complete: false),
+        () => mockSyncStreamRepo.deleteAssetsV1(any()),
+        () => mockSyncApiRepo.ack(['last']),
+      ]);
+    });
+
+    test('a later failed receipt batch cannot ACK earlier events and retries all events', () async {
+      final requested = <List<String>>[];
+      receipts((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requested.add(ids);
+        return http.Response(
+          jsonEncode([
+            for (final id in ids)
+              if (requested.length != 2 || id != 'asset-200') {'id': id, 'state': 'complete'},
+          ]),
+          200,
+        );
+      });
+      final events = [
+        for (var i = 0; i < 200; i++) deletion('asset-$i', 'event-$i'),
+        deletion('asset-0', 'replayed'),
+        deletion('asset-200', 'last'),
+      ];
+
+      await expectLater(simulateEvents(events), throwsStateError);
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      verifyNever(() => mockSyncStreamRepo.deleteAssetsV1(any()));
+
+      await simulateEvents(events);
+
+      expect(requested.map((ids) => ids.length), [200, 2, 200, 2]);
+      expect(requested[0], requested[2]);
+      expect(requested[1], requested[3]);
+      final applied =
+          verify(() => mockSyncStreamRepo.deleteAssetsV1(captureAny())).captured.single as List<SyncAssetDeleteV1>;
+      expect(applied.map((event) => event.assetId), events.map((event) => (event.data as SyncAssetDeleteV1).assetId));
+      verify(() => mockSyncApiRepo.ack(['last'])).called(1);
     });
   });
 

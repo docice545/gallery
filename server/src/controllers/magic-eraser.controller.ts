@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Next, Param, Post, Res } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiTags } from '@nestjs/swagger';
 import type { NextFunction, Response } from 'express';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { Endpoint, HistoryBuilder } from 'src/decorators.js';
@@ -9,6 +9,7 @@ import {
   MagicEraserCreateDto,
   MagicEraserJobParamsDto,
   MagicEraserJobResponseDto,
+  MagicEraserSaveDto,
 } from 'src/dtos/magic-eraser.dto.js';
 import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard.js';
@@ -100,6 +101,7 @@ export class MagicEraserController {
   }
 
   @Post(':id/magic-eraser/:jobId/save')
+  @ApiBody({ type: MagicEraserSaveDto, required: false })
   @Authenticated({ permission: Permission.AssetUpload })
   @Endpoint({
     summary: 'Save Magic Eraser result as a separate still asset',
@@ -108,7 +110,8 @@ export class MagicEraserController {
   saveMagicEraserCopy(
     @Auth() auth: AuthDto,
     @Param() { id, jobId }: MagicEraserJobParamsDto,
+    @Body() dto: MagicEraserSaveDto,
   ): Promise<AssetMediaResponseDto> {
-    return this.service.save(auth, id, jobId);
+    return this.service.save(auth, id, jobId, dto);
   }
 }

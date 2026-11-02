@@ -1,4 +1,4 @@
-import { exiftool } from 'exiftool-vendored';
+import { ExifDateTime, exiftool } from 'exiftool-vendored';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -160,26 +160,24 @@ describe(MagicEraserRepository.name, () => {
     );
   });
 
-  it('writes orientation/capture timezone/camera metadata, never motion or stale face identifiers', async () => {
+  it('writes the save instant and current offset, never the source date, motion or stale face identifiers', async () => {
     const output = join(directory, 'copy.jpg');
     await writeFile(output, original);
-    await sut.writeCopyMetadata(
-      output,
-      {
-        dateTimeOriginal: new Date('2020-02-03T10:20:30Z'),
-        timeZone: 'UTC+3',
-        make: 'Samsung',
-        model: 'camera',
-        latitude: -20.25,
-        longitude: 30.5,
-        description: 'photo',
-      },
-      new Date(),
-    );
+    const sourceExif = {
+      dateTimeOriginal: new Date('2020-02-03T10:20:30Z'),
+      timeZone: 'UTC+3',
+      make: 'Samsung',
+      model: 'camera',
+      latitude: -20.25,
+      longitude: 30.5,
+      description: 'photo',
+    };
+    await sut.writeCopyMetadata(output, sourceExif, new Date('2026-11-02T22:05:12.345Z'), 330);
     const tags = await exiftool.read(output);
     expect(tags.Orientation).toBe(1);
-    expect(tags.OffsetTimeOriginal).toBe('+03:00');
-    expect(tags.DateTimeOriginal?.toString()).toBe('2020-02-03T13:20:30+03:00');
+    expect(tags.OffsetTimeOriginal).toBe('+05:30');
+    expect(tags.DateTimeOriginal?.toString()).toBe('2026-11-03T03:35:12.345+05:30');
+    expect(tags.SubSecDateTimeOriginal?.toString()).toBe('2026-11-03T03:35:12.345+05:30');
     expect(tags.Make).toBe('Samsung');
     expect(tags.GPSLatitude).toBe(-20.25);
     expect(tags.GPSLongitude).toBe(30.5);
@@ -188,4 +186,19 @@ describe(MagicEraserRepository.name, () => {
     expect(tags).not.toHaveProperty('RegionInfo');
     expect(await readFile(image)).toEqual(original);
   });
+
+  it.each([0, -600, 180, 840, -660])(
+    'round-trips the save instant with offset %i independently of source timezone',
+    async (offset) => {
+      const output = join(directory, 'copy.jpg');
+      const savedAt = new Date('2026-11-02T02:05:12.345Z');
+      await writeFile(output, original);
+      const sourceExif = { dateTimeOriginal: new Date('2020-01-01Z'), timeZone: 'UTC+3', make: 'Samsung' };
+      await sut.writeCopyMetadata(output, sourceExif, savedAt, offset);
+      const tags = await exiftool.read(output);
+      expect(tags.SubSecDateTimeOriginal).toBeInstanceOf(ExifDateTime);
+      expect((tags.SubSecDateTimeOriginal as ExifDateTime).toDate()).toEqual(savedAt);
+      expect(await readFile(image)).toEqual(original);
+    },
+  );
 });

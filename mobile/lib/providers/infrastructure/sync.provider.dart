@@ -1,8 +1,10 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/services/edited_copy.service.dart';
 import 'package:immich_mobile/domain/services/hash.service.dart';
 import 'package:immich_mobile/domain/services/local_sync.service.dart';
 import 'package:immich_mobile/domain/services/local_trash_sync.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
+import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
 import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/cancel.provider.dart';
@@ -39,13 +41,18 @@ final localTrashSyncServiceProvider = Provider((ref) {
 
 final localSyncServiceProvider = Provider((ref) {
   final db = ref.watch(driftProvider);
+  final native = ref.watch(nativeSyncApiProvider);
+  final cancellation = ref.watch(cancellationProvider);
   return LocalSyncService(
     localAlbumRepository: db.localAlbumRepository,
     trashedLocalAssetRepository: db.trashedLocalAssetRepository,
     assetMediaRepository: ref.watch(assetMediaRepositoryProvider),
     permissionRepository: ref.watch(permissionRepositoryProvider),
-    nativeSyncApi: ref.watch(nativeSyncApiProvider),
-    cancellation: ref.watch(cancellationProvider),
+    nativeSyncApi: native,
+    recoverEditedCopies: CurrentPlatform.isAndroid
+        ? () => EditedCopyService.recoverPendingCopies(db, native, isCancelled: () => cancellation.isCompleted)
+        : null,
+    cancellation: cancellation,
   );
 });
 

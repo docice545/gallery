@@ -74,16 +74,34 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
 
   late ScrollController _scrollController;
 
+  // A primary controller can briefly serve multiple scroll views during route
+  // transitions. Its .position/.offset getters require exactly one attachment;
+  // choosing an arbitrary one (or controller.jumpTo) could move another view.
+  ScrollPosition? get _position {
+    final position = _scrollController.positions.singleOrNull;
+    if (position == null ||
+        !position.hasPixels ||
+        !position.hasContentDimensions ||
+        !position.hasViewportDimension ||
+        !position.pixels.isFinite ||
+        !position.maxScrollExtent.isFinite ||
+        !position.viewportDimension.isFinite) {
+      return null;
+    }
+    return position;
+  }
+
   double get _currentOffset {
-    if (_scrollController.hasClients != true) {
+    final position = _position;
+    if (position == null) {
       return 0.0;
     }
 
-    final maxExtent = _scrollController.position.maxScrollExtent;
-    if (maxExtent <= 0 || _scrubberHeight <= 0) {
+    final maxExtent = position.maxScrollExtent;
+    if (maxExtent <= 0 || !_scrubberHeight.isFinite || _scrubberHeight <= 0) {
       return 0.0;
     }
-    return (_scrollController.offset / maxExtent * _scrubberHeight).clamp(0.0, _scrubberHeight);
+    return (position.pixels / maxExtent * _scrubberHeight).clamp(0.0, _scrubberHeight);
   }
 
   @override
@@ -143,7 +161,9 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   void _resetThumbTimer() {
     _fadeOutTimer?.cancel();
     _fadeOutTimer = Timer(kTimelineScrubberFadeOutDuration, () {
-      unawaited(_thumbAnimationController.reverse());
+      if (mounted) {
+        unawaited(_thumbAnimationController.reverse());
+      }
       _fadeOutTimer = null;
     });
   }
@@ -159,10 +179,11 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   String? _visibleDateLabel() {
-    if (!_scrollController.hasClients) {
+    final position = _position;
+    if (position == null) {
       return null;
     }
-    final offset = _scrollController.offset;
+    final offset = position.pixels;
     // Read the actual layout bucket rather than the scaled month scrubber label.
     // The list is ordered by startOffset, so the last started bucket is visible.
     TimeBucket? bucket;
@@ -227,6 +248,9 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   void _onDragStart(DragStartDetails _) {
+    if (_position == null) {
+      return;
+    }
     setState(() {
       _isDragging = true;
       _labelFadeTimer?.cancel();
@@ -237,7 +261,8 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    if (!_isDragging) {
+    final position = _position;
+    if (!_isDragging || position == null) {
       return;
     }
 
@@ -264,7 +289,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
       // If there are less than kMinMonthsToEnableScrubberSnap months, we don't need to snap to segments
       setState(() {
         _thumbTopOffset = dragPosition;
-        _scrollController.jumpTo((dragPosition / _scrubberHeight) * _scrollController.position.maxScrollExtent);
+        position.jumpTo((dragPosition / _scrubberHeight) * position.maxScrollExtent);
       });
     } else if (nearestMonthSegment != null) {
       _snapToSegment(nearestMonthSegment);
@@ -345,29 +370,46 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   void _scrollToLayoutSegment(int layoutSegmentIndex) {
+    final position = _position;
+    if (position == null) {
+      return;
+    }
     final layoutSegment = widget.layoutSegments[layoutSegmentIndex];
-    final maxScrollExtent = _scrollController.position.maxScrollExtent;
-    final viewportHeight = _scrollController.position.viewportDimension;
+    final maxScrollExtent = position.maxScrollExtent;
+    final viewportHeight = position.viewportDimension;
 
     final targetScrollOffset = layoutSegment.startOffset;
     final centeredOffset = targetScrollOffset - (viewportHeight / 4) + 100 + (widget.monthSegmentSnappingOffset ?? 0.0);
 
-    _scrollController.jumpTo(centeredOffset.clamp(0.0, maxScrollExtent));
+    position.jumpTo(centeredOffset.clamp(0.0, maxScrollExtent));
   }
 
-  void _onDragEnd(DragEndDetails _) {
+  void _finishDrag() {
+    _isDragging = false;
     _scheduleLabelFade();
-    setState(() {
-      _isDragging = false;
-    });
-
     _resetThumbTimer();
+  }
+
+  void _onDragEnd(DragEndDetails _) => _onDragCancel();
+
+  void _onDragCancel() {
+    if (!_isDragging) {
+      return;
+    }
+    setState(_finishDrag);
   }
 
   @override
   Widget build(BuildContext ctx) {
+    final position = _position;
+    if (_isDragging && (position == null || position.maxScrollExtent <= 0)) {
+      // Removing an accepted drag's detector disposes its recognizer without
+      // delivering onEnd/onCancel. End its bookkeeping in this rebuild so later
+      // list scroll notifications are not mistaken for an active thumb drag.
+      _finishDrag();
+    }
     Text? label;
-    if (_scrollController.hasClients == true) {
+    if (position != null) {
       // Cache to avoid multiple calls to [_currentOffset]
       final scrollOffset = _currentOffset;
       final labelText = _isDragging
@@ -393,10 +435,10 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
               key: ValueKey('segments_${_isDragging}_${_segments.length}'),
               segments: _segments,
               topPadding: widget.topPadding,
-              isDragging: _isDragging,
+              isDragging: _isDragging && position != null,
             ),
           ),
-          if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0)
+          if (position != null && position.maxScrollExtent > 0)
             PositionedDirectional(
               top: _thumbTopOffset + widget.topPadding,
               end: 0,
@@ -405,6 +447,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
                   onVerticalDragStart: _onDragStart,
                   onVerticalDragUpdate: _onDragUpdate,
                   onVerticalDragEnd: _onDragEnd,
+                  onVerticalDragCancel: _onDragCancel,
                   child: _Scrubber(thumbAnimation: _thumbAnimation, labelAnimation: _labelAnimation, label: label),
                 ),
               ),

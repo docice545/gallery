@@ -1914,6 +1914,10 @@ export type MagicEraserCapabilitiesDto = {
   model: Model;
   saveCopyOnly: true;
 };
+export type MagicEraserSaveDto = {
+  /** Current device UTC offset for the new copy, supported by EXIF extraction. Unsupported offsets are rejected. The server chooses the save instant; omitted means UTC. */
+  timeZoneOffsetMinutes?: number;
+};
 export type AssetMetadataResponseDto = {
   /** Metadata key */
   key: string;
@@ -8013,9 +8017,11 @@ export function saveMagicEraserCopy(
   {
     id,
     jobId,
+    magicEraserSaveDto,
   }: {
     id: string;
     jobId: string;
+    magicEraserSaveDto?: MagicEraserSaveDto;
   },
   opts?: Oazapfts.RequestOpts,
 ) {
@@ -8025,10 +8031,11 @@ export function saveMagicEraserCopy(
       data: AssetMediaResponseDto;
     }>(
       `/assets/${encodeURIComponent(id)}/magic-eraser/${encodeURIComponent(jobId)}/save`,
-      {
+      oazapfts.json({
         ...opts,
         method: 'POST',
-      },
+        body: magicEraserSaveDto,
+      }),
     ),
   );
 }

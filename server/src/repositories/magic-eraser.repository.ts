@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { exiftool } from 'exiftool-vendored';
-import { DateTime } from 'luxon';
+import { DateTime, FixedOffsetZone } from 'luxon';
 import { createWriteStream, openAsBlob } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,17 +18,7 @@ export const MAGIC_ERASER_TTL_MS = 60 * 60 * 1000;
 type CopyExif = Partial<
   Pick<
     Exif,
-    | 'dateTimeOriginal'
-    | 'timeZone'
-    | 'make'
-    | 'model'
-    | 'lensModel'
-    | 'fNumber'
-    | 'focalLength'
-    | 'iso'
-    | 'latitude'
-    | 'longitude'
-    | 'description'
+    'make' | 'model' | 'lensModel' | 'fNumber' | 'focalLength' | 'iso' | 'latitude' | 'longitude' | 'description'
   >
 >;
 
@@ -119,11 +109,10 @@ export class MagicEraserRepository {
     return readFile(path);
   }
 
-  async writeCopyMetadata(output: string, exif: CopyExif, date: Date) {
-    let capture = DateTime.fromJSDate(exif.dateTimeOriginal ?? date, { zone: exif.timeZone ?? 'UTC' });
-    if (!capture.isValid) {
-      capture = DateTime.fromJSDate(exif.dateTimeOriginal ?? date, { zone: 'UTC' });
-    }
+  async writeCopyMetadata(output: string, exif: CopyExif, date: Date, offsetMinutes = 0) {
+    // The new file represents a save, not the original capture. Its date and
+    // offset must survive the normal metadata extraction pipeline together.
+    const capture = DateTime.fromJSDate(date, { zone: FixedOffsetZone.instance(offsetMinutes) });
     // Deliberate allowlist: pairing identifiers, embedded motion, old face regions,
     // source orientation and thumbnails must not describe the new still image.
     await exiftool.write(
@@ -131,6 +120,7 @@ export class MagicEraserRepository {
       {
         DateTimeOriginal: capture.toFormat('yyyy:MM:dd HH:mm:ss'),
         OffsetTimeOriginal: capture.toFormat('ZZ'),
+        SubSecTimeOriginal: capture.toFormat('SSS'),
         'Orientation#': 1,
         ColorSpace: 1,
         Make: exif.make ?? undefined,

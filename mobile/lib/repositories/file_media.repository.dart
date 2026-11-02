@@ -8,17 +8,51 @@ import 'package:photo_manager/photo_manager.dart' hide AssetType;
 
 final fileMediaRepositoryProvider = Provider((ref) => const FileMediaRepository());
 
+/// The platform created this new item, but its metadata still needs completion.
+/// A caller may resume that exact import instead of creating another file.
+class SavedMediaImportException implements Exception {
+  final AssetEntity asset;
+  final Object cause;
+
+  const SavedMediaImportException(this.asset, this.cause);
+
+  @override
+  String toString() => 'Saved media metadata import is pending';
+}
+
 class FileMediaRepository {
   static const _localFiles = MethodChannel('file_trash');
   final bool? isAndroid;
   final LivePhotoSaveApi? livePhotoApi;
   const FileMediaRepository({this.isAndroid, this.livePhotoApi});
 
-  Future<AssetEntity?> saveImageWithFile(String filePath, {String? title, String? relativePath}) async {
+  Future<AssetEntity?> saveImageWithFile(
+    String filePath, {
+    String? title,
+    String? relativePath,
+    bool preserveCreatedAssetOnFailure = false,
+  }) async {
     final mimeType = await _originalMimeType(File(filePath), 'image/');
-    final entity = await PhotoManager.editor.saveImageWithPath(filePath, title: title, relativePath: relativePath);
-    await _setOriginalMimeType(entity, mimeType);
+    final saved = await PhotoManager.editor.saveImageWithPath(filePath, title: title, relativePath: relativePath);
+    // Keep the editor's unique requested filename if MediaStore returns before
+    // its display name is indexed. Recovery must not trust a reused bare ID.
+    final entity = preserveCreatedAssetOnFailure && (saved.title?.isEmpty ?? true)
+        ? saved.copyWith(title: title)
+        : saved;
+    await _setOriginalMimeType(entity, mimeType, preserveCreatedAssetOnFailure: preserveCreatedAssetOnFailure);
     return entity;
+  }
+
+  /// Completes only the metadata of the already-created editor copy. No second
+  /// image is saved, and no device item is deleted on an uncertain outcome.
+  Future<void> completeImageImport(AssetEntity asset, {required String mimeType}) async {
+    if (!(isAndroid ?? Platform.isAndroid)) {
+      return;
+    }
+    if (!mimeType.startsWith('image/')) {
+      throw ArgumentError.value(mimeType, 'mimeType', 'An image MIME type is required');
+    }
+    await _setOriginalMimeType(asset, mimeType, preserveCreatedAssetOnFailure: true);
   }
 
   Future<LivePhotoSaveResult> saveLivePhoto({
@@ -55,7 +89,11 @@ class FileMediaRepository {
     return entity;
   }
 
-  Future<void> _setOriginalMimeType(AssetEntity entity, String? mimeType) async {
+  Future<void> _setOriginalMimeType(
+    AssetEntity entity,
+    String? mimeType, {
+    bool preserveCreatedAssetOnFailure = false,
+  }) async {
     if (mimeType == null) {
       return;
     }
@@ -68,7 +106,10 @@ class FileMediaRepository {
       if (updated != true) {
         throw StateError('Unable to set the MIME type of the saved original');
       }
-    } catch (_) {
+    } catch (error) {
+      if (preserveCreatedAssetOnFailure) {
+        throw SavedMediaImportException(entity, error);
+      }
       // Only this newly imported media item is rolled back; never leave a failed import for a retry to duplicate.
       await PhotoManager.editor.deleteWithIds([entity.id]);
       rethrow;
