@@ -97,7 +97,7 @@ describe('Build11 ordinary owner deletion with real PostgreSQL and synthetic fil
     const f = await fixture();
     expect(await f.repo.getDeletionPolicy(f.user.id, 'managed')).toBeUndefined();
     expect(await f.sut.permanentlyDelete(f.auth, [f.asset.id])).toEqual([
-      { id: f.asset.id, scope: 'managed', state: 'complete' },
+      { id: f.asset.id, accepted: true, scope: 'managed', state: 'complete' },
     ]);
     await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
     expect(await new AssetRepository(db).getDeletionReceipt(f.user.id, f.asset.id)).toMatchObject({
@@ -107,7 +107,7 @@ describe('Build11 ordinary owner deletion with real PostgreSQL and synthetic fil
       f.ctx.newAsset({ ownerId: f.user.id, checksum: f.asset.checksum, checksumAlgorithm: f.asset.checksumAlgorithm }),
     ).rejects.toHaveProperty('constraint_name', 'asset_deletion_tombstone_identity');
     expect(await f.sut.permanentlyDelete(f.auth, [f.asset.id])).toEqual([
-      { id: f.asset.id, scope: 'managed', state: 'complete' },
+      { id: f.asset.id, accepted: true, scope: 'managed', state: 'complete' },
     ]);
   });
 
@@ -125,7 +125,7 @@ describe('Build11 ordinary owner deletion with real PostgreSQL and synthetic fil
       recoveryProof: '',
     });
     expect(await f.sut.permanentlyDelete(f.auth, [f.asset.id])).toEqual([
-      { id: f.asset.id, scope: f.scope, state: 'complete' },
+      { id: f.asset.id, accepted: true, scope: f.scope, state: 'complete' },
     ]);
     await expect(readFile(f.asset.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
     expect(await f.repo.filterNewExternalAssetPaths(f.scope, [f.asset.originalPath])).toEqual([]);
