@@ -12,6 +12,7 @@ import { deleteAssets } from '$lib/utils/actions';
 import { handleError } from '$lib/utils/handle-error';
 
 const getSelection = (ctx?: CommandContext): SelectionCommandContext | null => ctx?.selection ?? null;
+const pendingDeletions = new Map<string, Promise<boolean>>();
 
 export const canAddSelectedToAlbum = (ctx: CommandContext) => {
   const selection = getSelection(ctx);
@@ -146,18 +147,35 @@ export async function handleDeleteSelected(ctx?: CommandContext) {
     return false;
   }
 
-  const force = !featureFlagsManager.value.trash || assets.some((asset) => asset.isTrashed);
-  if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || get(showDeleteModal))) {
-    const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: ids.length });
-    if (!confirmed) {
-      return false;
-    }
+  const key = JSON.stringify([ctx?.routeId, ctx?.userId, [...new Set(ids)].sort((a, b) => a.localeCompare(b))]);
+  const existing = pendingDeletions.get(key);
+  if (existing) {
+    return existing;
   }
 
-  const onUndoDelete = force ? undefined : selection.onUndoDelete;
-  const completed = await deleteAssets(force, selection.onDelete, assets, onUndoDelete);
-  if (completed) {
-    selection.clearSelection();
+  const run = async () => {
+    const force = !featureFlagsManager.value.trash || assets.some((asset) => asset.isTrashed);
+    if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || get(showDeleteModal))) {
+      const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: ids.length });
+      if (!confirmed) {
+        return false;
+      }
+    }
+
+    const onUndoDelete = force ? undefined : selection.onUndoDelete;
+    const completed = await deleteAssets(force, selection.onDelete!, assets, onUndoDelete, {
+      includeStacks: selection.includeStacks === true,
+    });
+    if (completed) {
+      selection.clearSelection();
+    }
+    return completed;
+  };
+  const deletion = run();
+  pendingDeletions.set(key, deletion);
+  try {
+    return await deletion;
+  } finally {
+    pendingDeletions.delete(key);
   }
-  return completed;
 }

@@ -4,6 +4,7 @@ import {
   deletionBatchStatus,
   deletionPreflight,
   deletionStatuses,
+  getStack,
   permanentDeletion,
   restoreAssets,
 } from '@immich/sdk';
@@ -27,6 +28,70 @@ export type OnFavorite = (ids: string[], favorite: boolean) => void;
 export type OnStack = (result: StackResponse) => void;
 export type OnUnstack = (assets: TimelineAsset[]) => void;
 export type OnSetVisibility = (ids: string[]) => void;
+
+export type DeleteAssetsOptions = { includeStacks?: boolean };
+
+const resolveDeleteSelection = async (assets: TimelineAsset[], includeStacks: boolean) => {
+  const selected = [...new Map(assets.map((asset) => [asset.id, asset])).values()];
+  const covers = includeStacks
+    ? selected.filter(
+        (asset) =>
+          !asset.isTrashed && asset.stack && asset.stack.assetCount > 1 && asset.stack.primaryAssetId === asset.id,
+      )
+    : [];
+  const stacks = new Map<string, Awaited<ReturnType<typeof getStack>>>();
+  // Bound requests for large date selections; verify the entire selection
+  // before sending any destructive request.
+  for (let start = 0; start < covers.length; start += 4) {
+    await Promise.all(
+      covers.slice(start, start + 4).map(async (cover) => {
+        const stack = await getStack({ id: cover.stack!.id });
+        if (
+          stack.id !== cover.stack!.id ||
+          stack.primaryAssetId !== cover.id ||
+          stack.assets.every((asset) => asset.id !== cover.id) ||
+          stack.assets.some((asset) => asset.ownerId !== cover.ownerId || !asset.id)
+        ) {
+          throw new Error('Stack selection changed or is not owned by the selected owner');
+        }
+        stacks.set(cover.id, stack);
+      }),
+    );
+  }
+  const ids = new Set<string>();
+  const childCover = new Map<string, string>();
+  for (const [coverId, stack] of stacks) {
+    for (const child of stack.assets) {
+      if (!child.isTrashed) {
+        childCover.set(child.id, coverId);
+      }
+    }
+  }
+  const undoAssets: TimelineAsset[] = [];
+  for (const asset of selected) {
+    const stack = stacks.get(asset.id);
+    if (stack) {
+      const active = stack.assets.filter((asset) => !asset.isTrashed);
+      if (active.every((child) => child.id !== asset.id)) {
+        throw new Error('Selected stack cover is no longer active');
+      }
+      for (const child of active) {
+        ids.add(child.id);
+      }
+      undoAssets.push({
+        ...asset,
+        stack:
+          active.length > 1 ? { id: stack.id, primaryAssetId: stack.primaryAssetId, assetCount: active.length } : null,
+      });
+    } else {
+      ids.add(asset.id);
+      if (!childCover.has(asset.id)) {
+        undoAssets.push(asset);
+      }
+    }
+  }
+  return { ids: [...ids], undoAssets };
+};
 
 const PERMANENT_DELETION_REQUEST_LIMIT = 5000;
 const PERMANENT_DELETION_POLL_INTERVAL_MS = 250;
@@ -52,10 +117,11 @@ export const deleteAssets = async (
   onAssetDelete: OnDelete,
   assets: TimelineAsset[],
   onUndoDelete: OnUndoDelete | undefined = undefined,
+  options: DeleteAssetsOptions = {},
 ): Promise<boolean> => {
   const $t = get(t);
   try {
-    const ids = assets.map((a) => a.id);
+    const { ids, undoAssets } = await resolveDeleteSelection(assets, options.includeStacks === true);
     if (force && featureFlagsManager.valueOrUndefined?.authorizedDeletion) {
       const preflight = [];
       // Admit every scope in the entire selection before any irreversible batch.
@@ -155,7 +221,7 @@ export const deleteAssets = async (
           : $t('assets_trashed_count', { values: { count: ids.length } }),
         button:
           onUndoDelete && !force
-            ? { label: $t('undo'), color: 'secondary', onclick: () => undoDeleteAssets(onUndoDelete, assets) }
+            ? { label: $t('undo'), color: 'secondary', onclick: () => undoDeleteAssets(onUndoDelete, undoAssets, ids) }
             : undefined,
       },
       { timeout: 5000 },
@@ -167,10 +233,9 @@ export const deleteAssets = async (
   }
 };
 
-const undoDeleteAssets = async (onUndoDelete: OnUndoDelete, assets: TimelineAsset[]) => {
+const undoDeleteAssets = async (onUndoDelete: OnUndoDelete, assets: TimelineAsset[], ids: string[]) => {
   const $t = get(t);
   try {
-    const ids = assets.map((a) => a.id);
     await restoreAssets({ bulkIdsDto: { ids } });
     onUndoDelete?.(assets);
   } catch (error) {
