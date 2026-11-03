@@ -42,8 +42,11 @@ behavior assertions; their locators follow the new contextual navigation.
 
 Seven `fixed_dock_*.png` files are actual Flutter widget renders of the same
 synthetic photo at identical 393 × 852 logical pixels. Their source SHA and
-measured rectangles are recorded in `editor-dock-review/measurements.json` once
-the render job succeeds. Before images remain addressable at source
+measured rectangles are recorded in
+[the source-bound receipt](editor-dock-review/measurements.json).
+[Before/after review](editor-dock-review/README.md) includes all seven states.
+The captured viewport is 393 × 688 dp; the fitted portrait is 387 × 688 dp
+at every depth, with a 56 dp dock and a 24 dp bottom SafeArea inset. Before images remain addressable at source
 `b61867889c0a47a06ff19d7be1f0ca00c72c1945`, under
 `mobile/test/pages/edit/goldens/compact_android_portrait.png` and
 `compact_android_portrait_draw.png`.
