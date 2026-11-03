@@ -32,7 +32,7 @@ if (( test_status != 0 )); then
     {
       adb -s emulator-5554 logcat -b crash -d -v threadtime || true
       adb -s emulator-5554 logcat -d -v threadtime -t 300 \
-        AndroidRuntime:E libc:F DEBUG:F flutter:E ActivityManager:I ActivityTaskManager:I lmkd:I '*:S' || true
+        AndroidRuntime:E libc:F DEBUG:F flutter:I ActivityManager:I ActivityTaskManager:I lmkd:I '*:S' || true
       adb -s emulator-5554 shell dumpsys activity exit-info de.opennoodle.gallery.debug || true
     } > "$android_log_file" 2>&1
   fi
