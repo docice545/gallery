@@ -55,6 +55,12 @@ Discover existing build scripts, Docker configuration, signing properties, and r
 - Verify iOS and Android against the same compatible production API and schema. Report independent results for Docker, APK and IPA. Keep Build 35 production unchanged until approved cutover.
 - See `docs/FOTO_BUILD37_CROSS_PLATFORM_UX_20261103.md` in the Build 37 branch for the detailed new UX scope; do not blindly merge branches or replace existing implementations.
 
+### Build 36 versus Build 37 separation and performance baseline
+
+Build 36 release gates must not be confused with new Build 37 UX delivery. The agreed Build 37 details include still-frame Live Photo editing saved as a separate copy without modifying the original, roll/rotation/fly-to-trash animation of photos and album covers (target 500–700 ms), preservation of existing 220 ms stack transitions, SafeArea/bottom panels, and Timeline/Viewer position, covers and caches. These are recorded in the Build 37 document and require their own verification; do not claim Build 36 is fully feature-complete for Build 37 solely because Docker/APK/IPA build successfully.
+
+Codex Cloud operates via GitHub. HP can perform only supported build/sign/verification operations. Do not touch Build 35 production without operator approval. Maintain independent Docker, APK and SideStore IPA readiness results.
+
 ## 3. Mandatory Git checkpoints — never lose work
 
 Before starting: verify repository, branch, `HEAD`, working tree, and GitHub remote; fetch and compare histories. Do not overwrite other worktrees or uncommitted changes. Separate work in `/opt/gallery-fork` (Magic Eraser, with uncommitted files) is **not automatically part of Build 36** and must not be reset, cleaned, or merged blindly.
