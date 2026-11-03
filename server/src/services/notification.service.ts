@@ -164,6 +164,9 @@ export class NotificationService extends BaseService {
 
   @OnEvent({ name: 'AssetTrashAll' })
   async onAssetsTrash({ assetIds, userId }: ArgOf<'AssetTrashAll'>) {
+    // Integrity bulk jobs deliberately have no recipient. Do not pass their
+    // empty user ID into the owner-scoped UUID query or interrupt report cleanup.
+    if (!userId) return;
     this.websocketRepository.clientSend('on_asset_trash', userId, assetIds);
     await this.notifyTimelineRepresentatives(assetIds, userId);
   }
