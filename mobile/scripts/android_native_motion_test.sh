@@ -17,11 +17,18 @@ if command -v adb >/dev/null 2>&1; then
   adb -s emulator-5554 logcat -c || true
 fi
 set +e
-# The headless test needs the VM service, but not the optional DDS/DevTools
-# proxy. DDS startup failed on the hosted emulator before the test could load.
-# Use the pinned Flutter SDK's direct VM connection; keep every native assertion.
-flutter test --no-pub --no-dds integration_test/timeline_native_motion_test.dart \
-  -d emulator-5554 --reporter expanded 2>&1 | tee "$log_file"
+# Flutter's integration runner remembers the package before its first build.
+# With no APK present it falls back to the source namespace, which differs from
+# our Gradle applicationId. Build first so both startup and cleanup use the real
+# debug APK identity. This does not install or launch the app; flutter test still
+# builds its generated test entrypoint and performs the first launch itself.
+# Keep DDS enabled: the pinned runner needs its custom golden-comparator stream.
+{
+  flutter build apk --debug --no-pub --target-platform android-x64 \
+    --target integration_test/timeline_native_motion_test.dart &&
+    flutter test --no-pub integration_test/timeline_native_motion_test.dart \
+      -d emulator-5554 --reporter expanded
+} 2>&1 | tee "$log_file"
 test_status=${PIPESTATUS[0]}
 set -e
 if (( test_status != 0 )); then
