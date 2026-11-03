@@ -29,133 +29,129 @@ import 'test_utils/open_foto.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  testWidgets(
-    'Build 23 to 24 upgrade preserves Samsung evidence and opens server photos with one tap',
-    (tester) async {
-      await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();
-      final info = await PackageInfo.fromPlatform();
-      expect(info.packageName, 'de.opennoodle.gallery.debug');
-      expect(info.buildNumber, '24');
-      final source = await SqliteRecoveryPlatform.selected();
-      final marker = jsonDecode(await File('${source.parent.path}/build23-upgrade.json').readAsString()) as Map;
-      final hashes = marker['sourceChecksums'];
+  testWidgets('Build 23 to 24 upgrade preserves Samsung evidence and opens server photos with one tap', (tester) async {
+    await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();
+    final info = await PackageInfo.fromPlatform();
+    expect(info.packageName, 'de.opennoodle.gallery.debug');
+    expect(info.buildNumber, '24');
+    final source = await SqliteRecoveryPlatform.selected();
+    final marker = jsonDecode(await File('${source.parent.path}/build23-upgrade.json').readAsString()) as Map;
+    final hashes = marker['sourceChecksums'];
+    expect(await recoveryFileHashes(source), hashes);
+    expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
+    await expectLater(openSqliteConnectionWithUpdatePool(name: 'immich'), throwsA(isA<SqliteDatabaseUnhealthy>()));
+    // A system/native reader must not open or rewrite the damaged generation,
+    // including when the Build 23 stop marker survived an APK upgrade.
+    const cloud = CloudMediaRepository();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final blocked = await cloud.status();
+      expect(blocked['sqliteReaderReady'], false);
+      expect(blocked['signedIn'], false);
+      expect((blocked['sqlite']! as Map)['status'], 'persisted_recovery_block');
       expect(await recoveryFileHashes(source), hashes);
-      expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
-      await expectLater(openSqliteConnectionWithUpdatePool(name: 'immich'), throwsA(isA<SqliteDatabaseUnhealthy>()));
-      // A system/native reader must not open or rewrite the damaged generation,
-      // including when the Build 23 stop marker survived an APK upgrade.
-      const cloud = CloudMediaRepository();
-      for (var attempt = 0; attempt < 3; attempt++) {
-        final blocked = await cloud.status();
-        expect(blocked['sqliteReaderReady'], false);
-        expect(blocked['signedIn'], false);
-        expect((blocked['sqlite']! as Map)['status'], 'persisted_recovery_block');
-        expect(await recoveryFileHashes(source), hashes);
-        expect((await SqliteRecoveryPlatform.selected()).path, source.path);
-      }
-      final server = await RecoveryHttpServer.start(port: 8765);
-      addTearDown(server.close);
-      final fresh = FreshSqliteStart(const AndroidFreshStartHost());
-      final opened = Completer<void>();
-      await EasyLocalization.ensureInitialized();
-      await tester.pumpWidget(
-        EasyLocalization(
-          supportedLocales: const [Locale('ru')],
-          startLocale: const Locale('ru'),
-          fallbackLocale: const Locale('ru'),
-          path: 'assets/i18n',
-          assetLoader: const AppAssetLoader(),
-          child: SqliteRecoveryPage(
-            recoverAndOpen: () => OneTapSqliteRecovery(const AndroidRecoveryHost()).run(),
-            exportBackup: () async => (await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export'))!,
-            openServerPhotos: () async =>
-                RecoveryServerClient(await captureRecoveryServerCredentials(const AndroidRecoveryHost())),
-            prepareFreshStart: fresh.prepare,
-            startFreshAndOpen: (preparation) async {
-              try {
-                expect(preparation.needsLogin, false);
-                await fresh.run(preparation, consent: true);
-                await openFotoForTest();
-                opened.complete();
-              } catch (error, stack) {
-                opened.completeError(error, stack);
-                rethrow;
-              }
-            },
-          ),
+      expect((await SqliteRecoveryPlatform.selected()).path, source.path);
+    }
+    final server = await RecoveryHttpServer.start(port: 8765);
+    addTearDown(server.close);
+    final fresh = FreshSqliteStart(const AndroidFreshStartHost());
+    final opened = Completer<void>();
+    await EasyLocalization.ensureInitialized();
+    await tester.pumpWidget(
+      EasyLocalization(
+        supportedLocales: const [Locale('ru')],
+        startLocale: const Locale('ru'),
+        fallbackLocale: const Locale('ru'),
+        path: 'assets/i18n',
+        assetLoader: const AppAssetLoader(),
+        child: SqliteRecoveryPage(
+          recoverAndOpen: () => OneTapSqliteRecovery(const AndroidRecoveryHost()).run(),
+          exportBackup: () async => (await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export'))!,
+          openServerPhotos: () async =>
+              RecoveryServerClient(await captureRecoveryServerCredentials(const AndroidRecoveryHost())),
+          prepareFreshStart: fresh.prepare,
+          startFreshAndOpen: (preparation) async {
+            try {
+              expect(preparation.needsLogin, false);
+              await fresh.run(preparation, consent: true);
+              await openFotoForTest();
+              opened.complete();
+            } catch (error, stack) {
+              opened.completeError(error, stack);
+              rethrow;
+            }
+          },
         ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Восстановить и открыть FOTO'));
-      await waitFor(tester, find.textContaining('empty_wal_evidence_missing'));
-      expect(await recoveryFileHashes(source), hashes);
-      await tester.tap(find.text('Открыть серверные фотографии'));
-      await waitFor(tester, find.byKey(const ValueKey('server-photo-${RecoveryHttpServer.photoId}')));
-      expect(find.text('Existing owner'), findsOneWidget);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('server-photo-${RecoveryHttpServer.photoId}')));
-      await tester.pumpAndSettle();
-      expect(server.requests.any((r) => r.uri.queryParameters['size'] == 'preview'), true);
-      expect(server.requests.every((r) => r.method == 'GET' && r.authenticated), true);
-      await tester.tap(find.byType(BackButton));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(BackButton));
-      await tester.pumpAndSettle();
-      expect(await recoveryFileHashes(source), hashes);
-      expect((await SqliteRecoveryPlatform.selected()).path, source.path);
-      await expectLater(SqliteRecoveryPlatform.acquire(), throwsA(isA<SqliteDatabaseUnhealthy>()));
-      expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
-      // Real DocumentsUI, operated by the emulator-only CI helper.
-      expect(
-        await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export').timeout(const Duration(seconds: 90)),
-        true,
-      );
-      // The second, distinct SAF document must pass native fsync + full readback.
-      // Only then can this unchecked loss warning authorize a new generation.
-      server.fullFoto = true;
-      await tester.ensureVisible(find.text('Начать заново с серверными фотографиями'));
-      await tester.tap(find.text('Начать заново с серверными фотографиями'));
-      await waitFor(tester, find.byType(CheckboxListTile));
-      final confirm = find.widgetWithText(FilledButton, 'Создать новую локальную библиотеку');
-      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
-      expect((await SqliteRecoveryPlatform.selected()).path, source.path);
-      await tester.ensureVisible(find.byType(CheckboxListTile));
-      await tester.tap(find.byType(CheckboxListTile));
-      await tester.pump();
-      await tester.tap(confirm);
-      await opened.future.timeout(const Duration(seconds: 60));
-      await verifyWorkerKeepsNativeReader();
-      await waitFor(tester, find.byType(ThumbnailTile));
-      expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
-      expect(SettingsRepository.instance.appConfig.backup.enabled, false);
-      expect(SettingsRepository.instance.appConfig.backup.syncAlbums, false);
-      expect(StoreService.I.get(StoreKey.manageLocalMediaAndroid), false);
-      expect(server.fullDownloadResets, 1);
-      expect(server.acknowledged, contains('fresh-AlbumToAssetV1'));
-      expect(
-        server.requests
-            .where((r) => r.method != 'GET')
-            .every(
-              (r) =>
-                  ['/api/sync/ack', '/api/sync/stream', '/api/auth/validateToken'].contains(r.uri.path) &&
-                  r.authenticated,
-            ),
-        true,
-      );
-      expect(await recoveryFileHashes(source), hashes);
-      expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
-      final selected = await SqliteRecoveryPlatform.selected();
-      expect(selected.path, isNot(source.path));
-      // Native admission + normal app initialization is now running the new DB.
-      // Inspect the new active generation through the normal pool factory, then close both handles.
-      final (db, pool) = await openSqliteConnectionWithUpdatePool(name: 'immich');
-      expect((await db.get('SELECT id FROM remote_album_entity'))['id'], RecoveryHttpServer.albumId);
-      expect((await db.get('SELECT COUNT(*) AS n FROM local_album_entity WHERE backup_selection != 0'))['n'], 0);
-      await Drift.sqlite(db, pool).close();
-      await tester.pumpWidget(const SizedBox());
-    },
-    timeout: const Timeout(Duration(minutes: 6)),
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Восстановить и открыть FOTO'));
+    await waitFor(tester, find.textContaining('empty_wal_evidence_missing'));
+    expect(await recoveryFileHashes(source), hashes);
+    await tester.tap(find.text('Открыть серверные фотографии'));
+    await waitFor(tester, find.byKey(const ValueKey('server-photo-${RecoveryHttpServer.photoId}')));
+    expect(find.text('Existing owner'), findsOneWidget);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('server-photo-${RecoveryHttpServer.photoId}')));
+    await tester.pumpAndSettle();
+    expect(server.requests.any((r) => r.uri.queryParameters['size'] == 'preview'), true);
+    expect(server.requests.every((r) => r.method == 'GET' && r.authenticated), true);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(await recoveryFileHashes(source), hashes);
+    expect((await SqliteRecoveryPlatform.selected()).path, source.path);
+    await expectLater(SqliteRecoveryPlatform.acquire(), throwsA(isA<SqliteDatabaseUnhealthy>()));
+    expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
+    // Real DocumentsUI, operated by the emulator-only CI helper.
+    expect(
+      await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export').timeout(const Duration(seconds: 90)),
+      true,
+    );
+    // The second, distinct SAF document must pass native fsync + full readback.
+    // Only then can this unchecked loss warning authorize a new generation.
+    server.fullFoto = true;
+    await tester.ensureVisible(find.text('Начать заново с серверными фотографиями'));
+    await tester.tap(find.text('Начать заново с серверными фотографиями'));
+    await waitFor(tester, find.byType(CheckboxListTile));
+    final confirm = find.widgetWithText(FilledButton, 'Создать новую локальную библиотеку');
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+    expect((await SqliteRecoveryPlatform.selected()).path, source.path);
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tester.tap(confirm);
+    await opened.future.timeout(const Duration(seconds: 60));
+    await verifyWorkerKeepsNativeReader();
+    await waitFor(tester, find.byType(ThumbnailTile));
+    expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
+    expect(SettingsRepository.instance.appConfig.backup.enabled, false);
+    expect(SettingsRepository.instance.appConfig.backup.syncAlbums, false);
+    expect(StoreService.I.get(StoreKey.manageLocalMediaAndroid), false);
+    expect(server.fullDownloadResets, 1);
+    expect(server.acknowledged, contains('fresh-AlbumToAssetV1'));
+    expect(
+      server.requests
+          .where((r) => r.method != 'GET')
+          .every(
+            (r) =>
+                ['/api/sync/ack', '/api/sync/stream', '/api/auth/validateToken'].contains(r.uri.path) &&
+                r.authenticated,
+          ),
+      true,
+    );
+    expect(await recoveryFileHashes(source), hashes);
+    expect(await recoveryFileHash(File(marker['reportPath'] as String)), marker['reportChecksum']);
+    final selected = await SqliteRecoveryPlatform.selected();
+    expect(selected.path, isNot(source.path));
+    // Native admission + normal app initialization is now running the new DB.
+    // Inspect the new active generation through the normal pool factory, then close both handles.
+    final (db, pool) = await openSqliteConnectionWithUpdatePool(name: 'immich');
+    expect((await db.get('SELECT id FROM remote_album_entity'))['id'], RecoveryHttpServer.albumId);
+    expect((await db.get('SELECT COUNT(*) AS n FROM local_album_entity WHERE backup_selection != 0'))['n'], 0);
+    await Drift.sqlite(db, pool).close();
+    await tester.pumpWidget(const SizedBox());
+  }, timeout: const Timeout(Duration(minutes: 6)));
 }
 
 Future<void> waitFor(WidgetTester tester, Finder finder) async {
