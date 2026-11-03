@@ -1,4 +1,4 @@
-# FOTO Build 36 — Codex handoff and release requirements
+# FOTO Build 36 — production release and cross-platform release gates
 
 **Repository:** `docice545/gallery`  
 **Working branch:** `integration/foto-build36-hp-web-viewer`  
@@ -6,7 +6,7 @@
 
 > This document records requirements, not a claim that the features are implemented, tested, or released. Always verify the actual repository and HP runtime state first.
 
-## 1. Mandatory UX: distinct photo and album actions — do not conflate gestures
+## 1. UX compatibility gates (detailed implementation belongs to Build 37)
 
 The project uses its **custom Samsung Gallery-style photo action panel**. Preserve the existing custom panel and its layout; do not replace it with a generic toolbar.
 
@@ -41,11 +41,19 @@ This is a **different interaction from deleting a photo** and must not be remove
 
 ## 2. Build 36 release scope
 
-Deliver **(A)** a complete production Docker Backend Build 36 including server, Web Viewer, SDK, CLI, and required plugins, and **(B)** a release-signed FOTO Android APK with `versionCode=36`, updating Build 35 in place without uninstall or data loss.
+Deliver **(A)** a complete production Docker Backend Build 36 including server, Web Viewer, SDK, CLI, and required plugins; **(B)** a release-signed FOTO Android APK with `versionCode=36`, updating Build 35 in place without uninstall or data loss; and **(C)** a functioning iOS IPA installable through **SideStore**, with its real installation, signing, launch, login/network, media and persistence behavior verified. Do not mark the cross-platform release complete when only Android works. Build 37 owns the new Android/iOS UX implementation; do not block an already safe Build 36 production backend rollout on unimplemented Build 37 visual enhancements, but report each artifact and feature gate separately.
 
 Starting facts supplied by the HP operator: source branches were already integrated; working tree clean at the verified starting commit; Web Viewer tests 41/41 PASS and TypeScript/Svelte checks PASS at that checkpoint; production Docker Build 35 Healthy and API HTTP 200. Re-run checks as needed after changes. Do **not** repeat merges, generate new signing keys, or bootstrap the project from scratch.
 
 Discover existing build scripts, Docker configuration, signing properties, and rollout mechanisms from the repository and HP environment. Do not invent paths or claim artifacts exist before verification. Preserve production Build 35 until Build 36 is built, validated, and explicitly approved for cutover. Back up deployment configuration and data; provide a tested rollback plan. Check Android signing certificate continuity against Build 35 without exposing secrets; verify APK package ID, `versionCode=36`, signature, and in-place update on a test device.
+
+### iOS IPA / SideStore acceptance gate
+
+- Inspect the existing iOS target, bundle ID, minimum iOS version, plugins, permissions/entitlements and native dependencies. Do not invent an iOS target if one does not exist: report the gap and plan the required implementation.
+- A distributable IPA must contain a valid iOS app payload; verify installation **through SideStore on a real compatible iPhone**, launch, backend connectivity, authentication, albums/photos, trash and restore, Live Photo handling, and data persistence after relaunch. Check expected app expiry/re-sign/refresh limitations of the user's SideStore setup; do not claim permanent installation.
+- iOS build/sign/export normally requires a compatible macOS/Xcode environment and Apple signing credentials/provisioning. HP Ubuntu is not itself proof an IPA can be produced. Discover a trusted Mac or appropriately secured CI runner, or explicitly mark the IPA as **blocked** with prerequisites. Never upload signing credentials to GitHub or commit provisioning secrets.
+- Verify iOS and Android against the same compatible production API and schema. Report independent results for Docker, APK and IPA. Keep Build 35 production unchanged until approved cutover.
+- See `docs/FOTO_BUILD37_CROSS_PLATFORM_UX_20261103.md` in the Build 37 branch for the detailed new UX scope; do not blindly merge branches or replace existing implementations.
 
 ## 3. Mandatory Git checkpoints — never lose work
 
@@ -61,6 +69,6 @@ After each stage report: commit SHA, branch, push verification, tests and result
 2. Implement only necessary changes to meet the button-only PHOTO trash interaction and roll-into-tube/fly-to-trash animation; preserve album-row swipe-left delete with confirmation, viewer navigation gestures, and 2→1→0 local-album exit behavior. Test normal, failure, and special cases. Commit, push, verify SHA.
 3. Verify complete Build 36 backend image contents and build using existing tooling. Validate health, API, Web Viewer, SDK/CLI/plugins and regression tests in isolation. Commit source/build-script changes, push, verify SHA.
 4. Build and validate release-signed Android APK `versionCode=36` using the **existing original keystore**, without exposing or committing it. Test installation over Build 35 without data loss. Commit source/config changes, push, verify SHA.
-5. Produce reproducible release notes, artifact hashes, verification commands, backup/rollback steps and an explicit go/no-go recommendation. Production cutover requires operator approval.
+5. Verify iOS target, produce and validate SideStore-installable IPA using an authorized macOS/Xcode signing workflow, or report precise blockers. Commit/push non-secret source changes and verify SHA.\n6. Produce reproducible release notes, artifact hashes for Docker/APK/IPA, verification commands, backup/rollback steps and separate go/no-go results for each artifact. Production cutover requires operator approval.
 
 **Important:** This is a task specification for Codex; publishing it does not build Docker, sign an APK, deploy production, or launch Codex automatically.
