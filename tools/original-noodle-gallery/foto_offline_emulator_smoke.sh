@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 apk_path=${1:?APK path is required}
 version=${2:?version is required}
+printf 'FOTO offline smoke input version: %s\n' "$version"
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
 adb_timeout=${ADB_COMMAND_TIMEOUT:-60}
@@ -13,6 +14,16 @@ adb_run() {
 }
 adb_clear() {
   timeout --signal=TERM --kill-after=5s "$adb_clear_timeout" "$adb_bin" "$@"
+}
+assert_no_offline_error() {
+  if grep -Eqi 'Could not load value|Enable backup|Something went wrong' "$1"; then
+    echo 'Offline timeline shows an error or backup prompt' >&2
+    return 1
+  else
+    local grep_status=$?
+    # Only a readable capture with no match passes; grep errors fail closed.
+    [[ "$grep_status" -eq 1 ]]
+  fi
 }
 grant_media_permissions() {
   # Android 14/15 photo access is reset by pm clear. These grants are scoped to
@@ -220,9 +231,9 @@ PY
 clear_focused_edit_text() {
   # MOVE_END followed by a bounded delete sequence clears a stale endpoint or
   # autofilled credential without guessing coordinates or relying on clipboard.
-  local deletes
-  printf -v deletes ' 67%.0s' {1..128}
-  adb_run shell input keyevent 123$deletes
+  local -a deletes
+  read -r -a deletes <<< "$(printf '67 %.0s' {1..128})"
+  adb_run shell input keyevent 123 "${deletes[@]}"
 }
 read_edit_text_at() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
@@ -415,7 +426,7 @@ done
 grep -Eq '2020|2024' /tmp/noodle-window.xml
 adb_run shell screencap -p /sdcard/foto-offline.png
 adb_run pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
-! grep -Eqi 'Could not load value|Enable backup|Something went wrong' /tmp/noodle-window.xml
+assert_no_offline_error /tmp/noodle-window.xml
 assert_rendered_capture "$artifact_dir/offline.png"
 mark_phase complete
 adb_run shell svc wifi enable || true

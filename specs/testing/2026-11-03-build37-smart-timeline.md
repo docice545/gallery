@@ -4,7 +4,8 @@ Scope: [Issue 17 sections 9–10](https://github.com/docice545/gallery/issues/17
 including its 2026-11-03 clarification to reuse the existing Scrubber date label.
 The implementation is isolated in `codex/issue17-smart-timeline`, based on the
 published `codex/foto-build37-android-ui` at `6c8882bbf`. Build 36 / Issue 18 / PR 19
-remain separate. No backend, Docker, production, original media or signing changes.
+remain separate. No backend or Docker image source, production, original media or signing changes.
+CI guards explicitly prevent PR signing and registry publication.
 
 ## Behavior and reused components
 

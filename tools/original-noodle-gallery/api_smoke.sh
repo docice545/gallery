@@ -14,7 +14,14 @@ stage_code() {
     reconnect) echo 80 ;; *) echo 70 ;;
   esac
 }
-trap 'status=$?; code=$(stage_code "$stage"); printf "%s\n%s\n%s\n" "$stage" "$status" "$BASH_COMMAND" > "$workdir/failure.txt"; echo "API smoke failed at stage $stage (line $LINENO): $BASH_COMMAND" >&2; exit "$code"' ERR
+api_smoke_failure() {
+  local failure_status=$1 failure_line=$2 failure_command=$3 failure_code
+  failure_code=$(stage_code "$stage")
+  printf '%s\n%s\n%s\n' "$stage" "$failure_status" "$failure_command" > "$workdir/failure.txt"
+  echo "API smoke failed at stage $stage (line $failure_line): $failure_command" >&2
+  exit "$failure_code"
+}
+trap 'api_smoke_failure "$?" "$LINENO" "$BASH_COMMAND"' ERR
 mark_stage() { stage=$1; printf '%s\n' "$stage" > "$workdir/stage.txt"; }
 mark_stage preflight
 command -v curl jq ffmpeg convert >/dev/null
