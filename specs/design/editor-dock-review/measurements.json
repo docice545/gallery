@@ -1,0 +1,16 @@
+{
+  "sourceSha": "dee6fcda8becb4a9ad304aca69ea5bd97ef0debe",
+  "kind": "Synthetic Flutter widget render; not Samsung screenshots",
+  "iconDesignApproval": "PENDING",
+  "hardwareAcceptance": "PENDING",
+  "beforeSourceSha": "b61867889c0a47a06ff19d7be1f0ca00c72c1945",
+  "measurements": [
+    "EDITOR_VIEWPORT entry photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT markup photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT marker photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT width photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT color photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT crop photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT text photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)"
+  ]
+}
