@@ -27,29 +27,47 @@
     assetInteraction: AssetMultiSelectManager;
     onEscape?: () => void;
     scrollToAsset: (asset: TimelineAsset) => boolean;
+    withStacked?: boolean;
   };
 
-  let { timelineManager = $bindable(), assetInteraction, onEscape, scrollToAsset }: Props = $props();
+  let {
+    timelineManager = $bindable(),
+    assetInteraction,
+    onEscape,
+    scrollToAsset,
+    withStacked = false,
+  }: Props = $props();
+
+  let deletionPending = false;
 
   const trashOrDelete = async (forceRequested?: boolean) => {
-    const force = forceRequested || !featureFlagsManager.value.trash;
-    const selectedAssets = assetInteraction.assets;
-
-    if ((featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal) && force) {
-      const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: selectedAssets.length });
-      if (!confirmed) {
-        return;
-      }
+    if (deletionPending) {
+      return;
     }
+    deletionPending = true;
+    try {
+      const force = forceRequested || !featureFlagsManager.value.trash;
+      const selectedAssets = assetInteraction.assets;
 
-    const completed = await deleteAssets(
-      force,
-      (assetIds) => timelineManager.removeAssets(assetIds),
-      selectedAssets,
-      force ? undefined : (assets) => timelineManager.upsertAssets(assets),
-    );
-    if (completed) {
-      assetInteraction.clear();
+      if ((featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal) && force) {
+        const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: selectedAssets.length });
+        if (!confirmed) {
+          return;
+        }
+      }
+
+      const completed = await deleteAssets(
+        force,
+        (assetIds) => timelineManager.removeAssets(assetIds),
+        selectedAssets,
+        force ? undefined : (assets) => timelineManager.upsertAssets(assets),
+        { includeStacks: withStacked },
+      );
+      if (completed) {
+        assetInteraction.clear();
+      }
+    } finally {
+      deletionPending = false;
     }
   };
 
