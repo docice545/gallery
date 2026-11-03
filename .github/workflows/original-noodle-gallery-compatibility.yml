@@ -631,4 +631,3 @@ jobs:
       - name: Tear down disposable services
         if: always()
         run: docker compose -f e2e/docker-compose.yml down -v
-
