@@ -674,6 +674,8 @@ export class TimelineManager extends VirtualScrollManager {
   }
 
   removeAssets(ids: string[]) {
+    // A confirmed local deletion must supersede an older queued socket update.
+    this.#websocketSupport?.discardPendingAssets(ids);
     if (!this.#isDetailedTimeline()) {
       return ids;
     }

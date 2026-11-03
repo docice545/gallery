@@ -1,4 +1,5 @@
 import { throttle } from 'lodash-es';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { Unsubscriber } from 'svelte/store';
 import type { TimelineManager } from '$lib/managers/timeline-manager/timeline-manager.svelte';
 import type { PendingChange, TimelineAsset } from '$lib/managers/timeline-manager/types';
@@ -29,6 +30,9 @@ export class WebsocketSupport {
   }
 
   connectWebsocketEvents() {
+    if (this.#unsubscribers.length > 0) {
+      return;
+    }
     this.#unsubscribers.push(
       websocketEvents.on('on_upload_success', (asset) =>
         this.#addPendingChanges({ type: 'add', values: [toTimelineAsset(asset)] }),
@@ -42,10 +46,28 @@ export class WebsocketSupport {
   }
 
   disconnectWebsocketEvents() {
+    this.#processPendingChanges.cancel();
+    this.#pendingChanges = [];
     for (const unsubscribe of this.#unsubscribers) {
       unsubscribe();
     }
     this.#unsubscribers = [];
+  }
+
+  discardPendingAssets(ids: string[]) {
+    const removed = new SvelteSet(ids);
+    this.#pendingChanges = this.#pendingChanges.map((change): PendingChange => {
+      switch (change.type) {
+        case 'add':
+        case 'update': {
+          return { ...change, values: change.values.filter((asset) => !removed.has(asset.id)) };
+        }
+        case 'trash':
+        case 'delete': {
+          return { ...change, values: change.values.filter((id) => !removed.has(id)) };
+        }
+      }
+    });
   }
 
   #addPendingChanges(...changes: PendingChange[]) {
@@ -63,21 +85,32 @@ export class WebsocketSupport {
       update: [],
       remove: [],
     };
+    const latest = new SvelteMap<string, { type: PendingChange['type']; asset?: TimelineAsset }>();
     for (const { type, values } of this.#pendingChanges) {
       switch (type) {
-        case 'add': {
-          batch.add.push(...values);
-          break;
-        }
+        case 'add':
         case 'update': {
-          batch.update.push(...values);
+          for (const asset of values) {
+            latest.set(asset.id, { type, asset });
+          }
           break;
         }
         case 'delete':
         case 'trash': {
-          batch.remove.push(...values);
+          for (const id of values) {
+            latest.set(id, { type });
+          }
           break;
         }
+      }
+    }
+    for (const [id, change] of latest) {
+      if (change.type === 'add') {
+        batch.add.push(change.asset!);
+      } else if (change.type === 'update') {
+        batch.update.push(change.asset!);
+      } else {
+        batch.remove.push(id);
       }
     }
     return batch;

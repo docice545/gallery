@@ -11,8 +11,9 @@ import { sdkMock } from '$lib/__mocks__/sdk.mock';
 import { eventManager } from '$lib/managers/event-manager.svelte';
 import { getTimelineMonthByDate } from '$lib/managers/timeline-manager/internal/search-support.svelte';
 import { scrollTimelineToTemporalAnchor } from '$lib/managers/timeline-manager/timeline-anchor';
+import { websocketEvents } from '$lib/stores/websocket';
 import { AbortError } from '$lib/utils';
-import { fromISODateTimeUTCToObject } from '$lib/utils/timeline-util';
+import { fromISODateTimeUTCToObject, toTimelineAsset } from '$lib/utils/timeline-util';
 import { assetFactory, timelineAssetFactory, toResponseDto } from '@test-data/factories/asset-factory';
 import { TimelineManager } from './timeline-manager.svelte';
 import type { TimelineAsset } from './types';
@@ -561,6 +562,39 @@ describe('TimelineManager', () => {
 
     afterEach(() => {
       timelineManager.destroy();
+    });
+
+    it('local confirmed deletion cannot be undone by an older pending WebSocket update', async () => {
+      await timelineManager.updateOptions({ userId: 'owner', visibility: AssetVisibility.Timeline });
+      timelineManager.disconnect();
+      let receive: ((asset: AssetResponseDto) => void) | undefined;
+      const listener = vi.spyOn(websocketEvents, 'on').mockImplementation((name, callback) => {
+        if (name === 'on_asset_update') {
+          receive = callback as (asset: AssetResponseDto) => void;
+        }
+        return () => {};
+      });
+      timelineManager.connect();
+      vi.useFakeTimers();
+      try {
+        const frame = assetFactory.build({ id: 'frame', ownerId: 'owner', isTrashed: false });
+        const seed = assetFactory.build({ id: 'seed', ownerId: 'owner', isTrashed: false });
+        timelineManager.upsertAssets([toTimelineAsset(frame)]);
+        receive!(seed); // Leading batch; the following update is delayed.
+        receive!(frame);
+        timelineManager.removeAssets([frame.id]);
+        vi.advanceTimersByTime(2500);
+        const values = await getAssets(timelineManager);
+        expect(values.map((asset) => asset.id)).not.toContain(frame.id);
+        receive!(frame); // A later restore remains eligible.
+        vi.advanceTimersByTime(2500);
+        const restored = await getAssets(timelineManager);
+        expect(restored.map((asset) => asset.id)).toContain(frame.id);
+      } finally {
+        timelineManager.disconnect();
+        listener.mockRestore();
+        vi.useRealTimers();
+      }
     });
 
     it('does not insert live event assets with a different owner into a user-scoped timeline', async () => {
