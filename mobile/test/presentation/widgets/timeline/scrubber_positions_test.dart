@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+
+import '../../../test_utils.dart';
 
 const _scrollKey = Key('scrubbed-scroll');
 final _thumb = find.byWidgetPredicate(
@@ -25,6 +28,10 @@ Future<void> _mount(
   ScrollController controller, {
   ValueNotifier<bool>? secondAttached,
   ScrollController? childController,
+  bool showFloatingDate = false,
+  BaseAsset? asset,
+  String? location,
+  VoidCallback? onPhotoTap,
 }) async {
   final secondState = secondAttached ?? ValueNotifier(false);
   if (secondAttached == null) {
@@ -32,7 +39,10 @@ Future<void> _mount(
   }
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [hapticFeedbackProvider.overrideWith(_NoHaptics.new)],
+      overrides: [
+        hapticFeedbackProvider.overrideWith(_NoHaptics.new),
+        timelineDateLocationProvider.overrideWith((ref, id) async => location),
+      ],
       child: MaterialApp(
         scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
         home: PrimaryScrollController(
@@ -46,18 +56,32 @@ Future<void> _mount(
                   child: Scrubber(
                     key: const Key('scrubber'),
                     layoutSegments: FixedSegmentBuilder(
-                      buckets: [TimeBucket(date: DateTime(2026, 11, 2), assetCount: 30)],
+                      buckets: [
+                        TimeBucket(date: DateTime(2026, 11, 2), assetCount: 15),
+                        TimeBucket(date: DateTime(2026, 11, 1), assetCount: 15),
+                      ],
                       tileHeight: 100,
                       columnCount: 3,
                     ).generate(),
                     timelineHeight: 240,
                     hasAppBar: false,
                     snapToMonth: false,
+                    topPadding: 24,
+                    showFloatingDate: showFloatingDate,
+                    assetAtIndex: (_) => asset,
                     child: CustomScrollView(
                       key: _scrollKey,
                       primary: childController == null,
                       controller: childController,
-                      slivers: const [SliverToBoxAdapter(child: SizedBox(height: 2000))],
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: onPhotoTap,
+                            child: const SizedBox(height: 2000),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -90,6 +114,64 @@ Future<void> _revealThumb(WidgetTester tester) async {
 
 void main() {
   setUpAll(() => initializeDateFormatting('en'));
+
+  for (final location in [null, 'Saint Petersburg, a deliberately long location name']) {
+    testWidgets('one fixed date overlay ignores photo gestures and uses optional local place: $location', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      var taps = 0;
+      await _mount(
+        tester,
+        controller,
+        showFloatingDate: true,
+        asset: TestUtils.createRemoteAsset(id: 'visible-photo'),
+        location: location,
+        onPhotoTap: () => taps++,
+      );
+      final label = find.byKey(const Key('timeline-floating-date'));
+      expect(label, findsNothing);
+      await _revealThumb(tester);
+      await tester.pump();
+      expect(label, findsOneWidget);
+      final before = tester.getRect(label);
+      expect(before.top, greaterThanOrEqualTo(24));
+      expect(before.bottom, lessThan(240));
+      expect(before.right, lessThan(tester.view.physicalSize.width));
+      final place = find.byKey(const Key('timeline-floating-location-text'));
+      expect(place, location == null ? findsNothing : findsOneWidget);
+      if (location != null) {
+        expect(tester.widget<Text>(place).overflow, TextOverflow.ellipsis);
+      }
+      await tester.tapAt(before.center);
+      expect(taps, 1);
+      final thumbGesture = await tester.startGesture(tester.getCenter(_thumb));
+      await thumbGesture.moveBy(const Offset(0, 30));
+      await thumbGesture.moveBy(const Offset(0, 40));
+      await tester.pump();
+      expect(tester.getRect(label).topLeft, before.topLeft);
+      expect(label, findsOneWidget);
+      // A held drag must not fade the date even after the idle timeout.
+      await tester.pump(const Duration(seconds: 2));
+      expect(label, findsOneWidget);
+      await thumbGesture.up();
+      controller.jumpTo(1500);
+      await tester.pump();
+      expect(find.text('Nov 1, 2026'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(label, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  test('location fallback uses existing nonblank metadata only', () {
+    expect(timelinePlaceLabel(' City ', 'State', 'Country'), 'City');
+    expect(timelinePlaceLabel(' ', 'State', 'Country'), 'State');
+    expect(timelinePlaceLabel(null, null, 'Country'), 'Country');
+    expect(timelinePlaceLabel(null, ' ', null), isNull);
+  });
 
   testWidgets('a shared primary controller with two positions never reads an ambiguous position', (tester) async {
     final controller = ScrollController();

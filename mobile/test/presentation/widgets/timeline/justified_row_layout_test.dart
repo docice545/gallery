@@ -187,6 +187,37 @@ void main() {
     }
   });
 
+  test('immersive presentation removes header space without changing dates, mosaic rows or stack representatives', () {
+    // The bucket source already collapses stacks to representative assets.
+    final buckets = [
+      TimeBucket(date: DateTime(2026, 11, 2), assetCount: 3, aspectRatios: [.45, 1.5, .75]),
+      TimeBucket(date: DateTime(2026, 11, 1), assetCount: 2, aspectRatios: [1, .5]),
+    ];
+    for (final density in [2, 3, 4, 5]) {
+      List<FixedSegment> build(bool immersive) => FixedSegmentBuilder(
+        buckets: buckets,
+        tileHeight: (390 - 3 * (density - 1)) / density,
+        columnCount: density,
+        spacing: 3,
+        denseLayout: true,
+        hideDateHeaders: immersive,
+      ).generate().cast<FixedSegment>();
+      final classic = build(false);
+      final immersive = build(true);
+      expect(immersive.last.endOffset, lessThan(classic.last.endOffset));
+      for (var index = 0; index < buckets.length; index++) {
+        expect(immersive[index].bucket, same(buckets[index]));
+        expect(immersive[index].firstAssetIndex, classic[index].firstAssetIndex);
+        expect(immersive[index].rows, classic[index].rows);
+        expect(immersive[index].header, HeaderType.none);
+        expect(immersive[index].headerExtent, 0);
+        expect(classic[index].headerExtent, greaterThan(0));
+        verify(immersive[index].rows);
+      }
+      expect(build(false), classic, reason: 'Returning to Classic restores the original grouped geometry');
+    }
+  });
+
   test('extreme and unknown proportions have finite bounded geometry and no empty cells', () {
     final layout = mosaic([.00001, 100000, double.nan, double.infinity, -1, 0, .25, 3, .4, 1.8]);
     verify(layout);

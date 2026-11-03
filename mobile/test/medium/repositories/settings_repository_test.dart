@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/table/app/settings.drift.dart';
+import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/log.model.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
@@ -26,6 +28,11 @@ void main() {
   });
 
   group('defaults', () {
+    test('existing users retain Classic FOTO with the floating date disabled', () {
+      expect(sut.appConfig.timeline.presentation, TimelinePresentation.classic);
+      expect(sut.appConfig.timeline.floatingDate, isFalse);
+      expect(SettingsKey.timelinePresentation.decode('future-mode'), TimelinePresentation.classic);
+    });
     test('live photo autoplay is enabled when no preference has been stored', () {
       expect(sut.appConfig.timeline.autoplayLivePhotos, isTrue);
     });
@@ -40,6 +47,25 @@ void main() {
   });
 
   group('write', () {
+    test('presentation, density and classic date preference survive a fresh snapshot from SQLite', () async {
+      await sut.write(.timelinePresentation, TimelinePresentation.immersive);
+      await sut.write(.timelineTilesPerRow, 3);
+      await sut.write(.timelineFloatingDate, true);
+      final rows = await ctx.db.select(ctx.db.settingsEntity).get();
+      final restored = AppConfig.fromEntries({
+        for (final row in rows)
+          SettingsKey.values.byName(row.key): SettingsKey.values.byName(row.key).decode(row.value!),
+      });
+      expect(restored.timeline.presentation, TimelinePresentation.immersive);
+      expect(restored.timeline.tilesPerRow, 3);
+      expect(restored.timeline.floatingDate, isTrue);
+      expect(restored.timeline.autoplayLivePhotos, isTrue);
+      await sut.refresh();
+      expect(sut.appConfig.timeline, restored.timeline);
+      await sut.write(.timelinePresentation, TimelinePresentation.classic);
+      expect(sut.appConfig.timeline.floatingDate, isTrue);
+      expect(sut.appConfig.timeline.tilesPerRow, 3);
+    });
     test('live photo autoplay persists across cache refresh and resets to its enabled default', () async {
       await sut.write(.timelineAutoplayLivePhotos, false);
       expect(sut.appConfig.timeline.autoplayLivePhotos, isFalse);

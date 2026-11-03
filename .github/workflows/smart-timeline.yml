@@ -1,0 +1,121 @@
+name: Build 37 smart Timeline regression gate
+
+on:
+  pull_request:
+    branches: [codex/foto-build37-android-ui]
+    paths:
+      - 'mobile/**'
+      - 'i18n/**'
+      - '.github/workflows/smart-timeline.yml'
+      - '.github/scripts/report-ci-failures.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-timeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  presentation:
+    name: Modes, density, date overlay and Live Photo contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen dependencies and source generation
+        id: codegen
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Formatter for changed Timeline tests
+        id: format
+        working-directory: mobile
+        run: |
+          dart format --set-exit-if-changed \
+            test/medium/repositories/settings_repository_test.dart \
+            test/presentation/widgets/timeline/justified_row_layout_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/presentation/widgets/timeline/scrubber_positions_test.dart \
+            test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
+            test/widgets/settings/asset_list_settings_test.dart
+      - name: Annotate formatter differences
+        if: failure() && steps.format.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py format
+      - name: Real layout, settings persistence, gestures and existing playback contracts
+        id: tests
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --reporter json \
+            test/medium/repositories/settings_repository_test.dart \
+            test/unit/repositories/settings_repository_test.dart \
+            test/widgets/settings/asset_list_settings_test.dart \
+            test/presentation/widgets/timeline/justified_row_layout_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/presentation/widgets/timeline/scrubber_positions_test.dart \
+            test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
+            test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            test/presentation/widgets/timeline/live_photo_presentation_test.dart \
+            test/presentation/widgets/images/thumbnail_live_photo_test.dart \
+            test/presentation/widgets/asset_viewer/timeline_preview_video_viewer_test.dart \
+            test/presentation/widgets/asset_viewer/timeline_video_viewer_test.dart \
+            | tee "$RUNNER_TEMP/smart-timeline-tests.jsonl"
+      - name: Annotate test failures
+        if: failure() && steps.tests.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/smart-timeline-tests.jsonl"
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build37-smart-timeline-tests
+          path: ${{ runner.temp }}/smart-timeline-tests.jsonl
+          if-no-files-found: warn
+
+  native-motion:
+    name: Native decoded motion (emulator, Samsung still required)
+    needs: presentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Generate locked native bindings
+        run: bash mobile/scripts/android_media_codegen.sh
+      - name: Enable disposable hosted emulator
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Actual authenticated media, ExoPlayer and advancing decoded position
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: false
+          working-directory: mobile
+          script: bash scripts/android_native_motion_test.sh
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build37-native-motion
+          path: ${{ runner.temp }}/gallery-native-motion-test.log
+          if-no-files-found: warn

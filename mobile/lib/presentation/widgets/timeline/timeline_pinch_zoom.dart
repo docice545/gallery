@@ -43,11 +43,15 @@ class _TimelinePinchZoomState extends ConsumerState<TimelinePinchZoom> {
           () => _CustomScaleGestureRecognizer(),
           (_CustomScaleGestureRecognizer scale) {
             scale.onStart = (details) {
+              // Settings can change while this retained Timeline is offscreen.
+              // Rebase each gesture on the current preference, not initState.
+              _perRow = ref.read(appConfigProvider).timeline.tilesPerRow.clamp(2, 5);
+              _scaleFactor = 7.0 - _perRow;
               _baseScaleFactor = _scaleFactor;
             };
 
             scale.onUpdate = (details) {
-              final newScaleFactor = math.max(math.min(5.0, _baseScaleFactor * details.scale), 1.0);
+              final newScaleFactor = math.max(math.min(5.0, _baseScaleFactor * details.scale), 2.0);
               final newPerRow = 7 - newScaleFactor.toInt();
 
               if (newPerRow != _perRow) {

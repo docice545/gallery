@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:auto_route/auto_route.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_grouping.model.dart';
@@ -111,7 +113,9 @@ class Timeline extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final columnCount = ref.watch(appConfigProvider.select((config) => config.timeline.tilesPerRow));
+    final config = ref.watch(appConfigProvider.select((config) => config.timeline));
+    final columnCount = config.tilesPerRow.clamp(2, 5);
+    final immersive = denseLayout && context.isMobile && config.presentation == TimelinePresentation.immersive;
     return LayoutBuilder(
       builder: (_, constraints) {
         final sliverTimeline = _SliverTimeline(
@@ -124,6 +128,8 @@ class Timeline extends ConsumerWidget {
           persistentBottomBar: persistentBottomBar,
           snapToMonth: snapToMonth,
           maxWidth: constraints.maxWidth,
+          columnCount: columnCount,
+          immersive: immersive,
           loadingWidget: loadingWidget,
           emptyWidget: emptyWidget,
           withGroupingPill: withGroupingPill,
@@ -142,6 +148,7 @@ class Timeline extends ConsumerWidget {
                 showStorageIndicator: showStorageIndicator,
                 withStack: withStack,
                 denseLayout: denseLayout && context.isMobile,
+                immersive: immersive,
                 spacing: denseLayout && context.isMobile ? 3 : kTimelineSpacing,
                 textScale: MediaQuery.textScalerOf(context).scale(24) / 24,
                 groupBy: groupBy,
@@ -183,6 +190,8 @@ class _SliverTimeline extends ConsumerStatefulWidget {
     this.persistentBottomBar = false,
     this.snapToMonth = true,
     this.maxWidth,
+    this.columnCount = 4,
+    this.immersive = false,
     this.loadingWidget,
     this.emptyWidget,
     this.withGroupingPill = false,
@@ -199,6 +208,8 @@ class _SliverTimeline extends ConsumerStatefulWidget {
   final bool persistentBottomBar;
   final bool snapToMonth;
   final double? maxWidth;
+  final int columnCount;
+  final bool immersive;
   final Widget? loadingWidget;
   final Widget? emptyWidget;
   final bool withGroupingPill;
@@ -211,7 +222,13 @@ class _SliverTimeline extends ConsumerStatefulWidget {
 
 class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBindingObserver {
   late final ScrollController _scrollController;
+  final _gridKey = GlobalKey();
   StreamSubscription? _eventSubscription;
+
+  double _gridStartOffset() {
+    final sliver = _gridKey.currentContext?.findRenderObject();
+    return sliver is RenderSliver && sliver.geometry != null ? sliver.constraints.precedingScrollExtent : 0;
+  }
 
   int? _restoreAssetIndex;
   TimelineZoomAnchor? _scheduledZoomAnchor;
@@ -247,9 +264,11 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   @override
   void didUpdateWidget(covariant _SliverTimeline oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.maxWidth != oldWidget.maxWidth) {
+    if (widget.maxWidth != oldWidget.maxWidth ||
+        widget.columnCount != oldWidget.columnCount ||
+        widget.immersive != oldWidget.immersive) {
       // The updated args already regenerate the segments, only remember the scroll position to restore it afterwards
-      final segments = ref.read(timelineSegmentProvider).valueOrNull;
+      final segments = _lastRenderedSegments;
       if (segments != null && _scrollController.hasClients) {
         _restoreAssetIndex = _getCurrentAssetIndex(segments);
       }
@@ -784,7 +803,11 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                     ],
                   ),
               onData: (segments) {
+                final layoutChanged = !identical(_lastRenderedSegments, segments);
                 _lastRenderedSegments = segments;
+                if (layoutChanged && _restoreAssetIndex != null) {
+                  _restoreAssetPosition(null);
+                }
                 final spec = ref.watch(timelineGroupingSpecProvider);
                 final pinnedGroupBy = ref.watch(timelineArgsProvider).groupBy;
                 final TimelineOverviewMode activeMode = pinnedGroupBy != null ? TimelineOverviewMode.all : spec.mode;
@@ -808,7 +831,8 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                 final double appBarExpandedHeight = widget.appBar != null && widget.appBar is MesmerizingSliverAppBar
                     ? 200
                     : 0;
-                final topPadding = context.padding.top + (widget.appBar == null ? 0 : kToolbarHeight) + 10;
+                final topPadding =
+                    context.padding.top + (widget.appBar == null && !isSelectionMode ? 0 : kToolbarHeight) + 10;
 
                 const bottomSheetOpenModifier = 120.0;
                 final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
@@ -840,6 +864,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                             widget.appBar!,
                           if (widget.topSliverWidget != null) widget.topSliverWidget!,
                           SliverSegmentedList(
+                            key: _gridKey,
                             segments: segments,
                             delegate: SliverChildBuilderDelegate(
                               (ctx, index) {
@@ -874,6 +899,11 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                             appBarExpandedHeight: appBarExpandedHeight,
                           ),
                           hasAppBar: widget.appBar != null,
+                          showFloatingDate:
+                              widget.immersive ||
+                              ref.watch(appConfigProvider.select((config) => config.timeline.floatingDate)),
+                          assetAtIndex: ref.read(timelineServiceProvider).getAssetSafe,
+                          contentStartOffset: _gridStartOffset,
                           child: grid,
                         );
                       } else {

@@ -15,6 +15,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
@@ -31,6 +32,7 @@ import 'package:immich_mobile/presentation/widgets/timeline/header.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/sliver_segmented_list.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.dart';
@@ -43,6 +45,7 @@ import '../../../test_utils.dart';
 import '../../../widget_tester_extensions.dart';
 
 const _spacing = 3.0;
+final _testConfig = StateProvider<AppConfig>((_) => const AppConfig());
 const _captureArtifacts = bool.fromEnvironment('FOTO_MOSAIC_CAPTURE');
 const _artifactDirectory = String.fromEnvironment(
   'FOTO_MOSAIC_ARTIFACT_DIR',
@@ -201,6 +204,7 @@ void main() {
     double textScale = 1,
     TimelineAssetSource? source,
     bool withHeaders = false,
+    bool realTimeline = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -255,7 +259,11 @@ void main() {
             color: Colors.white,
             child: Theme(
               data: ThemeData(fontFamily: 'GoogleSans'),
-              child: FaceAwareThumbnailScope(child: list),
+              child: FaceAwareThumbnailScope(
+                child: realTimeline
+                    ? const Timeline(appBar: null, bottomSheet: null, denseLayout: true, withStack: true)
+                    : list,
+              ),
             ),
           ),
         ),
@@ -267,7 +275,7 @@ void main() {
         ),
         readonlyModeProvider.overrideWith(_Readonly.new),
         hapticFeedbackProvider.overrideWith(_NoHaptics.new),
-        appConfigProvider.overrideWithValue(const AppConfig()),
+        appConfigProvider.overrideWith((ref) => ref.watch(_testConfig)),
         thumbnailFaceBoundsProvider.overrideWith((_, _) => Stream.value(const [])),
         stackCountsProvider.overrideWith((_) => Stream.value({})),
       ],
@@ -276,8 +284,73 @@ void main() {
     await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 40)));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(tester.element(find.byType(CustomScrollView)));
-    return _Fixture(container, segments, boundary, scroll);
+    return _Fixture(
+      container,
+      segments,
+      boundary,
+      realTimeline ? PrimaryScrollController.of(tester.element(find.byType(CustomScrollView))) : scroll,
+    );
   }
+
+  testWidgets('real Timeline switches presentation and density while preserving the selected asset and scroll anchor', (
+    tester,
+  ) async {
+    final assets = [
+      for (var i = 0; i < 60; i++) _asset('mode-$i', ratio: [.45, 1.5, .75][i % 3]),
+    ];
+    final fixture = await mount(
+      tester,
+      assets,
+      realTimeline: true,
+      buckets: [
+        for (var day = 0; day < 6; day++)
+          TimeBucket(
+            date: DateTime(2026, 11, 3 - day),
+            assetCount: 10,
+            aspectRatios: assets.skip(day * 10).take(10).map((asset) => asset.width! / asset.height!).toList(),
+          ),
+      ],
+    );
+    fixture.scroll.jumpTo(900);
+    await tester.pumpAndSettle();
+    final visible = tester
+        .widgetList<ThumbnailTile>(find.byType(ThumbnailTile))
+        .where((tile) {
+          final rect = tester.getRect(_tile(tile.asset!.id));
+          return rect.top >= 0 && rect.bottom <= 844;
+        })
+        .first
+        .asset!;
+    await tester.longPress(_tile(visible.id));
+    await tester.pumpAndSettle();
+    final selectedBefore = fixture.container.read(multiSelectProvider).selectedAssets.map((asset) => asset.id).toSet();
+    expect(selectedBefore, {visible.id});
+    final config = fixture.container.read(_testConfig.notifier);
+    config.state = config.state.copyWith(
+      timeline: config.state.timeline.copyWith(presentation: TimelinePresentation.immersive),
+    );
+    await tester.pumpAndSettle();
+    expect(fixture.container.read(multiSelectProvider).selectedAssets.map((asset) => asset.id).toSet(), selectedBefore);
+    final immersiveSegments = fixture.container.read(timelineSegmentProvider).requireValue;
+    expect(immersiveSegments.every((segment) => segment.headerExtent == 0), isTrue);
+    expect(fixture.scroll.offset, greaterThan(0), reason: 'Presentation switching must not reset to the newest photo');
+    expect(_tile(visible.id), findsOneWidget);
+    final widthBefore = tester.getRect(_tile(visible.id)).width;
+    config.state = config.state.copyWith(timeline: config.state.timeline.copyWith(tilesPerRow: 2));
+    await tester.pumpAndSettle();
+    expect(fixture.container.read(timelineArgsProvider).columnCount, 2);
+    expect(tester.getRect(_tile(visible.id)).width, isNot(widthBefore));
+    config.state = config.state.copyWith(
+      timeline: config.state.timeline.copyWith(presentation: TimelinePresentation.classic),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      fixture.container.read(timelineSegmentProvider).requireValue.every((segment) => segment.headerExtent > 0),
+      isTrue,
+    );
+    expect(fixture.container.read(multiSelectProvider).selectedAssets.map((asset) => asset.id).toSet(), selectedBefore);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final ratios in [
     <double>[.5],

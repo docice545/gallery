@@ -6,6 +6,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
@@ -26,6 +27,7 @@ import 'package:immich_mobile/providers/timeline/highlighted_asset.provider.dart
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/widgets/asset_grid/thumbnail_placeholder.dart';
+import 'package:intl/intl.dart';
 
 class FixedSegment extends Segment {
   final double tileHeight;
@@ -112,7 +114,7 @@ class FixedSegment extends Segment {
     final rowIndexInSegment = index - gridIndex;
     final layout = rows;
 
-    return _FixedSegmentRow(
+    final row = _FixedSegmentRow(
       assetIndex: firstAssetIndex + layout.firstAssetIndexForRow(rowIndexInSegment),
       assetCount: layout.assetCountForRow(rowIndexInSegment),
       tileHeight: layout.heightForRow(rowIndexInSegment),
@@ -123,6 +125,16 @@ class FixedSegment extends Segment {
       rowWidths: denseLayout ? layout.widthsForRow(rowIndexInSegment) : null,
       topCornerRadius: 0,
     );
+    // Immersive mode removes visual headers, not the accessible date grouping.
+    return header == HeaderType.none && bucket is TimeBucket && rowIndexInSegment == 0
+        ? Semantics(
+            container: true,
+            label: DateFormat.yMMMd(
+              Localizations.localeOf(context).toLanguageTag(),
+            ).format((bucket as TimeBucket).date),
+            child: row,
+          )
+        : row;
   }
 
   @override
