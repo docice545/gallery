@@ -361,9 +361,7 @@
       case AssetAction.DELETE:
       case AssetAction.TRASH: {
         const nextAsset = assetCursor.nextAsset ?? assetCursor.previousAsset;
-        const deletedIndex = assets.findIndex(
-          (currentAsset) => currentAsset.id === action.asset.id,
-        );
+        const deletedIndex = assets.findIndex((currentAsset) => currentAsset.id === action.asset.id);
         if (deletedIndex === -1) {
           // A stacked child is not necessarily a top-level gallery asset.
           // Never remove an unrelated gallery item.
