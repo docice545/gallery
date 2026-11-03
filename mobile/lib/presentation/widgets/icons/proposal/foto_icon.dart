@@ -73,6 +73,7 @@ class FotoIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
+    label: label,
     selected: selected,
     child: SizedBox.square(
       dimension: 48,

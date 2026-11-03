@@ -245,6 +245,16 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     _eventSubscription = EventStream.shared.listen(_onEvent);
 
     ref.listenManual(multiSelectProvider.select((s) => s.isEnabled), _onMultiSelectionToggled);
+    // Capture before the scoped layout args invalidate the segment stream and
+    // temporarily attach a loading scroll view at offset zero.
+    ref.listenManual(appConfigProvider.select((config) => config.timeline), (previous, next) {
+      if (previous == null || (previous.presentation == next.presentation && previous.tilesPerRow == next.tilesPerRow))
+        return;
+      final segments = _lastRenderedSegments;
+      if (segments != null && _scrollController.positions.length == 1 && _scrollController.position.hasPixels) {
+        _restoreAssetIndex ??= _getCurrentAssetIndex(segments);
+      }
+    });
 
     // Drain any pending "view in timeline" request. It is latched in
     // [scrollToAssetNotifierProvider] so it survives this timeline being mounted
@@ -270,7 +280,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
       // The updated args already regenerate the segments, only remember the scroll position to restore it afterwards
       final segments = _lastRenderedSegments;
       if (segments != null && _scrollController.hasClients) {
-        _restoreAssetIndex = _getCurrentAssetIndex(segments);
+        _restoreAssetIndex ??= _getCurrentAssetIndex(segments);
       }
     }
   }
@@ -306,31 +316,27 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   }
 
   void _restoreAssetPosition(_) {
-    if (_restoreAssetIndex == null) {
-      return;
-    }
-
+    final assetIndex = _restoreAssetIndex;
     final asyncSegments = ref.read(timelineSegmentProvider);
-    asyncSegments.whenData((segments) {
-      final targetSegment = segments.lastWhereOrNull((segment) => segment.firstAssetIndex <= _restoreAssetIndex!);
-      if (targetSegment != null) {
-        final newColumnCount = ref.read(timelineArgsProvider).columnCount;
-        final targetOffset = assetRowOffset(
-          segment: targetSegment,
-          assetIndexInTimeline: _restoreAssetIndex!,
-          columnCount: newColumnCount,
-        );
-        if (targetOffset == null) {
-          return;
-        }
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _scrollController.jumpTo(targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
-          }
-        });
-      }
+    // onAttach also runs for the temporary loading view. It cannot consume an
+    // anchor intended for the next completed mosaic layout.
+    if (assetIndex == null || asyncSegments.isLoading || !asyncSegments.hasValue) return;
+    final segments = asyncSegments.requireValue;
+    final targetSegment = segments.lastWhereOrNull((segment) => segment.firstAssetIndex <= assetIndex);
+    if (targetSegment == null) return;
+    final targetOffset = assetRowOffset(
+      segment: targetSegment,
+      assetIndexInTimeline: assetIndex,
+      columnCount: ref.read(timelineArgsProvider).columnCount,
+    );
+    if (targetOffset == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _restoreAssetIndex != assetIndex || _scrollController.positions.length != 1) return;
+      final position = _scrollController.position;
+      if (!position.hasContentDimensions) return;
+      position.jumpTo(targetOffset.clamp(0.0, position.maxScrollExtent));
+      _restoreAssetIndex = null;
     });
-    _restoreAssetIndex = null;
   }
 
   void _onMultiSelectionToggled(_, bool isEnabled) {
