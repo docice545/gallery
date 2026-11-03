@@ -165,10 +165,10 @@ void main() {
       final motionStages = stages
           .where(
             (stage) =>
-              stage == 'Timeline motion: selected' ||
-              stage.startsWith('Timeline motion: native-ready:') ||
-              stage == 'Timeline motion: play-request-accepted' ||
-              stage == 'Timeline motion: position-advanced',
+                stage == 'Timeline motion: selected' ||
+                stage.startsWith('Timeline motion: native-ready:') ||
+                stage == 'Timeline motion: play-request-accepted' ||
+                stage == 'Timeline motion: position-advanced',
           )
           .map(
             (stage) => stage.startsWith('Timeline motion: native-ready:')
@@ -176,11 +176,12 @@ void main() {
                 : stage.substring('Timeline motion: '.length),
           )
           .toList();
-      expect(
-        motionStages,
-        ['selected', 'native-ready', 'play-request-accepted', 'position-advanced'],
-        reason: 'native readiness and a play ACK must be followed by decoded motion; ${diagnostics()}',
-      );
+      expect(motionStages, [
+        'selected',
+        'native-ready',
+        'play-request-accepted',
+        'position-advanced',
+      ], reason: 'native readiness and a play ACK must be followed by decoded motion; ${diagnostics()}');
       expect(stages.where((stage) => stage == 'Timeline motion: finished:ended'), hasLength(1));
       expect(stages, isNot(contains('Timeline motion: finished:timeout')));
       expect(find.byType(NativeVideoViewer), findsNothing);
