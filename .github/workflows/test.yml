@@ -3,7 +3,8 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, 'release/*']
+    # Exact-source evidence for the isolated audit candidate, before any merge.
+    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

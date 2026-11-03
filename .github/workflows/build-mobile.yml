@@ -208,6 +208,7 @@ jobs:
           "$RUNNER_TEMP/foto-ci-tools/bin/pip" install PyYAML==6.0.3
           echo "$RUNNER_TEMP/foto-ci-tools/bin" >> "$GITHUB_PATH"
       - run: python3 -m unittest discover -s mobile/scripts/tests -v
+      - run: python3 -m unittest discover -s scripts/release/tests -v
       - run: python3 -m unittest discover -s tools/foto-automation/tests -p '*scope.py' -v
 
   build-unsigned-android:
@@ -444,7 +445,19 @@ jobs:
           github_token: ${{ github.token }}
           working_directory: ./mobile
 
+      - name: Preserve committed iOS version and build through branding
+        id: ios-source-meta
+        run: |
+          read -r app_version app_build <<< "$(awk -F'[ +]' '/^version:/ {print $2, $3}' mobile/pubspec.yaml)"
+          [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$app_build" =~ ^[1-9][0-9]*$ ]]
+          echo "version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build=$app_build" >> "$GITHUB_OUTPUT"
+
       - uses: ./.github/actions/apply-branding
+        with:
+          version: ${{ steps.ios-source-meta.outputs.version }}
+          build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Use CocoaPods for Flutter plugins
         run: mise exec -- flutter config --no-enable-swift-package-manager

@@ -94,6 +94,7 @@ Viewer до первой Live Photo не открывать. Отдельно в
 
 **Текущий статус: Samsung NOT TESTED, 120 Hz NOT MEASURED, acceptance INCOMPLETE, release NO-GO.**
 Обязательные jobs и изменённые Dart/native assertions подготовлены, но не исполнялись в этой Linux-среде
-без Flutter/Android SDK; новый hosted CI ещё не получен. Python fixture tests проверяют инструменты
+без Flutter/Android SDK; на SHA `86eeb429f` оба hosted Live Photo gate уже PASS ([run](https://github.com/docice545/gallery/actions/runs/41694382792)),
+но полный Flutter suite имеет 6 failures. Следующий candidate SHA должен получить собственные результаты. Python fixture tests проверяют инструменты
 и условия gate, а не воспроизведение видео. После интеграции результатов статус обновляется только
 по точному source/artifact и фактически выполненным проверкам, без переноса PASS с другого SHA.

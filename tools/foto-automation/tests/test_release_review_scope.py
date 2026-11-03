@@ -76,6 +76,17 @@ class ReleaseReviewScopeTests(unittest.TestCase):
         self.assertIn('if: inputs.ios_release != true', step)
         self.assertIn('path: mobile/build/ios/ipa/Photos-unsigned.ipa', step)
         self.assertIn('if-no-files-found: error', step)
+        job = yaml.safe_load(source)['jobs']['build-sign-ios']
+        branding = next(step for step in job['steps'] if step.get('uses') == './.github/actions/apply-branding')
+        self.assertEqual(branding['with']['version'], '${{ steps.ios-source-meta.outputs.version }}')
+        self.assertEqual(branding['with']['build_number'], '${{ steps.ios-source-meta.outputs.build }}')
+
+    def test_audit_source_can_collect_all_release_evidence_without_merge(self):
+        for workflow in ('build-mobile.yml', 'test.yml', 'static_analysis.yml'):
+            source = yaml.safe_load((ROOT / '.github/workflows' / workflow).read_text())
+            self.assertIn('codex/issue18-cross-platform-audit', source[True]['push']['branches'])
+        source = (ROOT / '.github/workflows/build-mobile.yml').read_text()
+        self.assertIn('python3 -m unittest discover -s scripts/release/tests -v', source)
 
     def test_live_photo_gate_cannot_be_skipped_by_path_filters_or_artifact_jobs(self):
         source = (ROOT / '.github/workflows/build-mobile.yml').read_text()
