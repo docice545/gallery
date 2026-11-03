@@ -38,7 +38,11 @@ class FailureAnnotations(unittest.TestCase):
             output = io.StringIO()
             with redirect_stdout(output):
                 reporter.flutter(path)
-        lines = output.getvalue().splitlines()
+        lines = [
+            line
+            for line in output.getvalue().splitlines()
+            if line.startswith("::error")
+        ]
         self.assertEqual(len(lines), 1)
         self.assertIn("cold start%2C lifecycle", lines[0])
         self.assertIn("expected 1%25%0A::notice::injected", lines[0])

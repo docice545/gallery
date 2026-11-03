@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
@@ -231,6 +232,7 @@ Future<RootStackRouter> _pumpRoutedScope(
   _PlaybackLog log, {
   List<BaseAsset>? assets,
   ScrollController? scrollController,
+  TimelinePresentation presentation = TimelinePresentation.classic,
 }) async {
   final frames = assets ?? [_remoteAsset('cold-routed')];
   final feed = Center(
@@ -296,7 +298,7 @@ Future<RootStackRouter> _pumpRoutedScope(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        appConfigProvider.overrideWithValue(const AppConfig()),
+        appConfigProvider.overrideWithValue(const AppConfig().copyWith.timeline(presentation: presentation)),
         multiSelectProvider.overrideWith(_TestSelection.new),
       ],
       child: MaterialApp.router(routerConfig: router.config()),
@@ -310,20 +312,49 @@ Future<RootStackRouter> _pumpRoutedScope(
 }
 
 void main() {
-  testWidgets('cold AutoRoute tab activates motion without a viewer roundtrip', (tester) async {
+  testWidgets('presentation and density updates retain one playback lease and cannot bypass selection gating', (
+    tester,
+  ) async {
     final log = _PlaybackLog();
-    await _pumpRoutedScope(tester, log);
-    final context = tester.element(find.byType(TimelineLivePhotoScope));
-    expect(context.routeData.name, _feedRoute);
-    expect(context.routeData.router.current.name, _feedRoute);
-    expect(context.routeData.isActive, isFalse, reason: 'the cold URL-history snapshot omits the visible nested tab');
-    expect(context.routeData.router.root.currentSegments.map((route) => route.name), contains(_feedRoute));
-    expect(ModalRoute.of(context)?.isCurrent, isTrue);
-    expect(TickerMode.valuesOf(context).enabled, isTrue);
+    final container = await _pumpScope(tester, log);
     await _settlePlayback(tester);
-    expect(log.alive, {'cold-routed'});
+    expect(log.alive, hasLength(1));
+    final playing = log.alive.single;
+    final starts = List<String>.of(log.starts);
+    container.read(_configProvider.notifier).state = const AppConfig().copyWith.timeline(
+      presentation: TimelinePresentation.immersive,
+      tilesPerRow: 3,
+    );
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.alive, {playing});
+    expect(log.starts, starts);
+    container.read(multiSelectProvider.notifier).selectAsset(_asset(playing));
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    container.read(_configProvider.notifier).state = const AppConfig();
+    await tester.pump();
+    await _settlePlayback(tester);
+    expect(log.alive, isEmpty);
     expect(log.maxConcurrent, 1);
   });
+
+  for (final presentation in TimelinePresentation.values) {
+    testWidgets('cold AutoRoute $presentation tab activates motion without a viewer roundtrip', (tester) async {
+      final log = _PlaybackLog();
+      await _pumpRoutedScope(tester, log, presentation: presentation);
+      final context = tester.element(find.byType(TimelineLivePhotoScope));
+      expect(context.routeData.name, _feedRoute);
+      expect(context.routeData.router.current.name, _feedRoute);
+      expect(context.routeData.isActive, isFalse, reason: 'the cold URL-history snapshot omits the visible nested tab');
+      expect(context.routeData.router.root.currentSegments.map((route) => route.name), contains(_feedRoute));
+      expect(ModalRoute.of(context)?.isCurrent, isTrue);
+      expect(TickerMode.valuesOf(context).enabled, isTrue);
+      await _settlePlayback(tester);
+      expect(log.alive, {'cold-routed'});
+      expect(log.maxConcurrent, 1);
+    });
+  }
 
   testWidgets('AutoRoute keeps motion off on another tab and rearms only after returning to the feed', (tester) async {
     final log = _PlaybackLog();

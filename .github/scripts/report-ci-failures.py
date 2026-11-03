@@ -21,6 +21,7 @@ def report(title: str, message: str, *, level: str = "error") -> None:
 def flutter(path: Path) -> None:
     names = {}
     output = {}
+    failures = set()
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -35,12 +36,16 @@ def flutter(path: Path) -> None:
             test_id = event.get("testID")
             # Flutter widget failures put the assertion and source location in
             # print events; their error event only says "See exception logs above".
+            combined = output.get(test_id, "") + "\n" + str(event.get("message", ""))
             output[test_id] = (
-                output.get(test_id, "") + "\n" + str(event.get("message", ""))
-            )[-12000:]
+                combined
+                if len(combined) <= 12000
+                else combined[:6000] + "\n...\n" + combined[-5900:]
+            )
         elif event.get("type") == "error":
             test_id = event.get("testID")
             title = names.get(test_id, "Flutter test failure")
+            failures.add(title)
             evidence = (
                 str(event.get("error", ""))
                 + "\n"
@@ -56,6 +61,10 @@ def flutter(path: Path) -> None:
                 )
         elif event.get("type") == "testDone":
             output.pop(event.get("testID"), None)
+    if failures:
+        report(
+            "Flutter failed test inventory", "\n".join(sorted(failures)), level="notice"
+        )
 
 
 def formatting() -> None:

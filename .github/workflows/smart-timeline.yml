@@ -44,6 +44,8 @@ jobs:
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
             test/presentation/widgets/timeline/scrubber_positions_test.dart \
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            test/presentation/widgets/icons/foto_icon_proposal_test.dart \
             test/widgets/settings/asset_list_settings_test.dart
       - name: Annotate formatter differences
         if: failure() && steps.format.outcome == 'failure'
@@ -63,6 +65,7 @@ jobs:
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
             test/presentation/widgets/timeline/scrubber_positions_test.dart \
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
+            test/presentation/widgets/icons/foto_icon_proposal_test.dart \
             test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
             test/presentation/widgets/timeline/live_photo_presentation_test.dart \
