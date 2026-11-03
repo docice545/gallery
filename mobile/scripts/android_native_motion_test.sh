@@ -10,6 +10,12 @@ export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.wo
 # Keep the unchanged real-player test and its failure available both in the full
 # log and GitHub's check annotations when the log storage requires other access.
 log_file="${RUNNER_TEMP:-/tmp}/gallery-native-motion-test.log"
+android_log_file="${RUNNER_TEMP:-/tmp}/gallery-native-motion-android.log"
+# Clear only this disposable emulator's old log entries. Never target a physical
+# device through adb's default-device selection.
+if command -v adb >/dev/null 2>&1; then
+  adb -s emulator-5554 logcat -c || true
+fi
 set +e
 # The headless test needs the VM service, but not the optional DDS/DevTools
 # proxy. DDS startup failed on the hosted emulator before the test could load.
@@ -19,13 +25,41 @@ flutter test --no-pub --no-dds integration_test/timeline_native_motion_test.dart
 test_status=${PIPESTATUS[0]}
 set -e
 if (( test_status != 0 )); then
-  python3 - "$log_file" <<'PY'
+  # A VM-service disappearance can precede every Dart assertion. Preserve the
+  # Android crash/exit reason so that a startup failure is not blamed on playback
+  # or "fixed" by weakening its assertions. Diagnostic errors cannot mask it.
+  if command -v adb >/dev/null 2>&1; then
+    {
+      adb -s emulator-5554 logcat -b crash -d -v threadtime || true
+      adb -s emulator-5554 logcat -d -v threadtime -t 300 \
+        AndroidRuntime:E libc:F DEBUG:F flutter:E ActivityManager:I ActivityTaskManager:I lmkd:I '*:S' || true
+      adb -s emulator-5554 shell dumpsys activity exit-info de.opennoodle.gallery.debug || true
+    } > "$android_log_file" 2>&1
+  fi
+  python3 - "$log_file" "$android_log_file" <<'PY'
 import sys
 from pathlib import Path
 
 tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-180:])
 escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
 print('::error title=Actual Android native timeline playback failure::' + escaped)
+android_log = Path(sys.argv[2])
+if android_log.exists():
+    context = android_log.read_text(errors='replace')
+    if len(context) > 24000:
+        context = context[:12000] + '\n[truncated; full Android log retained as artifact]\n' + context[-12000:]
+    escaped = context.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print('::error title=Android startup crash and process exit evidence::' + escaped)
+PY
+else
+  python3 - "$log_file" <<'PY'
+import sys
+from pathlib import Path
+
+for line in Path(sys.argv[1]).read_text(errors='replace').splitlines():
+    if 'Native timeline smoke:' in line:
+        escaped = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print('::notice title=Native decoded playback evidence::' + escaped)
 PY
 fi
 exit "$test_status"
