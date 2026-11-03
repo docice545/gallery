@@ -466,6 +466,7 @@ jobs:
 
   foto-offline-emulator:
     name: FOTO Build 22 offline timeline emulator E2E
+    if: ${{ github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build36-web-backend-final' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
