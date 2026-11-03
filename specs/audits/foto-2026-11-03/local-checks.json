@@ -1,0 +1,31 @@
+{
+  "sourceCommit": "fda0ef2004bfb0e7f5908eda51e45a817c7be2e2",
+  "logSha256": {
+    "server-targeted.log": "9ce913081f53e1ac3a917faa34c33417e63d45d209ecc60f88fe6db2bacb2bed",
+    "server-medium.log": "13dce12104e722b2aed7458c94a10b1ac8429b84c0a7bb4db0c48d967c60ec99",
+    "web-targeted.log": "7948ec8f64e56179fb64893c5c2767777deb5d25f41896d098ff278c772afec9",
+    "ios-tooling.log": "c01645f92819af92aadb5c9028c7bd7226d703e1000830e97b38ec33fcedd286"
+  },
+  "results": {
+    "serverUnit": {
+      "passed": 102,
+      "failed": 1
+    },
+    "serverMedium": {
+      "passed": 61,
+      "files": 7
+    },
+    "web": {
+      "passed": 197,
+      "files": 10
+    },
+    "iosToolingPython": {
+      "passed": 108
+    },
+    "flutter": "NOT_RUN_TOOLCHAIN_UNAVAILABLE",
+    "nativeIOS": "NOT_RUN_NO_MACOS",
+    "physicalSamsung": "NOT_TESTED",
+    "physicalIPhone": "NOT_TESTED",
+    "production": "NOT_ACCESSED"
+  }
+}

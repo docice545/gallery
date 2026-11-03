@@ -1397,7 +1397,7 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('runtime stages distinguish source, native readiness and natural end without media identity', (
+  testWidgets('runtime stages require native position progress after readiness and play acknowledgement', (
     tester,
   ) async {
     final records = <String>[];
@@ -1413,6 +1413,23 @@ void main() {
     try {
       await mountPreview(tester);
       await tester.runAsync(() => playing.future.timeout(const Duration(seconds: 3)));
+      await tester.pump();
+      // A loaded cover and an accepted play request are not proof of motion.
+      expect(playbackStarts, 0);
+      expect(records, isNot(contains('Timeline motion: position-advanced')));
+      position.value = 100;
+      await tester.pump();
+      expect(playbackStarts, 1);
+      final stages = [
+        'Timeline motion: selected',
+        'Timeline motion: native-ready:1920x1080',
+        'Timeline motion: play-request-accepted',
+        'Timeline motion: position-advanced',
+      ];
+      expect(records.where(stages.contains).toList(), stages);
+      position.value = 200;
+      await tester.pump();
+      expect(records.where((record) => record == stages.last), hasLength(1));
       ended.notifyListeners();
       await tester.pump();
       expect(records, containsAll(['Timeline motion: selected', 'Timeline motion: platform-view-created']));

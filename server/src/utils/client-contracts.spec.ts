@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { PermanentDeletionDto, PermanentDeletionResultDto } from 'src/dtos/asset-deletion.dto.js';
 
 const read = (path: string) => JSON.parse(readFileSync(resolve(import.meta.dirname, '../../..', path), 'utf8'));
 const api = read('open-api/immich-openapi-specs.json');
@@ -67,13 +68,49 @@ describe('pinned client contracts', () => {
     expect(schema.required ?? []).toEqual([]);
     expect(schema.properties.timeZoneOffsetMinutes).toMatchObject({ type: 'integer', minimum: -720, maximum: 840 });
   });
-  it('preserves every existing schema except additive sync enum extensions', () => {
+  it('keeps irreversible admission opt-in while accepting legacy deletion request and result bodies', () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    const request = { ids: [id], confirmed: true };
+    const result = { id, state: 'pending' };
+
+    expect(PermanentDeletionDto.schema.parse(request)).toEqual(request);
+    expect(PermanentDeletionDto.schema.parse({ ...request, acceptOnly: true })).toEqual({
+      ...request,
+      acceptOnly: true,
+    });
+    expect(PermanentDeletionDto.schema.safeParse({ ...request, acceptOnly: false }).success).toBe(false);
+    expect(PermanentDeletionDto.schema.safeParse({ ...request, confirmed: false }).success).toBe(false);
+    expect(PermanentDeletionResultDto.schema.parse(result)).toEqual(result);
+    expect(PermanentDeletionResultDto.schema.parse({ ...result, accepted: true })).toEqual({
+      ...result,
+      accepted: true,
+    });
+    expect(PermanentDeletionResultDto.schema.safeParse({ ...result, accepted: false }).success).toBe(false);
+  });
+  it('preserves every existing schema except explicitly checked additive extensions', () => {
     const schemas = Object.fromEntries(
       baseline.schemaKeys.map((key: string) => [key, structuredClone(api.components.schemas[key])]),
     );
     // The new named enum is structurally identical to the old response enum,
     // checked below against the immutable baseline rather than an updated hash.
     schemas.SyncAckDto.properties.type.$ref = '#/components/schemas/SyncEntityType';
+    // Build 29 added two opt-in admission flags. Check their complete wire
+    // definitions and optionality before projecting only those properties out
+    // of the immutable legacy schema comparison. Never re-pin the baseline hash.
+    expect(schemas.PermanentDeletionDto.properties.acceptOnly).toEqual({
+      description: 'Commit an irreversible decision and delete files in the background.',
+      enum: [true],
+      type: 'boolean',
+    });
+    expect(schemas.PermanentDeletionDto.required).not.toContain('acceptOnly');
+    expect(schemas.PermanentDeletionResultDto.properties.accepted).toEqual({
+      description: 'An owner-scoped irreversible PostgreSQL intent is committed.',
+      enum: [true],
+      type: 'boolean',
+    });
+    expect(schemas.PermanentDeletionResultDto.required).not.toContain('accepted');
+    delete schemas.PermanentDeletionDto.properties.acceptOnly;
+    delete schemas.PermanentDeletionResultDto.properties.accepted;
     expect(digest(schemas)).toBe(baseline.schemasDigest);
     for (const [key, values] of Object.entries(baseline.syncEnums))
       expect(api.components.schemas[key].enum).toEqual(expect.arrayContaining(values as string[]));

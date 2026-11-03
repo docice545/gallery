@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The hosted emulator shares memory with Gradle. Bound parallel workers and give
+# Jetifier enough heap for MapLibre's native AAR; the previous 4 GiB heap failed
+# before the integration test could install or exercise the real player.
+# System properties affect this disposable test build only, not release builds.
+export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
+
 # Keep the unchanged real-player test and its failure available both in the full
 # log and GitHub's check annotations when the log storage requires other access.
 log_file="${RUNNER_TEMP:-/tmp}/gallery-native-motion-test.log"

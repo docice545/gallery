@@ -12,7 +12,8 @@ on:
         default: false
   pull_request:
   push:
-    branches: [main, 'release/*']
+    # Exact-source evidence for the isolated audit candidate, before any merge.
+    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,7 +41,7 @@ jobs:
               - 'i18n/en.json'
           force-filters: |
             - '.github/workflows/static_analysis.yml'
-          force-events: 'workflow_dispatch,release'
+          force-events: 'workflow_dispatch,release,push'
 
   mobile-dart-analyze:
     name: Run Dart Code Analysis
@@ -102,7 +103,13 @@ jobs:
         run: python3 ../tools/foto-automation/tests/run_pr7_memory_crash.py
 
       - name: Run format
+        id: dart-format
         run: mise //mobile:format
+
+      - name: Annotate formatter differences
+        if: failure() && steps.dart-format.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py format
 
       # TODO: Re-enable after upgrading custom_lint
       # - name: Run dart custom_lint

@@ -142,6 +142,7 @@ void main() {
       );
       for (var i = 0; i < 150 && !stages.contains('Timeline motion: finished:ended'); i++) {
         await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byType(NativeVideoViewer).evaluate().length, lessThanOrEqualTo(1));
         for (final asset in assets) {
           final state = container.read(timelinePreviewVideoPlayerProvider(asset.id));
           advanced = advanced || state.position > Duration.zero;
@@ -161,6 +162,26 @@ void main() {
         reason: 'native decoded playback position must advance, not just a mocked ready callback; ${diagnostics()}',
       );
       expect(stages.where((stage) => stage == 'Timeline motion: selected'), hasLength(1));
+      final motionStages = stages
+          .where(
+            (stage) =>
+                stage == 'Timeline motion: selected' ||
+                stage.startsWith('Timeline motion: native-ready:') ||
+                stage == 'Timeline motion: play-request-accepted' ||
+                stage == 'Timeline motion: position-advanced',
+          )
+          .map(
+            (stage) => stage.startsWith('Timeline motion: native-ready:')
+                ? 'native-ready'
+                : stage.substring('Timeline motion: '.length),
+          )
+          .toList();
+      expect(motionStages, [
+        'selected',
+        'native-ready',
+        'play-request-accepted',
+        'position-advanced',
+      ], reason: 'native readiness and a play ACK must be followed by decoded motion; ${diagnostics()}');
       expect(stages.where((stage) => stage == 'Timeline motion: finished:ended'), hasLength(1));
       expect(stages, isNot(contains('Timeline motion: finished:timeout')));
       expect(find.byType(NativeVideoViewer), findsNothing);

@@ -1,0 +1,93 @@
+[
+  {
+    "number": 16,
+    "headSha": "fda0ef2004bfb0e7f5908eda51e45a817c7be2e2",
+    "title": "fix(foto): reconcile Build 36 viewers, Live Photos and local albums",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/16"
+  },
+  {
+    "number": 15,
+    "headSha": "0c8be542121d415f4d748dda20367044cd200d40",
+    "title": "fix(foto): restore editor copies and sync recovery for Build 35",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/15"
+  },
+  {
+    "number": 14,
+    "headSha": "0e9899760cfe3252903c4150568066bc19c2dd60",
+    "title": "FOTO Build 26: hide confusing 'Delete from device' actions",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/14"
+  },
+  {
+    "number": 13,
+    "headSha": "8602ae7165bede777ffec4935d8db4452bed05c8",
+    "title": "fix(foto): Build 25 UI localization and compact stack indicators",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/13"
+  },
+  {
+    "number": 12,
+    "headSha": "519ded5fd938ce1f69e7540ffb96b3234915e61a",
+    "title": "docs: record FOTO client acceptance audit",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/12"
+  },
+  {
+    "number": 11,
+    "headSha": "e2a95e6aeee9d9da8d23ca7643a6a061c61944c3",
+    "title": "fix: FOTO Build 19 Live Photo playback, Android UI and Places",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/11"
+  },
+  {
+    "number": 10,
+    "headSha": "4aa7f41996b9e310224333059743e4bad7f1c249",
+    "title": "fix(mobile): FOTO Build 18 Android trash sync and image HTTP diagnostics",
+    "isDraft": true,
+    "permalink": "https://github.com/docice545/gallery/pull/10"
+  },
+  {
+    "number": 9,
+    "headSha": "b4641377900e2c4fa96d4650cfd00a366757b7fe",
+    "title": "fix(release): resume reviewed FOTO17 PR overlap and finalize under existing locks",
+    "isDraft": false,
+    "permalink": "https://github.com/docice545/gallery/pull/9"
+  },
+  {
+    "number": 8,
+    "headSha": "4255a4c826fe61f563fb866a139c8044a41eff18",
+    "title": "feat(release): add safe resumable HP FOTO Build 17 pipeline",
+    "isDraft": false,
+    "permalink": "https://github.com/docice545/gallery/pull/8"
+  },
+  {
+    "number": 7,
+    "headSha": "3cc9631b7a2a48d2889808da5db7a62cc1345fea",
+    "title": "fix(backend): support pinned Immich 3.3.5 and Noodle 5.8 clients",
+    "isDraft": false,
+    "permalink": "https://github.com/docice545/gallery/pull/7"
+  },
+  {
+    "number": 6,
+    "headSha": "df3e0daf14f7593808a039df080c32cd05a7a503",
+    "title": "fix(mobile): prioritize photos in the Android and iOS editor",
+    "isDraft": false,
+    "permalink": "https://github.com/docice545/gallery/pull/6"
+  },
+  {
+    "number": 5,
+    "headSha": "0c7a7165ba41f6da64552ef154a02848bf71e8d4",
+    "title": "fix(dedup): preserve source identities and prevent repeated timeline cards",
+    "isDraft": false,
+    "permalink": "https://github.com/docice545/gallery/pull/5"
+  },
+  {
+    "number": 4,
+    "headSha": "cf2cca55b8187fbf91582048dc1ed6d4d1138ec2",
+    "title": "feat(editor): complete FOTO Build 17 layered photo editor",
+    "isDraft": false,
+    "permalink": "https://github.com/docice545/gallery/pull/4"
+  }
+]

@@ -21,9 +21,9 @@ if [[ "$foto_mode" == upgrade ]]; then
   adb shell pm grant de.opennoodle.gallery.debug android.permission.READ_MEDIA_IMAGES
   adb shell pm grant de.opennoodle.gallery.debug android.permission.READ_MEDIA_VIDEO
 fi
-adb logcat -v threadtime > mobile/ci-receipts/emulator-${foto_mode}-logcat.log 2>&1 &
+adb logcat -v threadtime > "mobile/ci-receipts/emulator-${foto_mode}-logcat.log" 2>&1 &
 foto_logcat_pid=$!
-python3 - <<'PY' > mobile/ci-receipts/saf-${foto_mode}-picker.log 2>&1 &
+python3 - <<'PY' > "mobile/ci-receipts/saf-${foto_mode}-picker.log" 2>&1 &
 import os, re, subprocess, time, xml.etree.ElementTree as ET
 saved = 0
 expected = 2 if os.environ["FOTO24_TEST_MODE"] == "upgrade" else 1
@@ -57,10 +57,10 @@ foto_emulator_cleanup() {
   kill "$foto_logcat_pid" 2>/dev/null || true
   # This emulator contains only the synthetic debug fixture. Retain diagnostics
   # on timeout/failure as well as success; never run against a real phone.
-  timeout 10s adb logcat -b crash -d > mobile/ci-receipts/emulator-${foto_mode}-crashes.log 2>&1 || true
-  timeout 10s adb exec-out screencap -p > mobile/ci-receipts/emulator-${foto_mode}-last-screen.png || true
+  timeout 10s adb logcat -b crash -d > "mobile/ci-receipts/emulator-${foto_mode}-crashes.log" 2>&1 || true
+  timeout 10s adb exec-out screencap -p > "mobile/ci-receipts/emulator-${foto_mode}-last-screen.png" || true
   timeout 15s adb shell uiautomator dump /sdcard/foto24-last-window.xml >/dev/null 2>&1 || true
-  timeout 10s adb exec-out cat /sdcard/foto24-last-window.xml > mobile/ci-receipts/emulator-${foto_mode}-last-window.xml || true
+  timeout 10s adb exec-out cat /sdcard/foto24-last-window.xml > "mobile/ci-receipts/emulator-${foto_mode}-last-window.xml" || true
 }
 trap foto_emulator_cleanup EXIT
 (
@@ -69,9 +69,9 @@ trap foto_emulator_cleanup EXIT
   # after Dart connects and cannot catch an Android launch failure.
   timeout --signal=TERM --kill-after=20s 20m flutter test --verbose --no-uninstall \
     "$foto_test" --reporter expanded
-) 2>&1 | tee mobile/ci-receipts/android-${foto_mode}.log
+) 2>&1 | tee "mobile/ci-receipts/android-${foto_mode}.log"
 wait "$foto_picker_pid"
-adb pull /sdcard/Download/FOTO-SQLite-backup.zip mobile/ci-receipts/synthetic-${foto_mode}-recovery.zip
+adb pull /sdcard/Download/FOTO-SQLite-backup.zip "mobile/ci-receipts/synthetic-${foto_mode}-recovery.zip"
 python3 - <<'PY'
 import hashlib,json,zipfile,os
 with zipfile.ZipFile('mobile/ci-receipts/synthetic-'+os.environ['FOTO24_TEST_MODE']+'-recovery.zip') as z:

@@ -1,6 +1,7 @@
 import { S3StorageBackend } from 'src/backends/s3-storage.backend.js';
-import { JobStatus } from 'src/enum.js';
+import { AssetStatus, JobStatus } from 'src/enum.js';
 import { IntegrityService } from 'src/services/integrity.service.js';
+import { NotificationService } from 'src/services/notification.service.js';
 import { StorageService } from 'src/services/storage.service.js';
 import { ServiceMocks, newTestService } from 'test/utils.js';
 
@@ -61,6 +62,34 @@ describe(IntegrityService.name, () => {
   });
 
   describe('handleDeleteIntegrityReports', () => {
+    it('finishes a silent bulk trash without an empty-owner notification query', async () => {
+      const { sut: notifications, mocks: notificationMocks } = newTestService(NotificationService);
+      notificationMocks.asset.getActiveTimelineRepresentativeIds.mockRejectedValue(
+        new Error('invalid input syntax for type uuid: ""'),
+      );
+      mocks.event.emit.mockImplementation(async (name, ...args) => {
+        if (name === 'AssetTrashAll') {
+          await notifications.onAssetsTrash(args[0] as { assetIds: string[]; userId: string });
+        }
+      });
+
+      await expect(
+        sut.handleDeleteIntegrityReports({
+          reports: [{ id: 'report-id', assetId: 'asset-id', path: '/synthetic/missing.jpg' }] as never,
+        }),
+      ).resolves.toBe(JobStatus.Success);
+
+      expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset-id'], {
+        deletedAt: expect.any(Date),
+        status: AssetStatus.Trashed,
+      });
+      expect(mocks.integrityReport.deleteByIds).toHaveBeenCalledWith(['report-id']);
+      expect(notificationMocks.asset.getActiveTimelineRepresentativeIds).not.toHaveBeenCalled();
+      expect(notificationMocks.websocket.clientSend).not.toHaveBeenCalled();
+      expect(notificationMocks.websocket.clientBroadcast).not.toHaveBeenCalled();
+      expect(mocks.storage.unlink).not.toHaveBeenCalled();
+    });
+
     it('should unlink only paths that are still untracked', async () => {
       const tracked = '/data/upload/admin/ab/asset.mov';
       const untracked = '/data/upload/orphan.mov';

@@ -79,9 +79,7 @@ void main() {
             home: Material(
               child: SizedBox(
                 width: width,
-                child: MemoryLane(
-                  thumbnailBuilder: (_) => const ColoredBox(color: Colors.blue),
-                ),
+                child: MemoryLane(thumbnailBuilder: (_) => const ColoredBox(color: Colors.blue)),
               ),
             ),
           ),
@@ -114,11 +112,7 @@ void main() {
   testWidgets('long titles remain inside the rounded card', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: SizedBox(
-          width: 148,
-          height: 200,
-          child: MemoryCard(memory: _emptyMemory()),
-        ),
+        home: SizedBox(width: 148, height: 200, child: MemoryCard(memory: _emptyMemory())),
       ),
     );
     await tester.pump();

@@ -3,7 +3,8 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, 'release/*']
+    # Exact-source evidence for the isolated audit candidate, before any merge.
+    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -87,7 +88,7 @@ jobs:
               - '.github/**'
           force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && '- .github/workflows/test.yml' || '' }}
 
-          force-events: 'workflow_dispatch'
+          force-events: 'workflow_dispatch,push'
 
   upstream-preflight:
     name: Upstream Rebase Tooling
@@ -563,9 +564,16 @@ jobs:
           df -h /
 
       - name: Docker build
+        id: docker-build
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300
+        run: |
+          set -o pipefail
+          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee "$RUNNER_TEMP/e2e-docker-build.log"
+      - name: Annotate disposable Docker build failure
+        if: failure() && steps.docker-build.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/e2e-docker-build.log"
       - name: Wait for e2e server
         run: node ../.github/scripts/wait-for-url.mjs http://127.0.0.1:2285/api/server/ping
       - name: Run e2e tests (web)

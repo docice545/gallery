@@ -33,6 +33,7 @@ CI_APK_SHA256 = "ae3ed08bfe8794e1f12193e5d29733c22c22e7671672726e1a27b869483a452
 CI_CERTIFICATE_SHA256 = "d7bfd9bf0ff80fc97c3db14fdf96cf9996488439a8e906d7bece8078eef40410"
 SIGN_EXISTING_CHECKS = ["pinned-ci-apk", "ci-package-manifest-signature", "unchanged-apk-payload", "production-signature"]
 BUILD_TOOLS = "36.0.0"
+UNIVERSAL_ABIS = {"armeabi-v7a", "arm64-v8a", "x86_64"}
 STAGES = [
     "locked-codegen",
     "dart-format",
@@ -100,17 +101,29 @@ def apk_build_command(name: str, number: int) -> list[str]:
         "--release",
         f"--build-name={name}",
         f"--build-number={number}",
+        "--target-platform=android-arm,android-arm64,android-x64",
         "--pub",
     ]
 
 
-def repository_check(root: Path, expected: str) -> None:
+def check_branch(branch: str) -> None:
+    if (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", branch)
+        or ".." in branch
+        or any(not part or part.startswith(".") or part.endswith(".lock") for part in branch.split("/"))
+        or branch.endswith(".")
+    ):
+        raise ReleaseError("expected branch must be a valid explicit branch name")
+
+
+def repository_check(root: Path, expected: str, *, branch: str = "work") -> None:
     if not re.fullmatch(r"[0-9a-f]{40}", expected):
         raise ReleaseError(
             "--expected-head must be the full, reviewed 40-character commit SHA"
         )
-    if run(["git", "branch", "--show-current"], root).strip() != "work":
-        raise ReleaseError("branch must be work")
+    check_branch(branch)
+    if run(["git", "branch", "--show-current"], root).strip() != branch:
+        raise ReleaseError("branch differs from --expected-branch")
     if run(["git", "rev-parse", "HEAD"], root).strip() != expected:
         raise ReleaseError(
             "HEAD differs from --expected-head; no fetch/merge/reset is performed"
@@ -229,7 +242,15 @@ def check_key_files(root: Path) -> None:
         raise ReleaseError("both existing signing files must be ignored")
 
 
-def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
+def java_major(root: Path) -> int:
+    pin = tomllib.loads((root / "mobile/mise.toml").read_text())["tools"]["java"]
+    major = re.match(r"^(\d+)\.", pin)
+    if not major:
+        raise ReleaseError("repository Java toolchain pin is missing or invalid")
+    return int(major[1])
+
+
+def preflight(root: Path, expected: str, env: dict[str, str], *, branch: str = "work") -> bool:
     failures = []
 
     def check(name: str, operation) -> None:
@@ -241,8 +262,8 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
             print(f"FAIL {name}: {error}")
 
     check(
-        "reviewed repository / HEAD / work / clean working tree",
-        lambda: repository_check(root, expected),
+        "reviewed repository / HEAD / expected branch / clean working tree",
+        lambda: repository_check(root, expected, branch=branch),
     )
     check(
         "existing ignored signing files (contents not read)",
@@ -250,6 +271,7 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
     )
 
     def dependencies() -> None:
+        required_java = java_major(root)
         for tool in ["git", "bash", "flutter", "dart", "java", "mise"]:
             if not shutil.which(tool, path=env.get("PATH")):
                 raise ReleaseError(f"required existing tool is missing: {tool}")
@@ -257,13 +279,13 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
             not env.get("JAVA_HOME")
             or not (Path(env["JAVA_HOME"]) / "bin/java").is_file()
         ):
-            raise ReleaseError("JAVA_HOME must point to the existing JDK 17")
+            raise ReleaseError(f"JAVA_HOME must point to the existing pinned JDK {required_java}")
         java = run([str(Path(env["JAVA_HOME"]) / "bin/java"), "-version"], root, env)
-        if not re.search(r'version "17\.', java):
-            raise ReleaseError("Android JAVA_HOME must use JDK 17")
+        if not re.search(rf'version "{required_java}\.', java):
+            raise ReleaseError(f"Android JAVA_HOME must use pinned JDK {required_java}")
         path_java = run(["java", "-version"], root, env)
-        if not re.search(r'version "17\.', path_java):
-            raise ReleaseError("PATH java must also be JDK 17")
+        if not re.search(rf'version "{required_java}\.', path_java):
+            raise ReleaseError(f"PATH java must also be pinned JDK {required_java}")
         pin = tomllib.loads((root / "mobile/mise.toml").read_text())["tools"][
             "aqua:flutter/flutter"
         ]["version"]
@@ -279,7 +301,7 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
         if path_dart != (flutter_sdk / "bin/dart").resolve():
             raise ReleaseError("PATH dart must come from the same pinned Flutter SDK")
 
-    check("existing pinned Flutter/Dart and JDK 17", dependencies)
+    check("existing pinned Flutter/Dart and Java toolchain", dependencies)
 
     def android_sdk() -> None:
         sdk = sdk_path(env)
@@ -315,6 +337,31 @@ def preflight(root: Path, expected: str, env: dict[str, str]) -> bool:
         "INFO No keys were generated/read; no build/install/production operation was executed."
     )
     return not failures
+
+
+def universal_native_payload(apk: Path) -> list[str]:
+    try:
+        with zipfile.ZipFile(apk) as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)) or archive.testzip() is not None:
+                raise ReleaseError("APK has duplicate or corrupt entries")
+            abis = {
+                name.split("/")[1]
+                for name in names
+                if name.startswith("lib/") and name.endswith(".so")
+            }
+            if abis != UNIVERSAL_ABIS:
+                raise ReleaseError("Build 36+ requires all three universal APK ABIs")
+            for abi in abis:
+                for library in ("libapp.so", "libflutter.so", "libsqlite3.so"):
+                    path = f"lib/{abi}/{library}"
+                    if path not in names or archive.getinfo(path).file_size == 0:
+                        raise ReleaseError(
+                            f"APK is missing a required native library: {path}"
+                        )
+            return sorted(abis)
+    except zipfile.BadZipFile as error:
+        raise ReleaseError("APK is not a valid ZIP archive") from error
 
 
 def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
@@ -371,6 +418,9 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
         raise ReleaseError(
             "APK is not signed by the existing foto release certificate (CI/debug APK rejected)"
         )
+    # Legacy sign-existing profiles are arm64-only. New Build 36+ handoffs must
+    # prove the universal payload from bytes, not assume Flutter's defaults.
+    native = {"abis": universal_native_payload(apk)} if number >= 36 else {}
     return {
         "application_id": APP_ID,
         "version_name": name,
@@ -378,6 +428,7 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
         "certificate_sha256": certificate,
         "apk_sha256": digest(apk),
         "apk_bytes": apk.stat().st_size,
+        **native,
     }
 
 
@@ -390,8 +441,8 @@ def artifact_paths(root: Path, expected: str, number: int) -> tuple[Path, Path]:
     return directory / "Foto.apk", directory / "manifest.json"
 
 
-def postflight(root: Path, expected: str, number: int, env: dict[str, str]) -> dict:
-    repository_check(root, expected)
+def postflight(root: Path, expected: str, number: int, env: dict[str, str], *, branch: str = "work") -> dict:
+    repository_check(root, expected, branch=branch)
     apk, receipt = artifact_paths(root, expected, number)
     if not receipt.is_file():
         raise ReleaseError(
@@ -400,7 +451,7 @@ def postflight(root: Path, expected: str, number: int, env: dict[str, str]) -> d
     manifest = json.loads(receipt.read_text())
     if (
         manifest.get("source_commit") != expected
-        or manifest.get("source_branch") != "work"
+        or manifest.get("source_branch") != branch
     ):
         raise ReleaseError("release manifest source provenance does not match")
     resigned = manifest.get("delivery_mode") == "resign-verified-ci"
@@ -437,9 +488,9 @@ def apk_payload(apk: Path) -> dict:
         return files
 
 
-def sign_existing(root: Path, expected: str, number: int, source: Path, env: dict[str, str]) -> None:
+def sign_existing(root: Path, expected: str, number: int, source: Path, env: dict[str, str], *, branch: str = "work") -> None:
     """HP-only signing of the already tested exact APK; no Flutter/Gradle build."""
-    repository_check(root, expected)
+    repository_check(root, expected, branch=branch)
     if expected != CI_SOURCE_SHA or number != CI_BUILD_NUMBER or version_name(root) != "5.7.2":
         raise ReleaseError("sign-existing requires the exact approved source/build profile")
     if digest(source) != CI_APK_SHA256:
@@ -450,11 +501,11 @@ def sign_existing(root: Path, expected: str, number: int, source: Path, env: dic
     check_key_files(root)
     before_keys = signing_stats(root)
     java = Path(env.get("JAVA_HOME", "")) / "bin/java"
-    if not java.is_file() or not re.search(r'version "17\.', run([str(java), "-version"], root, env)):
-        raise ReleaseError("existing JDK 17 required")
+    if not java.is_file() or not re.search(rf'version "{java_major(root)}\.', run([str(java), "-version"], root, env)):
+        raise ReleaseError("existing repository-pinned JDK required")
     apk, receipt = artifact_paths(root, expected, number)
     if receipt.exists():
-        postflight(root, expected, number, env)
+        postflight(root, expected, number, env, branch=branch)
         print("PASS REUSED signed APK; no rebuild/signing repeated")
         return
     if apk.exists():
@@ -471,15 +522,15 @@ def sign_existing(root: Path, expected: str, number: int, source: Path, env: dic
             raise ReleaseError("signing changed application payload; output rejected")
         metadata = apk_metadata(output, sdk, root, "5.7.2", CI_BUILD_NUMBER)
         run([str(sdk / f"build-tools/{BUILD_TOOLS}/zipalign"), "-c", "-P", "16", "4", str(output)], root, env)
-        repository_check(root, expected)
-        manifest = {"source_commit": expected, "source_branch": "work", "delivery_mode": "resign-verified-ci",
+        repository_check(root, expected, branch=branch)
+        manifest = {"source_commit": expected, "source_branch": branch, "delivery_mode": "resign-verified-ci",
                     "ci_run": CI_RUN, "ci_input_sha256": CI_APK_SHA256,
                     "completed_checks": SIGN_EXISTING_CHECKS, **metadata}
         os.rename(output, apk)
         with receipt.open("x") as handle:
             json.dump(manifest, handle, indent=2)
             handle.write("\n")
-    postflight(root, expected, number, env)
+    postflight(root, expected, number, env, branch=branch)
     print("PASS existing CI payload signed; no codegen/tests/mobile rebuild or installation")
 
 
@@ -516,12 +567,12 @@ def restore_owned_report(root: Path, original: bytes | None, directory: Path) ->
         )
 
 
-def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
-    if not preflight(root, expected, env):
+def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch: str = "work") -> None:
+    if not preflight(root, expected, env, branch=branch):
         raise ReleaseError("preflight failed; no build was started")
     apk, receipt = artifact_paths(root, expected, number)
     if receipt.exists():
-        postflight(root, expected, number, env)
+        postflight(root, expected, number, env, branch=branch)
         print("PASS REUSED verified existing artifact; tests/build were not rerun.")
         return
     before_keys = signing_stats(root)
@@ -602,7 +653,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
             android,
         )
         restore_owned_report(root, original_report, apk.parent)
-        repository_check(root, expected)
+        repository_check(root, expected, branch=branch)
         tested_dependencies = dependency_snapshot(mobile)
         stage(
             "release-locked-dependencies",
@@ -613,7 +664,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
             raise ReleaseError(
                 "locked release refresh changed the tested dependency graph"
             )
-        repository_check(root, expected)
+        repository_check(root, expected, branch=branch)
         source_apk = mobile / "build/app/outputs/flutter-apk/app-release.apk"
         # Never accept an old APK if Flutter fails to emit a new artifact.
         if source_apk.exists():
@@ -634,7 +685,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
         if dependency_snapshot(mobile) != tested_dependencies:
             raise ReleaseError("release build changed the tested dependency graph")
         restore_owned_report(root, original_report, apk.parent)
-        repository_check(root, expected)
+        repository_check(root, expected, branch=branch)
         if signing_stats(root) != before_keys:
             raise ReleaseError(
                 "existing signing file metadata changed during build; release rejected"
@@ -643,7 +694,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
         metadata = apk_metadata(apk, sdk_path(env), root, version_name(root), number)
         manifest = {
             "source_commit": expected,
-            "source_branch": "work",
+            "source_branch": branch,
             "completed_checks": STAGES,
             **metadata,
         }
@@ -654,7 +705,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str]) -> None:
             json.dump(manifest, handle, indent=2)
             handle.write("\n")
         os.replace(temporary, receipt)
-        postflight(root, expected, number, env)
+        postflight(root, expected, number, env, branch=branch)
         print(
             "PASS BUILD COMPLETE; no APK installed and no production service touched."
         )
@@ -675,15 +726,17 @@ def main() -> int:
     parser.add_argument("--candidate-profile-sha256")
     parser.add_argument("--authorize-production-signing", action="store_true")
     parser.add_argument("--expected-head", required=True)
+    parser.add_argument("--expected-branch", default="work", help="reviewed branch; legacy default: work")
+    parser.add_argument("--installed-build-number", type=int, default=7, help="installed baseline versionCode; legacy default: 7")
     parser.add_argument(
         "--build-number",
         type=int,
         default=8,
-        help="next production-key update build (default: 8; installed baseline: 7)",
+        help="requested production-key build; must exceed --installed-build-number (legacy default: 8)",
     )
     args = parser.parse_args()
-    if args.build_number <= 7:
-        parser.error("build number must exceed installed production build 7")
+    if args.installed_build_number < 0 or args.build_number <= args.installed_build_number:
+        parser.error("build number must exceed the explicit installed production baseline")
     env = os.environ.copy()
     root = args.repository.resolve()
     try:
@@ -703,12 +756,12 @@ def main() -> int:
             descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
             with os.fdopen(descriptor, "w") as handle:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                sign_existing(root, args.expected_head, args.build_number, args.input_apk, env)
+                sign_existing(root, args.expected_head, args.build_number, args.input_apk, env, branch=args.expected_branch)
             return 0
         if args.action == "preflight":
-            return 0 if preflight(root, args.expected_head, env) else 1
+            return 0 if preflight(root, args.expected_head, env, branch=args.expected_branch) else 1
         if args.action == "build":
-            repository_check(root, args.expected_head)
+            repository_check(root, args.expected_head, branch=args.expected_branch)
             lock = root / "mobile/build/release-handoff/.android-release.lock"
             lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
@@ -719,9 +772,9 @@ def main() -> int:
                     raise ReleaseError(
                         "another Android release build is active; do not run Gradle concurrently"
                     ) from error
-                build(root, args.expected_head, args.build_number, env)
+                build(root, args.expected_head, args.build_number, env, branch=args.expected_branch)
         else:
-            postflight(root, args.expected_head, args.build_number, env)
+            postflight(root, args.expected_head, args.build_number, env, branch=args.expected_branch)
         return 0
     except (ReleaseError, OSError, ValueError, KeyError) as error:
         print(f"FAIL {args.action.upper()}: {error}", file=sys.stderr)

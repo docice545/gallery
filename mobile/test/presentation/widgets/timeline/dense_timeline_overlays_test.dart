@@ -247,14 +247,17 @@ void main() {
     return ProviderScope.containerOf(tester.element(find.byType(ListView)));
   }
 
-  testWidgets('an incomplete portrait row stays compact and retains motion and stack badges', (tester) async {
+  testWidgets('a single portrait fills its bounded row and retains motion and stack badges', (tester) async {
     final asset = _asset('single', ratio: 0.6, live: true, stack: true);
     await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
 
     final rect = tester.getRect(_tile(asset.id));
-    expect(rect.width, lessThan(_viewportWidth));
+    // Build 31-32 deliberately made a single-asset day full-width; incomplete
+    // final rows within a multi-asset day still have separate compact-row coverage.
+    expect(rect.width, closeTo(_viewportWidth, 0.001));
     expect(rect.height, greaterThan(160));
+    expect(rect.height, lessThanOrEqualTo(320));
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     final stackCount = tester.getRect(_inTile(asset.id, find.text(' 3')));
     final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.photo_library_outlined)));
@@ -269,6 +272,35 @@ void main() {
     expect(cloud.bottom, closeTo(rect.bottom - 6, 0.001));
     expect(tester.takeException(), isNull);
   });
+
+  for (final density in [2, 3, 4, 5]) {
+    testWidgets('density $density keeps a Live Photo stack as one tile beside ordinary photos', (tester) async {
+      final assets = [
+        _asset('screenshot-stack', ratio: .45, live: true, stack: true),
+        _asset('landscape', ratio: 1.5),
+        _asset('portrait', ratio: .75),
+      ];
+      await mountRows(tester, assets, columns: density, viewportHeight: 1000);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ThumbnailTile), findsNWidgets(3));
+      expect(
+        tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).map((tile) => tile.asset!.id),
+        assets.map((asset) => asset.id),
+      );
+      expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+      expect(_inTile('screenshot-stack', find.text(' 3')), findsOneWidget);
+      expect(_inTile('screenshot-stack', find.byIcon(Icons.motion_photos_on_rounded)), findsOneWidget);
+      for (final asset in assets) {
+        final rect = tester.getRect(_tile(asset.id));
+        expect(rect.width, greaterThanOrEqualTo(72 - .001));
+        expect(rect.height, inExclusiveRange(0, 321));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(tester.view.physicalSize.width));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('portrait and landscape tiles use different widths and fill a two-asset dense row', (tester) async {
     final assets = [_asset('portrait', ratio: 0.5), _asset('landscape', ratio: 2)];

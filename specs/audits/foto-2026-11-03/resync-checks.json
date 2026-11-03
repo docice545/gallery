@@ -1,0 +1,156 @@
+{
+  "baseCandidate": "86eeb429f265f48656fd042a347937e47ce0c14f",
+  "reusedSourceBeforeWorkflowFollowup": "965c80c8ad833e3b66b3f061ed7e8a9458abc54e",
+  "localChecks": [
+    {
+      "log": "resync-api-contracts.log",
+      "passed": 14,
+      "skipped": 0,
+      "sha256": "8e12d7c57755a38c2ad04df103ff9b56c64a8bc62f517d92257a09e820046e14"
+    },
+    {
+      "log": "resync-release-tools.log",
+      "passed": 509,
+      "skipped": 17,
+      "sha256": "50c8ba88b1bcc03602b949915b22b832d55c355e7a349a9b3074d85667037e2c"
+    },
+    {
+      "log": "resync-mobile-tools.log",
+      "passed": 123,
+      "skipped": 0,
+      "sha256": "1bc2a5afeaf601c132c392d7a055947da4bb45a277d894e1368db4f60526d9d9"
+    },
+    {
+      "log": "resync-scope.log",
+      "passed": 21,
+      "skipped": 0,
+      "sha256": "3bef2b3ff801ee01f786a651c6b2419488c3acbe4dc342069ed05558ab51c88c"
+    }
+  ],
+  "ciRun": 41694382792,
+  "ciJobs": [
+    {
+      "id": 126121514478,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126121514478",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-03T18:31:01Z",
+      "completed_at": "2026-11-03T18:36:19Z",
+      "name": "Live Photo timeline non-regression"
+    },
+    {
+      "id": 126121515172,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126121515172",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-03T18:31:01Z",
+      "completed_at": "2026-11-03T18:32:38Z",
+      "name": "pre-job"
+    },
+    {
+      "id": 126122432451,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126122432451",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-11-03T18:32:42Z",
+      "completed_at": "2026-11-03T18:54:21Z",
+      "name": "Flutter tests and coverage"
+    },
+    {
+      "id": 126122433293,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126122433293",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-03T18:32:42Z",
+      "completed_at": "2026-11-03T18:33:33Z",
+      "name": "Release artifact and provenance checks"
+    },
+    {
+      "id": 126124472924,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126124472924",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-03T18:36:21Z",
+      "completed_at": "2026-11-03T18:52:01Z",
+      "name": "Live Photo native decoded motion"
+    },
+    {
+      "id": 126133039119,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126133039119",
+      "status": "queued",
+      "conclusion": null,
+      "started_at": "2026-11-03T18:52:01Z",
+      "completed_at": null,
+      "name": "Verify or explicitly release iOS"
+    },
+    {
+      "id": 126134307553,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126134307553",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-11-03T18:54:22Z",
+      "completed_at": "2026-11-03T18:54:22Z",
+      "name": "Build and sign Android"
+    },
+    {
+      "id": 126134308469,
+      "head_sha": "86eeb429f265f48656fd042a347937e47ce0c14f",
+      "html_url": "https://github.com/docice545/gallery/actions/runs/41694382792/job/126134308469",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-11-03T18:54:22Z",
+      "completed_at": "2026-11-03T18:54:22Z",
+      "name": "Unsigned universal Android (no device acceptance)"
+    }
+  ],
+  "physicalSamsung": "NOT_TESTED",
+  "physicalIPhone": "NOT_TESTED",
+  "productionGo": false,
+  "followupChecksOnWorkingTreeAfter": "f43cfb2a7db5af4bf339264c209366842b05d24a",
+  "followupChecks": [
+    {
+      "log": "final-mobile-tools.log",
+      "passed": 125,
+      "skipped": 0,
+      "sha256": "822e9b92985d8b639e0f81f5b83ef006f4c1495860aee89c976ddd514fde693c"
+    },
+    {
+      "log": "final-release-tools.log",
+      "passed": 510,
+      "skipped": 17,
+      "sha256": "6fdeeed88c3ded2ab37f8745fa1b04748976b798f68e09ba671a63ee278827aa"
+    },
+    {
+      "log": "final-scope.log",
+      "passed": 21,
+      "skipped": 0,
+      "sha256": "8b28dc06cc8c6af102d3ebf1e4518f749c206930a952cbf07c806a45d3be6298"
+    },
+    {
+      "log": "shellcheck-fixed.json",
+      "result": [],
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "log": "final-sql-check.json",
+      "result": {
+        "files": 41,
+        "queries": 738,
+        "repeatMatches": true,
+        "database": "isolated cloud PostgreSQL 14, empty synthetic fixture; no HP access",
+        "changedSnapshots": [
+          "asset.repository.sql",
+          "trash.repository.sql"
+        ]
+      },
+      "sha256": "ab6c36d8cf52ee587fb4ccb5ff8508af6c3f9613f8a167b033a56da248283def"
+    }
+  ]
+}
