@@ -108,8 +108,15 @@ jobs:
         run: mise //mobile:codegen
 
       - name: Run Flutter tests with coverage
+        id: full-flutter
         working-directory: ./mobile
-        run: flutter test --coverage
+        run: |
+          set -o pipefail
+          flutter test --coverage --reporter json 2>&1 | tee "$RUNNER_TEMP/flutter-tests.jsonl"
+
+      - name: Annotate Flutter failures
+        if: failure() && steps.full-flutter.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/flutter-tests.jsonl"
 
       - name: Upload Flutter coverage
         if: always()

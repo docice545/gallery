@@ -103,7 +103,13 @@ jobs:
         run: python3 ../tools/foto-automation/tests/run_pr7_memory_crash.py
 
       - name: Run format
+        id: dart-format
         run: mise //mobile:format
+
+      - name: Annotate formatter differences
+        if: failure() && steps.dart-format.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py format
 
       # TODO: Re-enable after upgrading custom_lint
       # - name: Run dart custom_lint
