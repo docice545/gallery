@@ -11,7 +11,10 @@ export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.wo
 # log and GitHub's check annotations when the log storage requires other access.
 log_file="${RUNNER_TEMP:-/tmp}/gallery-native-motion-test.log"
 set +e
-flutter test --no-pub integration_test/timeline_native_motion_test.dart \
+# The headless test needs the VM service, but not the optional DDS/DevTools
+# proxy. DDS startup failed on the hosted emulator before the test could load.
+# Use the pinned Flutter SDK's direct VM connection; keep every native assertion.
+flutter test --no-pub --no-dds integration_test/timeline_native_motion_test.dart \
   -d emulator-5554 --reporter expanded 2>&1 | tee "$log_file"
 test_status=${PIPESTATUS[0]}
 set -e
