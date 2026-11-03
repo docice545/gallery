@@ -91,6 +91,9 @@ class ReleaseReviewScopeTests(unittest.TestCase):
             self.assertIn('live-photo-timeline', needs)
             self.assertIn('live-photo-native', needs)
         native = blocks['live-photo-native']
+        for job_name in ('live-photo-timeline', 'live-photo-native'):
+            checkout = yaml.safe_load(source)['jobs'][job_name]['steps'][0]
+            self.assertEqual(checkout['with']['ref'], '${{ inputs.ref || github.sha }}')
         self.assertIn('script: bash scripts/android_native_motion_test.sh', native)
         self.assertIn('disable-animations: false', native)
         self.assertNotIn('continue-on-error:', native)
@@ -102,10 +105,12 @@ class ReleaseReviewScopeTests(unittest.TestCase):
         self.assertNotIn('--exclude-tags', suite)
 
     def test_store_signing_requires_exact_source_gate_before_credentials(self):
-        source = (ROOT / '.github/workflows/gallery-build-mobile.yml').read_text()
-        blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', source, re.M | re.S))
-        for job, credential_step in (('build-sign-android', 'Create the Keystore'), ('build-sign-ios', 'Create API Key')):
-            block = blocks[job]
-            self.assertLess(block.index('require_live_photo_ci.py'), block.index(credential_step))
-            self.assertIn('actions: read', block)
+        for workflow in ('build-mobile.yml', 'gallery-build-mobile.yml'):
+            source = (ROOT / '.github/workflows' / workflow).read_text()
+            blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', source, re.M | re.S))
+            for job, credential_step in (('build-sign-android', 'Create the Keystore'), ('build-sign-ios', 'Create API Key')):
+                with self.subTest(workflow=workflow, job=job):
+                    block = blocks[job]
+                    self.assertLess(block.index('require_live_photo_ci.py'), block.index(credential_step))
+                    self.assertIn('actions: read', block)
         self.assertFalse(allows('gallery-build-mobile.yml', 'build-sign-android', '', 'push'))

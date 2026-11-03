@@ -63,14 +63,15 @@ FOTO на Samsung или плавность 120 Hz. Скриншот облож�
 ## Проверка перед ручной подписью
 
 [Read-only checker](../../mobile/scripts/require_live_photo_ci.py) используется в существующем
-Gallery mobile workflow **до обращения к signing credentials**. Для exact checkout SHA требуется
+Gallery mobile и root Build Mobile workflows **до обращения к signing credentials**. Оба Live Photo
+job используют переданный reusable `ref` (либо event SHA), как и сборка. Для exact checkout SHA требуется
 успешный последний push-run `build-mobile.yml`, оба успешных Live Photo job в точном attempt,
 а также успешные `test.yml` и `static_analysis.yml` на том же SHA.
 
 - PR-run не принимается за доказательство exact source: GitHub тестирует synthetic merge checkout.
 - Старый green run не перекрывает более новый failed/running run того же SHA.
 - Missing/duplicate/skipped/failed gate, недоступный GitHub API и неполные данные блокируют подпись.
-- Это защита штатного Gallery mobile workflow, не проверка установленного HP и не разрешение
+- Это защита штатных mobile workflows, не проверка установленного HP и не разрешение
   запуска сторонних release scripts. При отдельной HP-сборке эти же условия входят в ручной handoff.
 - Android signing не стартует по PR/push. Legacy `mich` job требует manual caller и
   явный `android_release=true`; default false. Unsigned CI не получает keys/environment secrets.

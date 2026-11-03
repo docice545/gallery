@@ -280,7 +280,7 @@ PR 16 `fda0ef200`, а не автоматически обновляются д�
 - По критическому уточнению пользователя добавлены два обязательных Live Photo job, source и
   real-player emulator. [Полный gate и Samsung acceptance](../testing/2026-11-03-live-photo-release-gate.md)
   описывает все восемь сценариев, ordered stage chain, ограничения emulator и 120 Hz.
-- Перед Gallery mobile signing проверяются успешные exact-source push runs Build Mobile,
+- Перед Gallery mobile и root Build Mobile signing проверяются успешные exact-source push runs Build Mobile,
   Test и Static Code Analysis. Обязательные Live Photo jobs проверяются в точном attempt;
   skipped/failed/missing/duplicate и недоступный API блокируют этот путь.
 
