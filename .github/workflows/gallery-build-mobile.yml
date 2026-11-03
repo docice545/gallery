@@ -333,8 +333,10 @@ jobs:
     name: Build and sign Android
     permissions:
       contents: read
+      actions: read
     # Skip when PR from a fork
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact' && github.head_ref != 'codex/foto-build36-web-backend-final')) && !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
+    # All PRs are untrusted build inputs; signing/HP runners are never part of PR validation.
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'android') }}
     environment: mobile-build
     runs-on: ubuntu-latest
 
@@ -346,6 +348,13 @@ jobs:
           token: ${{ github.token }}
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Require exact-source Live Photo CI before signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 mobile/scripts/require_live_photo_ci.py \
+            --repository "$GITHUB_REPOSITORY" --expected-commit "$(git rev-parse HEAD)"
 
       - uses: ./.github/actions/apply-branding
         with:
@@ -573,7 +582,8 @@ jobs:
     name: Verify or explicitly release iOS
     permissions:
       contents: read
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
+      actions: read
+    if: ${{ (inputs.version == '' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
     environment: mobile-build
     runs-on: macos-15
 
@@ -590,6 +600,14 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
           fetch-tags: true
+
+      - name: Require exact-source Live Photo CI before iOS signing
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 mobile/scripts/require_live_photo_ci.py \
+            --repository "$GITHUB_REPOSITORY" --expected-commit "$(git rev-parse HEAD)"
 
       - name: Preserve committed iOS version and build through branding
         id: ios-source-meta

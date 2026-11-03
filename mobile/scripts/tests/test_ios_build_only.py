@@ -666,7 +666,7 @@ class ConfigurationTests(unittest.TestCase):
         for name in ("build-sign-android", "build-sign-ios"):
             build = workflow["jobs"][name]
             self.assertIn("!inputs.refresh_ios_pods_lock", build["if"])
-            self.assertEqual(build["permissions"], {"contents": "read"})
+            self.assertEqual(build["permissions"], {"contents": "read", "actions": "read"})
             checkout = next(
                 step
                 for step in build["steps"]

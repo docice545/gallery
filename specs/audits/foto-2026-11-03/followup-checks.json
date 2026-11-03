@@ -1,0 +1,13 @@
+{
+  "scope": "Follow-up tools and workflow guards; not native/Flutter/device execution",
+  "pythonFixtures": 123,
+  "workflowScopeTests": 20,
+  "logs": {
+    "ios-and-android-tooling-final.log": "8d18a3111c1016c4aa12cf6892ed72c101b7269e933114cf469f88c2928c0313",
+    "ci-scope-final.log": "b291b20da8d908372816297c459826e268577486fc78e6a1d4cf465f4885078b"
+  },
+  "flutter": "PENDING_HOSTED_CI",
+  "samsung": "NOT_TESTED",
+  "iphone": "NOT_TESTED",
+  "productionGo": false
+}

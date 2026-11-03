@@ -254,3 +254,51 @@ Rollback: сохранить installed Build 35 APK/сертификат и curr
 
 **NO-GO сохраняется**, пока critical CI и native/device/backup evidence не получены.
 Документированные pending проверки не считаются завершёнными этапами B–D или production-ready.
+
+## Follow-up после фиксации аудита A
+
+Исходный аудит A сохранён отдельным commit `b076ab127`; таблицы выше описывают
+PR 16 `fda0ef200`, а не автоматически обновляются до результатов нового кандидата.
+После аудита выполнены адресные изменения:
+
+- `066f65f2a`: iOS unsigned handoff принимает `--expected-branch` с default `work`.
+  Локальный branch/SHA, clean tree, remote ref, run branch/SHA и receipt проверяются вместе;
+  старый receipt без branch допустим только для исторического `work`. Повторный fetch не
+  создаёт новый artifact и не переписывает output другого происхождения.
+- PR Android signing закрыт для всех имён веток. Signing по push также закрыт:
+  legacy trusted-host job требует manual caller и `android_release=true`, Gallery Android
+  signing допускает manual event. Signed iOS inputs на PR/push отклоняются.
+- Hosted unsigned universal Android lane сохраняет исходную version/build metadata через branding,
+  проверяет фактический package/version, отсутствие v1/v2/v3 signing material, ZIP и библиотеки
+  всех трёх ABI, записывает checksum и source SHA. `releaseReady=false`, device acceptance pending.
+  **В PR 16 pubspec всё ещё `5.7.3+26`**: такой CI output честно останется 26, а не будет назван
+  signed Build 36. Для 36/37 нужны отдельные reviewed release recipes и исходный ключ.
+- PR Docker compilation выделен в read-only workflow: существующие server и CPU ML Dockerfiles,
+  linux/amd64, `push=false`, без registry login/cache writes/retag. Публикующий Docker workflow
+  не запускается для PR. ARM/GPU release coverage этим job не заявляется.
+- Root build-only iOS теперь сохраняет уже создаваемый unsigned IPA; второй packager не добавлен.
+- По критическому уточнению пользователя добавлены два обязательных Live Photo job, source и
+  real-player emulator. [Полный gate и Samsung acceptance](../testing/2026-11-03-live-photo-release-gate.md)
+  описывает все восемь сценариев, ordered stage chain, ограничения emulator и 120 Hz.
+- Перед Gallery mobile signing проверяются успешные exact-source push runs Build Mobile,
+  Test и Static Code Analysis. Обязательные Live Photo jobs проверяются в точном attempt;
+  skipped/failed/missing/duplicate и недоступный API блокируют этот путь.
+
+Локальная follow-up проверка: **123 Python artifact/provenance fixtures PASS**, **20 workflow-scope
+checks PASS**, YAML formatting и `git diff --check` PASS. Новые Dart/native assertions
+в Cloud не исполнялись: Flutter/Android SDK здесь отсутствуют. Hosted validation подключён
+к push только audit-ветки дополнительно к существующим main/release triggers;
+этот push не может запустить signing. Результат hosted run следует проверять отдельно.
+
+Actionlint 1.7.7 после раскрытия YAML aliases и объявления существующих runner labels
+показывает одинаковые четыре baseline/candidate замечания: required+default environment в двух
+workflows, undefined `steps.token` и отсутствующий `matrix.runner-mapping` в старом Docker publish
+workflow. Новых замечаний нет; это **не** общий чистый actionlint PASS. Исходный lint без
+нормализации дополнительно не понимает новые GitHub YAML aliases/macOS 26; эти ограничения
+старого lint tool отделены от реальных inherited warnings. Эти старые release warnings не исправлены
+под видом Live Photo работы и остаются в общей очереди допуска.
+
+Backend schema-test fix и Build 36 release-tool fixes уже находятся в integration и не скопированы
+в эту ветку. Android UI и production runtime не изменялись. Native iOS/Samsung acceptance,
+подпись/обновление 35→36, physical 120 Hz, актуальный backup/rollback и публикация issue/PR
+через недоступный GitHub API остаются незавершёнными. Релиз не разрешён.

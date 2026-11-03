@@ -57,6 +57,7 @@ jobs:
     needs: validate
     permissions:
       contents: read
+      actions: read
     uses: ./.github/workflows/gallery-build-mobile.yml
     with:
       environment: production
