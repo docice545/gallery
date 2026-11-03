@@ -6,7 +6,7 @@ import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
-import 'editor_compact_layout_test.dart' show pumpCompactEditor, selectEditorMode, tapEditorControl, editorPhotoRect;
+import 'editor_compact_layout_test.dart' show editorPhotoRect, pumpCompactEditor, selectEditorMode, tapEditorControl;
 
 void main() {
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {

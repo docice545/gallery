@@ -104,9 +104,9 @@ void expectEditorGeometry(WidgetTester tester, Rect photo, double dockHeight) {
   expect(editorPhotoRect(tester), photo, reason: 'Tool depth must not resize or move the photo viewport');
   expect(tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height, dockHeight);
   expect(find.byKey(const Key('editor-fixed-dock')), findsOneWidget);
-  expect(find.byKey(const Key('editor-parameter-popover')), findsAtMostNWidgets(1));
+  expect(find.byKey(const Key('editor-parameter-popover')).evaluate().length, lessThanOrEqualTo(1));
   expect(find.byKey(const Key('editor-active-settings')), findsNothing);
-  expect(find.byKey(const Key('editor-markup-controls')), findsAtMostNWidgets(1));
+  expect(find.byKey(const Key('editor-markup-controls')).evaluate().length, lessThanOrEqualTo(1));
   expect(tester.takeException(), isNull);
 }
 
@@ -262,11 +262,18 @@ void main() {
   testWidgets('review images and measured viewport at every editor depth', (tester) async {
     await pumpCompactEditor(tester, russian: true, portrait: true);
     final baseline = editorPhotoRect(tester);
+    final imageBaseline = tester.getRect(find.byKey(const Key('editor-image-surface')));
     Future<void> capture(String name) async {
       final photo = editorPhotoRect(tester);
       final dock = tester.getRect(find.byKey(const Key('editor-bottom-panel')));
       expect(photo, baseline);
-      debugPrint('EDITOR_VIEWPORT $name photo=${photo.toString()} dock=${dock.toString()}');
+      final image = tester.getRect(find.byKey(const Key('editor-image-surface')));
+      expect(image, imageBaseline, reason: 'Tool depth must not shrink or recenter the actual image');
+      expect(image.width / image.height, closeTo(360 / 640, .001));
+      expect(photo.contains(image.topLeft), isTrue);
+      expect(image.right, lessThanOrEqualTo(photo.right));
+      expect(image.bottom, lessThanOrEqualTo(photo.bottom));
+      debugPrint('EDITOR_VIEWPORT $name photo=$photo image=$image dock=$dock');
       await expectLater(find.byType(Overlay), matchesGoldenFile('goldens/fixed_dock_$name.png'));
     }
 

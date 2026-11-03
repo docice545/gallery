@@ -73,6 +73,7 @@ jobs:
         working-directory: ./mobile/packages/ui
 
       - name: Perform codegen
+        id: codegen
         run: mise //mobile:codegen
 
       - name: Run analyze
@@ -82,6 +83,7 @@ jobs:
           mise //mobile:analyze 2>&1 | tee "$RUNNER_TEMP/mobile-analysis.log"
       - name: Annotate analyzer diagnostics
         if: failure() && steps.analyze.outcome == 'failure'
+        working-directory: .
         run: python3 .github/scripts/report-ci-failures.py analysis "$RUNNER_TEMP/mobile-analysis.log"
 
       - name: Changed sync service and durable V2 journal regressions (manual acceptance)
@@ -108,7 +110,14 @@ jobs:
         run: python3 ../tools/foto-automation/tests/run_pr7_memory_crash.py
 
       - name: Run format
+        id: format
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
         run: mise //mobile:format
+
+      - name: Annotate formatter differences
+        if: failure() && steps.format.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py format
 
       # TODO: Re-enable after upgrading custom_lint
       # - name: Run dart custom_lint

@@ -27,7 +27,9 @@ class _EditorDockState extends State<EditorDock> {
     super.didUpdateWidget(oldWidget);
     if ((oldWidget.popover == null) != (widget.popover == null)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         widget.popover == null ? _portal.hide() : _portal.show();
       });
     }
@@ -45,7 +47,9 @@ class _EditorDockState extends State<EditorDock> {
       final top = dock.localToGlobal(Offset.zero, ancestor: overlay).dy;
       final safe = MediaQuery.paddingOf(context);
       final available = top - safe.top - kToolbarHeight - 16;
-      if (available < 48) return const SizedBox.shrink();
+      if (available < 48) {
+        return const SizedBox.shrink();
+      }
       return Positioned(
         left: safe.left + 12,
         right: safe.right + 12,

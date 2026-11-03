@@ -4,13 +4,13 @@ import 'dart:ui' as ui;
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/theme/theme_data.dart';

@@ -584,27 +584,39 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         child: Builder(
           builder: (context) => Scaffold(
             appBar: AppBar(
-              toolbarHeight: _editorHeaderHeight(context),
+              toolbarHeight: kToolbarHeight,
               backgroundColor: Colors.black,
               leadingWidth: 48,
               leading: IconButton(
                 key: const Key('editor-back'),
                 tooltip: context.t.back,
                 onPressed: state.isApplyingEdits ? null : () => Navigator.of(context).maybePop(),
-                icon: FotoIcon(kind: FotoIconKind.back, semanticLabel: context.t.back),
+                icon: FotoIcon(
+                  kind: FotoIconKind.back,
+                  semanticLabel: context.t.back,
+                  state: state.isApplyingEdits ? FotoIconState.disabled : FotoIconState.normal,
+                ),
               ),
               actions: [
                 IconButton(
                   key: const Key('editor-header-undo'),
                   tooltip: context.t.undo,
                   onPressed: !documentLocked && state.canUndo ? notifier.undo : null,
-                  icon: FotoIcon(kind: FotoIconKind.undo, semanticLabel: context.t.undo),
+                  icon: FotoIcon(
+                    kind: FotoIconKind.undo,
+                    semanticLabel: context.t.undo,
+                    state: !documentLocked && state.canUndo ? FotoIconState.normal : FotoIconState.disabled,
+                  ),
                 ),
                 IconButton(
                   key: const Key('editor-header-redo'),
                   tooltip: context.t.magic_eraser_redo,
                   onPressed: !documentLocked && state.canRedo ? notifier.redo : null,
-                  icon: FotoIcon(kind: FotoIconKind.redo, semanticLabel: context.t.magic_eraser_redo),
+                  icon: FotoIcon(
+                    kind: FotoIconKind.redo,
+                    semanticLabel: context.t.magic_eraser_redo,
+                    state: !documentLocked && state.canRedo ? FotoIconState.normal : FotoIconState.disabled,
+                  ),
                 ),
                 _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits, retryImport: _pendingCopy != null),
               ],
@@ -614,8 +626,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
               bottom: false,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final sidePanel =
-                      MediaQuery.orientationOf(context) == Orientation.landscape && constraints.maxWidth >= 480;
                   final preview = allowTransformEdits
                       ? _EditorPreview(
                           key: _previewKey,
@@ -640,7 +650,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                   final panel = _EditorBottomPanel(
                     source: widget.image.image,
                     maxHeight: constraints.maxHeight,
-                    sidePanel: sidePanel,
                     settingsExpanded: _settingsExpanded,
                     onToggleSettings: () => setState(() => _settingsExpanded = !_settingsExpanded),
                     mode: _mode,
@@ -727,7 +736,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
 class _EditorBottomPanel extends ConsumerStatefulWidget {
   final ImageProvider source;
   final double maxHeight;
-  final bool sidePanel;
   final bool settingsExpanded;
   final VoidCallback onToggleSettings;
   final EditorMode mode;
@@ -759,7 +767,6 @@ class _EditorBottomPanel extends ConsumerStatefulWidget {
   const _EditorBottomPanel({
     required this.source,
     required this.maxHeight,
-    required this.sidePanel,
     required this.settingsExpanded,
     required this.onToggleSettings,
     required this.mode,
@@ -797,9 +804,13 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
   String? _parameter;
 
   void _dismiss() {
-    if (_parameter == null) return;
+    if (_parameter == null) {
+      return;
+    }
     setState(() => _parameter = null);
-    if (widget.straightening) widget.onStraightening(false);
+    if (widget.straightening) {
+      widget.onStraightening(false);
+    }
   }
 
   void _open(String value) {
@@ -862,7 +873,7 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
       parameter: parameter,
       onComplete: _dismiss,
     );
-    Widget? popover = switch (_parameter) {
+    final popover = switch (_parameter) {
       'color' => markup(MarkupParameter.color),
       'width' => markup(MarkupParameter.width),
       'opacity' => markup(MarkupParameter.opacity),
@@ -870,7 +881,7 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
       'aspect' => _AspectRatioSelector(onSelected: _dismiss),
       'straighten' => _StraightenControls(onComplete: _dismiss),
       'filters' => FilterPanel(source: widget.source),
-      'adjustments' => const AdjustmentPanel(),
+      'adjustments' => AdjustmentPanel(onComplete: _dismiss),
       _ => null,
     };
     final controls = <Widget>[];
@@ -896,16 +907,11 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
           _button('editor-rotate-right', FotoIconKind.rotateRight, context.t.editor_rotate_right, notifier.rotateCW),
           _button(
             'editor-flip-horizontal',
-            FotoIconKind.flipHorizontal,
+            FotoIconKind.flipH,
             context.t.editor_flip_horizontal,
             notifier.flipHorizontally,
           ),
-          _button(
-            'editor-flip-vertical',
-            FotoIconKind.flipVertical,
-            context.t.editor_flip_vertical,
-            notifier.flipVertically,
-          ),
+          _button('editor-flip-vertical', FotoIconKind.flipV, context.t.editor_flip_vertical, notifier.flipVertically),
           _button('editor-crop-frame', FotoIconKind.aspect, context.t.editor_crop_frame, () => _open('aspect')),
           _button(
             'editor-crop-straighten',
@@ -1089,7 +1095,13 @@ class _AspectRatioButton extends StatelessWidget {
           iconSize: 36,
           icon: ratio.ratio != null
               ? _AspectRatioRect(ratio: ratio.ratio!, color: color)
-              : Icon(ratio.icon, color: color),
+              : FotoIcon(
+                  kind: ratio == CropAspectRatio.free ? FotoIconKind.crop : FotoIconKind.aspect,
+                  semanticLabel: ratio == CropAspectRatio.free
+                      ? context.t.crop_aspect_ratio_free
+                      : context.t.crop_aspect_ratio_original,
+                  state: isSelected ? FotoIconState.active : FotoIconState.normal,
+                ),
           onPressed: onPressed,
         ),
         Text(switch (ratio) {
@@ -1157,8 +1169,6 @@ class _AspectRatioSelector extends ConsumerWidget {
     );
   }
 }
-
-double _editorHeaderHeight(BuildContext context) => kToolbarHeight;
 
 class _SaveEditsButton extends ConsumerWidget {
   final VoidCallback onSave;

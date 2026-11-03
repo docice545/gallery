@@ -428,20 +428,32 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
               key: const Key('eraser-back'),
               tooltip: context.t.back,
               onPressed: _saving ? null : () => Navigator.of(context).maybePop(),
-              icon: FotoIcon(kind: FotoIconKind.back, semanticLabel: context.t.back),
+              icon: FotoIcon(
+                kind: FotoIconKind.back,
+                semanticLabel: context.t.back,
+                state: _saving ? FotoIconState.disabled : FotoIconState.normal,
+              ),
             ),
             actions: [
               IconButton(
                 key: const Key('eraser-header-undo'),
                 tooltip: context.t.undo,
                 onPressed: _busy || _drawing || !_mask.canUndo ? null : () => _changeMask(_mask.undo()),
-                icon: FotoIcon(kind: FotoIconKind.undo, semanticLabel: context.t.undo),
+                icon: FotoIcon(
+                  kind: FotoIconKind.undo,
+                  semanticLabel: context.t.undo,
+                  state: _busy || _drawing || !_mask.canUndo ? FotoIconState.disabled : FotoIconState.normal,
+                ),
               ),
               IconButton(
                 key: const Key('eraser-header-redo'),
                 tooltip: context.t.magic_eraser_redo,
                 onPressed: _busy || _drawing || !_mask.canRedo ? null : () => _changeMask(_mask.redo()),
-                icon: FotoIcon(kind: FotoIconKind.redo, semanticLabel: context.t.magic_eraser_redo),
+                icon: FotoIcon(
+                  kind: FotoIconKind.redo,
+                  semanticLabel: context.t.magic_eraser_redo,
+                  state: _busy || _drawing || !_mask.canRedo ? FotoIconState.disabled : FotoIconState.normal,
+                ),
               ),
               SizedBox.square(
                 dimension: 48,
@@ -643,7 +655,9 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   Widget _controls() => EditorDock(
     key: const Key('eraser-controls-panel'),
     onDismiss: () {
-      if (_brushOptions) setState(() => _brushOptions = false);
+      if (_brushOptions) {
+        setState(() => _brushOptions = false);
+      }
     },
     popover: _brushOptions
         ? Column(

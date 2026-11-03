@@ -140,6 +140,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+      - name: Check review publication guards
+        run: python3 -m unittest discover -s scripts/release/tests -p test_editor_review_publication.py -v
       - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
         with:
           github_token: ${{ github.token }}

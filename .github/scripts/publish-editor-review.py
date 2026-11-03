@@ -54,11 +54,16 @@ def main():
     log = Path(os.environ["REVIEW_TEST_LOG"])
     measurements = []
     failures = 0
+    completed = False
     for line in log.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "done":
+            completed = event.get("success") is True
         if event.get("type") == "print" and str(event.get("message", "")).startswith(
             "EDITOR_VIEWPORT "
         ):
@@ -68,7 +73,8 @@ def main():
             "failure",
         ):
             failures += 1
-    if failures or len(measurements) != len(names):
+    measured_names = [line.split(" ", 2)[1] for line in measurements]
+    if failures or not completed or sorted(measured_names) != sorted(names):
         raise SystemExit("Missing measurements or failed structural editor tests")
     receipt = Path("specs/design/editor-dock-review/measurements.json")
     receipt.parent.mkdir(parents=True, exist_ok=True)

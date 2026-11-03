@@ -320,20 +320,30 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final asyncSegments = ref.read(timelineSegmentProvider);
     // onAttach also runs for the temporary loading view. It cannot consume an
     // anchor intended for the next completed mosaic layout.
-    if (assetIndex == null || asyncSegments.isLoading || !asyncSegments.hasValue) return;
+    if (assetIndex == null || asyncSegments.isLoading || !asyncSegments.hasValue) {
+      return;
+    }
     final segments = asyncSegments.requireValue;
     final targetSegment = segments.lastWhereOrNull((segment) => segment.firstAssetIndex <= assetIndex);
-    if (targetSegment == null) return;
+    if (targetSegment == null) {
+      return;
+    }
     final targetOffset = assetRowOffset(
       segment: targetSegment,
       assetIndexInTimeline: assetIndex,
       columnCount: ref.read(timelineArgsProvider).columnCount,
     );
-    if (targetOffset == null) return;
+    if (targetOffset == null) {
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _restoreAssetIndex != assetIndex || _scrollController.positions.length != 1) return;
+      if (!mounted || _restoreAssetIndex != assetIndex || _scrollController.positions.length != 1) {
+        return;
+      }
       final position = _scrollController.position;
-      if (!position.hasContentDimensions) return;
+      if (!position.hasContentDimensions) {
+        return;
+      }
       position.jumpTo(targetOffset.clamp(0.0, position.maxScrollExtent));
       _restoreAssetIndex = null;
     });
