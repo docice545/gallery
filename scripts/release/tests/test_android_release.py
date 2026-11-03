@@ -235,7 +235,7 @@ class AndroidReleaseGuards(unittest.TestCase):
                 )
             run.assert_not_called()
 
-    def apk_check(self, package=None, certificate=None, signers=1):
+    def apk_check(self, package=None, certificate=None, signers=1, number=6):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -243,7 +243,7 @@ class AndroidReleaseGuards(unittest.TestCase):
         apk.write_bytes(b"fixture bytes: never installed or signed")
         package = (
             package
-            or "package: name='de.opennoodle.gallery' versionCode='6' versionName='5.7.2'\n"
+            or f"package: name='de.opennoodle.gallery' versionCode='{number}' versionName='5.7.2'\n"
         )
         certificate = certificate or release.CERTIFICATE_SHA256
         signature = "\n".join(
@@ -262,7 +262,7 @@ class AndroidReleaseGuards(unittest.TestCase):
                     A: android:name(0x01010003)=\"android.content.action.CLOUD_MEDIA_PROVIDER\"
         """
         with patch.object(release, "run", side_effect=[package, manifest, signature]):
-            return release.apk_metadata(apk, root, root, "5.7.2", 6)
+            return release.apk_metadata(apk, root, root, "5.7.2", number)
 
     def test_packaged_cloud_provider_manifest_is_required(self):
         with self.assertRaisesRegex(release.ReleaseError, "no Gallery CloudMediaProvider"):
@@ -337,6 +337,48 @@ class AndroidReleaseGuards(unittest.TestCase):
         self.assertEqual(metadata["application_id"], release.APP_ID)
         self.assertEqual(metadata["version_code"], 6)
         self.assertEqual(len(metadata["apk_sha256"]), 64)
+
+    def test_build36_payload_requires_all_native_libraries_in_every_abi(self):
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "synthetic.apk"
+            for omitted in (
+                None,
+                "lib/x86_64/libapp.so",
+                "lib/arm64-v8a/libsqlite3.so",
+            ):
+                with self.subTest(omitted=omitted):
+                    with zipfile.ZipFile(apk, "w") as archive:
+                        for abi in release.UNIVERSAL_ABIS:
+                            for library in (
+                                "libapp.so",
+                                "libflutter.so",
+                                "libsqlite3.so",
+                            ):
+                                name = f"lib/{abi}/{library}"
+                                if name != omitted:
+                                    archive.writestr(name, b"synthetic fixture")
+                    if omitted:
+                        with self.assertRaisesRegex(
+                            release.ReleaseError, "native library"
+                        ):
+                            release.universal_native_payload(apk)
+                    else:
+                        self.assertEqual(
+                            release.universal_native_payload(apk),
+                            sorted(release.UNIVERSAL_ABIS),
+                        )
+            with zipfile.ZipFile(apk, "w") as archive:
+                archive.writestr("lib/arm64-v8a/libapp.so", b"only one architecture")
+            with self.assertRaisesRegex(release.ReleaseError, "universal APK ABIs"):
+                release.universal_native_payload(apk)
+
+    def test_build36_metadata_cannot_accept_bad_bytes_despite_valid_aapt_and_signer(
+        self,
+    ):
+        with self.assertRaisesRegex(release.ReleaseError, "valid ZIP"):
+            self.apk_check(number=36)
 
     def test_debug_certificate_is_rejected(self):
         with self.assertRaisesRegex(release.ReleaseError, "CI/debug"):

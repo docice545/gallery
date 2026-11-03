@@ -33,6 +33,7 @@ CI_APK_SHA256 = "ae3ed08bfe8794e1f12193e5d29733c22c22e7671672726e1a27b869483a452
 CI_CERTIFICATE_SHA256 = "d7bfd9bf0ff80fc97c3db14fdf96cf9996488439a8e906d7bece8078eef40410"
 SIGN_EXISTING_CHECKS = ["pinned-ci-apk", "ci-package-manifest-signature", "unchanged-apk-payload", "production-signature"]
 BUILD_TOOLS = "36.0.0"
+UNIVERSAL_ABIS = {"armeabi-v7a", "arm64-v8a", "x86_64"}
 STAGES = [
     "locked-codegen",
     "dart-format",
@@ -100,6 +101,7 @@ def apk_build_command(name: str, number: int) -> list[str]:
         "--release",
         f"--build-name={name}",
         f"--build-number={number}",
+        "--target-platform=android-arm,android-arm64,android-x64",
         "--pub",
     ]
 
@@ -337,6 +339,31 @@ def preflight(root: Path, expected: str, env: dict[str, str], *, branch: str = "
     return not failures
 
 
+def universal_native_payload(apk: Path) -> list[str]:
+    try:
+        with zipfile.ZipFile(apk) as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)) or archive.testzip() is not None:
+                raise ReleaseError("APK has duplicate or corrupt entries")
+            abis = {
+                name.split("/")[1]
+                for name in names
+                if name.startswith("lib/") and name.endswith(".so")
+            }
+            if abis != UNIVERSAL_ABIS:
+                raise ReleaseError("Build 36+ requires all three universal APK ABIs")
+            for abi in abis:
+                for library in ("libapp.so", "libflutter.so", "libsqlite3.so"):
+                    path = f"lib/{abi}/{library}"
+                    if path not in names or archive.getinfo(path).file_size == 0:
+                        raise ReleaseError(
+                            f"APK is missing a required native library: {path}"
+                        )
+            return sorted(abis)
+    except zipfile.BadZipFile as error:
+        raise ReleaseError("APK is not a valid ZIP archive") from error
+
+
 def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
                  certificate: str = CERTIFICATE_SHA256) -> dict:
     if not apk.is_file() or not apk.stat().st_size:
@@ -391,6 +418,9 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
         raise ReleaseError(
             "APK is not signed by the existing foto release certificate (CI/debug APK rejected)"
         )
+    # Legacy sign-existing profiles are arm64-only. New Build 36+ handoffs must
+    # prove the universal payload from bytes, not assume Flutter's defaults.
+    native = {"abis": universal_native_payload(apk)} if number >= 36 else {}
     return {
         "application_id": APP_ID,
         "version_name": name,
@@ -398,6 +428,7 @@ def apk_metadata(apk: Path, sdk: Path, root: Path, name: str, number: int,
         "certificate_sha256": certificate,
         "apk_sha256": digest(apk),
         "apk_bytes": apk.stat().st_size,
+        **native,
     }
 
 

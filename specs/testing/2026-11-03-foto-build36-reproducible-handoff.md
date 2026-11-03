@@ -114,8 +114,10 @@ python3 scripts/release/android_release.py postflight \
   --installed-build-number 35 --build-number 36
 ```
 
-Скрипт выполняет locked codegen/analyze/tests/native unit tests, собирает release APK и проверяет
-реальные package/version, три ABI, release certificate и provenance receipt. Он не вызывает adb install.
+Скрипт выполняет locked codegen/analyze/tests/native unit tests, явно собирает release APK для
+android-arm/android-arm64/android-x64 и проверяет реальные package/version, release certificate
+и provenance receipt. Для Build 36+ он дополнительно проверяет ZIP payload всех трёх ABI
+и непустые libapp/libflutter/libsqlite3 в каждом; перечень ABI включается в receipt. Он не вызывает adb install.
 Повторный запуск с корректным существующим receipt переиспользует artifact; конфликтующий output
 не перезаписывается. Режим `sign-existing` из исторического Build 8 не использовать для Build 36.
 
