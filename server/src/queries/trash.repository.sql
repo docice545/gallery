@@ -4,6 +4,26 @@
 begin
 select
   pg_advisory_xact_lock(hashtextextended ($1, 731))
+select
+  "stack"."id",
+  "stack"."ownerId",
+  "stack"."primaryAssetId"
+from
+  "stack"
+where
+  "stack"."id" in (
+    select
+      "asset"."stackId"
+    from
+      "asset"
+    where
+      "asset"."ownerId" = $1
+      and "asset"."status" = $2
+  )
+  and "stack"."ownerId" = $3
+order by
+  "stack"."id"
+for update
 update "asset"
 set
   "status" = $1,
@@ -19,6 +39,8 @@ where
     where
       "assetId" = "asset"."id"
   )
+returning
+  "id"
 commit
 
 -- TrashRepository.empty
@@ -31,6 +53,25 @@ where
 
 -- TrashRepository.restoreAll
 begin
+select
+  "stack"."id",
+  "stack"."ownerId",
+  "stack"."primaryAssetId"
+from
+  "stack"
+where
+  "stack"."id" in (
+    select
+      "asset"."stackId"
+    from
+      "asset"
+    where
+      "asset"."id" in ($1)
+      and "asset"."status" = $2
+  )
+order by
+  "stack"."id"
+for update
 update "asset"
 set
   "status" = $1,
