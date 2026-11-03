@@ -34,9 +34,11 @@ export class TrashService extends BaseService {
   }
 
   async restore(auth: AuthDto): Promise<TrashResponseDto> {
-    const count = await this.trashRepository.restore(auth.user.id);
+    const restoredIds = await this.trashRepository.restoreWithIds(auth.user.id);
+    const count = restoredIds.length;
     if (count > 0) {
       await this.duplicateRepository.deleteConflictingTombstonesForUser(auth.user.id);
+      await this.eventRepository.emit('AssetRestoreAll', { assetIds: restoredIds, userId: auth.user.id });
       this.logger.log(`Restored ${count} asset(s) from trash`);
     }
     return { count };

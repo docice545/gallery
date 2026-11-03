@@ -5,7 +5,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import type { ExpressionBuilder, Insertable, Kysely, Updateable } from 'kysely';
 import { columns } from 'src/database.js';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
-import { AssetVisibility } from 'src/enum.js';
+import { AssetStatus, AssetVisibility } from 'src/enum.js';
 import { DB } from 'src/schema/index.js';
 import { StackTable } from 'src/schema/tables/stack.table.js';
 import { asUuid, withDefaultVisibility } from 'src/utils/database.js';
@@ -14,6 +14,52 @@ export interface StackSearch {
   ownerId: string;
   primaryAssetId?: string;
 }
+
+// Serialize Trash/restore changes for the same stack before changing its members.
+export const lockAssetStacks = (
+  db: Kysely<DB>,
+  { assetIds, ownerId, status }: { assetIds?: string[]; ownerId?: string; status?: AssetStatus },
+) =>
+  db
+    .selectFrom('stack')
+    .select(['stack.id', 'stack.ownerId', 'stack.primaryAssetId'])
+    .where('stack.id', 'in', (eb) =>
+      eb
+        .selectFrom('asset')
+        .select('asset.stackId')
+        .$if(assetIds !== undefined, (qb) => qb.where('asset.id', 'in', assetIds!))
+        .$if(ownerId !== undefined, (qb) => qb.where('asset.ownerId', '=', ownerId!))
+        .$if(status !== undefined, (qb) => qb.where('asset.status', '=', status!)),
+    )
+    .$if(ownerId !== undefined, (qb) => qb.where('stack.ownerId', '=', ownerId!))
+    .orderBy('stack.id')
+    .forUpdate()
+    .execute();
+
+export const repairStackPrimaries = async (
+  db: Kysely<DB>,
+  stacks: { id: string; ownerId: string; primaryAssetId: string }[],
+) => {
+  for (const stack of stacks) {
+    const primary = await db
+      .selectFrom('asset')
+      .select('id')
+      .where('stackId', '=', stack.id)
+      .where('ownerId', '=', stack.ownerId)
+      .where('deletedAt', 'is', null)
+      .where('status', '=', AssetStatus.Active)
+      .where((eb) => eb.or([eb('id', '=', stack.primaryAssetId), eb('visibility', '=', AssetVisibility.Timeline)]))
+      .orderBy(sql`id = ${stack.primaryAssetId}`, 'desc')
+      .orderBy('fileCreatedAt')
+      .orderBy('id')
+      .limit(1)
+      .executeTakeFirst();
+    // Keep the stack and every membership link when only 0/1 active frames remain.
+    if (primary && primary.id !== stack.primaryAssetId) {
+      await db.updateTable('stack').set({ primaryAssetId: primary.id }).where('id', '=', stack.id).execute();
+    }
+  }
+};
 
 const withAssets = (eb: ExpressionBuilder<DB, 'stack'>, withTags = false) => {
   return jsonArrayFrom(

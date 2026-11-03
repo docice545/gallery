@@ -1,5 +1,5 @@
 import { AdminConfigDto, SystemConfig, defaults } from 'src/dtos/config.dto.js';
-import { AssetFileType, JobName, JobStatus, UserMetadataKey } from 'src/enum.js';
+import { AssetFileType, AssetStatus, AssetVisibility, JobName, JobStatus, UserMetadataKey } from 'src/enum.js';
 import { NotificationService } from 'src/services/notification.service.js';
 import { AlbumFactory } from 'test/factories/album.factory.js';
 import { AssetFileFactory } from 'test/factories/asset-file.factory.js';
@@ -7,7 +7,7 @@ import { AssetFactory } from 'test/factories/asset.factory.js';
 import { UserFactory } from 'test/factories/user.factory.js';
 import { notificationStub } from 'test/fixtures/notification.stub.js';
 import { userStub } from 'test/fixtures/user.stub.js';
-import { getForAlbum } from 'test/mappers.js';
+import { getForAlbum, getForAsset } from 'test/mappers.js';
 import { newUuid } from 'test/small.factory.js';
 import { ServiceMocks, newTestService } from 'test/utils.js';
 
@@ -55,6 +55,7 @@ describe(NotificationService.name, () => {
 
   beforeEach(() => {
     ({ sut, mocks } = newTestService(NotificationService));
+    mocks.asset.getActiveTimelineRepresentativeIds.mockResolvedValue([]);
   });
 
   it('should work', () => {
@@ -195,8 +196,8 @@ describe(NotificationService.name, () => {
   });
 
   describe('onAssetTrash', () => {
-    it('should send connected clients an websocket', () => {
-      sut.onAssetTrash({ assetId: 'asset-id', userId: 'user-id' });
+    it('should send connected clients an websocket', async () => {
+      await sut.onAssetTrash({ assetId: 'asset-id', userId: 'user-id' });
       expect(mocks.websocket.clientSend).toHaveBeenCalledWith('on_asset_trash', 'user-id', ['asset-id']);
     });
   });
@@ -209,17 +210,82 @@ describe(NotificationService.name, () => {
   });
 
   describe('onAssetsTrash', () => {
-    it('should send connected clients an event', () => {
-      sut.onAssetsTrash({ assetIds: ['asset-id'], userId: 'user-id' });
+    it('should send connected clients an event', async () => {
+      await sut.onAssetsTrash({ assetIds: ['asset-id'], userId: 'user-id' });
       expect(mocks.websocket.clientSend).toHaveBeenCalledWith('on_asset_trash', 'user-id', ['asset-id']);
     });
   });
 
   describe('onAssetsRestore', () => {
-    it('should send connected clients an event', () => {
-      sut.onAssetsRestore({ assetIds: ['asset-id'], userId: 'user-id' });
+    it('should send connected clients an event', async () => {
+      await sut.onAssetsRestore({ assetIds: ['asset-id'], userId: 'user-id' });
       expect(mocks.websocket.clientSend).toHaveBeenCalledWith('on_asset_restore', 'user-id', ['asset-id']);
     });
+  });
+
+  describe('Trash/restore timeline updates', () => {
+    it.each([1000, 2001])(
+      'reads %i restored representatives in bounded bulk queries without per-asset reads',
+      async (count) => {
+        const ids = Array.from({ length: count }, () => newUuid());
+        mocks.asset.getActiveTimelineRepresentativeIds.mockResolvedValue(ids);
+        mocks.asset.getById.mockResolvedValue(undefined);
+
+        await sut.onAssetsRestore({ assetIds: ids, userId: 'user-id' });
+
+        expect(mocks.asset.getById).not.toHaveBeenCalled();
+        const calls = mocks.asset.getByIdsForTimelineNotifications.mock.calls;
+        expect(calls).toHaveLength(Math.ceil(count / 1000));
+        expect(calls.flatMap(([batch]) => batch)).toEqual(ids);
+        for (const [batch, ownerId] of calls) {
+          expect(batch.length).toBeLessThanOrEqual(1000);
+          expect(ownerId).toBe('user-id');
+        }
+      },
+    );
+
+    it.each(['trash', 'restore'])('sends only the current owner cover DTO after %s', async (operation) => {
+      const asset = AssetFactory.from().exif().build();
+      const userId = asset.ownerId;
+      mocks.asset.getActiveTimelineRepresentativeIds.mockResolvedValue([asset.id]);
+      mocks.asset.getByIdsForTimelineNotifications.mockResolvedValue([getForAsset(asset)]);
+
+      if (operation === 'trash') {
+        await sut.onAssetsTrash({ assetIds: ['changed-child'], userId });
+      } else {
+        await sut.onAssetsRestore({ assetIds: ['changed-child'], userId });
+      }
+
+      expect(mocks.asset.getActiveTimelineRepresentativeIds).toHaveBeenCalledWith(['changed-child'], userId);
+      expect(mocks.asset.getByIdsForTimelineNotifications).toHaveBeenCalledExactlyOnceWith([asset.id], userId);
+      expect(mocks.asset.getById).not.toHaveBeenCalled();
+      expect(mocks.websocket.clientSend.mock.calls).toEqual([
+        [operation === 'trash' ? 'on_asset_trash' : 'on_asset_restore', userId, ['changed-child']],
+        ['on_asset_update', userId, expect.objectContaining({ id: asset.id, stack: null })],
+      ]);
+      expect(mocks.websocket.clientBroadcast).not.toHaveBeenCalled();
+    });
+
+    it('does not upsert a cover which another request has trashed before its DTO was read', async () => {
+      const asset = AssetFactory.from().exif().build();
+      mocks.asset.getActiveTimelineRepresentativeIds.mockResolvedValue([asset.id]);
+      mocks.asset.getByIdsForTimelineNotifications.mockResolvedValue([
+        { ...getForAsset(asset), status: AssetStatus.Trashed },
+      ]);
+      await sut.onAssetsTrash({ assetIds: ['child'], userId: asset.ownerId });
+      expect(mocks.websocket.clientSend.mock.calls).toEqual([['on_asset_trash', asset.ownerId, ['child']]]);
+    });
+
+    it.each([AssetVisibility.Hidden, AssetVisibility.Locked])(
+      'does not send private %s metadata to owner sessions',
+      async (visibility) => {
+        const asset = AssetFactory.from().exif().build();
+        mocks.asset.getActiveTimelineRepresentativeIds.mockResolvedValue([asset.id]);
+        mocks.asset.getByIdsForTimelineNotifications.mockResolvedValue([{ ...getForAsset(asset), visibility }]);
+        await sut.onAssetsRestore({ assetIds: [asset.id], userId: asset.ownerId });
+        expect(mocks.websocket.clientSend.mock.calls).toEqual([['on_asset_restore', asset.ownerId, [asset.id]]]);
+      },
+    );
   });
 
   describe('onStackCreate', () => {

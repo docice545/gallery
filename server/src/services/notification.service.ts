@@ -17,6 +17,8 @@ import {
 } from 'src/dtos/notification.dto.js';
 import {
   AssetFileType,
+  AssetStatus,
+  AssetVisibility,
   JobName,
   JobStatus,
   NotificationLevel,
@@ -151,8 +153,8 @@ export class NotificationService extends BaseService {
   }
 
   @OnEvent({ name: 'AssetTrash' })
-  onAssetTrash({ assetId, userId }: ArgOf<'AssetTrash'>) {
-    this.websocketRepository.clientSend('on_asset_trash', userId, [assetId]);
+  async onAssetTrash({ assetId, userId }: ArgOf<'AssetTrash'>) {
+    await this.onAssetsTrash({ assetIds: [assetId], userId });
   }
 
   @OnEvent({ name: 'AssetDelete' })
@@ -161,8 +163,9 @@ export class NotificationService extends BaseService {
   }
 
   @OnEvent({ name: 'AssetTrashAll' })
-  onAssetsTrash({ assetIds, userId }: ArgOf<'AssetTrashAll'>) {
+  async onAssetsTrash({ assetIds, userId }: ArgOf<'AssetTrashAll'>) {
     this.websocketRepository.clientSend('on_asset_trash', userId, assetIds);
+    await this.notifyTimelineRepresentatives(assetIds, userId);
   }
 
   @OnEvent({ name: 'AssetMetadataExtracted' })
@@ -182,8 +185,38 @@ export class NotificationService extends BaseService {
   }
 
   @OnEvent({ name: 'AssetRestoreAll' })
-  onAssetsRestore({ assetIds, userId }: ArgOf<'AssetRestoreAll'>) {
+  async onAssetsRestore({ assetIds, userId }: ArgOf<'AssetRestoreAll'>) {
     this.websocketRepository.clientSend('on_asset_restore', userId, assetIds);
+    await this.notifyTimelineRepresentatives(assetIds, userId);
+  }
+
+  private async notifyTimelineRepresentatives(assetIds: string[], userId: string) {
+    const ids = await this.assetRepository.getActiveTimelineRepresentativeIds(assetIds, userId);
+    if (ids.length === 0) return;
+    for (let offset = 0; offset < ids.length; offset += 1000) {
+      const assets = await this.assetRepository.getByIdsForTimelineNotifications(
+        ids.slice(offset, offset + 1000),
+        userId,
+      );
+      for (const asset of assets) {
+        // Another Trash/restore may have changed the representative since the first read.
+        if (
+          !asset ||
+          asset.ownerId !== userId ||
+          asset.status !== AssetStatus.Active ||
+          asset.deletedAt ||
+          ![AssetVisibility.Timeline, AssetVisibility.Archive].includes(asset.visibility) ||
+          (asset.stack && asset.stack.primaryAssetId !== asset.id)
+        ) {
+          continue;
+        }
+        this.websocketRepository.clientSend(
+          'on_asset_update',
+          userId,
+          mapAsset(asset, { withStack: true, auth: { user: { id: userId } } as AuthDto }),
+        );
+      }
+    }
   }
 
   @OnEvent({ name: 'StackCreate' })
