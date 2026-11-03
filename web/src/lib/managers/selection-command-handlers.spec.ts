@@ -2,6 +2,7 @@ import {
   AssetVisibility,
   deleteAssets as deleteBulk,
   deletionPreflight,
+  getStack,
   permanentDeletion,
   restoreAssets,
   State,
@@ -17,6 +18,7 @@ import AssetAddToCollectionModal from '$lib/modals/AssetAddToCollectionModal.sve
 import AssetDeleteConfirmModal from '$lib/modals/AssetDeleteConfirmModal.svelte';
 import { showDeleteModal } from '$lib/stores/preferences.store';
 import * as handleErrorModule from '$lib/utils/handle-error';
+import { assetFactory } from '@test-data/factories/asset-factory';
 import type { CommandContext, SelectionCommandContext } from './command-context-manager.svelte';
 import {
   canAddSelectedToAlbum,
@@ -49,6 +51,7 @@ vi.mock('@immich/sdk', async (orig) => ({
   restoreAssets: vi.fn().mockResolvedValue(undefined),
   deletionPreflight: vi.fn(),
   permanentDeletion: vi.fn(),
+  getStack: vi.fn(),
 }));
 
 vi.mock('$lib/managers/feature-flags-manager.svelte', () => ({
@@ -409,6 +412,76 @@ describe('archive selected', () => {
 });
 
 describe('delete selected', () => {
+  it('coalesces repeated deletion across fresh context snapshots with the same owned ids', async () => {
+    let complete!: (value: never) => void;
+    vi.mocked(deleteBulk).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const first = makeSelection({ assets: [makeAsset({ id: 'a' }), makeAsset({ id: 'b' })] });
+    const repeated = makeSelection({ assets: [makeAsset({ id: 'b' }), makeAsset({ id: 'a' })] });
+    const firstResult = handleDeleteSelected(makeCtx(first));
+    const repeatedResult = handleDeleteSelected(makeCtx(repeated));
+    await vi.waitFor(() => expect(deleteBulk).toHaveBeenCalledOnce());
+    complete(undefined as never);
+    await expect(Promise.all([firstResult, repeatedResult])).resolves.toEqual([true, true]);
+    expect(first.onDelete).toHaveBeenCalledOnce();
+    expect(repeated.onDelete).not.toHaveBeenCalled();
+    expect(first.clearSelection).toHaveBeenCalledOnce();
+    expect(repeated.clearSelection).not.toHaveBeenCalled();
+  });
+
+  it('coalesces pending force confirmation and permits retry after cancellation', async () => {
+    showDeleteModal.set(true);
+    let confirm!: (value: boolean) => void;
+    vi.mocked(modalManager.show).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          confirm = resolve;
+        }) as never,
+    );
+    const selection = () => makeSelection({ assets: [makeAsset({ isTrashed: true })] });
+    const firstResult = handleDeleteSelected(makeCtx(selection()));
+    const repeatedResult = handleDeleteSelected(makeCtx(selection()));
+    expect(modalManager.show).toHaveBeenCalledOnce();
+    confirm(false);
+    await expect(Promise.all([firstResult, repeatedResult])).resolves.toEqual([false, false]);
+    expect(deleteBulk).not.toHaveBeenCalled();
+    await expect(handleDeleteSelected(makeCtx(selection()))).resolves.toBe(true);
+    expect(modalManager.show).toHaveBeenCalledTimes(2);
+    expect(deleteBulk).toHaveBeenCalledOnce();
+  });
+
+  it('releases the repeated-delete guard after an API failure', async () => {
+    vi.mocked(deleteBulk).mockRejectedValueOnce(new Error('offline'));
+    const first = makeSelection();
+    await expect(handleDeleteSelected(makeCtx(first))).resolves.toBe(false);
+    expect(first.onDelete).not.toHaveBeenCalled();
+    expect(first.clearSelection).not.toHaveBeenCalled();
+    await expect(handleDeleteSelected(makeCtx(makeSelection()))).resolves.toBe(true);
+    expect(deleteBulk).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not coalesce a different route or user with the same ids', async () => {
+    let complete!: (value: never) => void;
+    vi.mocked(deleteBulk).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const firstResult = handleDeleteSelected(makeCtx(makeSelection()));
+    await vi.waitFor(() => expect(deleteBulk).toHaveBeenCalledOnce());
+    vi.mocked(deleteBulk).mockResolvedValue(undefined as never);
+    await expect(handleDeleteSelected(makeCtx(makeSelection(), { routeId: '/other' }))).resolves.toBe(true);
+    await expect(handleDeleteSelected(makeCtx(makeSelection(), { userId: 'another-user' }))).resolves.toBe(true);
+    expect(deleteBulk).toHaveBeenCalledTimes(3);
+    complete(undefined as never);
+    await expect(firstResult).resolves.toBe(true);
+  });
+
   it('keeps unresolved assets selected and removes only confirmed permanent deletions', async () => {
     featureFlagsManager.valueOrUndefined!.authorizedDeletion = true;
     const selection = makeSelection({
@@ -566,6 +639,37 @@ describe('delete selected', () => {
     await expect(handleDeleteSelected(makeCtx(selection))).resolves.toBe(false);
 
     expect(handleErrorSpy).toHaveBeenCalledWith(error, expect.any(String));
+    expect(selection.onDelete).not.toHaveBeenCalled();
+    expect(selection.clearSelection).not.toHaveBeenCalled();
+  });
+});
+
+describe('collapsed timeline deletion context', () => {
+  it.each([true, false])('expands a cover only for an explicit collapsed context (%s)', async (includeStacks) => {
+    const members = [0, 1, 2].map((i) => assetFactory.build({ id: `frame-${i}`, ownerId: 'u-me', isTrashed: false }));
+    const cover = makeAsset({
+      id: members[0].id,
+      stack: { id: 'stack', primaryAssetId: members[0].id, assetCount: 3 },
+    });
+    vi.mocked(getStack).mockResolvedValue({ id: 'stack', primaryAssetId: cover.id, assets: members });
+    const selection = makeSelection({ assets: [cover], includeStacks });
+    await handleDeleteSelected(makeCtx(selection));
+    expect(deleteBulk).toHaveBeenCalledWith({
+      assetBulkDeleteDto: {
+        ids: includeStacks ? members.map((asset) => asset.id) : [cover.id],
+        force: false,
+      },
+    });
+    expect(getStack).toHaveBeenCalledTimes(includeStacks ? 1 : 0);
+    expect(selection.clearSelection).toHaveBeenCalledOnce();
+  });
+
+  it('retains selection when a collapsed-stack lookup fails', async () => {
+    const cover = makeAsset({ stack: { id: 'stack', primaryAssetId: 'asset-1', assetCount: 3 } });
+    vi.mocked(getStack).mockRejectedValueOnce(new Error('offline'));
+    const selection = makeSelection({ assets: [cover], includeStacks: true });
+    expect(await handleDeleteSelected(makeCtx(selection))).toBe(false);
+    expect(deleteBulk).not.toHaveBeenCalled();
     expect(selection.onDelete).not.toHaveBeenCalled();
     expect(selection.clearSelection).not.toHaveBeenCalled();
   });

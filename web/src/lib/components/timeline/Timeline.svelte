@@ -701,6 +701,7 @@
 />
 
 <TimelineKeyboardActions
+  {withStacked}
   scrollToAsset={(asset) => scrollToAsset(asset) ?? false}
   {timelineManager}
   {assetInteraction}

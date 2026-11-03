@@ -1,6 +1,9 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/local_album_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope.dart';
@@ -22,10 +25,29 @@ class LocalTimelinePage extends StatelessWidget {
           ref.watch(timelineFactoryProvider).localAlbum(albumId: album.id, groupBy: groupBy, temporalScope: scope),
       child: Timeline(
         withGroupingPill: true,
-        appBar: MesmerizingSliverAppBar(title: album.name),
+        appBar: MesmerizingSliverAppBar(
+          title: album.name,
+          actions: [_LocalAlbumMenu(albumId: album.id)],
+        ),
         bottomSheet: const LocalAlbumBottomSheet(),
         showStorageIndicator: true,
       ),
+    );
+  }
+}
+
+class _LocalAlbumMenu extends ConsumerWidget {
+  const _LocalAlbumMenu({required this.albumId});
+
+  final String albumId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final action = CleanupLocalAlbumAction(albumId: albumId).create(context, ref);
+    return PopupMenuButton<int>(
+      tooltip: context.t.more,
+      onSelected: (_) => action.onAction(),
+      itemBuilder: (_) => [PopupMenuItem(value: 0, child: Text(action.label))],
     );
   }
 }

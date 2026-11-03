@@ -484,6 +484,7 @@
   };
 
   registerSelectionContext({
+    getIncludeStacks: () => !showSearchResults,
     getAssets: () => assetMultiSelectManager.assets,
     clearSelection: () => assetMultiSelectManager.clear(),
     canAddToAlbum: () => true,
@@ -763,7 +764,12 @@
         {#if authManager.preferences.tags.enabled}
           <TagAction menuItem />
         {/if}
-        <DeleteAssets menuItem onAssetDelete={handleAssetDelete} onUndoDelete={handleUndoDelete} />
+        <DeleteAssets
+          menuItem
+          includeStacks={!showSearchResults}
+          onAssetDelete={handleAssetDelete}
+          onUndoDelete={handleUndoDelete}
+        />
         <SetVisibilityAction menuItem onVisibilitySet={handleSetVisibility} />
         <hr />
         <ActionMenuItem action={Actions.RegenerateThumbnailJob} />

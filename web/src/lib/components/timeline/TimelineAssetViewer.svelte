@@ -129,9 +129,7 @@
   const handlePreAction = async (action: Action) => {
     switch (action.type) {
       case removeAction:
-      case AssetAction.TRASH:
       case AssetAction.RESTORE:
-      case AssetAction.DELETE:
       case AssetAction.ARCHIVE:
       case AssetAction.SET_VISIBILITY_LOCKED:
       case AssetAction.SET_VISIBILITY_TIMELINE: {
@@ -149,8 +147,29 @@
       // no default
     }
   };
-  const handleAction = (action: Action) => {
+  const handleAction = async (action: Action) => {
     switch (action.type) {
+      case AssetAction.TRASH:
+      case AssetAction.DELETE: {
+        timelineManager.removeAssets([action.asset.id]);
+        if (action.stackHandled) {
+          if (action.asset.stack && action.asset.stack.primaryAssetId !== action.replacementAsset?.id) {
+            timelineManager.removeAssets([action.asset.stack.primaryAssetId]);
+          }
+          if (action.replacementAsset) {
+            timelineManager.upsertAssets([toTimelineAsset(action.replacementAsset)]);
+          }
+          break;
+        }
+        if (action.asset.id !== assetCursor.current.id) {
+          break;
+        }
+        // Successful deletion is the first point at which the current row may disappear.
+        if (!(await navigateToAsset(assetCursor.nextAsset)) && !(await navigateToAsset(assetCursor.previousAsset))) {
+          await handleClose(action.asset.id);
+        }
+        break;
+      }
       case AssetAction.ARCHIVE:
       case AssetAction.UNARCHIVE: {
         timelineManager.upsertAssets([action.asset]);
@@ -258,8 +277,8 @@
       timelineManager?.upsertAssets([toTimelineAsset(asset)]);
     }}
     preAction={handlePreAction}
-    onAction={(action) => {
-      handleAction(action);
+    onAction={async (action) => {
+      await handleAction(action);
       assetCacheManager.invalidate();
     }}
     onUndoDelete={handleUndoDelete}

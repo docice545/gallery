@@ -116,7 +116,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact' && github.head_ref != 'codex/foto-build36-web-backend-final')) && github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: mich
 
     steps:

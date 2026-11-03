@@ -35,8 +35,9 @@ class AssetPage extends ConsumerStatefulWidget {
   final int index;
   final int heroOffset;
   final void Function(int direction)? onTapNavigate;
+  final BaseAsset? retainedAsset;
 
-  const AssetPage({super.key, required this.index, required this.heroOffset, this.onTapNavigate});
+  const AssetPage({super.key, required this.index, required this.heroOffset, this.onTapNavigate, this.retainedAsset});
 
   @override
   ConsumerState createState() => _AssetPageState();
@@ -62,12 +63,13 @@ class _AssetPageState extends ConsumerState<AssetPage> {
   Drag? _drag;
 
   BaseAsset? _asset;
+  List<RemoteAsset>? _lastStackChildren;
 
   @override
   void initState() {
     super.initState();
     _eventSubscription = EventStream.shared.listen(_onEvent);
-    _asset = ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+    _asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) {
         return;
@@ -82,8 +84,9 @@ class _AssetPageState extends ConsumerState<AssetPage> {
   @override
   void didUpdateWidget(AssetPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index) {
-      _asset = ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+    if (oldWidget.index != widget.index || oldWidget.retainedAsset != widget.retainedAsset) {
+      _asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+      _lastStackChildren = null;
     }
   }
 
@@ -100,11 +103,25 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       case ViewerShowDetailsEvent():
         _showDetails();
       case TimelineReloadEvent():
-        final asset = ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+        final asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+        final previous = _asset;
+        final current = ref.read(assetViewerProvider).currentAsset;
+        // The viewer resolves active siblings before deciding whether a stack
+        // page disappeared. Keep its anchor during that asynchronous refresh.
+        if (previous is RemoteAsset &&
+            previous.stackId != null &&
+            current is RemoteAsset &&
+            current.stackId == previous.stackId &&
+            (asset is! RemoteAsset || asset.stackId != previous.stackId)) {
+          return;
+        }
         if (asset != _asset) {
           _isZoomed = false;
           _viewer.setZoomed(false);
-          setState(() => _asset = asset);
+          setState(() {
+            _asset = asset;
+            _lastStackChildren = null;
+          });
         }
       default:
     }
@@ -415,6 +432,17 @@ class _AssetPageState extends ConsumerState<AssetPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(assetViewerProvider.select((state) => state.currentAsset), (_, current) {
+      final asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+      if (current != null && asset != null && current.refersToSameAsset(asset) && asset != _asset) {
+        _isZoomed = false;
+        _viewer.setZoomed(false);
+        setState(() {
+          _asset = asset;
+          _lastStackChildren = null;
+        });
+      }
+    });
     final (currentAsset, thumbnailSize) = ref.watch(
       assetViewerProvider.select((s) => (s.currentAsset, s.thumbnailSize)),
     );
@@ -431,7 +459,11 @@ class _AssetPageState extends ConsumerState<AssetPage> {
 
     BaseAsset displayAsset = asset;
     final showAssetStack = ref.watch(timelineServiceProvider.select((s) => s.origin != TimelineOrigin.trash));
-    final stackChildren = showAssetStack ? ref.watch(stackChildrenNotifier(asset)).valueOrNull : null;
+    final stackState = showAssetStack ? ref.watch(stackChildrenNotifier(asset)) : null;
+    if (stackState?.hasValue == true) {
+      _lastStackChildren = stackState!.value;
+    }
+    final stackChildren = stackState?.valueOrNull ?? (stackState?.hasError == true ? _lastStackChildren : null);
     if (stackChildren != null && stackChildren.isNotEmpty) {
       final safeStackIndex = stackIndex.clamp(0, stackChildren.length - 1);
       displayAsset = stackChildren.elementAt(safeStackIndex);
