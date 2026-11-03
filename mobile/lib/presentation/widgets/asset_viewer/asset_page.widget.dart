@@ -118,7 +118,10 @@ class _AssetPageState extends ConsumerState<AssetPage> {
         if (asset != _asset) {
           _isZoomed = false;
           _viewer.setZoomed(false);
-          setState(() => _asset = asset);
+          setState(() {
+            _asset = asset;
+            _lastStackChildren = null;
+          });
         }
       default:
     }
@@ -429,6 +432,17 @@ class _AssetPageState extends ConsumerState<AssetPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(assetViewerProvider.select((state) => state.currentAsset), (_, current) {
+      final asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+      if (current != null && asset != null && current.refersToSameAsset(asset) && asset != _asset) {
+        _isZoomed = false;
+        _viewer.setZoomed(false);
+        setState(() {
+          _asset = asset;
+          _lastStackChildren = null;
+        });
+      }
+    });
     final (currentAsset, thumbnailSize) = ref.watch(
       assetViewerProvider.select((s) => (s.currentAsset, s.thumbnailSize)),
     );

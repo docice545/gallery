@@ -553,4 +553,45 @@ void main() {
       await closeViewer(tester, router);
     }
   });
+
+  testWidgets('deleting the final active stack frame displays the following standalone photo at the same index', (
+    tester,
+  ) async {
+    await tester.runAsync(
+      () => repository.newRemoteAsset(
+        id: 'neighbor',
+        ownerId: presentation.currentUser.id,
+        createdAt: DateTime(2020),
+        thumbHash: '',
+      ),
+    );
+    await drain(tester);
+    await tester.runAsync(() => timeline.loadAssets(0, 2));
+    final router = await openViewer(tester);
+    final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
+    late Future<void> deletion;
+    try {
+      await tester.runAsync(() => remote.trash(['next-frame', 'last-frame']));
+      await drain(tester);
+      expect(container.read(assetViewerProvider).currentAsset?.id, 'cover');
+      expect(find.text('1/1'), findsNothing);
+      final button = tester.widget<ImmichColumnButton>(
+        find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+      );
+      await tester.runAsync(() async {
+        deletion = Future<void>.sync(button.onPressed);
+        await requestEntered.future;
+      });
+      await drain(tester);
+      expect(response.isCompleted, isFalse);
+      expect(router.current.name, _viewerName);
+      expect(container.read(assetViewerProvider).currentAsset?.id, 'neighbor');
+      expect(tester.widgetList<AssetDetails>(find.byType(AssetDetails)).map((details) => details.asset.id), [
+        'neighbor',
+      ]);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await closeViewer(tester, router, deletion: deletion);
+    }
+  });
 }
