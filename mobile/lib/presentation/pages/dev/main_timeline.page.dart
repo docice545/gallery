@@ -66,9 +66,7 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
     }
     final user = ref.read(currentUserProvider);
     final owners = ref.read(timelineUsersProvider).valueOrNull;
-    if (user == null ||
-        owners == null ||
-        !owners.contains(user.id)) {
+    if (user == null || owners == null || !owners.contains(user.id)) {
       return;
     }
 
@@ -103,14 +101,11 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
   @override
   void initState() {
     super.initState();
-    _syncSubscription = ref.listenManual(
-      syncStatusProvider.select((s) => s.remoteSyncStatus),
-      (_, status) {
-        if (status == SyncStatus.success) {
-          _startOfflineWarmup();
-        }
-      },
-    );
+    _syncSubscription = ref.listenManual(syncStatusProvider.select((s) => s.remoteSyncStatus), (_, status) {
+      if (status == SyncStatus.success) {
+        _startOfflineWarmup();
+      }
+    });
     _timelineUsersSubscription = ref.listenManual(timelineUsersProvider, (_, next) {
       if (next.hasValue) {
         _startOfflineWarmup();

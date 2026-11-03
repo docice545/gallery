@@ -85,11 +85,7 @@ class MemoryLane extends ConsumerWidget {
                           MemoryPage.setMemory(ref, memory);
                           unawaited(context.pushRoute(MemoryRoute(memories: memories, memoryIndex: index)));
                         },
-                      child: MemoryCard(
-                        key: Key(memory.id),
-                        memory: memory,
-                        thumbnailBuilder: thumbnailBuilder,
-                      ),
+                        child: MemoryCard(key: Key(memory.id), memory: memory, thumbnailBuilder: thumbnailBuilder),
                       ),
                     ),
                   );
@@ -119,21 +115,17 @@ class MemoryCard extends StatelessWidget {
     final thumbnail = memory.assets.isEmpty
         ? null
         : thumbnailBuilder?.call(memory.assets.first) ??
-            Thumbnail.remote(
-              remoteId: memory.assets.first.id,
-              thumbhash: memory.assets.first.thumbHash ?? '',
-              fit: BoxFit.cover,
-            );
+              Thumbnail.remote(
+                remoteId: memory.assets.first.id,
+                thumbhash: memory.assets.first.thumbHash ?? '',
+                fit: BoxFit.cover,
+              );
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: colorScheme.surfaceContainerHighest,
         boxShadow: [
-          BoxShadow(
-            color: colorScheme.shadow.withValues(alpha: 0.25),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
+          BoxShadow(color: colorScheme.shadow.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2)),
         ],
       ),
       child: ClipRRect(

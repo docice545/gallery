@@ -36,16 +36,12 @@ class AssetService {
 
   Future<BaseAsset?> getAsset(BaseAsset asset) {
     final id = asset is LocalAsset ? asset.id : (asset as RemoteAsset).id;
-    return asset is LocalAsset
-        ? _localRepository.get(id)
-        : _remoteRepository.get(id);
+    return asset is LocalAsset ? _localRepository.get(id) : _remoteRepository.get(id);
   }
 
   Stream<BaseAsset?> watchAsset(BaseAsset asset) {
     final id = asset is LocalAsset ? asset.id : (asset as RemoteAsset).id;
-    return asset is LocalAsset
-        ? _localRepository.watch(id)
-        : _remoteRepository.watch(id);
+    return asset is LocalAsset ? _localRepository.watch(id) : _remoteRepository.watch(id);
   }
 
   Future<List<LocalAsset?>> getLocalAssetsByChecksum(String checksum) {
@@ -78,27 +74,18 @@ class AssetService {
   /// Resolve explicitly selected collapsed covers before any Trash mutation.
   /// Local cache contents can be incomplete; the server owns stack membership.
   /// Individual frames and flat timelines must keep their exact selected IDs.
-  Future<List<String>> resolveStackTrashIds(
-    List<String> selectedIds,
-    List<RemoteAsset> covers,
-  ) async {
+  Future<List<String>> resolveStackTrashIds(List<String> selectedIds, List<RemoteAsset> covers) async {
     final selected = selectedIds.toSet();
     final ids = {...selected};
     final seenStacks = <String>{};
     for (final cover in covers) {
       final stackId = cover.stackId;
-      if (stackId == null ||
-          !selected.contains(cover.id) ||
-          !seenStacks.add(stackId)) {
+      if (stackId == null || !selected.contains(cover.id) || !seenStacks.add(stackId)) {
         continue;
       }
       final stack = await _apiRepository.getStack(stackId);
-      if (stack.id != stackId ||
-          stack.primaryAssetId != cover.id ||
-          !stack.assetIds.contains(cover.id)) {
-        throw StateError(
-          'Selected stack cover changed; refresh the selection before deleting',
-        );
+      if (stack.id != stackId || stack.primaryAssetId != cover.id || !stack.assetIds.contains(cover.id)) {
+        throw StateError('Selected stack cover changed; refresh the selection before deleting');
       }
       ids.addAll(stack.assetIds);
     }
@@ -110,9 +97,7 @@ class AssetService {
       return null;
     }
 
-    final id = asset is LocalAsset
-        ? asset.remoteId!
-        : (asset as RemoteAsset).id;
+    final id = asset is LocalAsset ? asset.remoteId! : (asset as RemoteAsset).id;
     return _remoteRepository.getExif(id);
   }
 
@@ -120,28 +105,18 @@ class AssetService {
     return _remoteRepository.getPlaces(userId);
   }
 
-  Future<List<Place>> getPlaceDetails(String userId) =>
-      _remoteRepository.getPlaceDetails(userId);
+  Future<List<Place>> getPlaceDetails(String userId) => _remoteRepository.getPlaceDetails(userId);
 
   Future<(int local, int remote)> getAssetCounts() async {
-    return (
-      await _localRepository.getCount(),
-      await _remoteRepository.getCount(),
-    );
+    return (await _localRepository.getCount(), await _remoteRepository.getCount());
   }
 
   Future<int> getLocalHashedCount() {
     return _localRepository.getHashedCount();
   }
 
-  Future<List<LocalAlbum>> getSourceAlbums(
-    String localAssetId, {
-    BackupSelection? backupSelection,
-  }) {
-    return _localRepository.getSourceAlbums(
-      localAssetId,
-      backupSelection: backupSelection,
-    );
+  Future<List<LocalAlbum>> getSourceAlbums(String localAssetId, {BackupSelection? backupSelection}) {
+    return _localRepository.getSourceAlbums(localAssetId, backupSelection: backupSelection);
   }
 
   Future<void> restoreTrash(List<String> remoteIds) async {
@@ -149,10 +124,7 @@ class AssetService {
       return;
     }
 
-    final snapshots = await _remoteRepository.beginTrashOperation(
-      remoteIds,
-      restore: true,
-    );
+    final snapshots = await _remoteRepository.beginTrashOperation(remoteIds, restore: true);
     try {
       await _apiRepository.restoreTrash(remoteIds);
       await _remoteRepository.completeTrashOperation(snapshots, success: true);
@@ -187,14 +159,9 @@ class AssetService {
     await _remoteRepository.unStack(stackIds);
   }
 
-  Future<List<({StackResponse stack, String name})>> getStacks() =>
-      _apiRepository.getStacks();
+  Future<List<({StackResponse stack, String name})>> getStacks() => _apiRepository.getStacks();
 
-  Future<void> setStackPrimary(
-    String userId,
-    String stackId,
-    String assetId,
-  ) async {
+  Future<void> setStackPrimary(String userId, String stackId, String assetId) async {
     final stack = await _apiRepository.setStackPrimary(stackId, assetId);
     await _remoteRepository.stack(userId, stack);
   }
@@ -211,10 +178,7 @@ class AssetService {
     }
     // The standard API forbids removing a primary: change it before detaching.
     if (stack.primaryAssetId == asset.id) {
-      stack = await _apiRepository.setStackPrimary(
-        stackId,
-        stack.assetIds.firstWhere((id) => id != asset.id),
-      );
+      stack = await _apiRepository.setStackPrimary(stackId, stack.assetIds.firstWhere((id) => id != asset.id));
       await _remoteRepository.stack(userId, stack);
     }
     await _apiRepository.removeFromStack(stackId, asset.id);
@@ -233,9 +197,7 @@ class AssetService {
     }
 
     final parsedDateTime = dateTime.map((dt) => DateTime.parse(dt));
-    final offset = RegExp(r'[+-]\d{2}:\d{2}$')
-        .firstMatch(dateTime.unwrapOrNull ?? '')
-        ?.group(0);
+    final offset = RegExp(r'[+-]\d{2}:\d{2}$').firstMatch(dateTime.unwrapOrNull ?? '')?.group(0);
 
     await _apiRepository.update(
       remoteIds,
@@ -263,10 +225,7 @@ class AssetService {
       return;
     }
 
-    final snapshots = await _remoteRepository.beginTrashOperation(
-      remoteIds,
-      restore: false,
-    );
+    final snapshots = await _remoteRepository.beginTrashOperation(remoteIds, restore: false);
     try {
       await _apiRepository.delete(remoteIds, false);
       await _remoteRepository.completeTrashOperation(snapshots, success: true);
@@ -299,9 +258,7 @@ class AssetService {
 
   /// Completes once the server has durably admitted the captured selection.
   /// Files are deleted by the existing server worker, never by MediaStore here.
-  Future<List<PermanentDeletionResult>> acceptPermanentDeletion(
-    List<String> remoteIds,
-  ) async {
+  Future<List<PermanentDeletionResult>> acceptPermanentDeletion(List<String> remoteIds) async {
     if (remoteIds.isEmpty) {
       return const [];
     }
@@ -310,19 +267,11 @@ class AssetService {
       final results = await _apiRepository.acceptPermanentDeletion(remoteIds);
       await _remoteRepository.acceptPermanentDeletion(
         snapshots,
-        results
-            .where((result) => result.accepted)
-            .map((result) => result.id)
-            .toList(),
-        results
-            .where((result) => result.complete)
-            .map((result) => result.id)
-            .toList(),
+        results.where((result) => result.accepted).map((result) => result.id).toList(),
+        results.where((result) => result.complete).map((result) => result.id).toList(),
       );
       for (final result in results.where((result) => !result.accepted)) {
-        final checked = snapshots
-            .where((snapshot) => snapshot.id == result.id)
-            .toList();
+        final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
         await _remoteRepository.completeTrashOperation(
           checked,
           success: false,
@@ -345,19 +294,11 @@ class AssetService {
     }
     final snapshots = await _remoteRepository.beginPermanentDeletion(remoteIds);
     try {
-      final results = await _apiRepository.permanentlyDelete(
-        remoteIds,
-        onBatchStatus: onBatchStatus,
-      );
+      final results = await _apiRepository.permanentlyDelete(remoteIds, onBatchStatus: onBatchStatus);
       for (final result in results) {
-        final checked = snapshots
-            .where((snapshot) => snapshot.id == result.id)
-            .toList();
+        final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
         if (result.state == 'uncertain') {
-          await _remoteRepository.completeTrashOperation(
-            checked,
-            success: false,
-          );
+          await _remoteRepository.completeTrashOperation(checked, success: false);
         } else {
           await _remoteRepository.completePermanentDeletion(
             checked,
@@ -379,11 +320,9 @@ class AssetService {
     return _apiRepository.cancelDeletionBatch(batchId);
   }
 
-  Future<List<String>> getTrashIds(String ownerId) =>
-      _remoteRepository.getTrashIds(ownerId);
+  Future<List<String>> getTrashIds(String ownerId) => _remoteRepository.getTrashIds(ownerId);
 
-  Future<List<String>> getDeletionLocalIds(List<String> ids) =>
-      _remoteRepository.getDeletionLocalIds(ids);
+  Future<List<String>> getDeletionLocalIds(List<String> ids) => _remoteRepository.getDeletionLocalIds(ids);
 
   Future<void> applyEdits(String remoteId, List<AssetEdit> edits) async {
     if (edits.isEmpty) {
@@ -403,9 +342,7 @@ class AssetService {
       return 0;
     }
 
-    if (trash &&
-        CurrentPlatform.isAndroid &&
-        Store.get(StoreKey.manageLocalMediaAndroid, false)) {
+    if (trash && CurrentPlatform.isAndroid && Store.get(StoreKey.manageLocalMediaAndroid, false)) {
       await _trashedLocalRepository.applyTrashedAssets(deletedIds);
     } else {
       await _localRepository.deleteAssets(deletedIds);
