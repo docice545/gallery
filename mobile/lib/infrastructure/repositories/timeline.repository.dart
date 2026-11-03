@@ -861,7 +861,8 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
         (row.visibility.equalsValue(AssetVisibility.timeline) | row.visibility.equalsValue(AssetVisibility.archive)),
     origin: TimelineOrigin.recentlyAdded,
     groupBy: groupBy,
-    sortBy: SortAssetsBy.uploaded,
+    sortBy: SortAssetsBy.taken,
+    stableIdOrder: true,
   );
 
   TimelineQuery favorite(
@@ -1413,6 +1414,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     GroupAssetsBy groupBy = GroupAssetsBy.day,
     bool joinLocal = false,
     SortAssetsBy sortBy = SortAssetsBy.taken,
+    bool stableIdOrder = false,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) {
     return (
@@ -1424,6 +1426,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
         count: count,
         joinLocal: joinLocal,
         sortBy: sortBy,
+        stableIdOrder: stableIdOrder,
         temporalScope: temporalScope,
       ),
       origin: origin,
@@ -1469,6 +1472,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
     required int count,
     bool joinLocal = false,
     SortAssetsBy sortBy = SortAssetsBy.taken,
+    bool stableIdOrder = false,
     TimelineTemporalScope temporalScope = const TimelineTemporalScope.none(),
   }) {
     if (joinLocal) {
@@ -1480,7 +1484,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
         )
         ..orderBy([
           OrderingTerm.desc(_db.remoteAssetEntity.sortTimestamp(sortBy)),
-          if (sortBy == SortAssetsBy.deleted) OrderingTerm.asc(_db.remoteAssetEntity.id),
+          if (stableIdOrder || sortBy == SortAssetsBy.deleted) OrderingTerm.asc(_db.remoteAssetEntity.id),
         ])
         ..limit(count, offset: offset);
 
@@ -1490,7 +1494,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
         ..where((row) => filter(row) & _remoteWithinTemporalScope(row, temporalScope, sortBy: sortBy))
         ..orderBy([
           (row) => OrderingTerm.desc(row.sortTimestamp(sortBy)),
-          if (sortBy == SortAssetsBy.deleted) (row) => OrderingTerm.asc(row.id),
+          if (stableIdOrder || sortBy == SortAssetsBy.deleted) (row) => OrderingTerm.asc(row.id),
         ])
         ..limit(count, offset: offset);
 
