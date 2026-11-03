@@ -90,7 +90,14 @@ class FailureAnnotations(unittest.TestCase):
         ):
             with redirect_stdout(output):
                 reporter.formatting()
-        messages = [line.split("::", 2)[2] for line in output.getvalue().splitlines()]
+        lines = output.getvalue().splitlines()
+        self.assertTrue(
+            lines[0].startswith("::notice title=Dart formatter changed files::")
+        )
+        self.assertIn("mobile/lib/example.dart", lines[0])
+        messages = [
+            line.split("::", 2)[2] for line in lines if line.startswith("::error")
+        ]
         decoded = [
             message.replace("%0A", "\n").replace("%0D", "\r").replace("%25", "%")
             for message in messages

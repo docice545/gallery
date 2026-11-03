@@ -12,10 +12,10 @@ def escape(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-def report(title: str, message: str) -> None:
+def report(title: str, message: str, *, level: str = "error") -> None:
     # Keep each annotation bounded, and prevent test output becoming workflow commands.
     title = escape(title).replace(",", "%2C").replace(":", "%3A")
-    print(f"::error title={title}::{escape(message[:ANNOTATION_LIMIT])}")
+    print(f"::{level} title={title}::{escape(message[:ANNOTATION_LIMIT])}")
 
 
 def flutter(path: Path) -> None:
@@ -72,7 +72,11 @@ def formatting() -> None:
         ],
         text=True,
     ).split("\0")
-    for path in filter(None, paths):
+    paths = list(filter(None, paths))
+    # GitHub retains at most ten error annotations per step. Large patches can
+    # consume that budget before later files; preserve the inventory separately.
+    report("Dart formatter changed files", "\n".join(paths), level="notice")
+    for path in paths:
         patch = subprocess.check_output(["git", "diff", "--", path], text=True)
         for index, offset in enumerate(range(0, len(patch), ANNOTATION_LIMIT), 1):
             report(

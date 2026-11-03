@@ -97,22 +97,20 @@ void main() {
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final size in [const Size(393, 852), const Size(320, 720), const Size(852, 393)]) {
-      testWidgets(
-        'compact editor: four primary tools remain labeled and accessible on $platform $size',
-        (tester) async {
-          await pumpCompactEditor(tester, size: size);
-          final safe = Rect.fromLTRB(0, 28, size.width, size.height - 24);
-          for (final name in ['crop', 'draw', 'text', 'magicEraser']) {
-            final target = find.byKey(Key('editor-mode-$name'));
-            final rect = tester.getRect(target);
-            expect(safe.contains(rect.topLeft), isTrue, reason: '$name top-left');
-            expect(safe.contains(rect.bottomRight - const Offset(.01, .01)), isTrue, reason: '$name bottom-right');
-            expect(target.hitTestable(), findsOneWidget, reason: '$name must not require ensureVisible');
-          }
-          expect(tester.takeException(), isNull);
-        },
-        variant: TargetPlatformVariant({platform}),
-      );
+      testWidgets('compact editor: four primary tools remain labeled and accessible on $platform $size', (
+        tester,
+      ) async {
+        await pumpCompactEditor(tester, size: size);
+        final safe = Rect.fromLTRB(0, 28, size.width, size.height - 24);
+        for (final name in ['crop', 'draw', 'text', 'magicEraser']) {
+          final target = find.byKey(Key('editor-mode-$name'));
+          final rect = tester.getRect(target);
+          expect(safe.contains(rect.topLeft), isTrue, reason: '$name top-left');
+          expect(safe.contains(rect.bottomRight - const Offset(.01, .01)), isTrue, reason: '$name bottom-right');
+          expect(target.hitTestable(), findsOneWidget, reason: '$name must not require ensureVisible');
+        }
+        expect(tester.takeException(), isNull);
+      }, variant: TargetPlatformVariant({platform}));
     }
   }
   testWidgets('initial controls do not reserve half of the photo viewport', (tester) async {
@@ -216,73 +214,69 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets(
-      'short landscape with cutouts keeps the drawing strip and four primary tools usable on $platform',
-      (tester) async {
-        await pumpCompactEditor(
-          tester,
-          size: const Size(568, 320),
-          padding: const FakeViewPadding(left: 44, right: 44, bottom: 24),
-        );
-        await tester.tap(find.byKey(const Key('editor-mode-draw')));
+    testWidgets('short landscape with cutouts keeps the drawing strip and four primary tools usable on $platform', (
+      tester,
+    ) async {
+      await pumpCompactEditor(
+        tester,
+        size: const Size(568, 320),
+        padding: const FakeViewPadding(left: 44, right: 44, bottom: 24),
+      );
+      await tester.tap(find.byKey(const Key('editor-mode-draw')));
+      await tester.pumpAndSettle();
+      for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
+        expect(find.byKey(Key('editor-tool-$tool')).hitTestable(), findsOneWidget);
+      }
+      for (final mode in ['crop', 'draw', 'text', 'magicEraser']) {
+        final target = find.byKey(Key('editor-mode-$mode'));
+        await tester.ensureVisible(target);
         await tester.pumpAndSettle();
-        for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
-          expect(find.byKey(Key('editor-tool-$tool')).hitTestable(), findsOneWidget);
-        }
-        for (final mode in ['crop', 'draw', 'text', 'magicEraser']) {
-          final target = find.byKey(Key('editor-mode-$mode'));
-          await tester.ensureVisible(target);
-          await tester.pumpAndSettle();
-          expect(target.hitTestable(), findsOneWidget);
-          expectTapTargetMin(tester, target);
-        }
-        expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(100));
-        await tester.tap(find.byKey(const Key('editor-toggle-settings')));
+        expect(target.hitTestable(), findsOneWidget);
+        expectTapTargetMin(tester, target);
+      }
+      expect(tester.getSize(find.byKey(const Key('editor-preview-viewport'))).height, greaterThan(100));
+      await tester.tap(find.byKey(const Key('editor-toggle-settings')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-toggle-settings')).hitTestable(), findsOneWidget);
+      expect(find.byKey(const Key('annotation-tool-picker')).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
+    testWidgets('short landscape keyboard temporarily collapses settings without losing edits on $platform', (
+      tester,
+    ) async {
+      await pumpCompactEditor(
+        tester,
+        size: const Size(568, 320),
+        padding: const FakeViewPadding(left: 44, right: 44, bottom: 24),
+      );
+      await tester.tap(find.byKey(const Key('editor-mode-text')));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+      final before = container.read(editorStateProvider);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+      tester.view.padding = const FakeViewPadding(left: 44, right: 44);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-active-settings')), findsNothing);
+      for (final mode in ['crop', 'draw', 'text', 'magicEraser']) {
+        final target = find.byKey(Key('editor-mode-$mode'));
+        await tester.ensureVisible(target);
         await tester.pumpAndSettle();
-        expect(find.byKey(const Key('editor-toggle-settings')).hitTestable(), findsOneWidget);
-        expect(find.byKey(const Key('annotation-tool-picker')).hitTestable(), findsOneWidget);
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant({platform}),
-    );
-    testWidgets(
-      'short landscape keyboard temporarily collapses settings without losing edits on $platform',
-      (tester) async {
-        await pumpCompactEditor(
-          tester,
-          size: const Size(568, 320),
-          padding: const FakeViewPadding(left: 44, right: 44, bottom: 24),
-        );
-        await tester.tap(find.byKey(const Key('editor-mode-text')));
-        await tester.pumpAndSettle();
-        final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
-        final before = container.read(editorStateProvider);
-        tester.view.viewInsets = const FakeViewPadding(bottom: 180);
-        tester.view.padding = const FakeViewPadding(left: 44, right: 44);
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('editor-active-settings')), findsNothing);
-        for (final mode in ['crop', 'draw', 'text', 'magicEraser']) {
-          final target = find.byKey(Key('editor-mode-$mode'));
-          await tester.ensureVisible(target);
-          await tester.pumpAndSettle();
-          expect(target.hitTestable(), findsOneWidget);
-          expectTapTargetMin(tester, target);
-        }
-        expect(container.read(editorStateProvider), before);
-        tester.view.viewInsets = const FakeViewPadding(bottom: 220);
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('editor-mode-bar')), findsNothing);
-        expect(container.read(editorStateProvider), before);
-        expect(tester.takeException(), isNull);
-        tester.view.viewInsets = FakeViewPadding.zero;
-        tester.view.padding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('editor-active-settings')), findsOneWidget);
-        expect(container.read(editorStateProvider), before);
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant({platform}),
-    );
+        expect(target.hitTestable(), findsOneWidget);
+        expectTapTargetMin(tester, target);
+      }
+      expect(container.read(editorStateProvider), before);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-mode-bar')), findsNothing);
+      expect(container.read(editorStateProvider), before);
+      expect(tester.takeException(), isNull);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.padding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('editor-active-settings')), findsOneWidget);
+      expect(container.read(editorStateProvider), before);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
   }
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('drawing survives settings, undo/redo and orientation on $platform', (tester) async {
@@ -315,31 +309,27 @@ void main() {
       expect(container.read(editorStateProvider).annotations.single, drawing);
       expect(tester.takeException(), isNull);
     }, variant: TargetPlatformVariant({platform}));
-    testWidgets(
-      'rotation between layouts preserves crop controller and history on $platform',
-      (tester) async {
-        await pumpCompactEditor(tester, portrait: true);
-        final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
-        final notifier = container.read(editorStateProvider.notifier);
-        notifier.setCrop(const Rect.fromLTRB(.1, .1, .9, .9));
-        notifier.rotateCW();
-        await tester.pumpAndSettle();
-        final before = container.read(editorStateProvider);
-        final controller = tester.widget<CropImage>(find.byType(CropImage)).controller;
-        tester.view.physicalSize = const Size(852, 393);
-        tester.view.padding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
-        tester.view.viewPadding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
-        await tester.pumpAndSettle();
-        expect(tester.widget<CropImage>(find.byType(CropImage)).controller, same(controller));
-        expect(container.read(editorStateProvider), before);
-        tester.view.physicalSize = const Size(393, 852);
-        await tester.pumpAndSettle();
-        expect(tester.widget<CropImage>(find.byType(CropImage)).controller, same(controller));
-        expect(container.read(editorStateProvider), before);
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant({platform}),
-    );
+    testWidgets('rotation between layouts preserves crop controller and history on $platform', (tester) async {
+      await pumpCompactEditor(tester, portrait: true);
+      final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
+      final notifier = container.read(editorStateProvider.notifier);
+      notifier.setCrop(const Rect.fromLTRB(.1, .1, .9, .9));
+      notifier.rotateCW();
+      await tester.pumpAndSettle();
+      final before = container.read(editorStateProvider);
+      final controller = tester.widget<CropImage>(find.byType(CropImage)).controller;
+      tester.view.physicalSize = const Size(852, 393);
+      tester.view.padding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
+      tester.view.viewPadding = const FakeViewPadding(left: 44, right: 44, bottom: 24);
+      await tester.pumpAndSettle();
+      expect(tester.widget<CropImage>(find.byType(CropImage)).controller, same(controller));
+      expect(container.read(editorStateProvider), before);
+      tester.view.physicalSize = const Size(393, 852);
+      await tester.pumpAndSettle();
+      expect(tester.widget<CropImage>(find.byType(CropImage)).controller, same(controller));
+      expect(container.read(editorStateProvider), before);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
     testWidgets('keyboard insets resize once without changing the document on $platform', (tester) async {
       await pumpCompactEditor(tester, size: const Size(320, 720), scale: 2);
       final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
