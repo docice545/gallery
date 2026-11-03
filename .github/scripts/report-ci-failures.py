@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+ANNOTATION_LIMIT = 3000  # Runner annotations truncate messages at 4096 characters.
+
 
 def escape(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
@@ -13,7 +15,7 @@ def escape(value: str) -> str:
 def report(title: str, message: str) -> None:
     # Keep each annotation bounded, and prevent test output becoming workflow commands.
     title = escape(title).replace(",", "%2C").replace(":", "%3A")
-    print(f"::error title={title}::{escape(message[:12000])}")
+    print(f"::error title={title}::{escape(message[:ANNOTATION_LIMIT])}")
 
 
 def flutter(path: Path) -> None:
@@ -37,11 +39,25 @@ def flutter(path: Path) -> None:
 
 def formatting() -> None:
     paths = subprocess.check_output(
-        ["git", "diff", "--name-only", "-z", "--", "mobile/lib"], text=True
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "-z",
+            "--",
+            "mobile/lib",
+            "mobile/test",
+            "mobile/integration_test",
+        ],
+        text=True,
     ).split("\0")
     for path in filter(None, paths):
         patch = subprocess.check_output(["git", "diff", "--", path], text=True)
-        report("Dart formatting: " + path, patch)
+        for index, offset in enumerate(range(0, len(patch), ANNOTATION_LIMIT), 1):
+            report(
+                f"Dart formatting: {path} (part {index})",
+                patch[offset : offset + ANNOTATION_LIMIT],
+            )
 
 
 def main() -> None:
@@ -56,7 +72,7 @@ def main() -> None:
     else:
         report(
             "Disposable CI Docker build failed",
-            args.path.read_text(errors="replace")[-12000:],
+            args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:],
         )
 
 

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "ci_failure_annotations",
@@ -48,7 +49,30 @@ class FailureAnnotations(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             reporter.report("fixture", "a" * 20000)
-        self.assertEqual(output.getvalue().count("a"), 12000)
+        self.assertEqual(output.getvalue().count("a"), reporter.ANNOTATION_LIMIT)
+
+    def test_format_diff_survives_runner_annotation_limit(self):
+        diff = (
+            "diff --git a/mobile/lib/example.dart b/mobile/lib/example.dart\n"
+            + "line\n" * 1800
+        )
+        output = io.StringIO()
+        with patch.object(
+            reporter.subprocess,
+            "check_output",
+            side_effect=["mobile/lib/example.dart\0", diff],
+        ):
+            with redirect_stdout(output):
+                reporter.formatting()
+        messages = [line.split("::", 2)[2] for line in output.getvalue().splitlines()]
+        decoded = [
+            message.replace("%0A", "\n").replace("%0D", "\r").replace("%25", "%")
+            for message in messages
+        ]
+        self.assertTrue(
+            all(len(message) <= reporter.ANNOTATION_LIMIT for message in decoded)
+        )
+        self.assertEqual("".join(decoded), diff)
 
 
 if __name__ == "__main__":

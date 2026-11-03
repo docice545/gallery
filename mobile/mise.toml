@@ -109,7 +109,7 @@ depends = ["analyze-fix:dart", "analyze-fix:dcm"]
 
 [tasks.format]
 description = "Format Dart code"
-run = "dart format --set-exit-if-changed $(find lib -name '*.dart' -not \\( -name '*.g.dart' -o -name '*.drift.dart' -o -name '*.gr.dart' \\))"
+run = "dart format --set-exit-if-changed $(find lib test integration_test -name '*.dart' -not \\( -name '*.g.dart' -o -name '*.freezed.dart' -o -name '*.drift.dart' -o -name '*.gr.dart' \\))"
 
 [tasks."build:android"]
 description = "Build Android release"
