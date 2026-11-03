@@ -1,5 +1,5 @@
 import { Kysely } from 'kysely';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
@@ -41,6 +41,7 @@ import {
   snapshotOriginal,
   unlinkOriginal,
   validateDeletionRoots,
+  verifyDisposablePath,
 } from 'src/utils/authorized-deletion.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
@@ -99,12 +100,10 @@ const albumSharedAsset = async (ctx: ReturnType<typeof setup>['ctx']) => {
 
 const forceDelete = async (sut: AssetService, user: { id: string }, id: string) => {
   const permanent = vi.spyOn(sut, 'permanentlyDelete');
-  try {
-    await sut.deleteAll(factory.auth({ user }), { ids: [id], force: true });
-  } catch (error) {
-    expect(await permanent.mock.results[0].value).toEqual([{ id, scope: 'managed', state: 'complete' }]);
-    throw error;
-  }
+  await expect(sut.deleteAll(factory.auth({ user }), { ids: [id], force: true })).resolves.toBeUndefined();
+  expect(await permanent.mock.results.at(-1)!.value).toEqual([
+    { id, accepted: true, scope: 'managed', state: 'complete' },
+  ]);
 };
 
 describe(AssetService.name, () => {
@@ -365,23 +364,53 @@ describe(AssetService.name, () => {
       ctx.getMock(JobRepository).queue.mockResolvedValue();
       const { user } = await ctx.newUser();
       const { asset } = await ctx.newAsset({ ownerId: user.id });
-      const thumbnailPath = '/path/to/thumbnail.jpg';
-      const previewPath = '/path/to/preview.jpg';
+      const derivativeRoot = await mkdtemp(join(tmpdir(), 'gallery-derivative-delete-'));
+      fixtureRoots.push(derivativeRoot);
+      const actualBaseFolder = StorageCore.getBaseFolder;
+      vi.spyOn(StorageCore, 'getBaseFolder').mockImplementation((folder) =>
+        folder === StorageFolder.Thumbnails ? derivativeRoot : actualBaseFolder(folder),
+      );
+      const thumbnailPath = join(derivativeRoot, 'thumbnail.jpg');
+      const previewPath = join(derivativeRoot, 'preview.jpg');
       const sidecarPath = '/path/to/sidecar.xmp';
+      await Promise.all([writeFile(thumbnailPath, 'synthetic thumbnail'), writeFile(previewPath, 'synthetic preview')]);
       await Promise.all([
         ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Thumbnail, path: thumbnailPath }),
         ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Preview, path: previewPath }),
         ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Sidecar, path: sidecarPath }),
       ]);
 
-      await authorize(ctx, user.id, asset.id);
+      const originalPath = await authorize(ctx, user.id, asset.id);
+      const storage = ctx.getMock(StorageRepository);
+      storage.verifyDisposablePath.mockImplementation(verifyDisposablePath);
+      storage.unlink.mockImplementation(unlink);
       await forceDelete(sut, user, asset.id);
-      await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true });
+      for (const path of [originalPath, thumbnailPath, previewPath]) {
+        await expect(readFile(path)).rejects.toHaveProperty('code', 'ENOENT');
+      }
+      expect(storage.unlink.mock.calls.map(([path]) => path).sort()).toEqual([previewPath, thumbnailPath].sort());
+      expect(ctx.getMock(JobRepository).queue).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: JobName.FileDelete }),
+      );
+      expect(await ctx.get(AssetRepository).getById(asset.id)).toBeUndefined();
+    });
 
-      expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({
-        name: JobName.FileDelete,
-        data: { files: [thumbnailPath, previewPath] },
-      });
+    it('does not complete deletion when a derivative is outside disposable roots', async () => {
+      const { sut, ctx } = setup();
+      ctx.getMock(JobRepository).queue.mockResolvedValue();
+      const { user } = await ctx.newUser();
+      const { asset } = await ctx.newAsset({ ownerId: user.id });
+      const originalPath = await authorize(ctx, user.id, asset.id);
+      const unsafePath = join(originalPath, '..', 'unapproved-thumbnail.jpg');
+      await writeFile(unsafePath, 'must remain untouched');
+      await ctx.newAssetFile({ assetId: asset.id, type: AssetFileType.Thumbnail, path: unsafePath });
+
+      await expect(sut.permanentlyDelete(factory.auth({ user }), [asset.id])).resolves.toEqual([
+        { id: asset.id, accepted: true, scope: 'managed', state: 'failed', code: 'DERIVATIVE_CLEANUP_FAILED' },
+      ]);
+      expect(await readFile(unsafePath, 'utf8')).toBe('must remain untouched');
+      expect(ctx.getMock(StorageRepository).unlink).not.toHaveBeenCalled();
+      expect(await ctx.get(AssetRepository).getById(asset.id)).toBeDefined();
     });
 
     it('should delete a stacked primary asset (2 assets)', async () => {
