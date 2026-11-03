@@ -78,8 +78,8 @@ jobs:
             test/presentation/widgets/asset_viewer/timeline_preview_video_viewer_test.dart \
             test/presentation/widgets/asset_viewer/timeline_video_viewer_test.dart \
             | tee "$RUNNER_TEMP/smart-timeline-tests.jsonl"
-      - name: Annotate test failures
-        if: failure() && steps.tests.outcome == 'failure'
+      - name: Annotate test results
+        if: "!cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure')"
         run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/smart-timeline-tests.jsonl"
       - name: Retain test evidence
         if: always()
@@ -157,8 +157,8 @@ jobs:
             test/pages/edit/editor_compact_layout_test.dart \
             test/pages/edit/editor_acceptance_test.dart \
             | tee "$RUNNER_TEMP/editor-review.jsonl"
-      - name: Annotate rendering failures
-        if: failure() && steps.render.outcome == 'failure'
+      - name: Annotate rendering results
+        if: "!cancelled() && (steps.render.outcome == 'success' || steps.render.outcome == 'failure')"
         run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/editor-review.jsonl"
       - name: Publish only reviewed-source PNGs and measured geometry to the existing draft branch
         env:

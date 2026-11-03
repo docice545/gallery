@@ -454,7 +454,7 @@ void main() {
   );
 
   for (final size in [const Size(390, 844), const Size(844, 390)]) {
-    testWidgets('preview and active settings stay between the panels at $size', (tester) async {
+    testWidgets('preview keeps the same full-width viewport above one dock at $size', (tester) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -462,26 +462,24 @@ void main() {
       await pumpEditor(tester);
       final panel = find.byKey(const Key('editor-bottom-panel'));
       final canvas = find.byType(AnnotationCanvas);
+      final baseline = tester.getRect(find.byKey(const Key('editor-preview-viewport')));
       expect(tester.getRect(canvas).top, greaterThanOrEqualTo(tester.getRect(find.byType(AppBar)).bottom));
-      if (size.width > size.height) {
-        expect(tester.getRect(canvas).right, lessThanOrEqualTo(tester.getRect(panel).left));
-      } else {
-        expect(tester.getRect(canvas).bottom, lessThanOrEqualTo(tester.getRect(panel).top));
-      }
+      expect(tester.getRect(canvas).bottom, lessThanOrEqualTo(tester.getRect(panel).top));
+      expect(baseline.width, size.width);
+      expect(tester.getSize(panel).height, 56);
       expect(find.byKey(const Key('editor-markup-controls')), findsNothing);
       expect(magicEraser, findsNothing);
       expect(find.byKey(const Key('annotation-toggle')), findsNothing);
 
       await selectMode(tester, 'draw');
-      expect(find.byKey(const Key('editor-markup-controls')), findsOneWidget);
+      expect(find.byKey(const Key('editor-markup-controls')), findsNothing);
+      expect(find.byKey(const Key('editor-tool-pen')), findsOneWidget);
+      expect(find.byKey(const Key('editor-mode-bar')), findsNothing);
       expect(find.byKey(const Key('editor-rotate-left')), findsNothing);
       expect(magicEraser, findsNothing);
-      if (size.width > size.height) {
-        expect(tester.getRect(canvas).right, lessThanOrEqualTo(tester.getRect(panel).left));
-      } else {
-        expect(tester.getRect(canvas).bottom, lessThanOrEqualTo(tester.getRect(panel).top));
-      }
+      expect(tester.getRect(canvas).bottom, lessThanOrEqualTo(tester.getRect(panel).top));
       final viewport = tester.getRect(find.byKey(const Key('editor-preview-viewport')));
+      expect(viewport, baseline);
       final fitted = applyBoxFit(BoxFit.contain, const Size(1, 1), viewport.size).destination;
       expect(tester.getSize(canvas), fitted);
       expect(tester.getCenter(canvas), viewport.center);
@@ -881,8 +879,7 @@ void main() {
     expect(find.byKey(const Key('annotation-text-dialog')), findsNothing);
     expect(editor.elements.single, original);
 
-    await tester.tap(find.byType(DropdownButton<AnnotationTool>));
-    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('editor-tool-move')));
     await tester.tap(find.byKey(const Key('editor-tool-move')));
     await tester.pumpAndSettle();
     await tester.tapAt(annotationPoint(tester, original.points.first + const Offset(.01, .01)));

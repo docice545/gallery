@@ -1,9 +1,8 @@
 // Proposed mapping, not production button replacement or action enablement.
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart';
 import 'package:immich_mobile/utils/action_button.utils.dart';
-
-import 'foto_icon_paths.dart';
 
 const fotoEditorModeIcons = <EditorMode, FotoIconKind>{
   EditorMode.crop: FotoIconKind.crop,

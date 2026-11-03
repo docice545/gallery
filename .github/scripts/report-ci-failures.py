@@ -22,6 +22,7 @@ def flutter(path: Path) -> None:
     names = {}
     output = {}
     failures = set()
+    totals = {"success": 0, "failure": 0, "error": 0, "skipped": 0}
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -60,7 +61,13 @@ def flutter(path: Path) -> None:
                     evidence[offset : offset + ANNOTATION_LIMIT],
                 )
         elif event.get("type") == "testDone":
+            name = names.get(event.get("testID"), "")
+            if name and not name.startswith("loading ") and not event.get("hidden"):
+                result = "skipped" if event.get("skipped") else event.get("result")
+                if result in totals:
+                    totals[result] += 1
             output.pop(event.get("testID"), None)
+    report("Flutter result summary", json.dumps(totals), level="notice")
     if failures:
         report(
             "Flutter failed test inventory", "\n".join(sorted(failures)), level="notice"

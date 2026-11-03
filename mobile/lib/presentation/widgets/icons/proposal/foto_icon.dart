@@ -1,10 +1,9 @@
 // Review candidate only. Viewer/editor adoption requires Issue 17 design approval.
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart';
 
-import 'foto_icon_paths.dart';
-
-export 'foto_icon_paths.dart' show FotoIconKind;
+export 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart' show FotoIconKind;
 
 enum FotoIconState { normal, active, disabled, destructive }
 

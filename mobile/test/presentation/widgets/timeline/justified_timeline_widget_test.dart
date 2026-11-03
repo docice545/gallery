@@ -27,6 +27,7 @@ import 'package:immich_mobile/infrastructure/repositories/store.repository.dart'
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/header.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
@@ -335,11 +336,33 @@ void main() {
     expect(immersiveSegments.every((segment) => segment.headerExtent == 0), isTrue);
     expect(fixture.scroll.offset, greaterThan(0), reason: 'Presentation switching must not reset to the newest photo');
     expect(_tile(visible.id), findsOneWidget);
-    final widthBefore = tester.getRect(_tile(visible.id)).width;
+    List<List<List<double>>> geometry(List<Segment> segments) => [
+      for (final segment in segments.cast<FixedSegment>())
+        [
+          for (var row = 0; row < segment.rows.rowCount; row++)
+            [segment.rows.heightForRow(row), ...segment.rows.widthsForRow(row)],
+        ],
+    ];
+    final geometryBefore = geometry(immersiveSegments);
     config.state = config.state.copyWith(timeline: config.state.timeline.copyWith(tilesPerRow: 2));
     await tester.pumpAndSettle();
     expect(fixture.container.read(timelineArgsProvider).columnCount, 2);
-    expect(tester.getRect(_tile(visible.id)).width, isNot(widthBefore));
+    final resizedSegments = fixture.container.read(timelineSegmentProvider).requireValue;
+    expect(resizedSegments.cast<FixedSegment>().map((segment) => segment.columnCount), everyElement(2));
+    expect(geometry(resizedSegments), isNot(equals(geometryBefore)));
+    // Justified density is a target: a particular mixed-aspect row can retain
+    // its partition and width. Verify the real tile against the new layout,
+    // rather than imposing a hard per-photo size change on the mosaic.
+    final assetIndex = assets.indexWhere((asset) => asset.id == visible.id);
+    final segment = resizedSegments.cast<FixedSegment>().singleWhere(
+      (segment) =>
+          assetIndex >= segment.firstAssetIndex && assetIndex < segment.firstAssetIndex + segment.bucket.assetCount,
+    );
+    final relativeIndex = assetIndex - segment.firstAssetIndex;
+    final row = segment.rows.rowForAssetIndex(relativeIndex);
+    final expectedWidth = segment.rows.widthsForRow(row)[relativeIndex - segment.rows.firstAssetIndexForRow(row)];
+    expect(tester.getRect(_tile(visible.id)).width, closeTo(expectedWidth, .01));
+    expect(fixture.scroll.offset, greaterThan(0));
     config.state = config.state.copyWith(
       timeline: config.state.timeline.copyWith(presentation: TimelinePresentation.classic),
     );

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
@@ -24,58 +24,61 @@ void main() {
         tester,
       ) async {
         final semantics = tester.ensureSemantics();
-        addTearDown(semantics.dispose);
-        var taps = 0;
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff4150af), brightness: brightness),
-            ),
-            home: Scaffold(
-              body: Row(
-                children: [
-                  FotoIconButton(kind: FotoIconKind.edit, label: 'Edit photo', size: size, onPressed: () => taps++),
-                  FotoIconButton(
-                    kind: FotoIconKind.favorite,
-                    label: 'Favorite',
-                    size: size,
-                    selected: true,
-                    onPressed: () => taps++,
-                  ),
-                  FotoIconButton(kind: FotoIconKind.undo, label: 'Undo', size: size, onPressed: null),
-                  FotoIconButton(
-                    kind: FotoIconKind.trash,
-                    label: 'Move to trash',
-                    size: size,
-                    destructive: true,
-                    onPressed: () => taps++,
-                  ),
-                ],
+        try {
+          var taps = 0;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(
+                colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff4150af), brightness: brightness),
+              ),
+              home: Scaffold(
+                body: Row(
+                  children: [
+                    FotoIconButton(kind: FotoIconKind.edit, label: 'Edit photo', size: size, onPressed: () => taps++),
+                    FotoIconButton(
+                      kind: FotoIconKind.favorite,
+                      label: 'Favorite',
+                      size: size,
+                      selected: true,
+                      onPressed: () => taps++,
+                    ),
+                    FotoIconButton(kind: FotoIconKind.undo, label: 'Undo', size: size, onPressed: null),
+                    FotoIconButton(
+                      kind: FotoIconKind.trash,
+                      label: 'Move to trash',
+                      size: size,
+                      destructive: true,
+                      onPressed: () => taps++,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        expect(find.byType(Text), findsNothing, reason: 'Persistent captions belong only in the review sheet');
-        for (final element in find.byType(FotoIconButton).evaluate()) {
-          expect(tester.getSize(find.byWidget(element.widget)), const Size.square(48));
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(Text), findsNothing, reason: 'Persistent captions belong only in the review sheet');
+          for (final element in find.byType(FotoIconButton).evaluate()) {
+            expect(tester.getSize(find.byWidget(element.widget)), const Size.square(48));
+          }
+          for (final image in tester.widgetList<SvgPicture>(find.byType(SvgPicture))) {
+            expect(image.width, size);
+            expect(image.height, size);
+          }
+          expect(find.byTooltip('Edit photo'), findsOneWidget);
+          expect(find.bySemanticsLabel('Edit photo'), findsOneWidget);
+          expect(tester.widgetList<FotoIcon>(find.byType(FotoIcon)).map((icon) => icon.state), [
+            FotoIconState.normal,
+            FotoIconState.active,
+            FotoIconState.disabled,
+            FotoIconState.destructive,
+          ]);
+          await tester.tap(find.byTooltip('Edit photo'));
+          await tester.tap(find.byTooltip('Undo'));
+          expect(taps, 1);
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
         }
-        for (final image in tester.widgetList<SvgPicture>(find.byType(SvgPicture))) {
-          expect(image.width, size);
-          expect(image.height, size);
-        }
-        expect(find.byTooltip('Edit photo'), findsOneWidget);
-        expect(find.bySemanticsLabel('Edit photo'), findsOneWidget);
-        expect(tester.widgetList<FotoIcon>(find.byType(FotoIcon)).map((icon) => icon.state), [
-          FotoIconState.normal,
-          FotoIconState.active,
-          FotoIconState.disabled,
-          FotoIconState.destructive,
-        ]);
-        await tester.tap(find.byTooltip('Edit photo'));
-        await tester.tap(find.byTooltip('Undo'));
-        expect(taps, 1);
-        expect(tester.takeException(), isNull);
       });
     }
   }

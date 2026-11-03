@@ -21,12 +21,12 @@ import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
-import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/markup_controls.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
-import 'package:immich_mobile/presentation/pages/edit/widgets/markup_controls.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
@@ -654,7 +654,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     onToggleSettings: () => setState(() => _settingsExpanded = !_settingsExpanded),
                     mode: _mode,
                     allowTransformEdits: allowTransformEdits,
-                    asset: widget.asset,
                     straightening: _straightening,
                     onStraightening: (value) => setState(() => _straightening = value),
                     onLayers: _layers,
@@ -740,7 +739,6 @@ class _EditorBottomPanel extends ConsumerStatefulWidget {
   final VoidCallback onToggleSettings;
   final EditorMode mode;
   final bool allowTransformEdits;
-  final RemoteAsset? asset;
   final bool straightening;
   final ValueChanged<bool> onStraightening;
   final VoidCallback onLayers;
@@ -771,7 +769,6 @@ class _EditorBottomPanel extends ConsumerStatefulWidget {
     required this.onToggleSettings,
     required this.mode,
     required this.allowTransformEdits,
-    required this.asset,
     required this.straightening,
     required this.onStraightening,
     required this.onLayers,
@@ -887,12 +884,7 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
     final controls = <Widget>[];
     if (!widget.settingsExpanded) {
       controls.add(
-        EditorModeBar(
-          mode: widget.mode,
-          allowTransformEdits: widget.allowTransformEdits,
-          hasMagicEraser: widget.asset != null,
-          onMode: widget.onMode,
-        ),
+        EditorModeBar(mode: widget.mode, allowTransformEdits: widget.allowTransformEdits, onMode: widget.onMode),
       );
     } else {
       controls.add(
@@ -932,16 +924,10 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
           AnnotationTool.ellipse,
         ]) {
           controls.add(
-            _button(
-              'editor-tool-${tool.name}',
-              fotoAnnotationToolIcons[tool]!,
-              _toolLabel(context, tool),
-              () {
-                _dismiss();
-                widget.onTool(tool);
-              },
-              selected: widget.tool == tool,
-            ),
+            _button('editor-tool-${tool.name}', fotoAnnotationToolIcons[tool]!, _toolLabel(context, tool), () {
+              _dismiss();
+              widget.onTool(tool);
+            }, selected: widget.tool == tool),
           );
         }
         controls.add(_button('editor-width', FotoIconKind.brush, context.t.size, () => _open('width')));
@@ -1007,16 +993,9 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
 
 /// Categories occupy this same dock only while no contextual tool row is open.
 class EditorModeBar extends StatelessWidget {
-  const EditorModeBar({
-    super.key,
-    required this.mode,
-    required this.allowTransformEdits,
-    required this.hasMagicEraser,
-    required this.onMode,
-  });
+  const EditorModeBar({super.key, required this.mode, required this.allowTransformEdits, required this.onMode});
   final EditorMode mode;
   final bool allowTransformEdits;
-  final bool hasMagicEraser;
   final ValueChanged<EditorMode> onMode;
   double preferredHeight(BuildContext context) => 48;
 
@@ -1039,9 +1018,9 @@ class EditorModeBar extends StatelessWidget {
           kind: fotoEditorModeIcons[entry]!,
           label: entry.label(context),
           selected: mode == entry,
-          onPressed: (entry == EditorMode.magicEraser ? hasMagicEraser : allowTransformEdits)
-              ? () => onMode(entry)
-              : null,
+          // Local photos retain the existing explanation/retry dialog; opening
+          // it never uploads an image or discards the current editor document.
+          onPressed: entry == EditorMode.magicEraser || allowTransformEdits ? () => onMode(entry) : null,
         ),
     ],
   );

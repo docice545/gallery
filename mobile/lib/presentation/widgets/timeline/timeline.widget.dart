@@ -248,8 +248,10 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     // Capture before the scoped layout args invalidate the segment stream and
     // temporarily attach a loading scroll view at offset zero.
     ref.listenManual(appConfigProvider.select((config) => config.timeline), (previous, next) {
-      if (previous == null || (previous.presentation == next.presentation && previous.tilesPerRow == next.tilesPerRow))
+      if (previous == null ||
+          (previous.presentation == next.presentation && previous.tilesPerRow == next.tilesPerRow)) {
         return;
+      }
       final segments = _lastRenderedSegments;
       if (segments != null && _scrollController.positions.length == 1 && _scrollController.position.hasPixels) {
         _restoreAssetIndex ??= _getCurrentAssetIndex(segments);

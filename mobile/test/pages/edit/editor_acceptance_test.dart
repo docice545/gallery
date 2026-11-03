@@ -10,11 +10,9 @@ import 'editor_compact_layout_test.dart' show editorPhotoRect, pumpCompactEditor
 
 void main() {
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets(
-      'icon-only FOTO header retains accessible Save Copy, Cancel and history on $platform',
-      (tester) async {
-        final semantics = tester.ensureSemantics();
-        addTearDown(semantics.dispose);
+    testWidgets('icon-only FOTO header retains accessible Save Copy, Cancel and history on $platform', (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
         await pumpCompactEditor(tester, russian: true);
         expect(tester.widget<AppBar>(find.byType(AppBar)).actions, hasLength(3));
         for (final key in ['editor-back', 'editor-header-undo', 'editor-header-redo', 'editor-save']) {
@@ -28,9 +26,10 @@ void main() {
         expect(find.bySemanticsLabel('Сохранить копию'), findsOneWidget);
         expect(tester.widget<TextButton>(find.byKey(const Key('editor-save'))).onPressed, isNull);
         expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant({platform}),
-    );
+      } finally {
+        semantics.dispose();
+      }
+    }, variant: TargetPlatformVariant({platform}));
   }
 
   testWidgets('every category is accessible without captions or a second persistent row', (tester) async {

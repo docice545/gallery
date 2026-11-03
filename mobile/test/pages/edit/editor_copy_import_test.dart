@@ -191,7 +191,7 @@ void main() {
     await startSave(tester);
     await advanceUntil(tester, () => importCalls == 1 && !container.read(editorStateProvider).isApplyingEdits);
     expect(find.byType(EditImagePage), findsOneWidget);
-    expect(find.text('Retry'), findsWidgets);
+    expect(find.byTooltip('Retry'), findsOneWidget);
     expect(container.read(editorStateProvider).rotationAngle, -90);
     expect(tester.widget<IconButton>(find.byKey(const Key('editor-header-undo'))).onPressed, isNull);
     expect(tester.widget<IconButton>(find.byKey(const Key('editor-back'))).onPressed, isNotNull);
