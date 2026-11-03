@@ -1469,6 +1469,8 @@
   "delete_library": "Usuń bibliotekę",
   "delete_link": "Usuń link",
   "delete_local_action_prompt": "{count} lokalnie usunięto",
+  "delete_local_album_assets": "Usuń wszystkie zdjęcia albumu z urządzenia",
+  "delete_local_album_assets_confirmation": "Usunąć z tego urządzenia {count} elementów tego albumu? Kopie na serwerze pozostaną bez zmian.",
   "delete_local_dialog_ok_backed_up_only": "Usuń tylko kopię zapasową",
   "delete_local_dialog_ok_force": "Usuń mimo to",
   "delete_others": "Usuń pozostałe",

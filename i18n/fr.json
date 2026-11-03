@@ -1465,6 +1465,8 @@
   "delete_library": "Supprimer la bibliothèque",
   "delete_link": "Supprimer le lien",
   "delete_local_action_prompt": "{count} supprimé(s) localement",
+  "delete_local_album_assets": "Supprimer toutes les photos de cet album de l’appareil",
+  "delete_local_album_assets_confirmation": "Supprimer {count} éléments de cet album de cet appareil ? Les copies sur le serveur resteront inchangées.",
   "delete_local_dialog_ok_backed_up_only": "Suppression des données sauvegardées uniquement",
   "delete_local_dialog_ok_force": "Supprimer tout de même",
   "delete_others": "Supprimer les autres",

@@ -1463,6 +1463,8 @@
   "delete_library": "刪除相簿",
   "delete_link": "刪除連結",
   "delete_local_action_prompt": "已在本機刪除 {count} 個項目",
+  "delete_local_album_assets": "從裝置刪除相簿中的所有照片",
+  "delete_local_album_assets_confirmation": "要從此裝置刪除此相簿中的 {count} 個項目嗎？伺服器副本不會變更。",
   "delete_local_dialog_ok_backed_up_only": "僅刪除已備份的項目",
   "delete_local_dialog_ok_force": "確認刪除",
   "delete_others": "刪除其他",

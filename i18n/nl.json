@@ -1467,6 +1467,8 @@
   "delete_library": "Verwijder bibliotheek",
   "delete_link": "Verwijder link",
   "delete_local_action_prompt": "{count} lokaal verwijderd",
+  "delete_local_album_assets": "Alle albumfoto’s van apparaat verwijderen",
+  "delete_local_album_assets_confirmation": "{count} items uit dit album van dit apparaat verwijderen? De kopieën op de server blijven ongewijzigd.",
   "delete_local_dialog_ok_backed_up_only": "Verwijder alleen met back-up",
   "delete_local_dialog_ok_force": "Toch verwijderen",
   "delete_others": "Andere verwijderen",

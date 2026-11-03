@@ -1467,6 +1467,8 @@
   "delete_library": "Elimina libreria",
   "delete_link": "Elimina link",
   "delete_local_action_prompt": "{count} eliminati in locale",
+  "delete_local_album_assets": "Elimina dal dispositivo tutte le foto dell’album",
+  "delete_local_album_assets_confirmation": "Vuoi eliminare {count} elementi di questo album dal dispositivo? Le copie sul server rimarranno invariate.",
   "delete_local_dialog_ok_backed_up_only": "Elimina solo con backup",
   "delete_local_dialog_ok_force": "Elimina comunque",
   "delete_others": "Elimina gli altri",

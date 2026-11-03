@@ -1467,6 +1467,8 @@
   "delete_library": "Удалить библиотеку",
   "delete_link": "Удалить ссылку",
   "delete_local_action_prompt": "Объекты удалены с устройства ({count} шт.)",
+  "delete_local_album_assets": "Удалить с устройства все фотографии альбома",
+  "delete_local_album_assets_confirmation": "Удалить с устройства {count} файлов этого альбома? Копии на сервере останутся без изменений.",
   "delete_local_dialog_ok_backed_up_only": "Удалить только резервные копии",
   "delete_local_dialog_ok_force": "Все равно удалить",
   "delete_others": "Удалить остальные",

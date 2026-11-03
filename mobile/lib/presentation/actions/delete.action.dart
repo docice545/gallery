@@ -12,6 +12,7 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
@@ -379,6 +380,115 @@ class CleanupLocalAction extends AssetActionBuilder {
     } catch (error, stack) {
       if (isCurrent()) {
         handleError(error, stack: stack, description: "Failed to remove the device copies");
+      }
+    } finally {
+      guard.running = false;
+    }
+  }
+}
+
+/// Explicit device-only cleanup. Album membership is a selection, not permission
+/// to remove a server asset or delete the album's Drift definition.
+class CleanupLocalAlbumAction extends ActionBuilder {
+  const CleanupLocalAlbumAction({required this.albumId});
+
+  final String albumId;
+
+  @override
+  ActionItem create(BuildContext context, WidgetRef ref) => .new(
+    icon: Icons.delete_outline,
+    label: context.t.delete_local_album_assets,
+    onAction: () => _cleanupAlbum(context, ref),
+  );
+
+  Future<void> _cleanupAlbum(BuildContext context, WidgetRef ref) async {
+    if (!context.mounted) {
+      return;
+    }
+    final guard = ref.read(_localCleanupGuardProvider(.timeline));
+    if (guard.running) {
+      return;
+    }
+    final userId = ref.read(currentUserProvider)?.id;
+    final store = ref.read(storeServiceProvider);
+    final endpoint = store.tryGet(StoreKey.serverEndpoint);
+    bool isCurrent() =>
+        context.mounted &&
+        ref.read(currentUserProvider)?.id == userId &&
+        store.tryGet(StoreKey.serverEndpoint) == endpoint;
+    final repository = ref.read(driftProvider).localAlbumRepository;
+    final toastService = ref.read(toastServiceProvider);
+
+    guard.running = true;
+    try {
+      // getAssets joins live local rows. Raw album-link IDs can include stale
+      // links and must never be interpreted as a MediaStore selection.
+      final snapshot = {for (final asset in await repository.getAssets(albumId)) asset.id: asset};
+      if (!context.mounted || !isCurrent()) {
+        return;
+      }
+      if (snapshot.isEmpty) {
+        toastService.error(context.t.no_assets_to_show);
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => ConfirmDialog(
+          title: context.t.delete_local_album_assets,
+          content: context.t.delete_local_album_assets_confirmation(count: snapshot.length),
+          ok: context.t.delete_from_device,
+        ),
+      );
+      if (confirmed != true || !isCurrent()) {
+        return;
+      }
+
+      // Do not add newly arrived items or remove a file that moved away/changed
+      // while the user was reading the confirmation.
+      final current = await repository.getAssets(albumId);
+      if (!context.mounted || !isCurrent()) {
+        return;
+      }
+      final eligible = <String>[
+        for (final asset in current)
+          if (snapshot[asset.id] case final LocalAsset previous
+              when previous.type == asset.type &&
+                  previous.name == asset.name &&
+                  previous.checksum == asset.checksum &&
+                  previous.createdAt.isAtSameMomentAs(asset.createdAt) &&
+                  previous.updatedAt.isAtSameMomentAs(asset.updatedAt))
+            asset.id,
+      ];
+      final result = await _cleanupLocalAssetsDetailed(
+        context,
+        ref,
+        eligible,
+        requestCustomPrompt: false,
+        canContinue: isCurrent,
+      );
+      if (!context.mounted || !isCurrent()) {
+        return;
+      }
+      final removed = result.deletedIds.where(snapshot.containsKey).toSet();
+      final remaining = snapshot.keys.where((id) => !removed.contains(id)).length;
+      if (removed.isNotEmpty) {
+        final selected = ref.read(multiSelectProvider).selectedAssets.toList();
+        final notifier = ref.read(multiSelectProvider.notifier);
+        for (final asset in selected) {
+          if (removed.contains(asset.localId)) {
+            notifier.deselectAsset(asset);
+          }
+        }
+      }
+      final message = context.t.device_deletion_summary(removed: removed.length, remaining: remaining);
+      if (remaining == 0) {
+        toastService.success(message);
+      } else {
+        toastService.error(message);
+      }
+    } catch (error, stack) {
+      if (isCurrent()) {
+        handleError(error, stack: stack, description: "Failed to remove the album's device copies");
       }
     } finally {
       guard.running = false;
