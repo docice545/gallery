@@ -399,11 +399,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     final endpoint = Store.get(StoreKey.serverEndpoint);
     final videoUrl = '$endpoint/assets/${asset.livePhotoVideoId}/video/playback';
     _previewTrace('source:remote-pair-playback');
-    return VideoSource.init(
-      path: videoUrl,
-      type: VideoSourceType.network,
-      headers: ApiService.getRequestHeaders(),
-    );
+    return VideoSource.init(path: videoUrl, type: VideoSourceType.network, headers: ApiService.getRequestHeaders());
   }
 
   Future<VideoSource?> _createLocalTimelineSource() async {
@@ -688,8 +684,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
         widget.asset is RemoteAsset &&
         widget.asset.storage == AssetState.remote &&
         (widget.asset as RemoteAsset).livePhotoVideoId != null;
-    if (widget.timelinePreview && !remotePreview &&
-        (!widget.asset.hasLocal || widget.localFilePath == null)) {
+    if (widget.timelinePreview && !remotePreview && (!widget.asset.hasLocal || widget.localFilePath == null)) {
       return widget.image;
     }
     final isCasting = !widget.timelinePreview && ref.watch(castProvider.select((c) => c.isCasting));

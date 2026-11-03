@@ -28,10 +28,7 @@ class _OfflineThumbnailNetworkSettingsState extends ConsumerState<OfflineThumbna
           title: Text(context.t.offline_thumbnail_mobile_warning_title),
           content: Text(context.t.offline_thumbnail_mobile_warning_body),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(context.t.cancel),
-            ),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(context.t.cancel)),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
               child: Text(context.t.offline_thumbnail_mobile_allow),
@@ -60,11 +57,7 @@ class _OfflineThumbnailNetworkSettingsState extends ConsumerState<OfflineThumbna
     return SwitchListTile.adaptive(
       value: useAnyNetwork,
       onChanged: _updating ? null : (value) => _change(value),
-      title: Text(
-        useAnyNetwork
-            ? context.t.offline_thumbnail_any_network
-            : context.t.offline_thumbnail_wifi_only,
-      ),
+      title: Text(useAnyNetwork ? context.t.offline_thumbnail_any_network : context.t.offline_thumbnail_wifi_only),
       subtitle: Text(context.t.offline_thumbnail_network_subtitle),
       secondary: const Icon(Icons.cloud_download_outlined),
     );

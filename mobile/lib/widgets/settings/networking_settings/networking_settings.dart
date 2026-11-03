@@ -179,7 +179,6 @@ class NetworkingSettings extends HookConsumerWidget {
         const SizedBox(height: 16),
         SettingGroupTitle(title: context.t.external_network, icon: Icons.dns_outlined),
         ExternalNetworkPreference(enabled: featureEnabled.value),
-
       ],
     );
   }

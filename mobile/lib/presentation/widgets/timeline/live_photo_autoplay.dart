@@ -70,8 +70,7 @@ LivePhotoCandidate? chooseLivePhotoCandidate(Iterable<LivePhotoCandidate> candid
     // Remote-only Live Photos may stream their paired motion clip. Local and
     // merged assets must still have a verified local file: never silently
     // download a server copy when the local component is unavailable.
-    final remotePair =
-        asset is RemoteAsset && asset.storage == AssetState.remote && asset.livePhotoVideoId != null;
+    final remotePair = asset is RemoteAsset && asset.storage == AssetState.remote && asset.livePhotoVideoId != null;
     final localPair =
         asset.storage != AssetState.remote &&
         (asset.localId?.isNotEmpty ?? false) &&
