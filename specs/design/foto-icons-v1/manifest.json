@@ -1,0 +1,838 @@
+{
+  "status": "ICON DESIGN APPROVAL PENDING",
+  "grid": 24,
+  "radii": 2,
+  "strokeDp": {
+    "20": 1.65,
+    "22": 1.75,
+    "24": 1.85
+  },
+  "icons": [
+    {
+      "id": "back",
+      "label": "Назад",
+      "group": "Viewer",
+      "paths": [
+        "M15 5.5 8.5 12 15 18.5"
+      ],
+      "binding": "ViewerTopAppBar / editor exit"
+    },
+    {
+      "id": "more",
+      "label": "Ещё",
+      "group": "Viewer",
+      "paths": [
+        "M5 12h.1 M12 12h.1 M19 12h.1"
+      ],
+      "binding": "ViewerKebabMenu / editor overflow"
+    },
+    {
+      "id": "share",
+      "label": "Поделиться",
+      "group": "Viewer",
+      "paths": [
+        "M12 15V3.5 M8.5 7 12 3.5 15.5 7",
+        "M5 11v7.5A2 2 0 0 0 7 20.5h10a2 2 0 0 0 2-2V11"
+      ],
+      "binding": "ShareAction"
+    },
+    {
+      "id": "link",
+      "label": "Ссылка",
+      "group": "Viewer",
+      "paths": [
+        "M10 8 8.5 6.5a3.5 3.5 0 0 0-5 5l3 3a3.5 3.5 0 0 0 5 0",
+        "M14 16l1.5 1.5a3.5 3.5 0 0 0 5-5l-3-3a3.5 3.5 0 0 0-5 0",
+        "M8.5 10.5l7 3"
+      ],
+      "binding": "ShareLinkAction"
+    },
+    {
+      "id": "favorite",
+      "label": "Избранное",
+      "group": "Viewer",
+      "paths": [
+        "M12 20 4.5 12.6C-.5 7 7 1.5 12 7c5-5.5 12.5 0 7.5 5.6Z"
+      ],
+      "binding": "FavoriteAction / likeActivity / markup sticker preset heart"
+    },
+    {
+      "id": "edit",
+      "label": "Редактировать",
+      "group": "Viewer",
+      "paths": [
+        "M4 20l1.2-5L16 4.2a2 2 0 0 1 2.8 0l1 1a2 2 0 0 1 0 2.8L9 18.8Z",
+        "M14.2 6l3.8 3.8 M5.2 15l3.8 3.8"
+      ],
+      "binding": "EditAssetAction"
+    },
+    {
+      "id": "addAlbum",
+      "label": "В альбом",
+      "group": "Viewer",
+      "paths": [
+        "M4 7h7l2-2h5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z",
+        "M12 10v6 M9 13h6"
+      ],
+      "binding": "AddActionButton"
+    },
+    {
+      "id": "trash",
+      "label": "В корзину",
+      "group": "Viewer",
+      "paths": [
+        "M4 7h16 M9 7V4.5h6V7",
+        "M6.5 9l.7 10a2 2 0 0 0 2 1.5h5.6a2 2 0 0 0 2-1.5l.7-10",
+        "M10 11v6 M14 11v6"
+      ],
+      "binding": "DeleteAction (recoverable server trash) / delete layer"
+    },
+    {
+      "id": "deviceTrash",
+      "label": "Корзина телефона",
+      "group": "Viewer",
+      "paths": [
+        "M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6 M7 18h2",
+        "M14 9h7 M15.5 11l.5 7h3l.5-7 M16 9V7h3v2"
+      ],
+      "binding": "CleanupLocalAction (server copies retained)"
+    },
+    {
+      "id": "restore",
+      "label": "Восстановить",
+      "group": "Viewer",
+      "paths": [
+        "M4 8v5h5",
+        "M4.5 12a8 8 0 1 1 3 6",
+        "M12 7v5l3 2"
+      ],
+      "binding": "RestoreAction"
+    },
+    {
+      "id": "info",
+      "label": "Информация",
+      "group": "Viewer",
+      "paths": [
+        "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18",
+        "M12 7h.1 M11 11h1v6 M10 17h4"
+      ],
+      "binding": "openInfo"
+    },
+    {
+      "id": "download",
+      "label": "На устройство",
+      "group": "Viewer",
+      "paths": [
+        "M12 3v12 M8.5 11.5 12 15l3.5-3.5",
+        "M4 16v2.5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V16"
+      ],
+      "binding": "DownloadAction"
+    },
+    {
+      "id": "upload",
+      "label": "Загрузить",
+      "group": "Viewer",
+      "paths": [
+        "M12 17V8 M8.5 11.5 12 8l3.5 3.5",
+        "M6 18a4.5 4.5 0 0 1-1-8.8A7 7 0 0 1 18.5 8a5 5 0 0 1 .5 10"
+      ],
+      "binding": "UploadAction"
+    },
+    {
+      "id": "cast",
+      "label": "Трансляция",
+      "group": "Viewer",
+      "paths": [
+        "M4 8V5h16v13h-8",
+        "M4 12a6 6 0 0 1 6 6 M4 15a3 3 0 0 1 3 3 M4 18h.1"
+      ],
+      "binding": "cast"
+    },
+    {
+      "id": "cover",
+      "label": "Обложка",
+      "group": "Viewer",
+      "paths": [
+        "M5 4h12l3 3v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5Z",
+        "M4 16l5-5 4 4 2-2 5 5 M15 8h.1"
+      ],
+      "binding": "SetAlbumCoverAction"
+    },
+    {
+      "id": "similar",
+      "label": "Похожие",
+      "group": "Viewer",
+      "paths": [
+        "M4 7h10v13H4Z M9 4h11v12 M7 16l2-3 3 4"
+      ],
+      "binding": "SimilarPhotosAction"
+    },
+    {
+      "id": "profile",
+      "label": "Фото профиля",
+      "group": "Viewer",
+      "paths": [
+        "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18",
+        "M12 6a3 3 0 1 0 0 6 3 3 0 1 0 0-6",
+        "M6 18c1-5 11-5 12 0"
+      ],
+      "binding": "SetProfilePictureAction"
+    },
+    {
+      "id": "timeline",
+      "label": "Показать в ленте",
+      "group": "Viewer",
+      "paths": [
+        "M5 5h5v5H5Z M14 5h5v5h-5Z M5 14h5v5H5Z M14 14h5v5h-5Z"
+      ],
+      "binding": "viewInTimeline"
+    },
+    {
+      "id": "slideshow",
+      "label": "Слайд-шоу",
+      "group": "Viewer",
+      "paths": [
+        "M4 5h16v12H4Z M8 21l4-4 4 4",
+        "M10 8l5 3-5 3Z"
+      ],
+      "binding": "SlideshowAction"
+    },
+    {
+      "id": "stack",
+      "label": "Стопка",
+      "group": "Viewer",
+      "paths": [
+        "M12 3 21 8 12 13 3 8Z",
+        "M3 12l9 5 9-5 M3 16l9 5 9-5"
+      ],
+      "binding": "ManageStackAction"
+    },
+    {
+      "id": "unstack",
+      "label": "Разделить стопку",
+      "group": "Viewer",
+      "paths": [
+        "M9 3 17 7 9 11 1 7Z",
+        "M15 13 23 17 15 21 7 17Z",
+        "M18 4h3v3 M6 20H3v-3"
+      ],
+      "binding": "unstack"
+    },
+    {
+      "id": "archive",
+      "label": "В архив",
+      "group": "Viewer",
+      "paths": [
+        "M4 4h16v4H4Z",
+        "M6 8v12h12V8 M9 12h6"
+      ],
+      "binding": "archive"
+    },
+    {
+      "id": "unarchive",
+      "label": "Из архива",
+      "group": "Viewer",
+      "paths": [
+        "M4 4h16v4H4Z M6 8v12h12V8",
+        "M12 16v-5 M9.5 13.5 12 11l2.5 2.5"
+      ],
+      "binding": "unarchive"
+    },
+    {
+      "id": "lock",
+      "label": "Скрыть",
+      "group": "Viewer",
+      "paths": [
+        "M7 10V7a5 5 0 0 1 10 0v3",
+        "M5 10h14v11H5Z M12 14v3"
+      ],
+      "binding": "moveToLockFolder"
+    },
+    {
+      "id": "unlock",
+      "label": "Вернуть из скрытого",
+      "group": "Viewer",
+      "paths": [
+        "M7 10V7a5 5 0 0 1 9-3",
+        "M5 10h14v11H5Z M12 14v3"
+      ],
+      "binding": "removeFromLockFolder"
+    },
+    {
+      "id": "removeAlbum",
+      "label": "Убрать из альбома",
+      "group": "Viewer",
+      "paths": [
+        "M4 7h7l2-2h5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z",
+        "M9 13h6"
+      ],
+      "binding": "RemoveFromAlbumAction (not media deletion)"
+    },
+    {
+      "id": "debug",
+      "label": "Диагностика",
+      "group": "Viewer",
+      "paths": [
+        "M9 6V4h6v2 M7 8h10v8a5 5 0 0 1-10 0Z",
+        "M3 10h4 M17 10h4 M3 15h4 M17 15h4 M5 21l3-3 M19 21l-3-3"
+      ],
+      "binding": "AssetDebugAction"
+    },
+    {
+      "id": "comments",
+      "label": "Комментарии",
+      "group": "Viewer",
+      "paths": [
+        "M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3V6a2 2 0 0 1 1-2Z",
+        "M8 9h9 M8 13h6"
+      ],
+      "binding": "ViewerTopAppBar activities"
+    },
+    {
+      "id": "live",
+      "label": "Live Photo",
+      "group": "Viewer",
+      "paths": [
+        "M9 3a9 9 0 1 1-6 6",
+        "M4 4h.1 M12 7a5 5 0 1 0 0 10 5 5 0 1 0 0-10",
+        "M11 10l3 2-3 2Z"
+      ],
+      "binding": "MotionPhotoActionButton"
+    },
+    {
+      "id": "play",
+      "label": "Воспроизвести",
+      "group": "Viewer",
+      "paths": [
+        "M8 4.5 20 12 8 19.5Z"
+      ],
+      "binding": "VideoControls / motion play"
+    },
+    {
+      "id": "pause",
+      "label": "Пауза",
+      "group": "Viewer",
+      "paths": [
+        "M7 5v14 M17 5v14"
+      ],
+      "binding": "VideoControls / motion pause"
+    },
+    {
+      "id": "replay",
+      "label": "Повторить",
+      "group": "Viewer",
+      "paths": [
+        "M4 7v5h5 M4.5 11a8 8 0 1 1 2 7"
+      ],
+      "binding": "VideoControls replay"
+    },
+    {
+      "id": "volume",
+      "label": "Звук",
+      "group": "Viewer",
+      "paths": [
+        "M3 9h4l5-5v16l-5-5H3Z",
+        "M16 8a6 6 0 0 1 0 8 M19 5a10 10 0 0 1 0 14"
+      ],
+      "binding": "VideoControls volume"
+    },
+    {
+      "id": "muted",
+      "label": "Без звука",
+      "group": "Viewer",
+      "paths": [
+        "M3 9h4l5-5v16l-5-5H3Z",
+        "M16 9l5 6 M21 9l-5 6"
+      ],
+      "binding": "VideoControls mute"
+    },
+    {
+      "id": "ocr",
+      "label": "Текст на фото",
+      "group": "Viewer",
+      "paths": [
+        "M3 8V4h4 M17 4h4v4 M21 16v4h-4 M7 20H3v-4",
+        "M8 8h8 M12 8v8 M9 16h6"
+      ],
+      "binding": "OcrToggleButton"
+    },
+    {
+      "id": "browser",
+      "label": "Открыть в браузере",
+      "group": "Viewer",
+      "paths": [
+        "M4 4h16v16H4Z M4 8h16 M7 6h.1 M10 6h.1",
+        "M10 16l6-5 M12 11h4v4"
+      ],
+      "binding": "OpenInBrowserAction"
+    },
+    {
+      "id": "select",
+      "label": "Выбрать фото",
+      "group": "Viewer",
+      "paths": [
+        "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z",
+        "M7 12l3 3 7-7"
+      ],
+      "binding": "multiSelectProvider.toggleSelection"
+    },
+    {
+      "id": "selectAll",
+      "label": "Выбрать группу",
+      "group": "Viewer",
+      "paths": [
+        "M8 3h13v13H8Z M3 8v13h13",
+        "M11 9l2 2 5-5"
+      ],
+      "binding": "TimelineHeader explicit bucket selection"
+    },
+    {
+      "id": "undo",
+      "label": "Отменить",
+      "group": "Editor",
+      "paths": [
+        "M3 8h9a7 7 0 0 1 0 14 M7 4 3 8l4 4"
+      ],
+      "binding": "editor undo"
+    },
+    {
+      "id": "redo",
+      "label": "Повторить правку",
+      "group": "Editor",
+      "paths": [
+        "M21 8h-9a7 7 0 0 0 0 14 M17 4l4 4-4 4"
+      ],
+      "binding": "editor redo"
+    },
+    {
+      "id": "save",
+      "label": "Сохранить",
+      "group": "Editor",
+      "paths": [
+        "M5 3h12l4 4v14H3V5a2 2 0 0 1 2-2Z",
+        "M7 3v6h9V3 M7 21v-7h10v7"
+      ],
+      "binding": "editor explicit Save"
+    },
+    {
+      "id": "saveCopy",
+      "label": "Сохранить копию",
+      "group": "Editor",
+      "paths": [
+        "M4 8.5v12h12",
+        "M8 3.5h9l3 3v10H8Z",
+        "M11 3.5v5h6v-5",
+        "M11 16.5v-5h6v5"
+      ],
+      "binding": "editor Save Copy; preserves original"
+    },
+    {
+      "id": "cancel",
+      "label": "Отмена",
+      "group": "Editor",
+      "paths": [
+        "M6 6l12 12 M18 6 6 18"
+      ],
+      "binding": "editor Cancel / close"
+    },
+    {
+      "id": "crop",
+      "label": "Кадрирование",
+      "group": "Editor",
+      "paths": [
+        "M7 3v14h14 M3 7h14v14",
+        "M11 3h2 M3 11v2"
+      ],
+      "binding": "EditorMode.crop"
+    },
+    {
+      "id": "adjustments",
+      "label": "Коррекция",
+      "group": "Editor",
+      "paths": [
+        "M4 6h7 M15 6h5 M4 12h2 M10 12h10 M4 18h11 M19 18h1",
+        "M11 3v6 M6 9v6 M15 15v6"
+      ],
+      "binding": "EditorMode.adjustments"
+    },
+    {
+      "id": "filters",
+      "label": "Фильтры",
+      "group": "Editor",
+      "paths": [
+        "M8 3a5 5 0 1 0 0 10 5 5 0 1 0 0-10",
+        "M16 8a5 5 0 1 0 0 10 5 5 0 1 0 0-10",
+        "M8 13a5 5 0 1 0 0 8"
+      ],
+      "binding": "EditorMode.filters"
+    },
+    {
+      "id": "draw",
+      "label": "Разметка",
+      "group": "Editor",
+      "paths": [
+        "M4 17c3-10 5-11 7-10s-4 11-1 11 4-10 6-9-2 8 4 6"
+      ],
+      "binding": "EditorMode.draw"
+    },
+    {
+      "id": "text",
+      "label": "Текст",
+      "group": "Editor",
+      "paths": [
+        "M4 7V4h16v3 M12 4v16 M8 20h8"
+      ],
+      "binding": "EditorMode.text / AnnotationTool.text"
+    },
+    {
+      "id": "shapes",
+      "label": "Фигуры",
+      "group": "Editor",
+      "paths": [
+        "M4 4h8v8H4Z",
+        "M17 12a4 4 0 1 0 0 8 4 4 0 1 0 0-8",
+        "M4 20l4-6 4 6Z"
+      ],
+      "binding": "EditorMode.shapes"
+    },
+    {
+      "id": "sticker",
+      "label": "Стикеры",
+      "group": "Editor",
+      "paths": [
+        "M5 3h14a2 2 0 0 1 2 2v9l-7 7H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
+        "M14 21v-7h7 M8 8h.1 M15 8h.1 M8 11c2 2 4 2 6 0"
+      ],
+      "binding": "EditorMode.stickers / AnnotationTool.sticker"
+    },
+    {
+      "id": "magicEraser",
+      "label": "Умный ластик",
+      "group": "Editor",
+      "paths": [
+        "M4 17 13 8l6 6-7 7H8Z",
+        "M15 3v3 M19 5l2-2 M20 9h3 M7 14l6 6"
+      ],
+      "binding": "EditorMode.magicEraser"
+    },
+    {
+      "id": "rotateLeft",
+      "label": "Повернуть влево",
+      "group": "Editor",
+      "paths": [
+        "M3 4v6h6 M3.5 9a8.5 8.5 0 1 1 2 9",
+        "M10 10h7v7h-7Z"
+      ],
+      "binding": "crop rotate left"
+    },
+    {
+      "id": "rotateRight",
+      "label": "Повернуть вправо",
+      "group": "Editor",
+      "paths": [
+        "M21 4v6h-6 M20.5 9a8.5 8.5 0 1 0-2 9",
+        "M7 10h7v7H7Z"
+      ],
+      "binding": "crop rotate right"
+    },
+    {
+      "id": "flipH",
+      "label": "Отразить по горизонтали",
+      "group": "Editor",
+      "paths": [
+        "M12 3v3 M12 9v6 M12 18v3",
+        "M3 18V6l6 6Z M21 18V6l-6 6Z"
+      ],
+      "binding": "crop horizontal flip"
+    },
+    {
+      "id": "flipV",
+      "label": "Отразить по вертикали",
+      "group": "Editor",
+      "paths": [
+        "M3 12h3 M9 12h6 M18 12h3",
+        "M6 3h12l-6 6Z M6 21h12l-6-6Z"
+      ],
+      "binding": "crop vertical flip"
+    },
+    {
+      "id": "aspect",
+      "label": "Пропорции",
+      "group": "Editor",
+      "paths": [
+        "M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z",
+        "M7 8v4 M7 8h4 M17 16v-4 M17 16h-4"
+      ],
+      "binding": "crop aspect ratio"
+    },
+    {
+      "id": "straighten",
+      "label": "Выпрямить",
+      "group": "Editor",
+      "paths": [
+        "M3 17h18 M5 10l14-5 2 6-14 5Z",
+        "M9 9l1 3 M13 7.5l1 3"
+      ],
+      "binding": "crop straighten"
+    },
+    {
+      "id": "reset",
+      "label": "Сбросить",
+      "group": "Editor",
+      "paths": [
+        "M4 5v6h6 M4 10a8 8 0 1 1 1 8",
+        "M12 8v5l3 2"
+      ],
+      "binding": "editor revert"
+    },
+    {
+      "id": "layers",
+      "label": "Слои",
+      "group": "Editor",
+      "paths": [
+        "M12 3 21 8 12 13 3 8Z M3 12l9 5 9-5 M3 16l9 5 9-5"
+      ],
+      "binding": "editor layers"
+    },
+    {
+      "id": "layerUp",
+      "label": "Слой выше",
+      "group": "Editor",
+      "paths": [
+        "M4 16l8 5 8-5 M4 12l8 5 8-5",
+        "M12 12V3 M8.5 6.5 12 3l3.5 3.5"
+      ],
+      "binding": "layer order up"
+    },
+    {
+      "id": "layerDown",
+      "label": "Слой ниже",
+      "group": "Editor",
+      "paths": [
+        "M4 8l8-5 8 5 M4 12l8-5 8 5",
+        "M12 12v9 M8.5 17.5 12 21l3.5-3.5"
+      ],
+      "binding": "layer order down"
+    },
+    {
+      "id": "pen",
+      "label": "Перо",
+      "group": "Editor",
+      "paths": [
+        "M5 20l2-7L17 3l4 4-10 10Z M7 13l4 4 M5 20l4-4"
+      ],
+      "binding": "AnnotationTool.pen"
+    },
+    {
+      "id": "brush",
+      "label": "Кисть",
+      "group": "Editor",
+      "paths": [
+        "M9 15 18 3l3 3-12 9",
+        "M9 15c1 5-3 7-7 5 3-1 0-6 7-5Z"
+      ],
+      "binding": "AnnotationTool.brush / Magic Eraser brush"
+    },
+    {
+      "id": "highlighter",
+      "label": "Маркер",
+      "group": "Editor",
+      "paths": [
+        "M5 14 14 3l7 6-9 10Z",
+        "M5 14l7 5 M5 18l3 2-2 2H2Z"
+      ],
+      "binding": "AnnotationTool.highlighter"
+    },
+    {
+      "id": "eraser",
+      "label": "Ластик",
+      "group": "Editor",
+      "paths": [
+        "M3 15 13 4l8 7-10 10H9Z M7 11l8 7 M11 21h10"
+      ],
+      "binding": "AnnotationTool.eraser / Magic Eraser erase"
+    },
+    {
+      "id": "move",
+      "label": "Переместить",
+      "group": "Editor",
+      "paths": [
+        "M12 3v18 M3 12h18 M9 6l3-3 3 3 M9 18l3 3 3-3 M6 9l-3 3 3 3 M18 9l3 3-3 3"
+      ],
+      "binding": "AnnotationTool.move"
+    },
+    {
+      "id": "arrow",
+      "label": "Стрелка",
+      "group": "Editor",
+      "paths": [
+        "M4 19 20 4 M12 4h8v8"
+      ],
+      "binding": "AnnotationTool.arrow"
+    },
+    {
+      "id": "rectangle",
+      "label": "Прямоугольник",
+      "group": "Editor",
+      "paths": [
+        "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
+      ],
+      "binding": "AnnotationTool.rectangle"
+    },
+    {
+      "id": "ellipse",
+      "label": "Овал",
+      "group": "Editor",
+      "paths": [
+        "M12 4a9 8 0 1 0 0 16 9 8 0 1 0 0-16"
+      ],
+      "binding": "AnnotationTool.ellipse"
+    },
+    {
+      "id": "textOutline",
+      "label": "Обводка текста",
+      "group": "Editor",
+      "paths": [
+        "M5 17 10 4h4l5 13 M8 12h8 M3 21h18"
+      ],
+      "binding": "text outline color"
+    },
+    {
+      "id": "textFill",
+      "label": "Фон текста",
+      "group": "Editor",
+      "paths": [
+        "M7 17 12 4l5 13 M9 12h6",
+        "M3 21h18 M4 18h16"
+      ],
+      "binding": "text background color"
+    },
+    {
+      "id": "opacity",
+      "label": "Прозрачность",
+      "group": "Editor",
+      "paths": [
+        "M12 3C9 8 5 11 5 15a7 7 0 0 0 14 0c0-4-4-7-7-12Z",
+        "M12 10v10 M12 16h6"
+      ],
+      "binding": "markup opacity"
+    },
+    {
+      "id": "brightness",
+      "label": "Яркость",
+      "group": "Editor",
+      "paths": [
+        "M12 7a5 5 0 1 0 0 10 5 5 0 1 0 0-10",
+        "M12 2v2 M12 20v2 M2 12h2 M20 12h2 M5 5l1 1 M18 18l1 1 M5 19l1-1 M18 6l1-1"
+      ],
+      "binding": "adjustment brightness"
+    },
+    {
+      "id": "contrast",
+      "label": "Контраст",
+      "group": "Editor",
+      "paths": [
+        "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18 M12 3v18",
+        "M15 6v12 M18 9v6"
+      ],
+      "binding": "adjustment contrast"
+    },
+    {
+      "id": "saturation",
+      "label": "Насыщенность",
+      "group": "Editor",
+      "paths": [
+        "M12 3C9 8 5 11 5 15a7 7 0 0 0 14 0c0-4-4-7-7-12Z",
+        "M8 16c0 3 5 4 7 1"
+      ],
+      "binding": "adjustment saturation"
+    },
+    {
+      "id": "exposure",
+      "label": "Экспозиция",
+      "group": "Editor",
+      "paths": [
+        "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
+        "M3 21 21 3 M6 8h5 M8.5 5.5v5 M14 16h4"
+      ],
+      "binding": "adjustment exposure"
+    },
+    {
+      "id": "temperature",
+      "label": "Температура",
+      "group": "Editor",
+      "paths": [
+        "M9 14V5a3 3 0 0 1 6 0v9a5 5 0 1 1-6 0Z",
+        "M12 8v10 M17 6h3 M17 10h2"
+      ],
+      "binding": "adjustment temperature"
+    },
+    {
+      "id": "shadows",
+      "label": "Тени",
+      "group": "Editor",
+      "paths": [
+        "M20 15A9 9 0 0 1 8 3a9 9 0 1 0 12 12Z",
+        "M7 14l3 3"
+      ],
+      "binding": "adjustment shadows"
+    },
+    {
+      "id": "highlights",
+      "label": "Света",
+      "group": "Editor",
+      "paths": [
+        "M12 4l2.3 5.7L20 12l-5.7 2.3L12 20l-2.3-5.7L4 12l5.7-2.3Z"
+      ],
+      "binding": "adjustment highlights"
+    },
+    {
+      "id": "hue",
+      "label": "Оттенок",
+      "group": "Editor",
+      "paths": [
+        "M12 3a9 9 0 0 0 0 18h1c2 0 3-2 1-4s1-3 3-3h1c5 0 4-11-6-11Z",
+        "M8 7h.1 M5.5 12h.1 M9 17h.1 M15 6.5h.1"
+      ],
+      "binding": "adjustment hue"
+    },
+    {
+      "id": "zoom",
+      "label": "Масштаб",
+      "group": "Editor",
+      "paths": [
+        "M10 3a7 7 0 1 0 0 14 7 7 0 1 0 0-14",
+        "M15 15l6 6 M7 10h6 M10 7v6"
+      ],
+      "binding": "Magic Eraser zoom"
+    },
+    {
+      "id": "collapse",
+      "label": "Свернуть настройки",
+      "group": "Editor",
+      "paths": [
+        "M5 9l7 7 7-7"
+      ],
+      "binding": "editor contextual settings collapse"
+    },
+    {
+      "id": "star",
+      "label": "Стикер: звезда",
+      "group": "Editor",
+      "paths": [
+        "M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"
+      ],
+      "binding": "markup sticker preset star"
+    },
+    {
+      "id": "smile",
+      "label": "Стикер: улыбка",
+      "group": "Editor",
+      "paths": [
+        "M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18",
+        "M8 9h.1 M16 9h.1 M7.5 14c2 4 7 4 9 0"
+      ],
+      "binding": "markup sticker preset smile"
+    }
+  ]
+}
