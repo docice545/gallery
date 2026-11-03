@@ -22,6 +22,33 @@ HEAD = "a" * 40
 
 
 class AndroidReleaseGuards(unittest.TestCase):
+    def test_reviewed_build36_branch_retains_origin_head_and_clean_checks(self):
+        branch = "integration/foto-build36-hp-web-viewer"
+        with patch.object(release, "run", side_effect=[branch, HEAD, "https://github.com/docice545/gallery.git", ""]) as run:
+            release.repository_check(Path("/unused"), HEAD, branch=branch)
+            self.assertEqual(len(run.call_args_list), 4)
+        with patch.object(release, "run", return_value="work"):
+            with self.assertRaisesRegex(release.ReleaseError, "expected-branch"):
+                release.repository_check(Path("/unused"), HEAD, branch=branch)
+
+    def test_invalid_branch_never_runs_a_tool(self):
+        for branch in ("--help", "a..b", "a//b", "a/.hidden", "a.lock", "a\nb"):
+            with self.subTest(branch=branch), patch.object(release, "run") as run:
+                with self.assertRaises(release.ReleaseError):
+                    release.repository_check(Path("/unused"), HEAD, branch=branch)
+                run.assert_not_called()
+
+    def test_java_preflight_uses_committed_toolchain_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "mobile").mkdir()
+            config = root / "mobile/mise.toml"
+            config.write_text('[tools]\njava = "21.0.2"\n')
+            self.assertEqual(release.java_major(root), 21)
+            config.write_text('[tools]\njava = "latest"\n')
+            with self.assertRaises(release.ReleaseError):
+                release.java_major(root)
+
     def test_release_build_regenerates_mode_specific_plugins(self):
         command = release.apk_build_command("5.7.2", 6)
         self.assertEqual(command[:3], ["flutter", "build", "apk"])
