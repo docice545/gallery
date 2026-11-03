@@ -127,7 +127,7 @@ void main() {
         verify(layout);
         if (previousHeight != null) {
           expect(layout.heightForRow(0), lessThanOrEqualTo(previousHeight));
-          expect(layout.rowCount, greaterThanOrEqualTo(previousRows!));
+          expect(layout.rowCount, lessThanOrEqualTo(previousRows!));
         }
         previousHeight = layout.heightForRow(0);
         previousRows = layout.rowCount;
