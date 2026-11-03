@@ -1240,20 +1240,36 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets('${platform.name} remote-only live photo never creates a timeline player or source', (tester) async {
+    testWidgets('${platform.name} remote-only live photo uses its authenticated pair and rejects a missing pair', (
+      tester,
+    ) async {
       useSourcePlatform(platform);
       asset = RemoteAssetFactory.create(
         name: platform == TargetPlatform.android ? 'samsung.jpg' : 'apple.heic',
       ).copyWith(livePhotoVideoId: 'paired-${platform.name}-video');
-      // Even an explicit cached path cannot authorize remote-only autoplay.
-      await mountPreview(tester, injectController: false);
+      // A cached local path must not replace the known remote pair. Timeline
+      // playback uses the bounded playback endpoint even with originals enabled.
+      await mountPreview(tester);
 
-      expect(find.byType(NativeVideoPlayerView), findsNothing);
-      verifyNever(() => controller.loadVideoSource(any()));
+      expect(find.byType(NativeVideoPlayerView), findsOneWidget);
+      final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
+      expect(source.type, VideoSourceType.network);
+      expect(source.path, 'https://example.test/api/assets/paired-${platform.name}-video/video/playback');
+      expect(source.headers, {'x-test-auth': 'test-value'});
       verifyZeroInteractions(assetService);
       verifyZeroInteractions(storageRepository);
       expect(SettingsRepository.instance.appConfig.viewer.loadOriginalVideo, isTrue);
-      expect(calls, isEmpty);
+      expect(calls, containsAllInOrder(['volume:0.0', 'loop:false', 'load', 'play']));
+      expect(completions, 0);
+
+      await tester.pumpWidget(const SizedBox());
+      asset = RemoteAssetFactory.create(name: asset.name);
+      expect(asset.livePhotoVideoId, isNull);
+      await mountPreview(tester, injectController: false);
+      expect(find.byType(NativeVideoPlayerView), findsNothing);
+      expect(calls.where((call) => call == 'load'), hasLength(1));
+      verifyZeroInteractions(assetService);
+      verifyZeroInteractions(storageRepository);
       expect(completions, 1);
       await tester.pumpWidget(const SizedBox());
       debugDefaultTargetPlatformOverride = null;
