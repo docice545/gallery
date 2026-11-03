@@ -113,10 +113,19 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
     if (!mounted) {
       return;
     }
-    final active =
-        (_modalRoute?.isCurrent ?? true) && (_routeData?.isActive ?? true) && TickerMode.valuesOf(context).enabled;
-    _setFeedEnabled(active);
+    _setFeedEnabled(_isRouteActive);
     refresh();
+  }
+
+  bool get _isRouteActive {
+    final route = _routeData;
+    // RouteData.isActive queries URL history, whose initial snapshot can omit
+    // the nested tab even after AutoTabsRouter displays it. Inspect the live
+    // topmost branch instead, using match identity so a different instance of
+    // the same route cannot activate a retained feed. ModalRoute still guards
+    // pageless overlays, and TickerMode suppresses offstage/transitioning tabs.
+    final inActiveBranch = route == null || route.router.root.currentSegments.any((match) => match.id == route.matchId);
+    return (_modalRoute?.isCurrent ?? true) && inActiveBranch && TickerMode.valuesOf(context).enabled;
   }
 
   void _setFeedEnabled(bool routeActive) {
@@ -181,8 +190,7 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
       if (!mounted) {
         return;
       }
-      final active =
-          (_modalRoute?.isCurrent ?? true) && (_routeData?.isActive ?? true) && TickerMode.valuesOf(context).enabled;
+      final active = _isRouteActive;
       final enabled = _settingEnabled && !_selecting && !_filterSheetVisible && _foreground && active;
       _traceDecision(
         'state',

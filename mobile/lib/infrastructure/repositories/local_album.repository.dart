@@ -22,13 +22,24 @@ class LocalAlbumRepository extends DatabaseAccessor<Drift> with $LocalAlbumRepos
 
   Drift get _db => attachedDatabase;
 
-  Future<List<LocalAlbum>> getAll({Set<SortLocalAlbumsBy> sortBy = const {}}) {
-    final assetCount = _db.localAlbumAssetEntity.assetId.count();
+  Future<List<LocalAlbum>> getAll({Set<SortLocalAlbumsBy> sortBy = const {}}) => _albums(sortBy: sortBy).get();
+
+  Stream<List<LocalAlbum>> watchAll({Set<SortLocalAlbumsBy> sortBy = const {}}) => _albums(sortBy: sortBy).watch();
+
+  Selectable<LocalAlbum> _albums({required Set<SortLocalAlbumsBy> sortBy}) {
+    // Count the same existing local rows as the album Timeline. Legacy orphan
+    // links must not inflate a cover/count, and empty backup albums still exist.
+    final assetCount = _db.localAssetEntity.id.count();
 
     final query = _db.localAlbumEntity.select().join([
       leftOuterJoin(
         _db.localAlbumAssetEntity,
         _db.localAlbumAssetEntity.albumId.equalsExp(_db.localAlbumEntity.id),
+        useColumns: false,
+      ),
+      leftOuterJoin(
+        _db.localAssetEntity,
+        _db.localAssetEntity.id.equalsExp(_db.localAlbumAssetEntity.assetId),
         useColumns: false,
       ),
     ]);
@@ -51,7 +62,7 @@ class LocalAlbumRepository extends DatabaseAccessor<Drift> with $LocalAlbumRepos
       query.orderBy(orderings);
     }
 
-    return query.map((row) => row.readTable(_db.localAlbumEntity).toDto(assetCount: row.read(assetCount) ?? 0)).get();
+    return query.map((row) => row.readTable(_db.localAlbumEntity).toDto(assetCount: row.read(assetCount) ?? 0));
   }
 
   Future<List<LocalAlbum>> getBackupAlbums() async {
@@ -436,18 +447,20 @@ class LocalAlbumRepository extends DatabaseAccessor<Drift> with $LocalAlbumRepos
     });
   }
 
-  Future<LocalAsset?> getThumbnail(String albumId) async {
+  Future<LocalAsset?> getThumbnail(String albumId) => _thumbnail(albumId).getSingleOrNull();
+
+  Stream<LocalAsset?> watchThumbnail(String albumId) => _thumbnail(albumId).watchSingleOrNull();
+
+  Selectable<LocalAsset> _thumbnail(String albumId) {
     final query =
         _db.localAlbumAssetEntity.select().join([
             innerJoin(_db.localAssetEntity, _db.localAlbumAssetEntity.assetId.equalsExp(_db.localAssetEntity.id)),
           ])
           ..where(_db.localAlbumAssetEntity.albumId.equals(albumId))
-          ..orderBy([OrderingTerm.desc(_db.localAssetEntity.createdAt)])
+          ..orderBy([OrderingTerm.desc(_db.localAssetEntity.createdAt), OrderingTerm.asc(_db.localAssetEntity.id)])
           ..limit(1);
 
-    final results = await query.map((row) => row.readTable(_db.localAssetEntity).toDto()).get();
-
-    return results.isNotEmpty ? results.first : null;
+    return query.map((row) => row.readTable(_db.localAssetEntity).toDto());
   }
 
   Future<int> getCount() {
