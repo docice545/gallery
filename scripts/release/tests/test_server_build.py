@@ -293,6 +293,33 @@ class CommittedBuildMetadata(unittest.TestCase):
         subprocess.run(['bash', '-n', str(SCRIPT)], check=True, capture_output=True)
 
 
+class Build36WorkflowBaseline(unittest.TestCase):
+    """Verify the owner-supplied source pin, not a live database assertion."""
+
+    def test_workflow_preserves_every_build35_migration_byte_and_ancestor_guard(self):
+        baseline = '0c8be542121d415f4d748dda20367044cd200d40'
+        workflow = (ROOT / '.github/workflows/gallery-trash-server-build.yml').read_text()
+        match = re.search(r'^\s+MIGRATION_BASE_SHA:\s*([0-9a-f]{40})\s*$', workflow, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), baseline)
+        subprocess.run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', baseline, 'HEAD'],
+                       check=True, capture_output=True)
+        roots = ['server/src/schema/migrations', 'server/src/schema/migrations-gallery']
+
+        def inventory(source):
+            paths = subprocess.check_output(
+                ['git', '-C', str(ROOT), 'ls-tree', '-r', '--name-only', source, '--', *roots], text=True).splitlines()
+            return {path: hashlib.sha256(subprocess.check_output(
+                ['git', '-C', str(ROOT), 'show', source + ':' + path])).hexdigest()
+                    for path in paths if path.endswith('.ts')}
+
+        before, after = inventory(baseline), inventory('HEAD')
+        self.assertEqual(len(before), 175)
+        self.assertTrue(before.keys() <= after.keys(), 'a Build 35 migration source was removed')
+        self.assertEqual({path: after[path] for path in before}, before,
+                         'a Build 35 migration source was modified')
+
+
 class PackagedLivePhotoAdmission(unittest.TestCase):
     """Execute the actual embedded packaged check with synthetic ESM, no Docker."""
 
