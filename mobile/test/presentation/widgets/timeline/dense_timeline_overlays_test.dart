@@ -247,14 +247,17 @@ void main() {
     return ProviderScope.containerOf(tester.element(find.byType(ListView)));
   }
 
-  testWidgets('an incomplete portrait row stays compact and retains motion and stack badges', (tester) async {
+  testWidgets('a single portrait fills its bounded row and retains motion and stack badges', (tester) async {
     final asset = _asset('single', ratio: 0.6, live: true, stack: true);
     await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
 
     final rect = tester.getRect(_tile(asset.id));
-    expect(rect.width, lessThan(_viewportWidth));
+    // Build 31-32 deliberately made a single-asset day full-width; incomplete
+    // final rows within a multi-asset day still have separate compact-row coverage.
+    expect(rect.width, closeTo(_viewportWidth, 0.001));
     expect(rect.height, greaterThan(160));
+    expect(rect.height, lessThanOrEqualTo(320));
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     final stackCount = tester.getRect(_inTile(asset.id, find.text(' 3')));
     final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.photo_library_outlined)));

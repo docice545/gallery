@@ -320,7 +320,7 @@ void main() {
     });
   }
 
-  testWidgets('selection gesture keeps image geometry and elements stable while top outer clipping survives', (
+  testWidgets('selection keeps image geometry and elements stable with the existing six-pixel tile corners', (
     tester,
   ) async {
     final assets = [for (var i = 0; i < 6; i++) _asset('select-$i', ratio: i.isEven ? .65 : 1.35)];
@@ -338,21 +338,28 @@ void main() {
       isNot(_pixel(selected, 390, rectangles[assets.first.id]!.center)),
     );
     final first = rectangles[assets.first.id]!;
-    expect(_pixel(selected, 390, first.topLeft + const Offset(1, 1)), [255, 255, 255, 255]);
+    // Sample fully outside the six-pixel arc, away from its antialiased edge.
+    expect(_pixel(selected, 390, first.topLeft + const Offset(.5, .5)), [255, 255, 255, 255]);
     final firstRow = rectangles.values.where((rect) => rect.top == first.top).toList();
     expect(firstRow.length, greaterThan(1));
-    expect(_pixel(before, 390, firstRow.last.topRight + const Offset(-1, 1)), [255, 255, 255, 255]);
+    expect(_pixel(before, 390, firstRow.last.topRight + const Offset(-.5, .5)), [255, 255, 255, 255]);
     expect(
-      _pixel(before, 390, firstRow.first.topRight + const Offset(-1, 1)),
-      isNot([255, 255, 255, 255]),
-      reason: 'the internal top corner stays square',
+      _pixel(before, 390, firstRow.first.topRight + const Offset(-.5, .5)),
+      [255, 255, 255, 255],
+      reason: 'Build 31-32 rounds internal tile corners as well as group edges',
     );
     final nextRow = rectangles.values.firstWhere((rect) => rect.top > first.top);
-    expect(
-      _pixel(before, 390, nextRow.topLeft + const Offset(1, 1)),
-      isNot([255, 255, 255, 255]),
-      reason: 'following rows do not receive their own rounded corners',
-    );
+    expect(_pixel(before, 390, nextRow.topLeft + const Offset(.5, .5)), [
+      255,
+      255,
+      255,
+      255,
+    ], reason: 'following rows retain the same tile corners');
+    expect(_pixel(before, 390, nextRow.topLeft + const Offset(6, 6)), isNot([255, 255, 255, 255]));
+    for (final asset in assets) {
+      final clip = tester.widget<ClipRRect>(find.ancestor(of: _tile(asset.id), matching: find.byType(ClipRRect)).first);
+      expect(clip.borderRadius, BorderRadius.circular(6));
+    }
     await tester.tap(_tile(assets[1].id));
     await tester.pumpAndSettle();
     expect(fixture.container.read(multiSelectProvider).selectedAssets, unorderedEquals(assets.take(2)));
