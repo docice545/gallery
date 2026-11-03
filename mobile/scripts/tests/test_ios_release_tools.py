@@ -303,6 +303,23 @@ class SideStoreSeedTests(IpaFixture):
 
 
 class WorkflowProvenanceTests(unittest.TestCase):
+    def test_explicit_release_branch_is_pinned_without_relaxing_artifact_checks(self):
+        branch = "integration/foto-build36-hp-web-viewer"
+        responses = self.responses()
+        responses[0]["head_branch"] = branch
+        with patch.object(ios_unsigned, "api", side_effect=responses):
+            self.assertEqual(ios_unsigned.verify_run(123, COMMIT, branch=branch)[2]["id"], 42)
+        with patch.object(ios_unsigned, "api", side_effect=self.responses()):
+            with self.assertRaises(ValueError):
+                ios_unsigned.verify_run(123, COMMIT, branch=branch)
+
+    def test_invalid_branch_is_rejected_before_github_access(self):
+        for branch in ("--help", "a..b", "a//b", "a/.hidden", "a.lock", "a\nb"):
+            with self.subTest(branch=branch), patch.object(ios_unsigned, "api") as api:
+                with self.assertRaises(ValueError):
+                    ios_unsigned.verify_run(123, COMMIT, branch=branch)
+                api.assert_not_called()
+
     def cached_output(self, root, **changes):
         output = root / "release"
         output.mkdir()
@@ -471,7 +488,7 @@ class WorkflowProvenanceTests(unittest.TestCase):
                     COMMIT, wait=True, output=output, version="5.7.2", build="6"
                 )
             launch.assert_not_called()
-            preflight.assert_called_once_with(COMMIT)
+            preflight.assert_called_once_with(COMMIT, branch="work")
             self.assertEqual(result["run_id"], 123)
             self.assertIn("already exists", result["status"])
 

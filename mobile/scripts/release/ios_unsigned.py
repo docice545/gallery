@@ -19,6 +19,7 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 from ios_artifact import extract_ipa, sha256, verify_ipa_archive
 
@@ -55,11 +56,22 @@ def check_sha(value: str) -> None:
         raise ValueError("Expected commit must be the full lowercase 40-character SHA")
 
 
-def preflight(expected: str) -> Path:
+def check_branch(branch: str) -> None:
+    if (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", branch)
+        or ".." in branch
+        or any(not part or part.startswith(".") or part.endswith(".lock") for part in branch.split("/"))
+        or branch.endswith(".")
+    ):
+        raise ValueError("Expected branch must be a valid explicit branch name")
+
+
+def preflight(expected: str, *, branch: str = "work") -> Path:
     check_sha(expected)
+    check_branch(branch)
     root = Path(command(["git", "rev-parse", "--show-toplevel"]).strip())
-    if command(["git", "branch", "--show-current"], directory=root).strip() != "work":
-        raise ValueError("Release checkout must be on branch work")
+    if command(["git", "branch", "--show-current"], directory=root).strip() != branch:
+        raise ValueError("Release checkout differs from --expected-branch")
     if command(["git", "rev-parse", "HEAD"], directory=root).strip() != expected:
         raise ValueError(
             "Local HEAD differs from the explicitly reviewed expected commit"
@@ -74,24 +86,25 @@ def preflight(expected: str) -> Path:
         )
     if command(["git", "status", "--porcelain"], directory=root).strip():
         raise ValueError("Release checkout must be clean")
-    remote = api("git/ref/heads/work")
+    remote = api("git/ref/heads/" + quote(branch, safe="/"))
     if remote["object"]["sha"] != expected:
         raise ValueError(
-            "GitHub work differs from expected commit; do not build a moving/unreviewed revision"
+            "GitHub expected branch differs from expected commit; do not build a moving/unreviewed revision"
         )
     if not (root / WORKFLOW_PATH).is_file():
         raise ValueError("Existing unsigned workflow is missing")
     return root
 
 
-def dispatch(expected: str, *, wait: bool) -> int:
-    preflight(expected)
-    before = api(f"actions/workflows/{WORKFLOW}/runs?branch=work&per_page=30")[
+def dispatch(expected: str, *, wait: bool, branch: str = "work") -> int:
+    preflight(expected, branch=branch)
+    query = urlencode({"branch": branch})
+    before = api(f"actions/workflows/{WORKFLOW}/runs?{query}&per_page=30")[
         "workflow_runs"
     ]
     if any(run["status"] != "completed" for run in before):
         raise ValueError(
-            "A mobile workflow is already active on work; wait to avoid cancelling Android/iOS validation"
+            "A mobile workflow is already active on the expected branch; wait to avoid cancelling Android/iOS validation"
         )
     previous = {run["id"] for run in before}
     command(
@@ -103,7 +116,7 @@ def dispatch(expected: str, *, wait: bool) -> int:
             "--repo",
             REPOSITORY,
             "--ref",
-            "work",
+            branch,
             "-f",
             "build_target=ios",
             "-f",
@@ -118,7 +131,7 @@ def dispatch(expected: str, *, wait: bool) -> int:
     )
     for _ in range(12):
         runs = api(
-            f"actions/workflows/{WORKFLOW}/runs?branch=work&event=workflow_dispatch&per_page=30"
+            f"actions/workflows/{WORKFLOW}/runs?{query}&event=workflow_dispatch&per_page=30"
         )["workflow_runs"]
         matches = [
             run
@@ -156,19 +169,20 @@ def dispatch(expected: str, *, wait: bool) -> int:
     )
 
 
-def verify_run(run_id: int, expected: str) -> tuple[dict, dict, dict]:
+def verify_run(run_id: int, expected: str, *, branch: str = "work") -> tuple[dict, dict, dict]:
     check_sha(expected)
+    check_branch(branch)
     run = api(f"actions/runs/{run_id}")
     if (
         run["head_sha"] != expected
-        or run["head_branch"] != "work"
+        or run["head_branch"] != branch
         or run["path"].split("@")[0] != WORKFLOW_PATH
         or run["event"] != "workflow_dispatch"
         or run["status"] != "completed"
         or run["conclusion"] != "success"
     ):
         raise ValueError(
-            "Run must be successful unsigned workflow_dispatch on work at the exact reviewed revision"
+            "Run must be successful unsigned workflow_dispatch on the expected branch at the exact reviewed revision"
         )
     jobs = api(f"actions/runs/{run_id}/jobs?per_page=100")["jobs"]
     candidates = [
@@ -201,8 +215,8 @@ def verify_run(run_id: int, expected: str) -> tuple[dict, dict, dict]:
     return run, job, matching[0]
 
 
-def fetch(run_id: int, expected: str, output: Path, version: str, build: str) -> dict:
-    run, job, artifact = verify_run(run_id, expected)
+def fetch(run_id: int, expected: str, output: Path, version: str, build: str, *, branch: str = "work") -> dict:
+    run, job, artifact = verify_run(run_id, expected, branch=branch)
     identity = {
         "repository": REPOSITORY,
         "commit": expected,
@@ -212,6 +226,8 @@ def fetch(run_id: int, expected: str, output: Path, version: str, build: str) ->
         "version": version,
         "build": build,
     }
+    if branch != "work":
+        identity["branch"] = branch
     if output.is_symlink():
         raise ValueError("Release output directory must not be a symlink")
     if output.exists():
@@ -221,7 +237,7 @@ def fetch(run_id: int, expected: str, output: Path, version: str, build: str) ->
                 "Existing output is not an owned release directory; refusing to overwrite"
             )
         prior = json.loads(manifest.read_text())
-        if any(prior.get(key) != value for key, value in identity.items()) or sha256(
+        if prior.get("branch", "work") != branch or any(prior.get(key) != value for key, value in identity.items()) or sha256(
             output / "Photos-unsigned.ipa"
         ) != prior.get("sha256"):
             raise ValueError(
@@ -280,11 +296,12 @@ def dispatch_or_reuse(
     output: Path | None,
     version: str | None,
     build: str | None,
+    branch: str = "work",
 ) -> dict:
     if output is not None and (output.exists() or output.is_symlink()):
         # Retry the one-command handoff without spending another CI run and
         # then rejecting a valid artifact's earlier run ID. Keep strict proof.
-        preflight(expected)
+        preflight(expected, branch=branch)
         if output.is_symlink():
             raise ValueError("Release output directory must not be a symlink")
         manifest = output / "release-manifest.json"
@@ -293,7 +310,7 @@ def dispatch_or_reuse(
                 "Existing output has no owned release receipt; no new workflow dispatched"
             )
         prior = json.loads(manifest.read_text())
-        if not isinstance(prior, dict) or any(
+        if not isinstance(prior, dict) or prior.get("branch", "work") != branch or any(
             prior.get(key) != value
             for key, value in {
                 "repository": REPOSITORY,
@@ -315,10 +332,10 @@ def dispatch_or_reuse(
             raise ValueError(
                 "Existing output receipt/checksum is invalid; no new workflow dispatched"
             )
-        return fetch(run_id, expected, output, version, build)
-    run_id = dispatch(expected, wait=wait)
+        return fetch(run_id, expected, output, version, build, branch=branch)
+    run_id = dispatch(expected, wait=wait, branch=branch)
     return (
-        fetch(run_id, expected, output, version, build)
+        fetch(run_id, expected, output, version, build, branch=branch)
         if output is not None
         else {"run_id": run_id, "artifact_name": ARTIFACT}
     )
@@ -331,10 +348,12 @@ def main() -> None:
         "preflight", help="Read-only checkout/GitHub readiness"
     )
     check.add_argument("--expected-commit", required=True)
+    check.add_argument("--expected-branch", default="work")
     launch = subparsers.add_parser(
         "dispatch", help="Start only unsigned iOS CI, optionally wait and fetch"
     )
     launch.add_argument("--expected-commit", required=True)
+    launch.add_argument("--expected-branch", default="work")
     launch.add_argument("--wait", action="store_true")
     launch.add_argument("--output", type=Path)
     launch.add_argument("--version")
@@ -344,6 +363,7 @@ def main() -> None:
     )
     download.add_argument("--run", type=int, required=True)
     download.add_argument("--expected-commit", required=True)
+    download.add_argument("--expected-branch", default="work")
     download.add_argument("--output", type=Path, required=True)
     download.add_argument("--version", required=True)
     download.add_argument("--build", required=True)
@@ -359,9 +379,9 @@ def main() -> None:
         parser.exit(1, "FAIL: Python 3.11 or newer is required\n")
     try:
         if args.operation == "preflight":
-            preflight(args.expected_commit)
+            preflight(args.expected_commit, branch=args.expected_branch)
             result = {
-                "status": "PASS: clean work checkout and GitHub revision verified",
+                "status": "PASS: clean expected branch and GitHub revision verified",
                 "commit": args.expected_commit,
             }
         elif args.operation == "dispatch":
@@ -373,10 +393,11 @@ def main() -> None:
                 output=args.output,
                 version=args.version,
                 build=args.build,
+                branch=args.expected_branch,
             )
         elif args.operation == "fetch":
             result = fetch(
-                args.run, args.expected_commit, args.output, args.version, args.build
+                args.run, args.expected_commit, args.output, args.version, args.build, branch=args.expected_branch
             )
         else:
             if sha256(args.ipa) != args.input_sha256.lower():
