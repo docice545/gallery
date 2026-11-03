@@ -111,6 +111,82 @@ void main() {
     verify(layout);
   });
 
+  test('production density settings 2 through 5 order target sizes without requiring that many columns', () {
+    // Exercise the production defaults: the mosaic helper deliberately injects
+    // a fixed target and cannot detect a broken density-to-size mapping.
+    for (final width in [320.0, 390.0, 844.0]) {
+      double? previousHeight;
+      int? previousRows;
+      for (final density in [2, 3, 4, 5]) {
+        final layout = FixedRowLayout.justified(
+          width: width,
+          aspectRatios: List.filled(60, 1.0),
+          columnCount: density,
+          spacing: 3,
+        );
+        verify(layout);
+        if (previousHeight != null) {
+          expect(layout.heightForRow(0), lessThanOrEqualTo(previousHeight));
+          expect(layout.rowCount, greaterThanOrEqualTo(previousRows!));
+        }
+        previousHeight = layout.heightForRow(0);
+        previousRows = layout.rowCount;
+      }
+    }
+    final screenshots = FixedRowLayout.justified(
+      width: 390,
+      aspectRatios: List.filled(20, .45),
+      columnCount: 3,
+      spacing: 3,
+    );
+    expect(screenshots.assetCountForRow(0), greaterThan(3));
+    for (final tileWidth in screenshots.widthsForRow(0)) {
+      expect(tileWidth / screenshots.heightForRow(0), closeTo(.45, 1e-8));
+    }
+    verify(screenshots);
+  });
+
+  test('density and viewport changes preserve mixed day boundaries and asset indices', () {
+    final buckets = [
+      TimeBucket(date: DateTime(2026, 11, 2), assetCount: 6, aspectRatios: [.45, 1.5, .75, .45, 2, 1]),
+      TimeBucket(date: DateTime(2026, 11, 1), assetCount: 3, aspectRatios: [.45, .45, .45]),
+      TimeBucket(date: DateTime(2026, 10, 31), assetCount: 2, aspectRatios: [1.5, .75]),
+    ];
+    for (final width in [320.0, 390.0, 844.0]) {
+      for (final density in [2, 3, 4, 5]) {
+        final segments = FixedSegmentBuilder(
+          buckets: buckets,
+          tileHeight: (width - 3 * (density - 1)) / density,
+          columnCount: density,
+          spacing: 3,
+          denseLayout: true,
+        ).generate().cast<FixedSegment>();
+        expect(segments.map((segment) => segment.bucket), orderedEquals(buckets));
+        expect(segments.map((segment) => segment.firstAssetIndex), [0, 6, 9]);
+        expect(segments.map((segment) => segment.header), [
+          HeaderType.monthAndDay,
+          HeaderType.day,
+          HeaderType.monthAndDay,
+        ]);
+        for (final segment in segments) {
+          verify(segment.rows);
+          expect(segment.rows.width, closeTo(width, 1e-8));
+          for (var index = 0; index < segment.bucket.assetCount; index++) {
+            final row = segment.rows.rowForAssetIndex(index);
+            expect(
+              assetRowOffset(
+                segment: segment,
+                assetIndexInTimeline: segment.firstAssetIndex + index,
+                columnCount: density,
+              ),
+              segment.gridOffset + segment.rows.offsetForRow(row),
+            );
+          }
+        }
+      }
+    }
+  });
+
   test('extreme and unknown proportions have finite bounded geometry and no empty cells', () {
     final layout = mosaic([.00001, 100000, double.nan, double.infinity, -1, 0, .25, 3, .4, 1.8]);
     verify(layout);
