@@ -51,6 +51,32 @@ class FailureAnnotations(unittest.TestCase):
             reporter.report("fixture", "a" * 20000)
         self.assertEqual(output.getvalue().count("a"), reporter.ANNOTATION_LIMIT)
 
+    def test_widget_failure_includes_printed_exception_from_the_same_test(self):
+        events = [
+            {"type": "testStart", "test": {"id": 1, "name": "timeline geometry"}},
+            {"type": "print", "testID": 2, "message": "unrelated test output"},
+            {
+                "type": "print",
+                "testID": 1,
+                "message": "Expected 160, actual 180\ntest/timeline.dart:45",
+            },
+            {
+                "type": "error",
+                "testID": 1,
+                "error": "Test failed. See exception logs above.",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tests.jsonl"
+            path.write_text("\n".join(map(json.dumps, events)))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                reporter.flutter(path)
+        self.assertIn(
+            "Expected 160, actual 180%0Atest/timeline.dart:45", output.getvalue()
+        )
+        self.assertNotIn("unrelated", output.getvalue())
+
     def test_format_diff_survives_runner_annotation_limit(self):
         diff = (
             "diff --git a/mobile/lib/example.dart b/mobile/lib/example.dart\n"

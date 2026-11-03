@@ -20,6 +20,7 @@ def report(title: str, message: str) -> None:
 
 def flutter(path: Path) -> None:
     names = {}
+    output = {}
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -30,11 +31,31 @@ def flutter(path: Path) -> None:
         if event.get("type") == "testStart":
             test = event["test"]
             names[test["id"]] = test["name"]
+        elif event.get("type") == "print":
+            test_id = event.get("testID")
+            # Flutter widget failures put the assertion and source location in
+            # print events; their error event only says "See exception logs above".
+            output[test_id] = (
+                output.get(test_id, "") + "\n" + str(event.get("message", ""))
+            )[-12000:]
         elif event.get("type") == "error":
-            report(
-                names.get(event.get("testID"), "Flutter test failure"),
-                str(event.get("error", "")) + "\n" + str(event.get("stackTrace", "")),
+            test_id = event.get("testID")
+            title = names.get(test_id, "Flutter test failure")
+            evidence = (
+                str(event.get("error", ""))
+                + "\n"
+                + str(event.get("stackTrace", ""))
+                + output.get(test_id, "")
             )
+            for index, offset in enumerate(
+                range(0, len(evidence), ANNOTATION_LIMIT), 1
+            ):
+                report(
+                    f"{title} (part {index})",
+                    evidence[offset : offset + ANNOTATION_LIMIT],
+                )
+        elif event.get("type") == "testDone":
+            output.pop(event.get("testID"), None)
 
 
 def formatting() -> None:

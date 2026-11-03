@@ -105,10 +105,30 @@ jobs:
         run: mise //mobile:install:ci
 
       - name: Perform codegen
+        id: codegen
         run: mise //mobile:codegen
+
+      - name: Previously failed Flutter cases and current device-only action contracts
+        id: focused-flutter
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --reporter json \
+            test/presentation/widgets/asset_viewer/timeline_video_viewer_test.dart \
+            test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/utils_legacy/action_button_utils_test.dart \
+            test/unit/presentation/actions/delete_action_test.dart \
+            2>&1 | tee "$RUNNER_TEMP/flutter-focused.jsonl"
+
+      - name: Annotate focused Flutter failures
+        if: failure() && steps.focused-flutter.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/flutter-focused.jsonl"
 
       - name: Run Flutter tests with coverage
         id: full-flutter
+        # Keep the full suite even when focused diagnostics find a failure.
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
         working-directory: ./mobile
         run: |
           set -o pipefail
