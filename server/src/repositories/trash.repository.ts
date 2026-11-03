@@ -2,6 +2,7 @@ import { type Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AssetStatus } from 'src/enum.js';
+import { lockAssetStacks, repairStackPrimaries } from 'src/repositories/stack.repository.js';
 import { DB } from 'src/schema/index.js';
 import { DeletionError } from 'src/utils/authorized-deletion.js';
 
@@ -18,9 +19,15 @@ export class TrashRepository {
 
   @GenerateSql({ params: [DummyValue.UUID] })
   async restore(userId: string): Promise<number> {
+    const ids = await this.restoreWithIds(userId);
+    return ids.length;
+  }
+
+  async restoreWithIds(userId: string): Promise<string[]> {
     return this.inTransaction(async (tx) => {
       await sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 731))`.execute(tx);
-      const { numUpdatedRows } = await tx
+      const stacks = await lockAssetStacks(tx, { ownerId: userId, status: AssetStatus.Trashed });
+      const restored = await tx
         .updateTable('asset')
         .where('ownerId', '=', userId)
         .where('status', '=', AssetStatus.Trashed)
@@ -30,8 +37,10 @@ export class TrashRepository {
           ),
         )
         .set({ status: AssetStatus.Active, deletedAt: null })
-        .executeTakeFirst();
-      return Number(numUpdatedRows);
+        .returning('id')
+        .execute();
+      await repairStackPrimaries(tx, stacks);
+      return restored.map(({ id }) => id);
     });
   }
 
@@ -61,6 +70,7 @@ export class TrashRepository {
           .executeTakeFirst();
         if (receipt) throw new DeletionError('ASSET_PERMANENTLY_DELETED');
       }
+      const stacks = await lockAssetStacks(tx, { assetIds: ids, ownerId, status: AssetStatus.Trashed });
       const restored = await tx
         .updateTable('asset')
         .where('status', '=', AssetStatus.Trashed)
@@ -74,6 +84,7 @@ export class TrashRepository {
         .set({ status: AssetStatus.Active, deletedAt: null })
         .returning('id')
         .execute();
+      await repairStackPrimaries(tx, stacks);
       return restored.map(({ id }) => id);
     });
   }

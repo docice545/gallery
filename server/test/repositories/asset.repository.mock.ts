@@ -41,6 +41,8 @@ export const newAssetRepositoryMock = (): Mocked<RepositoryInterface<AssetReposi
     getMemoryPersonDailyCounts: vitest.fn().mockResolvedValue([]),
     getMemoryAssetsForPersonWindow: vitest.fn().mockResolvedValue([]),
     getByIds: vitest.fn().mockResolvedValue([]),
+    getActiveTimelineRepresentativeIds: vitest.fn().mockResolvedValue([]),
+    getByIdsForTimelineNotifications: vitest.fn().mockResolvedValue([]),
     getByIdsWithAllRelationsButStacks: vitest.fn().mockResolvedValue([]),
     getOwnedManifestAssets: vitest.fn().mockResolvedValue([]),
     getById: vitest.fn(),
