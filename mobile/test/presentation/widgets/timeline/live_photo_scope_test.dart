@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -220,7 +221,209 @@ Future<void> _settlePlayback(WidgetTester tester) async {
   await tester.pump();
 }
 
+const _shellRoute = 'MotionTabShell';
+const _feedRoute = 'MotionFeed';
+const _otherRoute = 'MotionOther';
+const _viewerRoute = 'MotionViewer';
+
+Future<RootStackRouter> _pumpRoutedScope(
+  WidgetTester tester,
+  _PlaybackLog log, {
+  List<BaseAsset>? assets,
+  ScrollController? scrollController,
+}) async {
+  final frames = assets ?? [_remoteAsset('cold-routed')];
+  final feed = Center(
+    child: SizedBox(
+      width: 240,
+      height: 240,
+      child: TimelineLivePhotoScope(
+        previewBuilder: (asset, onCompleted, onStarted, onFailed) => _FakePreview(
+          key: ValueKey('preview-${asset.id}'),
+          asset: asset,
+          log: log,
+          onCompleted: onCompleted,
+          onStarted: onStarted,
+          onFailed: onFailed,
+          startImmediately: true,
+        ),
+        child: ListView(
+          controller: scrollController,
+          padding: EdgeInsets.zero,
+          children: [
+            for (final asset in frames)
+              SizedBox(
+                height: 120,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const ColoredBox(color: Colors.grey),
+                    TimelineLivePhotoTile(asset: asset),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 800),
+          ],
+        ),
+      ),
+    ),
+  );
+  final router = RootStackRouter.build(
+    routes: [
+      AutoRoute(initial: true, page: PageInfo('MotionSplash', builder: (_) => const Scaffold())),
+      AutoRoute(
+        page: PageInfo(
+          _shellRoute,
+          builder: (_) => AutoTabsRouter(
+            routes: const [PageRouteInfo(_feedRoute), PageRouteInfo(_otherRoute)],
+            duration: const Duration(milliseconds: 600),
+            transitionBuilder: (_, child, animation) => FadeTransition(opacity: animation, child: child),
+            builder: (_, child) => Scaffold(body: child),
+          ),
+        ),
+        children: [
+          AutoRoute(page: PageInfo(_feedRoute, builder: (_) => feed)),
+          AutoRoute(page: PageInfo(_otherRoute, builder: (_) => const SizedBox.expand())),
+        ],
+      ),
+      AutoRoute(page: PageInfo(_viewerRoute, builder: (_) => const Scaffold())),
+    ],
+  );
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox());
+    router.dispose();
+  });
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        appConfigProvider.overrideWithValue(const AppConfig()),
+        multiSelectProvider.overrideWith(_TestSelection.new),
+      ],
+      child: MaterialApp.router(routerConfig: router.config()),
+    ),
+  );
+  await tester.pumpAndSettle();
+  // SplashScreenPage uses replaceRoute(GalleryTabShellRoute) on a cold launch.
+  unawaited(router.replace(const PageRouteInfo(_shellRoute)));
+  await tester.pumpAndSettle();
+  return router;
+}
+
 void main() {
+  testWidgets('cold AutoRoute tab activates motion without a viewer roundtrip', (tester) async {
+    final log = _PlaybackLog();
+    await _pumpRoutedScope(tester, log);
+    final context = tester.element(find.byType(TimelineLivePhotoScope));
+    expect(context.routeData.name, _feedRoute);
+    expect(context.routeData.router.current.name, _feedRoute);
+    expect(context.routeData.isActive, isFalse, reason: 'the cold URL-history snapshot omits the visible nested tab');
+    expect(context.routeData.router.root.currentSegments.map((route) => route.name), contains(_feedRoute));
+    expect(ModalRoute.of(context)?.isCurrent, isTrue);
+    expect(TickerMode.valuesOf(context).enabled, isTrue);
+    await _settlePlayback(tester);
+    expect(log.alive, {'cold-routed'});
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('AutoRoute keeps motion off on another tab and rearms only after returning to the feed', (tester) async {
+    final log = _PlaybackLog();
+    await _pumpRoutedScope(tester, log);
+    await _settlePlayback(tester);
+    final context = tester.element(find.byType(TimelineLivePhotoScope));
+    final tabs = AutoTabsRouter.of(context);
+    expect(log.alive, {'cold-routed'});
+
+    tabs.setActiveIndex(1);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    expect(log.alive, isEmpty);
+    expect(log.starts, ['cold-routed']);
+    expect(tabs.current.name, _otherRoute);
+
+    tabs.setActiveIndex(0);
+    await tester.pumpAndSettle();
+    await _settlePlayback(tester);
+    expect(log.alive, {'cold-routed'});
+    expect(log.starts, ['cold-routed', 'cold-routed']);
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('AutoRoute viewer and pageless modal suppress motion until the feed is uncovered', (tester) async {
+    final log = _PlaybackLog();
+    final router = await _pumpRoutedScope(tester, log);
+    await _settlePlayback(tester);
+    expect(log.alive, {'cold-routed'});
+
+    unawaited(router.push(const PageRouteInfo(_viewerRoute)));
+    await tester.pumpAndSettle();
+    expect(log.alive, isEmpty);
+    expect(router.currentSegments.map((route) => route.name), isNot(contains(_feedRoute)));
+    await router.maybePop();
+    await tester.pumpAndSettle();
+    await _settlePlayback(tester);
+    expect(log.alive, {'cold-routed'});
+
+    final context = tester.element(find.byType(TimelineLivePhotoScope));
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (_) => const AlertDialog(content: Text('modal')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(log.alive, isEmpty);
+    expect(router.currentSegments.map((route) => route.name), contains(_feedRoute));
+    Navigator.of(context, rootNavigator: true).pop();
+    await tester.pumpAndSettle();
+    await _settlePlayback(tester);
+    expect(log.alive, {'cold-routed'});
+    expect(log.maxConcurrent, 1);
+  });
+
+  testWidgets('cold AutoRoute feed waits for foreground and selection still suppresses motion', (tester) async {
+    final log = _PlaybackLog();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    try {
+      await _pumpRoutedScope(tester, log);
+      await _settlePlayback(tester);
+      expect(log.starts, isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await _settlePlayback(tester);
+      expect(log.alive, {'cold-routed'});
+
+      final container = ProviderScope.containerOf(tester.element(find.byType(TimelineLivePhotoScope)));
+      container.read(multiSelectProvider.notifier).selectAsset(_remoteAsset('cold-routed'));
+      await tester.pump();
+      expect(log.alive, isEmpty);
+      await tester.pump(const Duration(seconds: 2));
+      expect(log.starts, ['cold-routed']);
+    } finally {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    }
+  });
+
+  testWidgets('AutoRoute feed waits for scrolling to settle before starting the next visible motion', (tester) async {
+    final log = _PlaybackLog();
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await _pumpRoutedScope(
+      tester,
+      log,
+      scrollController: scroll,
+      assets: [_remoteAsset('cold-routed'), _remoteAsset('second'), _remoteAsset('third')],
+    );
+    await _settlePlayback(tester);
+    expect(log.alive, {'cold-routed'});
+    scroll.jumpTo(120);
+    await tester.pump();
+    expect(log.alive, isEmpty);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(log.alive, isEmpty);
+    await _settlePlayback(tester);
+    expect(log.alive, {'second'});
+    expect(log.maxConcurrent, 1);
+  });
+
   testWidgets('cold local motion resolves its local component and starts without opening a viewer', (tester) async {
     final log = _PlaybackLog();
     final resolved = <String?>[];
