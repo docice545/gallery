@@ -2,11 +2,20 @@ import type { AssetResponseDto, PersonResponseDto, StackResponseDto } from '@imm
 import type { AssetAction } from '$lib/constants';
 import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
 
+type DeletionAction = {
+  asset: TimelineAsset;
+  /** The viewer has already selected a surviving frame or left the depleted stack. */
+  stackHandled?: boolean;
+  stack?: StackResponseDto | null;
+  /** The surviving cover, including a standalone asset when only one frame remains. */
+  replacementAsset?: AssetResponseDto;
+};
+
 type ActionMap = {
   [AssetAction.ARCHIVE]: { asset: TimelineAsset };
   [AssetAction.UNARCHIVE]: { asset: TimelineAsset };
-  [AssetAction.TRASH]: { asset: TimelineAsset };
-  [AssetAction.DELETE]: { asset: TimelineAsset };
+  [AssetAction.TRASH]: DeletionAction;
+  [AssetAction.DELETE]: DeletionAction;
   [AssetAction.RESTORE]: { asset: TimelineAsset };
   [AssetAction.STACK]: { stack: StackResponseDto };
   [AssetAction.UNSTACK]: { assets: TimelineAsset[] };
