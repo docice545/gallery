@@ -1485,6 +1485,7 @@
   "details": "Details",
   "detected_faces": "Gedetecteerde gezichten",
   "device_deletion_result": "Apparaat: {removed} verwijderd, {remaining} resterend. Niet verwijderd: {names}",
+  "device_deletion_summary": "Apparaat: {removed} verwijderd, {remaining} over.",
   "direction": "Richting",
   "disable": "Uitschakelen",
   "disabled": "Uitgeschakeld",

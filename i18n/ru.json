@@ -1485,6 +1485,7 @@
   "details": "Подробности",
   "detected_faces": "Обнаруженные лица",
   "device_deletion_result": "На устройстве: удалено {removed}, осталось {remaining}. Не удалены: {names}",
+  "device_deletion_summary": "С устройства удалено: {removed}. Осталось: {remaining}.",
   "direction": "Направление",
   "disable": "Отключить",
   "disabled": "Отключено",

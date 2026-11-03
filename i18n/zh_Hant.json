@@ -1481,6 +1481,7 @@
   "details": "詳細資訊",
   "detected_faces": "偵測到的臉孔",
   "device_deletion_result": "裝置：已移除 {removed} 個，剩餘 {remaining} 個。未移除：{names}",
+  "device_deletion_summary": "裝置：已移除 {removed} 項，剩餘 {remaining} 項。",
   "direction": "方向",
   "disable": "停用",
   "disabled": "已停用",

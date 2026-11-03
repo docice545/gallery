@@ -1489,6 +1489,7 @@
   "details": "Details",
   "detected_faces": "Detected faces",
   "device_deletion_result": "Device: {removed} removed, {remaining} remain. Not removed: {names}",
+  "device_deletion_summary": "Device: {removed} removed, {remaining} remain.",
   "direction": "Direction",
   "disable": "Disable",
   "disabled": "Disabled",

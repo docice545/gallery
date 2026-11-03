@@ -1485,6 +1485,7 @@
   "details": "Dettagli",
   "detected_faces": "Volti rilevati",
   "device_deletion_result": "Dispositivo: {removed} rimossi, {remaining} rimanenti. Non rimossi: {names}",
+  "device_deletion_summary": "Dispositivo: {removed} rimossi, {remaining} rimanenti.",
   "direction": "Direzione",
   "disable": "Disabilita",
   "disabled": "Disabilitato",

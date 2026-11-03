@@ -1484,6 +1484,7 @@
   "details": "Details",
   "detected_faces": "Erkannte Gesichter",
   "device_deletion_result": "Gerät: {removed} entfernt, {remaining} verbleiben. Nicht entfernt: {names}",
+  "device_deletion_summary": "Gerät: {removed} entfernt, {remaining} verbleiben.",
   "direction": "Richtung",
   "disable": "Deaktivieren",
   "disabled": "Deaktiviert",

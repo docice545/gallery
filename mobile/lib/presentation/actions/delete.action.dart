@@ -302,6 +302,15 @@ final _cleanupStateProvider = Provider.family.autoDispose<List<String>?, ActionS
   return assetIds.isEmpty ? null : assetIds;
 }, dependencies: [assetsActionProvider]);
 
+class _LocalCleanupGuard {
+  bool running = false;
+}
+
+final _localCleanupGuardProvider = Provider.family<_LocalCleanupGuard, ActionSource>(
+  (ref, source) => _LocalCleanupGuard(),
+  dependencies: [assetsActionProvider],
+);
+
 class CleanupLocalAction extends AssetActionBuilder {
   const CleanupLocalAction({required super.source});
 
@@ -320,38 +329,59 @@ class CleanupLocalAction extends AssetActionBuilder {
   }
 
   Future<void> _cleanup(BuildContext context, WidgetRef ref) async {
+    if (!context.mounted) {
+      return;
+    }
+    final guard = ref.read(_localCleanupGuardProvider(source));
+    if (guard.running) {
+      return;
+    }
     final assetIds = ref.read(_cleanupStateProvider(source));
     if (assetIds == null) {
       return;
     }
 
+    final userId = ref.read(currentUserProvider)?.id;
+    final store = ref.read(storeServiceProvider);
+    final endpoint = store.tryGet(StoreKey.serverEndpoint);
+    bool isCurrent() =>
+        context.mounted &&
+        ref.read(currentUserProvider)?.id == userId &&
+        store.tryGet(StoreKey.serverEndpoint) == endpoint;
     final toastService = ref.read(toastServiceProvider);
-    final clearSelection = ref.read(clearSelectionProvider(source));
 
+    guard.running = true;
     try {
-      final result = await _cleanupLocalAssetsDetailed(context, ref, assetIds);
-      if (!context.mounted) {
+      final result = await _cleanupLocalAssetsDetailed(context, ref, assetIds, canContinue: isCurrent);
+      if (!context.mounted || !isCurrent()) {
         return;
       }
 
-      final selected = ref.read(assetsActionProvider(source));
-      final names = result.remainingIds
-          .map((id) => selected.where((asset) => asset.localId == id).firstOrNull?.name ?? id)
-          .take(25)
-          .join(', ');
-      final message = context.t.device_deletion_result(
+      if (source == .timeline && result.deletedIds.isNotEmpty) {
+        final removed = result.deletedIds.toSet();
+        final selected = ref.read(multiSelectProvider).selectedAssets.toList();
+        final notifier = ref.read(multiSelectProvider.notifier);
+        for (final asset in selected) {
+          if (removed.contains(asset.localId)) {
+            notifier.deselectAsset(asset);
+          }
+        }
+      }
+      final message = context.t.device_deletion_summary(
         removed: result.deletedIds.length,
         remaining: result.remainingIds.length,
-        names: names,
       );
       if (result.remainingIds.isEmpty) {
         toastService.success(message);
-        clearSelection();
       } else {
         toastService.error(message);
       }
     } catch (error, stack) {
-      handleError(error, stack: stack, description: "Failed to remove the device copies");
+      if (isCurrent()) {
+        handleError(error, stack: stack, description: "Failed to remove the device copies");
+      }
+    } finally {
+      guard.running = false;
     }
   }
 }
@@ -366,6 +396,7 @@ Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
   List<String> assetIds, {
   bool requestCustomPrompt = true,
   bool trash = true,
+  bool Function()? canContinue,
 }) async {
   if (assetIds.isEmpty) {
     return const LocalDeletionResult(deletedIds: [], remainingIds: []);
@@ -391,5 +422,8 @@ Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
     }
   }
 
+  if (!context.mounted || canContinue?.call() == false) {
+    return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
+  }
   return cleanupService.deleteLocalAssetsDetailed(assetIds, trash: trash);
 }

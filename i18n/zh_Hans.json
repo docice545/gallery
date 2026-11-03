@@ -1475,6 +1475,7 @@
   "details": "详情",
   "detected_faces": "检测到的人脸",
   "device_deletion_result": "设备：已移除 {removed} 项，剩余 {remaining} 项。未移除：{names}",
+  "device_deletion_summary": "设备：已移除 {removed} 项，剩余 {remaining} 项。",
   "direction": "方向",
   "disable": "禁用",
   "disabled": "禁用",

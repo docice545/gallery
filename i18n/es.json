@@ -1484,6 +1484,7 @@
   "details": "Detalles",
   "detected_faces": "Caras detectadas",
   "device_deletion_result": "Dispositivo: {removed} eliminados, {remaining} pendientes. No eliminados: {names}",
+  "device_deletion_summary": "Dispositivo: {removed} eliminados, {remaining} restantes.",
   "direction": "Dirección",
   "disable": "Desactivar",
   "disabled": "Deshabilitado",

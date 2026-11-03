@@ -1483,6 +1483,7 @@
   "details": "Détails",
   "detected_faces": "Visages détectés",
   "device_deletion_result": "Sur l’appareil : {removed} supprimés, {remaining} restants. Non supprimés : {names}",
+  "device_deletion_summary": "Appareil : {removed} supprimés, {remaining} restants.",
   "direction": "Ordre",
   "disable": "Désactiver",
   "disabled": "Désactivé",

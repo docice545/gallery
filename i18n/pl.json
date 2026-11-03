@@ -1487,6 +1487,7 @@
   "details": "Szczegóły",
   "detected_faces": "Wykryte twarze",
   "device_deletion_result": "Urządzenie: usunięto {removed}, pozostało {remaining}. Nie usunięto: {names}",
+  "device_deletion_summary": "Urządzenie: usunięto {removed}, pozostało {remaining}.",
   "direction": "Kierunek",
   "disable": "Wyłącz",
   "disabled": "Nieaktywny",
