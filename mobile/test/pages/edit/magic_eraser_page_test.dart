@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -309,7 +310,7 @@ void main() {
     const center = Offset(.5, .5);
     await tapImage(tester, center);
     expectPurple(await pixelAt(tester, imagePoint(tester, center)));
-    final erase = find.byIcon(Icons.auto_fix_off);
+    final erase = find.byKey(const Key('eraser-erase-mask'));
     await tester.ensureVisible(erase);
     await tester.tap(erase);
     await tester.pump();
@@ -430,7 +431,7 @@ void main() {
 
   testWidgets('Build27 real pinch and pan preserve image-local brush coordinates after Zoom', (tester) async {
     await pumpGestureEditor(tester, width: 1200, height: 800);
-    final zoom = find.byIcon(Icons.zoom_in);
+    final zoom = find.byKey(const Key('eraser-zoom'));
     await tester.ensureVisible(zoom);
     await tester.tap(zoom);
     await tester.pump();
@@ -451,7 +452,7 @@ void main() {
     expect(transform.entry(0, 3).abs() + transform.entry(1, 3).abs(), greaterThan(1));
     expect(canRemove(tester), isFalse);
     expect(canUndo(tester), isFalse);
-    final brush = find.byIcon(Icons.brush);
+    final brush = find.byKey(const Key('eraser-brush'));
     await tester.ensureVisible(brush);
     await tester.tap(brush);
     await tester.pump();
@@ -637,38 +638,24 @@ void main() {
           expect(image.width, greaterThan(80));
           expect(image.height, greaterThan(80));
 
-          final sidePanel = screen.width >= 560 && screen.width > screen.height;
-          if (sidePanel) {
-            expect(panelRect.left, greaterThanOrEqualTo(region.right));
-          } else {
-            expect(panelRect.top, greaterThanOrEqualTo(region.bottom));
-            final bodyHeight = region.height + panelRect.height;
-            expect(panelRect.height, lessThanOrEqualTo(bodyHeight * .42 + .001));
-            // Build27 always reserved min(264, bodyHeight*.42), independent
-            // of how much space its controls actually needed.
-            final oldPanelHeight = bodyHeight * .42 < 264 ? bodyHeight * .42 : 264.0;
-            final oldRegion = Size(region.width, bodyHeight - oldPanelHeight);
-            final oldPhoto = applyBoxFit(BoxFit.contain, photo, oldRegion).destination;
-            if (screen == const Size(390, 844) && textScale == 1) {
-              expect(panelRect.height, lessThan(oldPanelHeight - 80));
-              expect(region.height, greaterThan(oldRegion.height + 80));
-              expect(image.width * image.height, greaterThanOrEqualTo(oldPhoto.width * oldPhoto.height));
-              if (photo.height > photo.width) {
-                debugPrint(
-                  'Build28 layout measurement: canvasHeight=${region.height}, panelHeight=${panelRect.height}, '
-                  'photoArea=${image.width * image.height}, build27PhotoArea=${oldPhoto.width * oldPhoto.height}',
-                );
-                expect(image.width * image.height, greaterThan(oldPhoto.width * oldPhoto.height * 1.3));
-              }
-            }
-          }
+          expect(panelRect.top, closeTo(region.bottom, .001));
+          expect(panelRect.height, 80); // One 56 dp row plus the 24 dp system inset.
+          expect(panelRect.width, region.width);
+          final before = region;
+          await tester.ensureVisible(find.byKey(const Key('eraser-size-options')));
+          await tester.tap(find.byKey(const Key('eraser-size-options')));
+          await tester.pumpAndSettle();
+          expect(tester.getRect(find.byKey(const Key('eraser-canvas-region'))), before);
+          expect(tester.getRect(panel), panelRect);
+          await tester.tapAt(const Offset(1, 1));
+          await tester.pumpAndSettle();
 
           for (final target in [
-            find.byIcon(Icons.brush),
-            find.byIcon(Icons.auto_fix_off),
-            find.byIcon(Icons.zoom_in),
-            find.descendant(of: panel, matching: find.byType(TextButton)).first,
-            find.byKey(const Key('eraser-brush-size')),
+            find.byKey(const Key('eraser-brush')),
+            find.byKey(const Key('eraser-erase-mask')),
+            find.byKey(const Key('eraser-zoom')),
+            find.byKey(const Key('eraser-reset')),
+            find.byKey(const Key('eraser-size-options')),
             remove,
           ]) {
             await tester.ensureVisible(target);
@@ -706,18 +693,12 @@ void main() {
     expect(displayedImage(tester).bytes, same(source));
     expect(canRemove(tester), isTrue);
     expect(tester.getSize(find.byKey(const Key('eraser-canvas-region'))).height, greaterThan(100));
-    // The existing failure message remains in the scrollable controls rather
-    // than enlarging the panel past its photo-preserving maximum.
-    final statusText = find.descendant(
-      of: find.byKey(const Key('eraser-controls-panel')),
-      matching: find.byWidgetPredicate((widget) => widget is Text && widget.style?.color == Colors.orangeAccent),
-    );
+    // Failure status overlays the existing viewport and never adds a dock row.
+    final statusText = find.byWidgetPredicate((widget) => widget is Text && widget.style?.color == Colors.orangeAccent);
     expect(statusText, findsOneWidget);
-    await tester.ensureVisible(statusText);
-    await tester.pump();
-    expect(statusText.hitTestable(), findsOneWidget);
-    await tester.ensureVisible(find.byKey(const Key('eraser-brush-size')));
-    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('eraser-size-options')));
+    await tester.tap(find.byKey(const Key('eraser-size-options')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('eraser-brush-size')).hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -821,9 +802,10 @@ void main() {
     expect(displayedImage(tester).bytes, same(source));
     expect(canRemove(tester), isFalse);
     expect(canSave(tester), isFalse);
-    expect(find.byKey(const Key('eraser-brush-size')), findsOneWidget);
-    expect(find.byIcon(Icons.undo), findsOneWidget);
-    expect(find.byIcon(Icons.redo), findsOneWidget);
+    expect(find.byKey(const Key('eraser-brush-size')), findsNothing);
+    expect(find.byKey(const Key('eraser-size-options')), findsOneWidget);
+    expect(find.byKey(const Key('eraser-header-undo')), findsOneWidget);
+    expect(find.byKey(const Key('eraser-header-redo')), findsOneWidget);
     verifyNever(() => repository.create(any(), any()));
     verifyNever(() => repository.save(any(), any()));
   });
@@ -852,18 +834,16 @@ void main() {
     await pumpEditor(tester);
     await selectCenter(tester);
 
-    await tester.tap(find.byIcon(Icons.undo));
+    await tester.tap(find.byKey(const Key('eraser-header-undo')));
     await tester.pump();
     expect(canRemove(tester), isFalse);
-    await tester.tap(find.byIcon(Icons.redo));
+    await tester.tap(find.byKey(const Key('eraser-header-redo')));
     await tester.pump();
     expect(canRemove(tester), isTrue);
-    await tester.tap(find.text('Reset'));
+    await tester.tap(find.byKey(const Key('eraser-reset')));
     await tester.pump();
     expect(canRemove(tester), isFalse);
-    final redoButton = tester.widget<IconButton>(
-      find.ancestor(of: find.byIcon(Icons.redo), matching: find.byType(IconButton)),
-    );
+    final redoButton = tester.widget<IconButton>(find.byKey(const Key('eraser-header-redo')));
     expect(redoButton.onPressed, isNull);
   });
 
@@ -897,11 +877,14 @@ void main() {
     ).thenAnswer((_) async => const MagicEraserJob(id: 'ready-job', status: MagicEraserStatus.ready));
     await pumpEditor(tester);
     await selectCenter(tester);
+    await tester.ensureVisible(find.byKey(const Key('eraser-size-options')));
+    await tester.tap(find.byKey(const Key('eraser-size-options')));
+    await tester.pumpAndSettle();
     final slider = find.byKey(const Key('eraser-brush-size'));
     final sliderRect = tester.getRect(slider);
     await tester.tapAt(Offset(sliderRect.right - 24, sliderRect.center.dy));
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.auto_fix_off));
+    await tester.tap(find.byKey(const Key('eraser-erase-mask')));
     await tester.tapAt(tester.getCenter(canvas) + const Offset(20, 0));
     await tester.pump();
     await tester.tap(remove);
@@ -925,7 +908,7 @@ void main() {
 
   testWidgets('zoom mode enables image gestures and does not paint a selection', (tester) async {
     await pumpEditor(tester);
-    await tester.tap(find.byIcon(Icons.zoom_in));
+    await tester.tap(find.byKey(const Key('eraser-zoom')));
     await tester.pump();
     final viewer = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
     expect(viewer.panEnabled, isTrue);
@@ -933,7 +916,7 @@ void main() {
     await tester.drag(canvas, const Offset(40, 20));
     await tester.pump();
     expect(canRemove(tester), isFalse);
-    await tester.tap(find.byIcon(Icons.brush));
+    await tester.tap(find.byKey(const Key('eraser-brush')));
     await tester.pump();
     expect(tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).scaleEnabled, isFalse);
     await selectCenter(tester);
@@ -953,7 +936,7 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(cancel, findsOneWidget);
     expect(canRemove(tester), isFalse);
-    expect(tester.widget<Slider>(find.byKey(const Key('eraser-brush-size'))).onChanged, isNull);
+    expect(tester.widget<FotoIconButton>(find.byKey(const Key('eraser-size-options'))).onPressed, isNull);
     await tester.tap(cancel);
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
@@ -993,10 +976,10 @@ void main() {
     await showResult(tester);
 
     expect(displayedImage(tester).bytes, same(result));
-    await tester.tap(find.text('Before'));
+    await tester.tap(find.byKey(const Key('eraser-before')));
     await tester.pump();
     expect(displayedImage(tester).bytes, same(source));
-    await tester.tap(find.text('After'));
+    await tester.tap(find.byKey(const Key('eraser-after')));
     await tester.pump();
     expect(displayedImage(tester).bytes, same(result));
     verifyNever(() => repository.save(any(), any()));
@@ -1171,17 +1154,14 @@ void main() {
       final panel = tester.getRect(find.byKey(const Key('eraser-controls-panel')));
       expect(canvasRegion.height, greaterThanOrEqualTo(96));
       expect(canvasRegion.width, greaterThanOrEqualTo(96));
-      if (size.width - padding.left - padding.right >= 560) {
-        expect(panel.left, greaterThanOrEqualTo(canvasRegion.right));
-      } else {
-        expect(panel.top, greaterThanOrEqualTo(canvasRegion.bottom));
-      }
+      expect(panel.top, closeTo(canvasRegion.bottom, .001));
+      expect(panel.height, 56 + padding.bottom);
       await tester.ensureVisible(remove);
       expect(remove.hitTestable(), findsOneWidget);
       await showResult(tester);
       expect(canSave(tester), isTrue);
-      await tester.ensureVisible(find.text('До'));
-      await tester.tap(find.text('До'));
+      await tester.ensureVisible(find.byKey(const Key('eraser-before')));
+      await tester.tap(find.byKey(const Key('eraser-before')));
       await tester.pump();
       expect(displayedImage(tester).bytes, same(source));
       expect(tester.takeException(), isNull);

@@ -2,12 +2,14 @@ name: Build 37 smart Timeline regression gate
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     branches: [codex/foto-build37-android-ui]
     paths:
       - 'mobile/**'
       - 'i18n/**'
       - '.github/workflows/smart-timeline.yml'
       - '.github/scripts/report-ci-failures.py'
+      - '.github/scripts/publish-editor-review.py'
   workflow_dispatch:
 
 permissions:
@@ -46,6 +48,8 @@ jobs:
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
             test/presentation/widgets/icons/foto_icon_proposal_test.dart \
+            test/pages/edit/editor_compact_layout_test.dart \
+            test/pages/edit/editor_acceptance_test.dart \
             test/widgets/settings/asset_list_settings_test.dart
       - name: Annotate formatter differences
         if: failure() && steps.format.outcome == 'failure'
@@ -66,6 +70,7 @@ jobs:
             test/presentation/widgets/timeline/scrubber_positions_test.dart \
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
             test/presentation/widgets/icons/foto_icon_proposal_test.dart \
+            test/pages/edit/ \
             test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
             test/presentation/widgets/timeline/live_photo_presentation_test.dart \
@@ -121,4 +126,52 @@ jobs:
         with:
           name: build37-native-motion
           path: ${{ runner.temp }}/gallery-native-motion-test.log
+          if-no-files-found: warn
+
+  editor-review:
+    name: Explicit editor screenshot review (no release)
+    if: github.event.action == 'labeled' && github.event.label.name == 'review:editor-screenshots' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/issue17-smart-timeline'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen editor dependencies and source generation
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Render review screenshots with viewport and history assertions
+        id: render
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --update-goldens --reporter json \
+            test/pages/edit/editor_compact_layout_test.dart \
+            test/pages/edit/editor_acceptance_test.dart \
+            | tee "$RUNNER_TEMP/editor-review.jsonl"
+      - name: Annotate rendering failures
+        if: failure() && steps.render.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/editor-review.jsonl"
+      - name: Publish only reviewed-source PNGs and measured geometry to the existing draft branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_HEAD_BRANCH: ${{ github.head_ref }}
+          REVIEW_TEST_LOG: ${{ runner.temp }}/editor-review.jsonl
+        run: python3 .github/scripts/publish-editor-review.py
+      - name: Retain independent rendering evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: editor-viewport-review
+          path: |
+            mobile/test/pages/edit/goldens/fixed_dock_*.png
+            specs/design/editor-dock-review/measurements.json
+            ${{ runner.temp }}/editor-review.jsonl
           if-no-files-found: warn

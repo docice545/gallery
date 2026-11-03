@@ -76,7 +76,13 @@ jobs:
         run: mise //mobile:codegen
 
       - name: Run analyze
-        run: mise //mobile:analyze
+        id: analyze
+        run: |
+          set -o pipefail
+          mise //mobile:analyze 2>&1 | tee "$RUNNER_TEMP/mobile-analysis.log"
+      - name: Annotate analyzer diagnostics
+        if: failure() && steps.analyze.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py analysis "$RUNNER_TEMP/mobile-analysis.log"
 
       - name: Changed sync service and durable V2 journal regressions (manual acceptance)
         if: github.event_name == 'workflow_dispatch' && !inputs.retry_cancellation_tests

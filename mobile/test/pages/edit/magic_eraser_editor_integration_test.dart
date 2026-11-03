@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:crop_image/crop_image.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -91,20 +92,9 @@ void main() {
   }
 
   Future<void> selectMode(WidgetTester tester, String mode) async {
-    if (mode == 'filters' || mode == 'stickers') {
-      final more = find.byKey(const Key('editor-more'));
-      if (more.evaluate().isEmpty) {
-        final crop = find.byKey(const Key('editor-mode-crop'));
-        await tester.ensureVisible(crop);
-        await tester.tap(crop);
-        await tester.pumpAndSettle();
-        if (more.evaluate().isEmpty) {
-          await tester.tap(crop);
-          await tester.pumpAndSettle();
-        }
-      }
-      await tester.ensureVisible(more);
-      await tester.tap(more);
+    final back = find.byKey(const Key('editor-tools-back'));
+    if (back.evaluate().isNotEmpty) {
+      await tester.tap(back);
       await tester.pumpAndSettle();
     }
     final target = find.byKey(Key('editor-mode-$mode'));
@@ -215,12 +205,8 @@ void main() {
     verifyOnlyRemoteRefresh();
     final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
     final before = container.read(editorStateProvider);
-    await tester.tap(find.byKey(const Key('editor-mode-crop')));
-    await tester.pumpAndSettle();
-    // Selecting the tool and expanding its settings are separate actions.
-    await tester.tap(find.byKey(const Key('editor-mode-crop')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.rotate_left));
+    await selectMode(tester, 'crop');
+    await tester.tap(find.byKey(const Key('editor-rotate-left')));
     await tester.pump();
     expect(container.read(editorStateProvider).rotationAngle, isNot(before.rotationAngle));
     await tester.pump(const Duration(seconds: 4));
@@ -237,10 +223,10 @@ void main() {
     await pumpEditor(tester);
     final save = find.byKey(const Key('editor-save'));
     expect(tester.widget<TextButton>(save).onPressed, isNull);
-    expect(find.text('Save\na copy'), findsOneWidget);
+    expect(find.byTooltip('Save a copy'), findsOneWidget);
     expect(find.byKey(const Key('edit-save-mode-dialog')), findsNothing);
     expect(find.byKey(const Key('edit-replace-original')), findsNothing);
-    await tester.tap(find.byIcon(Icons.rotate_left));
+    await tester.tap(find.byKey(const Key('editor-rotate-left')));
     await tester.pump();
     expect(tester.widget<TextButton>(save).onPressed, isNotNull);
   });
@@ -266,7 +252,9 @@ void main() {
 
   testWidgets('double activation before the next frame opens only one AI route and capability request', (tester) async {
     await pumpEditor(tester);
-    final button = tester.widget<TextButton>(find.byKey(const Key('editor-mode-magicEraser')));
+    await tester.tap(find.byKey(const Key('editor-tools-back')));
+    await tester.pumpAndSettle();
+    final button = tester.widget<FotoIconButton>(find.byKey(const Key('editor-mode-magicEraser')));
     button.onPressed!();
     button.onPressed!();
     await tester.pumpAndSettle();
@@ -386,7 +374,7 @@ void main() {
   testWidgets('Live/Motion stills expose the fourth AI tool without enabling transform or overwrite', (tester) async {
     final live = asset.copyWith(livePhotoVideoId: 'paired-video-id');
     await pumpEditor(tester, photo: live);
-    expect(tester.widget<TextButton>(find.byKey(const Key('editor-mode-crop'))).onPressed, isNull);
+    expect(tester.widget<FotoIconButton>(find.byKey(const Key('editor-mode-crop'))).onPressed, isNull);
     expect(tester.widget<TextButton>(find.byKey(const Key('editor-save'))).onPressed, isNull);
     expect(find.byType(CropImage), findsNothing);
     await selectMode(tester, 'magicEraser');
@@ -484,11 +472,9 @@ void main() {
       expect(magicEraser, findsNothing);
       expect(find.byKey(const Key('annotation-toggle')), findsNothing);
 
-      await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-      await tester.tap(find.byKey(const Key('editor-mode-draw')));
-      await tester.pumpAndSettle();
+      await selectMode(tester, 'draw');
       expect(find.byKey(const Key('editor-markup-controls')), findsOneWidget);
-      expect(find.byIcon(Icons.rotate_left), findsNothing);
+      expect(find.byKey(const Key('editor-rotate-left')), findsNothing);
       expect(magicEraser, findsNothing);
       if (size.width > size.height) {
         expect(tester.getRect(canvas).right, lessThanOrEqualTo(tester.getRect(panel).left));
@@ -522,44 +508,32 @@ void main() {
           for (var index = 0; index < modes.length; index++) {
             final mode = modes[index];
             await selectMode(tester, mode);
-            if (mode != 'filters' && mode != 'stickers') {
-              expect(tester.getSize(find.byKey(Key('editor-mode-$mode'))).shortestSide, greaterThanOrEqualTo(48));
-            }
+            expect(tester.getSize(find.byKey(const Key('editor-tools-back'))).shortestSide, greaterThanOrEqualTo(48));
             final viewport = tester.getRect(find.byKey(const Key('editor-preview-viewport')));
             final appBar = tester.getRect(find.byType(AppBar));
             final panel = tester.getRect(find.byKey(const Key('editor-bottom-panel')));
-            final bar = tester.getRect(find.byKey(const Key('editor-mode-bar')));
             expect(viewport.top, closeTo(appBar.bottom, .01));
-            if (size.width > size.height) {
-              expect(viewport.right, closeTo(panel.left, .01));
-              expect(viewport.height, greaterThanOrEqualTo(size.height - appBar.bottom - .01));
-            } else {
-              expect(viewport.bottom, closeTo(panel.top, .01));
-              expect(viewport.height, greaterThanOrEqualTo((size.height - appBar.bottom) * .6));
-            }
+            expect(viewport.bottom, closeTo(panel.top, .01));
+            expect(viewport.width, closeTo(panel.width, .01));
             expect(panel.bottom, closeTo(size.height, .01));
-            expect(bar.bottom, closeTo(panel.bottom, .01));
-            expect(bar.height, lessThanOrEqualTo(100));
-            final markup = mode == 'draw' || mode == 'text' || mode == 'stickers';
-            expect(find.byKey(const Key('editor-markup-controls')), markup ? findsOneWidget : findsNothing);
+            expect(panel.height, 56);
+            expect(find.byKey(const Key('editor-mode-bar')), findsNothing);
             expect(magicEraser, findsNothing);
-            if (markup) {
-              if (mode == 'draw') {
-                await tester.tap(find.byKey(const Key('editor-toggle-settings')));
-                await tester.pumpAndSettle();
-              }
+            if (mode == 'draw' || mode == 'text' || mode == 'stickers') {
+              final option = find.byKey(Key(mode == 'draw' ? 'editor-width' : 'editor-opacity'));
+              await tester.ensureVisible(option);
+              await tester.tap(option);
+              await tester.pumpAndSettle();
               final slider = find.byKey(Key(mode == 'draw' ? 'annotation-width' : 'annotation-opacity'));
               await tester.ensureVisible(slider);
-              await tester.pumpAndSettle();
               final sliderRect = tester.getRect(slider);
-              final currentPanel = tester.getRect(find.byKey(const Key('editor-bottom-panel')));
-              final currentBar = tester.getRect(find.byKey(const Key('editor-mode-bar')));
-              expect(sliderRect.top, greaterThanOrEqualTo(currentPanel.top));
-              expect(sliderRect.bottom, lessThanOrEqualTo(currentBar.top));
+              expect(sliderRect.bottom, lessThan(panel.top));
+              expect(tester.getRect(find.byKey(const Key('editor-preview-viewport'))), viewport);
               await tester.tapAt(sliderRect.center);
               await tester.pumpAndSettle();
               final surface = tester.widget<AnnotationCanvas>(find.byType(AnnotationCanvas));
               expect(mode == 'draw' ? surface.width : surface.opacity, isNot(mode == 'draw' ? 5 : 1));
+              expect(find.byKey(const Key('editor-parameter-popover')), findsNothing);
             }
             expect(tester.takeException(), isNull, reason: 'mode=$mode');
           }
@@ -595,9 +569,7 @@ void main() {
     addTearDown(source.dispose);
     final png = (await tester.runAsync(() => EditedImageExporter.encodePng(source)))!;
     await pumpEditor(tester, image: Image.memory(png));
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     final canvas = find.byType(AnnotationCanvas);
     final container = ProviderScope.containerOf(tester.element(canvas));
     final notifier = container.read(editorStateProvider.notifier);
@@ -715,7 +687,7 @@ void main() {
           expect(photo.bottom, lessThanOrEqualTo(viewport.bottom + .001));
           expect(tester.takeException(), isNull);
           if (turn < 4) {
-            await tester.tap(find.byIcon(Icons.rotate_right));
+            await tester.tap(find.byKey(const Key('editor-rotate-right')));
             await tester.pumpAndSettle();
           }
         }
@@ -731,11 +703,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await pumpEditor(tester, image: Image.memory(await imageBytes(tester, const Size(400, 100))));
-    await tester.tap(find.byIcon(Icons.rotate_left));
+    await tester.tap(find.byKey(const Key('editor-rotate-left')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     final canvas = find.byType(AnnotationCanvas);
     final container = ProviderScope.containerOf(tester.element(canvas));
     final cropBefore = container.read(editorStateProvider).crop;
@@ -779,9 +749,7 @@ void main() {
 
   testWidgets('changing modes keeps annotations and their undo history', (tester) async {
     await pumpEditor(tester);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     final canvas = find.byType(AnnotationCanvas);
     await tester.drag(canvas, const Offset(60, 30));
     await tester.pump();
@@ -789,9 +757,7 @@ void main() {
     expect(editor.elements, hasLength(1));
     final original = editor.elements.single;
 
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-text')));
-    await tester.tap(find.byKey(const Key('editor-mode-text')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'text');
     await selectMode(tester, 'stickers');
     expect(tester.widget<AnnotationCanvas>(canvas).editor, same(editor));
     expect(editor.elements.single, original);
@@ -826,9 +792,7 @@ void main() {
 
   Future<AnnotationElement> addTextAnnotation(WidgetTester tester) async {
     await pumpEditor(tester);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-text')));
-    await tester.tap(find.byKey(const Key('editor-mode-text')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'text');
     await tester.tapAt(annotationPoint(tester, const Offset(.4, .4)));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('annotation-text-input')), 'Original');
@@ -919,7 +883,7 @@ void main() {
 
     await tester.tap(find.byType(DropdownButton<AnnotationTool>));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.open_with).last);
+    await tester.tap(find.byKey(const Key('editor-tool-move')));
     await tester.pumpAndSettle();
     await tester.tapAt(annotationPoint(tester, original.points.first + const Offset(.01, .01)));
     await tester.pump();
@@ -943,9 +907,7 @@ void main() {
 
   testWidgets('undo and redo keep annotation dirty state aligned with the current document', (tester) async {
     await pumpEditor(tester);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     final canvas = find.byType(AnnotationCanvas);
     final editor = tester.widget<AnnotationCanvas>(canvas).editor;
     final container = ProviderScope.containerOf(tester.element(canvas));
@@ -968,8 +930,7 @@ void main() {
 
   testWidgets('reset restores server edit baseline and clears markup as one undoable document change', (tester) async {
     await pumpEditor(tester);
-    final cropMode = find.byKey(const Key('editor-mode-crop'));
-    final container = ProviderScope.containerOf(tester.element(cropMode));
+    final container = ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
     container.read(editorStateProvider.notifier).init([
       CropEdit(api.CropParameters(x: 10, y: 5, width: 60, height: 40)),
       RotateEdit(api.RotateParameters(angle: 90)),
@@ -983,9 +944,7 @@ void main() {
     container.read(editorStateProvider.notifier).setCrop(const Rect.fromLTRB(.15, .1, .8, .75));
     container.read(editorStateProvider.notifier).rotateCW();
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     final canvas = find.byType(AnnotationCanvas);
     final editor = tester.widget<AnnotationCanvas>(canvas).editor;
     await tester.drag(canvas, const Offset(60, 30));
@@ -993,12 +952,8 @@ void main() {
     expect(editor.elements, hasLength(1));
     expect(container.read(editorStateProvider).hasUnsavedEdits, isTrue);
 
-    await tester.ensureVisible(cropMode);
-    await tester.tap(cropMode);
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('editor-more')));
-    await tester.tap(find.byKey(const Key('editor-more')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'crop');
+    await tester.ensureVisible(find.byKey(const Key('editor-reset')));
     await tester.tap(find.byKey(const Key('editor-reset')));
     await tester.pumpAndSettle();
     expect(container.read(editorStateProvider).crop, baseline.crop);
@@ -1006,9 +961,7 @@ void main() {
     expect(container.read(editorStateProvider).hasUnsavedEdits, isFalse);
     expect(editor.elements, isEmpty);
 
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     await tester.tap(find.byKey(const Key('editor-header-undo')));
     await tester.pump();
     expect(editor.elements, hasLength(1));
@@ -1054,15 +1007,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await pumpEditor(tester);
-    await tester.tap(find.byIcon(Icons.rotate_left));
+    await tester.tap(find.byKey(const Key('editor-rotate-left')));
     await tester.pumpAndSettle();
     final canvas = find.byType(AnnotationCanvas);
     final container = ProviderScope.containerOf(tester.element(canvas));
     container.read(editorStateProvider.notifier).flipHorizontally();
     final flipped = container.read(editorStateProvider);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     await pinchAndPan(tester, screenRect(tester, canvas).center);
     final box = tester.renderObject<RenderBox>(canvas);
     final start = box.localToGlobal(Offset(box.size.width * .4, box.size.height * .4));
@@ -1094,9 +1045,7 @@ void main() {
 
   testWidgets('a pinch starting outside the photo cancels a stroke already being drawn', (tester) async {
     await pumpEditor(tester, image: Image.memory(await imageBytes(tester, const Size(400, 100))));
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
-    await tester.pumpAndSettle();
+    await selectMode(tester, 'draw');
     final canvas = find.byType(AnnotationCanvas);
     final editor = tester.widget<AnnotationCanvas>(canvas).editor;
     final center = screenRect(tester, canvas).center;
@@ -1143,33 +1092,22 @@ void main() {
     expect(container.read(editorStateProvider).crop, crop);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('four visible sections and compact drawing strip keep the required tools and top history', (
-    tester,
-  ) async {
+  testWidgets('context replaces categories while retaining drawing tools and top history', (tester) async {
     await pumpEditor(tester);
-    final bar = find.byKey(const Key('editor-mode-bar'));
-    final buttons = tester.widgetList<TextButton>(find.descendant(of: bar, matching: find.byType(TextButton)));
-    expect(buttons.map((button) => (button.key! as ValueKey<String>).value), [
-      'editor-mode-crop',
-      'editor-mode-draw',
-      'editor-mode-text',
-      'editor-mode-magicEraser',
-    ]);
-    expect(find.byKey(const Key('editor-back')), findsOneWidget);
-    expect(find.byKey(const Key('editor-save')), findsOneWidget);
-    expect(find.byKey(const Key('editor-more')), findsOneWidget);
-    await tester.ensureVisible(find.byKey(const Key('editor-mode-draw')));
-    await tester.tap(find.byKey(const Key('editor-mode-draw')));
+    await tester.tap(find.byKey(const Key('editor-tools-back')));
     await tester.pumpAndSettle();
-    final pill = find.byKey(const Key('editor-drawing-pill'));
-    final tools = tester.widgetList<IconButton>(find.descendant(of: pill, matching: find.byType(IconButton)));
-    expect(tools.map((tool) => (tool.key! as ValueKey<String>).value), [
-      'editor-tool-pen',
-      'editor-tool-highlighter',
-      'editor-tool-brush',
-      'editor-tool-eraser',
-      'editor-toggle-settings',
-    ]);
+    for (final mode in ['crop', 'draw', 'text', 'magicEraser', 'filters', 'adjustments', 'shapes', 'stickers']) {
+      expect(find.byKey(Key('editor-mode-$mode')), findsOneWidget);
+    }
+    final before = tester.getRect(find.byKey(const Key('editor-preview-viewport')));
+    await selectMode(tester, 'draw');
+    expect(find.byKey(const Key('editor-mode-bar')), findsNothing);
+    expect(tester.getRect(find.byKey(const Key('editor-preview-viewport'))), before);
+    expect(find.byKey(const Key('editor-header-undo')), findsOneWidget);
+    expect(find.byKey(const Key('editor-header-redo')), findsOneWidget);
+    for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
+      expect(find.byKey(Key('editor-tool-$tool')), findsOneWidget);
+    }
     await tester.tap(find.byKey(const Key('editor-tool-highlighter')));
     await tester.pump();
     var canvas = tester.widget<AnnotationCanvas>(find.byType(AnnotationCanvas));
@@ -1193,10 +1131,8 @@ void main() {
     await tester.pump();
     final editor = tester.widget<AnnotationCanvas>(find.byType(AnnotationCanvas)).editor;
     expect(editor.elements.map((e) => e.text), ['star', 'heart']);
-    await tester.ensureVisible(find.byKey(const Key('editor-more')));
-    await tester.tap(find.byKey(const Key('editor-more')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Layers'));
+    await tester.ensureVisible(find.byKey(const Key('editor-layers')));
+    await tester.tap(find.byKey(const Key('editor-layers')));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Send backward').first);
     await tester.pump();
@@ -1220,6 +1156,9 @@ void main() {
     final original = await addTextAnnotation(tester);
     final canvas = find.byType(AnnotationCanvas);
     final editor = tester.widget<AnnotationCanvas>(canvas).editor;
+    await tester.ensureVisible(find.byKey(const Key('editor-text-options')));
+    await tester.tap(find.byKey(const Key('editor-text-options')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('editor-text-outline')));
     await tester.tap(find.byKey(const Key('editor-text-outline')));
     await tester.pump();
@@ -1239,6 +1178,9 @@ void main() {
     await tester.tapAt(tester.getCenter(size));
     await tester.pumpAndSettle();
     expect(editor.elements.single.fontSize, isNot(original.fontSize));
+    await tester.ensureVisible(find.byKey(const Key('editor-opacity')));
+    await tester.tap(find.byKey(const Key('editor-opacity')));
+    await tester.pumpAndSettle();
     final opacity = find.byKey(const Key('annotation-opacity'));
     await tester.ensureVisible(opacity);
     await tester.tapAt(tester.getCenter(opacity));

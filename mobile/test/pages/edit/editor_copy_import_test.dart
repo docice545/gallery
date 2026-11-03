@@ -99,7 +99,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('editor-mode-crop')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.rotate_left));
+    await tester.tap(find.byKey(const Key('editor-rotate-left')));
     await tester.pumpAndSettle();
     return ProviderScope.containerOf(tester.element(find.byType(EditImagePage)));
   }

@@ -53,6 +53,9 @@ void main() {
       }
       await tester.pumpAndSettle();
       final baseline = container.read(editorStateProvider);
+      await tester.ensureVisible(find.byKey(const Key('editor-crop-frame')));
+      await tester.tap(find.byKey(const Key('editor-crop-frame')));
+      await tester.pumpAndSettle();
       final squareColumn = find.ancestor(of: find.text(label), matching: find.byType(Column)).first;
       final square = find.descendant(of: squareColumn, matching: find.byType(IconButton));
       await tester.ensureVisible(square);

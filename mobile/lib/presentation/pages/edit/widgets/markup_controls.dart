@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+
+enum MarkupParameter { color, width, opacity, text }
 
 /// Original vector chrome; no Samsung artwork or downloaded fonts are used.
 class MarkupControls extends StatelessWidget {
@@ -27,6 +30,8 @@ class MarkupControls extends StatelessWidget {
   final VoidCallback onGestureStart;
   final VoidCallback onGestureEnd;
   final bool compact;
+  final MarkupParameter? parameter;
+  final VoidCallback? onComplete;
   final bool showToolStrip;
   final bool settingsExpanded;
   final bool isSettingsOpen;
@@ -35,6 +40,8 @@ class MarkupControls extends StatelessWidget {
   const MarkupControls({
     super.key,
     this.compact = false,
+    this.parameter,
+    this.onComplete,
     this.showToolStrip = true,
     this.settingsExpanded = true,
     this.isSettingsOpen = false,
@@ -177,7 +184,7 @@ class MarkupControls extends StatelessWidget {
                 ),
               ),
             if (settingsExpanded) ...[
-              if (mode == EditorMode.stickers)
+              if (mode == EditorMode.stickers && parameter == null)
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -199,94 +206,99 @@ class MarkupControls extends StatelessWidget {
                     ],
                   ),
                 ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (mode != EditorMode.stickers)
-                      DropdownButton<AnnotationTool>(
-                        key: const Key('annotation-tool-picker'),
-                        value: tools.contains(tool) ? tool : tools.first,
-                        underline: const SizedBox.shrink(),
-                        dropdownColor: const Color(0xff303030),
-                        borderRadius: BorderRadius.circular(16),
-                        menuWidth: menuWidth,
-                        menuMaxHeight: min(288, MediaQuery.sizeOf(context).height * .35),
-                        itemHeight: null,
-                        selectedItemBuilder: (context) => [
-                          for (final entry in tools)
-                            SizedBox(
-                              width: selectedToolWidth,
-                              height: 48,
-                              child: Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
+              if (parameter == null)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (mode != EditorMode.stickers)
+                        DropdownButton<AnnotationTool>(
+                          key: const Key('annotation-tool-picker'),
+                          value: tools.contains(tool) ? tool : tools.first,
+                          underline: const SizedBox.shrink(),
+                          dropdownColor: const Color(0xff303030),
+                          borderRadius: BorderRadius.circular(16),
+                          menuWidth: menuWidth,
+                          menuMaxHeight: min(288, MediaQuery.sizeOf(context).height * .35),
+                          itemHeight: null,
+                          selectedItemBuilder: (context) => [
+                            for (final entry in tools)
+                              SizedBox(
+                                width: selectedToolWidth,
+                                height: 48,
+                                child: Align(
                                   alignment: AlignmentDirectional.centerStart,
-                                  child: Text(label(entry)),
-                                ),
-                              ),
-                            ),
-                        ],
-                        items: tools
-                            .map(
-                              (entry) => DropdownMenuItem(
-                                key: ValueKey('editor-tool-option-${entry.name}'),
-                                value: entry,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  child: SizedBox(
-                                    width: menuWidth - 32,
-                                    child: Row(
-                                      children: [
-                                        Icon(icon(entry), size: 20),
-                                        const SizedBox(width: 8),
-                                        Expanded(child: Text(label(entry))),
-                                      ],
-                                    ),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: Text(label(entry)),
                                   ),
                                 ),
                               ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            onTool(value);
-                          }
-                        },
-                      ),
-                    if (!draw && !compact) ...[history(true), history(false)],
-                  ],
+                          ],
+                          items: tools
+                              .map(
+                                (entry) => DropdownMenuItem(
+                                  key: ValueKey('editor-tool-option-${entry.name}'),
+                                  value: entry,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: SizedBox(
+                                      width: menuWidth - 32,
+                                      child: Row(
+                                        children: [
+                                          Icon(icon(entry), size: 20),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(label(entry))),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              onTool(value);
+                            }
+                          },
+                        ),
+                      if (!draw && !compact) ...[history(true), history(false)],
+                    ],
+                  ),
                 ),
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    Text(context.t.color),
-                    for (final candidate in palette)
-                      IconButton(
-                        key: ValueKey('editor-color-${candidate.toARGB32()}'),
-                        tooltip: '${context.t.color} ${candidate.toARGB32().toRadixString(16)}',
-                        onPressed: () => onColor(candidate),
-                        icon: Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: candidate,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: color == candidate ? Colors.yellow : Colors.grey,
-                              width: color == candidate ? 3 : 1,
+              if (parameter == null || parameter == MarkupParameter.color)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Text(context.t.color),
+                      for (final candidate in palette)
+                        IconButton(
+                          key: ValueKey('editor-color-${candidate.toARGB32()}'),
+                          tooltip: '${context.t.color} ${candidate.toARGB32().toRadixString(16)}',
+                          onPressed: () {
+                            onColor(candidate);
+                            onComplete?.call();
+                          },
+                          icon: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: candidate,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: color == candidate ? Colors.yellow : Colors.grey,
+                                width: color == candidate ? 3 : 1,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              if (mode == EditorMode.text) ...[
+              if (mode == EditorMode.text && (parameter == null || parameter == MarkupParameter.text)) ...[
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -317,7 +329,7 @@ class MarkupControls extends StatelessWidget {
                       PopupMenuButton<Color>(
                         key: const Key('editor-outline-color'),
                         tooltip: context.tr('editor_outline'),
-                        icon: Icon(Icons.format_color_text, color: textStyle.outlineColor),
+                        icon: FotoIcon(kind: FotoIconKind.textOutline, semanticLabel: context.tr('editor_outline')),
                         onSelected: (color) => onTextStyle(textStyle.copyWith(outlineColor: color, outlineWidth: .006)),
                         itemBuilder: (_) => [
                           for (final color in palette)
@@ -338,7 +350,7 @@ class MarkupControls extends StatelessWidget {
                       PopupMenuButton<Color>(
                         key: const Key('editor-background-color'),
                         tooltip: context.tr('editor_background'),
-                        icon: const Icon(Icons.format_color_fill),
+                        icon: FotoIcon(kind: FotoIconKind.textFill, semanticLabel: context.tr('editor_background')),
                         onSelected: (color) => onTextStyle(textStyle.copyWith(backgroundColor: color)),
                         itemBuilder: (_) => [
                           for (final color in palette)
@@ -361,14 +373,17 @@ class MarkupControls extends StatelessWidget {
                         max: .2,
                         value: textStyle.fontSize.clamp(.015, .2),
                         onChangeStart: (_) => onGestureStart(),
-                        onChangeEnd: (_) => onGestureEnd(),
+                        onChangeEnd: (_) {
+                          onGestureEnd();
+                          onComplete?.call();
+                        },
                         onChanged: (value) => onTextStyle(textStyle.copyWith(fontSize: value)),
                       ),
                     ),
                   ],
                 ),
               ],
-              if (draw)
+              if (draw && (parameter == null || parameter == MarkupParameter.width))
                 Row(
                   children: [
                     Text(context.t.size),
@@ -379,26 +394,38 @@ class MarkupControls extends StatelessWidget {
                         max: 32,
                         value: width,
                         onChanged: onWidth,
+                        onChangeEnd: (_) => onComplete?.call(),
                       ),
                     ),
                   ],
                 ),
-              Row(
-                children: [
-                  Tooltip(message: context.tr('editor_opacity'), child: const Icon(Icons.opacity, size: 20)),
-                  Expanded(
-                    child: Slider(
-                      key: const Key('annotation-opacity'),
-                      min: .1,
-                      max: 1,
-                      value: opacity,
-                      onChangeStart: (_) => onGestureStart(),
-                      onChangeEnd: (_) => onGestureEnd(),
-                      onChanged: onOpacity,
+              if (parameter == null || parameter == MarkupParameter.opacity)
+                Row(
+                  children: [
+                    Tooltip(
+                      message: context.tr('editor_opacity'),
+                      child: FotoIcon(
+                        kind: FotoIconKind.opacity,
+                        semanticLabel: context.tr('editor_opacity'),
+                        size: 20,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    Expanded(
+                      child: Slider(
+                        key: const Key('annotation-opacity'),
+                        min: .1,
+                        max: 1,
+                        value: opacity,
+                        onChangeStart: (_) => onGestureStart(),
+                        onChangeEnd: (_) {
+                          onGestureEnd();
+                          onComplete?.call();
+                        },
+                        onChanged: onOpacity,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ],
         ),

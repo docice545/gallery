@@ -96,13 +96,35 @@ def formatting() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("flutter", "format", "build"))
+    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis"))
     parser.add_argument("path", nargs="?", type=Path)
     args = parser.parse_args()
     if args.mode == "format":
         formatting()
     elif args.mode == "flutter":
         flutter(args.path)
+    elif args.mode == "analysis":
+        lines = args.path.read_text(errors="replace").splitlines()
+        diagnostics = [
+            line
+            for line in lines
+            if any(
+                mark in line
+                for mark in (
+                    "error •",
+                    "warning •",
+                    "info •",
+                    "error -",
+                    "warning -",
+                    "info -",
+                )
+            )
+        ]
+        report("Dart analyzer diagnostics", "\n".join(diagnostics), level="notice")
+        for line in diagnostics[:10]:
+            report("Dart analyzer", line)
+        if not diagnostics:
+            report("Dart analyzer output", "\n".join(lines[-40:]))
     else:
         report(
             "Disposable CI Docker build failed",

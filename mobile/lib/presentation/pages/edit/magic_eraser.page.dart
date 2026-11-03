@@ -7,6 +7,8 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
@@ -28,6 +30,7 @@ class MagicEraserPage extends ConsumerStatefulWidget {
 }
 
 class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
+  bool _brushOptions = false;
   late final MagicEraserRepository _repository;
   final _pageAbort = Completer<void>();
   final _transform = TransformationController();
@@ -411,17 +414,6 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   @override
   Widget build(BuildContext context) {
     final theme = getThemeData(colorScheme: ref.watch(immichThemeProvider).dark, locale: context.locale);
-    final saveStyle = theme.textTheme.labelLarge!.copyWith(fontSize: 14, height: 1.15, fontWeight: FontWeight.w600);
-    final media = MediaQuery.of(context);
-    final safeWidth = media.size.width - media.padding.horizontal;
-    final saveWidth = math.min(200.0, math.max(96.0, safeWidth - 160));
-    final label = TextPainter(
-      text: TextSpan(text: context.t.magic_eraser_save_copy, style: saveStyle),
-      textDirection: Directionality.of(context),
-      textScaler: media.textScaler,
-    )..layout(maxWidth: saveWidth - 32);
-    final toolbarHeight = math.max(64.0, label.height + 32);
-    label.dispose();
 
     return Theme(
       data: theme,
@@ -431,39 +423,44 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
           backgroundColor: Colors.black,
           appBar: AppBar(
             backgroundColor: Colors.black,
-            toolbarHeight: toolbarHeight,
+            toolbarHeight: kToolbarHeight,
             leading: IconButton(
               key: const Key('eraser-back'),
               tooltip: context.t.back,
               onPressed: _saving ? null : () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.arrow_back),
+              icon: FotoIcon(kind: FotoIconKind.back, semanticLabel: context.t.back),
             ),
             actions: [
               IconButton(
                 key: const Key('eraser-header-undo'),
                 tooltip: context.t.undo,
                 onPressed: _busy || _drawing || !_mask.canUndo ? null : () => _changeMask(_mask.undo()),
-                icon: const Icon(Icons.undo),
+                icon: FotoIcon(kind: FotoIconKind.undo, semanticLabel: context.t.undo),
               ),
               IconButton(
                 key: const Key('eraser-header-redo'),
                 tooltip: context.t.magic_eraser_redo,
                 onPressed: _busy || _drawing || !_mask.canRedo ? null : () => _changeMask(_mask.redo()),
-                icon: const Icon(Icons.redo),
+                icon: FotoIcon(kind: FotoIconKind.redo, semanticLabel: context.t.magic_eraser_redo),
               ),
-              SizedBox(
-                width: saveWidth,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
+              SizedBox.square(
+                dimension: 48,
+                child: Tooltip(
+                  message: context.t.magic_eraser_save_copy,
                   child: FilledButton(
                     key: const Key('eraser-save'),
                     style: FilledButton.styleFrom(
-                      minimumSize: const Size(48, 48),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      textStyle: saveStyle,
+                      minimumSize: const Size.square(48),
+                      padding: EdgeInsets.zero,
+                      backgroundColor: Colors.transparent,
+                      disabledBackgroundColor: Colors.transparent,
                     ),
                     onPressed: _busy || _drawing || _result == null ? null : _saveCopy,
-                    child: Text(context.t.magic_eraser_save_copy, textAlign: TextAlign.center),
+                    child: FotoIcon(
+                      kind: FotoIconKind.saveCopy,
+                      semanticLabel: context.t.magic_eraser_save_copy,
+                      state: _busy || _drawing || _result == null ? FotoIconState.disabled : FotoIconState.normal,
+                    ),
                   ),
                 ),
               ),
@@ -471,56 +468,46 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
           ),
           body: SafeArea(
             top: false,
+            bottom: false,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final controls = _source != null;
-                final sidePanel =
-                    controls && constraints.maxWidth >= 560 && constraints.maxWidth > constraints.maxHeight;
                 final canvas = SizedBox.expand(key: const Key('eraser-canvas-region'), child: _canvas());
-                if (!controls) {
-                  return canvas;
-                }
-                final panel = ColoredBox(
-                  color: const Color(0xff191919),
-                  child: SingleChildScrollView(
-                    key: const Key('eraser-controls-panel'),
-                    primary: false,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_failed || _timeout)
-                          Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Text(
-                              _timeout ? context.t.magic_eraser_timeout : context.t.magic_eraser_failed,
-                              style: const TextStyle(color: Colors.orangeAccent),
+                return Column(
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          canvas,
+                          if (_failed || _timeout)
+                            Positioned(
+                              top: 8,
+                              left: 12,
+                              right: 12,
+                              child: IgnorePointer(
+                                child: Material(
+                                  color: Colors.black87,
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Text(
+                                      _timeout ? context.t.magic_eraser_timeout : context.t.magic_eraser_failed,
+                                      style: const TextStyle(color: Colors.orangeAccent),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                        _controls(),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                    if (constraints.maxHeight >= EditorDock.height + MediaQuery.paddingOf(context).bottom)
+                      if (_source != null)
+                        _controls()
+                      else
+                        SizedBox(height: EditorDock.height + MediaQuery.paddingOf(context).bottom),
+                  ],
                 );
-                return sidePanel
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(child: canvas),
-                          SizedBox(width: math.min(320, math.max(248, constraints.maxWidth * .4)), child: panel),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          Expanded(child: canvas),
-                          // Reserve only the controls' content height. The cap
-                          // keeps the photo visible when large text or status
-                          // messages need a scrollable panel.
-                          ConstrainedBox(
-                            constraints: BoxConstraints(maxHeight: constraints.maxHeight * .42),
-                            child: panel,
-                          ),
-                        ],
-                      );
               },
             ),
           ),
@@ -653,98 +640,112 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     ],
   );
 
-  Widget _controls() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_result != null)
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 8,
+  Widget _controls() => EditorDock(
+    key: const Key('eraser-controls-panel'),
+    onDismiss: () {
+      if (_brushOptions) setState(() => _brushOptions = false);
+    },
+    popover: _brushOptions
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              TextButton(
-                onPressed: _busy || _drawing ? null : () => setState(() => _before = true),
-                child: Text(context.t.magic_eraser_before),
-              ),
-              TextButton(
-                onPressed: _busy || _drawing ? null : () => setState(() => _before = false),
-                child: Text(context.t.magic_eraser_after),
+              Text(context.t.magic_eraser_brush_size),
+              Slider(
+                key: const Key('eraser-brush-size'),
+                min: 4,
+                max: 96,
+                value: _brushSize,
+                onChanged: _busy || _drawing ? null : (size) => setState(() => _brushSize = size),
+                onChangeEnd: (_) => setState(() => _brushOptions = false),
               ),
             ],
+          )
+        : null,
+    controls: [
+      FotoIconButton(
+        key: const Key('eraser-brush'),
+        kind: FotoIconKind.brush,
+        label: context.t.magic_eraser_brush,
+        selected: !_erase && !_zoom,
+        onPressed: _busy || _drawing
+            ? null
+            : () => setState(() {
+                _erase = false;
+                _zoom = false;
+              }),
+      ),
+      FotoIconButton(
+        key: const Key('eraser-erase-mask'),
+        kind: FotoIconKind.eraser,
+        label: context.t.magic_eraser_erase_mask,
+        selected: _erase && !_zoom,
+        onPressed: _busy || _drawing
+            ? null
+            : () => setState(() {
+                _erase = true;
+                _zoom = false;
+              }),
+      ),
+      FotoIconButton(
+        key: const Key('eraser-zoom'),
+        kind: FotoIconKind.zoom,
+        label: context.t.magic_eraser_zoom,
+        selected: _zoom,
+        onPressed: _busy || _drawing ? null : () => setState(() => _zoom = !_zoom),
+      ),
+      FotoIconButton(
+        key: const Key('eraser-size-options'),
+        kind: FotoIconKind.adjustments,
+        label: context.t.magic_eraser_brush_size,
+        selected: _brushOptions,
+        onPressed: _busy || _drawing ? null : () => setState(() => _brushOptions = !_brushOptions),
+      ),
+      FotoIconButton(
+        key: const Key('eraser-reset'),
+        kind: FotoIconKind.reset,
+        label: context.t.reset,
+        onPressed: _busy || _drawing ? null : () => _changeMask(_mask.reset()),
+      ),
+      SizedBox.square(
+        dimension: 48,
+        child: Tooltip(
+          message: context.t.remove,
+          child: FilledButton(
+            key: const Key('eraser-remove'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.square(48),
+              padding: EdgeInsets.zero,
+              backgroundColor: Colors.transparent,
+              disabledBackgroundColor: Colors.transparent,
+            ),
+            onPressed: _busy || _drawing || !_mask.hasSelection || _result != null ? null : _remove,
+            child: FotoIcon(
+              kind: FotoIconKind.magicEraser,
+              semanticLabel: context.t.remove,
+              state: _busy || _drawing || !_mask.hasSelection || _result != null
+                  ? FotoIconState.disabled
+                  : FotoIconState.normal,
+            ),
           ),
-        Wrap(
-          alignment: WrapAlignment.center,
-          children: [
-            IconButton(
-              tooltip: context.t.magic_eraser_brush,
-              isSelected: !_erase && !_zoom,
-              onPressed: _busy || _drawing
-                  ? null
-                  : () => setState(() {
-                      _erase = false;
-                      _zoom = false;
-                    }),
-              icon: const Icon(Icons.brush, color: Colors.white),
-            ),
-            IconButton(
-              tooltip: context.t.magic_eraser_erase_mask,
-              isSelected: _erase && !_zoom,
-              onPressed: _busy || _drawing
-                  ? null
-                  : () => setState(() {
-                      _erase = true;
-                      _zoom = false;
-                    }),
-              icon: const Icon(Icons.auto_fix_off, color: Colors.white),
-            ),
-            IconButton(
-              tooltip: context.t.magic_eraser_zoom,
-              isSelected: _zoom,
-              onPressed: _busy || _drawing ? null : () => setState(() => _zoom = !_zoom),
-              icon: const Icon(Icons.zoom_in, color: Colors.white),
-            ),
-            TextButton(
-              onPressed: _busy || _drawing ? null : () => _changeMask(_mask.reset()),
-              child: Text(context.t.reset),
-            ),
-          ],
         ),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final brush = Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(context.t.magic_eraser_brush_size, style: const TextStyle(color: Colors.white)),
-                Slider(
-                  key: const Key('eraser-brush-size'),
-                  min: 4,
-                  max: 96,
-                  value: _brushSize,
-                  onChanged: _busy || _drawing ? null : (size) => setState(() => _brushSize = size),
-                ),
-              ],
-            );
-            final remove = FilledButton(
-              key: const Key('eraser-remove'),
-              style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-              onPressed: _busy || _drawing || !_mask.hasSelection || _result != null ? null : _remove,
-              child: Text(context.t.remove),
-            );
-            if (constraints.maxWidth >= 280 && MediaQuery.textScalerOf(context).scale(14) <= 20) {
-              return Row(
-                children: [
-                  Expanded(child: brush),
-                  const SizedBox(width: 8),
-                  remove,
-                ],
-              );
-            }
-            return Column(mainAxisSize: MainAxisSize.min, children: [brush, remove]);
-          },
+      ),
+      if (_result != null) ...[
+        FotoIconButton(
+          key: const Key('eraser-before'),
+          kind: FotoIconKind.cover,
+          label: context.t.magic_eraser_before,
+          selected: _before,
+          onPressed: _busy || _drawing ? null : () => setState(() => _before = true),
+        ),
+        FotoIconButton(
+          key: const Key('eraser-after'),
+          kind: FotoIconKind.edit,
+          label: context.t.magic_eraser_after,
+          selected: !_before,
+          onPressed: _busy || _drawing ? null : () => setState(() => _before = false),
         ),
       ],
-    ),
+    ],
   );
 }
 
