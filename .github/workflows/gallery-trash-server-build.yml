@@ -43,6 +43,7 @@ jobs:
       - name: Build existing server Dockerfile and export image
         env:
           EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
+          GH_TOKEN: ${{ github.token }}
           MIGRATION_BASE_SHA: ea51a8acdc6f18ab5917c19b6f3833d740b4e9ba
         run: scripts/release/server_build.sh "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
       # The pinned disposable PostgreSQL fixture is public on GHCR. Anonymous

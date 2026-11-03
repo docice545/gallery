@@ -114,7 +114,12 @@ output="$(realpath "$output")"
 git archive --format=tar "$release_sha" | tar -x -C "$context"
 FORK_VERSION="$release_version" BUILD_NUMBER="$release_build" bash "$context/branding/scripts/apply-branding.sh" > "$output/branding.log" 2>&1
 image="gallery-server:trash-${release_sha:0:12}"
-docker build --platform linux/amd64 --file "$context/server/Dockerfile" \
+build_secrets=()
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  build_secrets+=(--secret id=github_token,env=GH_TOKEN)
+fi
+docker buildx build --load --metadata-file "$output/buildkit-metadata.json" \
+  "${build_secrets[@]}" --platform linux/amd64 --file "$context/server/Dockerfile" \
   --build-arg "BUILD_VERSION=$release_version" --build-arg "BUILD_SOURCE_REF=v$release_version" \
   --build-arg "BUILD_SOURCE_COMMIT=$release_sha" --build-arg BUILD_REPOSITORY=docice545/gallery \
   --build-arg "BUILD_ID=${GITHUB_RUN_ID:-$release_build}" --tag "$image" "$context"
@@ -130,9 +135,22 @@ assert env['IMMICH_REPOSITORY'] == 'docice545/gallery'
 print('PASS image architecture and source revision')
 PY
 docker run --rm --network none --read-only --entrypoint node "$image" -e '
-const [version, metadata] = process.argv.slice(1);
+const [version, metadata, buildRoot = "/build"] = process.argv.slice(1);
 const p=require("./server/package.json"); if(p.version!==version) process.exit(1);
 const fs=require("fs"); if(!fs.existsSync("./server/dist/main.js")) process.exit(1);
+if(!fs.existsSync(buildRoot+"/www/index.html") || !fs.existsSync("./cli/bin/immich")) {
+  throw new Error("PACKAGED_WEB_OR_CLI_MISSING");
+}
+const path=require("path");
+for(const name of ["immich-plugin-core", "gallery-core"]) {
+  const root=path.resolve(buildRoot, "plugins", name);
+  const manifest=JSON.parse(fs.readFileSync(root+"/manifest.json", "utf8"));
+  const wasm=path.resolve(root, manifest.wasmPath);
+  if(!wasm.startsWith(root+"/") || !WebAssembly.validate(fs.readFileSync(wasm))) {
+    throw new Error("PACKAGED_PLUGIN_WASM_INVALID");
+  }
+}
+console.log("PASS packaged Web Viewer, CLI and both compiled WASM plugins");
 for(const migration of JSON.parse(metadata).migrationFilesAdded) {
   const compiled = "./" + migration.path.replace("/src/", "/dist/").replace(/\.ts$/, ".js");
   if(!fs.existsSync(compiled)) process.exit(1);
@@ -155,16 +173,23 @@ if (JSON.parse(metadata).livePhotoDynamicDeletionRoots) {
   }).catch(() => { console.error("FAIL PACKAGED_LIVEPHOTO_ROOT_ADMISSION_MISMATCH"); process.exit(1); });
 }
 console.log("PASS packaged server version " + version + ", compiled entrypoint and source migration additions");' "$release_version" "$source_metadata"
+docker run --rm --network none --read-only --entrypoint node "$image" ./cli/bin/immich --help > "$output/cli-help.txt"
 docker save "$image" | gzip -n > "$output/gallery-server-linux-amd64.tar.gz"
 python3 - "$output" "$release_sha" "$image" "$tooling_sha" "$source_metadata" <<'PY'
-import hashlib, json, pathlib, sys
+import hashlib, json, pathlib, re, sys
 directory = pathlib.Path(sys.argv[1]); artifact = directory / 'gallery-server-linux-amd64.tar.gz'
 digest = hashlib.file_digest(artifact.open('rb'), 'sha256').hexdigest()
 image = json.loads((directory / 'image-inspect.json').read_text())[0]
 metadata = json.loads(sys.argv[5])
+build = json.loads((directory / 'buildkit-metadata.json').read_text())
+manifest_digest = build.get('containerimage.digest', '')
+assert re.fullmatch(r'sha256:[0-9a-f]{64}', manifest_digest), 'BuildKit manifest digest unavailable'
+assert build.get('containerimage.config.digest') == image['Id'], 'BuildKit image/config identity differs'
 assert metadata['sourceCommit'] == sys.argv[2]
 manifest = dict(**metadata, toolingCommit=sys.argv[4],
                 imageTag=sys.argv[3], imageId=image['Id'], platform='linux/amd64', archiveSHA256=digest,
+                imageManifestDigest=manifest_digest, registryPublished=False,
+                components=['server', 'web', 'compiled-sdk', 'cli', 'immich-plugin-core', 'gallery-core'],
                 deployment='NOT_DEPLOYED', signing='NOT_APPLICABLE')
 (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 (directory / 'SHA256SUMS').write_text(digest + '  ' + artifact.name + '\n')

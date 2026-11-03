@@ -302,6 +302,13 @@ class PackagedLivePhotoAdmission(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.write('server/package.json', json.dumps({'type': 'module', 'version': '5.7.3'}))
         self.write('server/dist/main.js', '')
+        self.write('build/www/index.html', '<html>synthetic web fixture</html>')
+        self.write('cli/bin/immich', 'synthetic CLI fixture')
+        for name in ('immich-plugin-core', 'gallery-core'):
+            self.write('build/plugins/' + name + '/manifest.json', json.dumps({'wasmPath': 'dist/plugin.wasm'}))
+            wasm = self.root / 'build/plugins' / name / 'dist/plugin.wasm'
+            wasm.parent.mkdir(parents=True)
+            wasm.write_bytes(b'\0asm\1\0\0\0')
         match = re.search(r'docker run[^\n]+ -e \'([\s\S]*?)\' "\$release_version" "\$source_metadata"',
                           SCRIPT.read_text())
         self.assertIsNotNone(match, 'packaged verification script missing')
@@ -332,8 +339,20 @@ class PackagedLivePhotoAdmission(unittest.TestCase):
         env = os.environ.copy()
         # A correctly labelled image can still contain the wrong compiled code.
         env['IMMICH_SOURCE_COMMIT'] = '4e554f355755382990e12586b339d262d679bbf1'
-        return subprocess.run(['node', '-e', self.check_code, '5.7.3', json.dumps(metadata)], cwd=self.root,
+        return subprocess.run(['node', '-e', self.check_code, '5.7.3', json.dumps(metadata), str(self.root / 'build')], cwd=self.root,
                               env=env, text=True, capture_output=True, timeout=30)
+
+    def test_missing_web_or_cli_is_not_accepted_as_complete_image(self):
+        (self.root / 'cli/bin/immich').unlink()
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('PACKAGED_WEB_OR_CLI_MISSING', result.stderr)
+
+    def test_invalid_plugin_wasm_is_not_accepted_as_complete_image(self):
+        (self.root / 'build/plugins/gallery-core/dist/plugin.wasm').write_bytes(b'not compiled WASM')
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('PACKAGED_PLUGIN_WASM_INVALID', result.stderr)
 
     def test_current_compiled_classes_pass_without_invoking_methods(self):
         result = self.check()
