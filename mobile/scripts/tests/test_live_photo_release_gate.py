@@ -25,14 +25,22 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
             **changes,
         }
 
-    def jobs(self):
-        return [{"name": name, "conclusion": "success"} for name in sorted(gate.GATES)]
+    def jobs(self, workflow="build-mobile.yml"):
+        return [
+            {"name": name, "conclusion": "success"}
+            for name in sorted(gate.REQUIRED_JOBS[workflow])
+        ]
 
     def other_workflows(self):
-        return [
-            {"workflow_runs": [self.run_row(path=f".github/workflows/{name}")]}
-            for name in ("test.yml", "static_analysis.yml")
-        ]
+        result = []
+        for name in ("test.yml", "static_analysis.yml"):
+            result.extend(
+                [
+                    {"workflow_runs": [self.run_row(path=f".github/workflows/{name}")]},
+                    {"jobs": self.jobs(name)},
+                ]
+            )
+        return result
 
     def test_exact_push_and_both_successful_jobs_are_required(self):
         with patch.object(
@@ -104,7 +112,7 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
         )
 
     def test_green_live_photo_cannot_conceal_failed_backend_or_analysis(self):
-        for index in (0, 1):
+        for index in (0, 2):
             other = self.other_workflows()
             other[index]["workflow_runs"][0]["conclusion"] = "failure"
             with patch.object(
@@ -116,6 +124,33 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
                     *other,
                 ],
             ), self.assertRaisesRegex(ValueError, "not successful"):
+                gate.verify(REPO, SHA)
+
+    def test_live_photo_success_cannot_hide_skipped_full_flutter(self):
+        jobs = self.jobs()
+        next(job for job in jobs if job["name"] == "Flutter tests and coverage")[
+            "conclusion"
+        ] = "skipped"
+        with patch.object(
+            gate,
+            "api",
+            side_effect=[{"workflow_runs": [self.run_row()]}, {"jobs": jobs}],
+        ), self.assertRaisesRegex(ValueError, "Flutter tests and coverage"):
+            gate.verify(REPO, SHA)
+
+    def test_green_workflows_with_skipped_backend_or_analysis_block_release(self):
+        for index in (1, 3):
+            other = self.other_workflows()
+            other[index]["jobs"][0]["conclusion"] = "skipped"
+            with self.subTest(index=index), patch.object(
+                gate,
+                "api",
+                side_effect=[
+                    {"workflow_runs": [self.run_row()]},
+                    {"jobs": self.jobs()},
+                    *other,
+                ],
+            ), self.assertRaisesRegex(ValueError, "Required check"):
                 gate.verify(REPO, SHA)
 
 

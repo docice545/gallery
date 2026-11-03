@@ -77,7 +77,8 @@ jobs:
               - 'open-api/**'
           force-filters: |
             - '.github/workflows/build-mobile.yml'
-          force-events: 'workflow_call,workflow_dispatch'
+          # Release evidence must execute full checks even on version/docs-only pushes.
+          force-events: 'workflow_call,workflow_dispatch,push'
 
   flutter-tests:
     name: Flutter tests and coverage
@@ -202,6 +203,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The Build 35 migration inventory test checks ancestry and source bytes.
+          fetch-depth: 0
       - name: Isolated Python fixture dependencies
         run: |
           python3 -m venv "$RUNNER_TEMP/foto-ci-tools"

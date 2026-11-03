@@ -209,9 +209,9 @@ PY
 clear_focused_edit_text() {
   # MOVE_END followed by a bounded delete sequence clears a stale endpoint or
   # autofilled credential without guessing coordinates or relying on clipboard.
-  local deletes
-  printf -v deletes ' 67%.0s' {1..128}
-  $adb_bin shell input keyevent 123$deletes
+  local -a deletes
+  read -r -a deletes <<< "$(printf '67 %.0s' {1..128})"
+  $adb_bin shell input keyevent 123 "${deletes[@]}"
 }
 read_edit_text_at() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
@@ -364,8 +364,8 @@ sleep 12
 mark_phase authenticated
 dump_ui
 $adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
-$adb_bin shell screencap -p /sdcard/noodle-$version.png
-$adb_bin pull /sdcard/noodle-$version.png "${ARTIFACT_DIR:-/tmp}/noodle-$version.png" >/dev/null
+$adb_bin shell screencap -p "/sdcard/noodle-$version.png"
+$adb_bin pull "/sdcard/noodle-$version.png" "${ARTIFACT_DIR:-/tmp}/noodle-$version.png" >/dev/null
 mark_phase complete
 trap - ERR
 echo "Noodle Gallery $version installed, authenticated, and foreground on disposable backend."

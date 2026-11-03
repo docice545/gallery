@@ -11,6 +11,33 @@ import re
 import subprocess
 
 GATES = {"Live Photo timeline non-regression", "Live Photo native decoded motion"}
+REQUIRED_JOBS = {
+    "build-mobile.yml": GATES
+    | {"Flutter tests and coverage", "Release artifact and provenance checks"},
+    "test.yml": {
+        "Upstream Rebase Tooling",
+        "Test & Lint Server",
+        "Medium Tests (Server)",
+        "Unit Test CLI",
+        "Unit Test CLI (Windows)",
+        "Lint Web",
+        "Test Web",
+        "Unit Test Mobile",
+        "Unit Test ML",
+        "Unit Test ML Training",
+        "Test i18n",
+        ".github Files Formatting",
+        "End-to-End Lint",
+        "OpenAPI Clients",
+        "SQL Schema Checks",
+        "ShellCheck",
+        "Test Branding",
+        "End-to-End Tests (Server & CLI) (ubuntu-latest)",
+        "End-to-End Tests (Server & CLI) (ubuntu-24.04-arm)",
+        "End-to-End Tests (Web) (ubuntu-latest)",
+    },
+    "static_analysis.yml": {"Run Dart Code Analysis"},
+}
 
 
 def api(repository: str, path: str) -> dict:
@@ -48,12 +75,7 @@ def successful_run(repository: str, commit: str, workflow: str) -> dict:
     return run
 
 
-def verify(repository: str, commit: str) -> int:
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-        raise ValueError("Invalid repository")
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
-        raise ValueError("Expected commit must be a full SHA")
-    run = successful_run(repository, commit, "build-mobile.yml")
+def require_jobs(repository: str, run: dict, required: set[str]) -> None:
     attempt = run["run_attempt"]
     jobs = []
     page = 1
@@ -66,16 +88,27 @@ def verify(repository: str, commit: str) -> int:
         if len(batch) < 100:
             break
         page += 1
-    for name in GATES:
+    for name in required:
         matches = [job for job in jobs if job["name"] == name]
         if len(matches) != 1 or matches[0]["conclusion"] != "success":
             raise ValueError(
                 f"Required check missing, ambiguous or unsuccessful: {name}"
             )
-    # Live Photo PASS cannot conceal a failed backend/Web/Flutter/SDK baseline.
-    for workflow in ("test.yml", "static_analysis.yml"):
-        successful_run(repository, commit, workflow)
-    return run["id"]
+
+
+def verify(repository: str, commit: str) -> int:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("Invalid repository")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Expected commit must be a full SHA")
+    runs = {}
+    for workflow, required in REQUIRED_JOBS.items():
+        run = successful_run(repository, commit, workflow)
+        # A green workflow may contain skipped critical jobs. Inspect each
+        # required job in the exact attempt; overall success is insufficient.
+        require_jobs(repository, run, required)
+        runs[workflow] = run["id"]
+    return runs["build-mobile.yml"]
 
 
 def main() -> None:
@@ -88,7 +121,8 @@ def main() -> None:
     except (ValueError, KeyError, TypeError) as error:
         parser.exit(1, f"FAIL: {error}\n")
     print(
-        f"PASS exact-source Live Photo CI run {run}; physical Samsung acceptance remains mandatory"
+        f"PASS exact-source Live Photo CI run {run} and required compatibility jobs; "
+        "physical Samsung acceptance remains mandatory"
     )
 
 

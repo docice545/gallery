@@ -85,6 +85,8 @@ class ReleaseReviewScopeTests(unittest.TestCase):
         for workflow in ('build-mobile.yml', 'test.yml', 'static_analysis.yml'):
             source = yaml.safe_load((ROOT / '.github/workflows' / workflow).read_text())
             self.assertIn('codex/issue18-cross-platform-audit', source[True]['push']['branches'])
+            action = source['jobs']['pre-job']['steps'][0]['with']
+            self.assertIn('push', action['force-events'].split(','))
         source = (ROOT / '.github/workflows/build-mobile.yml').read_text()
         self.assertIn('python3 -m unittest discover -s scripts/release/tests -v', source)
 

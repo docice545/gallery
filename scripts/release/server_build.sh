@@ -116,7 +116,7 @@ FORK_VERSION="$release_version" BUILD_NUMBER="$release_build" bash "$context/bra
 image="gallery-server:trash-${release_sha:0:12}"
 build_secrets=()
 if [[ -n "${GH_TOKEN:-}" ]]; then
-  build_secrets+=(--secret id=github_token,env=GH_TOKEN)
+  build_secrets+=(--secret 'id=github_token,env=GH_TOKEN')
 fi
 docker buildx build --load --metadata-file "$output/buildkit-metadata.json" \
   "${build_secrets[@]}" --platform linux/amd64 --file "$context/server/Dockerfile" \

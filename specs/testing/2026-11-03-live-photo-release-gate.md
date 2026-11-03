@@ -65,8 +65,11 @@ FOTO на Samsung или плавность 120 Hz. Скриншот облож�
 [Read-only checker](../../mobile/scripts/require_live_photo_ci.py) используется в существующем
 Gallery mobile и root Build Mobile workflows **до обращения к signing credentials**. Оба Live Photo
 job используют переданный reusable `ref` (либо event SHA), как и сборка. Для exact checkout SHA требуется
-успешный последний push-run `build-mobile.yml`, оба успешных Live Photo job в точном attempt,
-а также успешные `test.yml` и `static_analysis.yml` на том же SHA.
+успешный последний push-run `build-mobile.yml`, оба успешных Live Photo job, полный Flutter suite
+и release tooling в точном attempt, а также успешные `test.yml` и `static_analysis.yml` на том же SHA.
+Внутри этих workflows каждый обязательный Backend/Web/mobile/CLI/ML/i18n/schema/E2E/analysis job
+проверяется отдельно: overall success с skipped job не принимается. На push проверки запускаются
+полностью, включая изменения только документации/metadata; PR сохраняет обычные path filters.
 
 - PR-run не принимается за доказательство exact source: GitHub тестирует synthetic merge checkout.
 - Старый green run не перекрывает более новый failed/running run того же SHA.

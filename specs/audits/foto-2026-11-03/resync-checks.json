@@ -112,5 +112,45 @@
   ],
   "physicalSamsung": "NOT_TESTED",
   "physicalIPhone": "NOT_TESTED",
-  "productionGo": false
+  "productionGo": false,
+  "followupChecksOnWorkingTreeAfter": "f43cfb2a7db5af4bf339264c209366842b05d24a",
+  "followupChecks": [
+    {
+      "log": "final-mobile-tools.log",
+      "passed": 125,
+      "skipped": 0,
+      "sha256": "822e9b92985d8b639e0f81f5b83ef006f4c1495860aee89c976ddd514fde693c"
+    },
+    {
+      "log": "final-release-tools.log",
+      "passed": 510,
+      "skipped": 17,
+      "sha256": "6fdeeed88c3ded2ab37f8745fa1b04748976b798f68e09ba671a63ee278827aa"
+    },
+    {
+      "log": "final-scope.log",
+      "passed": 21,
+      "skipped": 0,
+      "sha256": "8b28dc06cc8c6af102d3ebf1e4518f749c206930a952cbf07c806a45d3be6298"
+    },
+    {
+      "log": "shellcheck-fixed.json",
+      "result": [],
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "log": "final-sql-check.json",
+      "result": {
+        "files": 41,
+        "queries": 738,
+        "repeatMatches": true,
+        "database": "isolated cloud PostgreSQL 14, empty synthetic fixture; no HP access",
+        "changedSnapshots": [
+          "asset.repository.sql",
+          "trash.repository.sql"
+        ]
+      },
+      "sha256": "ab6c36d8cf52ee587fb4ccb5ff8508af6c3f9613f8a167b033a56da248283def"
+    }
+  ]
 }

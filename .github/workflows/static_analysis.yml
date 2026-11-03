@@ -41,7 +41,7 @@ jobs:
               - 'i18n/en.json'
           force-filters: |
             - '.github/workflows/static_analysis.yml'
-          force-events: 'workflow_dispatch,release'
+          force-events: 'workflow_dispatch,release,push'
 
   mobile-dart-analyze:
     name: Run Dart Code Analysis

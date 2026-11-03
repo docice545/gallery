@@ -44,8 +44,9 @@ python3 mobile/scripts/require_live_photo_ci.py \
 ```
 
 Последняя команда read-only. Она требует успешные последние exact-source push runs Build Mobile,
-Test и Static Code Analysis, а также оба успешных Live Photo job в точном attempt.
-API failure, отсутствующий, skipped или failed Live Photo job блокируют продолжение.
+Test и Static Code Analysis, а также оба успешных Live Photo job, полный Flutter suite
+и все обязательные compatibility jobs в точном attempt.
+API failure, отсутствующий, skipped или failed обязательный job блокируют продолжение.
 Этот CI check не подтверждает Samsung/iPhone, полный production API traffic или backup recovery.
 При текущих full-Flutter failures он должен отказать. Не обходить его ради сборки «релиза».
 
