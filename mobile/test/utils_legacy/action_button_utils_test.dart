@@ -503,8 +503,11 @@ void main() {
       });
     });
 
-    group('deleteLocal button', () {
-      test('shows the explicit device-only operation for a local-only asset', () {
+    // Device-only availability and permissions are exercised through the wired
+    // CleanupLocalAction in unit/presentation/actions/delete_action_test.dart.
+    // The old enum entry must not introduce a duplicate action into legacy menus.
+    group('legacy deleteLocal button', () {
+      test('does not duplicate CleanupLocalAction for a local-only asset', () {
         final localAsset = createLocalAsset();
         final context = ActionButtonContext(
           asset: localAsset,
@@ -518,10 +521,10 @@ void main() {
           source: ActionSource.timeline,
         );
 
-        expect(ActionButtonType.deleteLocal.shouldShow(context), isTrue);
+        expect(ActionButtonType.deleteLocal.shouldShow(context), isFalse);
       });
 
-      test('backed-up local asset has device-only deletion without remote-owner metadata', () {
+      test('does not duplicate CleanupLocalAction for a backed-up local asset', () {
         final context = ActionButtonContext(
           asset: createLocalAsset(remoteId: 'existing-cloud-id'),
           isOwner: false,
@@ -533,7 +536,7 @@ void main() {
           isStacked: false,
           source: ActionSource.viewer,
         );
-        expect(ActionButtonType.deleteLocal.shouldShow(context), isTrue);
+        expect(ActionButtonType.deleteLocal.shouldShow(context), isFalse);
         expect(ActionButtonType.deleteEverywhere.shouldShow(context), isFalse);
       });
 
@@ -554,7 +557,7 @@ void main() {
         expect(ActionButtonType.deleteLocal.shouldShow(context), isFalse);
       });
 
-      test('should show when asset is merged', () {
+      test('does not duplicate CleanupLocalAction for a merged asset', () {
         final context = ActionButtonContext(
           asset: mergedAsset,
           isOwner: true,
@@ -567,7 +570,7 @@ void main() {
           source: ActionSource.timeline,
         );
 
-        expect(ActionButtonType.deleteLocal.shouldShow(context), isTrue);
+        expect(ActionButtonType.deleteLocal.shouldShow(context), isFalse);
       });
     });
 
