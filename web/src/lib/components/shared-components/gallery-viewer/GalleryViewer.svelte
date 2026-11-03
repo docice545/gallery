@@ -361,10 +361,15 @@
       case AssetAction.DELETE:
       case AssetAction.TRASH: {
         const nextAsset = assetCursor.nextAsset ?? assetCursor.previousAsset;
-        assets.splice(
-          assets.findIndex((currentAsset) => currentAsset.id === action.asset.id),
-          1,
+        const deletedIndex = assets.findIndex(
+          (currentAsset) => currentAsset.id === action.asset.id,
         );
+        if (deletedIndex === -1) {
+          // A stacked child is not necessarily a top-level gallery asset.
+          // Never remove an unrelated gallery item.
+          break;
+        }
+        assets.splice(deletedIndex, 1);
         if (assets.length === 0) {
           return await goto(Route.photos());
         }

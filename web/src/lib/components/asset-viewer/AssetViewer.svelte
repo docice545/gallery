@@ -338,7 +338,30 @@
     switch (action.type) {
       case AssetAction.DELETE:
       case AssetAction.TRASH: {
-        eventManager.emit('AssetsDelete', [asset.id]);
+        const deletedId = action.asset.id;
+        const currentStack = withStacked ? stack : null;
+
+        if (currentStack?.assets.some(({ id }) => id === deletedId)) {
+          const previousAssets = currentStack.assets;
+          const deletedIndex = previousAssets.findIndex(({ id }) => id === deletedId);
+          const remainingAssets = previousAssets.filter(({ id }) => id !== deletedId);
+
+          previewStackedAsset = undefined;
+
+          if (remainingAssets.length > 0) {
+            stack = {
+              ...currentStack,
+              assets: remainingAssets,
+            };
+
+            const nextAsset = remainingAssets[Math.min(deletedIndex, remainingAssets.length - 1)];
+            cursor.current = nextAsset;
+          } else {
+            stack = null;
+          }
+        }
+
+        eventManager.emit('AssetsDelete', [deletedId]);
         break;
       }
       case AssetAction.REMOVE_ASSET_FROM_STACK: {
