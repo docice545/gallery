@@ -47,16 +47,17 @@ if (( test_status != 0 )); then
 import sys
 from pathlib import Path
 
-tail = '\n'.join(Path(sys.argv[1]).read_text(errors='replace').splitlines()[-180:])
-escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-print('::error title=Actual Android native timeline playback failure::' + escaped)
+def annotate(title, text, limit):
+    text = text[-limit:]
+    for index, offset in enumerate(range(0, len(text), 2100), 1):
+        escaped = text[offset:offset + 2100].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print(f'::error title={title} (part {index})::{escaped}')
+
+# Keep at most six bounded errors so both tails fit GitHub's per-step limit.
+annotate('Actual Android native timeline playback failure', Path(sys.argv[1]).read_text(errors='replace'), 8400)
 android_log = Path(sys.argv[2])
 if android_log.exists():
-    context = android_log.read_text(errors='replace')
-    if len(context) > 24000:
-        context = context[:12000] + '\n[truncated; full Android log retained as artifact]\n' + context[-12000:]
-    escaped = context.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-    print('::error title=Android startup crash and process exit evidence::' + escaped)
+    annotate('Android startup crash and process exit evidence', android_log.read_text(errors='replace'), 4200)
 PY
 else
   python3 - "$log_file" <<'PY'

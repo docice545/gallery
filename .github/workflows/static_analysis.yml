@@ -124,15 +124,24 @@ jobs:
       - name: Run complete release Dart format gate
         id: release-format
         if: "!cancelled() && steps.codegen.outcome == 'success'"
-        working-directory: .
+        # mise exposes shims, so keep the same mobile cwd as the HP stage.
+        working-directory: mobile
         run: |
-          python3 - <<'PY_FORMAT'
+          set -o pipefail
+          python3 - <<'PY_FORMAT' 2>&1 | tee "$RUNNER_TEMP/release-format.log"
           import subprocess, sys
           from pathlib import Path
+          root = Path.cwd().parent
+          sys.path.insert(0, str(root))
           from scripts.release.android_release import release_dart_sources
-          paths = release_dart_sources(Path.cwd())
+          paths = release_dart_sources(root)
           sys.exit(subprocess.run(['dart', 'format', '--set-exit-if-changed', *paths], check=False).returncode)
           PY_FORMAT
+
+      - name: Annotate complete formatter invocation failure
+        if: failure() && steps.release-format.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/release-format.log"
 
       - name: Annotate formatter differences
         if: failure() && (steps.format.outcome == 'failure' || steps.release-format.outcome == 'failure')
