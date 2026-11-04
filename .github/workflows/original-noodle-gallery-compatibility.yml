@@ -79,22 +79,29 @@ jobs:
         if: failure() && steps.disposable-dependencies.outcome == 'failure'
         run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Build and start disposable FOTO backend
+        id: disposable-backend
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml build immich-server && break
-            rc=$?
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          docker compose -f e2e/docker-compose.yml up -d immich-server
-          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
-          docker compose -f e2e/docker-compose.yml logs immich-server
-          exit 1
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml build immich-server && break
+              rc=$?
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            docker compose -f e2e/docker-compose.yml up -d immich-server
+            for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+            docker compose -f e2e/docker-compose.yml logs immich-server
+            exit 1
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-backend.log"
+      - name: Annotate disposable backend build or startup failure
+        if: failure() && steps.disposable-backend.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-backend.log"
       - name: Seed disposable login account
         run: |
           curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up \
@@ -211,20 +218,27 @@ jobs:
           adb start-server
           adb version
       - name: Build and start disposable FOTO backend
+        id: disposable-backend
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml build immich-server && break
-            rc=$?
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          docker compose -f e2e/docker-compose.yml up -d immich-server
-          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
-          docker compose -f e2e/docker-compose.yml logs immich-server
-          exit 1
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml build immich-server && break
+              rc=$?
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            docker compose -f e2e/docker-compose.yml up -d immich-server
+            for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+            docker compose -f e2e/docker-compose.yml logs immich-server
+            exit 1
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-backend.log"
+      - name: Annotate disposable backend build or startup failure
+        if: failure() && steps.disposable-backend.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-backend.log"
       - name: Seed disposable login account
         run: |
           curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up -H 'content-type: application/json' -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
@@ -567,20 +581,27 @@ jobs:
             echo 'APK missing after build step' | tee /tmp/foto-build22-receipt/apk-missing.txt
           fi
       - name: Build and start disposable FOTO backend
+        id: disposable-backend
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml build immich-server && break
-            rc=$?
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          docker compose -f e2e/docker-compose.yml up -d immich-server
-          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
-          docker compose -f e2e/docker-compose.yml logs immich-server
-          exit 1
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml build immich-server && break
+              rc=$?
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            docker compose -f e2e/docker-compose.yml up -d immich-server
+            for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+            docker compose -f e2e/docker-compose.yml logs immich-server
+            exit 1
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-backend.log"
+      - name: Annotate disposable backend build or startup failure
+        if: failure() && steps.disposable-backend.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-backend.log"
       - name: Seed account and edge-content fixture
         run: |
           set -euo pipefail
