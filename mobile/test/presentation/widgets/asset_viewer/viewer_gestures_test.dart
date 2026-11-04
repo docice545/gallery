@@ -143,7 +143,7 @@ void main() {
     expect(
       tester
           .widgetList<PhotoViewCore>(find.byType(PhotoViewCore))
-          .any((core) => core.childSize == const Size(2400, 1600)),
+          .any((core) => core.scaleBoundaries.childSize == const Size(2400, 1600)),
       isTrue,
       reason: 'gesture acceptance requires the decoded original, not a loading cover',
     );
