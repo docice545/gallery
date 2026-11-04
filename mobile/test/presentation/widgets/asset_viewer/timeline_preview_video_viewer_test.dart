@@ -1397,7 +1397,7 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  for (final outcome in ['ack', 'ended-before-ack', 'rejected', 'revoked']) {
+  for (final outcome in ['ack', 'ended-before-ack', 'rejected', 'revoked', 'revoked-disposed']) {
     testWidgets('native motion before play ACK is gated correctly: $outcome', (tester) async {
       final records = <String>[];
       final previousLevel = Logger.root.level;
@@ -1423,8 +1423,14 @@ void main() {
           ended.notifyListeners();
           expect(completions, 0);
         }
-        if (outcome == 'revoked') {
+        if (outcome.startsWith('revoked')) {
           active = false;
+          if (outcome == 'revoked-disposed') {
+            when(() => controller.pause()).thenAnswer((_) async {
+              calls.add('pause');
+              throw StateError('native view already disposed');
+            });
+          }
         }
         if (outcome == 'rejected') {
           acknowledgement.completeError(StateError('synthetic command rejection'));
@@ -1476,7 +1482,7 @@ void main() {
     });
   }
 
-  testWidgets('runtime stages distinguish source, native readiness and natural end without media identity', (
+  testWidgets('runtime stages require native position progress after readiness and play acknowledgement', (
     tester,
   ) async {
     final records = <String>[];
@@ -1492,6 +1498,23 @@ void main() {
     try {
       await mountPreview(tester);
       await tester.runAsync(() => playing.future.timeout(const Duration(seconds: 3)));
+      await tester.pump();
+      // A loaded cover and an accepted play request are not proof of motion.
+      expect(playbackStarts, 0);
+      expect(records, isNot(contains('Timeline motion: position-advanced')));
+      position.value = 100;
+      await tester.pump();
+      expect(playbackStarts, 1);
+      final stages = [
+        'Timeline motion: selected',
+        'Timeline motion: native-ready:1920x1080',
+        'Timeline motion: play-request-accepted',
+        'Timeline motion: position-advanced',
+      ];
+      expect(records.where(stages.contains).toList(), stages);
+      position.value = 200;
+      await tester.pump();
+      expect(records.where((record) => record == stages.last), hasLength(1));
       ended.notifyListeners();
       await tester.pump();
       expect(records, containsAll(['Timeline motion: selected', 'Timeline motion: platform-view-created']));
