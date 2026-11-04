@@ -504,7 +504,13 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
           // separate channels. Neither a late ACK nor observed frames may
           // publish success for a revoked route/visibility/lifecycle lease.
           if (!_canPreview || revision != _pauseRevision || !identical(controller, _controller)) {
-            unawaited(controller.pause());
+            try {
+              await controller.pause();
+            } catch (_) {
+              // Disposal may have removed the native view while play awaited
+              // its acknowledgement. It must not become an unhandled Future.
+              _previewTrace('revoked-player-pause-failed');
+            }
             return;
           }
           _previewPlayAccepted = true;

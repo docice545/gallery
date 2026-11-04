@@ -1397,7 +1397,7 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  for (final outcome in ['ack', 'ended-before-ack', 'rejected', 'revoked']) {
+  for (final outcome in ['ack', 'ended-before-ack', 'rejected', 'revoked', 'revoked-disposed']) {
     testWidgets('native motion before play ACK is gated correctly: $outcome', (tester) async {
       final records = <String>[];
       final previousLevel = Logger.root.level;
@@ -1423,8 +1423,14 @@ void main() {
           ended.notifyListeners();
           expect(completions, 0);
         }
-        if (outcome == 'revoked') {
+        if (outcome.startsWith('revoked')) {
           active = false;
+          if (outcome == 'revoked-disposed') {
+            when(() => controller.pause()).thenAnswer((_) async {
+              calls.add('pause');
+              throw StateError('native view already disposed');
+            });
+          }
         }
         if (outcome == 'rejected') {
           acknowledgement.completeError(StateError('synthetic command rejection'));
