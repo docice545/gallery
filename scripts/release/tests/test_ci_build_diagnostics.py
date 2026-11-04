@@ -99,29 +99,69 @@ Path('lock-checked').touch()
                 self.assertIn('FINAL_JETIFIER_DIAGNOSTIC', (root / 'unsigned-apk-build.log').read_text())
 
     def test_unsigned_cleanup_is_hosted_only_and_preserves_android_java_checkout(self):
-        command = step_body('build-mobile.yml', 'Reclaim unused hosted toolchains before universal Android build')
-        for actions, runner in [('true', 'github-hosted'), ('true', 'self-hosted'), ('false', 'github-hosted')]:
-            with self.subTest(actions=actions, runner=runner), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                fake(root / 'sudo', """#!/usr/bin/env python3
+        commands = [
+            step_body('build-mobile.yml', 'Reclaim unused hosted toolchains before universal Android build'),
+            step_body('original-noodle-gallery-compatibility.yml', 'Reclaim unused hosted toolchains before Android cache tests'),
+        ]
+        for command in commands:
+            for actions, runner in [('true', 'github-hosted'), ('true', 'self-hosted'), ('false', 'github-hosted')]:
+                with self.subTest(actions=actions, runner=runner), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    fake(root / 'sudo', """#!/usr/bin/env python3
 import json, sys
 from pathlib import Path
 with Path('mutations').open('a') as output:
     output.write(json.dumps(sys.argv[1:]) + '\\n')
 """)
-                env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
-                       'GITHUB_ACTIONS': actions, 'RUNNER_ENVIRONMENT': runner}
+                    env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                           'GITHUB_ACTIONS': actions, 'RUNNER_ENVIRONMENT': runner}
+                    result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
+                                            env=env, text=True, capture_output=True, timeout=10)
+                    allowed = actions == 'true' and runner == 'github-hosted'
+                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    mutations = root / 'mutations'
+                    self.assertEqual(mutations.exists(), allowed)
+                    if allowed:
+                        self.assertEqual([json.loads(line) for line in mutations.read_text().splitlines()], [
+                            ['rm', '-rf', '/usr/share/dotnet', '/opt/ghc', '/opt/hostedtoolcache/CodeQL'],
+                            ['docker', 'image', 'prune', '--all', '--force'],
+                        ])
+
+    def test_finished_debug_cleanup_preserves_apk_and_refuses_other_environments(self):
+        command = step_body('original-noodle-gallery-compatibility.yml',
+                            'Reclaim finished Android compilation before disposable backend')
+        for runner, actions, has_apk in [('github-hosted', 'true', True),
+                                         ('self-hosted', 'true', True),
+                                         ('github-hosted', 'false', True),
+                                         ('github-hosted', 'true', False)]:
+            with self.subTest(runner=runner, actions=actions, apk=has_apk), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                temp = root / 'runner-temp'
+                temp.mkdir()
+                gradle = temp / 'foto-offline-gradle'
+                gradle.mkdir()
+                (gradle / 'cache').write_text('finished compilation')
+                apk = root / 'mobile/build/app/outputs/flutter-apk/app-debug.apk'
+                apk.parent.mkdir(parents=True)
+                if has_apk:
+                    apk.write_bytes(b'exact compiled APK bytes')
+                intermediate = root / 'mobile/build/expensive-intermediates'
+                intermediate.write_text('finished compilation')
+                original = root / 'mobile/lib/source.dart'
+                original.parent.mkdir()
+                original.write_text('preserved source')
+                fake(root / 'mobile/android/gradlew', '#!/bin/sh\ntest "$1" = --stop\n')
+                env = {**os.environ, 'RUNNER_TEMP': str(temp), 'GRADLE_USER_HOME': str(gradle),
+                       'GITHUB_WORKSPACE': str(root), 'GITHUB_ACTIONS': actions, 'RUNNER_ENVIRONMENT': runner}
                 result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
                                         env=env, text=True, capture_output=True, timeout=10)
-                allowed = actions == 'true' and runner == 'github-hosted'
+                allowed = runner == 'github-hosted' and actions == 'true' and has_apk
                 self.assertEqual(result.returncode == 0, allowed, result.stderr)
-                mutations = root / 'mutations'
-                self.assertEqual(mutations.exists(), allowed)
-                if allowed:
-                    self.assertEqual([json.loads(line) for line in mutations.read_text().splitlines()], [
-                        ['rm', '-rf', '/usr/share/dotnet', '/opt/ghc', '/opt/hostedtoolcache/CodeQL'],
-                        ['docker', 'image', 'prune', '--all', '--force'],
-                    ])
+                self.assertEqual(gradle.exists(), not allowed)
+                self.assertEqual(intermediate.exists(), not allowed)
+                self.assertEqual(original.read_text(), 'preserved source')
+                if has_apk:
+                    self.assertEqual(apk.read_bytes(), b'exact compiled APK bytes')
 
     def test_debug_apk_failure_retains_exit_status_and_bounded_diagnostics(self):
         workflow = 'original-noodle-gallery-compatibility.yml'

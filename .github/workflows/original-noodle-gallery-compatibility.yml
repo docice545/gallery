@@ -462,6 +462,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before Android cache tests
+        # Preserve SDK/NDK and Java; this Gradle job previously exhausted its disk.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
         with:
           github_token: ${{ github.token }}
@@ -536,6 +545,8 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || github.head_ref != 'codex/foto-build36-web-backend-final' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      GRADLE_USER_HOME: ${{ runner.temp }}/foto-offline-gradle
     permissions:
       contents: read
       packages: read
@@ -599,6 +610,24 @@ jobs:
       - name: Annotate emulator APK compilation failure
         if: failure() && steps.foto-debug-apk.outcome == 'failure'
         run: python3 .github/scripts/report-ci-failures.py android-debug "$RUNNER_TEMP/foto-debug-apk.log"
+      - name: Reclaim finished Android compilation before disposable backend
+        # This job only installs the finished APK from this point onward.
+        # Preserve its exact bytes while releasing intermediates and isolated Gradle data.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$PWD" = "$GITHUB_WORKSPACE"
+          test "$GRADLE_USER_HOME" = "$RUNNER_TEMP/foto-offline-gradle"
+          apk=mobile/build/app/outputs/flutter-apk/app-debug.apk
+          test -s "$apk"
+          before=$(sha256sum "$apk" | cut -d ' ' -f 1)
+          cp "$apk" "$RUNNER_TEMP/foto-offline-preserved.apk"
+          (cd mobile/android && ./gradlew --stop)
+          rm -rf -- mobile/build "$RUNNER_TEMP/foto-offline-gradle"
+          mkdir -p "$(dirname "$apk")"
+          cp "$RUNNER_TEMP/foto-offline-preserved.apk" "$apk"
+          test "$(sha256sum "$apk" | cut -d ' ' -f 1)" = "$before"
+          df -h /
       - name: Start disposable PostgreSQL and Redis
         id: disposable-dependencies
         env:
