@@ -576,7 +576,10 @@ void main() {
           await localization.setLocale(const Locale('ru'));
           await tester.pumpAndSettle();
           await tester.tap(find.byType(ImmichIconButton));
-          await tester.pumpAndSettle();
+          // The action is deliberately busy until consent resolves; its loading
+          // indicator cannot settle while this confirmation is still open.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
           expect(find.byType(ConfirmDialog), findsOneWidget);
           expect(find.text('Удалить с устройства?'), findsOneWidget);
           expect(
@@ -594,7 +597,10 @@ void main() {
           await tester.pumpAndSettle();
           verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
           await tester.tap(find.byType(ImmichIconButton));
-          await tester.pumpAndSettle();
+          // The action is deliberately busy until consent resolves; its loading
+          // indicator cannot settle while this confirmation is still open.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
           await tester.tap(find.text('В корзину'));
           await tester.pumpAndSettle();
           verify(() => cleanupService.deleteLocalAssetsDetailed([asset.id])).called(1);
