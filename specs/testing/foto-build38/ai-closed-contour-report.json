@@ -1,0 +1,58 @@
+{
+  "model_sha256": "344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9",
+  "synthetic_only": true,
+  "cases": [
+    {
+      "case": "brick-object",
+      "inference_seconds": 9.87,
+      "masked_mae_before": 15.395,
+      "masked_mae_after": 6.135,
+      "unmasked_mae": 0.716,
+      "original_sha256": "88430e8febb99b9bf481edd0804c4a7af0e4c9a7c5bb05c73b21f3a069494a69",
+      "result_sha256": "ea43047b7bd2e5289ef9b09d8d3b2ec243fa58de920fff7d603ada0232529232",
+      "original_preserved": true,
+      "dimensions_preserved": true,
+      "visual_review": "REVIEWED_WITH_LIMITATION: object and shadow removed; reconstructed mortar is brighter and slightly wavy.",
+      "real_photo_quality": "DEVICE_REQUIRED"
+    },
+    {
+      "case": "water-person",
+      "inference_seconds": 2.538,
+      "masked_mae_before": 23.418,
+      "masked_mae_after": 2.112,
+      "unmasked_mae": 0.425,
+      "original_sha256": "1e2566fbc40d2b78ce3ad9d9d48a148f26049540709eb32ffe48439beb2f13a6",
+      "result_sha256": "6c1ec3f6562a3e0078e2797d6d4f9560bb56c07180c80acdcbad227a58208848",
+      "original_preserved": true,
+      "dimensions_preserved": true,
+      "visual_review": "REVIEWED: person and shadow removed; wave direction remains coherent in this synthetic case.",
+      "real_photo_quality": "DEVICE_REQUIRED"
+    },
+    {
+      "case": "grass-dog",
+      "inference_seconds": 2.24,
+      "masked_mae_before": 11.923,
+      "masked_mae_after": 13.999,
+      "unmasked_mae": 1.579,
+      "original_sha256": "a56cc9cb4f53f94d338ede72475e61be9d380b8627f83d037d46663c9a0171b7",
+      "result_sha256": "79de42a6a044484ab070db3414b96397d1474d15c4898884148969a08ea2b488",
+      "original_preserved": true,
+      "dimensions_preserved": true,
+      "visual_review": "REVIEWED_WITH_LIMITATION: dog and shadow removed; broad lasso loses fine grass texture, masked MAE worsens. Not photorealistic acceptance.",
+      "real_photo_quality": "DEVICE_REQUIRED"
+    },
+    {
+      "case": "texture-object-shadow",
+      "inference_seconds": 2.476,
+      "masked_mae_before": 31.32,
+      "masked_mae_after": 3.45,
+      "unmasked_mae": 1.479,
+      "original_sha256": "7c232a90c12995c086a4c6aad07f658822356ebd8698bc3ce4db0f0de42d97d5",
+      "result_sha256": "833b3d7c1bfbca2bfccd0afb38206760ce189159b35c305d33303e653444b7a4",
+      "original_preserved": true,
+      "dimensions_preserved": true,
+      "visual_review": "REVIEWED: object and contact shadow removed; subtle texture smoothing remains.",
+      "real_photo_quality": "DEVICE_REQUIRED"
+    }
+  ]
+}

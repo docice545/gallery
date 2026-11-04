@@ -792,6 +792,10 @@ class _MaskPainter extends CustomPainter {
         for (final point in points.skip(1)) {
           path.lineTo(point.dx, point.dy);
         }
+        if (stroke.isClosedContour(size)) {
+          path.close();
+          canvas.drawPath(path, Paint.from(paint)..style = PaintingStyle.fill);
+        }
         canvas.drawPath(path, paint);
       }
     }

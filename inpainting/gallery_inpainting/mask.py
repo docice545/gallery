@@ -74,6 +74,10 @@ def rasterize_mask(strokes: tuple[Stroke, ...], size: tuple[int, int]) -> Image.
         points = [(x * (width - 1), y * (height - 1)) for x, y in stroke.points]
         radius = max(0.5, stroke.radius * min(width, height))
         fill = 0 if stroke.erase else 255
+        if is_closed_contour(stroke, size):
+            # A closed selection describes an area, not just its outline. Keep
+            # the existing ordered stroke protocol, including mask erasure.
+            draw.polygon(points, fill=fill)
         if len(points) > 1:
             draw.line(points, fill=fill, width=max(1, round(radius * 2)), joint="curve")
         # Explicit discs ensure consistent round caps, including single-point taps.
@@ -84,3 +88,20 @@ def rasterize_mask(strokes: tuple[Stroke, ...], size: tuple[int, int]) -> Image.
         mask.close()
         raise InvalidInput("Select a nonempty area covering at most 75% of the image")
     return mask
+
+
+def is_closed_contour(stroke: Stroke, size: tuple[int, int]) -> bool:
+    """Match the mobile preview using units of the upright image's short side.
+
+    A near-closed gesture must enclose a meaningful area; taps, retraced lines
+    and open brush strokes retain their existing round-cap semantics.
+    """
+    if len(stroke.points) < 4:
+        return False
+    width, height = size
+    short = min(width, height)
+    points = [(x * width / short, y * height / short) for x, y in stroke.points]
+    if math.dist(points[0], points[-1]) > max(stroke.radius * 1.5, 0.015):
+        return False
+    twice_area = abs(sum(x * ny - nx * y for (x, y), (nx, ny) in zip(points, points[1:] + points[:1])))
+    return twice_area > max(stroke.radius**2 * 8, 0.0008)

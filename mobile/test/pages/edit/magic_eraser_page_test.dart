@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/widgets/common/transparent_image.dart';
@@ -210,6 +211,33 @@ void main() {
   bool canRedo(WidgetTester tester) =>
       tester.widget<IconButton>(find.byKey(const Key('eraser-header-redo'))).onPressed != null;
 
+  for (final dimensions in [const Size(600, 1000), const Size(1000, 600)]) {
+    testWidgets('closed contour fills preview and undo/redo preserves upright coordinates $dimensions', (tester) async {
+      await pumpGestureEditor(tester, width: dimensions.width.toInt(), height: dimensions.height.toInt());
+      const points = [Offset(.3, .3), Offset(.7, .3), Offset(.7, .7), Offset(.3, .7), Offset(.3, .3)];
+      final gesture = await tester.startGesture(imagePoint(tester, points.first));
+      for (final point in points.skip(1)) {
+        await gesture.moveTo(imagePoint(tester, point));
+        await tester.pump();
+      }
+      await gesture.up();
+      await tester.pump();
+      expectPurple(await pixelAt(tester, imagePoint(tester, const Offset(.5, .5))));
+      expect(await pixelAt(tester, imagePoint(tester, const Offset(.1, .1))), [255, 255, 255, 255]);
+      await tester.tap(find.byKey(const Key('eraser-header-undo')));
+      await tester.pump();
+      expect(await pixelAt(tester, imagePoint(tester, const Offset(.5, .5))), [255, 255, 255, 255]);
+      await tester.tap(find.byKey(const Key('eraser-header-redo')));
+      await tester.pump();
+      expectPurple(await pixelAt(tester, imagePoint(tester, const Offset(.5, .5))));
+      final sent = await submitSelection(tester);
+      expect(sent.single.isClosedContour(dimensions), isTrue);
+      expect(sent.single.points.first.dx, closeTo(.3, .001));
+      expect(sent.single.points.first.dy, closeTo(.3, .001));
+      await disposeEditor(tester);
+    });
+  }
+
   Future<void> tapImage(WidgetTester tester, Offset normalized) async {
     await tester.tapAt(imagePoint(tester, normalized));
     await tester.pump();
@@ -267,7 +295,9 @@ void main() {
           final dock = find.byKey(const Key('editor-bottom-panel'));
           expect(Theme.of(tester.element(dock)).brightness, phone);
           expect(Theme.of(tester.element(find.byKey(const Key('editor-parameter-popover')))).brightness, phone);
-          expect(tester.getSize(dock).height, 80);
+          // The 56dp capsule excludes the 24dp system inset. The complete dock
+          // retains both; theme changes must not consume or duplicate that inset.
+          expect(tester.getSize(find.byType(EditorDock)).height, 80);
           expect(tester.getRect(find.byKey(const Key('eraser-canvas-region'))), viewport);
           expect(tester.state(find.byType(MagicEraserPage)), same(state));
           expect(

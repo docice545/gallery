@@ -23,6 +23,25 @@ def test_line_connects_points_and_clamps_round_cap_to_image():
     assert mask.getpixel((0, 50)) == mask.getpixel((99, 50)) == mask.getpixel((50, 50)) == 255
 
 
+@pytest.mark.parametrize("size", [(200, 200), (300, 120), (120, 300)])
+def test_closed_contour_selects_interior_in_upright_image_coordinates(size):
+    points = [{"x": x, "y": y} for x, y in [(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8), (0.2, 0.2)]]
+    mask = rasterize_mask(parse_mask(json.dumps({"strokes": [stroke(points, radius=0.01)]})), size)
+    assert mask.getpixel((size[0] // 2, size[1] // 2)) == 255
+    assert mask.getpixel((2, 2)) == 0
+
+
+def test_open_contour_does_not_fill_and_closed_mask_eraser_clears_interior():
+    corners = [{"x": x, "y": y} for x, y in [(0.3, 0.3), (0.7, 0.3), (0.7, 0.7), (0.3, 0.7)]]
+    open_mask = rasterize_mask(parse_mask(json.dumps({"strokes": [stroke(corners, radius=0.01)]})), (200, 200))
+    assert open_mask.getpixel((100, 100)) == 0
+    closed = corners + [corners[0]]
+    strokes = [stroke(radius=0.25), stroke(closed, radius=0.01, erase=True)]
+    mask = rasterize_mask(parse_mask(json.dumps({"strokes": strokes})), (200, 200))
+    assert mask.getpixel((100, 100)) == 0
+    assert mask.getpixel((100, 52)) == 255
+
+
 @pytest.mark.parametrize(
     "data",
     [
