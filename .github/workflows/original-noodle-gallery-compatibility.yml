@@ -9,6 +9,7 @@ on:
       - 'mobile/**'
       - 'e2e/**'
       - 'tools/original-noodle-gallery/**'
+      - '.github/scripts/run-ci-smoke-once.py'
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
@@ -245,8 +246,9 @@ jobs:
       - name: Run official client on emulator
         # reactivecircus/android-emulator-runner has an upstream boot race:
         # sys.boot_completed may precede Android's input service. Retry the
-        # entire action so a transient adb 224 is retried before declaring the
-        # unchanged client incompatible.
+        # bootstrap action so a transient adb 224 can recover before tests start.
+        # The exclusive marker below prevents any product test from running twice;
+        # an already-started failed/interrupted test keeps the whole job failed.
         uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0
         env:
           APK_PATH: ${{ github.workspace }}/gallery-v${{ matrix.version }}.apk
@@ -266,7 +268,7 @@ jobs:
             force-avd-creation: true
             script: |
               mkdir -p /tmp/noodle-e2e
-              bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
+              python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/official-smoke.attempt" -- bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
       - name: Upload Android E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -508,6 +510,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before Android and backend builds
+        # Keep Android/Java: this job needs both the APK and a live emulator.
+        # The previous runner exhausted its disk before it could retain diagnostics.
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
         with:
           github_token: ${{ github.token }}
@@ -552,22 +563,31 @@ jobs:
           # Release workflows continue to build the universal/arm64 artifacts.
           flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64
       - name: Start disposable PostgreSQL and Redis
+        id: disposable-dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Record Build 22 APK receipt
         if: always()
         working-directory: mobile
@@ -658,7 +678,7 @@ jobs:
             emulator-boot-timeout: 900
             force-avd-creation: true
             script: |
-              bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
+              python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/foto-offline-smoke.attempt" -- bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
       - name: Upload FOTO offline evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
