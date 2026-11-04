@@ -9,6 +9,7 @@ on:
       - 'mobile/**'
       - 'e2e/**'
       - 'tools/original-noodle-gallery/**'
+      - '.github/scripts/run-ci-smoke-once.py'
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
@@ -245,8 +246,9 @@ jobs:
       - name: Run official client on emulator
         # reactivecircus/android-emulator-runner has an upstream boot race:
         # sys.boot_completed may precede Android's input service. Retry the
-        # entire action so a transient adb 224 is retried before declaring the
-        # unchanged client incompatible.
+        # bootstrap action so a transient adb 224 can recover before tests start.
+        # The exclusive marker below prevents any product test from running twice;
+        # an already-started failed/interrupted test keeps the whole job failed.
         uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0
         env:
           APK_PATH: ${{ github.workspace }}/gallery-v${{ matrix.version }}.apk
@@ -266,7 +268,7 @@ jobs:
             force-avd-creation: true
             script: |
               mkdir -p /tmp/noodle-e2e
-              bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
+              python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/official-smoke.attempt" -- bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
       - name: Upload Android E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -677,7 +679,7 @@ jobs:
             emulator-boot-timeout: 900
             force-avd-creation: true
             script: |
-              bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
+              python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/foto-offline-smoke.attempt" -- bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
       - name: Upload FOTO offline evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
