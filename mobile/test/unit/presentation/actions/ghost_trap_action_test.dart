@@ -63,10 +63,19 @@ void main() {
         overrides: fixture.selected({asset}),
       );
       final container = ProviderScope.containerOf(tester.element(find.byType(ActionColumnButton)));
-      final button = tester.widget<ImmichColumnButton>(find.byType(ImmichColumnButton));
-      var completed = false;
-      final deletion = Future<void>.sync(button.onPressed).whenComplete(() => completed = true);
+      final control = find.descendant(of: find.byType(ImmichColumnButton), matching: find.byType(TextButton));
+      // Exercise the real button's busy state, not just its callback. The bin
+      // must stay painted while duplicate taps are disabled and the ACK waits.
+      await tester.tap(control);
       await _until(tester, () => request.isCompleted);
+      await tester.pump();
+      expect(tester.widget<TextButton>(control).onPressed, isNull);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(
+        find.byWidgetPredicate((widget) => widget is FotoIcon && widget.kind == FotoIconKind.trash),
+        findsOneWidget,
+      );
+      await tester.tap(control);
       await tester.pump();
       final painter =
           tester.widget<CustomPaint>(find.byKey(const ValueKey('ghost-trap-flight'))).painter! as GhostTrapPainter;
@@ -83,12 +92,19 @@ void main() {
         await tester.pump(ghostTrapDuration);
       }
       await tester.pump();
-      await _until(tester, () => completed);
-      await deletion;
+      await _until(tester, () {
+        if (find.byKey(const ValueKey('ghost-trap-flight')).evaluate().isNotEmpty) {
+          return false;
+        }
+        return reject
+            ? control.evaluate().isNotEmpty && tester.widget<TextButton>(control).onPressed != null
+            : container.read(multiSelectProvider).selectedAssets.isEmpty;
+      });
       await tester.pump();
       expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
       expect(container.read(multiSelectProvider).selectedAssets, reject ? {asset} : isEmpty);
       verify(() => fixture.service.asset.service.trash([asset.id])).called(1);
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
   }
