@@ -146,6 +146,33 @@ void main() {
     verify(screenshots);
   });
 
+  test('small width growth keeps the nearest bounded mixed row', () {
+    for (final width in [384.0, 390.0, 396.0]) {
+      final layout = FixedRowLayout.justified(
+        width: width,
+        aspectRatios: [
+          for (var i = 0; i < 4; i++) ...[.45, .75, 1.5, 1, .45, 2],
+        ],
+        columnCount: 2,
+        spacing: 3,
+      );
+      expect(layout.assetCountForRow(0), 2);
+      expect(layout.heightForRow(0), closeTo(math.min(320, (width - 3) / 1.2), 1e-8));
+      expect(layout.widthsForRow(0)[0] / layout.widthsForRow(0)[1], closeTo(.45 / .75, 1e-8));
+      for (var row = 0; row < layout.rowCount; row++) {
+        expect(layout.heightForRow(row), lessThanOrEqualTo(320));
+      }
+      verify(layout);
+    }
+  });
+
+  test('a much taller single candidate cannot displace the closer square pair', () {
+    final layout = FixedRowLayout.justified(width: 390, aspectRatios: List.filled(24, 1), columnCount: 2, spacing: 3);
+    expect(layout.assetCountForRow(0), 2);
+    expect(layout.heightForRow(0), 193.5);
+    verify(layout);
+  });
+
   test('density and viewport changes preserve mixed day boundaries and asset indices', () {
     final buckets = [
       TimeBucket(date: DateTime(2026, 11, 2), assetCount: 6, aspectRatios: [.45, 1.5, .75, .45, 2, 1]),
