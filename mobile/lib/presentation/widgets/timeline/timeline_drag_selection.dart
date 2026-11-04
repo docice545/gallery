@@ -90,11 +90,12 @@ class _TimelineDragSelectionState extends ConsumerState<TimelineDragSelection> {
 
   Future<void> _dragScroll(ScrollDirection direction) {
     final scrollController = PrimaryScrollController.of(context);
-    if (!_dragging || !scrollController.hasClients) {
+    final position = scrollController.positions.singleOrNull;
+    if (!_dragging || position == null) {
       return Future.value();
     }
-    return scrollController.animateTo(
-      scrollController.offset + (direction == ScrollDirection.forward ? 175 : -175),
+    return position.animateTo(
+      position.pixels + (direction == ScrollDirection.forward ? 175 : -175),
       duration: const Duration(milliseconds: 125),
       curve: Curves.easeOut,
     );

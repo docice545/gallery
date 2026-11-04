@@ -8,6 +8,7 @@ import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
 import 'package:immich_mobile/presentation/widgets/album/animated_album_rows.dart';
+import 'package:immich_mobile/presentation/widgets/album/animated_album_grid.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -43,9 +44,8 @@ Future<void> _until(WidgetTester tester, bool Function() done) async {
 void main() {
   for (final scope in ['remote', 'local']) {
     for (final reduced in [false, true]) {
-      testWidgets(
-        'actual $scope album action holds its visible cover/bin until ACK then reflows (reduced=$reduced)',
-        (tester) async {
+      for (final grid in [false, if (scope == 'remote') true]) {
+        testWidgets('$scope album ACK flight/reflow reduced=$reduced grid=$grid', (tester) async {
           final fixture = await PresentationContext.create();
           addTearDown(fixture.dispose);
           tester.view.physicalSize = const Size(393, 852);
@@ -106,7 +106,8 @@ void main() {
                     valueListenable: rows,
                     builder: (_, items, _) => CustomScrollView(
                       slivers: [
-                        AnimatedAlbumRows<String>(
+                        _albumItems(
+                          grid: grid,
                           items: items,
                           keyOf: (id) => ghostAlbumKey(scope, id),
                           heldKeys: held,
@@ -153,7 +154,7 @@ void main() {
           );
           final cover = find.byKey(const ValueKey('cover-album'));
           final original = tester.getRect(cover);
-          final originalRowTop = tester.getTopLeft(find.byKey(const ValueKey('row-album'))).dy;
+          final originalRowOrigin = tester.getTopLeft(find.byKey(const ValueKey('row-album')));
           final other = tester.getRect(find.byKey(const ValueKey('row-other')));
           await tester.drag(find.byKey(const ValueKey('row-album')), const Offset(-150, 0));
           await tester.pumpAndSettle();
@@ -168,6 +169,7 @@ void main() {
           final confirm = find.descendant(of: find.byType(ConfirmDialog), matching: find.byType(TextButton)).last;
           await tester.tap(confirm);
           await _until(tester, () => entered.isCompleted);
+          await tester.pump();
           final flightFinder = find.byKey(const ValueKey('ghost-trap-flight'));
           GhostTrapPainter paint() => tester.widget<CustomPaint>(flightFinder).painter! as GhostTrapPainter;
           expect(paint().confirmed, isFalse);
@@ -194,16 +196,25 @@ void main() {
           await tester.pump(reduced ? ghostTrapAlbumReducedReflowDuration : ghostTrapAlbumReflowDuration);
           await tester.pump();
           expect(find.byKey(const ValueKey('row-album')), findsNothing);
-          expect(tester.getTopLeft(find.byKey(const ValueKey('row-other'))).dy, originalRowTop);
+          expect(tester.getTopLeft(find.byKey(const ValueKey('row-other'))), originalRowOrigin);
           expect(container.read(albumDeletionHoldsProvider), isEmpty);
           if (scope == 'local') {
             verifyNever(() => fixture.service.asset.service.trash(any()));
           }
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
-        },
-        timeout: const Timeout(Duration(seconds: 45)),
-      );
+        }, timeout: const Timeout(Duration(seconds: 45)));
+      }
     }
   }
 }
+
+Widget _albumItems({
+  required bool grid,
+  required List<String> items,
+  required String Function(String) keyOf,
+  required Set<String> heldKeys,
+  required Widget Function(BuildContext, String) builder,
+}) => grid
+    ? AnimatedAlbumGrid<String>(items: items, keyOf: keyOf, heldKeys: heldKeys, builder: builder)
+    : AnimatedAlbumRows<String>(items: items, keyOf: keyOf, heldKeys: heldKeys, builder: builder);

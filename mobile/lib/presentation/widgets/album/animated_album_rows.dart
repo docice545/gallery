@@ -50,7 +50,11 @@ class _AnimatedAlbumRowsState<T> extends State<AnimatedAlbumRows<T>> {
         list.removeItem(
           i,
           (context, animation) => IgnorePointer(
-            child: SizeTransition(sizeFactor: animation, axisAlignment: -1, child: oldWidget.builder(context, item)),
+            child: SizeTransition(
+              sizeFactor: animation,
+              alignment: Alignment.topCenter,
+              child: oldWidget.builder(context, item),
+            ),
           ),
           duration: animated
               ? MediaQuery.disableAnimationsOf(context)

@@ -415,17 +415,22 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   }
 
   DateTime? _currentTopVisibleDate(List<Segment> segments) {
-    if (segments.isEmpty || !_scrollController.hasClients) {
+    final position = _gridPosition();
+    if (segments.isEmpty || position == null || !position.hasContentDimensions) {
       return null;
     }
-    final offset = _scrollController.offset.clamp(0.0, _scrollController.position.maxScrollExtent);
+    final offset = position.pixels.clamp(0.0, position.maxScrollExtent);
     final segment = segments.findByOffset(offset) ?? segments.firstOrNull;
     final bucket = segment?.bucket;
     return bucket is TimeBucket ? bucket.date : null;
   }
 
   int? _getCurrentAssetIndex(List<Segment> segments) {
-    final currentOffset = _scrollController.offset.clamp(0.0, _scrollController.position.maxScrollExtent);
+    final position = _gridPosition();
+    if (position == null || !position.hasContentDimensions) {
+      return null;
+    }
+    final currentOffset = position.pixels.clamp(0.0, position.maxScrollExtent);
     final segment = segments.findByOffset(currentOffset) ?? segments.lastOrNull;
     int? targetAssetIndex;
     if (segment != null) {
@@ -462,8 +467,15 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
       return false;
     }
 
-    // Use Flutter's built in fast velocity tracking
-    if (_scrollController.position.recommendDeferredLoading(context)) {
+    final position = _gridPosition();
+    final notificationContext = notification.context;
+    if (position == null ||
+        notificationContext == null ||
+        Scrollable.maybeOf(notificationContext)?.position != position) {
+      return false;
+    }
+    // Use the actual mosaic, not an outgoing loading/selection scroll view.
+    if (position.recommendDeferredLoading(context)) {
       ref.read(timelineStateProvider.notifier).setRecommendDeferredLoading(true);
 
       // We cannot rely on scroll end events, as the timeline scrubber jumps from position
@@ -545,7 +557,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final target = scrollToAssetNotifierProvider.value;
     final date = target?.date;
     final segments = drainableSegments(ref.read(timelineSegmentProvider));
-    final laidOut = _scrollController.hasClients && _scrollController.position.hasContentDimensions;
+    final laidOut = _gridPosition()?.hasContentDimensions ?? false;
     final matched = date != null && segments != null && _findSegmentForDate(segments, date) != null;
     final isOverview = segmentsAreOverview(segments);
 
@@ -642,11 +654,12 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     // `==` on TimelineScrollTarget compares date + refersToSameAsset, so re-tapping
     // the SAME photo mid-resolution reads as unchanged and is absorbed. That is
     // intended: the destination is identical, and restarting would only re-scan.
+    final position = mounted ? _gridPosition() : null;
     final outcome = decideScrollResolve(
       stillMounted: mounted,
       // `hasContentDimensions` matches the pre-await gate: `maxScrollExtent` below
       // asserts on an attached-but-unlaid-out position in debug builds.
-      stillHasClients: _scrollController.hasClients && _scrollController.position.hasContentDimensions,
+      stillHasClients: position?.hasContentDimensions ?? false,
       targetUnchanged: scrollToAssetNotifierProvider.value == target,
     );
     _resolvingScrollTarget = null;
@@ -689,7 +702,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     // timeline collapses stacks to the primary, memories do not) or the geometry
     // could not be computed. Landing on the correct day beats not moving at all.
     final desiredOffset = rowOffset ?? (segment.startOffset - 50);
-    final targetOffset = desiredOffset.clamp(0.0, _scrollController.position.maxScrollExtent);
+    final targetOffset = desiredOffset.clamp(0.0, position!.maxScrollExtent);
 
     scrollToAssetNotifierProvider.consume();
     _scrollDrainScheduled = false;
@@ -703,11 +716,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final generation = ++_scrollResolveGeneration;
     timelineState.setRecommendDeferredLoading(true);
     try {
-      await _scrollController.animateTo(
-        targetOffset,
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeInOut,
-      );
+      await position.animateTo(targetOffset, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
     } catch (_) {
       // An interrupted animation (user scrolls, controller detached, or a newer jump
       // replaced the ScrollActivity) completes with an error. Swallow it: this runs
@@ -753,7 +762,8 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     required TimelineOverviewMode mode,
     required List<Segment> segments,
   }) {
-    if (ref.read(timelineZoomAnchorProvider) != anchor || !_scrollController.hasClients) {
+    final position = _gridPosition();
+    if (ref.read(timelineZoomAnchorProvider) != anchor || position == null || !position.hasContentDimensions) {
       return;
     }
 
@@ -773,9 +783,9 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     _resolvingZoomAnchor = anchor;
     ref.read(timelineStateProvider.notifier).setRecommendDeferredLoading(true);
     unawaited(
-      _scrollController
+      position
           .animateTo(
-            targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+            targetOffset.clamp(0.0, position.maxScrollExtent),
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeInOut,
           )

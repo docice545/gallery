@@ -103,7 +103,22 @@ WHERE
 	)
 	AND (
 		rae.stack_id IS NULL
-		OR rae.id = se.primary_asset_id
+    OR rae.id = COALESCE(
+      (SELECT primary_frame.id FROM remote_asset_entity primary_frame
+       WHERE primary_frame.id = se.primary_asset_id
+         AND primary_frame.stack_id = se.id AND primary_frame.owner_id = rae.owner_id
+         AND primary_frame.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM pending_deletion pending
+           WHERE pending.id = primary_frame.id AND pending.owner_id = primary_frame.owner_id
+             AND pending.checksum = primary_frame.checksum)),
+      (SELECT survivor.id FROM remote_asset_entity survivor
+       WHERE survivor.stack_id = se.id AND survivor.owner_id = rae.owner_id
+         AND survivor.deleted_at IS NULL AND survivor.visibility = 0
+         AND NOT EXISTS (SELECT 1 FROM pending_deletion pending
+           WHERE pending.id = survivor.id AND pending.owner_id = survivor.owner_id
+             AND pending.checksum = survivor.checksum)
+       ORDER BY survivor.created_at, survivor.id LIMIT 1)
+    )
 	)
   AND rae.type IN (1, 2)
   AND exif.file_size > 0

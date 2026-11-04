@@ -647,6 +647,9 @@ class CleanupLocalAlbumAction extends ActionBuilder {
             GhostTrashKind.album,
             targetKey: albumKey,
           );
+      if (!context.mounted || !isCurrent()) {
+        return;
+      }
       if (visual != null) {
         holds.state = {...holds.state, albumKey};
       }
@@ -672,7 +675,7 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       } else {
         visual?.cancel();
       }
-      if (!isCurrent()) {
+      if (!context.mounted || !isCurrent()) {
         return;
       }
       if (removed.isNotEmpty) {

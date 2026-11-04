@@ -172,6 +172,24 @@ void main() {
     expect(await ctx.db.select(ctx.db.remoteAssetEntity).get(), hasLength(2));
     expect(await ctx.db.select(ctx.db.stackEntity).get(), hasLength(1));
   });
+  for (final removed in ['primary', 'secondary']) {
+    test('native picker keeps the exact two-to-one survivor after deleting $removed before stack sync', () async {
+      await ctx.insertStack(id: 'stack', ownerId: 'viewer', primaryAssetId: 'primary');
+      await media('primary', stack: 'stack');
+      await media('secondary', stack: 'stack');
+      expect(await ids(), ['primary']);
+      await (ctx.db.update(ctx.db.remoteAssetEntity)..where((row) => row.id.equals(removed))).write(
+        RemoteAssetEntityCompanion(deletedAt: Value(DateTime.utc(2026, 11, 4))),
+      );
+      expect(await ids(), [removed == 'primary' ? 'secondary' : 'primary']);
+      expect((await ctx.db.select(ctx.db.stackEntity).get()).single.primaryAssetId, 'primary');
+      expect((await ctx.db.select(ctx.db.remoteAssetEntity).get()).map((asset) => asset.stackId), ['stack', 'stack']);
+      await (ctx.db.update(
+        ctx.db.remoteAssetEntity,
+      )..where((row) => row.id.equals(removed))).write(const RemoteAssetEntityCompanion(deletedAt: Value(null)));
+      expect(await ids(), ['primary']);
+    });
+  }
   test('space grants require this viewer and timeline-enabled membership', () async {
     await media('shared', owner: 'other');
     await ctx.newSharedSpace(id: 'space', createdById: 'other');
