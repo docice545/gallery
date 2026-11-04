@@ -1490,6 +1490,7 @@
   "device_deletion_result": "Sur l’appareil : {removed} supprimés, {remaining} restants. Non supprimés : {names}",
   "device_deletion_summary": "Appareil : {removed} supprimés, {remaining} restants.",
   "device_trash_confirmation_body": "Les photos sélectionnées seront déplacées dans la corbeille de l’appareil. Les copies sur le serveur seront conservées.",
+  "device_trash_confirmation_cancel": "Annuler",
   "device_trash_confirmation_title": "Supprimer de l’appareil ?",
   "direction": "Ordre",
   "disable": "Désactiver",

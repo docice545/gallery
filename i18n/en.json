@@ -1496,6 +1496,7 @@
   "device_deletion_result": "Device: {removed} removed, {remaining} remain. Not removed: {names}",
   "device_deletion_summary": "Device: {removed} removed, {remaining} remain.",
   "device_trash_confirmation_body": "Selected photos will move to the device trash. Server copies will remain.",
+  "device_trash_confirmation_cancel": "Cancel",
   "device_trash_confirmation_title": "Remove from device?",
   "direction": "Direction",
   "disable": "Disable",

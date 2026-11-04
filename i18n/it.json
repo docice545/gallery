@@ -1492,6 +1492,7 @@
   "device_deletion_result": "Dispositivo: {removed} rimossi, {remaining} rimanenti. Non rimossi: {names}",
   "device_deletion_summary": "Dispositivo: {removed} rimossi, {remaining} rimanenti.",
   "device_trash_confirmation_body": "Le foto selezionate verranno spostate nel cestino del dispositivo. Le copie sul server rimarranno.",
+  "device_trash_confirmation_cancel": "Annulla",
   "device_trash_confirmation_title": "Rimuovere dal dispositivo?",
   "direction": "Direzione",
   "disable": "Disabilita",

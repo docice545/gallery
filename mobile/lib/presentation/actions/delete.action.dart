@@ -859,6 +859,7 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
       builder: (_) => ConfirmDialog(
         title: context.t.device_trash_confirmation_title,
         content: context.t.device_trash_confirmation_body,
+        cancel: context.t.device_trash_confirmation_cancel,
         ok: context.t.to_trash,
       ),
     );

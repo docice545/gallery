@@ -1482,6 +1482,7 @@
   "device_deletion_result": "设备：已移除 {removed} 项，剩余 {remaining} 项。未移除：{names}",
   "device_deletion_summary": "设备：已移除 {removed} 项，剩余 {remaining} 项。",
   "device_trash_confirmation_body": "所选照片将移至设备回收站。服务器上的副本将保留。",
+  "device_trash_confirmation_cancel": "取消",
   "device_trash_confirmation_title": "从设备移除？",
   "direction": "方向",
   "disable": "禁用",

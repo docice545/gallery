@@ -254,7 +254,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
         return;
       }
       final segments = _lastRenderedSegments;
-      if (segments != null && _scrollController.positions.length == 1 && _scrollController.position.hasPixels) {
+      if (segments != null && (_gridPosition()?.hasPixels ?? false)) {
         _restoreAssetIndex ??= _getCurrentAssetIndex(segments);
       }
     });
@@ -282,7 +282,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
         widget.immersive != oldWidget.immersive) {
       // The updated args already regenerate the segments, only remember the scroll position to restore it afterwards
       final segments = _lastRenderedSegments;
-      if (segments != null && _scrollController.hasClients) {
+      if (segments != null && (_gridPosition()?.hasPixels ?? false)) {
         _restoreAssetIndex ??= _getCurrentAssetIndex(segments);
       }
     }
@@ -340,14 +340,21 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _restoreAssetIndex != assetIndex || _scrollController.positions.length != 1) {
+      if (!mounted || _restoreAssetIndex != assetIndex) {
         return;
       }
-      final position = _scrollController.position;
-      if (!position.hasContentDimensions) {
+      // Loading/outgoing views can still share the primary controller during
+      // this frame. Restore the actual mosaic instead of abandoning its anchor
+      // until an unrelated later update happens to attach just one position.
+      final position = _gridPosition();
+      final currentSegments = ref.read(timelineSegmentProvider);
+      if (position == null ||
+          !position.hasContentDimensions ||
+          currentSegments.isLoading ||
+          !identical(currentSegments.value, segments)) {
         return;
       }
-      position.jumpTo(targetOffset.clamp(0.0, position.maxScrollExtent));
+      position.jumpTo((targetOffset + _gridStartOffset()).clamp(0.0, position.maxScrollExtent));
       _restoreAssetIndex = null;
     });
   }
@@ -430,7 +437,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     if (position == null || !position.hasContentDimensions) {
       return null;
     }
-    final currentOffset = position.pixels.clamp(0.0, position.maxScrollExtent);
+    final currentOffset = (position.pixels - _gridStartOffset()).clamp(0.0, position.maxScrollExtent);
     final segment = segments.findByOffset(currentOffset) ?? segments.lastOrNull;
     int? targetAssetIndex;
     if (segment != null) {
