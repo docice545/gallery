@@ -415,8 +415,14 @@ jobs:
           github_token: ${{ github.token }}
 
       - name: Run ci-medium
-        run: mise run ci-medium
+        id: medium-tests
         if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          mise run ci-medium 2>&1 | tee "$RUNNER_TEMP/server-medium.log"
+      - name: Expose medium suite failures
+        if: failure() && steps.medium-tests.outcome == 'failure'
+        run: python3 ../.github/scripts/report-ci-failures.py test-log "$RUNNER_TEMP/server-medium.log"
 
   e2e-tests-server-cli:
     name: End-to-End Tests (Server & CLI)
@@ -479,7 +485,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee "$RUNNER_TEMP/e2e-compose-setup.log"
+          bash ../.github/scripts/pull-ci-images.sh 2>&1 | tee "$RUNNER_TEMP/e2e-compose-setup.log"
+          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee -a "$RUNNER_TEMP/e2e-compose-setup.log"
       - name: Annotate disposable Compose setup failure
         if: failure() && steps.docker-compose.outcome == 'failure'
         run: python3 ../.github/scripts/report-ci-failures.py build "$RUNNER_TEMP/e2e-compose-setup.log"
@@ -575,7 +582,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee "$RUNNER_TEMP/e2e-docker-build.log"
+          bash ../.github/scripts/pull-ci-images.sh 2>&1 | tee "$RUNNER_TEMP/e2e-docker-build.log"
+          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee -a "$RUNNER_TEMP/e2e-docker-build.log"
       - name: Annotate disposable Docker build failure
         if: failure() && steps.docker-build.outcome == 'failure'
         working-directory: .

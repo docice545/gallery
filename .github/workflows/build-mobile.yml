@@ -243,14 +243,9 @@ jobs:
 
   build-unsigned-android:
     name: Unsigned universal Android (no device acceptance)
-    needs:
-      [
-        pre-job,
-        flutter-tests,
-        release-tooling-checks,
-        live-photo-timeline,
-        live-photo-native,
-      ]
+    # Compile independently so a test/VM startup failure cannot conceal an APK
+    # compiler error. All test/native gates still fail the workflow and signing.
+    needs: pre-job
     if: ${{ github.event_name == 'pull_request' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60

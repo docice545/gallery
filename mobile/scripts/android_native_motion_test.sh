@@ -16,6 +16,18 @@ flutter test --no-pub integration_test/timeline_native_motion_test.dart \
 test_status=${PIPESTATUS[0]}
 set -e
 if (( test_status != 0 )); then
+  diagnostic_file="${RUNNER_TEMP:-/tmp}/gallery-native-startup.log"
+  {
+    adb -s emulator-5554 shell getprop sys.boot_completed
+    adb -s emulator-5554 shell pidof de.opennoodle.gallery.debug
+    adb -s emulator-5554 logcat -d -b crash -b events -t 400
+  } > "$diagnostic_file" 2>&1 || true
+  python3 - "$diagnostic_file" <<'PY_DIAGNOSTIC'
+import sys
+from pathlib import Path
+raw = Path(sys.argv[1]).read_text(errors='replace')[-3000:]
+print('::error title=Native VM startup diagnostic::' + raw.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+PY_DIAGNOSTIC
   python3 - "$log_file" <<'PY'
 import sys
 from pathlib import Path
