@@ -24,6 +24,7 @@ import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.re
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_details.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_page.widget.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
@@ -265,6 +266,62 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     router.dispose();
+  }
+
+  for (final deleted in ['cover', 'next-frame']) {
+    testWidgets('exact stack 2→1: deleting $deleted keeps its survivor without a stack container', (tester) async {
+      await tester.runAsync(() => remote.trash(['last-frame']));
+      final router = await openViewer(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
+      Future<void>? deletion;
+      try {
+        expect(find.text('1/2'), findsOneWidget);
+        if (deleted != 'cover') {
+          final child = await tester.runAsync(() => remote.get(deleted));
+          container.read(assetViewerProvider.notifier)
+            ..setAsset(child!)
+            ..setStackIndex(1);
+          when(() => api.delete([deleted], false)).thenAnswer((_) async {
+            requestEntered.complete();
+            await response.future;
+          });
+          await drain(tester);
+        }
+        final button = tester.widget<FotoIconButton>(
+          find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+        );
+        await tester.runAsync(() async {
+          deletion = Future<void>.sync(button.onPressed!);
+          await requestEntered.future.timeout(const Duration(seconds: 5));
+        });
+        response.complete();
+        await drain(tester);
+        await tester.runAsync(() => deletion!.timeout(const Duration(seconds: 5)));
+        final survivor = deleted == 'cover' ? 'next-frame' : 'cover';
+        expect(router.current.name, _viewerName);
+        expect(container.read(assetViewerProvider).currentAsset?.id, survivor);
+        expect(timeline.totalAssets, 1);
+        expect(timeline.getAssetSafe(0)?.id, survivor, reason: 'no sync or unStack is required');
+        expect(tester.widgetList<AssetDetails>(find.byType(AssetDetails)).map((details) => details.asset.id), [
+          survivor,
+        ]);
+        expect(
+          find.descendant(of: find.byType(AssetStackRow), matching: find.byType(SingleChildScrollView)),
+          findsNothing,
+        );
+        expect(await tester.runAsync(() async => (await remote.get(survivor))!.deletedAt), isNull);
+        expect(await tester.runAsync(() async => (await remote.get(survivor))!.checksum), 'checksum-$survivor');
+        await tester.runAsync(() => remote.restoreTrash([deleted]));
+        await drain(tester);
+        expect(
+          find.descendant(of: find.byType(AssetStackRow), matching: find.byType(SingleChildScrollView)),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await closeViewer(tester, router, deletion: deletion);
+      }
+    });
   }
 
   testWidgets('trashing a viewed primary keeps active siblings open while the server response is pending', (

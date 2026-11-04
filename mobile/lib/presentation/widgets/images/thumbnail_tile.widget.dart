@@ -441,21 +441,26 @@ class _StackIndicator extends ConsumerWidget {
 
     final stackId = (asset as RemoteAsset).stackId!;
     final count = ref.watch(stackCountsProvider.select((counts) => counts.value?[stackId]));
+    // A retained membership link is restoration history, not a visible stack.
+    // Unknown counts must not flash a stack container while the stream loads.
+    if (count == null || count < 2) {
+      return const SizedBox.shrink();
+    }
+
     return Padding(
       padding: const EdgeInsets.only(left: 8.0, bottom: 8.0),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const _TileOverlayIcon(Icons.photo_library_outlined),
-          if (count != null)
-            Text(
-              ' $count',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                shadows: [Shadow(blurRadius: 5, color: Colors.black)],
-              ),
+          Text(
+            ' $count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              shadows: [Shadow(blurRadius: 5, color: Colors.black)],
             ),
+          ),
         ],
       ),
     );

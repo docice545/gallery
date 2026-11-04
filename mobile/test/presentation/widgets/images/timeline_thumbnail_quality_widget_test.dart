@@ -193,6 +193,7 @@ void main() {
     _TileViewport viewport = const _TileViewport(),
     ValueNotifier<_TileViewport>? changingViewport,
     VoidCallback? onTap,
+    Stream<Map<String, int>>? stackCounts,
   }) async {
     await SettingsRepository.instance.write(SettingsKey.imagePreferRemote, asset is RemoteAsset);
     Widget tile(_TileViewport value) => Builder(
@@ -204,7 +205,7 @@ void main() {
             child: GestureDetector(
               key: _tileKey,
               onTap: onTap,
-              child: ThumbnailTile(asset, fit: fit, heroOffset: 7),
+              child: ThumbnailTile(asset, fit: fit, heroOffset: 7, showStackIndicator: stackCounts != null),
             ),
           ),
         ),
@@ -226,6 +227,7 @@ void main() {
       child,
       overrides: [
         assetServiceProvider.overrideWithValue(assetService),
+        if (stackCounts != null) stackCountsProvider.overrideWith((_) => stackCounts),
         thumbnailFaceBoundsProvider.overrideWith((_, _) => faces?.call() ?? Stream.value(const [])),
       ],
     );
@@ -255,6 +257,28 @@ void main() {
       expect(request[5], isFalse);
     }
   }
+
+  _qualityTestWidgets('persisted stack link: 1 active frame is a normal photo; restore makes 2 again', (tester) async {
+    final counts = StreamController<Map<String, int>>();
+    addTearDown(counts.close);
+    final asset = _remote().copyWith(stackId: 'stack');
+    await mountTile(tester, asset, stackCounts: counts.stream);
+    expect(find.byIcon(Icons.photo_library_outlined), findsNothing, reason: 'unknown is not a stack');
+    counts.add({'stack': 2});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+    counts.add({'stack': 1});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.photo_library_outlined), findsNothing);
+    expect(tester.widget<ThumbnailTile>(find.byType(ThumbnailTile)).asset, asset);
+    expect(find.byType(Thumbnail), findsOneWidget, reason: 'the survivor remains a normal photo tile');
+    counts.add({'stack': 2});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+  });
 
   for (final dimensions in [const Size(4000, 6000), const Size(6000, 4000)]) {
     _qualityTestWidgets(
@@ -668,6 +692,7 @@ void main() {
           ),
           overrides: [
             assetServiceProvider.overrideWithValue(assetService),
+            if (stackCounts != null) stackCountsProvider.overrideWith((_) => stackCounts),
             thumbnailFaceBoundsProvider.overrideWith((_, _) => Stream.value(const [_topFace])),
           ],
         );
