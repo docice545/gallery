@@ -184,6 +184,7 @@ class _SpaceAlbumDetailPageState extends ConsumerState<SpaceAlbumDetailPage> {
           .watch(timelineFactoryProvider)
           .spaceAlbum(spaceId: widget.spaceId, albumId: widget.albumId, groupBy: groupBy, temporalScope: scope),
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         // Without this an empty album opens on a blank screen, which reads as a failed load.
         // Viewers get the same illustration without the call to action they cannot act on.

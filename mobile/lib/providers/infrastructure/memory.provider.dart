@@ -19,16 +19,24 @@ final visibleMemoryLaneProvider = Provider<AsyncValue<List<Memory>>>(
   (ref) => ref
       .watch(memoryLaneProvider)
       .whenData(
-        (memories) => memories
-            .where(
-              (memory) =>
-                  memory.deletedAt == null &&
-                  !ref.watch(confirmedMemoryRemovalsProvider(memory.ownerId)).contains(memory.id),
-            )
-            .toList(growable: false),
+        (memories) => uniqueMemoryLaneCards(
+          memories
+              .where(
+                (memory) =>
+                    memory.deletedAt == null &&
+                    !ref.watch(confirmedMemoryRemovalsProvider(memory.ownerId)).contains(memory.id),
+              )
+              .toList(growable: false),
+        ),
       ),
   dependencies: [memoryLaneProvider, confirmedMemoryRemovalsProvider],
 );
+
+/// A card limit, independent of the number of assets in each memory.
+List<Memory> uniqueMemoryLaneCards(Iterable<Memory> memories) {
+  final seen = <(String, String)>{};
+  return memories.where((m) => seen.add((m.ownerId, m.id))).take(16).toList(growable: false);
+}
 
 final visibleAllMemoriesProvider = Provider.autoDispose.family<AsyncValue<List<Memory>>, bool>(
   (ref, onlyFavorites) => ref

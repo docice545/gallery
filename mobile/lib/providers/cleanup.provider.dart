@@ -122,7 +122,11 @@ class CleanupNotifier extends StateNotifier<CleanupState> {
       return;
     }
 
-    state = state.copyWith(isScanning: true);
+    if (state.isScanning || state.isDeleting) {
+      return;
+    }
+    state = state.copyWith(isScanning: true, assetsToDelete: [], totalBytes: 0);
+    final snapshot = state;
     try {
       final result = await _cleanupService.getRemovalCandidates(
         _userId,
@@ -132,27 +136,43 @@ class CleanupNotifier extends StateNotifier<CleanupState> {
         keepAlbumIds: state.keepAlbumIds,
       );
 
-      state = state.copyWith(assetsToDelete: result.assets, totalBytes: result.totalBytes, isScanning: false);
+      if (!mounted) {
+        return;
+      }
+      state = identical(state, snapshot)
+          ? state.copyWith(assetsToDelete: result.assets, totalBytes: result.totalBytes, isScanning: false)
+          : state.copyWith(isScanning: false);
     } catch (e) {
-      state = state.copyWith(isScanning: false);
+      if (mounted) {
+        state = state.copyWith(isScanning: false);
+      }
       rethrow;
     }
   }
 
   Future<int> deleteAssets() async {
-    if (state.assetsToDelete.isEmpty) {
+    if (state.assetsToDelete.isEmpty || state.isDeleting || _userId == null) {
       return 0;
     }
 
     state = state.copyWith(isDeleting: true);
     try {
-      final deletedCount = await _cleanupService.deleteLocalAssets(state.assetsToDelete.map((a) => a.id).toList());
+      final snapshot = state;
+      final deletedCount = await _cleanupService.deleteVerifiedLocalAssets(
+        snapshot.assetsToDelete,
+        _userId,
+        canContinue: () => mounted && identical(state, snapshot),
+      );
 
-      state = state.copyWith(assetsToDelete: [], isDeleting: false);
+      if (mounted) {
+        state = state.copyWith(assetsToDelete: [], totalBytes: 0, isDeleting: false);
+      }
 
       return deletedCount;
     } catch (e) {
-      state = state.copyWith(isDeleting: false);
+      if (mounted) {
+        state = state.copyWith(isDeleting: false);
+      }
       rethrow;
     }
   }

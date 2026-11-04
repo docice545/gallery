@@ -26,7 +26,11 @@ class VideoPage extends StatelessWidget {
 
         return ref.watch(timelineFactoryProvider).video(users, user.id, groupBy: groupBy, temporalScope: scope);
       },
-      child: Timeline(withGroupingPill: true, appBar: MesmerizingSliverAppBar(title: context.t.videos)),
+      child: Timeline(
+        denseLayout: true,
+        withGroupingPill: true,
+        appBar: MesmerizingSliverAppBar(title: context.t.videos),
+      ),
     );
   }
 }

@@ -77,6 +77,14 @@ void main() {
     assets: const [],
   );
 
+  test('lane limits distinct cards to sixteen, preserving order and membership', () {
+    final cards = List.generate(20, (i) => memory('card-$i'));
+    final visible = uniqueMemoryLaneCards([cards.first, ...cards]);
+    expect(visible.map((m) => m.id), List.generate(16, (i) => 'card-$i'));
+    expect(visible.first, same(cards.first));
+    expect(uniqueMemoryLaneCards([]), isEmpty);
+  });
+
   test('confirmed removal filters lane and list immediately while refresh remains pending', () async {
     final original = [memory('two-years-ago'), memory('remaining')];
     when(() => memoryApiRepository.getMemoryLane()).thenAnswer((_) async => original);

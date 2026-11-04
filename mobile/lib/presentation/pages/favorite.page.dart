@@ -26,6 +26,7 @@ class FavoritePage extends StatelessWidget {
         return ref.watch(timelineFactoryProvider).favorite(user.id, groupBy: groupBy, temporalScope: scope);
       },
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         appBar: MesmerizingSliverAppBar(title: context.t.favorites, icon: Icons.favorite_outline),
         bottomSheet: const FavoriteBottomSheet(),

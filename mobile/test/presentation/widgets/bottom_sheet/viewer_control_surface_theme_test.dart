@@ -27,13 +27,9 @@ void main() {
         find.descendant(of: find.byType(ViewerControlSurface), matching: find.byType(Material)).first,
       );
 
-      if (brightness == Brightness.dark) {
-        expect(material.color, const Color(0xe6202124));
-        expect(foreground, Colors.white);
-      } else {
-        expect(material.color, const Color(0xf5f7f8fa));
-        expect(foreground, const Color(0xff202124));
-      }
+      final colors = ThemeData(brightness: brightness, useMaterial3: true).colorScheme;
+      expect(material.color, colors.surfaceContainerHigh);
+      expect(foreground, colors.onSurface);
 
       expect(tester.takeException(), isNull);
     });

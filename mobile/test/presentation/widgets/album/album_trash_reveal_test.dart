@@ -4,10 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 
 import '../../../widget_tester_extensions.dart';
 
+class _Haptics extends HapticNotifier {
+  _Haptics(super.ref);
+  static int clicks = 0;
+  @override
+  void selectionClick() {
+    clicks++;
+  }
+}
+
 void main() {
+  setUp(() => _Haptics.clicks = 0);
   testWidgets('left swipe only reveals; reverse swipe closes; only explicit trash tap acts', (tester) async {
     var deleted = 0;
     var opened = 0;
@@ -24,6 +35,7 @@ void main() {
           ),
         ),
       ),
+      overrides: [hapticFeedbackProvider.overrideWith(_Haptics.new)],
     );
     final row = find.byType(AlbumTrashReveal);
     final before = tester.getSize(row);
@@ -32,6 +44,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(deleted, 0);
     expect(opened, 0);
+    expect(_Haptics.clicks, 1);
     expect(tester.getSize(row), before);
     final cameraAfterSwipe = tester.getTopLeft(find.text('Camera'));
     expect(cameraAfterSwipe.dx, closeTo(cameraBefore.dx - 64, 0.1));
@@ -68,6 +81,7 @@ void main() {
           child: const SizedBox(height: 80, child: Text('Camera')),
         ),
       ),
+      overrides: [hapticFeedbackProvider.overrideWith(_Haptics.new)],
     );
     final row = find.byType(AlbumTrashReveal);
     await tester.drag(row, const Offset(-150, 0));

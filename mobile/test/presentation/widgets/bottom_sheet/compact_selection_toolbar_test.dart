@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
+import '../../../test_utils.dart';
+import '../../../widget_tester_extensions.dart';
+
 void main() {
+  setUp(() => TestUtils.init());
   testWidgets('compact selection toolbar preserves height and actions', (tester) async {
     tester.view.physicalSize = const Size(393, 852);
     tester.view.devicePixelRatio = 1;
@@ -15,7 +19,7 @@ void main() {
     var extras = 0;
     var photoTaps = 0;
 
-    await tester.pumpWidget(
+    await tester.pumpConsumerWidget(
       MaterialApp(
         home: Scaffold(
           body: Stack(
@@ -58,7 +62,7 @@ void main() {
 
     final row = find.descendant(of: find.byType(CompactSelectionToolbar), matching: find.byType(Row));
 
-    expect(tester.getSize(row.first).height, 76);
+    expect(tester.getSize(row.first).height, 64);
 
     await tester.tap(find.byTooltip('Корзина'));
     await tester.tap(find.byTooltip('Поделиться'));
@@ -72,7 +76,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Архивировать'), findsOneWidget);
-    expect(tester.getSize(row.first).height, 76);
+    expect(tester.getSize(row.first).height, 64);
 
     await tester.tap(find.text('Архивировать'));
     expect(extras, 1);

@@ -1,18 +1,28 @@
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
+import 'package:immich_mobile/repositories/asset_api.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:logging/logging.dart';
 
 final cleanupServiceProvider = Provider<CleanupService>((ref) {
-  return CleanupService(ref.watch(driftProvider).localAssetRepository, ref.watch(assetMediaRepositoryProvider));
+  return CleanupService(
+    ref.watch(driftProvider).localAssetRepository,
+    ref.watch(assetMediaRepositoryProvider),
+    verifyBackup: ref.watch(assetApiRepositoryProvider).isCleanupBackupAvailable,
+  );
 });
+
+class CleanupBackupUnverified implements Exception {
+  const CleanupBackupUnverified();
+}
 
 class CleanupService {
   static final _log = Logger('CleanupService');
@@ -21,7 +31,45 @@ class CleanupService {
   final LocalAssetRepository _localAssetRepository;
   final AssetMediaRepository _assetMediaRepository;
 
-  const CleanupService(this._localAssetRepository, this._assetMediaRepository);
+  final Future<bool> Function(LocalAsset, String)? verifyBackup;
+  const CleanupService(this._localAssetRepository, this._assetMediaRepository, {this.verifyBackup});
+
+  Future<void> _verifyBackups(List<LocalAsset> assets, String ownerId) async {
+    final verify = verifyBackup;
+    if (verify == null) {
+      throw const CleanupBackupUnverified();
+    }
+    // Bound network concurrency even for libraries with thousands of candidates.
+    for (var first = 0; first < assets.length; first += 4) {
+      final results = await Future.wait(assets.skip(first).take(4).map((asset) => verify(asset, ownerId)));
+      if (results.any((verified) => !verified)) {
+        throw const CleanupBackupUnverified();
+      }
+    }
+  }
+
+  Future<int> deleteVerifiedLocalAssets(
+    List<LocalAsset> assets,
+    String ownerId, {
+    required bool Function() canContinue,
+  }) async {
+    final current = <LocalAsset>[];
+    for (final asset in assets) {
+      final stored = await _localAssetRepository.get(asset.id);
+      if (stored == null ||
+          stored.checksum != asset.checksum ||
+          stored.remoteId != asset.remoteId ||
+          stored.isMotionPhoto != asset.isMotionPhoto) {
+        throw const CleanupBackupUnverified();
+      }
+      current.add(stored);
+    }
+    await _verifyBackups(current, ownerId);
+    if (!canContinue()) {
+      throw const CleanupBackupUnverified();
+    }
+    return deleteLocalAssets(current.map((asset) => asset.id).toList());
+  }
 
   Future<RemovalCandidatesResult> getRemovalCandidates(
     String userId,
@@ -29,14 +77,16 @@ class CleanupService {
     AssetKeepType keepMediaType = AssetKeepType.none,
     bool keepFavorites = true,
     Set<String> keepAlbumIds = const {},
-  }) {
-    return _localAssetRepository.getRemovalCandidates(
+  }) async {
+    final result = await _localAssetRepository.getRemovalCandidates(
       userId,
       cutoffDate,
       keepMediaType: keepMediaType,
       keepFavorites: keepFavorites,
       keepAlbumIds: keepAlbumIds,
     );
+    await _verifyBackups(result.assets, userId);
+    return result;
   }
 
   Future<int> deleteLocalAssets(List<String> localIds) async =>

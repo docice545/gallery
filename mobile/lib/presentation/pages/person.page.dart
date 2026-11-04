@@ -89,6 +89,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
       // viewer does not own). See buildPersonTimelineRouteService.
       timelineServiceBuilder: (ref, scope, groupBy) => buildPersonTimelineRouteService(ref, _person, scope, groupBy),
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         appBar: PersonSliverAppBar(
           person: _person,

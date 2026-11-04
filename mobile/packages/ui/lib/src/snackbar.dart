@@ -34,6 +34,33 @@ class SnackbarManager {
     return messenger.showSnackBar(_build(context, message, type, duration, action));
   }
 
+  void compact(String message, {Duration? duration, SnackbarAction? action}) {
+    final messenger = scaffoldMessengerKey.currentState;
+    final context = scaffoldMessengerKey.currentContext;
+    if (messenger == null || context == null) {
+      return;
+    }
+    final colors = Theme.of(context).colorScheme;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: colors.surfaceContainerHigh,
+        duration: duration ?? const Duration(seconds: 4),
+        persist: false,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        content: Text(message, style: TextStyle(color: colors.onSurface, fontSize: 14)),
+        action: action == null
+            ? null
+            : SnackBarAction(
+                label: action.label ?? context.translations.undo,
+                textColor: colors.primary,
+                onPressed: action.onPressed,
+              ),
+      ),
+    );
+  }
+
   SnackBar _build(BuildContext context, String message, SnackbarType type, Duration duration, SnackbarAction? action) {
     final theme = Theme.of(context);
     final colors = theme.extension<ImmichColors>() ?? ImmichColors.harmonized(theme.colorScheme);

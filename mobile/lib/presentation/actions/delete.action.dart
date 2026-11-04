@@ -17,6 +17,7 @@ import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -270,18 +271,25 @@ class DeleteAction extends AssetActionBuilder {
           return;
         }
         result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const [], lease, visual);
-        if (!removeLocalCopies) {
+        if (!removeLocalCopies && context.mounted) {
           // A snackbar can outlive the selection sheet. Capture services and
           // identity, not a disposed WidgetRef; never restore into a new account/server.
           final users = ref.read(userServiceProvider);
           final store = ref.read(storeServiceProvider);
           final acceptedIds = List<String>.unmodifiable(trashIds);
+          final undoError = context.t.error;
           undo = .new(
+            compact: true,
+            undoLabel: context.t.undo,
             onUndo: () async {
               if (users.tryGetMyUser()?.id != lease.userId || store.tryGet(StoreKey.serverEndpoint) != lease.endpoint) {
                 return;
               }
-              await assetService.restoreTrash(acceptedIds);
+              try {
+                await assetService.restoreTrash(acceptedIds);
+              } catch (_) {
+                toastService.error(undoError);
+              }
             },
           );
         }
@@ -360,6 +368,9 @@ class DeleteAction extends AssetActionBuilder {
     await ref.read(assetServiceProvider).trash(remoteIds);
     if (lease.isSessionCurrent()) {
       await visual?.confirmed();
+      if (lease.isSessionCurrent()) {
+        ref.read(hapticFeedbackProvider.notifier).mediumImpact();
+      }
     }
     if (!context.mounted || !lease.isSessionCurrent()) {
       return null;

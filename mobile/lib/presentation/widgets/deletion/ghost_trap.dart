@@ -411,7 +411,23 @@ class _GhostTrashTargetState extends ConsumerState<GhostTrashTarget> {
           : 0.0;
       return SizedBox(
         key: _anchor,
-        child: Transform.scale(scale: 1 + bounce, child: child),
+        child: Transform.rotate(
+          angle: math.sin(t * math.pi * 4) * bounce,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                if (bounce > 0)
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: bounce * 2),
+                    blurRadius: 12,
+                    spreadRadius: bounce * 20,
+                  ),
+              ],
+            ),
+            child: Transform.scale(scale: 1 + bounce, child: child),
+          ),
+        ),
       );
     },
   );
@@ -513,8 +529,8 @@ class _RenderGhostReflow extends RenderProxyBox {
   }
 }
 
-/// Strip deformation keeps a single decoded image and a bounded 16 draw calls.
-/// Progress: lift 0–120, curl 120–350, intake 350–520, target/reflow 520–640 ms.
+/// A captured thumbnail follows a curved energy trail into the real target.
+/// One image draw per frame; no full-resolution decoding or image-strip distortion.
 class GhostTrapPainter extends CustomPainter {
   GhostTrapPainter({
     required this.image,
@@ -550,43 +566,40 @@ class GhostTrapPainter extends CustomPainter {
       );
       return;
     }
-    final ms = progress * 640;
-    if (ms >= 530) {
+    final travel = Curves.easeInOutCubic.transform((progress / .82).clamp(0, 1));
+    if (travel >= 1) {
       return;
     }
-    final lift = Curves.easeOutCubic.transform((ms / 120).clamp(0, 1));
-    final curl = Curves.easeInOutCubic.transform(((ms - 120) / 230).clamp(0, 1));
-    final intake = Curves.easeInCubic.transform(((ms - 350) / 180).clamp(0, 1));
-    final start = source.center - Offset(0, 8 * lift);
-    final bend = Offset.lerp(start, target, .45)! + Offset(source.width * .16, -source.height * .16);
+    final start = source.center;
+    final bend = Offset.lerp(start, target, .5)! - Offset(0, math.min(100, source.height * .35));
     final center =
-        start * math.pow(1 - intake, 2).toDouble() + bend * (2 * intake * (1 - intake)) + target * intake * intake;
-    final width = source.width * (1 + .035 * lift) * (1 - .58 * curl) * (1 - intake);
-    final height = source.height * (1 + .24 * curl) * (1 - intake);
+        start * ((1 - travel) * (1 - travel)) + bend * (2 * travel * (1 - travel)) + target * (travel * travel);
+    final trail = Path()
+      ..moveTo(start.dx, start.dy)
+      ..quadraticBezierTo(bend.dx, bend.dy, center.dx, center.dy);
+    canvas.drawPath(
+      trail,
+      Paint()
+        ..color = glow.withValues(alpha: math.sin(travel * math.pi) * .35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2 + 4 * (1 - travel)
+        ..strokeCap = StrokeCap.round,
+    );
+    final scale = 1 - .94 * travel;
+    final rect = Rect.fromCenter(center: Offset.zero, width: source.width * scale, height: source.height * scale);
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    canvas.rotate(.18 * curl * (1 - intake));
-    if (curl == 0) {
-      final rect = Rect.fromCenter(center: Offset.zero, width: width, height: height);
-      canvas.drawShadow(
-        Path()..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(7))),
-        glow.withValues(alpha: .28),
-        5 * lift,
-        false,
-      );
-    }
-    final paint = Paint()..filterQuality = FilterQuality.low;
-    for (var strip = 0; strip < 16; strip++) {
-      final y = strip / 16;
-      final taper = 1 - curl * .72 * y;
-      final shift = math.sin(y * math.pi * 1.5) * width * .23 * curl;
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(0, image.height * y, image.width.toDouble(), image.height / 16),
-        Rect.fromLTWH(-width * taper / 2 + shift, -height / 2 + height * y, width * taper, height / 16 + .35),
-        paint,
-      );
-    }
+    canvas.rotate(math.sin(travel * math.pi) * .12);
+    final outline = RRect.fromRectAndRadius(rect, const Radius.circular(10));
+    canvas.clipRRect(outline);
+    canvas.drawImageRect(
+      image,
+      src,
+      rect,
+      Paint()
+        ..filterQuality = FilterQuality.low
+        ..color = Colors.white.withValues(alpha: 1 - travel * travel),
+    );
     canvas.restore();
   }
 

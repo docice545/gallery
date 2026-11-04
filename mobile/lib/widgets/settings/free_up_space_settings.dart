@@ -13,6 +13,7 @@ import 'package:immich_mobile/providers/cleanup.provider.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
+import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/utils/bytes_units.dart';
 import 'package:intl/intl.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -121,7 +122,15 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
   Future<void> _scanAssets() async {
     ref.read(hapticFeedbackProvider.notifier).mediumImpact();
 
-    await ref.read(cleanupProvider.notifier).scanAssets();
+    try {
+      await ref.read(cleanupProvider.notifier).scanAssets();
+    } on CleanupBackupUnverified {
+      if (mounted) {
+        setState(() => _hasScanned = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.t.cleanup_backup_unverified)));
+      }
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -150,11 +159,19 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
           _DeleteConfirmationDialog(assetCount: state.assetsToDelete.length, cutoffDate: state.selectedDate!),
     );
 
-    if (confirmed != true || !context.mounted) {
+    if (confirmed != true || !context.mounted || !identical(state, ref.read(cleanupProvider))) {
       return;
     }
 
-    final deletedCount = await ref.read(cleanupProvider.notifier).deleteAssets();
+    final int deletedCount;
+    try {
+      deletedCount = await ref.read(cleanupProvider.notifier).deleteAssets();
+    } on CleanupBackupUnverified {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.t.cleanup_backup_unverified)));
+      }
+      return;
+    }
 
     if (mounted && deletedCount > 0) {
       ref.read(hapticFeedbackProvider.notifier).heavyImpact();
@@ -274,7 +291,7 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                   borderRadius: const BorderRadius.all(Radius.circular(12)),
                   border: Border.all(color: context.primaryColor.withValues(alpha: 0.25)),
                 ),
-                child: Text(context.t.free_up_space_description, style: context.textTheme.bodyMedium),
+                child: Text(context.t.cleanup_verified_copies_hint, style: context.textTheme.bodyMedium),
               ),
             ),
 
@@ -314,9 +331,7 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                       ),
                     ),
                     subtitle: Text(
-                      hasKeepSettings
-                          ? context.t.keeping(items: getKeepSettingsSummary())
-                          : context.t.keep_on_device_hint,
+                      hasKeepSettings ? getKeepSettingsSummary() : context.t.keep_on_device_hint,
                       style: context.textTheme.bodySmall?.copyWith(
                         color: hasKeepSettings ? context.colorScheme.primary : context.colorScheme.onSurfaceVariant,
                       ),
@@ -413,7 +428,7 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                 Step(
                   stepStyle: styleForState(step1State),
                   title: Text(
-                    context.t.select_cutoff_date,
+                    context.t.cleanup_select_age,
                     style: context.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: step1State == StepState.complete
@@ -433,7 +448,7 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                   content: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(context.t.cutoff_date_description, style: subtitleStyle),
+                      Text(context.t.cleanup_select_age_hint, style: subtitleStyle),
                       const SizedBox(height: 16),
                       GridView.count(
                         shrinkWrap: true,

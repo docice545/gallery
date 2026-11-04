@@ -332,6 +332,7 @@ class _AssetTileWidget extends ConsumerWidget {
     final multiSelectState = ref.read(multiSelectProvider);
 
     if (multiSelectState.forceEnable || multiSelectState.isEnabled) {
+      ref.read(hapticFeedbackProvider.notifier).selectionClick();
       ref.read(multiSelectProvider.notifier).toggleAssetSelection(asset);
     } else {
       final timeline = ref.read(timelineServiceProvider);

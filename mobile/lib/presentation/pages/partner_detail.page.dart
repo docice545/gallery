@@ -28,6 +28,7 @@ class PartnerDetailPage extends StatelessWidget {
       timelineServiceBuilder: (ref, scope, groupBy) =>
           ref.watch(timelineFactoryProvider).remoteAssets(partner.id, groupBy: groupBy, temporalScope: scope),
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         appBar: MesmerizingSliverAppBar(title: partner.name, icon: Icons.person_outline),
         topSliverWidget: _InfoBox(partner: partner),
