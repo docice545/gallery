@@ -23,4 +23,10 @@ The existing cache still separates language, owner and server endpoint, rejects 
 - `mobile/test/presentation/pages/place_localization_test.dart`: actual Places → generated route → detail title, ru/en/ru, localized search, scrolling without per-tile lookup. Optional `FOTO_CAPTURE_PLACES=true` produces four **synthetic Flutter UI renders**, with an offline map and placeholder thumbnails; these are not Samsung screenshots or user photographs.
 - Existing scrubber tests retain one fixed, transient, non-interactive indicator and test localized metadata/absence.
 
-CI execution is pending for the new source; see `BUILD37_CHECKLIST.md` for the current result. Real Samsung after-screenshots, offline language switching and native name enrichment remain device acceptance, separately from software tests.
+The actual-page suite and screenshot job passed on source `f1b18050a8070059986480c840a10ff30e1d4dd9`; artifacts are recorded in `9727269889061641d3008256ae186027648c5859`. See the [receipt](measurements.json) and [CI job](https://github.com/docice545/gallery/actions/runs/41770989575/job/126380378671).
+
+| Russian list | Russian detail | English after language switch | Localized search |
+| --- | --- | --- | --- |
+| ![List](../../../mobile/test/presentation/pages/goldens/places_ru_list.png) | ![Detail](../../../mobile/test/presentation/pages/goldens/places_ru_detail.png) | ![English](../../../mobile/test/presentation/pages/goldens/places_en_detail.png) | ![Search](../../../mobile/test/presentation/pages/goldens/places_ru_search.png) |
+
+The detail uses an empty synthetic Timeline for label/route review. Real photo membership is asserted separately against SQLite; the displayed zero is not the user's library count. The debug banner belongs to the Flutter fixture, not production. See `BUILD37_CHECKLIST.md` for all current checks. Real Samsung after-screenshots, offline language switching and native name enrichment remain device acceptance, separately from software tests.

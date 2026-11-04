@@ -127,6 +127,13 @@
 
 ## Последний CI и текущий следующий шаг
 
+[Places actual-page renders](https://github.com/docice545/gallery/actions/runs/41770989575/job/126380378671): PASS, source `f1b18050a`, artifacts `9727269889061641d3008256ae186027648c5859`; [receipt](specs/design/places-localization-review/measurements.json). Четыре изображения list/detail ru/en/search проверены визуально: подписи согласованы. Сцена синтетическая, offline map/placeholder thumbnails, detail имеет0 fixture assets; неизменность реального SQLite состава проверяется отдельным repository suite. Это не Samsung-снимки.
+
+**Новый Live Photo blocker:** [PR21 native job](https://github.com/docice545/gallery/actions/runs/41768718742/job/126374623108) FAIL на реальном emulator playback: position147→1485ms, но native event `position-advanced` пришёл раньше method ACK `play-request-accepted`. Причина — два асинхронных канала. Добавлен pending-ACK gate: реальные observed frames буферизуются до успешного ACK; revoked route/lifecycle/visibility/generation отбрасывает поздний ACK; early end не сообщает завершение до ACK. Четыре воспроизводящих widget cases добавлены; строгий native expectation неизменён. Проверка исправления ещё ожидается.
+
+[PR21 Web E2E](https://github.com/docice545/gallery/actions/runs/41768718668/job/126374138234) PASS на `e4d09ea5c`; также Server unit/medium/E2E amd64+arm64, Web unit/lint, full Mobile, iOS simulator, Android5.8/5.9, API/OpenAPI/SQL PASS. Native FAIL выше не скрывается общим результатом; offline emulator ещё ожидается.
+
+
 `e8077f172`: [focused CI](https://github.com/docice545/gallery/actions/runs/41770095791/job/126377504839) **754 PASS, 2 ERROR, 0 SKIP**; [Dart analysis](https://github.com/docice545/gallery/actions/runs/41770095766/job/126378020319) PASS. Все album reveal и предыдущие deletion guard/navigation tests прошли. Два новых actual Places page tests обнаружили недекларированные scoped зависимости `placeDisplayNamesProvider`; исправление добавляет зависимости persisted/resolved providers, не отключая assertions. Cache-only, locale/fallback и real SQLite membership tests уже PASS. Снимки ещё не получены; подготовлен explicit review job с whitelist PNG, source SHA guard и non-force publication в Draft branch, 14 guard tests PASS локально.
 
 
