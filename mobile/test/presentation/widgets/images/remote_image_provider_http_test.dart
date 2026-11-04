@@ -154,6 +154,9 @@ void main() {
     final pendingPreview = Completer<Object?>();
     response = (args) async {
       final size = Uri.parse(args[0]! as String).queryParameters['size'];
+      if (size == 'thumbnail') {
+        expect(args.sublist(3, 5), [250, 250], reason: 'the provisional image keeps its small decode budget');
+      }
       return size == 'thumbnail' ? await encodedImage() : await pendingPreview.future;
     };
     final provider = RemoteImageProvider.thumbnail(
@@ -188,6 +191,53 @@ void main() {
       stream.removeListener(listener);
       provider.cancel();
       pendingPreview.complete([null]);
+      for (final image in images) {
+        image.dispose();
+      }
+    }
+  });
+
+  test('a delayed smaller thumbnail cannot replace an already decoded preview', () async {
+    final delayedThumbnail = Completer<Object?>();
+    List<Object?> frame(int width) {
+      final pointer = malloc<Uint8>(width * width * 4);
+      pointer.asTypedList(width * width * 4).fillRange(0, width * width * 4, 255);
+      return [
+        <Object?, Object?>{'pointer': pointer.address, 'width': width, 'height': width, 'rowBytes': width * 4},
+      ];
+    }
+
+    response = (args) async => Uri.parse(args[0]! as String).queryParameters['size'] == 'thumbnail'
+        ? await delayedThumbnail.future
+        : frame(16);
+    final provider = RemoteImageProvider.thumbnail(
+      assetId: 'preview-first',
+      thumbhash: 'revision',
+      remoteMediaSize: AssetMediaSize.preview,
+    );
+    final stream = provider.resolve(ImageConfiguration.empty);
+    final images = <ImageInfo>[];
+    final first = Completer<void>();
+    final listener = ImageStreamListener((image, _) {
+      images.add(image);
+      if (!first.isCompleted) {
+        first.complete();
+      }
+    });
+    stream.addListener(listener);
+    try {
+      await first.future.timeout(const Duration(seconds: 2));
+      expect(images.map((image) => image.image.width), [16]);
+      expect(requested.any((url) => Uri.parse(url).queryParameters['size'] == 'thumbnail'), isTrue);
+      delayedThumbnail.complete(frame(8));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(images.map((image) => image.image.width), [16], reason: 'late low resolution cannot downgrade the tile');
+    } finally {
+      stream.removeListener(listener);
+      provider.cancel();
+      if (!delayedThumbnail.isCompleted) {
+        delayedThumbnail.complete([null]);
+      }
       for (final image in images) {
         image.dispose();
       }

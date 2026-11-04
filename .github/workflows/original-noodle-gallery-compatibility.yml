@@ -673,6 +673,8 @@ jobs:
             # each fixture has distinct bytes and survives server deduplication.
             convert -size 1080x1920 xc:white -fill black -draw 'rectangle 100,30 980,210' \
               -fill blue -draw 'rectangle 100,1710 980,1890' \
+              -fill '#f01ac2' -draw 'rectangle 400,700 680,900' \
+              -fill '#19d28a' -draw 'rectangle 400,1020 680,1220' \
               -fill white -pointsize 80 -gravity North -annotate +0+65 "$year" "$fixture"
             response=$(curl --fail --silent -X POST "$base/assets" -H "Authorization: Bearer $token" \
               -F "assetData=@$fixture" -F "filename=Screenshot_edge-content-$year.png" \

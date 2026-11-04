@@ -77,6 +77,18 @@ mise exec -- dart run tool/capture_frames.dart "$profile_vm_uri" viewer 30 \
 - Удалить последнюю фотографию открытого тестового local album: после подтверждённого удаления возврат к списку; loading/refresh/OS denial этого не делают. Уведомление читаемо поверх Years/Months/All; после скрытия Months работает.
 - Места: Аннино list/detail, Восточное Дегунино при доступномru, unknown source fallback, ru→en→ru онлайн/офлайн, search/Timeline. Сохранить place identity/координаты/наборassetIDs до/после; пользовательские album titles/EXIF неизменны. Проверить отсутствие геокодирования приscroll.
 
+## Samsung: повторная офлайн-приёмка C9
+
+На том же установленном build записать versionCode/sourceSHA, Android/OneUI, endpoint безсекретов, активные фильтры и видимые даты. Использовать уже доступные фото/тестовыйаккаунт: ничего не удалять, не очищать app data/cache и не переустанавливать приложение ради проверки.
+
+1. Онлайн открыть Фото. Зафиксировать видимые local-only, server-only cached и checksum-linked local/server плитки. Проверить реальные pixels, не только дату/blurhash/рамки. Дождаться ранее предусмотренного thumbnail warmup; прогрев Viewer не нужен.
+2. Сделать Backend недоступным **со стороны телефона** (отключить его доступ к сети/серверу; production Backend не останавливать). Отдельно проверить airplane mode и Wi-Fi, который остаётся подключённым, но не достигает Backend: второй случай не обязан быстро завершатьHTTP ошибкой.
+3. Сначала вернуться изфона, затем закрыть процесс обычным способом и снова открыть Фото. Локальные и доступные cached pixels должны появиться независимо от sync/auth HTTP; mergedcopy остаётсяоднойплиткой, список не сбрасывается приошибке. Проверить холодныйстарт в Classic и immersive без измененияUX.
+4. Wi-Fi→mobile→Wi-Fi и возвращение доступности Backend: новые preview могут повысить качество, позднийthumbnail не ухудшает его, нет дублей/потериselection/зависшейсеройобласти. Записать времядо pixels и INFO ошибки sync/image отдельно от LivePhoto событий.
+5. На отдельной чистой тестовой конфигурации проверить offline first launch с разрешёнными локальными фото, затем действительно пустую библиотеку: корректный empty state разрешён только при отсутствии данных, доступных в выбраннойобласти. Неочищать рабочуюFOTO радиэтогошага. Системные media permissions/выбранныеbackup albums фиксировать впротоколе.
+
+Автотест T17 воспроизводит блокирование cachedthumbnail зависшимpreview. Это не устанавливает единственную причину наблюденияна Samsung; реальная C9 приёмка остаётся pending. Приложить recording/логи ипроверкуточныхassetIDs безпубликацииличныхфото/токенов.
+
 ## iPhone / SideStore H5
 
 Требует macOS для unsigned Runner+extensions и существующей настройки SideStore пользователя. Не генерировать сертификаты/ключи. До установки сверить archive/IPA sourceSHA/version/build/bundle IDs, extensions/AppGroups/entitlements, SHA256. SimulatorPASS не считается установкой на iPhone.

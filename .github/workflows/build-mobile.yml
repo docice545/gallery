@@ -275,6 +275,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before universal Android build
+        # The SDK/NDK, Java and source checkout stay intact. This is never an HP step.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - name: Preserve source version and require a credentials-free workspace
         id: source
         run: |

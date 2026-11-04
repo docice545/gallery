@@ -73,6 +73,31 @@ Path('lock-checked').touch()
                 self.assertEqual((root / 'lock-checked').exists(), status == 0)
                 self.assertIn('FINAL_JETIFIER_DIAGNOSTIC', (root / 'unsigned-apk-build.log').read_text())
 
+    def test_unsigned_cleanup_is_hosted_only_and_preserves_android_java_checkout(self):
+        command = step_body('build-mobile.yml', 'Reclaim unused hosted toolchains before universal Android build')
+        for actions, runner in [('true', 'github-hosted'), ('true', 'self-hosted'), ('false', 'github-hosted')]:
+            with self.subTest(actions=actions, runner=runner), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fake(root / 'sudo', """#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+with Path('mutations').open('a') as output:
+    output.write(json.dumps(sys.argv[1:]) + '\\n')
+""")
+                env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                       'GITHUB_ACTIONS': actions, 'RUNNER_ENVIRONMENT': runner}
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
+                                        env=env, text=True, capture_output=True, timeout=10)
+                allowed = actions == 'true' and runner == 'github-hosted'
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                mutations = root / 'mutations'
+                self.assertEqual(mutations.exists(), allowed)
+                if allowed:
+                    self.assertEqual([json.loads(line) for line in mutations.read_text().splitlines()], [
+                        ['rm', '-rf', '/usr/share/dotnet', '/opt/ghc', '/opt/hostedtoolcache/CodeQL'],
+                        ['docker', 'image', 'prune', '--all', '--force'],
+                    ])
+
     def test_api_failure_is_not_hidden_by_tee_and_evidence_is_bounded(self):
         workflow = 'original-noodle-gallery-compatibility.yml'
         command = step_body(workflow, 'Run disposable backend API smoke flows')

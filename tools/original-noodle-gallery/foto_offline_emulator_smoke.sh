@@ -400,11 +400,7 @@ adb_run shell screencap -p /sdcard/foto-online.png
 adb_run pull /sdcard/foto-online.png "$artifact_dir/online.png" >/dev/null
 
 assert_rendered_capture() {
-  local file=$1 colors
-  test -s "$file"
-  command -v identify >/dev/null
-  colors=$(identify -format '%k' "$file")
-  test "$colors" -gt 8
+  python3 tools/original-noodle-gallery/assert_offline_pixels.py "$1"
 }
 assert_rendered_capture "$artifact_dir/online.png"
 
