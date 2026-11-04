@@ -227,8 +227,8 @@ void main() {
             StoreKey.currentUser,
             UserDto(id: 'owner', email: 'owner@example.test', name: 'Owner', profileChangedAt: DateTime(2026)),
           );
+          // StoreRepository's UserDto serialization already upserts auth_user_entity.
           await ctx.newUser(id: 'owner');
-          await ctx.newAuthUser(id: 'owner');
           if (source != 'empty') {
             await ctx.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
             await ctx.newLocalAsset(
