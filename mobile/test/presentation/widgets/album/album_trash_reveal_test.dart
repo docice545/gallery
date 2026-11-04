@@ -34,7 +34,7 @@ void main() {
     expect(tester.getSize(row), before);
     expect(find.text('Camera'), findsOneWidget);
     expect(tester.getSize(find.byType(FotoIconButton)), const Size(48, 48));
-    await tester.drag(find.text('Camera'), const Offset(160, 0));
+    await tester.drag(find.byType(AlbumTrashReveal), const Offset(160, 0));
     await tester.pumpAndSettle();
     expect(deleted, 0);
     await tester.tap(find.text('Camera'));

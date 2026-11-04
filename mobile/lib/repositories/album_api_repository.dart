@@ -1,8 +1,8 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/album/album_trash_snapshot.model.dart';
-import 'package:immich_mobile/extensions/asset_extensions.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
+import 'package:immich_mobile/extensions/asset_extensions.dart';
 import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/repositories/api.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';

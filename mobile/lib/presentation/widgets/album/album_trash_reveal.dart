@@ -92,10 +92,13 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
                           ((details.primaryVelocity ?? 0) <= 200 && _controller.value >= .5),
                     ),
               onHorizontalDragCancel: _busy ? null : () => _settle(_controller.value >= .5),
-              onTap: _controller.value == 0 ? null : () => _settle(false),
+              onTap: _busy || _controller.value == 0 ? null : () => _settle(false),
               child: AbsorbPointer(
                 absorbing: _controller.value != 0 || _busy,
-                child: ColoredBox(color: Theme.of(context).colorScheme.surface, child: child),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Material(color: Theme.of(context).colorScheme.surface, child: child),
+                ),
               ),
             ),
           ),

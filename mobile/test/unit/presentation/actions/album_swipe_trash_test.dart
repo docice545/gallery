@@ -95,7 +95,7 @@ void main() {
     );
     await reveal(tester);
     verifyNever(() => repository.getAssets(any()));
-    await tester.drag(find.text('Camera'), const Offset(200, 0));
+    await tester.drag(find.byType(AlbumTrashReveal), const Offset(200, 0));
     await tester.pumpAndSettle();
     expect(find.byType(ConfirmDialog), findsNothing);
     await reveal(tester);
