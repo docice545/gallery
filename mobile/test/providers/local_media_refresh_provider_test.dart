@@ -24,10 +24,11 @@ class _Lifecycle extends AppLifeCycleNotifier {
 
 class _Manager extends BackgroundSyncManager {
   int calls = 0;
+  final arguments = <(bool, bool)>[];
+
   @override
   Future<void> syncLocal({bool full = false, bool enqueue = false}) async {
-    expect(full, isFalse);
-    expect(enqueue, isTrue);
+    arguments.add((full, enqueue));
     calls++;
   }
 }
@@ -64,22 +65,7 @@ void main() {
         appStateProvider.overrideWith((ref) => _Lifecycle(ref)),
       ],
     );
-    final timers = <(Duration, Timer)>[];
-    final timerEvents = <String>[];
-    final listener = runZoned(
-      () => container.listen(localMediaRefreshProvider, (_, _) {}),
-      zoneSpecification: ZoneSpecification(
-        createTimer: (self, parent, zone, duration, callback) {
-          timerEvents.add('create $duration at ${tester.binding.clock.now()}');
-          final timer = parent.createTimer(zone, duration, () {
-            timerEvents.add('fire $duration at ${tester.binding.clock.now()}');
-            callback();
-          });
-          timers.add((duration, timer));
-          return timer;
-        },
-      ),
-    );
+    final listener = container.listen(localMediaRefreshProvider, (_, _) {});
     var disposed = false;
     Future<void> disposeObserver() async {
       if (disposed) {
@@ -112,13 +98,8 @@ void main() {
     expect(manager.calls, 0);
     await tester.pump(const Duration(milliseconds: 1));
     expect(syncErrors, isEmpty);
-    expect(
-      manager.calls,
-      1,
-      reason:
-          'clock=${tester.binding.clock.now()} events=$timerEvents '
-          'timers=${timers.map((t) => (t.$1, t.$2.isActive))} toggles=$toggles',
-    );
+    expect(manager.arguments, [(false, true)]);
+    expect(manager.calls, 1);
     await messenger.handlePlatformMessage(
       notify.name,
       notify.codec.encodeMethodCall(const MethodCall('change', {'type': 'insert', 'id': '123'})),
@@ -142,11 +123,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     expect(toggles, [true, false, true]);
     expect(manager.calls, 3);
+    expect(manager.arguments, [(false, true), (false, true), (false, true)]);
     expect(syncErrors, isEmpty);
     await disposeObserver();
     expect(toggles, [true, false, true, false]);
     expect(PhotoManager.notifyingOfChange, isFalse);
     await tester.pump(const Duration(seconds: 10));
     expect(manager.calls, 3);
+    debugDefaultTargetPlatformOverride = null;
   });
 }

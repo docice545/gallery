@@ -140,7 +140,7 @@ class _AssetInfoTitle extends ConsumerWidget {
             dateFormatted,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: context.textTheme.labelLarge?.copyWith(color: Colors.white),
+            style: context.textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
         Flexible(
@@ -148,7 +148,9 @@ class _AssetInfoTitle extends ConsumerWidget {
             timeFormatted,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: context.textTheme.labelMedium?.copyWith(color: Colors.white70),
+            style: context.textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.72),
+            ),
           ),
         ),
       ],

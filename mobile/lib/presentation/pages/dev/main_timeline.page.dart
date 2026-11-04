@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/services/offline_thumbnail_warmup.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/timeline_compact_selection.dart';
 import 'package:immich_mobile/presentation/widgets/feature_message/feature_message_dialog.widget.dart';
 import 'package:immich_mobile/presentation/widgets/filter_sheet/filter_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
@@ -180,13 +181,16 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
                 child: FaceAwareThumbnailScope(
                   child: Timeline(
                     denseLayout: true,
+                    bottomSheet: const TimelineCompactSelection(),
+                    dockGroupingPill: true,
                     topSliverWidget: SliverMainAxisGroup(
                       slivers: [
                         const PhotosFilterSubheader(),
                         if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
+                        if (showMemories) const SliverToBoxAdapter(child: SizedBox(height: 24)),
                       ],
                     ),
-                    topSliverWidgetHeight: showMemories ? memoryLaneMaxHeight : 0,
+                    topSliverWidgetHeight: showMemories ? memoryLaneMaxHeight + 24 : 0,
                     showStorageIndicator: true,
                     appBar: const PhotosTimelineAppBar(),
                     bottomSliverWidget: const _SearchLoadMoreFooter(),

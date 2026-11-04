@@ -34,6 +34,8 @@ class TimelineDragRegion extends StatefulWidget {
 class _TimelineDragRegionState extends State<TimelineDragRegion> {
   late TimelineAssetIndex? assetUnderPointer;
   late TimelineAssetIndex? anchorAsset;
+  Offset? _dragStartPosition;
+  static const double _dragActivationDistance = 12.0;
 
   // Scroll related state
   static const double scrollOffset = 0.10;
@@ -130,6 +132,7 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
 
     final initialHit = _getValueKeyAtPosition(event.globalPosition);
     anchorAsset = initialHit;
+    _dragStartPosition = initialHit == null ? null : event.globalPosition;
     assetUnderPointer = initialHit;
     if (initialHit == null) {
       return;
@@ -143,6 +146,7 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
   void _onLongPressEnd() {
     final wasActive = anchorAsset != null;
     anchorAsset = null;
+    _dragStartPosition = null;
     assetUnderPointer = null;
     scrollNotified = false;
     scrollTimer?.cancel();
@@ -175,6 +179,11 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
     } else {
       scrollTimer?.cancel();
       scrollTimer = null;
+    }
+
+    final start = _dragStartPosition;
+    if (start != null && (event.globalPosition - start).distance < _dragActivationDistance) {
+      return;
     }
 
     final currentlyTouchingAsset = _getValueKeyAtPosition(event.globalPosition);

@@ -90,7 +90,11 @@ const fotoIconPaths = <FotoIconKind, String>{
   FotoIconKind.back: "<path d=\"M15 5.5 8.5 12 15 18.5\"/>",
   FotoIconKind.more: "<path d=\"M5 12h.1 M12 12h.1 M19 12h.1\"/>",
   FotoIconKind.share:
-      "<path d=\"M12 15V3.5 M8.5 7 12 3.5 15.5 7\"/><path d=\"M5 11v7.5A2 2 0 0 0 7 20.5h10a2 2 0 0 0 2-2V11\"/>",
+      "<path d=\"M8.59 13.51 15.42 17.49\"/>"
+      "<path d=\"M15.41 6.51 8.59 10.49\"/>"
+      "<circle cx=\"18\" cy=\"5\" r=\"3\"/>"
+      "<circle cx=\"6\" cy=\"12\" r=\"3\"/>"
+      "<circle cx=\"18\" cy=\"19\" r=\"3\"/>",
   FotoIconKind.link:
       "<path d=\"M10 8 8.5 6.5a3.5 3.5 0 0 0-5 5l3 3a3.5 3.5 0 0 0 5 0\"/><path d=\"M14 16l1.5 1.5a3.5 3.5 0 0 0 5-5l-3-3a3.5 3.5 0 0 0-5 0\"/><path d=\"M8.5 10.5l7 3\"/>",
   FotoIconKind.favorite: "<path d=\"M12 20 4.5 12.6C-.5 7 7 1.5 12 7c5-5.5 12.5 0 7.5 5.6Z\"/>",

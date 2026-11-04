@@ -116,7 +116,7 @@ void main() {
         expect(tester.state(find.byType(EditImagePage)), same(state));
         expect(editorPhotoRect(tester), photo);
         expect(tester.getRect(find.byKey(const Key('editor-bottom-panel'))), dock);
-        expect(dock.height, 56 + 24);
+        expect(dock.height, 56);
       }
     });
   }
@@ -196,7 +196,7 @@ void main() {
         expect(editorPhotoRect(tester), baseline);
         expect(tester.getRect(find.byKey(const Key('editor-image-surface'))), image);
         final dock = tester.getRect(find.byKey(const Key('editor-bottom-panel')));
-        expect(dock.height, 80);
+        expect(dock.height, 56);
         final name = 'theme_${brightness.name}_$state';
         debugPrint('EDITOR_VIEWPORT $name photo=$baseline image=$image dock=$dock');
         await expectLater(find.byType(Overlay), matchesGoldenFile('goldens/fixed_dock_$name.png'));

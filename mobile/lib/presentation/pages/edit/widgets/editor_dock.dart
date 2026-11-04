@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -105,29 +106,45 @@ class _EditorDockState extends State<EditorDock> {
     child: TapRegion(
       groupId: this,
       onTapOutside: (_) => widget.onDismiss(),
-      child: Material(
-        key: const Key('editor-bottom-panel'),
-        color: Theme.of(context).colorScheme.surfaceContainerHigh.withValues(alpha: .94),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            key: _dockKey,
-            height: EditorDock.height,
-            width: double.infinity,
-            child: Row(
-              key: const Key('editor-fixed-dock'),
-              children: [
-                if (widget.leading != null) widget.leading!,
-                Expanded(
-                  child: SingleChildScrollView(
-                    key: const Key('editor-dock-scroll'),
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                    child: Row(children: widget.controls),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.symmetric(horizontal: 14),
+        child: Center(
+          heightFactor: 1,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+              child: Material(
+                key: const Key('editor-bottom-panel'),
+                color: Theme.of(context).colorScheme.surfaceContainerHigh.withValues(alpha: .94),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .55)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: SizedBox(
+                    key: _dockKey,
+                    height: EditorDock.height,
+                    child: Row(
+                      key: const Key('editor-fixed-dock'),
+                      children: [
+                        if (widget.leading != null) widget.leading!,
+                        Expanded(
+                          child: SingleChildScrollView(
+                            key: const Key('editor-dock-scroll'),
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            child: Row(children: widget.controls),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),

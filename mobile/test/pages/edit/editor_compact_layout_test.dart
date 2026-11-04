@@ -132,9 +132,9 @@ void main() {
         await pumpCompactEditor(tester, size: size, padding: padding, scale: scale, portrait: true, russian: true);
         final photo = editorPhotoRect(tester);
         final dockHeight = tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height;
-        expect(dockHeight, 56 + padding.bottom);
+        expect(dockHeight, 56);
         expect(photo.width, closeTo(size.width - padding.left - padding.right, .01));
-        expect(photo.height, closeTo(size.height - padding.top - kToolbarHeight - dockHeight, .01));
+        expect(photo.height, closeTo(size.height - padding.top - kToolbarHeight - dockHeight - padding.bottom, .01));
         expect(
           find.descendant(of: find.byKey(const Key('editor-mode-bar')), matching: find.byType(Text)),
           findsNothing,

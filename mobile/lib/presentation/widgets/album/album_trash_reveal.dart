@@ -58,6 +58,7 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
       builder: (context, child) => Stack(
         alignment: Alignment.centerRight,
         children: [
+          Positioned.fill(child: ColoredBox(color: Theme.of(context).colorScheme.errorContainer)),
           Positioned.fill(
             child: Align(
               alignment: Alignment.centerRight,
@@ -88,10 +89,8 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
               ),
             ),
           ),
-          ClipRect(
-            // Reveal the trailing action without pushing the album cover off
-            // screen. Its real painted pixels remain the animation source.
-            clipper: _RevealClipper(_extent * _controller.value),
+          Transform.translate(
+            offset: Offset(-_extent * _controller.value, 0),
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onHorizontalDragUpdate: _busy
@@ -118,13 +117,4 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
       ),
     ),
   );
-}
-
-class _RevealClipper extends CustomClipper<Rect> {
-  const _RevealClipper(this.reveal);
-  final double reveal;
-  @override
-  Rect getClip(Size size) => Rect.fromLTWH(0, 0, (size.width - reveal).clamp(0, size.width), size.height);
-  @override
-  bool shouldReclip(_RevealClipper oldClipper) => oldClipper.reveal != reveal;
 }

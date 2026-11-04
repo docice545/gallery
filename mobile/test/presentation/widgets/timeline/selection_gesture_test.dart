@@ -84,6 +84,149 @@ void main() {
     expect(ended, 1);
   });
 
+  testWidgets('holding one photo without movement never enters another photo', (tester) async {
+    final started = <int>[];
+    final entered = <int>[];
+    var ended = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TimelineDragRegion(
+          onStart: (index) => started.add(index.assetIndex),
+          onAssetEnter: (index) => entered.add(index.assetIndex),
+          onEnd: () => ended++,
+          child: Column(
+            children: List.generate(
+              3,
+              (index) => TimelineAssetIndexWrapper(
+                assetIndex: index,
+                segmentIndex: 0,
+                child: SizedBox(
+                  key: ValueKey(index),
+                  width: 400,
+                  height: 100,
+                  child: const ColoredBox(color: Colors.blue),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final gesture = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey(1))));
+
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 1));
+
+    expect(started, [1]);
+    expect(entered, isEmpty);
+
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(started, [1]);
+    expect(entered, isEmpty);
+
+    await gesture.up();
+    await tester.pump();
+
+    expect(ended, 1);
+    expect(entered, isEmpty);
+  });
+
+  testWidgets('small finger movement inside one photo does not enter another', (tester) async {
+    final started = <int>[];
+    final entered = <int>[];
+    var ended = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TimelineDragRegion(
+          onStart: (index) => started.add(index.assetIndex),
+          onAssetEnter: (index) => entered.add(index.assetIndex),
+          onEnd: () => ended++,
+          child: Column(
+            children: List.generate(
+              3,
+              (index) => TimelineAssetIndexWrapper(
+                assetIndex: index,
+                segmentIndex: 0,
+                child: SizedBox(
+                  key: ValueKey(index),
+                  width: 400,
+                  height: 100,
+                  child: const ColoredBox(color: Colors.blue),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final start = tester.getCenter(find.byKey(const ValueKey(1)));
+    final gesture = await tester.startGesture(start);
+
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 1));
+    expect(started, [1]);
+
+    await gesture.moveTo(start + const Offset(4, 5));
+    await tester.pump();
+
+    expect(entered, isEmpty);
+
+    await gesture.up();
+    await tester.pump();
+
+    expect(started, [1]);
+    expect(entered, isEmpty);
+    expect(ended, 1);
+  });
+
+  testWidgets('tiny movement across tile boundary does not trigger range entry', (tester) async {
+    final started = <int>[];
+    final entered = <int>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TimelineDragRegion(
+          onStart: (index) => started.add(index.assetIndex),
+          onAssetEnter: (index) => entered.add(index.assetIndex),
+          child: Column(
+            children: List.generate(
+              3,
+              (index) => TimelineAssetIndexWrapper(
+                assetIndex: index,
+                segmentIndex: 0,
+                child: SizedBox(
+                  key: ValueKey(index),
+                  width: 400,
+                  height: 100,
+                  child: const ColoredBox(color: Colors.blue),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final first = tester.getTopLeft(find.byKey(const ValueKey(1)));
+    final start = first + const Offset(100, 2);
+
+    final gesture = await tester.startGesture(start);
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 1));
+
+    expect(started, [1]);
+
+    await gesture.moveTo(start + const Offset(0, -5));
+    await tester.pump();
+
+    expect(entered, isEmpty);
+
+    await gesture.up();
+    await tester.pump();
+  });
+
   testWidgets('a date header is not a photo selection anchor', (tester) async {
     var started = 0;
     await tester.pumpWidget(
