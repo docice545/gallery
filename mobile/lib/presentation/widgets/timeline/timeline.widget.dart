@@ -229,6 +229,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   TimelineZoomAnchor? _scheduledZoomAnchor;
   TimelineZoomAnchor? _resolvingZoomAnchor;
   List<Segment>? _lastRenderedSegments;
+  int _selectionLayoutRevision = 0;
 
   final Debouncer _fastScrollDebouncer = Debouncer(interval: const Duration(milliseconds: 100));
 
@@ -347,6 +348,32 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   }
 
   void _onMultiSelectionToggled(_, bool isEnabled) {
+    final revision = ++_selectionLayoutRevision;
+    if (widget.bottomSheet != null &&
+        !ref.read(multiSelectProvider).forceEnable &&
+        _scrollController.hasClients &&
+        _gridKey.currentContext != null) {
+      final position = _scrollController.position;
+      final oldPixels = position.pixels;
+      final oldStart = _gridStartOffset();
+      final service = ref.read(timelineServiceProvider);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            revision != _selectionLayoutRevision ||
+            _scrollController.positions.length != 1 ||
+            !identical(_scrollController.position, position) ||
+            !identical(ref.read(timelineServiceProvider), service) ||
+            position.pixels != oldPixels) {
+          return;
+        }
+        // Replacing an expanded album header with the pinned count must not
+        // move the selected photo. Use measured sliver extents, not guessed gaps.
+        final target = (oldPixels + _gridStartOffset() - oldStart).clamp(0.0, position.maxScrollExtent);
+        if (target != position.pixels) {
+          position.jumpTo(target);
+        }
+      });
+    }
     EventStream.shared.emit(MultiSelectToggleEvent(isEnabled));
   }
 
@@ -773,6 +800,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final isSelectionMode = ref.watch(multiSelectProvider.select((s) => s.forceEnable));
     final isMultiSelectEnabled = ref.watch(multiSelectProvider.select((s) => s.isEnabled));
     final isMultiSelectStatusVisible = !isSelectionMode && isMultiSelectEnabled;
+    final showSelectionToolbar = isMultiSelectStatusVisible && widget.bottomSheet != null;
     final isBottomWidgetVisible =
         widget.bottomSheet != null && (isMultiSelectStatusVisible || widget.persistentBottomBar);
 
@@ -846,7 +874,9 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                       ? 200
                       : 0;
                   final topPadding =
-                      context.padding.top + (widget.appBar == null && !isSelectionMode ? 0 : kToolbarHeight) + 10;
+                      context.padding.top +
+                      (widget.appBar == null && !isSelectionMode && !showSelectionToolbar ? 0 : kToolbarHeight) +
+                      10;
 
                   const bottomSheetOpenModifier = 120.0;
                   final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
@@ -874,6 +904,20 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                           slivers: [
                             if (isSelectionMode)
                               const SelectionSliverAppBar()
+                            else if (showSelectionToolbar)
+                              SliverAppBar(
+                                key: const ValueKey('timeline-selection-toolbar'),
+                                pinned: true,
+                                automaticallyImplyLeading: false,
+                                backgroundColor: context.colorScheme.surface,
+                                surfaceTintColor: Colors.transparent,
+                                titleSpacing: 16,
+                                centerTitle: false,
+                                title: const Align(
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: MultiSelectStatusButton(),
+                                ),
+                              )
                             else if (widget.appBar != null)
                               widget.appBar!,
                             if (widget.topSliverWidget != null) widget.topSliverWidget!,
@@ -912,7 +956,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                               topSliverWidgetHeight: widget.topSliverWidgetHeight,
                               appBarExpandedHeight: appBarExpandedHeight,
                             ),
-                            hasAppBar: widget.appBar != null,
+                            hasAppBar: widget.appBar != null || showSelectionToolbar || isSelectionMode,
                             showFloatingDate:
                                 widget.immersive ||
                                 ref.watch(appConfigProvider.select((config) => config.timeline.floatingDate)),
@@ -931,15 +975,6 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                               onNotification: _onScrollVelocityNotification,
                               child: timeline,
                             ),
-                            if (isBottomWidgetVisible)
-                              Positioned(
-                                top: MediaQuery.paddingOf(context).top,
-                                left: 25,
-                                child: const SizedBox(
-                                  height: kToolbarHeight,
-                                  child: Center(child: MultiSelectStatusButton()),
-                                ),
-                              ),
                             if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
                           ],
                         );
