@@ -64,7 +64,7 @@ void main() {
           expect(service.totalAssets, 1);
           expect((await service.loadAssets(0, 10)).map((a) => a.id), [survivor]);
           expect(await remote.watchStackCounts().first, {'stack': 1});
-          expect((await remote.getStackChildren((await remote.get(survivor))!)), isEmpty);
+          expect(await remote.getStackChildren((await remote.get(survivor))!), isEmpty);
           for (final group in [GroupAssetsBy.day, GroupAssetsBy.month, GroupAssetsBy.year]) {
             for (final scope in [const TimelineTemporalScope.none(), const TimelineTemporalScope.year(2026)]) {
               final query = repository.main(['owner'], 'owner', group, temporalScope: scope);

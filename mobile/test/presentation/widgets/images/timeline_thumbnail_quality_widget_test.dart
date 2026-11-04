@@ -692,7 +692,7 @@ void main() {
           ),
           overrides: [
             assetServiceProvider.overrideWithValue(assetService),
-            if (stackCounts != null) stackCountsProvider.overrideWith((_) => stackCounts),
+
             thumbnailFaceBoundsProvider.overrideWith((_, _) => Stream.value(const [_topFace])),
           ],
         );

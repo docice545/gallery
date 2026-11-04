@@ -1873,11 +1873,11 @@ String _effectiveStackPrimarySql(String asset, String stack) =>
     '''
 COALESCE(
     (SELECT primary_frame.id FROM remote_asset_entity primary_frame
-     WHERE primary_frame.id = ${stack}.primary_asset_id
-       AND primary_frame.stack_id = ${stack}.id AND primary_frame.owner_id = ${asset}.owner_id
+     WHERE primary_frame.id = $stack.primary_asset_id
+       AND primary_frame.stack_id = $stack.id AND primary_frame.owner_id = $asset.owner_id
        AND primary_frame.deleted_at IS NULL),
     (SELECT survivor.id FROM remote_asset_entity survivor
-     WHERE survivor.stack_id = ${stack}.id AND survivor.owner_id = ${asset}.owner_id
+     WHERE survivor.stack_id = $stack.id AND survivor.owner_id = $asset.owner_id
        AND survivor.deleted_at IS NULL AND survivor.visibility = 0
      ORDER BY survivor.created_at, survivor.id LIMIT 1)
   )
