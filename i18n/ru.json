@@ -1491,6 +1491,8 @@
   "detected_faces": "Обнаруженные лица",
   "device_deletion_result": "На устройстве: удалено {removed}, осталось {remaining}. Не удалены: {names}",
   "device_deletion_summary": "С устройства удалено: {removed}. Осталось: {remaining}.",
+  "device_trash_confirmation_body": "Выбранные фото будут перемещены в корзину телефона. Копии на сервере останутся.",
+  "device_trash_confirmation_title": "Удалить с устройства?",
   "direction": "Направление",
   "disable": "Отключить",
   "disabled": "Отключено",

@@ -857,9 +857,9 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
     final confirmed = await _settledDeletionDialog(
       context: context,
       builder: (_) => ConfirmDialog(
-        title: context.t.move_to_device_trash,
-        content: context.t.free_up_space_description,
-        ok: context.t.ok,
+        title: context.t.device_trash_confirmation_title,
+        content: context.t.device_trash_confirmation_body,
+        ok: context.t.to_trash,
       ),
     );
     if (confirmed != true) {

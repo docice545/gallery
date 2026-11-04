@@ -1490,6 +1490,8 @@
   "detected_faces": "Caras detectadas",
   "device_deletion_result": "Dispositivo: {removed} eliminados, {remaining} pendientes. No eliminados: {names}",
   "device_deletion_summary": "Dispositivo: {removed} eliminados, {remaining} restantes.",
+  "device_trash_confirmation_body": "Las fotos seleccionadas se moverán a la papelera del dispositivo. Las copias del servidor se conservarán.",
+  "device_trash_confirmation_title": "¿Eliminar del dispositivo?",
   "direction": "Dirección",
   "disable": "Desactivar",
   "disabled": "Deshabilitado",

@@ -1491,6 +1491,8 @@
   "detected_faces": "Gedetecteerde gezichten",
   "device_deletion_result": "Apparaat: {removed} verwijderd, {remaining} resterend. Niet verwijderd: {names}",
   "device_deletion_summary": "Apparaat: {removed} verwijderd, {remaining} over.",
+  "device_trash_confirmation_body": "De geselecteerde foto’s worden naar de prullenbak van het apparaat verplaatst. De kopieën op de server blijven behouden.",
+  "device_trash_confirmation_title": "Van apparaat verwijderen?",
   "direction": "Richting",
   "disable": "Uitschakelen",
   "disabled": "Uitgeschakeld",

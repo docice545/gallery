@@ -1487,6 +1487,8 @@
   "detected_faces": "偵測到的臉孔",
   "device_deletion_result": "裝置：已移除 {removed} 個，剩餘 {remaining} 個。未移除：{names}",
   "device_deletion_summary": "裝置：已移除 {removed} 項，剩餘 {remaining} 項。",
+  "device_trash_confirmation_body": "所選照片將移至裝置垃圾桶。伺服器上的副本將保留。",
+  "device_trash_confirmation_title": "從裝置移除？",
   "direction": "方向",
   "disable": "停用",
   "disabled": "已停用",
