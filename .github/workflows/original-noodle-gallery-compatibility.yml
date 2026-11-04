@@ -58,19 +58,28 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
       - name: Start disposable backend dependencies
+        id: disposable-dependencies
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Build and start disposable FOTO backend
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -153,22 +162,31 @@ jobs:
           grep -q 'Signer #1 certificate SHA-256 digest: c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3' apk-signature.txt
           echo "path=$PWD/gallery-v$VERSION.apk" >> "$GITHUB_OUTPUT"
       - name: Start disposable PostgreSQL and Redis
+        id: disposable-dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Prepare hosted Android emulator KVM and ADB
         run: |
           set -euxo pipefail
@@ -529,22 +547,31 @@ jobs:
           # Release workflows continue to build the universal/arm64 artifacts.
           flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64
       - name: Start disposable PostgreSQL and Redis
+        id: disposable-dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Record Build 22 APK receipt
         if: always()
         working-directory: mobile
