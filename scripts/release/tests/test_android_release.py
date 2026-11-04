@@ -49,6 +49,28 @@ class AndroidReleaseGuards(unittest.TestCase):
             with self.assertRaises(release.ReleaseError):
                 release.java_major(root)
 
+    def test_ci_and_hp_format_scope_uses_tracked_sources_not_generated_or_untracked(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            tracked = [
+                "mobile/lib/source.dart", "mobile/test/manual_test.dart",
+                "mobile/integration_test/native_test.dart", "mobile/test/generated.g.dart",
+                "mobile/lib/generated.freezed.dart", "mobile/lib/generated.drift.dart",
+                "mobile/lib/router.gr.dart", "mobile/test/README.md",
+            ]
+            for relative in [*tracked, "mobile/test/untracked_test.dart"]:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("// synthetic fixture\n")
+            subprocess.run(["git", "add", "--", *tracked], cwd=root, check=True)
+            self.assertEqual(
+                set(release.release_dart_sources(root)),
+                {str(root / relative) for relative in tracked[:3]},
+            )
+
     def test_release_build_regenerates_mode_specific_plugins(self):
         command = release.apk_build_command("5.7.2", 6)
         self.assertEqual(command[:3], ["flutter", "build", "apk"])

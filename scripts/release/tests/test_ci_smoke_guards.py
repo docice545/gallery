@@ -14,6 +14,26 @@ WORKFLOW = ROOT / ".github/workflows/original-noodle-gallery-compatibility.yml"
 
 
 class DisposableBackendDiagnosticsTests(unittest.TestCase):
+    def test_stock_disk_reclamation_refuses_non_hosted_environments_before_any_command(self):
+        workflow = WORKFLOW.read_text().split("  android-emulator:\n", 1)[1].split("  ios-contract:\n", 1)[0]
+        steps = re.findall(r"      - name: Reclaim [^\n]*\n(.*?)(?=      - (?:name:|uses:))", workflow, re.S)
+        self.assertEqual(len(steps), 2)
+        for step in steps:
+            body = step.split("        run: |\n", 1)[1]
+            body = "\n".join(line[10:] for line in body.splitlines())
+            stubs = "sudo() { echo MUTATION; }; docker() { echo MUTATION; }; df() { echo READ; };\n"
+            for actions, runner, allowed in (("true", "github-hosted", True), ("true", "self-hosted", False), ("false", "github-hosted", False)):
+                with self.subTest(actions=actions, runner=runner):
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", stubs + body],
+                        env={**os.environ, "GITHUB_ACTIONS": actions, "RUNNER_ENVIRONMENT": runner},
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    self.assertEqual("MUTATION" in result.stdout, allowed)
+                    if not allowed:
+                        self.assertEqual(result.stdout, "")
+
     def test_logging_preserves_build_startup_and_readiness_failure(self):
         steps = re.findall(
             r"      - name: Build and start disposable FOTO backend\n(.*?)(?=      - name:)",

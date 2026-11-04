@@ -567,6 +567,34 @@ def restore_owned_report(root: Path, original: bytes | None, directory: Path) ->
         )
 
 
+def release_dart_sources(root: Path) -> list[str]:
+    """Use the same tracked Dart source scope in hosted CI and the HP builder."""
+    source_files = run(
+        [
+            "git",
+            "ls-files",
+            "--",
+            "mobile/lib",
+            "mobile/test",
+            "mobile/integration_test",
+        ],
+        root,
+    ).splitlines()
+    dart_files = [
+        str(root / item)
+        for item in source_files
+        if item.endswith(".dart")
+        and not item.endswith(
+            (".g.dart", ".freezed.dart", ".drift.dart", ".gr.dart")
+        )
+    ]
+    if not dart_files:
+        raise ReleaseError(
+            "no tracked Dart source files were found for the format check"
+        )
+    return dart_files
+
+
 def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch: str = "work") -> None:
     if not preflight(root, expected, env, branch=branch):
         raise ReleaseError("preflight failed; no build was started")
@@ -597,29 +625,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch
 
     try:
         stage("locked-codegen", ["bash", "scripts/android_media_codegen.sh"], mobile)
-        source_files = run(
-            [
-                "git",
-                "ls-files",
-                "--",
-                "mobile/lib",
-                "mobile/test",
-                "mobile/integration_test",
-            ],
-            root,
-        ).splitlines()
-        dart_files = [
-            str(root / item)
-            for item in source_files
-            if item.endswith(".dart")
-            and not item.endswith(
-                (".g.dart", ".freezed.dart", ".drift.dart", ".gr.dart")
-            )
-        ]
-        if not dart_files:
-            raise ReleaseError(
-                "no tracked Dart source files were found for the format check"
-            )
+        dart_files = release_dart_sources(root)
         stage(
             "dart-format",
             ["dart", "format", "--output=none", "--set-exit-if-changed", *dart_files],

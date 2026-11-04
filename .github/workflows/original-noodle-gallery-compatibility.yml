@@ -10,6 +10,7 @@ on:
       - 'e2e/**'
       - 'tools/original-noodle-gallery/**'
       - '.github/scripts/run-ci-smoke-once.py'
+      - '.github/scripts/login-ci-ghcr.py'
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
@@ -55,7 +56,7 @@ jobs:
       - name: Authenticate GHCR pulls
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+        run: python3 .github/scripts/login-ci-ghcr.py
       - name: Start disposable backend dependencies
         id: disposable-dependencies
         run: |
@@ -161,6 +162,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before backend and stock emulator
+        # Android/Java and the official APK remain; only this disposable host is touched.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
@@ -187,7 +197,7 @@ jobs:
         run: |
           set -o pipefail
           {
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            python3 .github/scripts/login-ci-ghcr.py
             for attempt in 1 2 3 4 5; do
               docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
                 docker compose -f e2e/docker-compose.yml up -d database redis && break
@@ -243,6 +253,14 @@ jobs:
       - name: Seed disposable login account
         run: |
           curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up -H 'content-type: application/json' -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
+      - name: Reclaim completed backend build cache before the AVD
+        # The running disposable server/database and their images/volumes stay intact.
+        # A prior runner ran out of disk while creating the stock Android AVD.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          docker builder prune --all --force
+          df -h /
       - name: Run official client on emulator
         # reactivecircus/android-emulator-runner has an upstream boot race:
         # sys.boot_completed may precede Android's input service. Retry the
@@ -569,7 +587,7 @@ jobs:
         run: |
           set -o pipefail
           {
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            python3 .github/scripts/login-ci-ghcr.py
             for attempt in 1 2 3 4 5; do
               docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
                 docker compose -f e2e/docker-compose.yml up -d database redis && break

@@ -121,8 +121,21 @@ jobs:
         if: "!cancelled() && steps.codegen.outcome == 'success'"
         run: mise //mobile:format
 
+      - name: Run complete release Dart format gate
+        id: release-format
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: .
+        run: |
+          python3 - <<'PY_FORMAT'
+          import subprocess, sys
+          from pathlib import Path
+          from scripts.release.android_release import release_dart_sources
+          paths = release_dart_sources(Path.cwd())
+          sys.exit(subprocess.run(['dart', 'format', '--set-exit-if-changed', *paths], check=False).returncode)
+          PY_FORMAT
+
       - name: Annotate formatter differences
-        if: failure() && steps.format.outcome == 'failure'
+        if: failure() && (steps.format.outcome == 'failure' || steps.release-format.outcome == 'failure')
         working-directory: .
         run: python3 .github/scripts/report-ci-failures.py format
 
