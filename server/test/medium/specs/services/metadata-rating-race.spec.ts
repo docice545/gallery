@@ -1,4 +1,4 @@
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import { Stats } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -102,9 +102,9 @@ it('does not overwrite rating 3 when an older extraction finishes after the side
   }
   await extraction;
   expect(await readRating()).toEqual({ rating: 3, lockedProperties: null });
-  expect((await read(`${asset.originalPath}.xmp`)).Rating).toBe(3);
+  await expect(read(`${asset.originalPath}.xmp`)).resolves.toMatchObject({ Rating: 3 });
   await sut.handleMetadataExtraction({ id: asset.id });
-  expect((await readRating()).rating).toBe(3);
+  await expect(readRating()).resolves.toMatchObject({ rating: 3 });
 });
 
 it('retains the rating lock and does not register a successful sidecar after file writing fails', async () => {
@@ -114,11 +114,84 @@ it('retains the rating lock and does not register a successful sidecar after fil
   vi.spyOn(exiftool, 'write').mockRejectedValueOnce(new Error('controlled XMP write failure'));
   await expect(sut.handleSidecarWrite({ id: asset.id })).rejects.toThrow('controlled XMP write failure');
   expect(await readRating()).toEqual({ rating: 3, lockedProperties: ['rating'] });
-  expect(
-    (await ctx.get(AssetJobRepository).getForSidecarWriteJob(asset.id))?.files.filter(
-      (file) => file.type === AssetFileType.Sidecar,
-    ),
-  ).toEqual([]);
+  const failedSnapshot = await ctx.get(AssetJobRepository).getForSidecarWriteJob(asset.id);
+  expect(failedSnapshot?.files.filter((file) => file.type === AssetFileType.Sidecar)).toEqual([]);
   expect(await sut.handleSidecarWrite({ id: asset.id })).toBe(JobStatus.Success);
   expect(await readRating()).toEqual({ rating: 3, lockedProperties: null });
 });
+
+it('does not interpret an unreadable registered XMP as an empty manual rating', async () => {
+  const { sut, asset, metadata, readRating, rate } = await setup();
+  await rate(3);
+  await sut.handleSidecarWrite({ id: asset.id });
+  const exiftool = (metadata as unknown as { exiftool: { read: (...args: unknown[]) => Promise<unknown> } }).exiftool;
+  const read = exiftool.read.bind(exiftool);
+  vi.spyOn(exiftool, 'read').mockImplementation((...args) =>
+    args[0] === `${asset.originalPath}.xmp` ? Promise.reject(new Error('controlled XMP read failure')) : read(...args),
+  );
+  await expect(sut.handleMetadataExtraction({ id: asset.id })).rejects.toThrow('controlled XMP read failure');
+  expect(await readRating()).toEqual({ rating: 3, lockedProperties: null });
+});
+
+it('serializes overlapping writers and preserves a newer manual rating waiting during file I/O', async () => {
+  const { sut, asset, metadata, rate, readRating } = await setup();
+  await rate(3);
+  const entered = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const write = metadata.writeTags.bind(metadata);
+  const writes = vi.spyOn(metadata, 'writeTags').mockImplementationOnce(async (path, tags) => {
+    entered.resolve();
+    await resume.promise;
+    await write(path, tags);
+  });
+  const first = sut.handleSidecarWrite({ id: asset.id });
+  await entered.promise;
+  let updated = false;
+  const manual = rate(5).then(() => {
+    updated = true;
+  });
+  const second = sut.handleSidecarWrite({ id: asset.id });
+  try {
+    // Observe the actual PostgreSQL wait rather than sleeping to manufacture ordering.
+    await vi.waitFor(async () => {
+      const waiting = await sql<{ count: string }>`select count(*)::text as count from pg_stat_activity
+        where datname = current_database() and wait_event_type = 'Lock' and query like '%asset_exif%'`.execute(db);
+      expect(Number(waiting.rows[0].count)).toBeGreaterThanOrEqual(2);
+    });
+    expect(updated).toBe(false);
+    expect(writes).toHaveBeenCalledTimes(1);
+  } finally {
+    resume.resolve();
+  }
+  await Promise.all([first, manual, second]);
+  // If the queued writer preceded the manual update, the update's own follow-up writes it.
+  await sut.handleSidecarWrite({ id: asset.id });
+  expect(await readRating()).toEqual({ rating: 5, lockedProperties: null });
+  await expect(metadata.readTags(`${asset.originalPath}.xmp`)).resolves.toMatchObject({ Rating: 5 });
+  await sut.handleMetadataExtraction({ id: asset.id });
+  await expect(readRating()).resolves.toMatchObject({ rating: 5 });
+});
+
+it.each([AssetFileType.Thumbnail, AssetFileType.Preview, AssetFileType.EncodedVideo])(
+  'registers the actual sidecar and clears only its committed pending metadata with an existing %s',
+  async (type) => {
+    const { sut, ctx, asset, metadata, readRating } = await setup();
+    await ctx.newAssetFile({ assetId: asset.id, type, path: `${asset.originalPath}.other` });
+    const tags = ['kept-tag'];
+    await ctx.get(AssetRepository).upsertExif({
+      exif: updateLockedColumns({ assetId: asset.id, description: 'kept-caption', rating: 3, tags }),
+      lockedPropertiesBehavior: 'append',
+    });
+    expect(await sut.handleSidecarWrite({ id: asset.id })).toBe(JobStatus.Success);
+    const snapshot = await ctx.get(AssetJobRepository).getForSidecarWriteJob(asset.id);
+    expect(snapshot?.id).toBe(asset.id);
+    expect(snapshot?.files).toEqual([
+      expect.objectContaining({ type: AssetFileType.Sidecar, path: `${asset.originalPath}.xmp`, isEdited: false }),
+    ]);
+    expect(await readRating()).toEqual({ rating: 3, lockedProperties: null });
+    const written = await metadata.readTags(`${asset.originalPath}.xmp`);
+    expect(written.Rating).toBe(3);
+    expect(written.Description).toBe('kept-caption');
+    expect(written.TagsList).toEqual(tags);
+  },
+);

@@ -424,6 +424,7 @@ export class MetadataService extends BaseService {
               video: videoData,
               keyframes: keyframeData,
               lockedPropertiesBehavior: 'skip',
+              expectedUpdateId: asset.exifUpdateId,
             });
             await this.applyTagList(asset);
           },
@@ -529,88 +530,78 @@ export class MetadataService extends BaseService {
   @OnJob({ name: JobName.SidecarWrite, queue: QueueName.Sidecar })
   async handleSidecarWrite(job: JobOf<JobName.SidecarWrite>): Promise<JobStatus> {
     const { id } = job;
-    const asset = await this.assetJobRepository.getForSidecarWriteJob(id);
-    if (!asset) {
-      return JobStatus.Failed;
-    }
+    const written = await this.assetJobRepository.writeSidecar(id, async (asset) => {
+      const lockedProperties = asset.exifInfo.lockedProperties ?? [];
 
-    const lockedProperties = await this.assetJobRepository.getLockedPropertiesForMetadataExtraction(id);
+      const { sidecarFile } = getAssetFiles(asset.files);
+      const sidecarPath = sidecarFile?.path || `${asset.originalPath}.xmp`;
 
-    const { sidecarFile } = getAssetFiles(asset.files);
-    const sidecarPath = sidecarFile?.path || `${asset.originalPath}.xmp`;
+      const { description, dateTimeOriginal, latitude, longitude, rating, tags, timeZone } = pick(
+        {
+          description: asset.exifInfo.description,
+          dateTimeOriginal: asset.exifInfo.dateTimeOriginal,
+          latitude: asset.exifInfo.latitude,
+          longitude: asset.exifInfo.longitude,
+          rating: asset.exifInfo.rating ?? 0,
+          tags: asset.exifInfo.tags,
+          timeZone: asset.exifInfo.timeZone,
+        },
+        lockedProperties,
+      );
 
-    const { description, dateTimeOriginal, latitude, longitude, rating, tags, timeZone } = pick(
-      {
-        description: asset.exifInfo.description,
-        dateTimeOriginal: asset.exifInfo.dateTimeOriginal,
-        latitude: asset.exifInfo.latitude,
-        longitude: asset.exifInfo.longitude,
-        rating: asset.exifInfo.rating ?? 0,
-        tags: asset.exifInfo.tags,
-        timeZone: asset.exifInfo.timeZone,
-      },
-      lockedProperties,
-    );
+      const exif = omitBy(
+        <Tags>{
+          Description: description,
+          ImageDescription: description,
+          DateTimeOriginal: mergeTimeZone(dateTimeOriginal, timeZone)?.toISO(),
+          GPSLatitude: latitude,
+          GPSLongitude: longitude,
+          Rating: rating,
+          TagsList: tags,
+        },
+        isUndefined,
+      );
 
-    const exif = omitBy(
-      <Tags>{
-        Description: description,
-        ImageDescription: description,
-        DateTimeOriginal: mergeTimeZone(dateTimeOriginal, timeZone)?.toISO(),
-        GPSLatitude: latitude,
-        GPSLongitude: longitude,
-        Rating: rating,
-        TagsList: tags,
-      },
-      isUndefined,
-    );
+      if (Object.keys(exif).length === 0) {
+        return;
+      }
 
-    if (Object.keys(exif).length === 0) {
-      return JobStatus.Skipped;
-    }
-
-    if (isAbsolute(sidecarPath)) {
-      await this.metadataRepository.writeTags(sidecarPath, exif);
-    } else {
-      // S3 mode: work against a local temp file, then always upload the result to S3.
-      // If an existing sidecar is in S3, download it first so we preserve its contents;
-      // otherwise exiftool will create a fresh XMP at the temp path.
-      const backend = StorageService.resolveBackendForKey(sidecarPath);
-      const sidecarExists = await backend.exists(sidecarPath);
-      let localSidecar: { localPath: string; cleanup: () => Promise<void> };
-      if (sidecarExists) {
-        localSidecar = await this.ensureLocalFile(sidecarPath);
+      if (isAbsolute(sidecarPath)) {
+        await this.metadataRepository.writeTags(sidecarPath, exif);
       } else {
-        const tempPath = join(tmpdir(), `immich-sidecar-${this.cryptoRepository.randomUUID()}.xmp`);
-        localSidecar = {
-          localPath: tempPath,
-          cleanup: async () => {
-            try {
-              await this.storageRepository.unlink(tempPath);
-            } catch {
-              // ignore — file may never have been created if writeTags failed
-            }
-          },
-        };
+        // S3 mode: work against a local temp file, then always upload the result to S3.
+        // If an existing sidecar is in S3, download it first so we preserve its contents;
+        // otherwise exiftool will create a fresh XMP at the temp path.
+        const backend = StorageService.resolveBackendForKey(sidecarPath);
+        const sidecarExists = await backend.exists(sidecarPath);
+        let localSidecar: { localPath: string; cleanup: () => Promise<void> };
+        if (sidecarExists) {
+          localSidecar = await this.ensureLocalFile(sidecarPath);
+        } else {
+          const tempPath = join(tmpdir(), `immich-sidecar-${this.cryptoRepository.randomUUID()}.xmp`);
+          localSidecar = {
+            localPath: tempPath,
+            cleanup: async () => {
+              try {
+                await this.storageRepository.unlink(tempPath);
+              } catch {
+                // ignore — file may never have been created if writeTags failed
+              }
+            },
+          };
+        }
+        try {
+          await this.metadataRepository.writeTags(localSidecar.localPath, exif);
+          const stream = this.storageRepository.createPlainReadStream(localSidecar.localPath);
+          await backend.put(sidecarPath, stream, { contentType: 'application/xml' });
+        } finally {
+          await localSidecar.cleanup();
+        }
       }
-      try {
-        await this.metadataRepository.writeTags(localSidecar.localPath, exif);
-        const stream = this.storageRepository.createPlainReadStream(localSidecar.localPath);
-        await backend.put(sidecarPath, stream, { contentType: 'application/xml' });
-      } finally {
-        await localSidecar.cleanup();
-      }
-    }
 
-    // Thumbnails/transcodes do not mean the newly written XMP is registered.
-    // The follow-up extraction must read it instead of restoring original EXIF.
-    if (!sidecarFile) {
-      await this.assetRepository.upsertFile({ assetId: id, type: AssetFileType.Sidecar, path: sidecarPath });
-    }
-
-    await this.assetRepository.unlockProperties(asset.id, lockedProperties);
-
-    return JobStatus.Success;
+      return sidecarPath;
+    });
+    return written === undefined ? JobStatus.Failed : written ? JobStatus.Success : JobStatus.Skipped;
   }
 
   private getSidecarCandidates({ files, originalPath }: { files: AssetFile[]; originalPath: string }) {
@@ -661,7 +652,9 @@ export class MetadataService extends BaseService {
 
     const [mediaTags, sidecarTags, videoResult] = await Promise.all([
       this.metadataRepository.readTags(effectiveOriginalPath),
-      effectiveSidecarPath ? this.metadataRepository.readTags(effectiveSidecarPath) : null,
+      // An unreadable registered sidecar is a failed extraction, not an empty
+      // rating/caption/tag list that may replace manually saved metadata.
+      effectiveSidecarPath ? this.metadataRepository.readTags(effectiveSidecarPath, { throwOnError: true }) : null,
       shouldProbe ? this.getVideoTags(effectiveOriginalPath) : null,
     ]);
 
