@@ -13,6 +13,20 @@ import subprocess
 REPOSITORY = "docice545/gallery"
 BRANCH = "codex/issue17-smart-timeline"
 PREFIX = "mobile/test/pages/edit/goldens/fixed_dock_"
+PROFILES = {
+    "editor": {
+        "prefix": PREFIX,
+        "names": ["entry", "markup", "marker", "width", "color", "crop", "text"],
+        "marker": "EDITOR_VIEWPORT ",
+        "receipt": "specs/design/editor-dock-review/measurements.json",
+    },
+    "places": {
+        "prefix": "mobile/test/presentation/pages/goldens/places_",
+        "names": ["ru_list", "ru_detail", "en_detail", "ru_search"],
+        "marker": "PLACES_REVIEW ",
+        "receipt": "specs/design/places-localization-review/measurements.json",
+    },
+}
 
 
 def api(path, payload=None):
@@ -30,6 +44,9 @@ def api(path, payload=None):
 
 
 def main():
+    profile = PROFILES.get(os.environ.get("REVIEW_KIND", "editor"))
+    if profile is None:
+        raise SystemExit("Unknown review profile")
     expected = os.environ["REVIEW_SOURCE_SHA"]
     if (
         os.environ["REVIEW_HEAD_BRANCH"] != BRANCH
@@ -46,8 +63,8 @@ def main():
         raise SystemExit(
             "Branch moved while rendering; rerun the explicit review request"
         )
-    names = ["entry", "markup", "marker", "width", "color", "crop", "text"]
-    paths = [Path(PREFIX + name + ".png") for name in names]
+    names = profile["names"]
+    paths = [Path(profile["prefix"] + name + ".png") for name in names]
     for path in paths:
         if path.is_symlink() or not path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
             raise SystemExit(f"Invalid review PNG: {path}")
@@ -65,7 +82,7 @@ def main():
         if event.get("type") == "done":
             completed = event.get("success") is True
         if event.get("type") == "print" and str(event.get("message", "")).startswith(
-            "EDITOR_VIEWPORT "
+            profile["marker"]
         ):
             measurements.append(event["message"])
         if event.get("type") == "testDone" and event.get("result") in (
@@ -76,16 +93,16 @@ def main():
     measured_names = [line.split(" ", 2)[1] for line in measurements]
     if failures or not completed or sorted(measured_names) != sorted(names):
         raise SystemExit("Missing measurements or failed structural editor tests")
-    receipt = Path("specs/design/editor-dock-review/measurements.json")
+    receipt = Path(profile["receipt"])
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(
         json.dumps(
             {
                 "sourceSha": expected,
                 "kind": "Synthetic Flutter widget render; not Samsung screenshots",
-                "iconDesignApproval": "PENDING",
+                "iconDesignApproval": "APPROVED by user: FOTO v1 ccdb8a892",
                 "hardwareAcceptance": "PENDING",
-                "beforeSourceSha": "b61867889c0a47a06ff19d7be1f0ca00c72c1945",
+                "reviewProfile": os.environ.get("REVIEW_KIND", "editor"),
                 "measurements": measurements,
             },
             ensure_ascii=False,
@@ -114,7 +131,7 @@ def main():
     commit = api(
         "git/commits",
         {
-            "message": "test(mobile): record fixed dock review screenshots",
+            "message": "test(mobile): record verified UI review screenshots",
             "tree": new_tree["sha"],
             "parents": [expected],
         },
@@ -135,7 +152,7 @@ def main():
         check=True,
         stdout=subprocess.DEVNULL,
     )
-    print("Editor review artifacts committed: " + commit["sha"])
+    print("UI review artifacts committed: " + commit["sha"])
 
 
 if __name__ == "__main__":

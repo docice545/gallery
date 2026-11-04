@@ -19,6 +19,7 @@ spec.loader.exec_module(review)
 
 
 class EditorReviewPublication(unittest.TestCase):
+    profile = "editor"
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -26,15 +27,16 @@ class EditorReviewPublication(unittest.TestCase):
         os.chdir(temp.name)
         self.addCleanup(os.chdir, previous)
         self.log = Path("render.jsonl")
-        self.names = ["entry", "markup", "marker", "width", "color", "crop", "text"]
+        self.names = review.PROFILES[self.profile]["names"]
+        self.prefix = review.PROFILES[self.profile]["prefix"]
         for name in self.names:
-            path = Path(review.PREFIX + name + ".png")
+            path = Path(self.prefix + name + ".png")
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"\x89PNG\r\n\x1a\n")
         self.events = [
             {
                 "type": "print",
-                "message": f"EDITOR_VIEWPORT {name} photo=fixture dock=fixture",
+                "message": review.PROFILES[self.profile]["marker"] + name + " geometry=fixture",
             }
             for name in self.names
         ]
@@ -42,6 +44,7 @@ class EditorReviewPublication(unittest.TestCase):
         self.env = patch.dict(
             os.environ,
             {
+                "REVIEW_KIND": self.profile,
                 "REVIEW_SOURCE_SHA": "source",
                 "REVIEW_HEAD_BRANCH": review.BRANCH,
                 "GITHUB_REPOSITORY": review.REPOSITORY,
@@ -92,9 +95,9 @@ class EditorReviewPublication(unittest.TestCase):
         self.assert_blocked("Missing measurements")
 
     def test_symlink_is_rejected(self):
-        path = Path(review.PREFIX + "entry.png")
+        path = Path(self.prefix + self.names[0] + ".png")
         path.unlink()
-        path.symlink_to(Path(review.PREFIX + "markup.png").name)
+        path.symlink_to(Path(self.prefix + self.names[1] + ".png").name)
         self.assert_blocked("Invalid review PNG")
 
     def test_only_pngs_and_receipt_are_published_without_force(self):
@@ -112,8 +115,8 @@ class EditorReviewPublication(unittest.TestCase):
                 paths = {item["path"] for item in payload["tree"]}
                 self.assertEqual(
                     paths,
-                    {review.PREFIX + name + ".png" for name in self.names}
-                    | {"specs/design/editor-dock-review/measurements.json"},
+                    {self.prefix + name + ".png" for name in self.names}
+                    | {review.PROFILES[self.profile]["receipt"]},
                 )
                 return {"sha": "review-tree"}
             self.assertEqual(path, "git/commits")
@@ -130,6 +133,10 @@ class EditorReviewPublication(unittest.TestCase):
                     json.loads(update.call_args.kwargs["input"]),
                     {"sha": "review-commit", "force": False},
                 )
+
+
+class PlacesReviewPublication(EditorReviewPublication):
+    profile = "places"
 
 
 if __name__ == "__main__":

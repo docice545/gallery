@@ -113,7 +113,7 @@ final placeDisplayNamesProvider = Provider.family<PlaceDisplayNames, Locale>((re
   final persisted = ref.watch(persistedPlaceLabelsProvider).valueOrNull ?? const <String, String>{};
   final resolved = ref.watch(resolvedPlaceLabelsProvider);
   return PlaceDisplayNames(locale.toLanguageTag(), {...persisted, ...resolved});
-});
+}, dependencies: [persistedPlaceLabelsProvider, resolvedPlaceLabelsProvider]);
 
 typedef PlaceLabelRequest = ({Place place, Locale locale});
 
