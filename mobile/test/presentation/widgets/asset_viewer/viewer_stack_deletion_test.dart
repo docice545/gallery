@@ -531,7 +531,7 @@ void main() {
     }
   });
 
-  testWidgets('returning to the retained page cancels a delayed neighbor load and keeps navigation mapped', (
+  testWidgets('returning to the surviving stack page cancels a delayed neighbor load and keeps navigation mapped', (
     tester,
   ) async {
     await tester.runAsync(
@@ -559,7 +559,7 @@ void main() {
         await requestEntered.future;
       });
       await drain(tester);
-      expect(timeline.totalAssets, 1);
+      expect(timeline.totalAssets, 2, reason: 'the active stack representative remains in the real Timeline');
       expect(tester.widget<PageView>(find.byType(PageView)).childrenDelegate.estimatedChildCount, 2);
       final entered = Completer<void>();
       timeline.neighborGate = gate;
@@ -567,7 +567,7 @@ void main() {
       final controller = tester.widget<PageView>(find.byType(PageView)).controller!;
       final navigate = tester
           .widgetList<AssetPage>(find.byType(AssetPage))
-          .firstWhere((page) => page.retainedAsset != null)
+          .firstWhere((page) => page.index == 0)
           .onTapNavigate!;
       navigate(1);
       await drain(tester);
@@ -582,8 +582,8 @@ void main() {
       navigate(1);
       await drain(tester);
       expect(container.read(assetViewerProvider).currentAsset?.id, 'neighbor');
-      expect(controller.page, 0, reason: 'leaving the retained stack removes its single inserted page');
-      expect(tester.widget<PageView>(find.byType(PageView)).childrenDelegate.estimatedChildCount, 1);
+      expect(controller.page, 1, reason: 'the survivor remains a real Timeline card before the neighbor');
+      expect(tester.widget<PageView>(find.byType(PageView)).childrenDelegate.estimatedChildCount, 2);
       expect(tester.takeException(), isNull);
     } finally {
       if (!gate.isCompleted) {

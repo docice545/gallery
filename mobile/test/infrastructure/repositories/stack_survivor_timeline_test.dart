@@ -62,7 +62,7 @@ void main() {
           // No StacksV1 cover update or manual unStack call is supplied here.
           expect(await reload.moveNext().timeout(const Duration(seconds: 3)), isTrue);
           expect(service.totalAssets, 1);
-          expect((await service.loadAssets(0, 10)).map((a) => a.id), [survivor]);
+          expect((await service.loadAssets(0, service.totalAssets)).map((a) => a.id), [survivor]);
           expect(await remote.watchStackCounts().first, {'stack': 1});
           expect(await remote.getStackChildren((await remote.get(survivor))!), isEmpty);
           for (final group in [GroupAssetsBy.day, GroupAssetsBy.month, GroupAssetsBy.year]) {

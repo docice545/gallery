@@ -210,6 +210,34 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
     if (!mounted || !(ModalRoute.of(context)?.isActive ?? true)) {
       return;
     }
+    BaseAsset displayAsset = asset;
+    var stackIndex = 0;
+    final current = ref.read(assetViewerProvider).currentAsset;
+    if (asset is RemoteAsset &&
+        current is RemoteAsset &&
+        asset.stackId != null &&
+        asset.stackId == current.stackId &&
+        asset.id != current.id) {
+      try {
+        final members = await ref.read(stackChildrenNotifier(asset).future);
+        if (!mounted ||
+            generation != _reloadGeneration ||
+            ref.read(assetViewerProvider).currentAsset?.id != current.id ||
+            ModalRoute.of(context)?.isCurrent == false) {
+          return;
+        }
+        final memberIndex = members.indexWhere((frame) => frame.id == current.id);
+        if (memberIndex >= 0) {
+          displayAsset = members[memberIndex];
+          stackIndex = memberIndex;
+        }
+      } catch (error, trace) {
+        if (mounted && generation == _reloadGeneration) {
+          handleError(error, stack: trace, description: 'Failed to reopen viewer stack');
+        }
+        return;
+      }
+    }
     _pendingPage = null;
     _currentPage = index;
 
@@ -221,8 +249,14 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
       }
       setState(() => _totalAssets = ref.read(timelineServiceProvider).totalAssets);
     }
+    if (asset is! RemoteAsset || current is! RemoteAsset || asset.stackId != current.stackId) {
+      _restoreStackAsset = null;
+      _autoAdvancedAssetId = null;
+    }
     _timelineAsset = asset;
-    ref.read(assetViewerProvider.notifier).setAsset(asset);
+    ref.read(assetViewerProvider.notifier)
+      ..setAsset(displayAsset)
+      ..setStackIndex(stackIndex);
     _preloader.preload(sourceIndex, context.sizeData, thumbnailSize: ref.read(assetViewerProvider).thumbnailSize);
     _handleCasting();
     _stackChildrenKeepAlive?.close();
@@ -359,12 +393,47 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
               .whereType<int>()
               .firstOrNull;
           final target = sourceIndex ?? _currentPage.clamp(0, timelineService.totalAssets);
+          final nextAnchor = sourceIndex == null ? anchor : timelineService.getAssetSafe(sourceIndex);
+          // The local Timeline may already project a surviving cover before
+          // StacksV1 arrives. AssetPage reads that anchor's primary-first order,
+          // so preserve the chosen frame by ID, never reuse the old ordinal.
+          if (nextAnchor is RemoteAsset && nextAnchor.id != anchor.id && nextAnchor.stackId != null) {
+            final chosenId = stack[selected].id;
+            final nextProvider = stackChildrenNotifier(nextAnchor);
+            ref.invalidate(nextProvider);
+            try {
+              final reordered = await ref.read(nextProvider.future);
+              if (!mounted ||
+                  generation != _reloadGeneration ||
+                  ref.read(assetViewerProvider).currentAsset?.id != currentAsset.id) {
+                return;
+              }
+              final nextIndex = reordered.indexWhere((asset) => asset.id == chosenId);
+              if (nextIndex < 0) {
+                return;
+              }
+              stack = reordered;
+              selected = nextIndex;
+            } catch (error, trace) {
+              if (mounted && generation == _reloadGeneration) {
+                handleError(error, stack: trace, description: 'Failed to refresh promoted viewer stack');
+              }
+              return;
+            }
+          }
           if (sourceIndex == null) {
             _retainedStackAnchor = anchor;
             _retainedStackPage = target;
           } else {
-            _clearRetainedStack();
-            _timelineAsset = timelineService.getAssetSafe(sourceIndex);
+            _retainedStackAnchor = null;
+            _retainedStackPage = null;
+            _timelineAsset = nextAnchor;
+          }
+          // Promotion is not a confirmed deletion. Keep the captured frame
+          // until rollback restores it, or the user leaves this stack.
+          if (_restoreStackAsset?.id == stack[selected].id) {
+            _restoreStackAsset = null;
+            _autoAdvancedAssetId = null;
           }
           ref.read(assetViewerProvider.notifier)
             ..setAsset(stack[selected])

@@ -128,6 +128,8 @@
 
 ## Последний CI и текущий следующий шаг
 
+`25a1e4106` [focused](https://github.com/docice545/gallery/actions/runs/41775092678/job/126393615005): **806 PASS,12ERROR,0SKIP**. Два новых repository tests запрашивали10 assets при total1 (fixture fix); шесть actual layout tests доказали оставшееся ellipsis при maxLines=null (исправляется). Четыре Viewer stack regressions: projected primary менял порядок кадров/очищал rollback history; исправляются stable selected ID, remap ordinal и сохранение history. Старый navigation test теперь проверяет реальную surviving card (2 pages), вместо временного исчезновения стопки из Timeline; delayed-load assertions сохранены. Exact2→1 Viewer/thumbnail, notification z-order и прочие новые tests уже PASS этого run. Ghost Trap ещё не проверен CI.
+
 `25a1e4106`: static analysis/format PASS; stack/layout/toast focused tests ещё выполняются. `1426879e1` выявил ошибочно продублированный stackCounts override вне helper и шесть style diagnostics; исправлены25a1, проверки не отключены. `94a7240e3`: focused Viewer/gesture gate PASS; его native job отменён новым push, не PASS. PR21 `a0086bdba`: format/analyze и full Flutter coverage PASS; native emulator ещё выполняется.
 
 Текущий программный шаг: исправить stack2→1 на уровне query/cache + actual Viewer/thumbnail, затем Ghost Trap, selection layout/toast, editor compound acceptance и плотность. SQL failing-before подтверждён локально; новые Flutter suites pending. PR21 форматирование исправлено точным CI diff в отдельной ветке; исходный грязный worktree PR19 не тронут. Общий Live Photo gate не ослаблен.

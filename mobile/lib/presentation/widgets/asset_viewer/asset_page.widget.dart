@@ -472,7 +472,10 @@ class _AssetPageState extends ConsumerState<AssetPage> {
     }
     final stackChildren = stackState?.valueOrNull ?? (stackState?.hasError == true ? _lastStackChildren : null);
     if (stackChildren != null && stackChildren.isNotEmpty) {
-      final safeStackIndex = stackIndex.clamp(0, stackChildren.length - 1);
+      // A promoted cover changes the primary-first order asynchronously.
+      // The selected ID remains authoritative while its ordinal catches up.
+      final selectedIdIndex = stackChildren.indexWhere((frame) => frame.id == currentAsset?.id);
+      final safeStackIndex = selectedIdIndex >= 0 ? selectedIdIndex : stackIndex.clamp(0, stackChildren.length - 1);
       displayAsset = stackChildren.elementAt(safeStackIndex);
     }
 
