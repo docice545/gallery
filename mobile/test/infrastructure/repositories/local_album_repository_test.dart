@@ -9,12 +9,17 @@ import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import '../../test_utils/medium_factory.dart';
 
 void main() {
   late Drift db;
   late MediumFactory mediumFactory;
+
+  // TimelineRepository parses SQLite bucket dates with an explicit English
+  // DateFormat. Repository tests have no app/localization bootstrap.
+  setUpAll(() => initializeDateFormatting('en'));
 
   setUp(() {
     db = Drift(DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
@@ -53,6 +58,9 @@ void main() {
     await albums.upsert(mediumFactory.localAlbum(id: 'camera', backupSelection: BackupSelection.selected));
     final query = TimelineRepository(db).main(['owner'], 'owner', GroupAssetsBy.day);
     final buckets = StreamQueue(query.bucketSource());
+    // Runs before the enclosing tearDown closes SQLite, even on assertion or
+    // stream errors. Graceful cancel may wait behind a pending queue request.
+    addTearDown(() => buckets.cancel(immediate: true));
     expect((await buckets.next).fold<int>(0, (n, b) => n + b.assetCount), 1);
     await albums.processDelta(
       updates: [screenshot, camera],
@@ -86,7 +94,6 @@ void main() {
     expect(await albums.getAssetIds('camera'), isEmpty);
     await albums.processDelta(updates: [], deletes: ['screenshot'], assetAlbums: {});
     expect((await query.assetSource(0, 20)).map((a) => a.id), ['camera', 'old']);
-    await buckets.cancel();
   });
 
   group('getAll', () {

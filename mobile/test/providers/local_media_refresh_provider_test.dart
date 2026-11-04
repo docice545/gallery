@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,7 +11,9 @@ import 'package:immich_mobile/providers/app_life_cycle.provider.dart';
 import 'package:immich_mobile/providers/background_sync.provider.dart';
 import 'package:immich_mobile/providers/gallery_permission.provider.dart';
 import 'package:immich_mobile/providers/local_media_refresh.provider.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 class _Permission extends Mock implements DevicePermissionService {}
 
@@ -33,8 +37,16 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final permission = _Permission();
-    when(permission.galleryStatus).thenAnswer((_) async => DevicePermissionStatus.granted);
+    final permissionResult = Completer<DevicePermissionStatus>();
+    when(permission.galleryStatus).thenAnswer((_) => permissionResult.future);
     final manager = _Manager();
+    final syncErrors = <LogRecord>[];
+    final logs = Logger.root.onRecord.listen((record) {
+      if (record.loggerName == 'LocalMediaRefresh' && record.level >= Level.WARNING) {
+        syncErrors.add(record);
+      }
+    });
+    addTearDown(logs.cancel);
     final toggles = <bool>[];
     const channel = MethodChannel('com.fluttercandies/photo_manager');
     const notify = MethodChannel('com.fluttercandies/photo_manager/notify');
@@ -53,32 +65,67 @@ void main() {
       ],
     );
     final listener = container.listen(localMediaRefreshProvider, (_, _) {});
+    var disposed = false;
+    Future<void> disposeObserver() async {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      listener.close();
+      container.dispose();
+      // Registration/unregistration is serialized through the method channel.
+      await tester.pump();
+    }
+
+    addTearDown(() async {
+      await disposeObserver();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+
+    // Establish the async permission/observer boundary before advancing time.
+    // Merely mounting a ProviderContainer is not permission completion.
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
+    expect(container.read(galleryPermissionNotifier), DevicePermissionStatus.denied);
+    expect(toggles, isEmpty);
+    expect(manager.calls, 0);
+    permissionResult.complete(DevicePermissionStatus.granted);
+    await tester.pump();
+    expect(container.read(galleryPermissionNotifier), DevicePermissionStatus.granted);
     expect(toggles, [true]);
+    expect(PhotoManager.notifyingOfChange, isTrue);
+    await tester.pump(const Duration(milliseconds: 349));
+    expect(manager.calls, 0);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(syncErrors, isEmpty);
     expect(manager.calls, 1);
     await messenger.handlePlatformMessage(
       notify.name,
       notify.codec.encodeMethodCall(const MethodCall('change', {'type': 'insert', 'id': '123'})),
       (_) {},
     );
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 349));
+    expect(manager.calls, 1);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(syncErrors, isEmpty);
     expect(manager.calls, 2);
     final lifecycle = container.read(appStateProvider.notifier) as _Lifecycle;
     lifecycle.change(AppLifeCycleEnum.paused);
     await tester.pump();
     await tester.pump(const Duration(seconds: 10));
     expect(toggles, [true, false]);
+    expect(PhotoManager.notifyingOfChange, isFalse);
     expect(manager.calls, 2);
     lifecycle.change(AppLifeCycleEnum.resumed);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
     expect(toggles, [true, false, true]);
     expect(manager.calls, 3);
-    listener.close();
-    container.dispose();
-    await tester.pump();
+    expect(syncErrors, isEmpty);
+    await disposeObserver();
     expect(toggles, [true, false, true, false]);
-    messenger.setMockMethodCallHandler(channel, null);
+    expect(PhotoManager.notifyingOfChange, isFalse);
+    await tester.pump(const Duration(seconds: 10));
+    expect(manager.calls, 3);
   });
 }
