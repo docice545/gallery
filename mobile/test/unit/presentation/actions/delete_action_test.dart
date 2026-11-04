@@ -69,6 +69,9 @@ void main() {
     TimelineOrigin? origin,
     ActionSource source = ActionSource.timeline,
   }) async {
+    for (final asset in selection) {
+      when(() => assetService.getAsset(asset)).thenAnswer((_) async => asset);
+    }
     final timeline = origin == null
         ? null
         : TimelineService((
@@ -565,11 +568,7 @@ void main() {
       final backedUp = LocalAssetFactory.create(remoteId: 'remote');
       final localOnly = LocalAssetFactory.create();
 
-      await tester.pumpTestAction(
-        context,
-        const CleanupLocalAction(source: .timeline),
-        overrides: context.selected({backedUp, localOnly}),
-      );
+      await pumpDelete(tester, {backedUp, localOnly}, device: true);
       await tester.pumpAndSettle();
 
       verify(() => cleanupService.deleteLocalAssetsDetailed([backedUp.id, localOnly.id])).called(1);

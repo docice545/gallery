@@ -207,7 +207,7 @@ void main() {
     verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any()));
   });
 
-  testWidgets('new, moved and changed IDs during confirmation never expand the accepted snapshot', (tester) async {
+  testWidgets('new, moved and changed IDs during confirmation reject the entire operation', (tester) async {
     final original = assets;
     await pumpAction(tester);
     await tester.tap(find.text(label));
@@ -215,8 +215,8 @@ void main() {
     assets = [original[0], original[1].copyWith(name: 'replacement-with-reused-id.jpg'), LocalAssetFactory.create()];
     await respond(tester, confirm: true);
 
-    verify(() => context.service.cleanup.service.deleteLocalAssetsDetailed([original[0].id])).called(1);
-    expect(find.textContaining('1 removed, 1 remain'), findsOneWidget);
+    verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any()));
+    expect(find.text('The selection changed. Nothing was deleted. Select the items again.'), findsOneWidget);
   });
 
   testWidgets('switching server while confirmation is open prevents the old request', (tester) async {
@@ -239,7 +239,7 @@ void main() {
     await respond(tester, confirm: true);
 
     verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any()));
-    expect(find.textContaining('0 removed, 1 remain'), findsOneWidget);
+    expect(find.text('The selection changed. Nothing was deleted. Select the items again.'), findsOneWidget);
   });
 
   testWidgets('an item moved out of the album is retained while a newly arrived item is not selected', (tester) async {
@@ -250,11 +250,14 @@ void main() {
     assets = [original[0], LocalAssetFactory.create()];
     await respond(tester, confirm: true);
 
-    verify(() => context.service.cleanup.service.deleteLocalAssetsDetailed([original[0].id])).called(1);
-    expect(find.textContaining('1 removed, 1 remain'), findsOneWidget);
+    verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any()));
+    expect(find.text('The selection changed. Nothing was deleted. Select the items again.'), findsOneWidget);
   });
 
   testWidgets('album-wide cleanup cannot overlap an already pending selected-device operation', (tester) async {
+    for (final asset in assets) {
+      when(() => context.service.asset.service.getAsset(asset)).thenAnswer((_) async => asset);
+    }
     final pending = Completer<LocalDeletionResult>();
     when(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any())).thenAnswer((_) => pending.future);
     await tester.pumpTestWidget(

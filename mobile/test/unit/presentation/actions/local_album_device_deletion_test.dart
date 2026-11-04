@@ -59,6 +59,9 @@ void main() {
       ProviderScope.containerOf(tester.element(find.byType(ActionButton).first), listen: false);
 
   Future<void> pumpAction(WidgetTester tester, Set<BaseAsset> selected, {int buttons = 1}) async {
+    for (final asset in selected) {
+      when(() => context.service.asset.service.getAsset(asset)).thenAnswer((_) async => asset);
+    }
     await tester.pumpTestWidget(
       context,
       Column(
@@ -70,6 +73,7 @@ void main() {
 
   testWidgets('the actual local album sheet exposes device removal for local-only selection', (tester) async {
     final local = LocalAssetFactory.create();
+    when(() => context.service.asset.service.getAsset(local)).thenAnswer((_) async => local);
     await tester.pumpTestWidget(
       context,
       const LocalAlbumBottomSheet(),

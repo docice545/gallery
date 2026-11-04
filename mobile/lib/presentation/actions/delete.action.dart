@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
+import 'package:immich_mobile/domain/models/deletion_snapshot.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
@@ -28,14 +31,63 @@ typedef _DeletionMessage = ({String message, bool success});
 
 // Shared by the action's button/menu variants. Retained callbacks must not
 // submit a second confirmation or request while the first snapshot is pending.
-class _PermanentDeletionGuard {
+class _DeletionGuard {
   bool running = false;
 }
 
-final _permanentDeletionGuardProvider = Provider.family<_PermanentDeletionGuard, ActionSource>(
-  (ref, source) => _PermanentDeletionGuard(),
+final _deletionGuardProvider = Provider.family<_DeletionGuard, ActionSource>(
+  (ref, source) => _DeletionGuard(),
   dependencies: [assetsActionProvider],
 );
+
+/// Consent expires when selection, route, account, server or underlying rows
+/// change. A 1→many→1 sequence also expires it, even when IDs happen to match.
+class _SelectionDeletionLease {
+  final BuildContext context;
+  final WidgetRef ref;
+  final ActionSource source;
+  final DeletionSnapshot snapshot;
+  final String? userId;
+  final String? endpoint;
+  final int? revision;
+  final MultiSelectNotifier? selection;
+  late final StreamSubscription<TimelineReloadEvent> _reload;
+  bool _invalid = false;
+
+  _SelectionDeletionLease(this.context, this.ref, this.source)
+    : snapshot = DeletionSnapshot(ref.read(assetsActionProvider(source))),
+      userId = ref.read(currentUserProvider)?.id,
+      endpoint = ref.read(storeServiceProvider).tryGet(StoreKey.serverEndpoint),
+      revision = source == .timeline ? ref.read(multiSelectProvider).revision : null,
+      selection = source == .timeline ? ref.read(multiSelectProvider.notifier) : null {
+    _reload = EventStream.shared.listen<TimelineReloadEvent>((_) => _invalid = true);
+  }
+
+  bool isSessionCurrent() =>
+      context.mounted &&
+      ref.read(currentUserProvider)?.id == userId &&
+      ref.read(storeServiceProvider).tryGet(StoreKey.serverEndpoint) == endpoint;
+
+  bool isSelectionCurrent() =>
+      isSessionCurrent() &&
+      (source != .timeline ||
+          (ref.read(multiSelectProvider).revision == revision &&
+              identical(ref.read(multiSelectProvider.notifier), selection))) &&
+      snapshot.matches(ref.read(assetsActionProvider(source)));
+
+  bool isCurrent() => !_invalid && isSelectionCurrent();
+
+  Future<bool> validate() async {
+    if (!isCurrent()) return false;
+    final matches = await snapshot.matchesStored(ref.read(assetServiceProvider).getAsset);
+    return matches && isCurrent();
+  }
+
+  void dispose() {
+    _invalid = true;
+    unawaited(_reload.cancel());
+  }
+}
 
 typedef _State = ({List<String> localIds, List<String> remoteIds, bool trash});
 
@@ -90,9 +142,7 @@ class DeleteAction extends AssetActionBuilder {
     if (state == null || state.remoteIds.isEmpty || (removeLocalCopies && (!state.trash || state.localIds.isEmpty))) {
       return null;
     }
-    if (!state.trash) {
-      ref.watch(_permanentDeletionGuardProvider(source));
-    }
+    ref.watch(_deletionGuardProvider(source));
 
     return .new(
       icon: Icons.delete_outline,
@@ -100,7 +150,7 @@ class DeleteAction extends AssetActionBuilder {
           ? context.t.delete_permanently
           : removeLocalCopies
           ? context.t.delete_everywhere
-          : "В корзину",
+          : context.t.move_to_server_trash,
       onAction: () => _delete(context, ref),
     );
   }
@@ -114,17 +164,15 @@ class DeleteAction extends AssetActionBuilder {
     final (:localIds, :remoteIds, :trash) = state;
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
-    final clearSelection = ref.read(clearSelectionProvider(source));
     final viewerState = source == .viewer ? ref.read(assetViewerProvider) : null;
     final deletedStackIndex = viewerState?.stackIndex ?? 0;
     final deletedStackAsset = viewerState?.currentAsset;
-    final guard = trash ? null : ref.read(_permanentDeletionGuardProvider(source));
-    if (guard?.running == true) {
+    final guard = ref.read(_deletionGuardProvider(source));
+    if (guard.running) {
       return;
     }
-    if (guard != null) {
-      guard.running = true;
-    }
+    guard.running = true;
+    final lease = _SelectionDeletionLease(context, ref, source);
 
     try {
       var trashIds = remoteIds;
@@ -148,26 +196,39 @@ class DeleteAction extends AssetActionBuilder {
           }
         }
       }
+      if (!await lease.validate()) {
+        if (context.mounted) toastService.error(context.t.deletion_selection_changed);
+        return;
+      }
       final _DeletionMessage? result;
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
       ToastOption? undo;
       if (trash) {
-        result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const []);
+        result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const [], lease);
         if (!removeLocalCopies) {
           undo = .new(onUndo: () => assetService.restoreTrash(trashIds));
         }
       } else {
-        result = await _deletePermanently(context, ref, remoteIds);
+        result = await _deletePermanently(context, ref, remoteIds, lease);
       }
 
-      if (result == null) {
-        return;
-      }
+      if (result == null || !lease.isSessionCurrent()) return;
 
       if (result.success) {
         toastService.success(result.message, toast: undo);
         if (trash) {
-          clearSelection();
+          // A response owns only the captured IDs. New selections and local-only
+          // photos must not disappear with an older server request.
+          if (source == .timeline) {
+            final accepted = remoteIds.toSet();
+            final removedLocal = removeLocalCopies ? localIds.toSet() : const <String>{};
+            final selection = ref.read(multiSelectProvider.notifier);
+            for (final asset in ref.read(assetsActionProvider(source)).toList()) {
+              if (accepted.contains(asset.remoteId) || removedLocal.contains(asset.localId)) {
+                selection.deselectAsset(asset);
+              }
+            }
+          }
           if (source == .viewer &&
               remoteIds.length == 1 &&
               deletedStackAsset is RemoteAsset &&
@@ -187,11 +248,10 @@ class DeleteAction extends AssetActionBuilder {
         toastService.error(result.message);
       }
     } catch (error, stack) {
-      handleError(error, stack: stack, description: "Failed to delete assets");
+      if (lease.isSessionCurrent()) handleError(error, stack: stack, description: "Failed to delete assets");
     } finally {
-      if (guard != null) {
-        guard.running = false;
-      }
+      lease.dispose();
+      guard.running = false;
     }
   }
 
@@ -213,9 +273,10 @@ class DeleteAction extends AssetActionBuilder {
     WidgetRef ref,
     List<String> remoteIds,
     List<String> localIds,
+    _SelectionDeletionLease lease,
   ) async {
     await ref.read(assetServiceProvider).trash(remoteIds);
-    if (!context.mounted) {
+    if (!lease.isSessionCurrent()) {
       return null;
     }
     final message = context.t.trash_action_prompt(count: remoteIds.length);
@@ -224,14 +285,25 @@ class DeleteAction extends AssetActionBuilder {
     }
     // Server acceptance precedes any device operation: an offline/uncertain
     // server request must not remove the phone's only available copy.
-    final local = await _cleanupLocalAssetsDetailed(context, ref, localIds);
+    final local = await _cleanupLocalAssetsDetailed(context, ref, localIds, canContinue: lease.isSelectionCurrent);
     if (!context.mounted) {
       return null;
+    }
+    if (local == null) {
+      return (
+        message: '$message. ${context.t.device_deletion_summary(removed: 0, remaining: localIds.length)}',
+        success: false,
+      );
     }
     return (message: '$message. ${_deviceResult(context, ref, local)}', success: local.remainingIds.isEmpty);
   }
 
-  Future<_DeletionMessage?> _deletePermanently(BuildContext context, WidgetRef ref, List<String> remoteIds) async {
+  Future<_DeletionMessage?> _deletePermanently(
+    BuildContext context,
+    WidgetRef ref,
+    List<String> remoteIds,
+    _SelectionDeletionLease lease,
+  ) async {
     final assetService = ref.read(assetServiceProvider);
     final confirmed = await showDialog<bool>(
       context: context,
@@ -245,8 +317,12 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
 
+    if (!await lease.validate()) {
+      if (context.mounted) ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+      return null;
+    }
     final results = await assetService.acceptPermanentDeletion(remoteIds);
-    if (!context.mounted) {
+    if (!lease.isSessionCurrent()) {
       return null;
     }
     final requested = remoteIds.toSet();
@@ -303,15 +379,6 @@ final _cleanupStateProvider = Provider.family.autoDispose<List<String>?, ActionS
   return assetIds.isEmpty ? null : assetIds;
 }, dependencies: [assetsActionProvider]);
 
-class _LocalCleanupGuard {
-  bool running = false;
-}
-
-final _localCleanupGuardProvider = Provider.family<_LocalCleanupGuard, ActionSource>(
-  (ref, source) => _LocalCleanupGuard(),
-  dependencies: [assetsActionProvider],
-);
-
 class CleanupLocalAction extends AssetActionBuilder {
   const CleanupLocalAction({required super.source});
 
@@ -333,7 +400,7 @@ class CleanupLocalAction extends AssetActionBuilder {
     if (!context.mounted) {
       return;
     }
-    final guard = ref.read(_localCleanupGuardProvider(source));
+    final guard = ref.read(_deletionGuardProvider(source));
     if (guard.running) {
       return;
     }
@@ -342,18 +409,20 @@ class CleanupLocalAction extends AssetActionBuilder {
       return;
     }
 
-    final userId = ref.read(currentUserProvider)?.id;
-    final store = ref.read(storeServiceProvider);
-    final endpoint = store.tryGet(StoreKey.serverEndpoint);
-    bool isCurrent() =>
-        context.mounted &&
-        ref.read(currentUserProvider)?.id == userId &&
-        store.tryGet(StoreKey.serverEndpoint) == endpoint;
+    final lease = _SelectionDeletionLease(context, ref, source);
+    bool isCurrent() => lease.isSessionCurrent();
     final toastService = ref.read(toastServiceProvider);
 
     guard.running = true;
     try {
-      final result = await _cleanupLocalAssetsDetailed(context, ref, assetIds, canContinue: isCurrent);
+      final result = await _cleanupLocalAssetsDetailed(
+        context,
+        ref,
+        assetIds,
+        canContinue: isCurrent,
+        preflight: lease.validate,
+      );
+      if (result == null) return;
       if (!context.mounted || !isCurrent()) {
         return;
       }
@@ -382,6 +451,7 @@ class CleanupLocalAction extends AssetActionBuilder {
         handleError(error, stack: stack, description: "Failed to remove the device copies");
       }
     } finally {
+      lease.dispose();
       guard.running = false;
     }
   }
@@ -405,7 +475,7 @@ class CleanupLocalAlbumAction extends ActionBuilder {
     if (!context.mounted) {
       return;
     }
-    final guard = ref.read(_localCleanupGuardProvider(.timeline));
+    final guard = ref.read(_deletionGuardProvider(.timeline));
     if (guard.running) {
       return;
     }
@@ -423,11 +493,12 @@ class CleanupLocalAlbumAction extends ActionBuilder {
     try {
       // getAssets joins live local rows. Raw album-link IDs can include stale
       // links and must never be interpreted as a MediaStore selection.
-      final snapshot = {for (final asset in await repository.getAssets(albumId)) asset.id: asset};
+      final snapshotAssets = await repository.getAssets(albumId);
+      final snapshot = DeletionSnapshot(snapshotAssets);
       if (!context.mounted || !isCurrent()) {
         return;
       }
-      if (snapshot.isEmpty) {
+      if (snapshot.assets.isEmpty) {
         toastService.error(context.t.no_assets_to_show);
         return;
       }
@@ -435,7 +506,7 @@ class CleanupLocalAlbumAction extends ActionBuilder {
         context: context,
         builder: (_) => ConfirmDialog(
           title: context.t.delete_local_album_assets,
-          content: context.t.delete_local_album_assets_confirmation(count: snapshot.length),
+          content: context.t.delete_local_album_assets_confirmation(count: snapshot.assets.length),
           ok: context.t.delete_from_device,
         ),
       );
@@ -443,22 +514,13 @@ class CleanupLocalAlbumAction extends ActionBuilder {
         return;
       }
 
-      // Do not add newly arrived items or remove a file that moved away/changed
-      // while the user was reading the confirmation.
       final current = await repository.getAssets(albumId);
-      if (!context.mounted || !isCurrent()) {
+      if (!context.mounted || !isCurrent()) return;
+      if (!snapshot.matches(current)) {
+        toastService.error(context.t.deletion_selection_changed);
         return;
       }
-      final eligible = <String>[
-        for (final asset in current)
-          if (snapshot[asset.id] case final LocalAsset previous
-              when previous.type == asset.type &&
-                  previous.name == asset.name &&
-                  previous.checksum == asset.checksum &&
-                  previous.createdAt.isAtSameMomentAs(asset.createdAt) &&
-                  previous.updatedAt.isAtSameMomentAs(asset.updatedAt))
-            asset.id,
-      ];
+      final eligible = snapshot.assets.map((asset) => asset.id).toList(growable: false);
       final result = await _cleanupLocalAssetsDetailed(
         context,
         ref,
@@ -469,8 +531,10 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       if (!context.mounted || !isCurrent()) {
         return;
       }
-      final removed = result.deletedIds.where(snapshot.containsKey).toSet();
-      final remaining = snapshot.keys.where((id) => !removed.contains(id)).length;
+      if (result == null) return;
+      final requested = eligible.toSet();
+      final removed = result.deletedIds.where(requested.contains).toSet();
+      final remaining = requested.difference(removed).length;
       if (removed.isNotEmpty) {
         final selected = ref.read(multiSelectProvider).selectedAssets.toList();
         final notifier = ref.read(multiSelectProvider.notifier);
@@ -500,16 +564,17 @@ class CleanupLocalAlbumAction extends ActionBuilder {
 ///
 /// iOS and Android without MANAGE_MEDIA prompt the user
 /// with MANAGE_MEDIA, we do it ourselves unless [requestCustomPrompt] is false.
-Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
+Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
   BuildContext context,
   WidgetRef ref,
   List<String> assetIds, {
   bool requestCustomPrompt = true,
   bool trash = true,
   bool Function()? canContinue,
+  Future<bool> Function()? preflight,
 }) async {
   if (assetIds.isEmpty) {
-    return const LocalDeletionResult(deletedIds: [], remainingIds: []);
+    return null;
   }
 
   final cleanupService = ref.read(cleanupServiceProvider);
@@ -527,13 +592,14 @@ Future<LocalDeletionResult> _cleanupLocalAssetsDetailed(
         ok: context.t.ok,
       ),
     );
-    if (confirmed != true) {
-      return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
-    }
+    if (confirmed != true) return null;
   }
 
-  if (!context.mounted || canContinue?.call() == false) {
-    return LocalDeletionResult(deletedIds: const [], remainingIds: assetIds);
+  if (!context.mounted || canContinue?.call() == false) return null;
+  if (preflight != null && !await preflight()) {
+    if (context.mounted) ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+    return null;
   }
+  if (!context.mounted || canContinue?.call() == false) return null;
   return cleanupService.deleteLocalAssetsDetailed(assetIds, trash: trash);
 }
