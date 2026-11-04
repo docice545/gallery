@@ -80,7 +80,7 @@ void main() {
     await tester.pump();
     // Native decoding must complete before the crop surface mounts. A single
     // fixed sleep flakes when codegen/analyzer/test workers compete for CPU.
-    if (legacyCaller || (photo ?? asset).isEditable) {
+    if (legacyCaller || (photo ?? asset).isStillCopyEditable) {
       for (var attempt = 0; attempt < 100 && find.byType(CropImage).evaluate().isEmpty; attempt++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
         await tester.pump();
@@ -371,12 +371,19 @@ void main() {
     });
   }
 
-  testWidgets('Live/Motion stills expose the fourth AI tool without enabling transform or overwrite', (tester) async {
+  testWidgets('Live/Motion still exposes existing raster tools for Save Copy without enabling original overwrite', (
+    tester,
+  ) async {
     final live = asset.copyWith(livePhotoVideoId: 'paired-video-id');
     await pumpEditor(tester, photo: live);
-    expect(tester.widget<FotoIconButton>(find.byKey(const Key('editor-mode-crop'))).onPressed, isNull);
-    expect(tester.widget<TextButton>(find.byKey(const Key('editor-save'))).onPressed, isNull);
-    expect(find.byType(CropImage), findsNothing);
+    expect(find.byType(CropImage), findsOneWidget);
+    expect(find.byKey(const Key('editor-rotate-left')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('editor-rotate-left')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextButton>(find.byKey(const Key('editor-save'))).onPressed, isNotNull);
+    expect(find.byTooltip('Save Copy'), findsOneWidget);
+    expect(live.isEditable, isFalse, reason: 'The original motion pair must retain its server edit guard');
+    expect(live.isStillCopyEditable, isTrue);
     await selectMode(tester, 'magicEraser');
     expect(magicEraser, findsOneWidget);
     expect(live.livePhotoVideoId, 'paired-video-id');

@@ -71,6 +71,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   bool _straightening = false;
   bool _magicEraserOpen = false;
   final _previewKey = GlobalKey();
+  Offset? _lastPhotoPoint;
   Completer<void>? _cancelLoad;
   AnnotationElement _textStyle = AnnotationElement(
     id: 'text-style',
@@ -244,7 +245,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   void initState() {
     super.initState();
     _annotations.replaceAll(ref.read(editorStateProvider).annotations);
-    _mode = widget.asset?.isEditable ?? true ? EditorMode.crop : EditorMode.magicEraser;
+    _mode = widget.asset?.isStillCopyEditable ?? true ? EditorMode.crop : EditorMode.magicEraser;
     _settingsExpanded = false;
   }
 
@@ -559,7 +560,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
       }
     });
     final notifier = ref.read(editorStateProvider.notifier);
-    final allowTransformEdits = widget.asset?.isEditable ?? true;
+    final allowTransformEdits = widget.asset?.isStillCopyEditable ?? true;
     final documentLocked = state.isApplyingEdits || _pendingCopy != null;
 
     return PopScope(
@@ -647,6 +648,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                       : Center(child: InteractiveViewer(child: widget.image));
                   final panel = _EditorBottomPanel(
                     source: widget.image.image,
+                    avoidPoint: () => _lastPhotoPoint,
                     maxHeight: constraints.maxHeight,
                     settingsExpanded: _settingsExpanded,
                     onToggleSettings: () => setState(() => _settingsExpanded = !_settingsExpanded),
@@ -696,7 +698,14 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     absorbing: documentLocked,
                     child: Column(
                       children: [
-                        Expanded(child: preview),
+                        Expanded(
+                          child: Listener(
+                            onPointerDown: (event) => _lastPhotoPoint = event.position,
+                            onPointerMove: (event) => _lastPhotoPoint = event.position,
+                            onPointerUp: (event) => _lastPhotoPoint = event.position,
+                            child: preview,
+                          ),
+                        ),
                         if (allowTransformEdits || widget.asset != null) panel,
                       ],
                     ),
@@ -731,6 +740,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
 }
 
 class _EditorBottomPanel extends ConsumerStatefulWidget {
+  final ValueGetter<Offset?> avoidPoint;
   final ImageProvider source;
   final double maxHeight;
   final bool settingsExpanded;
@@ -761,6 +771,7 @@ class _EditorBottomPanel extends ConsumerStatefulWidget {
   final VoidCallback onRedo;
 
   const _EditorBottomPanel({
+    required this.avoidPoint,
     required this.source,
     required this.maxHeight,
     required this.settingsExpanded,
@@ -922,16 +933,10 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
           AnnotationTool.ellipse,
         ]) {
           controls.add(
-            _button(
-              'editor-tool-${tool.name}',
-              fotoAnnotationToolIcons[tool]!,
-              _toolLabel(context, tool),
-              () {
-                _dismiss();
-                widget.onTool(tool);
-              },
-              selected: widget.tool == tool,
-            ),
+            _button('editor-tool-${tool.name}', fotoAnnotationToolIcons[tool]!, _toolLabel(context, tool), () {
+              _dismiss();
+              widget.onTool(tool);
+            }, selected: widget.tool == tool),
           );
         }
         controls.add(_button('editor-width', FotoIconKind.brush, context.t.size, () => _open('width')));
@@ -987,6 +992,7 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
       controls.add(_button('editor-reset', FotoIconKind.reset, context.t.reset, widget.onReset));
     }
     return EditorDock(
+      avoidPoint: widget.avoidPoint,
       leading: widget.settingsExpanded ? controls.removeAt(0) : null,
       controls: controls,
       popover: popover,

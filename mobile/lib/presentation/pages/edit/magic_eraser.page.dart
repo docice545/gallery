@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -41,6 +40,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
   MagicEraserMask _mask = MagicEraserMask();
   final _strokePoints = <Offset>[];
   final _imageKey = GlobalKey();
+  Offset? _lastPhotoPoint;
   final _pointers = <int>{};
   int? _strokePointer;
   Size? _strokeSize;
@@ -292,6 +292,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
         !box.size.contains(box.globalToLocal(event.position))) {
       return;
     }
+    _lastPhotoPoint = event.position;
     _strokePointer = event.pointer;
     _strokeSize = box.size;
     _startStroke(box.globalToLocal(event.position), box.size);
@@ -306,6 +307,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
       _discardStroke();
       return;
     }
+    _lastPhotoPoint = event.position;
     // globalToLocal already inverts the InteractiveViewer transform.
     _addPoint(box.globalToLocal(event.position), box.size);
   }
@@ -314,6 +316,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     if (_strokePointer == event.pointer) {
       final box = _imageKey.currentContext?.findRenderObject() as RenderBox?;
       if (box != null && box.size == _strokeSize) {
+        _lastPhotoPoint = event.position;
         _addPoint(box.globalToLocal(event.position), box.size);
         _strokePointer = null;
         _finishStroke();
@@ -651,6 +654,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
 
   Widget _controls() => EditorDock(
     key: const Key('eraser-controls-panel'),
+    avoidPoint: () => _lastPhotoPoint,
     onDismiss: () {
       if (_brushOptions) {
         setState(() => _brushOptions = false);

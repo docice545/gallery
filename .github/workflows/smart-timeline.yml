@@ -75,6 +75,7 @@ jobs:
             test/providers/asset_viewer/asset_viewer_provider_test.dart \
             test/presentation/widgets/asset_viewer/bottom_bar_test.dart \
             test/presentation/widgets/asset_viewer/editor_entry_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_editor_copy_test.dart \
             test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
             test/presentation/widgets/asset_viewer/viewer_local_deletion_test.dart \
             test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart \
@@ -130,6 +131,7 @@ jobs:
             test/providers/asset_viewer/asset_viewer_provider_test.dart \
             test/presentation/widgets/asset_viewer/bottom_bar_test.dart \
             test/presentation/widgets/asset_viewer/editor_entry_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_editor_copy_test.dart \
             test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
             test/presentation/widgets/asset_viewer/viewer_local_deletion_test.dart \
             test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart \
