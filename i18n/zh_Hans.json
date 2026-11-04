@@ -938,6 +938,8 @@
   "album_search_not_found": "未找到与搜索条件匹配的相册",
   "album_share_no_users": "您已将此相册共享给所有用户，或没有可共享的用户。",
   "album_summary": "相册概览",
+  "album_trash_incomplete": "照片已移至回收站，但相册已保留。请刷新并检查内容。",
+  "album_trash_scope_unsupported": "此相册包含共享、外部或未验证的项目。未删除任何内容。",
   "album_updated": "相册已更新",
   "album_updated_setting_description": "当共享相册有新内容时，通过邮件通知",
   "album_upload_assets": "从您的电脑上传文件并添加到相册",

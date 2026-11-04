@@ -43,6 +43,9 @@ jobs:
             test/medium/repositories/settings_repository_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
+            test/repositories/album_trash_snapshot_test.dart \
+            test/presentation/widgets/album/album_trash_reveal_test.dart \
+            test/unit/presentation/actions/album_swipe_trash_test.dart \
             test/unit/presentation/actions/deletion_snapshot_guard_test.dart \
             test/unit/presentation/actions/delete_action_test.dart \
             test/unit/presentation/actions/local_album_cleanup_action_test.dart \
@@ -72,6 +75,9 @@ jobs:
             test/medium/repositories/settings_repository_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
+            test/repositories/album_trash_snapshot_test.dart \
+            test/presentation/widgets/album/album_trash_reveal_test.dart \
+            test/unit/presentation/actions/album_swipe_trash_test.dart \
             test/unit/presentation/actions/deletion_snapshot_guard_test.dart \
             test/unit/presentation/actions/delete_action_test.dart \
             test/unit/presentation/actions/local_album_cleanup_action_test.dart \

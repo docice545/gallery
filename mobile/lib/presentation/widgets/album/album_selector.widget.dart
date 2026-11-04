@@ -11,6 +11,8 @@ import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/models/albums/album_search.model.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_tile.dart';
+import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
+import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/widgets/album/new_album_name_modal.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/providers/album/album_sort_by_options.provider.dart';
@@ -23,7 +25,6 @@ import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/album_filter.utils.dart';
 import 'package:immich_mobile/utils/album_permissions.dart';
-import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_mobile/widgets/common/search_field.dart';
 import 'package:sliver_tools/sliver_tools.dart';
@@ -619,29 +620,9 @@ class _AlbumList extends ConsumerWidget {
           if (isOwner) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 8.0),
-              child: Dismissible(
+              child: AlbumTrashReveal(
                 key: ValueKey(album.id),
-                background: Container(
-                  color: context.colorScheme.error,
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 16),
-                  child: Icon(Icons.delete, color: context.colorScheme.onError),
-                ),
-                direction: DismissDirection.endToStart,
-                confirmDismiss: (direction) {
-                  return showDialog<bool>(
-                    context: context,
-                    builder: (context) => ConfirmDialog(
-                      onOk: () => true,
-                      title: context.t.delete_album,
-                      content: context.t.album_delete_confirmation(album: album.name),
-                      ok: context.t.delete,
-                    ),
-                  );
-                },
-                onDismissed: (direction) async {
-                  await ref.read(remoteAlbumProvider.notifier).deleteAlbum(album.id);
-                },
+                onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
                 child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
               ),
             );

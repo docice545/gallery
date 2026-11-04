@@ -51,7 +51,7 @@ void main() {
   for (final change in ['one-many-one', 'refresh', 'metadata', 'missing']) {
     testWidgets('$change while confirmation is visible rejects the whole snapshot', (tester) async {
       final scope = await mount(tester, permanent: true);
-      await tester.tap(find.text('Delete Permanently'));
+      await tester.tap(find.byType(ActionButton));
       await tester.pump(const Duration(milliseconds: 300));
       switch (change) {
         case 'one-many-one':

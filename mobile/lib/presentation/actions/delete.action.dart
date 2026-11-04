@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/album/album_trash_snapshot.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/deletion_snapshot.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
@@ -15,6 +16,7 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
@@ -22,6 +24,7 @@ import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
+import 'package:immich_mobile/repositories/album_api_repository.dart';
 import 'package:immich_mobile/services/toast.service.dart';
 import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
@@ -78,7 +81,9 @@ class _SelectionDeletionLease {
   bool isCurrent() => !_invalid && isSelectionCurrent();
 
   Future<bool> validate() async {
-    if (!isCurrent()) return false;
+    if (!isCurrent()) {
+      return false;
+    }
     final matches = await snapshot.matchesStored(ref.read(assetServiceProvider).getAsset);
     return matches && isCurrent();
   }
@@ -197,7 +202,9 @@ class DeleteAction extends AssetActionBuilder {
         }
       }
       if (!await lease.validate()) {
-        if (context.mounted) toastService.error(context.t.deletion_selection_changed);
+        if (context.mounted) {
+          toastService.error(context.t.deletion_selection_changed);
+        }
         return;
       }
       final _DeletionMessage? result;
@@ -212,8 +219,9 @@ class DeleteAction extends AssetActionBuilder {
         result = await _deletePermanently(context, ref, remoteIds, lease);
       }
 
-      if (result == null || !lease.isSessionCurrent()) return;
-
+      if (result == null || !lease.isSessionCurrent()) {
+        return;
+      }
       if (result.success) {
         toastService.success(result.message, toast: undo);
         if (trash) {
@@ -248,7 +256,9 @@ class DeleteAction extends AssetActionBuilder {
         toastService.error(result.message);
       }
     } catch (error, stack) {
-      if (lease.isSessionCurrent()) handleError(error, stack: stack, description: "Failed to delete assets");
+      if (lease.isSessionCurrent()) {
+        handleError(error, stack: stack, description: "Failed to delete assets");
+      }
     } finally {
       lease.dispose();
       guard.running = false;
@@ -318,7 +328,9 @@ class DeleteAction extends AssetActionBuilder {
     }
 
     if (!await lease.validate()) {
-      if (context.mounted) ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+      if (context.mounted) {
+        ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+      }
       return null;
     }
     final results = await assetService.acceptPermanentDeletion(remoteIds);
@@ -422,7 +434,9 @@ class CleanupLocalAction extends AssetActionBuilder {
         canContinue: isCurrent,
         preflight: lease.validate,
       );
-      if (result == null) return;
+      if (result == null) {
+        return;
+      }
       if (!context.mounted || !isCurrent()) {
         return;
       }
@@ -460,9 +474,11 @@ class CleanupLocalAction extends AssetActionBuilder {
 /// Explicit device-only cleanup. Album membership is a selection, not permission
 /// to remove a server asset or delete the album's Drift definition.
 class CleanupLocalAlbumAction extends ActionBuilder {
-  const CleanupLocalAlbumAction({required this.albumId});
+  const CleanupLocalAlbumAction({required this.albumId, required this.albumName, this.isShared = false});
 
   final String albumId;
+  final String albumName;
+  final bool isShared;
 
   @override
   ActionItem create(BuildContext context, WidgetRef ref) => .new(
@@ -473,6 +489,10 @@ class CleanupLocalAlbumAction extends ActionBuilder {
 
   Future<void> _cleanupAlbum(BuildContext context, WidgetRef ref) async {
     if (!context.mounted) {
+      return;
+    }
+    if (isShared) {
+      ref.read(toastServiceProvider).error(context.t.album_trash_scope_unsupported);
       return;
     }
     final guard = ref.read(_deletionGuardProvider(.timeline));
@@ -505,9 +525,9 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (_) => ConfirmDialog(
-          title: context.t.delete_local_album_assets,
-          content: context.t.delete_local_album_assets_confirmation(count: snapshot.assets.length),
-          ok: context.t.delete_from_device,
+          title: context.t.delete_album,
+          content: context.t.album_delete_confirmation(album: albumName),
+          ok: context.t.delete,
         ),
       );
       if (confirmed != true || !isCurrent()) {
@@ -515,7 +535,9 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       }
 
       final current = await repository.getAssets(albumId);
-      if (!context.mounted || !isCurrent()) return;
+      if (!context.mounted || !isCurrent()) {
+        return;
+      }
       if (!snapshot.matches(current)) {
         toastService.error(context.t.deletion_selection_changed);
         return;
@@ -531,7 +553,9 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       if (!context.mounted || !isCurrent()) {
         return;
       }
-      if (result == null) return;
+      if (result == null) {
+        return;
+      }
       final requested = eligible.toSet();
       final removed = result.deletedIds.where(requested.contains).toSet();
       final remaining = requested.difference(removed).length;
@@ -553,6 +577,97 @@ class CleanupLocalAlbumAction extends ActionBuilder {
     } catch (error, stack) {
       if (isCurrent()) {
         handleError(error, stack: stack, description: "Failed to remove the album's device copies");
+      }
+    } finally {
+      guard.running = false;
+    }
+  }
+}
+
+/// Private server albums: complete live membership -> consent -> revalidation
+/// -> recoverable asset Trash -> remove the now-empty album definition.
+class TrashRemoteAlbumAction extends ActionBuilder {
+  const TrashRemoteAlbumAction({required this.albumId});
+  final String albumId;
+
+  @override
+  ActionItem create(BuildContext context, WidgetRef ref) =>
+      ActionItem(icon: Icons.delete_outline, label: context.t.delete_album, onAction: () => _trash(context, ref));
+
+  Future<void> _trash(BuildContext context, WidgetRef ref) async {
+    final guard = ref.read(_deletionGuardProvider(.timeline));
+    if (guard.running || !context.mounted) {
+      return;
+    }
+    final userId = ref.read(currentUserProvider)?.id;
+    if (userId == null) {
+      return;
+    }
+    final store = ref.read(storeServiceProvider);
+    final endpoint = store.tryGet(StoreKey.serverEndpoint);
+    bool current() =>
+        context.mounted &&
+        ref.read(currentUserProvider)?.id == userId &&
+        store.tryGet(StoreKey.serverEndpoint) == endpoint;
+    final repository = ref.read(albumApiRepositoryProvider);
+    final toast = ref.read(toastServiceProvider);
+    var photosTrashed = false;
+    guard.running = true;
+    try {
+      final snapshot = await repository.getTrashSnapshot(albumId, userId);
+      if (!current()) {
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => ConfirmDialog(
+          title: context.t.delete_album,
+          content: context.t.album_delete_confirmation(album: snapshot.name),
+          ok: context.t.delete,
+        ),
+      );
+      if (confirmed != true || !current()) {
+        return;
+      }
+      final latest = await repository.getTrashSnapshot(albumId, userId);
+      if (!current()) {
+        return;
+      }
+      if (!snapshot.matches(latest)) {
+        toast.error(context.t.deletion_selection_changed);
+        return;
+      }
+      if (snapshot.assets.isNotEmpty) {
+        await ref.read(assetServiceProvider).trash(snapshot.assetIds);
+        photosTrashed = true;
+      }
+      if (!current()) {
+        return;
+      }
+      // New arrivals/shared access must not be silently removed with metadata.
+      final empty = await repository.getTrashSnapshot(albumId, userId);
+      if (!current()) {
+        return;
+      }
+      if (empty.assets.isNotEmpty) {
+        toast.error(photosTrashed ? context.t.album_trash_incomplete : context.t.deletion_selection_changed);
+        return;
+      }
+      await ref.read(remoteAlbumProvider.notifier).deleteAlbum(albumId);
+      if (current()) {
+        toast.success(context.t.album_deleted);
+      }
+    } on AlbumTrashScopeException {
+      if (current()) {
+        toast.error(photosTrashed ? context.t.album_trash_incomplete : context.t.album_trash_scope_unsupported);
+      }
+    } catch (error, stack) {
+      if (current()) {
+        if (photosTrashed) {
+          toast.error(context.t.album_trash_incomplete);
+        } else {
+          handleError(error, stack: stack, description: 'Failed to trash album');
+        }
       }
     } finally {
       guard.running = false;
@@ -592,14 +707,22 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
         ok: context.t.ok,
       ),
     );
-    if (confirmed != true) return null;
+    if (confirmed != true) {
+      return null;
+    }
   }
 
-  if (!context.mounted || canContinue?.call() == false) return null;
-  if (preflight != null && !await preflight()) {
-    if (context.mounted) ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+  if (!context.mounted || canContinue?.call() == false) {
     return null;
   }
-  if (!context.mounted || canContinue?.call() == false) return null;
+  if (preflight != null && !await preflight()) {
+    if (context.mounted) {
+      ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+    }
+    return null;
+  }
+  if (!context.mounted || canContinue?.call() == false) {
+    return null;
+  }
   return cleanupService.deleteLocalAssetsDetailed(assetIds, trash: trash);
 }

@@ -941,6 +941,8 @@
   "album_search_not_found": "找不到符合搜尋條件的相簿",
   "album_share_no_users": "看來您與所有使用者共享了這本相簿，或沒有其他使用者可供分享。",
   "album_summary": "相簿摘要",
+  "album_trash_incomplete": "照片已移至垃圾桶，但相簿已保留。請重新整理並檢查內容。",
+  "album_trash_scope_unsupported": "此相簿包含共享、外部或未驗證的項目。未刪除任何內容。",
   "album_updated": "相簿已更新",
   "album_updated_setting_description": "當共享相簿有新項目時用電子郵件通知我",
   "album_upload_assets": "從您的電腦上傳檔案並加入相簿",

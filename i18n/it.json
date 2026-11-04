@@ -943,6 +943,8 @@
   "album_search_not_found": "Nessun album trovato corrispondente alla tua ricerca",
   "album_share_no_users": "Sembra che tu abbia condiviso questo album con tutti gli utenti oppure non hai nessun utente con cui condividere.",
   "album_summary": "Riepilogo album",
+  "album_trash_incomplete": "Le foto sono state spostate nel cestino, ma l’album è stato conservato. Aggiorna e verifica il contenuto.",
+  "album_trash_scope_unsupported": "Questo album contiene elementi condivisi, esterni o non verificati. Nessun elemento è stato eliminato.",
   "album_updated": "Album aggiornato",
   "album_updated_setting_description": "Ricevi una notifica email quando un album condiviso ha nuovi media",
   "album_upload_assets": "Carica risorse dal tuo computer e aggiungile all'album",

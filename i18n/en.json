@@ -943,6 +943,8 @@
   "album_search_not_found": "No albums found matching your search",
   "album_share_no_users": "Looks like you have shared this album with all users or you don't have any user to share with.",
   "album_summary": "Album summary",
+  "album_trash_incomplete": "Photos were moved to trash, but the album was kept. Refresh and review its contents.",
+  "album_trash_scope_unsupported": "This album contains shared, external or unverified items. Nothing was deleted.",
   "album_updated": "Album updated",
   "album_updated_setting_description": "Receive an email notification when a shared album has new assets",
   "album_upload_assets": "Upload assets from your computer and add to album",

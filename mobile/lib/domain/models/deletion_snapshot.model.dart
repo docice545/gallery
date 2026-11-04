@@ -25,17 +25,25 @@ class DeletionSnapshot {
   );
 
   bool get isUnambiguous {
-    if (assets.isEmpty) return false;
+    if (assets.isEmpty) {
+      return false;
+    }
     final keys = <(bool, String)>{};
     final localIds = <String>{};
     final remoteIds = <String>{};
     for (final asset in assets) {
-      if (asset.id.isEmpty || !keys.add(_key(asset))) return false;
+      if (asset.id.isEmpty || !keys.add(_key(asset))) {
+        return false;
+      }
       if (asset.localId case final String id) {
-        if (!localIds.add(id)) return false;
+        if (!localIds.add(id)) {
+          return false;
+        }
       }
       if (asset.remoteId case final String id) {
-        if (!remoteIds.add(id)) return false;
+        if (!remoteIds.add(id)) {
+          return false;
+        }
       }
     }
     return true;
@@ -43,7 +51,9 @@ class DeletionSnapshot {
 
   bool matches(Iterable<BaseAsset> current) {
     final next = DeletionSnapshot(current);
-    if (!isUnambiguous || !next.isUnambiguous || assets.length != next.assets.length) return false;
+    if (!isUnambiguous || !next.isUnambiguous || assets.length != next.assets.length) {
+      return false;
+    }
     final fingerprints = {for (final asset in assets) _key(asset): _fingerprint(asset)};
     return next.assets.every((asset) => fingerprints[_key(asset)] == _fingerprint(asset));
   }
@@ -51,10 +61,14 @@ class DeletionSnapshot {
   /// Sequential reads bound work for large selections. Callers recheck the
   /// selection/account/route after this await and immediately before submission.
   Future<bool> matchesStored(Future<BaseAsset?> Function(BaseAsset) read) async {
-    if (!isUnambiguous) return false;
+    if (!isUnambiguous) {
+      return false;
+    }
     for (final asset in assets) {
       final stored = await read(asset);
-      if (stored == null || _fingerprint(stored) != _fingerprint(asset)) return false;
+      if (stored == null || _fingerprint(stored) != _fingerprint(asset)) {
+        return false;
+      }
     }
     return true;
   }

@@ -943,6 +943,8 @@
   "album_search_not_found": "Keine Alben gefunden, die zur Suche passen",
   "album_share_no_users": "Es sieht so aus, als hättest du dieses Album mit allen Benutzern geteilt oder du hast keine Benutzer, mit denen du teilen kannst.",
   "album_summary": "Album Zusammenfassung",
+  "album_trash_incomplete": "Fotos wurden in den Papierkorb verschoben, aber das Album bleibt erhalten. Aktualisiere und prüfe den Inhalt.",
+  "album_trash_scope_unsupported": "Dieses Album enthält geteilte, externe oder ungeprüfte Elemente. Es wurde nichts gelöscht.",
   "album_updated": "Album aktualisiert",
   "album_updated_setting_description": "Erhalte eine E-Mail-Benachrichtigung, wenn ein freigegebenes Album neue Dateien enthält",
   "album_upload_assets": "Assets vom Computer hochladen und zu Album hinzufügen",

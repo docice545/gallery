@@ -27,7 +27,7 @@ class LocalTimelinePage extends StatelessWidget {
         withGroupingPill: true,
         appBar: MesmerizingSliverAppBar(
           title: album.name,
-          actions: [_LocalAlbumMenu(albumId: album.id)],
+          actions: [_LocalAlbumMenu(albumId: album.id, albumName: album.name, isShared: album.isIosSharedAlbum)],
         ),
         bottomSheet: const LocalAlbumBottomSheet(),
         showStorageIndicator: true,
@@ -37,13 +37,19 @@ class LocalTimelinePage extends StatelessWidget {
 }
 
 class _LocalAlbumMenu extends ConsumerWidget {
-  const _LocalAlbumMenu({required this.albumId});
+  const _LocalAlbumMenu({required this.albumId, required this.albumName, required this.isShared});
 
   final String albumId;
+  final String albumName;
+  final bool isShared;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final action = CleanupLocalAlbumAction(albumId: albumId).create(context, ref);
+    final action = CleanupLocalAlbumAction(
+      albumId: albumId,
+      albumName: albumName,
+      isShared: isShared,
+    ).create(context, ref);
     return PopupMenuButton<int>(
       tooltip: context.t.more,
       onSelected: (_) => action.onAction(),

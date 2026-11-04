@@ -5,6 +5,8 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/pages/common/large_leading_tile.dart';
+import 'package:immich_mobile/presentation/actions/delete.action.dart';
+import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
 import 'package:immich_mobile/presentation/widgets/images/local_album_thumbnail.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
@@ -61,15 +63,20 @@ class _AlbumList extends ConsumerWidget {
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
-                child: LargeLeadingTile(
-                  leadingPadding: const EdgeInsets.only(right: 16),
-                  leading: SizedBox(width: 80, height: 80, child: LocalAlbumThumbnail(albumId: album.id)),
-                  title: Text(album.name, style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                    context.t.items_count(count: album.assetCount),
-                    style: context.textTheme.bodyMedium?.copyWith(color: context.colorScheme.onSurfaceSecondary),
+                child: AlbumTrashReveal(
+                  key: ValueKey('local-album-${album.id}'),
+                  onTrash: () async =>
+                      CleanupLocalAlbumAction(albumId: album.id, albumName: album.name).create(context, ref).onAction(),
+                  child: LargeLeadingTile(
+                    leadingPadding: const EdgeInsets.only(right: 16),
+                    leading: SizedBox(width: 80, height: 80, child: LocalAlbumThumbnail(albumId: album.id)),
+                    title: Text(album.name, style: context.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                    subtitle: Text(
+                      context.t.items_count(count: album.assetCount),
+                      style: context.textTheme.bodyMedium?.copyWith(color: context.colorScheme.onSurfaceSecondary),
+                    ),
+                    onTap: () => context.pushRoute(LocalTimelineRoute(album: album)),
                   ),
-                  onTap: () => context.pushRoute(LocalTimelineRoute(album: album)),
                 ),
               );
             },

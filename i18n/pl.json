@@ -943,6 +943,8 @@
   "album_search_not_found": "Nie znaleziono albumów pasujących do Twojego wyszukiwania",
   "album_share_no_users": "Wygląda na to, że ten album albo udostępniono wszystkim użytkownikom, albo nie ma komu go udostępnić.",
   "album_summary": "Podsumowanie albumu",
+  "album_trash_incomplete": "Zdjęcia przeniesiono do kosza, ale album zachowano. Odśwież i sprawdź jego zawartość.",
+  "album_trash_scope_unsupported": "Ten album zawiera elementy udostępnione, zewnętrzne lub niezweryfikowane. Nic nie usunięto.",
   "album_updated": "Album zaktualizowany",
   "album_updated_setting_description": "Otrzymaj powiadomienie e-mail, gdy do udostępnionego Ci albumu zostaną dodane nowe zasoby",
   "album_upload_assets": "Prześlij zasoby ze swojego komputera i dodaj je do albumu",

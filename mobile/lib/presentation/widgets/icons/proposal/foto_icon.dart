@@ -1,4 +1,4 @@
-// Review candidate only. Viewer/editor adoption requires Issue 17 design approval.
+// FOTO v1 geometry approved by the user at ccdb8a892. Keep action semantics and accessibility verified.
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart';
@@ -51,7 +51,7 @@ class FotoIcon extends StatelessWidget {
 }
 
 /// Uses the existing theme and standard accessible interaction behavior.
-/// This proposal delegates the original callback; it owns no editor commands.
+/// Delegates the original callback; owns no editor commands.
 class FotoIconButton extends StatelessWidget {
   const FotoIconButton({
     super.key,

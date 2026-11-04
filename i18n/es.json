@@ -943,6 +943,8 @@
   "album_search_not_found": "No se encontraron álbumes que coincidan con tu búsqueda",
   "album_share_no_users": "Parece que has compartido este álbum con todos los usuarios o no tienes ningún usuario con quien compartirlo.",
   "album_summary": "Resumen del álbum",
+  "album_trash_incomplete": "Las fotos se han movido a la papelera, pero se ha conservado el álbum. Actualiza y revisa su contenido.",
+  "album_trash_scope_unsupported": "Este álbum contiene elementos compartidos, externos o sin verificar. No se ha eliminado nada.",
   "album_updated": "Álbum actualizado",
   "album_updated_setting_description": "Reciba una notificación por correo electrónico cuando un álbum compartido tenga nuevos recursos",
   "album_upload_assets": "Añadir recursos desde tu computadora y añadir a un álbum",

@@ -62,7 +62,12 @@ void main() {
     await tester.pumpTestWidget(
       context,
       Column(
-        children: List.generate(buttons, (_) => const ActionButton(action: CleanupLocalAlbumAction(albumId: albumId))),
+        children: List.generate(
+          buttons,
+          (_) => const ActionButton(
+            action: CleanupLocalAlbumAction(albumId: albumId, albumName: 'Camera'),
+          ),
+        ),
       ),
       overrides: [driftProvider.overrideWithValue(drift), ...context.selected(selection)],
     );
@@ -106,23 +111,17 @@ void main() {
     await tester.tap(find.text(label));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('Delete 2 items in this album from this device? Server copies will not be changed.'),
-      findsOneWidget,
-    );
+    expect(find.text('Are you sure you want to delete the album Camera?'), findsOneWidget);
     verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any()));
     await respond(tester, confirm: false);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('counted confirmation precedes device-only deletion of the actual album snapshot', (tester) async {
+  testWidgets('named compact confirmation precedes device-only deletion of the actual album snapshot', (tester) async {
     await pumpAction(tester);
     await tester.tap(find.text(label));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(
-      find.text('Delete 2 items in this album from this device? Server copies will not be changed.'),
-      findsOneWidget,
-    );
+    expect(find.text('Are you sure you want to delete the album Camera?'), findsOneWidget);
     verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any()));
     await respond(tester, confirm: true);
 
@@ -189,9 +188,15 @@ void main() {
       Consumer(
         builder: (context, ref, _) {
           callbacks.clear();
-          callbacks.add(const CleanupLocalAlbumAction(albumId: albumId).create(context, ref).onAction);
-          callbacks.add(const CleanupLocalAlbumAction(albumId: albumId).create(context, ref).onAction);
-          return const ActionButton(action: CleanupLocalAlbumAction(albumId: albumId));
+          callbacks.add(
+            const CleanupLocalAlbumAction(albumId: albumId, albumName: 'Camera').create(context, ref).onAction,
+          );
+          callbacks.add(
+            const CleanupLocalAlbumAction(albumId: albumId, albumName: 'Camera').create(context, ref).onAction,
+          );
+          return const ActionButton(
+            action: CleanupLocalAlbumAction(albumId: albumId, albumName: 'Camera'),
+          );
         },
       ),
       overrides: [driftProvider.overrideWithValue(drift)],
@@ -265,7 +270,9 @@ void main() {
       const Column(
         children: [
           ActionButton(action: CleanupLocalAction(source: .timeline)),
-          ActionButton(action: CleanupLocalAlbumAction(albumId: albumId)),
+          ActionButton(
+            action: CleanupLocalAlbumAction(albumId: albumId, albumName: 'Camera'),
+          ),
         ],
       ),
       overrides: [driftProvider.overrideWithValue(drift), ...context.selected(assets.toSet())],

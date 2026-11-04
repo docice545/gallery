@@ -943,6 +943,8 @@
   "album_search_not_found": "Geen albums gevonden die aan je zoekopdracht voldoen",
   "album_share_no_users": "Het lijkt erop dat je dit album met alle gebruikers hebt gedeeld, of dat je geen gebruikers hebt om mee te delen.",
   "album_summary": "Album samenvatting",
+  "album_trash_incomplete": "De foto’s zijn naar de prullenbak verplaatst, maar het album is behouden. Vernieuw en controleer de inhoud.",
+  "album_trash_scope_unsupported": "Dit album bevat gedeelde, externe of ongecontroleerde items. Er is niets verwijderd.",
   "album_updated": "Album bijgewerkt",
   "album_updated_setting_description": "Ontvang een e-mailmelding wanneer een gedeeld album nieuwe items heeft",
   "album_upload_assets": "Items uploaden van je computer en aan album toevoegen",

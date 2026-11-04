@@ -1,4 +1,4 @@
-// Proposed mapping, not production button replacement or action enablement.
+// FOTO v1 mapping approved at ccdb8a892; action enablement remains owned by the existing actions.
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart';
