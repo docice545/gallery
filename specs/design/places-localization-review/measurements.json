@@ -1,0 +1,13 @@
+{
+  "sourceSha": "f1b18050a8070059986480c840a10ff30e1d4dd9",
+  "kind": "Synthetic Flutter widget render; not Samsung screenshots",
+  "iconDesignApproval": "APPROVED by user: FOTO v1 ccdb8a892",
+  "hardwareAcceptance": "PENDING",
+  "reviewProfile": "places",
+  "measurements": [
+    "PLACES_REVIEW ru_list viewport=393x852 synthetic=true",
+    "PLACES_REVIEW ru_detail viewport=393x852 synthetic=true",
+    "PLACES_REVIEW en_detail viewport=393x852 synthetic=true",
+    "PLACES_REVIEW ru_search viewport=393x852 synthetic=true"
+  ]
+}
