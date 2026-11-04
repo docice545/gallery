@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
@@ -16,13 +17,14 @@ import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
+import 'package:immich_mobile/providers/place_names.provider.dart';
 import 'package:intl/intl.dart';
 
 /// Local synced metadata only. No asset fetch, GPS lookup or geocoder is used.
-final timelineDateLocationProvider = FutureProvider.autoDispose.family<String?, String>((ref, assetId) async {
+final timelineDateLocationProvider = FutureProvider.autoDispose.family<Place?, String>((ref, assetId) async {
   final db = ref.watch(driftProvider);
   final exif = await (db.select(db.remoteExifEntity)..where((row) => row.assetId.equals(assetId))).getSingleOrNull();
-  return timelinePlaceLabel(exif?.city, exif?.state, exif?.country);
+  return exif == null ? null : Place(name: exif.city ?? '', assetId: assetId, state: exif.state, country: exif.country);
 });
 
 String? timelinePlaceLabel(String? city, String? state, String? country) {
@@ -587,11 +589,19 @@ class _FloatingDateLabel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final current = asset;
     final embedded = current is RemoteAssetExif
-        ? timelinePlaceLabel(current.exifInfo.city, current.exifInfo.state, current.exifInfo.country)
+        ? Place(
+            name: current.exifInfo.city ?? '',
+            assetId: current.id,
+            state: current.exifInfo.state,
+            country: current.exifInfo.country,
+          )
         : null;
-    final location =
+    final place =
         embedded ??
         (current?.remoteId == null ? null : ref.watch(timelineDateLocationProvider(current!.remoteId!)).valueOrNull);
+    final location = place == null
+        ? null
+        : ref.watch(placeDisplayNamesProvider(Localizations.localeOf(context))).timelineLabel(place);
     return Material(
       key: const Key('timeline-floating-date'),
       color: Colors.black.withValues(alpha: .76),

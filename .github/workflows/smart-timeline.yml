@@ -41,6 +41,11 @@ jobs:
         run: |
           dart format --set-exit-if-changed \
             test/medium/repositories/settings_repository_test.dart \
+            test/utils/place_names_test.dart \
+            test/domain/services/place_name_service_test.dart \
+            test/providers/place_names_session_provider_test.dart \
+            test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
+            test/presentation/pages/place_localization_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
             test/repositories/album_trash_snapshot_test.dart \
@@ -76,6 +81,11 @@ jobs:
           set -o pipefail
           flutter test --no-pub --concurrency=1 --reporter json \
             test/medium/repositories/settings_repository_test.dart \
+            test/utils/place_names_test.dart \
+            test/domain/services/place_name_service_test.dart \
+            test/providers/place_names_session_provider_test.dart \
+            test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
+            test/presentation/pages/place_localization_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
             test/repositories/album_trash_snapshot_test.dart \

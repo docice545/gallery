@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
+import 'package:immich_mobile/providers/place_names.provider.dart';
+import 'package:immich_mobile/utils/place_names.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import '../../../test_utils.dart';
@@ -41,7 +44,10 @@ Future<void> _mount(
     ProviderScope(
       overrides: [
         hapticFeedbackProvider.overrideWith(_NoHaptics.new),
-        timelineDateLocationProvider.overrideWith((ref, id) async => location),
+        timelineDateLocationProvider.overrideWith(
+          (ref, id) async => location == null ? null : Place(name: location, assetId: id),
+        ),
+        placeDisplayNamesProvider.overrideWith((ref, locale) => PlaceDisplayNames(locale.toLanguageTag(), const {})),
       ],
       child: MaterialApp(
         scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
