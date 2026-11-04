@@ -25,14 +25,16 @@ fi
 ''')
             docker.chmod(0o700)
             sleeper = root / 'sleep'
-            sleeper.write_text('#!/bin/sh\nexit 0\n')
+            sleeper.write_text('#!/bin/sh\nprintf \'%s\\n\' \"$1\" >> \"$PULL_SLEEPS\"\n')
             sleeper.chmod(0o700)
             result = subprocess.run(['bash', str(HELPER)], cwd=root, capture_output=True, text=True, env={
                 **os.environ, 'PATH': f'{root}:{os.environ["PATH"]}', 'GITHUB_ACTIONS': 'true',
                 'RUNNER_ENVIRONMENT': 'github-hosted' if hosted else 'self-hosted',
-                'PULL_COUNT': str(root / 'count'), 'PULL_MESSAGE': message, 'PULL_FAILURES': str(failures),
+                'PULL_SLEEPS': str(root / 'sleeps'), 'PULL_COUNT': str(root / 'count'), 'PULL_MESSAGE': message, 'PULL_FAILURES': str(failures),
             })
             count = int((root / 'count').read_text()) if (root / 'count').exists() else 0
+            sleeps = (root / 'sleeps').read_text().splitlines() if (root / 'sleeps').exists() else []
+            self.assertEqual(sleeps, ['30', '60'][:max(0, count - 1)])
             return result, count
 
     def test_rate_limit_retries_pull_only_and_preserves_failure_output(self):

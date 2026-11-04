@@ -103,7 +103,7 @@ def formatting() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build", "test-log", "setup", "api-smoke", "api-backend"))
+    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build", "android-debug", "test-log", "setup", "api-smoke", "api-backend"))
     parser.add_argument("path", nargs="?", type=Path)
     args = parser.parse_args()
     if args.mode == "format":
@@ -121,8 +121,11 @@ def main() -> None:
             report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
     elif args.mode == "setup":
         report("CI toolchain/dependency setup failure", args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:])
-    elif args.mode == "android-build":
-        report("Unsigned Android build failed", args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:])
+    elif args.mode in {"android-build", "android-debug"}:
+        title = "Unsigned Android build failed" if args.mode == "android-build" else "Emulator debug APK build failed"
+        tail = args.path.read_text(errors="replace")[-ANNOTATION_LIMIT * 3:]
+        for index, offset in enumerate(range(0, len(tail), ANNOTATION_LIMIT), 1):
+            report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
     elif args.mode == "analysis":
         lines = args.path.read_text(errors="replace").splitlines()
         diagnostics = [

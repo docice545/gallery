@@ -31,6 +31,31 @@ def fake(path, source):
 
 
 class BuildDiagnosticsTests(unittest.TestCase):
+    def test_ios_plugin_config_uses_mobile_toolchain_and_preserves_failure(self):
+        workflow = (ROOT / '.github/workflows/build-mobile.yml').read_text()
+        section = workflow.split('      - name: Use CocoaPods for Flutter plugins\n', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('working-directory: ./mobile', section)
+        command = step_body('build-mobile.yml', 'Use CocoaPods for Flutter plugins')
+        for status in (0, 42):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                mobile = root / 'mobile'
+                mobile.mkdir()
+                fake(root / 'bin/flutter', '''#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+assert Path.cwd().name == 'mobile'
+assert sys.argv[1:] == ['config', '--no-enable-swift-package-manager']
+print('PLUGIN_CONFIG_DIAGNOSTIC')
+sys.exit(int(os.environ['FIXTURE_EXIT']))
+''')
+                env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
+                       'RUNNER_TEMP': str(root), 'FIXTURE_EXIT': str(status)}
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=mobile,
+                                        env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn('PLUGIN_CONFIG_DIAGNOSTIC', (root / 'ios-plugin-config.log').read_text())
+
     def test_unsigned_and_hp_resource_profile_preserves_abis_flags_and_failure(self):
         command = step_body('build-mobile.yml', 'Build unsigned universal APK')
         for status in (0, 31):
@@ -72,6 +97,57 @@ Path('lock-checked').touch()
                 self.assertEqual(hp_env['PATH'], env['PATH'])
                 self.assertEqual((root / 'lock-checked').exists(), status == 0)
                 self.assertIn('FINAL_JETIFIER_DIAGNOSTIC', (root / 'unsigned-apk-build.log').read_text())
+
+    def test_unsigned_cleanup_is_hosted_only_and_preserves_android_java_checkout(self):
+        command = step_body('build-mobile.yml', 'Reclaim unused hosted toolchains before universal Android build')
+        for actions, runner in [('true', 'github-hosted'), ('true', 'self-hosted'), ('false', 'github-hosted')]:
+            with self.subTest(actions=actions, runner=runner), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fake(root / 'sudo', """#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+with Path('mutations').open('a') as output:
+    output.write(json.dumps(sys.argv[1:]) + '\\n')
+""")
+                env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                       'GITHUB_ACTIONS': actions, 'RUNNER_ENVIRONMENT': runner}
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
+                                        env=env, text=True, capture_output=True, timeout=10)
+                allowed = actions == 'true' and runner == 'github-hosted'
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                mutations = root / 'mutations'
+                self.assertEqual(mutations.exists(), allowed)
+                if allowed:
+                    self.assertEqual([json.loads(line) for line in mutations.read_text().splitlines()], [
+                        ['rm', '-rf', '/usr/share/dotnet', '/opt/ghc', '/opt/hostedtoolcache/CodeQL'],
+                        ['docker', 'image', 'prune', '--all', '--force'],
+                    ])
+
+    def test_debug_apk_failure_retains_exit_status_and_bounded_diagnostics(self):
+        workflow = 'original-noodle-gallery-compatibility.yml'
+        command = step_body(workflow, 'Build final debug APK for emulator evidence')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake(root / 'bin/flutter', '''#!/usr/bin/env python3
+import sys
+assert sys.argv[1:] == ['build', 'apk', '--debug', '--no-tree-shake-icons', '--no-pub', '--target-platform', 'android-x64']
+print('compiler context ' * 2000)
+print('FINAL_DEBUG_BUILD_FAILURE')
+sys.exit(42)
+''')
+            env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
+                   'RUNNER_TEMP': str(root), 'GRADLE_USER_HOME': str(root / 'fixture-gradle')}
+            result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
+                                    env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 42, result.stderr)
+            evidence = subprocess.run(['python3', str(ROOT / '.github/scripts/report-ci-failures.py'),
+                                       'android-debug', str(root / 'foto-debug-apk.log')],
+                                      text=True, capture_output=True, timeout=10, check=True)
+            annotations = evidence.stdout.splitlines()
+            self.assertEqual(len(annotations), 3)
+            self.assertTrue(all(line.startswith('::error title=Emulator debug APK build failed') and len(line) < 4096
+                                for line in annotations))
+            self.assertIn('FINAL_DEBUG_BUILD_FAILURE', evidence.stdout)
 
     def test_api_failure_is_not_hidden_by_tee_and_evidence_is_bounded(self):
         workflow = 'original-noodle-gallery-compatibility.yml'
