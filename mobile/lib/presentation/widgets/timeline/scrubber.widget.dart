@@ -9,7 +9,6 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
-import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber_segments.dart';
@@ -353,44 +352,14 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     }
   }
 
-  /// Calculate the drag position relative to the scrubber area
-  ///
-  /// This method converts the global drag coordinates from the gesture detector
-  /// into a position relative to the scrubber's active area (excluding padding).
-  ///
-  /// The scrubber has padding at the top and bottom, so we need to:
-  /// 1. Calculate the actual draggable area (timelineHeight - topPadding - bottomPadding)
-  /// 2. Convert the global Y position to a position within this draggable area
-  /// 3. Clamp the result to ensure it stays within bounds (0 to dragAreaHeight)
-  ///
-  /// Example:
-  /// - If timelineHeight = 800, topPadding = 50, bottomPadding = 50
-  /// - Then dragAreaHeight = 700 (the actual scrubber area)
-  /// - If user drags to global Y position that's 100 pixels from the top
-  /// - The relative position would be 100 - 50 = 50 (50 pixels into the scrubber area)
+  // Both the thumb and segment marks live inside this Stack. App bars, safe
+  // areas and nested viewports must use the same local coordinate system.
   double _calculateDragPosition(DragUpdateDetails details) {
-    if (widget.hasAppBar) {
-      final dragAreaTop = widget.topPadding;
-      final dragAreaBottom = widget.timelineHeight - widget.bottomPadding;
-      final dragAreaHeight = dragAreaBottom - dragAreaTop;
-
-      final relativePosition = details.globalPosition.dy - dragAreaTop;
-
-      // Make sure the position stays within the scrubber's bounds
-      return relativePosition.clamp(0.0, dragAreaHeight);
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) {
+      return _thumbTopOffset;
     }
-
-    // Get the local position relative to the gesture detector
-    final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox != null) {
-      final localPosition = renderBox.globalToLocal(details.globalPosition);
-      return localPosition.dy.clamp(0.0, _scrubberHeight);
-    }
-
-    // Fallback to current logic if render box is not available
-    final dragAreaTop = widget.topPadding;
-    final relativePosition = details.globalPosition.dy - dragAreaTop;
-    return relativePosition.clamp(0.0, _scrubberHeight);
+    return (box.globalToLocal(details.globalPosition).dy - widget.topPadding).clamp(0.0, _scrubberHeight);
   }
 
   /// Find the segment closest to the given position
@@ -433,12 +402,11 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     }
     final layoutSegment = widget.layoutSegments[layoutSegmentIndex];
     final maxScrollExtent = position.maxScrollExtent;
-    final viewportHeight = position.viewportDimension;
-
-    final targetScrollOffset = layoutSegment.startOffset;
-    final centeredOffset = targetScrollOffset - (viewportHeight / 4) + 100 + (widget.monthSegmentSnappingOffset ?? 0.0);
-
-    position.jumpTo(centeredOffset.clamp(0.0, maxScrollExtent));
+    // Invert _visibleDateLabel's mapping exactly. A guessed memories/header
+    // height or a fraction of the viewport can land in the previous year.
+    final contentStart = widget.contentStartOffset?.call() ?? widget.monthSegmentSnappingOffset ?? 0.0;
+    final targetOffset = layoutSegment.startOffset + contentStart - widget.topPadding;
+    position.jumpTo(targetOffset.clamp(0.0, maxScrollExtent));
   }
 
   void _finishDrag() {
@@ -642,13 +610,8 @@ class _FloatingDateLabel extends ConsumerWidget {
 // An opaque, tinted surface keeps date contrast independent of the photo below.
 class _ScrubberColors {
   _ScrubberColors.of(BuildContext context)
-    : thumbBackground = context.isDarkTheme
-          ? context.colorScheme.primary.darken(amount: .5)
-          : context.colorScheme.primary,
-      labelBackground = Color.alphaBlend(
-        context.colorScheme.primary.withValues(alpha: .16),
-        context.colorScheme.surfaceContainerHigh,
-      );
+    : thumbBackground = context.colorScheme.primary,
+      labelBackground = context.colorScheme.surfaceContainerHigh;
 
   final Color thumbBackground;
   final Color labelBackground;

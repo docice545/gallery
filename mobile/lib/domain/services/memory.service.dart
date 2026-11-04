@@ -59,9 +59,12 @@ class MemoryService {
       // Offline / server failure: fall back to the owner-scoped local list so the viewer's
       // own memories still render (their Space-shared memories are unavailable offline).
       log.warning("Failed to fetch memories from the server; using the local sync DB", error, stackTrace);
-      return _laneCards(await _repository.getAll(ownerId));
+      return getCachedMemoryLane(ownerId);
     }
   }
+
+  /// Read durable owner-scoped cards without waiting for network availability.
+  Future<List<Memory>> getCachedMemoryLane(String ownerId) async => _laneCards(await _repository.getAll(ownerId));
 
   static List<Memory> _laneCards(Iterable<Memory> memories) {
     final seen = <String>{};

@@ -363,6 +363,20 @@ void main() {
 
     tearDownAll(() async => StoreService.I.dispose());
 
+    test('missing thumb hash still has a stable revision that changes after edits', () {
+      final asset = RemoteAssetFactory.create();
+      final before = getThumbnailImageProvider(asset)! as RemoteImageProvider;
+      final same = getThumbnailImageProvider(asset.copyWith())! as RemoteImageProvider;
+      final edited =
+          getThumbnailImageProvider(asset.copyWith(updatedAt: asset.updatedAt.add(const Duration(seconds: 1))))!
+              as RemoteImageProvider;
+      expect(Uri.parse(before.url).queryParameters['c'], isNotEmpty);
+      expect(same, before);
+      expect(edited, isNot(before));
+      final versioned = getThumbnailImageProvider(asset.copyWith(thumbHash: 'server-hash'))! as RemoteImageProvider;
+      expect(Uri.parse(versioned.url).queryParameters['c'], 'server-hash');
+    });
+
     test('the default source remains thumbnail', () {
       final provider = RemoteImageProvider.thumbnail(assetId: 'asset', thumbhash: 'hash');
 

@@ -197,6 +197,26 @@ void main() {
     }
   });
 
+  test('immediate offline preview failure cannot discard a slower durable thumbnail', () async {
+    response = (args) async {
+      if (Uri.parse(args[0]! as String).queryParameters['size'] == 'preview') {
+        return ['network-unavailable', 'Synthetic offline refusal', null];
+      }
+      // Disk read/decode may finish after the native socket has already failed.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      return encodedImage();
+    };
+    final provider = RemoteImageProvider.thumbnail(
+      assetId: 'offline-cache-race',
+      thumbhash: 'persisted-revision',
+      remoteMediaSize: AssetMediaSize.preview,
+      decodeSize: const Size.square(320),
+    );
+    final image = await resolve(provider).timeout(const Duration(seconds: 2));
+    expect(image.image.width, greaterThan(0));
+    image.dispose();
+  });
+
   test('a delayed smaller thumbnail cannot replace an already decoded preview', () async {
     final delayedThumbnail = Completer<Object?>();
     List<Object?> frame(int width) {

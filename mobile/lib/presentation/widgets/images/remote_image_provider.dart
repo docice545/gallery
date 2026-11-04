@@ -83,23 +83,40 @@ class RemoteImageProvider extends CancellableImageProvider<RemoteImageProvider>
     }
 
     var previewDelivered = false;
+    final thumbnailSettled = Completer<void>();
     Stream<ImageInfo> thumbnail() async* {
-      await for (final image in initialImageStream()) {
-        if (previewDelivered || isCancelled) {
-          image.dispose();
-        } else {
-          yield image;
+      try {
+        await for (final image in initialImageStream()) {
+          if (previewDelivered || isCancelled) {
+            image.dispose();
+          } else {
+            yield image;
+          }
         }
+      } finally {
+        thumbnailSettled.complete();
       }
     }
 
     Stream<ImageInfo> preview() async* {
-      await for (final image in loadRequest(request, decode, isFinal: true)) {
-        previewDelivered = true;
-        // Do not let a cache miss in the smaller source delay a ready preview,
-        // retain an abandoned request, or replace it later with lower quality.
-        unawaited(cachedOperation?.cancel());
-        yield image;
+      try {
+        await for (final image in loadRequest(request, decode, isFinal: true)) {
+          previewDelivered = true;
+          // Do not let a cache miss in the smaller source delay a ready preview,
+          // retain an abandoned request, or replace it later with lower quality.
+          unawaited(cachedOperation?.cancel());
+          yield image;
+        }
+      } catch (error, stack) {
+        // An offline socket may fail before the durable thumbnail is decoded.
+        // Reporting that error immediately makes Thumbnail detach/cancel BOTH
+        // streams and lose the available photo until another scroll/rebuild.
+        // Deliver the fallback first; keep the original error diagnostic and
+        // confirmed-deletion reconciliation after its independent attempt ends.
+        await thumbnailSettled.future;
+        if (!isCancelled) {
+          Error.throwWithStackTrace(error, stack);
+        }
       }
     }
 

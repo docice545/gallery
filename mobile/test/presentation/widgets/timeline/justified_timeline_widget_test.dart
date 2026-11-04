@@ -31,6 +31,8 @@ import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/header.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/multi_select_status_button.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/scrubber_segments.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/sliver_segmented_list.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
@@ -80,19 +82,21 @@ class _Fixture {
 RemoteAsset _asset(String id, {double ratio = 1}) =>
     TestUtils.createRemoteAsset(id: id, width: (ratio * 500).round(), height: 500).copyWith(name: 'Screenshot_$id.png');
 
+const _sourceColors = [
+  Color(0xFF3F6E67),
+  Color(0xFFAA684B),
+  Color(0xFF4B6F98),
+  Color(0xFF81719B),
+  Color(0xFF8E9651),
+  Color(0xFFB76F87),
+];
+Color _sourceColor(String id) => _sourceColors[id.codeUnits.fold(0, (sum, code) => sum + code) % _sourceColors.length];
+
 /// Synthetic source pixels delivered through the real native-image request
 /// contract. The production decoder consumes and frees this allocation. No HTTP
 /// server, original photo, device media or external storage is involved.
 Map<String, int> _sourcePixels(String id, Size sourceSize) {
-  const colors = [
-    Color(0xFF3F6E67),
-    Color(0xFFAA684B),
-    Color(0xFF4B6F98),
-    Color(0xFF81719B),
-    Color(0xFF8E9651),
-    Color(0xFFB76F87),
-  ];
-  final base = colors[id.codeUnits.fold(0, (sum, code) => sum + code) % colors.length];
+  final base = _sourceColor(id);
   final ratio = sourceSize.width / sourceSize.height;
   final width = math.max(32, (160 * math.min(ratio, 2)).round());
   final height = math.max(32, (width / ratio).round());
@@ -146,6 +150,7 @@ void main() {
   late Drift db;
   final sourceSizes = <String, Size>{};
   final requests = <String>[];
+  var offlinePreviewFailure = false;
   const requestChannel = BasicMessageChannel<Object?>(
     'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
     RemoteImageApi.pigeonChannelCodec,
@@ -173,6 +178,9 @@ void main() {
       final arguments = message! as List<Object?>;
       final url = arguments.first! as String;
       requests.add(url);
+      if (offlinePreviewFailure && Uri.parse(url).queryParameters['size'] == 'preview') {
+        return ['network-unavailable', 'Synthetic offline refusal', null];
+      }
       final path = Uri.parse(url).pathSegments;
       expect(path.last, 'thumbnail');
       final id = path[path.indexOf('assets') + 1];
@@ -183,6 +191,7 @@ void main() {
 
   setUp(() async {
     requests.clear();
+    offlinePreviewFailure = false;
     sourceSizes.clear();
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -204,10 +213,12 @@ void main() {
     Size size = const Size(390, 844),
     List<Bucket>? buckets,
     double textScale = 1,
+    double decodePixelRatio = 1,
     TimelineAssetSource? source,
     bool withHeaders = false,
     bool realTimeline = false,
     bool selectionChrome = false,
+    ValueNotifier<double>? prefixHeight,
     double selectionExpandedHeight = kToolbarHeight,
     EdgeInsets insets = EdgeInsets.zero,
   }) async {
@@ -259,6 +270,7 @@ void main() {
       MediaQuery(
         data: MediaQueryData(
           size: size,
+          devicePixelRatio: decodePixelRatio,
           padding: insets,
           viewPadding: insets,
           textScaler: TextScaler.linear(textScale),
@@ -276,6 +288,15 @@ void main() {
                             ? SliverAppBar(expandedHeight: selectionExpandedHeight, title: const Text('FOTO'))
                             : null,
                         bottomSheet: selectionChrome ? const SizedBox.shrink() : null,
+                        topSliverWidget: prefixHeight == null
+                            ? null
+                            : SliverToBoxAdapter(
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: prefixHeight,
+                                  builder: (_, height, _) =>
+                                      SizedBox(height: height, child: const Text('Cached memories')),
+                                ),
+                              ),
                         denseLayout: true,
                         withStack: true,
                       )
@@ -308,6 +329,118 @@ void main() {
       realTimeline ? PrimaryScrollController.of(tester.element(find.byType(CustomScrollView))) : scroll,
     );
   }
+
+  testWidgets('offline year navigation, decoded cached photos and late memories share one geometry', (tester) async {
+    offlinePreviewFailure = true;
+    final prefix = ValueNotifier(0.0);
+    addTearDown(prefix.dispose);
+    final fixture = await mount(
+      tester,
+      [
+        for (var year = 2026; year >= 2012; year--)
+          for (var i = 0; i < 15; i++) _asset('year-$year-$i').copyWith(createdAt: DateTime(year)),
+      ],
+      realTimeline: true,
+      prefixHeight: prefix,
+      decodePixelRatio: 3,
+      buckets: [
+        for (var year = 2026; year >= 2012; year--)
+          TimeBucket(date: DateTime(year), assetCount: 15, aspectRatios: List.filled(15, 1)),
+      ],
+    );
+    final config = fixture.container.read(_testConfig.notifier);
+    config.state = config.state.copyWith(timeline: config.state.timeline.copyWith(floatingDate: true));
+    await tester.pumpAndSettle();
+    fixture.scroll.jumpTo(25);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    final scrubber = tester.widget<Scrubber>(find.byType(Scrubber));
+    final stops = buildScrubberSegments(
+      layoutSegments: scrubber.layoutSegments,
+      timelineHeight: scrubber.timelineHeight - scrubber.topPadding - scrubber.bottomPadding,
+      groupBy: scrubber.groupBy,
+    );
+    final stop = stops.firstWhere((segment) => segment.date.year == 2020);
+    final thumb = find.byWidgetPredicate((widget) => widget is GestureDetector && widget.onVerticalDragUpdate != null);
+    final gesture = await tester.startGesture(tester.getCenter(thumb));
+    await gesture.moveBy(const Offset(0, 20));
+    await gesture.moveTo(
+      Offset(
+        tester.getCenter(thumb).dx,
+        tester.getTopLeft(find.byType(Scrubber)).dy + scrubber.topPadding + stop.startOffset,
+      ),
+    );
+    await tester.pump();
+    final label = find.byKey(const Key('timeline-floating-date-text'));
+    expect(tester.widget<Text>(label).data, contains('2020'));
+    await gesture.up();
+    // Asset rows and native decode complete on separate frames. Keep the date
+    // assertion above independent of either completion, then inspect pixels.
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final visible = tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).where((tile) {
+      final rect = tester.getRect(_tile(tile.asset!.id));
+      return rect.top >= 120 && rect.bottom < 750;
+    }).toList();
+    expect(visible, isNotEmpty);
+    expect(visible.first.asset!.id, startsWith('year-2020-'));
+    final id = visible.first.asset!.id;
+    final before = tester.getRect(_tile(id));
+    final pixels = await _capture(tester, fixture.boundary, name: 'offline-year-2020');
+    for (final tile in visible) {
+      final color = _sourceColor(tile.asset!.id);
+      expect(_pixel(pixels, 390, tester.getRect(_tile(tile.asset!.id)).center), [
+        (color.r * 255).round(),
+        (color.g * 255).round(),
+        (color.b * 255).round(),
+        255,
+      ], reason: 'every visible photo must contain decoded source pixels, never a grey placeholder');
+    }
+    expect(requests.any((url) => Uri.parse(url).queryParameters['size'] == 'preview'), isTrue);
+    prefix.value = 330;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(tester.getRect(_tile(id)), before);
+    expect(tester.widget<Text>(label).data, contains('2020'));
+    await _capture(tester, fixture.boundary, name: 'offline-year-2020-after-memories');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('late memories preserve visible photo through insertion, resize and removal', (tester) async {
+    final prefix = ValueNotifier(0.0);
+    addTearDown(prefix.dispose);
+    final fixture = await mount(
+      tester,
+      [for (var i = 0; i < 80; i++) _asset('offline-$i')],
+      realTimeline: true,
+      prefixHeight: prefix,
+    );
+    fixture.scroll.jumpTo(700);
+    await tester.pumpAndSettle();
+    final id = tester
+        .widgetList<ThumbnailTile>(find.byType(ThumbnailTile))
+        .firstWhere((tile) {
+          final rect = tester.getRect(_tile(tile.asset!.id));
+          return rect.top > 150 && rect.bottom < 700;
+        })
+        .asset!
+        .id;
+    final before = tester.getRect(_tile(id));
+    for (final height in [224.0, 330.0, 0.0]) {
+      prefix.value = height;
+      await tester.pumpAndSettle();
+      expect(tester.getRect(_tile(id)), before, reason: 'prefix $height cannot move the visible photo');
+      expect(fixture.scroll.offset, 700 + height);
+      expect(tester.takeException(), isNull);
+    }
+    fixture.scroll.jumpTo(0);
+    await tester.pumpAndSettle();
+    prefix.value = 224;
+    await tester.pumpAndSettle();
+    expect(fixture.scroll.offset, 0, reason: 'fresh memories remain visible at the beginning');
+  });
 
   testWidgets('selection replaces an expanded header without moving the visible photo or changing its ID', (
     tester,

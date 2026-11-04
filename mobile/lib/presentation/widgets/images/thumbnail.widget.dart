@@ -12,6 +12,7 @@ import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.
 import 'package:immich_mobile/presentation/widgets/images/thumb_hash_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
+import 'package:immich_mobile/providers/infrastructure/network_status.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
@@ -316,6 +317,15 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    if (widget.imageProvider is RemoteImageProvider) {
+      ref.listen(networkTransportAvailableProvider, (previous, next) {
+        if (previous?.valueOrNull == false && next.valueOrNull == true && _hadImageError) {
+          // A single retry per offline -> online transition, retaining any
+          // already decoded fallback. No metadata rewrite or scroll is needed.
+          _loadFromImageProvider(retry: true);
+        }
+      });
+    }
     final colorScheme = context.colorScheme;
     final gradient = _gradientCache[colorScheme] ??= LinearGradient(
       colors: [colorScheme.surfaceContainer, colorScheme.surfaceContainer.darken(amount: .1)],

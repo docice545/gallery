@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart' as domain;
 
@@ -16,6 +17,12 @@ abstract final class TestUtils {
     EasyLocalization.logger.enableBuildModes = [];
     WidgetController.hitTestWarningShouldBeFatal = true;
     HttpOverrides.global = MockHttpOverrides();
+    // Host widget tests have no Android/iOS connectivity event channel. Specific
+    // transition tests override the stream provider with controlled events.
+    TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('dev.fluttercommunity.plus/connectivity_status'),
+      (_) async => null,
+    );
   }
 
   // Workaround till the following issue is resolved

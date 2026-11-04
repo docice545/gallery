@@ -12,7 +12,11 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../unit/presentation/presentation_context.dart';
 
-class _MemoryService extends Mock implements MemoryService {}
+class _MemoryService extends Mock implements MemoryService {
+  _MemoryService() {
+    when(() => getCachedMemoryLane(any())).thenAnswer((_) async => []);
+  }
+}
 
 class _MemorySurface extends ConsumerWidget {
   const _MemorySurface({required this.memory, required this.onRemoved, required this.onPausedChanged});

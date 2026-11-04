@@ -381,6 +381,9 @@ class DeleteAction extends AssetActionBuilder {
     if (local.remainingIds.isEmpty && lease.isSessionCurrent()) {
       await visual?.confirmed();
     }
+    if (!context.mounted) {
+      return null;
+    }
     return (message: '$message. ${_deviceResult(context, ref, local)}', success: local.remainingIds.isEmpty);
   }
 

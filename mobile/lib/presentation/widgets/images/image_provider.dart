@@ -189,10 +189,10 @@ ImageProvider getFullImageProvider(
     final String thumbhash;
     if (asset is LocalAsset && asset.hasRemote) {
       assetId = asset.remoteId!;
-      thumbhash = "";
+      thumbhash = _mediaRevisionKey(asset);
     } else if (asset is RemoteAsset) {
       assetId = asset.id;
-      thumbhash = asset.thumbHash ?? "";
+      thumbhash = _mediaRevisionKey(asset);
     } else {
       throw ArgumentError("Unsupported asset type: ${asset.runtimeType}");
     }
@@ -224,7 +224,7 @@ ImageProvider? getThumbnailImageProvider(
   }
 
   final assetId = asset is RemoteAsset ? asset.id : (asset as LocalAsset).remoteId;
-  final thumbhash = asset is RemoteAsset ? asset.thumbHash ?? "" : "";
+  final thumbhash = _mediaRevisionKey(asset);
   return assetId != null
       ? RemoteImageProvider.thumbnail(
           assetId: assetId,
@@ -234,6 +234,14 @@ ImageProvider? getThumbnailImageProvider(
           remoteMediaSize: remoteMediaSize,
         )
       : null;
+}
+
+// The backend's thumb hash is optional metadata. A missing hash must not
+// disable the versioned offline cache. Keep native session/server/edit scoping,
+// and invalidate fallback pixels when synchronized asset metadata changes.
+String _mediaRevisionKey(BaseAsset asset) {
+  final hash = asset is RemoteAsset ? asset.thumbHash : null;
+  return hash != null && hash.isNotEmpty ? hash : 'asset-revision-${asset.updatedAt.toUtc().microsecondsSinceEpoch}';
 }
 
 bool _shouldUseLocalAsset(BaseAsset asset) =>

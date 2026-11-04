@@ -8,6 +8,7 @@ import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/scrubber_segments.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/place_names.provider.dart';
@@ -41,6 +42,10 @@ Future<void> _mount(
   Color accent = Colors.blue,
   Locale locale = const Locale('en'),
   double textScale = 1,
+  double contentStart = 0,
+  double scrollHeight = 2000,
+  bool snapToMonth = false,
+  List<TimeBucket>? buckets,
 }) async {
   final secondState = secondAttached ?? ValueNotifier(false);
   if (secondAttached == null) {
@@ -80,16 +85,19 @@ Future<void> _mount(
                   child: Scrubber(
                     key: const Key('scrubber'),
                     layoutSegments: FixedSegmentBuilder(
-                      buckets: [
-                        TimeBucket(date: DateTime(2026, 11, 2), assetCount: 15),
-                        TimeBucket(date: DateTime(2026, 11, 1), assetCount: 15),
-                      ],
+                      buckets:
+                          buckets ??
+                          [
+                            TimeBucket(date: DateTime(2026, 11, 2), assetCount: 15),
+                            TimeBucket(date: DateTime(2026, 11, 1), assetCount: 15),
+                          ],
                       tileHeight: 100,
                       columnCount: 3,
                     ).generate(),
                     timelineHeight: 240,
                     hasAppBar: false,
-                    snapToMonth: false,
+                    snapToMonth: snapToMonth,
+                    contentStartOffset: () => contentStart,
                     topPadding: 24,
                     showFloatingDate: showFloatingDate,
                     assetAtIndex: (_) => asset,
@@ -102,7 +110,7 @@ Future<void> _mount(
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: onPhotoTap,
-                            child: const SizedBox(height: 2000),
+                            child: SizedBox(height: scrollHeight),
                           ),
                         ),
                       ],
@@ -137,6 +145,43 @@ Future<void> _revealThumb(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('year jump uses measured content origin before any image has loaded', (tester) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await _mount(
+      tester,
+      controller,
+      showFloatingDate: true,
+      snapToMonth: true,
+      contentStart: 300,
+      scrollHeight: 10000,
+      buckets: [for (var year = 2026; year >= 2012; year--) TimeBucket(date: DateTime(year, 1, 1), assetCount: 15)],
+    );
+    await _revealThumb(tester);
+    final scrubber = tester.widget<Scrubber>(find.byType(Scrubber));
+    final stops = buildScrubberSegments(
+      layoutSegments: scrubber.layoutSegments,
+      timelineHeight: scrubber.timelineHeight - scrubber.topPadding - scrubber.bottomPadding,
+      groupBy: scrubber.groupBy,
+    );
+    final oldYear = stops.firstWhere((segment) => segment.scrollLabel.contains('2020'));
+    final gesture = await tester.startGesture(tester.getCenter(_thumb));
+    await gesture.moveBy(const Offset(0, 20));
+    await gesture.moveTo(
+      Offset(
+        tester.getCenter(_thumb).dx,
+        tester.getTopLeft(find.byType(Scrubber)).dy + scrubber.topPadding + oldYear.startOffset,
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Jan 1, 2020'), findsOneWidget);
+    expect(find.text('Jan 1, 2026'), findsNothing);
+    expect(scrubber.assetAtIndex?.call(15), isNull, reason: 'date navigation cannot wait for decoded photos');
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   setUpAll(() => initializeDateFormatting());
 
   for (final viewport in [const Size(360, 640), const Size(800, 400)]) {

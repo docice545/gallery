@@ -426,7 +426,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     if (segments.isEmpty || position == null || !position.hasContentDimensions) {
       return null;
     }
-    final offset = position.pixels.clamp(0.0, position.maxScrollExtent);
+    final offset = (position.pixels - _gridStartOffset()).clamp(0.0, position.maxScrollExtent);
     final segment = segments.findByOffset(offset) ?? segments.firstOrNull;
     final bucket = segment?.bucket;
     return bucket is TimeBucket ? bucket.date : null;

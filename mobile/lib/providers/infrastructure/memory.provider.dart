@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/memory.model.dart';
 import 'package:immich_mobile/domain/services/memory.service.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/network_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/repositories/memory_api.repository.dart';
 
@@ -15,20 +16,38 @@ final memoryManagementServiceProvider = Provider((ref) {
 /// durable source remains the server and the ordinary synced memory cache.
 final confirmedMemoryRemovalsProvider = StateProvider.family<Set<String>, String>((ref, ownerId) => const {});
 
-final visibleMemoryLaneProvider = Provider<AsyncValue<List<Memory>>>(
-  (ref) => ref
-      .watch(memoryLaneProvider)
-      .whenData(
-        (memories) => memories
-            .where(
-              (memory) =>
-                  memory.deletedAt == null &&
-                  !ref.watch(confirmedMemoryRemovalsProvider(memory.ownerId)).contains(memory.id),
-            )
-            .toList(growable: false),
-      ),
-  dependencies: [memoryLaneProvider, confirmedMemoryRemovalsProvider],
-);
+final visibleMemoryLaneProvider = Provider<AsyncValue<List<Memory>>>((ref) {
+  final remote = ref.watch(memoryLaneProvider);
+  // A retained server result includes Space-shared cards. On cold startup,
+  // display the owner cache immediately while the independent refresh runs.
+  // Never concatenate the two lists: that would duplicate synced cards.
+  final cached = remote.hasValue ? remote : ref.watch(cachedMemoryLaneProvider);
+  // An optional strip must not make the local grid fail during a cache read
+  // error. The full memories page owns the user-facing error presentation.
+  final memories = remote.hasValue || cached.hasError ? remote : cached;
+  if (memories.hasError && !memories.hasValue) {
+    return const AsyncData([]);
+  }
+  return memories.whenData(
+    (items) => items
+        .where(
+          (memory) =>
+              memory.deletedAt == null &&
+              !ref.watch(confirmedMemoryRemovalsProvider(memory.ownerId)).contains(memory.id),
+        )
+        .toList(growable: false),
+  );
+}, dependencies: [memoryLaneProvider, cachedMemoryLaneProvider, confirmedMemoryRemovalsProvider]);
+
+final cachedMemoryLaneProvider = FutureProvider.autoDispose<List<Memory>>((ref) {
+  final (userId, enabled) = ref.watch(currentUserProvider.select((user) => (user?.id, user?.memoryEnabled ?? true)));
+  if (userId == null || !enabled) {
+    return const [];
+  }
+  _refreshAfterMemorySync(ref);
+  _refreshAtMidnight(ref);
+  return ref.watch(memoryManagementServiceProvider).getCachedMemoryLane(userId);
+});
 
 final visibleAllMemoriesProvider = Provider.autoDispose.family<AsyncValue<List<Memory>>, bool>(
   (ref, onlyFavorites) => ref
@@ -63,6 +82,13 @@ void _refreshAfterMemorySync(Ref ref) {
   });
 }
 
+void _refreshAtMidnight(Ref ref) {
+  final now = DateTime.now();
+  final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+  final timer = Timer(nextMidnight.difference(now) + const Duration(seconds: 5), ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+}
+
 final memoryCandidatesProvider = FutureProvider.autoDispose<List<({String id, Memory memory})>>((ref) {
   final user = ref.watch(currentUserProvider);
   if (user == null || !user.memoryEnabled) {
@@ -80,11 +106,13 @@ final memoryLaneProvider = FutureProvider.autoDispose<List<Memory>>((ref) {
   }
 
   _refreshAfterMemorySync(ref);
+  ref.listen(networkTransportAvailableProvider, (previous, next) {
+    if (previous?.valueOrNull == false && next.valueOrNull == true) {
+      ref.invalidateSelf();
+    }
+  });
 
-  final now = DateTime.now();
-  final nextMidnight = DateTime(now.year, now.month, now.day + 1);
-  final timer = Timer(nextMidnight.difference(now) + const Duration(seconds: 5), ref.invalidateSelf);
-  ref.onDispose(timer.cancel);
+  _refreshAtMidnight(ref);
 
   final service = MemoryService(ref.watch(driftProvider).memoryRepository, ref.watch(memoryApiRepositoryProvider));
   return service.getMemoryLane(userId);

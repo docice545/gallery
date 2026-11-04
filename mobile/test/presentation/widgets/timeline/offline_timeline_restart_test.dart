@@ -66,7 +66,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(TestUtils.init);
 
-  for (final source in ['mixed', 'local-only', 'empty']) {
+  for (final source in ['mixed', 'mixed-refused', 'local-only', 'empty']) {
     testWidgets('$source SQLite Timeline survives offline process restart without waiting for user refresh', (
       tester,
     ) async {
@@ -91,7 +91,7 @@ void main() {
       final refresh = Completer<UserDto?>();
       when(api.getMyUser).thenAnswer((_) => refresh.future);
       final pendingPreviews = <Completer<Object?>>[];
-      var offline = source != 'mixed';
+      var offline = !source.startsWith('mixed');
       final remoteCalls = <String>[];
       final localCalls = <String>[];
       final boundary = GlobalKey();
@@ -120,9 +120,15 @@ void main() {
         final url = (message! as List).first! as String;
         remoteCalls.add(url);
         if (offline && Uri.parse(url).queryParameters['size'] == 'preview') {
+          if (source == 'mixed-refused') {
+            return ['network-unavailable', 'Synthetic offline refusal', null];
+          }
           final pending = Completer<Object?>();
           pendingPreviews.add(pending);
           return pending.future;
+        }
+        if (offline) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         // Message handlers run in the widget test's FakeAsync zone. This tiny
         // four-byte fixture must not await real filesystem work in that zone.
@@ -182,7 +188,7 @@ void main() {
 
       Future<void> assertPhotos() async {
         final tiles = tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).toList();
-        final expected = source == 'mixed'
+        final expected = source.startsWith('mixed')
             ? ['device-only', 'server-only', 'server-copy']
             : source == 'local-only'
             ? ['device-only']
@@ -240,7 +246,7 @@ void main() {
             );
             await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-only');
           }
-          if (source == 'mixed') {
+          if (source.startsWith('mixed')) {
             await ctx.newLocalAsset(
               id: 'device-copy',
               checksum: 'shared',
@@ -292,10 +298,12 @@ void main() {
         container = await mount();
         await assertPhotos();
         expect(refresh.isCompleted, isFalse, reason: 'remote authorization/user refresh cannot gate SQLite photos');
-        if (source == 'mixed') {
+        if (source.startsWith('mixed')) {
           expect(thumbnail.readAsBytesSync(), _red);
           expect(localCalls, containsAll(['device-only', 'device-copy']));
-          expect(pendingPreviews, isNotEmpty, reason: 'cached pixels render while Backend preview is still pending');
+          if (source != 'mixed-refused') {
+            expect(pendingPreviews, isNotEmpty, reason: 'cached pixels render while Backend preview is still pending');
+          }
         } else {
           expect(remoteCalls, isEmpty, reason: 'local-only and real-empty startup need no remote thumbnails');
         }

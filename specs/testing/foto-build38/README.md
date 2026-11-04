@@ -27,7 +27,7 @@ flutter test --no-pub --concurrency=2 \
   test/domain/services/memory_service_test.dart
 ```
 
-Broader cloud regression is ongoing. The first broad action run exposed six existing album animation expectations that keep the cover stationary, contrary to the required whole-row swipe. The first editor run exposed an outdated 80dp inner-capsule assertion: the capsule is 56dp plus 24dp safe area. The corrected assertion checks the complete dock, retaining theme/viewport invariance checks. Other golden differences still require review. Early Flutter attempts before Pigeon completed and the first server invocation without its configured Vitest aliases were bootstrap failures, not passing tests.
+Broader cloud regression is ongoing. The first broad action run exposed six existing album animation expectations that keep the cover stationary, contrary to the required whole-row swipe. The first editor run exposed an outdated 80dp inner-capsule assertion: the capsule is 56dp plus 24dp safe area. The corrected assertion checks the complete dock, retaining theme/viewport invariance checks. The larger editor baseline has 12 additional width assertions to review; those failures are geometry checks, not established golden-image differences. Early Flutter attempts before Pigeon completed and the first server invocation without its configured Vitest aliases were bootstrap failures, not passing tests.
 
 ## AI visual evidence
 
@@ -54,3 +54,7 @@ Raw temporary logs remain outside Git at `/workspace/foto-build38-evidence`; rep
 | `inpaint-contour-green.log` | `b4551eab0da7169f58f2b7972eb14dbbecd8dada22246b756a93c94dceb016ae` |
 | `mobile-release-tools-baseline.log` | `a0a399560e31b52da3ad698f16089c8fd8c3fef96c48d4ca4a192e9d1b6dcc98` |
 | `memory-server.log` | `1fb2ac95502c645a20f4c399c9bc3f6956e4d277e80909ab8e22ec91196651d4` |
+
+## Offline feed P0
+
+[Reproductions, reviewed renders, limitations and device gates](offline/README.md). This block remains part of the ongoing 16-task project, alongside iOS and backend acceptance.

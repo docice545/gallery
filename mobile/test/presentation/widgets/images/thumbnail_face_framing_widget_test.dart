@@ -29,6 +29,7 @@ import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/network_status.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/thumbnail_framing.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
@@ -347,6 +348,83 @@ void main() {
     source.value = (3, revision.add(const Duration(seconds: 2)));
     await tester.pumpAndSettle();
     expect(requests, 2, reason: 'successful images remain cached when metadata changes');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('offline thumbnail retries once on reconnection without metadata or scroll changes', (tester) async {
+    final bytes = (await tester.runAsync(_portraitPng))!;
+    final network = StreamController<bool>.broadcast();
+    addTearDown(network.close);
+    var requests = 0;
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockDecodedMessageHandler(remoteRequest, (message) async {
+      requests++;
+      final uri = Uri.parse((message! as List)[0] as String);
+      if (requests == 1) {
+        return [
+          'HTTP_ERROR',
+          'Remote image request failed (HTTP 400)',
+          {'statusCode': 400, 'requestPath': uri.path, 'finalPath': uri.path},
+        ];
+      }
+      final pointer = malloc<Uint8>(bytes.length)..asTypedList(bytes.length).setAll(0, bytes);
+      return [
+        <Object?, Object?>{'pointer': pointer.address, 'length': bytes.length},
+      ];
+    });
+    addTearDown(() => messenger.setMockDecodedMessageHandler(remoteRequest, (_) async => <Object?>[null]));
+    final revision = DateTime.utc(2026, 10, 26);
+    final source = ValueNotifier<(int, DateTime)>((0, revision));
+    addTearDown(source.dispose);
+    final captureKey = GlobalKey();
+    await tester.pumpConsumerWidgetRaw(
+      Center(
+        child: RepaintBoundary(
+          key: captureKey,
+          child: SizedBox.square(
+            dimension: 100,
+            child: ValueListenableBuilder<(int, DateTime)>(
+              valueListenable: source,
+              builder: (_, value, _) => Thumbnail.remote(
+                remoteId: '8dd6007e-f11b-4bf8-bc3a-121794f37304',
+                thumbhash: '',
+                sourceRevision: value.$2,
+              ),
+            ),
+          ),
+        ),
+      ),
+      overrides: [
+        networkTransportAvailableProvider.overrideWith((_) => network.stream),
+        remoteImageReconciliationProvider.overrideWithValue(
+          RemoteImageReconciliationService(
+            endpoint: Uri.parse('https://example.test/api'),
+            isCurrentSession: () => true,
+            isDeletionComplete: (_) async => false,
+            retireDeletedAsset: (_) async => false,
+            syncIncrementally: () async {},
+          ),
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    network.add(false);
+    await tester.pumpAndSettle();
+    source.value = (1, revision);
+    await tester.pumpAndSettle();
+    expect(requests, 1, reason: 'the same failed revision cannot start a retry loop');
+    network.add(true);
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
+    await tester.pumpAndSettle();
+    expect(requests, 2);
+    expect(_pixel(await _capture(tester, captureKey), 48, 12), [0, 0, 255, 255]);
+    network.add(false);
+    await tester.pumpAndSettle();
+    network.add(true);
+    await tester.pumpAndSettle();
+    expect(requests, 2, reason: 'successful photos must not reload on later network transitions');
     expect(tester.takeException(), isNull);
   });
 
