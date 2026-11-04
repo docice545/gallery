@@ -10,11 +10,8 @@ class ViewerControlSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-
-    final background = isDark ? const Color(0xe6202124) : const Color(0xf5f7f8fa);
-
-    final foreground = isDark ? Colors.white : const Color(0xff202124);
+    final background = colors.surfaceContainerHigh;
+    final foreground = colors.onSurface;
 
     return Theme(
       data: theme.copyWith(

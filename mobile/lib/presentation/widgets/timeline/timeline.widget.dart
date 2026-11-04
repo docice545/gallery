@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:auto_route/auto_route.dart';
 import 'package:collection/collection.dart';
@@ -15,6 +16,7 @@ import 'package:immich_mobile/extensions/asyncvalue_extensions.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/download_status_floating_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/general_bottom_sheet.widget.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/timeline_compact_selection.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/asset_scan.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
@@ -847,8 +849,23 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
             resizeToAvoidBottomInset: false,
             floatingActionButton: const DownloadStatusFloatingButton(),
             bottomNavigationBar: widget.dockGroupingPill
-                ? isBottomWidgetVisible
-                      ? null
+                ? widget.bottomSheet is TimelineCompactSelection
+                      ? SizedBox(
+                          // Keep the main timeline viewport stable when selecting,
+                          // clearing selection, or opening the overflow menu.
+                          height:
+                              math.max(64, 50 + MediaQuery.textScalerOf(context).scale(11)) +
+                              4 +
+                              math.max(8, context.padding.bottom) +
+                              MediaQuery.viewInsetsOf(context).bottom,
+                          child: isBottomWidgetVisible
+                              ? widget.bottomSheet
+                              : widget.withGroupingPill && !isMultiSelectEnabled && !isSelectionMode
+                              ? const TimelineGroupingFooter()
+                              : null,
+                        )
+                      : isBottomWidgetVisible
+                      ? widget.bottomSheet
                       : widget.withGroupingPill && !isMultiSelectEnabled && !isSelectionMode
                       ? const TimelineGroupingFooter()
                       : null
@@ -995,8 +1012,6 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                               child: timeline,
                             ),
                             if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
-                            if (isBottomWidgetVisible && widget.dockGroupingPill)
-                              Positioned(left: 0, right: 0, bottom: 0, child: widget.bottomSheet!),
                           ],
                         );
                       },

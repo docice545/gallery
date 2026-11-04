@@ -455,6 +455,7 @@ class _SpaceDetailPageState extends ConsumerState<SpaceDetailPage> {
           .watch(timelineFactoryProvider)
           .sharedSpace(spaceId: widget.spaceId, groupBy: groupBy, temporalScope: scope),
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         // Claims "view in timeline" requests addressed to this space, and leaves the
         // main timeline underneath alone (#1047).

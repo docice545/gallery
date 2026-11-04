@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/actions/archive.action.dart';
 import 'package:immich_mobile/presentation/actions/asset_debug.action.dart';
@@ -45,7 +46,7 @@ class TimelineCompactSelection extends ConsumerWidget {
 
     final button = IconButton(
       tooltip: action.label,
-      icon: Icon(action.icon, color: destructive ? const Color(0xffffb4ab) : null),
+      icon: Icon(action.icon, color: destructive ? Theme.of(context).colorScheme.error : null),
       onPressed: action.onAction,
       onLongPress: action.onSecondaryAction,
     );
@@ -101,7 +102,7 @@ class TimelineCompactSelection extends ConsumerWidget {
       deleteButton: _actionButton(context, ref, const DeleteAction(source: .timeline), destructive: true),
       shareButton: _actionButton(context, ref, const ShareAction(source: .timeline)),
       createButton: IconButton(
-        tooltip: 'Создать',
+        tooltip: context.t.add,
         icon: const Icon(Icons.create_new_folder_outlined),
         onPressed: () => _showCollections(context),
       ),

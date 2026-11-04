@@ -27,6 +27,7 @@ class LocalTimelinePage extends StatelessWidget {
       child: LocalAlbumDeletionListener(
         albumId: album.id,
         child: Timeline(
+          denseLayout: true,
           withGroupingPill: true,
           appBar: MesmerizingSliverAppBar(
             title: album.name,

@@ -2,13 +2,21 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 
+class _NoHaptics extends HapticNotifier {
+  _NoHaptics(super.ref);
+  @override
+  void selectionClick() {}
+}
+
 final editorTestThemeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 
 List<Override> editorThemeTestOverrides(ThemeMode mode) => [
+  hapticFeedbackProvider.overrideWith(_NoHaptics.new),
   editorTestThemeModeProvider.overrideWith((ref) => mode),
   appConfigProvider.overrideWith(
     (ref) => defaultConfig.copyWith(theme: defaultConfig.theme.copyWith(mode: ref.watch(editorTestThemeModeProvider))),

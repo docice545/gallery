@@ -47,6 +47,7 @@ class PlaceDetailPage extends ConsumerWidget {
             .place(place, users, user.id, selectedPlace: selectedPlace, groupBy: groupBy, temporalScope: scope);
       },
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         appBar: MesmerizingSliverAppBar(title: title, icon: Icons.location_on),
       ),

@@ -14,18 +14,20 @@ class MultiSelectStatusButton extends ConsumerWidget {
       message: context.t.deselect_all,
       child: ElevatedButton.icon(
         style: ElevatedButton.styleFrom(
+          backgroundColor: context.colorScheme.primaryContainer,
+          foregroundColor: context.colorScheme.onPrimaryContainer,
           minimumSize: const Size(48, 48),
           maximumSize: const Size(double.infinity, 48),
           padding: const EdgeInsets.symmetric(horizontal: 16),
         ),
         onPressed: () => ref.read(multiSelectProvider.notifier).reset(),
-        icon: Icon(Icons.close_rounded, color: context.colorScheme.onPrimary),
+        icon: Icon(Icons.close_rounded, color: context.colorScheme.onPrimaryContainer),
         label: FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
             selectCount.toString(),
             semanticsLabel: context.t.selected_count(count: selectCount),
-            style: context.textTheme.titleMedium?.copyWith(height: 1, color: context.colorScheme.onPrimary),
+            style: context.textTheme.titleMedium?.copyWith(height: 1, color: context.colorScheme.onPrimaryContainer),
           ),
         ),
       ),

@@ -30,6 +30,7 @@ import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/background_sync.provider.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:immich_mobile/utils/annotation_editor.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
@@ -833,7 +834,18 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
   }
 
   Widget _button(String key, FotoIconKind icon, String label, VoidCallback? action, {bool selected = false}) =>
-      FotoIconButton(key: Key(key), kind: icon, label: label, onPressed: action, selected: selected);
+      FotoIconButton(
+        key: Key(key),
+        kind: icon,
+        label: label,
+        selected: selected,
+        onPressed: action == null
+            ? null
+            : () {
+                ref.read(hapticFeedbackProvider.notifier).selectionClick();
+                action();
+              },
+      );
 
   String _toolLabel(BuildContext context, AnnotationTool tool) => context.tr(switch (tool) {
     AnnotationTool.pen => 'editor_pen',

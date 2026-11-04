@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
+import '../../../test_utils.dart';
+import '../../../widget_tester_extensions.dart';
+
 void main() {
+  setUp(() => TestUtils.init());
   for (final brightness in [Brightness.light, Brightness.dark]) {
     testWidgets('compact selection toolbar: $brightness', (tester) async {
       tester.view.physicalSize = const Size(393, 852);
@@ -12,7 +16,7 @@ void main() {
 
       var actionCount = 0;
 
-      await tester.pumpWidget(
+      await tester.pumpConsumerWidget(
         MaterialApp(
           theme: ThemeData(brightness: brightness, useMaterial3: true),
           home: Scaffold(
@@ -34,13 +38,13 @@ void main() {
       final toolbar = find.byType(CompactSelectionToolbar);
       final row = find.descendant(of: toolbar, matching: find.byType(Row));
 
-      expect(tester.getSize(row.first).height, 76);
+      expect(tester.getSize(row.first).height, 64);
 
       await tester.tap(find.byKey(const ValueKey('selection-more-button')));
       await tester.pumpAndSettle();
 
       expect(find.text('Архивировать'), findsOneWidget);
-      expect(tester.getSize(row.first).height, 76);
+      expect(tester.getSize(row.first).height, 64);
 
       await tester.tap(find.text('Архивировать'));
       await tester.pumpAndSettle();
