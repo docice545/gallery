@@ -9,6 +9,7 @@ Build36 остаётся в PR19 с совместимостью/Backend PR21 (`
 Требуется заранее согласованный чистый checkout нужного40-символьного SHA, существующие SSD/cache пути, pinned Flutter/Dart/mise и Java из `mobile/mise.toml` (сейчас21)/Android SDK36. Не менять HP checkout/ветку, контейнеры, Docker root, VPN или ключи автоматически. Если состояние не совпало — остановить сборку и сохранить чужие изменения; не применять reset/clean/merge.
 
 ```bash
+set -euo pipefail
 cd /opt/gallery-fork
 read -r -p 'Reviewed full source SHA: ' release_sha
 read -r -p 'Reviewed build number (36 or 37): ' release_build
@@ -68,6 +69,11 @@ Builder проверяет source/пины/lockfile, format/analyze/full Flutter
 HP Linux не является iOS buildhost. На macOS/Xcode использовать отдельный чистыйcheckout того жеreviewedSHA, существующий pinnedSDK/CocoaPods и **без signing credentials**:
 
 ```bash
+set -euo pipefail
+read -r -p 'Reviewed full source SHA: ' release_sha
+read -r -p 'Reviewed build number (36 or 37): ' release_build
+[[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$release_build" == 36 || "$release_build" == 37 ]]
 test "$(uname -s)" = Darwin
 test "$(git rev-parse HEAD)" = "$release_sha"
 test -z "$(git status --porcelain)"
