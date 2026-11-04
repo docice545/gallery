@@ -658,7 +658,15 @@ jobs:
         run: mise //mobile:codegen
 
       - name: Run tests
-        run: mise //mobile:test
+        id: mobile-tests
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          flutter test --reporter json 2>&1 | tee "$RUNNER_TEMP/flutter-unit-tests.jsonl"
+
+      - name: Annotate full mobile failures
+        if: failure() && steps.mobile-tests.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/flutter-unit-tests.jsonl"
 
   ml-unit-tests:
     name: Unit Test ML

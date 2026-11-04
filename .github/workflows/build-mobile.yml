@@ -1,6 +1,7 @@
 name: Build Mobile
 
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
       ref:
@@ -17,7 +18,7 @@ on:
         default: false
         type: boolean
       android_release:
-        description: 'Explicit trusted-host signing; never enabled by PR or push.'
+        description: 'Explicit trusted-host Android signing; never enabled by PR or push.'
         required: false
         default: false
         type: boolean
@@ -44,7 +45,9 @@ on:
         required: false
   pull_request:
   push:
-    branches: [main, 'release/*']
+    # The audit branch can collect hosted evidence before GitHub API access is
+    # available to open its PR. Push events cannot enter either signing path.
+    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -74,7 +77,8 @@ jobs:
               - 'open-api/**'
           force-filters: |
             - '.github/workflows/build-mobile.yml'
-          force-events: 'workflow_call,workflow_dispatch'
+          # Release evidence must execute full checks even on version/docs-only pushes.
+          force-events: 'workflow_call,workflow_dispatch,push'
 
   flutter-tests:
     name: Flutter tests and coverage
@@ -101,11 +105,38 @@ jobs:
         run: mise //mobile:install:ci
 
       - name: Perform codegen
+        id: codegen
         run: mise //mobile:codegen
 
-      - name: Run Flutter tests with coverage
+      - name: Previously failed Flutter cases and current device-only action contracts
+        id: focused-flutter
         working-directory: ./mobile
-        run: flutter test --coverage
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --reporter json \
+            test/presentation/widgets/asset_viewer/timeline_video_viewer_test.dart \
+            test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/utils_legacy/action_button_utils_test.dart \
+            test/unit/presentation/actions/delete_action_test.dart \
+            2>&1 | tee "$RUNNER_TEMP/flutter-focused.jsonl"
+
+      - name: Annotate focused Flutter failures
+        if: failure() && steps.focused-flutter.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/flutter-focused.jsonl"
+
+      - name: Run Flutter tests with coverage
+        id: full-flutter
+        # Keep the full suite even when focused diagnostics find a failure.
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          flutter test --coverage --reporter json 2>&1 | tee "$RUNNER_TEMP/flutter-tests.jsonl"
+
+      - name: Annotate Flutter failures
+        if: failure() && steps.full-flutter.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/flutter-tests.jsonl"
 
       - name: Upload Flutter coverage
         if: always()
@@ -115,22 +146,208 @@ jobs:
           path: mobile/coverage/
           if-no-files-found: warn
 
-  build-sign-android:
-    name: Build and sign Android
-    needs: pre-job
+  live-photo-timeline:
+    # No changed-file filter: navigation, selection, animation and build changes
+    # must retain the same required check on every PR and main/release push.
+    name: Live Photo timeline non-regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen packages and code generation
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Cold start, visibility, selection, lifecycle and native position contracts
+        run: |
+          set -o pipefail
+          bash mobile/scripts/live_photo_regressions.sh 2>&1 | tee "$RUNNER_TEMP/live-photo-regressions.log"
+      - name: Retain gate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-photo-regressions
+          path: ${{ runner.temp }}/live-photo-regressions.log
+          if-no-files-found: warn
+
+  live-photo-native:
+    name: Live Photo native decoded motion
+    needs: live-photo-timeline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Locked native media code generation
+        run: bash mobile/scripts/android_media_codegen.sh
+      - name: Enable hosted emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Actual ExoPlayer, authenticated synthetic media and decoded position
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: false
+          working-directory: mobile
+          script: bash scripts/android_native_motion_test.sh
+      - name: Retain native gate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-photo-native-motion
+          path: ${{ runner.temp }}/gallery-native-motion-test.log
+          if-no-files-found: warn
+
+  release-tooling-checks:
+    name: Release artifact and provenance checks
+    needs: pre-job
+    if: ${{ fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The Build 35 migration inventory test checks ancestry and source bytes.
+          fetch-depth: 0
+      - name: Isolated Python fixture dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/foto-ci-tools"
+          "$RUNNER_TEMP/foto-ci-tools/bin/pip" install PyYAML==6.0.3
+          echo "$RUNNER_TEMP/foto-ci-tools/bin" >> "$GITHUB_PATH"
+      - run: python3 -m unittest discover -s mobile/scripts/tests -v
+      - run: python3 -m unittest discover -s scripts/release/tests -v
+      - run: python3 -m unittest discover -s tools/foto-automation/tests -p '*scope.py' -v
+
+  build-unsigned-android:
+    name: Unsigned universal Android (no device acceptance)
+    needs:
+      [
+        pre-job,
+        flutter-tests,
+        release-tooling-checks,
+        live-photo-timeline,
+        live-photo-native,
+      ]
+    if: ${{ github.event_name == 'pull_request' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Preserve source version and require a credentials-free workspace
+        id: source
+        run: |
+          test ! -e mobile/android/key.jks
+          test ! -e mobile/android/key.properties
+          python3 - <<'PY'
+          import os, pathlib, re
+          source = pathlib.Path('mobile/pubspec.yaml').read_text()
+          match = re.search(r'^version: (\d+\.\d+\.\d+)\+(\d+)$', source, re.M)
+          if not match:
+              raise SystemExit('Source mobile version/build is missing')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={match[1]}\nbuild={match[2]}\n')
+          PY
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - uses: ./.github/actions/apply-branding
+        with:
+          version: ${{ steps.source.outputs.version }}
+          build_number: ${{ steps.source.outputs.build }}
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Frozen packages and generated clients
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Build unsigned universal APK
+        id: unsigned-apk
+        working-directory: mobile
+        env:
+          VERSION_NAME: ${{ steps.source.outputs.version }}
+          VERSION_CODE: ${{ steps.source.outputs.build }}
+        run: |
+          set -o pipefail
+          test ! -e android/key.jks
+          test ! -e android/key.properties
+          flutter build apk --release --no-pub \
+            --target-platform android-arm,android-arm64,android-x64 \
+            --build-name="$VERSION_NAME" --build-number="$VERSION_CODE" \
+            2>&1 | tee "$RUNNER_TEMP/unsigned-apk-build.log"
+      - name: Expose unsigned build failure without signing credentials
+        if: ${{ failure() && steps.unsigned-apk.outcome == 'failure' }}
+        run: python3 .github/scripts/report-ci-failures.py android-build "$RUNNER_TEMP/unsigned-apk-build.log"
+      - name: Verify actual APK and record source provenance
+        env:
+          VERSION_NAME: ${{ steps.source.outputs.version }}
+          VERSION_CODE: ${{ steps.source.outputs.build }}
+        run: |
+          mkdir -p mobile/build/ci-unsigned
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk mobile/build/ci-unsigned/Foto-unsigned.apk
+          python3 mobile/scripts/verify_unsigned_android.py \
+            --apk mobile/build/ci-unsigned/Foto-unsigned.apk \
+            --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" \
+            --version "$VERSION_NAME" --build "$VERSION_CODE" \
+            --expected-commit "$GITHUB_SHA" \
+            --output mobile/build/ci-unsigned/manifest.json
+      - name: Retain unsigned APK and receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-unsigned-universal
+          path: mobile/build/ci-unsigned/
+          if-no-files-found: error
+
+  build-sign-android:
+    name: Build and sign Android
+    needs: [pre-job, flutter-tests, live-photo-timeline, live-photo-native]
+    permissions:
+      contents: read
+      actions: read
       pull-requests: write
-    # Review builds must never read signing secrets or use the trusted signing host.
+    # All PRs are untrusted build inputs; signing/HP runners are never part of PR validation.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.android_release == true && github.actor != 'dependabot[bot]' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: mich
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
           token: ${{ github.token }}
+
+      - name: Require exact-source Live Photo CI before signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 mobile/scripts/require_live_photo_ci.py \
+            --repository "$GITHUB_REPOSITORY" --expected-commit "$(git rev-parse HEAD)"
 
       - name: Setup Mise
         uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
@@ -231,11 +448,12 @@ jobs:
 
   build-sign-ios:
     name: Verify or explicitly release iOS
-    needs: pre-job
+    needs: [pre-job, live-photo-timeline, live-photo-native]
     permissions:
       contents: read
+      actions: read
     # Run on main branch or workflow_dispatch, or on PRs/other branches (build only, no upload)
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && !github.event.pull_request.head.repo.fork && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    if: ${{ (inputs.ios_release != true || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && !github.event.pull_request.head.repo.fork && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: macos-26
 
     steps:
@@ -249,13 +467,33 @@ jobs:
           persist-credentials: false
           token: ${{ github.token }}
 
+      - name: Require exact-source Live Photo CI before signing
+        if: inputs.ios_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 mobile/scripts/require_live_photo_ci.py \
+            --repository "$GITHUB_REPOSITORY" --expected-commit "$(git rev-parse HEAD)"
+
       - name: Setup Mise
         uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
         with:
           github_token: ${{ github.token }}
           working_directory: ./mobile
 
+      - name: Preserve committed iOS version and build through branding
+        id: ios-source-meta
+        run: |
+          read -r app_version app_build <<< "$(awk -F'[ +]' '/^version:/ {print $2, $3}' mobile/pubspec.yaml)"
+          [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$app_build" =~ ^[1-9][0-9]*$ ]]
+          echo "version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build=$app_build" >> "$GITHUB_OUTPUT"
+
       - uses: ./.github/actions/apply-branding
+        with:
+          version: ${{ steps.ios-source-meta.outputs.version }}
+          build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Use CocoaPods for Flutter plugins
         run: mise exec -- flutter config --no-enable-swift-package-manager
@@ -356,6 +594,14 @@ jobs:
         with:
           name: ios-unsigned-archive
           path: mobile/build/ios/archive/Runner.xcarchive
+          if-no-files-found: error
+
+      - name: Upload unsigned IPA for user-side signing
+        if: inputs.ios_release != true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-unsigned-ipa
+          path: mobile/build/ios/ipa/Photos-unsigned.ipa
           if-no-files-found: error
 
       - name: Upload IPA artifact

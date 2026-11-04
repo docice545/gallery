@@ -103,13 +103,15 @@ def formatting() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis"))
+    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build"))
     parser.add_argument("path", nargs="?", type=Path)
     args = parser.parse_args()
     if args.mode == "format":
         formatting()
     elif args.mode == "flutter":
         flutter(args.path)
+    elif args.mode == "android-build":
+        report("Unsigned Android build failed", args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:])
     elif args.mode == "analysis":
         lines = args.path.read_text(errors="replace").splitlines()
         diagnostics = [
