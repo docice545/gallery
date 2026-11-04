@@ -12,7 +12,14 @@ on:
         default: false
   pull_request:
   push:
-    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
+    branches:
+      [
+        main,
+        'release/*',
+        codex/issue18-cross-platform-audit,
+        codex/issue17-smart-timeline,
+        codex/issue18-backend-contract-rating,
+      ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

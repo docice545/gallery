@@ -43,7 +43,7 @@ class ReleaseReviewScopeTests(unittest.TestCase):
         blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', source, re.M | re.S))
         job = blocks['build-unsigned-android']
         self.assertTrue(allows('build-mobile.yml', 'build-unsigned-android', 'normal-feature'))
-        self.assertFalse(allows('build-mobile.yml', 'build-unsigned-android', '', 'push'))
+        self.assertTrue(allows('build-mobile.yml', 'build-unsigned-android', '', 'push'))
         parsed = yaml.safe_load(source)['jobs']
         self.assertEqual(parsed['build-unsigned-android']['needs'], 'pre-job')
         for name in ('flutter-tests', 'release-tooling-checks', 'live-photo-timeline', 'live-photo-native'):
@@ -90,7 +90,8 @@ class ReleaseReviewScopeTests(unittest.TestCase):
     def test_audit_source_can_collect_all_release_evidence_without_merge(self):
         for workflow in ('build-mobile.yml', 'test.yml', 'static_analysis.yml'):
             source = yaml.safe_load((ROOT / '.github/workflows' / workflow).read_text())
-            self.assertIn('codex/issue18-cross-platform-audit', source[True]['push']['branches'])
+            for branch in ('codex/issue18-cross-platform-audit', 'codex/issue17-smart-timeline', 'codex/issue18-backend-contract-rating'):
+                self.assertIn(branch, source[True]['push']['branches'])
             action = source['jobs']['pre-job']['steps'][0]['with']
             self.assertIn('push', action['force-events'].split(','))
         source = (ROOT / '.github/workflows/build-mobile.yml').read_text()
