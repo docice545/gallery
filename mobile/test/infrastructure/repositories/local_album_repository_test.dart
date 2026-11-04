@@ -84,7 +84,9 @@ void main() {
     expect((await query.assetSource(0, 20)).map((a) => a.id), ['screenshot', 'camera', 'old']);
     // Metadata and folder moves keep identity; chronological order follows the new date.
     await albums.processDelta(
-      updates: [camera.copyWith(createdAt: DateTime(2026, 11, 5))],
+      // MediaStore reports both the changed capture metadata and DATE_MODIFIED.
+      // An identical updatedAt is deliberately an idempotent replay in Android upserts.
+      updates: [camera.copyWith(createdAt: DateTime(2026, 11, 5), updatedAt: DateTime(2026, 11, 5, 12))],
       deletes: [],
       assetAlbums: {
         camera.id: ['screenshots'],

@@ -64,7 +64,22 @@ void main() {
         appStateProvider.overrideWith((ref) => _Lifecycle(ref)),
       ],
     );
-    final listener = container.listen(localMediaRefreshProvider, (_, _) {});
+    final timers = <(Duration, Timer)>[];
+    final timerEvents = <String>[];
+    final listener = runZoned(
+      () => container.listen(localMediaRefreshProvider, (_, _) {}),
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, duration, callback) {
+          timerEvents.add('create $duration at ${tester.binding.clock.now()}');
+          final timer = parent.createTimer(zone, duration, () {
+            timerEvents.add('fire $duration at ${tester.binding.clock.now()}');
+            callback();
+          });
+          timers.add((duration, timer));
+          return timer;
+        },
+      ),
+    );
     var disposed = false;
     Future<void> disposeObserver() async {
       if (disposed) {
@@ -97,7 +112,13 @@ void main() {
     expect(manager.calls, 0);
     await tester.pump(const Duration(milliseconds: 1));
     expect(syncErrors, isEmpty);
-    expect(manager.calls, 1);
+    expect(
+      manager.calls,
+      1,
+      reason:
+          'clock=${tester.binding.clock.now()} events=$timerEvents '
+          'timers=${timers.map((t) => (t.$1, t.$2.isActive))} toggles=$toggles',
+    );
     await messenger.handlePlatformMessage(
       notify.name,
       notify.codec.encodeMethodCall(const MethodCall('change', {'type': 'insert', 'id': '123'})),

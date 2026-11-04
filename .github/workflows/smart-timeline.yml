@@ -378,8 +378,10 @@ jobs:
         run: mise //mobile:install:ci && mise //mobile:codegen
       - name: Format changed Dart files
         id: format38
+        working-directory: mobile
         run: |
-          git diff --name-only 46fc1b3c1d30d8e9893def0ce953a882aff7fa27 -- 'mobile/**/*.dart' | xargs -r dart format --set-exit-if-changed
+          dart --version
+          git diff --relative --name-only 46fc1b3c1d30d8e9893def0ce953a882aff7fa27 -- '**/*.dart' | xargs -r dart format --set-exit-if-changed
       - name: Annotate formatter differences
         if: failure() && steps.format38.outcome == 'failure'
         run: python3 .github/scripts/report-ci-failures.py format
