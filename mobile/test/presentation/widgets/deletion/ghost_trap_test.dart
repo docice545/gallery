@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -10,7 +12,12 @@ class _Scene {
   late ProviderContainer container;
   int photoBuilds = 0;
 
-  Future<void> mount(WidgetTester tester, {bool reduced = false}) async {
+  Future<void> mount(
+    WidgetTester tester, {
+    bool reduced = false,
+    bool requireDecodedPhoto = false,
+    ui.Image? photo,
+  }) async {
     tester.view.physicalSize = const Size(393, 852);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -41,7 +48,7 @@ class _Scene {
                                       GhostSource(
                                         key: ValueKey(id),
                                         assetKey: id,
-                                        requireImage: false,
+                                        requireImage: requireDecodedPhoto,
                                         child: Builder(
                                           builder: (_) {
                                             photoBuilds++;
@@ -49,7 +56,9 @@ class _Scene {
                                               key: ValueKey('photo-$id'),
                                               width: 110,
                                               height: 160,
-                                              child: ColoredBox(color: id == 'one' ? Colors.blue : Colors.amber),
+                                              child: requireDecodedPhoto
+                                                  ? RawImage(image: photo, fit: BoxFit.fill)
+                                                  : ColoredBox(color: id == 'one' ? Colors.blue : Colors.amber),
                                             );
                                           },
                                         ),
@@ -102,7 +111,62 @@ GhostTrapPainter _paint(WidgetTester tester) =>
 void _ghostTest(String description, WidgetTesterCallback callback) =>
     testWidgets(description, callback, timeout: const Timeout(Duration(seconds: 45)));
 
+Future<ui.Image> _decodedPhoto() async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawRect(const Rect.fromLTWH(0, 0, 64, 96), Paint()..color = Colors.blue);
+  canvas.drawRect(const Rect.fromLTWH(64, 0, 64, 96), Paint()..color = Colors.amber);
+  final picture = recorder.endRecording();
+  final original = await picture.toImage(128, 96);
+  picture.dispose();
+  final png = await original.toByteData(format: ui.ImageByteFormat.png);
+  original.dispose();
+  final codec = await ui.instantiateImageCodec(png!.buffer.asUint8List());
+  final frame = await codec.getNextFrame();
+  codec.dispose();
+  return frame.image;
+}
+
 void main() {
+  _ghostTest('decoded pixels are captured once and retained through every flight phase', (tester) async {
+    final photo = (await tester.runAsync(_decodedPhoto))!;
+    addTearDown(photo.dispose);
+    final scene = _Scene();
+    await scene.mount(tester, requireDecodedPhoto: true, photo: photo);
+    final flight = await scene.prepare(tester);
+    expect(flight, isNotNull);
+    await tester.pump();
+    final captured = _paint(tester).image;
+    expect([captured.width, captured.height], [110, 160]);
+    final pixels = (await tester.runAsync(() => captured.toByteData(format: ui.ImageByteFormat.rawRgba)))!;
+    List<int> pixel(int x, int y) => pixels.buffer.asUint8List((y * captured.width + x) * 4, 4).toList();
+    expect(pixel(10, 80), [33, 150, 243, 255]);
+    expect(pixel(100, 80), [255, 193, 7, 255]);
+    expect(_paint(tester).confirmed, isFalse);
+    final builds = scene.photoBuilds;
+    final done = flight!.confirmed();
+    await tester.pump();
+    for (final elapsed in [100, 200, 200, 100]) {
+      await tester.pump(Duration(milliseconds: elapsed));
+      expect(identical(_paint(tester).image, captured), isTrue);
+      expect(_paint(tester).target, tester.getCenter(find.byKey(const Key('visible-bin'))));
+      expect(scene.photoBuilds, builds);
+    }
+    await tester.pump(const Duration(milliseconds: 41));
+    await tester.runAsync(() => done.timeout(const Duration(seconds: 2)));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  _ghostTest('an undecoded image cannot become a successful photo flight', (tester) async {
+    final scene = _Scene();
+    await scene.mount(tester, requireDecodedPhoto: true);
+    expect(await scene.prepare(tester), isNull);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+    expect(find.byKey(const ValueKey('photo-one')), findsOneWidget);
+  });
   _ghostTest(
     'pending operation holds the actual photo and grid; confirmed 640ms effect reflows without rebuilding images',
     (tester) async {

@@ -55,6 +55,8 @@ jobs:
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
             test/presentation/widgets/deletion/ghost_trap_test.dart \
+            test/repositories/asset_media_trash_repository_test.dart \
+            test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart \
             test/unit/presentation/actions/ghost_trap_action_test.dart \
             test/unit/presentation/actions/album_ghost_trap_test.dart \
             test/repositories/album_trash_snapshot_test.dart \
@@ -94,7 +96,22 @@ jobs:
       - name: Measure production justified geometry without changing calibration
         if: "!cancelled() && steps.codegen.outcome == 'success'"
         working-directory: mobile
-        run: dart run tool/timeline_geometry.dart "$RUNNER_TEMP/timeline-geometry.json"
+        run: |
+          dart run tool/timeline_geometry.dart "$RUNNER_TEMP/timeline-geometry.json"
+          python3 - <<'PY_GEOMETRY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ['RUNNER_TEMP'], 'timeline-geometry.json').read_text())
+          for width in (360, 390):
+              for density in (2, 3, 4, 5):
+                  rows = []
+                  for sample in data['measurements']:
+                      if sample['viewportDp'] == width and sample['density'] == density:
+                          row = sample['rows'][0]
+                          rows.append(f"{sample['pattern']}: h={row['heightDp']:.2f}dp widths=" +
+                                      ','.join(f"{v:.2f}" for v in row['widthsDp']))
+                  print(f"::notice title=Actual justified geometry {width}dp density {density}::" + '; '.join(rows))
+          PY_GEOMETRY
       - name: Retain row and tile measurements
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -127,6 +144,8 @@ jobs:
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
             test/presentation/widgets/deletion/ghost_trap_test.dart \
+            test/repositories/asset_media_trash_repository_test.dart \
+            test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart \
             test/unit/presentation/actions/ghost_trap_action_test.dart \
             test/unit/presentation/actions/album_ghost_trap_test.dart \
             test/repositories/album_trash_snapshot_test.dart \
