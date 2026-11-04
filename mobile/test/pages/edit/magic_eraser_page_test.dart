@@ -69,6 +69,9 @@ void main() {
           ),
         ),
       );
+      // Resolve the localization bundle and mount the real page before waiting
+      // for its native source decoder, as pumpConsumerWidgetRaw did previously.
+      await tester.pump();
       // Native descriptor/image decoding completes outside the fake timer zone.
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });

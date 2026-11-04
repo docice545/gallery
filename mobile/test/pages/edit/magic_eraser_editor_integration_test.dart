@@ -288,6 +288,22 @@ void main() {
     expect(container.read(editorStateProvider), before);
   });
 
+  Future<void> pinchAndPan(WidgetTester tester, Offset center) async {
+    final first = await tester.startGesture(center - const Offset(40, 0), pointer: 1);
+    final second = await tester.startGesture(center + const Offset(40, 0), pointer: 2);
+    await first.moveTo(center - const Offset(80, 0));
+    await second.moveTo(center + const Offset(80, 0));
+    await tester.pump();
+    await first.moveBy(const Offset(30, 0));
+    await second.moveBy(const Offset(30, 0));
+    await tester.pump();
+    await first.up();
+    // The last remaining finger must not resume drawing or move the crop.
+    await second.moveBy(const Offset(10, 0));
+    await second.up();
+    await tester.pump();
+  }
+
   for (final saveResult in [false, true]) {
     testWidgets('AI ${saveResult ? 'saved copy' : 'cancel'} preserves the parent draft and complete undo/redo history', (
       tester,
@@ -786,22 +802,6 @@ void main() {
     await tester.pump();
     expect(editor.elements.single, original);
   });
-
-  Future<void> pinchAndPan(WidgetTester tester, Offset center) async {
-    final first = await tester.startGesture(center - const Offset(40, 0), pointer: 1);
-    final second = await tester.startGesture(center + const Offset(40, 0), pointer: 2);
-    await first.moveTo(center - const Offset(80, 0));
-    await second.moveTo(center + const Offset(80, 0));
-    await tester.pump();
-    await first.moveBy(const Offset(30, 0));
-    await second.moveBy(const Offset(30, 0));
-    await tester.pump();
-    await first.up();
-    // The last remaining finger must not resume drawing or move the crop.
-    await second.moveBy(const Offset(10, 0));
-    await second.up();
-    await tester.pump();
-  }
 
   Offset annotationPoint(WidgetTester tester, Offset point) {
     final box = tester.renderObject<RenderBox>(find.byType(AnnotationCanvas));

@@ -1,4 +1,4 @@
-import 'dart:ffi' show Uint8;
+import 'dart:ffi' hide Size;
 import 'dart:io';
 import 'dart:ui' as ui;
 

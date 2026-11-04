@@ -255,6 +255,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   }
 
+  Future<void> awaitRequest(WidgetTester tester) async {
+    for (var frame = 0; frame < 200 && !requestEntered.isCompleted; frame++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
+    }
+    expect(requestEntered.isCompleted, isTrue);
+  }
+
   Future<void> closeViewer(WidgetTester tester, RootStackRouter router, {Future<void>? deletion}) async {
     if (!response.isCompleted) {
       response.complete();
@@ -290,10 +298,8 @@ void main() {
         final button = tester.widget<FotoIconButton>(
           find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
         );
-        await tester.runAsync(() async {
-          deletion = Future<void>.sync(button.onPressed!);
-          await requestEntered.future.timeout(const Duration(seconds: 5));
-        });
+        deletion = Future<void>.sync(button.onPressed!);
+        await awaitRequest(tester);
         response.complete();
         await drain(tester);
         await tester.runAsync(() => deletion!.timeout(const Duration(seconds: 5)));
