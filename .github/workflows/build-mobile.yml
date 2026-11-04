@@ -109,11 +109,24 @@ jobs:
           working_directory: ./mobile
 
       - name: Install dependencies
-        run: mise //mobile:install:ci
+        id: flutter-install
+        run: |
+          set -o pipefail
+          mise //mobile:install:ci 2>&1 | tee "$RUNNER_TEMP/flutter-install.log"
+
+      - name: Annotate Flutter dependency setup failure
+        if: failure() && steps.flutter-install.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/flutter-install.log"
 
       - name: Perform codegen
         id: codegen
-        run: mise //mobile:codegen
+        run: |
+          set -o pipefail
+          mise //mobile:codegen 2>&1 | tee "$RUNNER_TEMP/flutter-codegen.log"
+
+      - name: Annotate Flutter code generation failure
+        if: failure() && steps.codegen.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/flutter-codegen.log"
 
       - name: Previously failed Flutter cases and current device-only action contracts
         id: focused-flutter
