@@ -1,13 +1,15 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/events.model.dart';
+import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_drag_region.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
@@ -25,10 +27,40 @@ class TimelineDragSelection extends ConsumerStatefulWidget {
 class _TimelineDragSelectionState extends ConsumerState<TimelineDragSelection> {
   bool _dragging = false;
   TimelineAssetIndex? _dragAnchorIndex;
-  final Set<BaseAsset> _draggedAssets = HashSet();
+  Set<AssetSelectionKey> _baseline = {};
+  AssetSelectionKey? _anchorId;
+  TimelineService? _dragTimeline;
+  StreamSubscription<TimelineReloadEvent>? _reloadSubscription;
   ScrollPhysics? _scrollPhysics;
 
+  @override
+  void initState() {
+    super.initState();
+    _reloadSubscription = EventStream.shared.listen<TimelineReloadEvent>((_) {
+      if (mounted) {
+        _stopDrag();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_reloadSubscription?.cancel());
+    super.dispose();
+  }
+
   void _setDragStartIndex(TimelineAssetIndex index) {
+    final timeline = ref.read(timelineServiceProvider);
+    final asset = timeline.getAssetSafe(index.assetIndex);
+    final selection = ref.read(multiSelectProvider);
+    if (asset == null || selection.isLocked(asset)) {
+      return;
+    }
+    _baseline = selection.selectedIds.toSet();
+    _anchorId = assetSelectionKey(asset);
+    _dragTimeline = timeline;
+    ref.read(multiSelectProvider.notifier).selectAsset(asset);
+    ref.read(hapticFeedbackProvider.notifier).heavyImpact();
     setState(() {
       _scrollPhysics = const ClampingScrollPhysics();
       _dragAnchorIndex = index;
@@ -37,26 +69,30 @@ class _TimelineDragSelectionState extends ConsumerState<TimelineDragSelection> {
   }
 
   void _stopDrag() {
+    if (!_dragging) {
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Update the physics post frame to prevent sudden change in physics on iOS.
-      if (mounted) {
-        setState(() {
-          _scrollPhysics = null;
-        });
+      if (mounted && !_dragging) {
+        setState(() => _scrollPhysics = null);
       }
     });
     setState(() {
       _dragging = false;
-      _draggedAssets.clear();
+      _dragAnchorIndex = null;
+      _anchorId = null;
+      _dragTimeline = null;
+      _baseline = {};
     });
-    final timelineState = ref.read(timelineStateProvider.notifier);
-    Future.delayed(const Duration(milliseconds: 300), () {
-      timelineState.setScrolling(false);
-    });
+    ref.read(timelineStateProvider.notifier).setScrolling(false);
   }
 
   Future<void> _dragScroll(ScrollDirection direction) {
     final scrollController = PrimaryScrollController.of(context);
+    if (!_dragging || !scrollController.hasClients) {
+      return Future.value();
+    }
     return scrollController.animateTo(
       scrollController.offset + (direction == ScrollDirection.forward ? 175 : -175),
       duration: const Duration(milliseconds: 125),
@@ -72,26 +108,19 @@ class _TimelineDragSelectionState extends ConsumerState<TimelineDragSelection> {
     final timelineService = ref.read(timelineServiceProvider);
     final dragAnchorIndex = _dragAnchorIndex!;
 
-    // Calculate the range of assets to select
+    final anchor = timelineService.getAssetSafe(dragAnchorIndex.assetIndex);
+    if (!identical(timelineService, _dragTimeline) || anchor == null || assetSelectionKey(anchor) != _anchorId) {
+      _stopDrag();
+      return;
+    }
+
     final startIndex = math.min(dragAnchorIndex.assetIndex, index.assetIndex);
     final endIndex = math.max(dragAnchorIndex.assetIndex, index.assetIndex);
     final count = endIndex - startIndex + 1;
-
-    // Load the assets in the range
     if (timelineService.hasRange(startIndex, count)) {
-      final selectedAssets = timelineService.getAssets(startIndex, count);
-
-      // Clear previous drag selection and add new range
-      final multiSelectNotifier = ref.read(multiSelectProvider.notifier);
-      for (final asset in _draggedAssets) {
-        multiSelectNotifier.deselectAsset(asset);
-      }
-      _draggedAssets.clear();
-
-      for (final asset in selectedAssets) {
-        multiSelectNotifier.selectAsset(asset);
-        _draggedAssets.add(asset);
-      }
+      ref
+          .read(multiSelectProvider.notifier)
+          .updateDragSelection(_baseline, timelineService.getAssets(startIndex, count));
     }
   }
 
@@ -106,8 +135,9 @@ class _TimelineDragSelectionState extends ConsumerState<TimelineDragSelection> {
       onScroll: (direction) => unawaited(_dragScroll(direction)),
       onScrollStart: () {
         // Minimize the bottom sheet when drag selection starts
-        // TODO(agg23): When isReadonlyModeEnabled, onEnd has not been set, so there is never a trailing setScrolling(false), sticking to isInteracting until the next interaction
-        ref.read(timelineStateProvider.notifier).setScrolling(true);
+        if (_dragging) {
+          ref.read(timelineStateProvider.notifier).setScrolling(true);
+        }
       },
       child: widget.builder(_scrollPhysics),
     );

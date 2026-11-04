@@ -42,6 +42,7 @@ jobs:
           dart format --set-exit-if-changed \
             test/medium/repositories/settings_repository_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
+            test/presentation/widgets/timeline/selection_gesture_test.dart \
             test/presentation/widgets/timeline/justified_row_layout_test.dart \
             test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
@@ -64,6 +65,7 @@ jobs:
           flutter test --no-pub --concurrency=1 --reporter json \
             test/medium/repositories/settings_repository_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
+            test/presentation/widgets/timeline/selection_gesture_test.dart \
             test/unit/repositories/settings_repository_test.dart \
             test/widgets/settings/asset_list_settings_test.dart \
             test/presentation/widgets/timeline/justified_row_layout_test.dart \

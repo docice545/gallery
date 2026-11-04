@@ -99,7 +99,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
         : context.primaryColor.lighten(amount: 0.75);
 
     final isSelected = ref.watch(
-      multiSelectProvider.select((multiselect) => multiselect.selectedAssets.contains(asset)),
+      multiSelectProvider.select((multiselect) => asset != null && multiselect.contains(asset)),
     );
 
     final bool storageIndicator =

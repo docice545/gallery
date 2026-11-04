@@ -296,14 +296,12 @@ class _FixedSegmentRow extends ConsumerWidget {
         ),
     ];
 
-    return TimelineDragRegion(
-      child: TimelineRow(
-        height: tileHeight,
-        widths: widths,
-        spacing: spacing,
-        textDirection: Directionality.of(context),
-        children: children,
-      ),
+    return TimelineRow(
+      height: tileHeight,
+      widths: widths,
+      spacing: spacing,
+      textDirection: Directionality.of(context),
+      children: children,
     );
   }
 }
@@ -335,8 +333,12 @@ class _AssetTileWidget extends ConsumerWidget {
     if (multiSelectState.forceEnable || multiSelectState.isEnabled) {
       ref.read(multiSelectProvider.notifier).toggleAssetSelection(asset);
     } else {
-      await ref.read(timelineServiceProvider).loadAssets(assetIndex, 1);
-      if (!ctx.mounted) {
+      final timeline = ref.read(timelineServiceProvider);
+      final loaded = await timeline.loadAssets(assetIndex, 1);
+      if (!ctx.mounted ||
+          !identical(timeline, ref.read(timelineServiceProvider)) ||
+          loaded.length != 1 ||
+          assetSelectionKey(loaded.single) != assetSelectionKey(asset)) {
         return;
       }
 
@@ -366,17 +368,7 @@ class _AssetTileWidget extends ConsumerWidget {
   }
 
   bool _getLockSelectionStatus(WidgetRef ref) {
-    final lockSelectionAssets = ref.read(multiSelectProvider.select((state) => state.lockedSelectionAssets));
-
-    if (lockSelectionAssets.isEmpty) {
-      return false;
-    }
-
-    // Iterate with `==` instead of `Set.contains` because `RemoteAsset.hashCode`
-    // includes `localId` while `==` does not — so the same server asset can
-    // hash to a different bucket when its `localId` differs (e.g., album-fetched
-    // copy has localId=null, merged-timeline copy has it populated).
-    return lockSelectionAssets.any((a) => a == asset);
+    return ref.watch(multiSelectProvider.select((state) => state.isLocked(asset)));
   }
 
   @override
@@ -395,7 +387,12 @@ class _AssetTileWidget extends ConsumerWidget {
     return RepaintBoundary(
       child: GestureDetector(
         onTap: () => lockSelection ? null : _handleOnTap(context, ref, assetIndex, asset, heroOffset, remoteSize),
-        onLongPress: () => lockSelection || isReadonlyModeEnabled ? null : _handleOnLongPress(ref, asset),
+        onLongPress:
+            lockSelection ||
+                isReadonlyModeEnabled ||
+                context.findAncestorWidgetOfExactType<TimelineDragRegion>() != null
+            ? null
+            : () => _handleOnLongPress(ref, asset),
         child: Stack(
           fit: StackFit.passthrough,
           children: [

@@ -1,10 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/events.model.dart';
+import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/domain/utils/event_stream.dart';
+import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../factories/local_asset_factory.dart';
 import '../../factories/remote_asset_factory.dart';
+
+class _Timeline extends Mock implements TimelineService {}
 
 void main() {
   late ProviderContainer container;
@@ -75,5 +84,60 @@ void main() {
       selection.toggleAssetSelection(asset.copyWith(isFavorite: true));
     }
     expect(ids(), [assets.first.id]);
+  });
+
+  test('shrinking a drag preserves selections made before the gesture', () {
+    final assets = List.generate(4, (index) => RemoteAssetFactory.create(id: 'asset-$index'));
+    selection.selectAsset(assets.last);
+    final baseline = container.read(multiSelectProvider).selectedIds;
+    selection.updateDragSelection(baseline, assets);
+    selection.updateDragSelection(baseline, [assets.first]);
+    expect(ids(), unorderedEquals([assets.first.id, assets.last.id]));
+  });
+
+  for (final invalidate in ['tap', 'reset', 'refresh', 'dispose']) {
+    test('an unfinished date-bucket load cannot select photos after $invalidate', () async {
+      final timeline = _Timeline();
+      final result = Completer<List<BaseAsset>>();
+      when(() => timeline.loadAssets(0, 2)).thenAnswer((_) => result.future);
+      final scoped = ProviderContainer(overrides: [timelineServiceProvider.overrideWithValue(timeline)]);
+      final notifier = scoped.read(multiSelectProvider.notifier);
+      final pending = notifier.toggleBucketSelection(0, 2);
+      final other = RemoteAssetFactory.create(id: 'intentional-tap');
+      switch (invalidate) {
+        case 'tap':
+          notifier.selectAsset(other);
+        case 'reset':
+          notifier.reset();
+        case 'refresh':
+          EventStream.shared.emit(const TimelineReloadEvent());
+          await Future<void>.delayed(Duration.zero);
+        case 'dispose':
+          scoped.dispose();
+      }
+      result.complete([RemoteAssetFactory.create(id: 'stale-a'), RemoteAssetFactory.create(id: 'stale-b')]);
+      await pending;
+      if (invalidate != 'dispose') {
+        expect(
+          scoped.read(multiSelectProvider).selectedIds,
+          invalidate == 'tap' ? {assetSelectionKey(other)} : isEmpty,
+        );
+        scoped.dispose();
+      }
+    });
+  }
+
+  test('a changed album route invalidates the pending bucket from the old album', () async {
+    final oldAlbum = _Timeline();
+    final nextAlbum = _Timeline();
+    final result = Completer<List<BaseAsset>>();
+    when(() => oldAlbum.loadAssets(0, 1)).thenAnswer((_) => result.future);
+    final scoped = ProviderContainer(overrides: [timelineServiceProvider.overrideWithValue(oldAlbum)]);
+    addTearDown(scoped.dispose);
+    final pending = scoped.read(multiSelectProvider.notifier).toggleBucketSelection(0, 1);
+    scoped.updateOverrides([timelineServiceProvider.overrideWithValue(nextAlbum)]);
+    result.complete([RemoteAssetFactory.create(id: 'old-album-photo')]);
+    await pending;
+    expect(scoped.read(multiSelectProvider).selectedAssets, isEmpty);
   });
 }
