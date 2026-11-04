@@ -103,11 +103,24 @@ jobs:
             -H 'content-type: application/json' \
             -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
       - name: Ensure API smoke media tool is available
+        id: media-tools
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v convert >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y ffmpeg imagemagick
-          fi
+          set -o pipefail
+          {
+            if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v convert >/dev/null 2>&1; then
+              sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick
+            fi
+          } 2>&1 | tee "$RUNNER_TEMP/api-media-tools.log"
+      - name: Expose API fixture infrastructure failure
+        if: failure() && steps.media-tools.outcome == 'failure'
+        run: |
+          python3 - <<'PY_DIAGNOSTIC'
+          import os
+          from pathlib import Path
+          tail = Path(os.environ['RUNNER_TEMP'], 'api-media-tools.log').read_text(errors='replace')[-6000:]
+          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=API media-tool installation failure::' + escaped)
+          PY_DIAGNOSTIC
       - name: Run disposable backend API smoke flows
         run: bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285
       - name: Upload contract receipts
@@ -276,36 +289,24 @@ jobs:
       - name: Prepare iOS contract receipts
         run: mkdir -p mobile/ci-receipts
       - name: Run iOS-capable Flutter analysis
+        id: ios-analysis
         working-directory: mobile
         run: |
           set -o pipefail
           flutter analyze --no-pub 2>&1 | tee ci-receipts/flutter-analyze.log
       - name: Surface Flutter analysis failure details
-        if: failure()
-        working-directory: mobile
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('ci-receipts/flutter-analyze.log')
-          if path.exists():
-              diagnostics = [
-                  line.strip()
-                  for line in path.read_text(errors='replace').splitlines()
-                  if ' warning • ' in line or ' error • ' in line
-              ]
-              for diagnostic in diagnostics:
-                  encoded = diagnostic.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  print(f'::error title=Flutter analyzer diagnostic::{encoded}')
-              if not diagnostics:
-                  print('::notice title=Flutter analyzer diagnostics::No warning or error diagnostics were emitted.')
-          PY
+        if: failure() && steps.ios-analysis.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py analysis mobile/ci-receipts/flutter-analyze.log
       - name: Run iOS-capable existing service and repository tests
+        id: ios-services
         if: always()
         working-directory: mobile
         run: |
           set -o pipefail
-          flutter test --no-pub test/services test/repositories 2>&1 | tee ci-receipts/service-repository-tests.log
+          flutter test --no-pub --reporter json test/services test/repositories | tee ci-receipts/service-repository-tests.jsonl
+      - name: Report exact iOS-capable service results
+        if: "!cancelled() && (steps.ios-services.outcome == 'success' || steps.ios-services.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter mobile/ci-receipts/service-repository-tests.jsonl
       - name: Run screenshot framing policy tests
         if: always()
         working-directory: mobile
@@ -319,6 +320,7 @@ jobs:
           set -o pipefail
           flutter test --no-pub test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart 2>&1 | tee ci-receipts/thumbnail-rendered-tests.log
       - name: Run Memories lane geometry and text widget tests
+        id: ios-memory
         if: always()
         working-directory: mobile
         # Keep the Build 22 memory-lane gate on every exact final-SHA matrix run.
@@ -326,7 +328,7 @@ jobs:
           set -o pipefail
           flutter test --no-pub test/presentation/widgets/memory/memory_lane_test.dart 2>&1 | tee ci-receipts/memory-lane-tests.log
       - name: Surface Memories test failure details
-        if: failure()
+        if: failure() && steps.ios-memory.outcome == 'failure'
         working-directory: mobile
         run: |
           python3 - <<'PY'
@@ -355,6 +357,7 @@ jobs:
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
             2>&1 | tee ci-receipts/live-photo-timeline-tests.log
       - name: Run SQLite recovery fixture tests
+        id: ios-sqlite
         if: always()
         working-directory: mobile
         run: |
@@ -366,7 +369,7 @@ jobs:
             test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart \
             2>&1 | tee ci-receipts/sqlite-recovery-tests.log
       - name: Surface SQLite fixture failure details
-        if: failure()
+        if: failure() && steps.ios-sqlite.outcome == 'failure'
         working-directory: mobile
         run: |
           python3 - <<'PY'
