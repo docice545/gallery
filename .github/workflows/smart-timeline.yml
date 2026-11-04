@@ -42,6 +42,7 @@ jobs:
           dart format --set-exit-if-changed \
             test/medium/repositories/settings_repository_test.dart \
             test/utils/place_names_test.dart \
+            test/utils/diagnostics/frame_capture_test.dart \
             test/domain/services/place_name_service_test.dart \
             test/providers/place_names_session_provider_test.dart \
             test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
@@ -90,6 +91,17 @@ jobs:
             test/pages/edit/editor_acceptance_test.dart \
             test/pages/edit/editor_theme_test.dart \
             test/widgets/settings/asset_list_settings_test.dart
+      - name: Measure production justified geometry without changing calibration
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: mobile
+        run: dart run tool/timeline_geometry.dart "$RUNNER_TEMP/timeline-geometry.json"
+      - name: Retain row and tile measurements
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: timeline-geometry
+          path: ${{ runner.temp }}/timeline-geometry.json
+          if-no-files-found: warn
       - name: Annotate formatter differences
         if: failure() && steps.format.outcome == 'failure'
         run: python3 .github/scripts/report-ci-failures.py format
@@ -102,6 +114,7 @@ jobs:
           flutter test --no-pub --concurrency=1 --reporter json \
             test/medium/repositories/settings_repository_test.dart \
             test/utils/place_names_test.dart \
+            test/utils/diagnostics/frame_capture_test.dart \
             test/domain/services/place_name_service_test.dart \
             test/providers/place_names_session_provider_test.dart \
             test/infrastructure/repositories/timeline_place_identity_repository_test.dart \

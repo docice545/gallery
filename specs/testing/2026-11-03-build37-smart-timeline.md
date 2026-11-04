@@ -4,7 +4,7 @@ Scope: [Issue 17 sections 9–10](https://github.com/docice545/gallery/issues/17
 including its 2026-11-03 clarification to reuse the existing Scrubber date label.
 The implementation is isolated in `codex/issue17-smart-timeline`, based on the
 published `codex/foto-build37-android-ui` at `6c8882bbf`. Build 36 / Issue 18 / PR 19
-remain separate. No backend or Docker image source, production, original media or signing changes.
+remain separate. The current executor owns all remaining Build37 and compatibility software work. Backend fixes are independently reviewable in PR21 and integrated into PR20; production, original media and signing remain untouched.
 CI guards explicitly prevent PR signing and registry publication.
 
 ## Behavior and reused components
@@ -82,7 +82,7 @@ especially cold start directly into Timeline and `selected → native-ready →
 play-request-accepted → position-advanced`, one player, Viewer/back and background
 resume. Profile UI/raster p95/p99 and jank at 120 Hz (~8.33 ms budget).
 
-Issue 17's Samsung editor, album swipe/trash, notifications, exact selection IDs
-and persisted stack 2→1 fixes remain separate obligations of its owner; this
-change does not declare those complete. iPhone/SideStore and signed Android
+All Issue17 editor, album swipe/trash, notifications, exact selection IDs and persisted stack2→1 obligations remain with this executor. Their current implementation/test status is maintained in [the unified checklist](../../BUILD37_CHECKLIST.md), without delegation to another owner. iPhone/SideStore and signed Android
 upgrade acceptance remain tracked by Issue 18. **Production/release NO-GO.**
+
+The executable Samsung capture procedure and per-scenario evidence are in [Build37 device acceptance](2026-11-04-build37-device-acceptance.md).

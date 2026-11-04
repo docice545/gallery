@@ -1,14 +1,11 @@
-# Issue 17 sections 9–10: density audit and Build 37 handoff
+# Issue 17 sections 9–10: original density audit and current calibration evidence
 
 Canonical requirements: [Issue 17](https://github.com/docice545/gallery/issues/17),
 body updated 2026-11-03 23:21:54 Europe/Moscow. This supplements the completed
 [Issue 18 audit](https://github.com/docice545/gallery/issues/18#issuecomment-6612841556).
 It does not replace the canonical issue or claim Samsung visual acceptance.
 
-Build 36 integration remains in PR 19. Build 37 presentation changes remain owned
-by `codex/foto-build37-android-ui`. Published Build 37 HEAD was
-`6c8882bbf2bfd69dfd8984342c142db25b45f223`; PR 16 HEAD was
-`fda0ef2004bfb0e7f5908eda51e45a817c7be2e2`. Unpublished work by its owner is unknown.
+Build36 integration remains in PR19. Build37 continues in PR20 (`codex/issue17-smart-timeline`), with a single executor responsible for all outstanding software. The observations below describe the original base `6c8882bbf`; current status is in [BUILD37_CHECKLIST.md](../../BUILD37_CHECKLIST.md).
 
 ## Existing implementation
 
@@ -20,8 +17,7 @@ by `codex/foto-build37-android-ui`. Published Build 37 HEAD was
   aspect sums and row partitioning; a target is not a measured thumbnail size.
 - Main mobile Timeline opts into `denseLayout`, uses 3 dp spacing, and watches
   `appConfig.timeline.tilesPerRow`. All tile corners use 6 dp in the inherited
-  Build 31–32 implementation. Settings default to 4 and currently permit 2–6;
-  section 9 acceptance explicitly exercises 2–5.
+  Build 31–32 implementation. Settings default to4; PR20 restricts the supported density setting to2–5 in both presentation modes.
 - Current aspect clamp is **0.25–3.0**, not 0.65–1.65. A typical 0.45 screenshot
   survives this clamp. A 72 dp minimum tile width protects badges/selection.
   Extreme aspect ratios or height bounds can require cover crop. A single-photo
@@ -49,7 +45,7 @@ when width/density changes. It deliberately ignores height-only changes to avoid
 restarting the bucket stream. Existing date groups, asset indices and cached
 row targeting must survive a density change.
 
-`TimelinePinchZoom` reads density only in `initState`. Its `_perRow`,
+**Original-base defect, now fixed and regression-tested in PR20:** `TimelinePinchZoom` read density only in `initState`. Its `_perRow`,
 `_scaleFactor` and `_baseScaleFactor` do not subscribe to later settings changes.
 This is a **code-level risk requiring a widget reproduction**, not a proven
 cause of the reported Google Photos mismatch. Reproduce without remounting:
@@ -60,8 +56,7 @@ The settings slider itself also initializes a hook state from the watched value;
 check external updates while it remains mounted.
 
 Section 10 now additionally requires persisted Classic FOTO / immersive
-presentation selection, separate from density. The current `TimelineConfig`
-has no such presentation setting. Existing Years/Months/All overview modes are
+presentation selection, separate from density. The original-base `TimelineConfig` had no such presentation setting. PR20 now persists both modes and reuses the single existing transient date indicator. Existing Years/Months/All overview modes are
 not this feature. Build 37 must preserve Classic, implement reversible switching
 with a retained scroll anchor, and add a transient SafeArea-aware date/optional
 location overlay without extra geocoding/network requests. These UI changes are
@@ -93,14 +88,13 @@ Local Flutter execution is unavailable in this cloud environment: the SDK
 download endpoint is blocked by its configured network policy. CI results must
 be linked for the actual tested SHA; adding tests is not a PASS. The independent
 native decoded-motion CI gate and all existing lifecycle/route/visibility/single
-playback lease checks remain required. No runtime playback or grid code changed
-in this handoff.
+playback lease checks remain required. The original audit did not change runtime code. Subsequent PR20 changes are tracked in the unified checklist.
 
 ## Physical acceptance: pending
 
 The current issue body/comments contain no downloadable side-by-side screenshot
 attachments. No Samsung display measurements or profile traces were collected.
-For the owner with device access:
+For the user with the Samsung:
 
 1. Record installed source SHA/version, phone model, display scaling, orientation,
    logical viewport and selected density. Use comparable media in both apps.
@@ -108,7 +102,7 @@ For the owner with device access:
    actual tile widths/heights, row populations, crop, gaps and date-heading space.
 3. Calibrate density 3 from that evidence, retaining adaptive rows, stack
    representatives, chronology and screenshot proportions. Test both Classic and
-   immersive modes once section 10 exists. Record any deliberate crop tradeoff.
+   immersive modes (both are implemented in PR20). Record any deliberate crop tradeoff.
 4. Recheck settings→Timeline→pinch, resize, date/asset scroll anchors, exact
    selection IDs and stack 2→1 without deleting the surviving photo.
 5. Perform all eight Samsung Live Photo scenarios, including cold start directly
@@ -120,3 +114,7 @@ For the owner with device access:
    Viewer/back, background/resume and deletion animations.
 
 **Visual parity and 120 Hz acceptance remain pending. Production remains NO-GO.**
+
+## Reproducible measurements of current production geometry
+
+`dart run tool/timeline_geometry.dart OUTPUT.json` from `mobile/` executes the actual `FixedRowLayout.justified` at widths320/360/390/844 and densities2–5, with squares, vertical screenshots, mixed proportions and a single-photo day. Every row includes its exact widths, height, offset and source indices. The focused GitHub workflow uploads `timeline-geometry`; this is software geometry, not a Samsung screenshot or a copied Google Photos algorithm. Existing layout/real widget tests validate order, exact membership, finite geometry, proportional screenshots, stacks and motion badges. The current1.55 factor is retained until the matching-device comparison justifies a concrete calibration; visual parity remains pending, not PASS.
