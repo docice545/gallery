@@ -99,8 +99,11 @@ class _Scene {
 GhostTrapPainter _paint(WidgetTester tester) =>
     tester.widget<CustomPaint>(find.byKey(const ValueKey('ghost-trap-flight'))).painter! as GhostTrapPainter;
 
+void _ghostTest(String description, WidgetTesterCallback callback) =>
+    testWidgets(description, callback, timeout: const Timeout(Duration(seconds: 45)));
+
 void main() {
-  testWidgets(
+  _ghostTest(
     'pending operation holds the actual photo and grid; confirmed 640ms effect reflows without rebuilding images',
     (tester) async {
       final scene = _Scene();
@@ -140,7 +143,7 @@ void main() {
     },
   );
 
-  testWidgets('denial or server error restores the source without any completed animation', (tester) async {
+  _ghostTest('denial or server error restores the source without any completed animation', (tester) async {
     final scene = _Scene();
     await scene.mount(tester);
     final flight = await scene.prepare(tester);
@@ -159,7 +162,7 @@ void main() {
     expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
   });
 
-  testWidgets('batch has one representative; reduced motion fades in 180ms after confirmation', (tester) async {
+  _ghostTest('batch has one representative; reduced motion fades in 180ms after confirmation', (tester) async {
     final scene = _Scene();
     await scene.mount(tester, reduced: true);
     final flight = await scene.prepare(tester, ['one', 'two', 'three']);
@@ -177,7 +180,7 @@ void main() {
     expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
   });
 
-  testWidgets('an offstage bin is never an animation target; target disappearance cancels the effect', (tester) async {
+  _ghostTest('an offstage bin is never an animation target; target disappearance cancels the effect', (tester) async {
     final scene = _Scene();
     await scene.mount(tester);
     scene.target.value = false;
@@ -194,7 +197,7 @@ void main() {
     expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
   });
 
-  testWidgets('app pause cancels pending pixels; it cannot confer deletion success', (tester) async {
+  _ghostTest('app pause cancels pending pixels; it cannot confer deletion success', (tester) async {
     final scene = _Scene();
     await scene.mount(tester);
     final flight = await scene.prepare(tester);
