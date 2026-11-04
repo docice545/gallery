@@ -102,7 +102,8 @@ void main() {
     expect(calls.map((call) => call.page.orElse(null)), [1, 2]);
     for (final call in calls) {
       expect(call.albumIds.orElse(null), ['album']);
-      expect(call.isTrashed.orElse(null), false);
+      expect(call.withDeleted.orElse(null), false);
+      expect(call.withStacked.orElse(null), true);
     }
     verify(() => albums.getAlbumInfo('album')).called(2);
   });

@@ -133,7 +133,8 @@ class AlbumApiRepository extends ApiRepository {
         _apiService.searchApi.searchAssets(
           MetadataSearchDto(
             albumIds: Optional.present([albumId]),
-            isTrashed: const Optional.present(false),
+            withDeleted: const Optional.present(false),
+            withStacked: const Optional.present(true),
             page: Optional.present(page),
             size: const Optional.present(1000),
           ),

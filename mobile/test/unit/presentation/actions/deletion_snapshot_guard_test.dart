@@ -26,7 +26,9 @@ void main() {
   tearDown(() => fixture.dispose());
 
   Future<ProviderContainer> mount(WidgetTester tester, {bool permanent = false}) async {
-    if (permanent) selected = selected.copyWith(deletedAt: DateTime(2026));
+    if (permanent) {
+      selected = selected.copyWith(deletedAt: DateTime(2026));
+    }
     when(() => fixture.service.asset.service.getAsset(selected)).thenAnswer((_) async => selected);
     await tester.pumpTestWidget(
       fixture,

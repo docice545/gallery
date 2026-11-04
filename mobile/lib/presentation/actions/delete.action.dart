@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
-import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/album/album_trash_snapshot.model.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/deletion_snapshot.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
@@ -15,16 +15,16 @@ import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
-import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
-import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/repositories/album_api_repository.dart';
+import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/toast.service.dart';
 import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
@@ -207,6 +207,9 @@ class DeleteAction extends AssetActionBuilder {
         }
         return;
       }
+      if (!context.mounted) {
+        return;
+      }
       final _DeletionMessage? result;
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
       ToastOption? undo;
@@ -286,7 +289,7 @@ class DeleteAction extends AssetActionBuilder {
     _SelectionDeletionLease lease,
   ) async {
     await ref.read(assetServiceProvider).trash(remoteIds);
-    if (!lease.isSessionCurrent()) {
+    if (!context.mounted || !lease.isSessionCurrent()) {
       return null;
     }
     final message = context.t.trash_action_prompt(count: remoteIds.length);
@@ -334,7 +337,7 @@ class DeleteAction extends AssetActionBuilder {
       return null;
     }
     final results = await assetService.acceptPermanentDeletion(remoteIds);
-    if (!lease.isSessionCurrent()) {
+    if (!context.mounted || !lease.isSessionCurrent()) {
       return null;
     }
     final requested = remoteIds.toSet();
@@ -615,7 +618,7 @@ class TrashRemoteAlbumAction extends ActionBuilder {
     guard.running = true;
     try {
       final snapshot = await repository.getTrashSnapshot(albumId, userId);
-      if (!current()) {
+      if (!context.mounted || !current()) {
         return;
       }
       final confirmed = await showDialog<bool>(
@@ -630,7 +633,7 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         return;
       }
       final latest = await repository.getTrashSnapshot(albumId, userId);
-      if (!current()) {
+      if (!context.mounted || !current()) {
         return;
       }
       if (!snapshot.matches(latest)) {
@@ -641,12 +644,12 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         await ref.read(assetServiceProvider).trash(snapshot.assetIds);
         photosTrashed = true;
       }
-      if (!current()) {
+      if (!context.mounted || !current()) {
         return;
       }
       // New arrivals/shared access must not be silently removed with metadata.
       final empty = await repository.getTrashSnapshot(albumId, userId);
-      if (!current()) {
+      if (!context.mounted || !current()) {
         return;
       }
       if (empty.assets.isNotEmpty) {
@@ -654,15 +657,15 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         return;
       }
       await ref.read(remoteAlbumProvider.notifier).deleteAlbum(albumId);
-      if (current()) {
+      if (context.mounted && current()) {
         toast.success(context.t.album_deleted);
       }
     } on AlbumTrashScopeException {
-      if (current()) {
+      if (context.mounted && current()) {
         toast.error(photosTrashed ? context.t.album_trash_incomplete : context.t.album_trash_scope_unsupported);
       }
     } catch (error, stack) {
-      if (current()) {
+      if (context.mounted && current()) {
         if (photosTrashed) {
           toast.error(context.t.album_trash_incomplete);
         } else {
