@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
+import 'package:immich_mobile/domain/models/events.model.dart';
+import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
@@ -16,7 +20,41 @@ void main() {
   setUp(() {
     localAssetRepository = MockLocalAssetRepository();
     assetMediaRepository = MockAssetMediaRepository();
+    when(() => localAssetRepository.getAlbumIdsForAssets(any())).thenAnswer((_) async => {});
     sut = CleanupService(localAssetRepository, assetMediaRepository);
+  });
+
+  test('navigation evidence includes only verified IDs and albums after the cache commit', () async {
+    final events = <DeviceTrashAcknowledgedEvent>[];
+    final subscription = EventStream.shared.listen<DeviceTrashAcknowledgedEvent>(events.add);
+    addTearDown(subscription.cancel);
+    final commit = Completer<void>();
+    when(() => assetMediaRepository.deleteAll(any())).thenAnswer((_) async => ['accepted', 'unrelated']);
+    when(() => localAssetRepository.getAlbumIdsForAssets(['accepted'])).thenAnswer((_) async => {'camera'});
+    when(() => localAssetRepository.deleteAssets(['accepted'])).thenAnswer((_) => commit.future);
+    final operation = sut.deleteLocalAssetsDetailed(['accepted', 'rejected']);
+    await Future<void>.delayed(Duration.zero);
+    expect(events, isEmpty);
+    commit.complete();
+    final result = await operation;
+    await Future<void>.delayed(Duration.zero);
+    expect(result.deletedIds, ['accepted']);
+    expect(result.remainingIds, ['rejected']);
+    expect(events.single.albumIds, {'camera'});
+    expect(events.single.assetIds, {'accepted'});
+  });
+
+  test('native denial and failed cache commit never publish navigation evidence', () async {
+    final events = <DeviceTrashAcknowledgedEvent>[];
+    final subscription = EventStream.shared.listen<DeviceTrashAcknowledgedEvent>(events.add);
+    addTearDown(subscription.cancel);
+    when(() => assetMediaRepository.deleteAll(any())).thenAnswer((_) async => []);
+    await sut.deleteLocalAssetsDetailed(['photo']);
+    when(() => assetMediaRepository.deleteAll(any())).thenAnswer((_) async => ['photo']);
+    when(() => localAssetRepository.deleteAssets(any())).thenThrow(StateError('synthetic SQLite failure'));
+    await expectLater(sut.deleteLocalAssetsDetailed(['photo']), throwsStateError);
+    await Future<void>.delayed(Duration.zero);
+    expect(events, isEmpty);
   });
 
   group('CleanupService.deleteLocalAssets', () {

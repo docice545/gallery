@@ -5,6 +5,7 @@ import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_album.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 
 import '../../test_utils/medium_factory.dart';
 
@@ -19,6 +20,22 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('confirmed removal resolves exact albums before cascade removes links', () async {
+    final albums = LocalAlbumRepository(db);
+    final assets = LocalAssetRepository(db);
+    final removed = _localAsset('removed');
+    final retained = _localAsset('retained');
+    await albums.upsert(mediumFactory.localAlbum(id: 'camera'), toUpsert: [removed]);
+    await albums.upsert(mediumFactory.localAlbum(id: 'favorites'), toUpsert: [removed, retained]);
+    await albums.upsert(mediumFactory.localAlbum(id: 'unrelated'), toUpsert: [_localAsset('other')]);
+    expect(await assets.getAlbumIdsForAssets(['removed']), {'camera', 'favorites'});
+    expect(await assets.getAlbumIdsForAssets([]), isEmpty);
+    await assets.deleteAssets(['removed']);
+    expect(await albums.getAssets('camera'), isEmpty);
+    expect((await albums.getAssets('favorites')).map((asset) => asset.id), ['retained']);
+    expect((await albums.getAssets('unrelated')).map((asset) => asset.id), ['other']);
   });
 
   group('getAll', () {
