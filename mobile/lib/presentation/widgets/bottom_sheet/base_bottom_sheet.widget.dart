@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
+import 'package:immich_mobile/presentation/actions/action.widget.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 
 class BaseBottomSheet extends ConsumerStatefulWidget {
@@ -48,7 +50,19 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
   }
 
   @override
+  void dispose() {
+    if (widget.controller == null) {
+      _controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // A hidden action has no cell, rather than leaving an invisible gap.
+    final actions = widget.actions
+        .where((action) => action is! ActionWidget || action.action.create(context, ref) != null)
+        .toList();
     ref.listen(timelineStateProvider, (previous, next) {
       if (!widget.resizeOnScroll) {
         return;
@@ -79,47 +93,32 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
           elevation: 3.0,
           shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
           margin: EdgeInsets.zero,
-          child: Column(
-            children: [
-              Expanded(
-                child: CustomScrollView(
-                  controller: scrollController,
-                  slivers: [
-                    const SliverToBoxAdapter(child: _DragHandle()),
-                    if (widget.actions.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: Column(
-                          children: [
-                            // Keep the first/common actions reachable on narrow screens. A
-                            // horizontally scrolling row hid Trash off-screen on phones with
-                            // long localized labels; wrapping lets the action area use the
-                            // sheet's width and lets the outer scroll view handle secondary rows.
-                            LayoutBuilder(
-                              builder: (context, constraints) => Align(
-                                alignment: Alignment.center,
-                                child: ConstrainedBox(
-                                  constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                                  child: Wrap(
-                                    alignment: WrapAlignment.center,
-                                    crossAxisAlignment: WrapCrossAlignment.start,
-                                    spacing: 4,
-                                    runSpacing: 4,
-                                    children: widget.actions,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const Divider(indent: 16, endIndent: 16),
-                            const SizedBox(height: 16),
-                          ],
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                Expanded(
+                  child: CustomScrollView(
+                    controller: scrollController,
+                    slivers: [
+                      const SliverToBoxAdapter(child: _DragHandle()),
+                      if (actions.isNotEmpty)
+                        SliverToBoxAdapter(
+                          child: Column(
+                            children: [
+                              ActionCellGrid(children: actions),
+                              const Divider(indent: 16, endIndent: 16),
+                              const SizedBox(height: 16),
+                            ],
+                          ),
                         ),
-                      ),
-                    if (widget.slivers != null) ...widget.slivers!,
-                  ],
+                      if (widget.slivers != null) ...widget.slivers!,
+                    ],
+                  ),
                 ),
-              ),
-              if (widget.footer != null) widget.footer!,
-            ],
+                if (widget.footer != null) widget.footer!,
+              ],
+            ),
           ),
         );
       },

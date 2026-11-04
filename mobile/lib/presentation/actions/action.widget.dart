@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_ui/immich_ui.dart';
 
@@ -23,11 +24,34 @@ abstract class ActionWidget extends ConsumerWidget {
 }
 
 class ActionColumnButton extends ActionWidget {
-  const ActionColumnButton({super.key, required super.action});
+  const ActionColumnButton({super.key, required super.action, this.fotoKind});
+
+  final FotoIconKind? fotoKind;
 
   @override
   Widget builder(BuildContext context, WidgetRef ref, ActionItem action) => ImmichColumnButton(
     icon: action.icon,
+    maxLabelWidth: ActionCellGrid.contains(context) ? double.infinity : 90,
+    maxLabelLines: ActionCellGrid.contains(context) ? null : 2,
+    leadingIcon: fotoKind == null
+        ? null
+        : ExcludeSemantics(
+            child: FotoIcon(
+              kind: switch ((fotoKind!, action.icon)) {
+                (FotoIconKind.archive, Icons.unarchive_outlined) => FotoIconKind.unarchive,
+                (FotoIconKind.lock, Icons.lock_open_rounded) => FotoIconKind.unlock,
+                (FotoIconKind.stack, Icons.layers_clear_outlined) => FotoIconKind.unstack,
+                _ => fotoKind!,
+              },
+              semanticLabel: action.label,
+              size: 24,
+              state: fotoKind == FotoIconKind.trash || fotoKind == FotoIconKind.deviceTrash
+                  ? FotoIconState.destructive
+                  : fotoKind == FotoIconKind.favorite && action.icon == Icons.favorite_rounded
+                  ? FotoIconState.active
+                  : FotoIconState.normal,
+            ),
+          ),
     label: action.label,
     onPressed: action.onAction,
     onLongPress: action.onSecondaryAction,

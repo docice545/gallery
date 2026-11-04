@@ -6,6 +6,7 @@ import 'package:immich_mobile/presentation/actions/download.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 class LockedFolderBottomSheet extends StatelessWidget {
   const LockedFolderBottomSheet({super.key});
@@ -17,11 +18,26 @@ class LockedFolderBottomSheet extends StatelessWidget {
       maxChildSize: 0.4,
       shouldCloseOnMinExtent: false,
       actions: <ActionColumnButton>[
-        .new(action: DeleteAction(source: .timeline)),
-        .new(action: AssetDebugAction(source: .timeline)),
-        .new(action: ShareAction(source: .timeline)),
-        .new(action: DownloadAction(source: .timeline)),
-        .new(action: LockAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.trash,
+          action: DeleteAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.download,
+          action: DownloadAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.lock,
+          action: LockAction(source: .timeline),
+        ),
       ],
     );
   }

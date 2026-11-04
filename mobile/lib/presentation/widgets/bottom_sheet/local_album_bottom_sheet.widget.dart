@@ -7,6 +7,7 @@ import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 class LocalAlbumBottomSheet extends ConsumerStatefulWidget {
   const LocalAlbumBottomSheet({super.key});
@@ -42,10 +43,22 @@ class _LocalAlbumBottomSheetState extends ConsumerState<LocalAlbumBottomSheet> {
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: const <ActionColumnButton>[
-        .new(action: CleanupLocalAction(source: .timeline)),
-        .new(action: AssetDebugAction(source: .timeline)),
-        .new(action: ShareAction(source: .timeline)),
-        .new(action: UploadAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.deviceTrash,
+          action: CleanupLocalAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.upload,
+          action: UploadAction(source: .timeline),
+        ),
       ],
       // #965: the same picker the main timeline offers. A selection here is local-only, and
       // the space paths upload before they add, so a space album is a valid destination.

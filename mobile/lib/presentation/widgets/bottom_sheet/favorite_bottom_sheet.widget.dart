@@ -15,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 
 class FavoriteBottomSheet extends ConsumerWidget {
@@ -29,18 +30,48 @@ class FavoriteBottomSheet extends ConsumerWidget {
       maxChildSize: 0.7,
       shouldCloseOnMinExtent: false,
       actions: const <ActionColumnButton>[
-        .new(action: DeleteAction(source: .timeline)),
-        .new(action: AssetDebugAction(source: .timeline)),
-        .new(action: ShareAction(source: .timeline)),
-        .new(action: ShareLinkAction(source: .timeline)),
-        .new(action: FavoriteAction(source: .timeline)),
-        .new(action: ArchiveAction(source: .timeline)),
-        .new(action: DownloadAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.trash,
+          action: DeleteAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.link,
+          action: ShareLinkAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.favorite,
+          action: FavoriteAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.archive,
+          action: ArchiveAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.download,
+          action: DownloadAction(source: .timeline),
+        ),
         .new(action: EditDateTimeAction(source: .timeline)),
         .new(action: EditLocationAction(source: .timeline)),
-        .new(action: LockAction(source: .timeline)),
-        .new(action: StackAction(source: .timeline)),
-        .new(action: ManageStackAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.lock,
+          action: LockAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.stack,
+          action: StackAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.stack,
+          action: ManageStackAction(source: .timeline),
+        ),
       ],
       // #965: the same picker the main timeline offers, so a space album is reachable from
       // favorites too.

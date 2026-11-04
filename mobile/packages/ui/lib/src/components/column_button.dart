@@ -7,6 +7,9 @@ import 'package:immich_ui/src/internal.dart';
 
 class ImmichColumnButton extends StatefulWidget {
   final IconData icon;
+  final Widget? leadingIcon;
+  final double maxLabelWidth;
+  final int? maxLabelLines;
   final String label;
   final FutureOr<void> Function() onPressed;
   final FutureOr<void> Function()? onLongPress;
@@ -18,6 +21,9 @@ class ImmichColumnButton extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.leadingIcon,
+    this.maxLabelWidth = 90,
+    this.maxLabelLines = 2,
     this.onLongPress,
     this.disabled = false,
     this.loading,
@@ -62,7 +68,7 @@ class _ImmichColumnButtonState extends State<ImmichColumnButton> {
         shape: const RoundedRectangleBorder(borderRadius: .all(.circular(ImmichRadius.xl))),
       ),
       child: ConstrainedBox(
-        constraints: const .new(maxWidth: 90),
+        constraints: .new(maxWidth: widget.maxLabelWidth),
         child: Column(
           mainAxisSize: .min,
           children: [
@@ -71,11 +77,11 @@ class _ImmichColumnButtonState extends State<ImmichColumnButton> {
                     dimension: ImmichIconSize.md,
                     child: CircularProgressIndicator(strokeWidth: ImmichBorderWidth.lg),
                   )
-                : Icon(widget.icon, size: ImmichIconSize.md),
+                : widget.leadingIcon ?? Icon(widget.icon, size: ImmichIconSize.md),
             const SizedBox(height: ImmichSpacing.sm),
             Text(
               widget.label,
-              maxLines: 2,
+              maxLines: widget.maxLabelLines,
               textAlign: .center,
               overflow: .ellipsis,
               style: const .new(fontSize: ImmichTextSize.body, fontWeight: .w500),

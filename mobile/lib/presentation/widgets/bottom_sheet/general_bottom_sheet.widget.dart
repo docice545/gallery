@@ -17,6 +17,7 @@ import 'package:immich_mobile/presentation/actions/tag.action.dart';
 import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 class GeneralBottomSheet extends ConsumerStatefulWidget {
   final double? minChildSize;
@@ -55,20 +56,53 @@ class _GeneralBottomSheetState extends ConsumerState<GeneralBottomSheet> {
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: const <ActionColumnButton>[
-        .new(action: DeleteAction(source: .timeline)),
-        .new(action: AssetDebugAction(source: .timeline)),
-        .new(action: ShareAction(source: .timeline)),
-        .new(action: ShareLinkAction(source: .timeline)),
-        .new(action: DownloadAction(source: .timeline)),
-        .new(action: FavoriteAction(source: .timeline)),
-        .new(action: ArchiveAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.trash,
+          action: DeleteAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.link,
+          action: ShareLinkAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.download,
+          action: DownloadAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.favorite,
+          action: FavoriteAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.archive,
+          action: ArchiveAction(source: .timeline),
+        ),
         .new(action: TagAction(source: .timeline)),
         .new(action: EditDateTimeAction(source: .timeline)),
         .new(action: EditLocationAction(source: .timeline)),
-        .new(action: LockAction(source: .timeline)),
-        .new(action: StackAction(source: .timeline)),
-        .new(action: ManageStackAction(source: .timeline)),
-        .new(action: UploadAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.lock,
+          action: LockAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.stack,
+          action: StackAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.stack,
+          action: ManageStackAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.upload,
+          action: UploadAction(source: .timeline),
+        ),
       ],
       slivers: [CollectionPicker(onKeyboardExpanded: onKeyboardExpand)],
     );

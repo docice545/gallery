@@ -156,12 +156,7 @@ class Timeline extends ConsumerWidget {
             ),
             if (readOnly) readonlyModeProvider.overrideWith(() => _AlwaysReadOnlyNotifier()),
           ],
-          // The pill overlays the whole timeline body — including the loading state — by
-          // design: it is the always-visible grouping control, mirroring how the old top
-          // header was present while content loaded.
-          child: withGroupingPill && !dockGroupingPill
-              ? Stack(children: [sliverTimeline, const TimelineGroupingBottomPill()])
-              : sliverTimeline,
+          child: sliverTimeline,
         );
       },
     );
@@ -811,150 +806,156 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                       ? const TimelineGroupingFooter()
                       : null
                 : null,
-            body: asyncSegments.widgetWhen(
-              onLoading: () =>
-                  widget.loadingWidget ??
-                  CustomScrollView(
-                    slivers: [
-                      if (widget.appBar != null) widget.appBar!,
-                      const SliverFillRemaining(hasScrollBody: false, child: Center(child: ImmichLoadingIndicator())),
-                    ],
-                  ),
-              onData: (segments) {
-                final layoutChanged = !identical(_lastRenderedSegments, segments);
-                _lastRenderedSegments = segments;
-                if (layoutChanged && _restoreAssetIndex != null) {
-                  _restoreAssetPosition(null);
-                }
-                final spec = ref.watch(timelineGroupingSpecProvider);
-                final pinnedGroupBy = ref.watch(timelineArgsProvider).groupBy;
-                final TimelineOverviewMode activeMode = pinnedGroupBy != null ? TimelineOverviewMode.all : spec.mode;
-                final GroupAssetsBy activeGroupBy = pinnedGroupBy ?? spec.groupBy;
-                final zoomAnchor = ref.watch(timelineZoomAnchorProvider);
-                _scheduleZoomAnchorResolution(anchor: zoomAnchor, mode: activeMode, segments: segments);
-                final childCount = (segments.lastOrNull?.lastIndex ?? -1) + 1;
+            body: _withGroupingPill(
+              asyncSegments.widgetWhen(
+                onLoading: () =>
+                    widget.loadingWidget ??
+                    CustomScrollView(
+                      slivers: [
+                        if (widget.appBar != null) widget.appBar!,
+                        const SliverFillRemaining(hasScrollBody: false, child: Center(child: ImmichLoadingIndicator())),
+                      ],
+                    ),
+                onData: (segments) {
+                  final layoutChanged = !identical(_lastRenderedSegments, segments);
+                  _lastRenderedSegments = segments;
+                  if (layoutChanged && _restoreAssetIndex != null) {
+                    _restoreAssetPosition(null);
+                  }
+                  final spec = ref.watch(timelineGroupingSpecProvider);
+                  final pinnedGroupBy = ref.watch(timelineArgsProvider).groupBy;
+                  final TimelineOverviewMode activeMode = pinnedGroupBy != null ? TimelineOverviewMode.all : spec.mode;
+                  final GroupAssetsBy activeGroupBy = pinnedGroupBy ?? spec.groupBy;
+                  final zoomAnchor = ref.watch(timelineZoomAnchorProvider);
+                  _scheduleZoomAnchorResolution(anchor: zoomAnchor, mode: activeMode, segments: segments);
+                  final childCount = (segments.lastOrNull?.lastIndex ?? -1) + 1;
 
-                // Zero assets: render the caller's empty state (first-run / no-results)
-                // instead of a blank grid. The app bar stays so backup/profile remain
-                // reachable; the scrubber and grouping pill are naturally skipped.
-                if (childCount == 0 && widget.emptyWidget != null && !isSelectionMode) {
-                  return CustomScrollView(
-                    slivers: [
-                      if (widget.appBar != null) widget.appBar!,
-                      if (widget.topSliverWidget != null) widget.topSliverWidget!,
-                      SliverFillRemaining(hasScrollBody: false, child: widget.emptyWidget),
-                    ],
-                  );
-                }
-                final double appBarExpandedHeight = widget.appBar != null && widget.appBar is MesmerizingSliverAppBar
-                    ? 200
-                    : 0;
-                final topPadding =
-                    context.padding.top + (widget.appBar == null && !isSelectionMode ? 0 : kToolbarHeight) + 10;
+                  // Zero assets: render the caller's empty state (first-run / no-results)
+                  // instead of a blank grid. The app bar stays so backup/profile remain
+                  // reachable; the scrubber and grouping pill are naturally skipped.
+                  if (childCount == 0 && widget.emptyWidget != null && !isSelectionMode) {
+                    return CustomScrollView(
+                      slivers: [
+                        if (widget.appBar != null) widget.appBar!,
+                        if (widget.topSliverWidget != null) widget.topSliverWidget!,
+                        SliverFillRemaining(hasScrollBody: false, child: widget.emptyWidget),
+                      ],
+                    );
+                  }
+                  final double appBarExpandedHeight = widget.appBar != null && widget.appBar is MesmerizingSliverAppBar
+                      ? 200
+                      : 0;
+                  final topPadding =
+                      context.padding.top + (widget.appBar == null && !isSelectionMode ? 0 : kToolbarHeight) + 10;
 
-                const bottomSheetOpenModifier = 120.0;
-                final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
-                    ? TimelineGroupingBottomPill.pillHeight + TimelineGroupingBottomPill.bottomFloat
-                    : 0.0;
-                final contentBottomPadding =
-                    (widget.dockGroupingPill ? 0 : context.padding.bottom) +
-                    pillClearance +
-                    (isMultiSelectEnabled && !widget.dockGroupingPill ? bottomSheetOpenModifier : 0);
-                final scrubberBottomPadding = contentBottomPadding + kScrubberThumbHeight;
+                  const bottomSheetOpenModifier = 120.0;
+                  final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
+                      ? TimelineGroupingBottomPill.pillHeight + TimelineGroupingBottomPill.bottomFloat
+                      : 0.0;
+                  final contentBottomPadding =
+                      (widget.dockGroupingPill ? 0 : context.padding.bottom) +
+                      pillClearance +
+                      (isMultiSelectEnabled && !widget.dockGroupingPill ? bottomSheetOpenModifier : 0);
+                  final scrubberBottomPadding = contentBottomPadding + kScrubberThumbHeight;
 
-                return TimelinePinchZoom(
-                  onColumnCountWillChange: () {
-                    final targetAssetIndex = _getCurrentAssetIndex(segments);
-                    setState(() {
-                      _restoreAssetIndex = targetAssetIndex;
-                    });
-                  },
-                  child: TimelineDragSelection(
-                    builder: (physics) {
-                      final grid = CustomScrollView(
-                        primary: true,
-                        physics: physics,
-                        scrollCacheExtent: .pixels(maxHeight * 2),
-                        slivers: [
-                          if (isSelectionMode)
-                            const SelectionSliverAppBar()
-                          else if (widget.appBar != null)
-                            widget.appBar!,
-                          if (widget.topSliverWidget != null) widget.topSliverWidget!,
-                          SliverSegmentedList(
-                            key: _gridKey,
-                            segments: segments,
-                            delegate: SliverChildBuilderDelegate(
-                              (ctx, index) {
-                                if (index >= childCount) {
-                                  return null;
-                                }
-                                final segment = segments.findByIndex(index);
-                                return segment?.builder(ctx, index) ?? const SizedBox.shrink();
-                              },
-                              childCount: childCount,
-                              addAutomaticKeepAlives: false,
-                              // We add repaint boundary around tiles, so skip the auto boundaries
-                              addRepaintBoundaries: false,
-                            ),
-                          ),
-                          if (widget.bottomSliverWidget != null) widget.bottomSliverWidget!,
-                          SliverPadding(padding: EdgeInsets.only(bottom: contentBottomPadding)),
-                        ],
-                      );
-
-                      final Widget timeline;
-                      if (widget.withScrubber) {
-                        timeline = Scrubber(
-                          snapToMonth: widget.snapToMonth,
-                          groupBy: activeGroupBy,
-                          layoutSegments: segments,
-                          timelineHeight: maxHeight,
-                          topPadding: topPadding,
-                          bottomPadding: scrubberBottomPadding,
-                          monthSegmentSnappingOffset: timelineScrubberSnappingOffset(
-                            topSliverWidgetHeight: widget.topSliverWidgetHeight,
-                            appBarExpandedHeight: appBarExpandedHeight,
-                          ),
-                          hasAppBar: widget.appBar != null,
-                          showFloatingDate:
-                              widget.immersive ||
-                              ref.watch(appConfigProvider.select((config) => config.timeline.floatingDate)),
-                          assetAtIndex: ref.read(timelineServiceProvider).getAssetSafe,
-                          contentStartOffset: _gridStartOffset,
-                          child: grid,
-                        );
-                      } else {
-                        timeline = grid;
-                      }
-
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          NotificationListener<ScrollNotification>(
-                            onNotification: _onScrollVelocityNotification,
-                            child: timeline,
-                          ),
-                          if (isBottomWidgetVisible)
-                            Positioned(
-                              top: MediaQuery.paddingOf(context).top,
-                              left: 25,
-                              child: const SizedBox(
-                                height: kToolbarHeight,
-                                child: Center(child: MultiSelectStatusButton()),
+                  return TimelinePinchZoom(
+                    onColumnCountWillChange: () {
+                      final targetAssetIndex = _getCurrentAssetIndex(segments);
+                      setState(() {
+                        _restoreAssetIndex = targetAssetIndex;
+                      });
+                    },
+                    child: TimelineDragSelection(
+                      builder: (physics) {
+                        final grid = CustomScrollView(
+                          primary: true,
+                          physics: physics,
+                          scrollCacheExtent: .pixels(maxHeight * 2),
+                          slivers: [
+                            if (isSelectionMode)
+                              const SelectionSliverAppBar()
+                            else if (widget.appBar != null)
+                              widget.appBar!,
+                            if (widget.topSliverWidget != null) widget.topSliverWidget!,
+                            SliverSegmentedList(
+                              key: _gridKey,
+                              segments: segments,
+                              delegate: SliverChildBuilderDelegate(
+                                (ctx, index) {
+                                  if (index >= childCount) {
+                                    return null;
+                                  }
+                                  final segment = segments.findByIndex(index);
+                                  return segment?.builder(ctx, index) ?? const SizedBox.shrink();
+                                },
+                                childCount: childCount,
+                                addAutomaticKeepAlives: false,
+                                // We add repaint boundary around tiles, so skip the auto boundaries
+                                addRepaintBoundaries: false,
                               ),
                             ),
-                          if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
-                        ],
-                      );
-                    },
-                  ),
-                );
-              },
+                            if (widget.bottomSliverWidget != null) widget.bottomSliverWidget!,
+                            SliverPadding(padding: EdgeInsets.only(bottom: contentBottomPadding)),
+                          ],
+                        );
+
+                        final Widget timeline;
+                        if (widget.withScrubber) {
+                          timeline = Scrubber(
+                            snapToMonth: widget.snapToMonth,
+                            groupBy: activeGroupBy,
+                            layoutSegments: segments,
+                            timelineHeight: maxHeight,
+                            topPadding: topPadding,
+                            bottomPadding: scrubberBottomPadding,
+                            monthSegmentSnappingOffset: timelineScrubberSnappingOffset(
+                              topSliverWidgetHeight: widget.topSliverWidgetHeight,
+                              appBarExpandedHeight: appBarExpandedHeight,
+                            ),
+                            hasAppBar: widget.appBar != null,
+                            showFloatingDate:
+                                widget.immersive ||
+                                ref.watch(appConfigProvider.select((config) => config.timeline.floatingDate)),
+                            assetAtIndex: ref.read(timelineServiceProvider).getAssetSafe,
+                            contentStartOffset: _gridStartOffset,
+                            child: grid,
+                          );
+                        } else {
+                          timeline = grid;
+                        }
+
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            NotificationListener<ScrollNotification>(
+                              onNotification: _onScrollVelocityNotification,
+                              child: timeline,
+                            ),
+                            if (isBottomWidgetVisible)
+                              Positioned(
+                                top: MediaQuery.paddingOf(context).top,
+                                left: 25,
+                                child: const SizedBox(
+                                  height: kToolbarHeight,
+                                  child: Center(child: MultiSelectStatusButton()),
+                                ),
+                              ),
+                            if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
+                          ],
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _withGroupingPill(Widget body) => widget.withGroupingPill && !widget.dockGroupingPill
+      ? Stack(children: [body, const TimelineGroupingBottomPill()])
+      : body;
 }

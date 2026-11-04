@@ -9,6 +9,7 @@ import 'package:immich_mobile/presentation/actions/download.action.dart';
 import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_selector.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/infrastructure/action.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
@@ -66,9 +67,18 @@ class _PartnerDetailBottomSheetState extends ConsumerState<PartnerDetailBottomSh
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: const <ActionColumnButton>[
-        .new(action: AssetDebugAction(source: .timeline)),
-        .new(action: ShareAction(source: .timeline)),
-        .new(action: DownloadAction(source: .timeline)),
+        .new(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: .timeline),
+        ),
+        .new(
+          fotoKind: FotoIconKind.download,
+          action: DownloadAction(source: .timeline),
+        ),
       ],
       slivers: [
         const AddToAlbumHeader(),
