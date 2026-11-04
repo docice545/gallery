@@ -53,7 +53,8 @@ void installFotoFrameCapture() {
         await Future<void>.delayed(const Duration(seconds: 1));
         SchedulerBinding.instance.removeTimingsCallback(record);
         final result = active!.report();
-        final view = PlatformDispatcher.instance.views.firstOrNull;
+        final views = PlatformDispatcher.instance.views;
+        final view = views.isEmpty ? null : views.first;
         result['sourceSha'] = const String.fromEnvironment('FOTO_PROFILE_SOURCE_SHA');
         result['reportedDisplayHz'] = view?.display.refreshRate;
         result['devicePixelRatio'] = view?.devicePixelRatio;

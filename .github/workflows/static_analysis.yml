@@ -12,7 +12,7 @@ on:
         default: false
   pull_request:
   push:
-    branches: [main, 'release/*']
+    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,7 +40,7 @@ jobs:
               - 'i18n/en.json'
           force-filters: |
             - '.github/workflows/static_analysis.yml'
-          force-events: 'workflow_dispatch,release'
+          force-events: 'workflow_dispatch,release,push'
 
   mobile-dart-analyze:
     name: Run Dart Code Analysis

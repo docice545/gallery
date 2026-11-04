@@ -18,7 +18,11 @@ class _MockNativeSyncApi extends Mock implements NativeSyncApi {}
 
 class _MockStorageRepository extends Mock implements StorageRepository {}
 
-class _MockLocalAssetRepository extends Mock implements LocalAssetRepository {}
+class _MockLocalAssetRepository extends Mock implements LocalAssetRepository {
+  _MockLocalAssetRepository() {
+    when(() => getAlbumIdsForAssets(any())).thenAnswer((_) async => {'device-album'});
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -141,6 +145,7 @@ void main() {
 
       expect(result.deletedIds, ['101', '103']);
       expect(result.remainingIds, ['102']);
+      verify(() => local.getAlbumIdsForAssets(['101', '103'])).called(1);
       verify(() => local.deleteAssets(['101', '103'])).called(1);
     });
 
@@ -170,6 +175,7 @@ void main() {
 
         expect(result.deletedIds, verified);
         expect(result.remainingIds, refused);
+        verify(() => local.getAlbumIdsForAssets(verified)).called(1);
         verify(() => local.deleteAssets(verified)).called(1);
         expect(trashCalls, hasLength(count == 81 ? 3 : 2));
         for (final id in refused) {

@@ -11,16 +11,17 @@ WORKFLOW = ROOT / '.github/workflows/build-mobile.yml'
 
 def allows(job, *, event='pull_request', branch='codex/foto-build17-editor',
            actor='fixture-user', fork=False, mobile=True, workflow=WORKFLOW,
-           e2e=True, web=True, server=True, cli=True):
+           e2e=True, web=True, server=True, cli=True, android_release=False, ios_release=False, version=''):
     blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', workflow.read_text(), re.M | re.S))
     condition = re.search(r'^    if: \$\{\{ (.+) \}\}$', blocks[job], re.M).group(1)
     return evaluate(condition, event=event, branch=branch, actor=actor, fork=fork,
-                    mobile=mobile, e2e=e2e, web=web, server=server, cli=cli)
+                    mobile=mobile, e2e=e2e, web=web, server=server, cli=cli,
+                    android_release=android_release, ios_release=ios_release, version=version)
 
 
 def evaluate(condition, *, event='pull_request', branch='codex/foto-build17-editor',
              actor='fixture-user', fork=False, mobile=True, e2e=True,
-             web=True, server=True, cli=True):
+             web=True, server=True, cli=True, android_release=False, ios_release=False, version=''):
     replacements = {
         'github.event_name': repr(event), 'github.head_ref': repr(branch),
         'github.actor': repr(actor), 'github.event.pull_request.head.repo.fork': repr(fork),
@@ -30,6 +31,8 @@ def evaluate(condition, *, event='pull_request', branch='codex/foto-build17-edit
         'fromJSON(needs.pre-job.outputs.should_run).server': repr(server),
         'fromJSON(needs.pre-job.outputs.should_run).cli': repr(cli),
         'inputs.android_media_pilot': 'False', 'inputs.refresh_ios_pods_lock': 'False', 'inputs.build_target': repr(''),
+        'inputs.android_release': repr(android_release),
+        'inputs.ios_release': repr(ios_release), 'inputs.version': repr(version),
     }
     for key, value in replacements.items():
         condition = condition.replace(key, value)
@@ -49,13 +52,15 @@ class EditorScopeTests(TestCase):
             self.assertFalse(allows(job))
 
     def test_other_pull_requests_keep_the_existing_behavior(self):
-        for job in ['build-sign-android', 'build-sign-ios']:
-            self.assertTrue(allows(job, branch='fixture-normal-pr'))
+        self.assertFalse(allows('build-sign-android', branch='fixture-normal-pr'))
+        self.assertTrue(allows('build-sign-ios', branch='fixture-normal-pr'))
 
     def test_main_and_explicit_invocations_remain_available(self):
         for event in ['push', 'workflow_dispatch', 'workflow_call']:
-            for job in ['build-sign-android', 'build-sign-ios']:
-                self.assertTrue(allows(job, event=event, branch=''))
+            self.assertTrue(allows('build-sign-ios', event=event, branch=''))
+            self.assertFalse(allows('build-sign-android', event=event, branch=''))
+        self.assertTrue(allows('build-sign-android', event='workflow_dispatch', branch='', android_release=True))
+        self.assertFalse(allows('build-sign-android', event='push', branch='', android_release=True))
 
     def test_existing_actor_fork_and_changed_file_guards_are_preserved(self):
         self.assertFalse(allows('build-sign-android', branch='normal', actor='dependabot[bot]'))
@@ -67,13 +72,21 @@ class EditorScopeTests(TestCase):
         workflow = ROOT / '.github/workflows/gallery-build-mobile.yml'
         for job in ['build-sign-android', 'build-sign-ios']:
             self.assertFalse(allows(job, workflow=workflow))
-            self.assertTrue(allows(job, workflow=workflow, branch='normal'))
+            self.assertEqual(allows(job, workflow=workflow, branch='normal'), job == 'build-sign-ios')
             self.assertTrue(allows(job, workflow=workflow, event='workflow_dispatch', branch=''))
+
+    def test_reusable_inputs_cannot_enable_ios_signing_on_a_pr_or_push(self):
+        gallery = ROOT / '.github/workflows/gallery-build-mobile.yml'
+        for event in ('pull_request', 'push'):
+            self.assertFalse(allows('build-sign-ios', event=event, branch='normal', ios_release=True))
+            self.assertFalse(allows('build-sign-ios', workflow=gallery, event=event, branch='normal', version='v5.7.3'))
+        self.assertTrue(allows('build-sign-ios', event='workflow_dispatch', branch='', ios_release=True))
+        self.assertTrue(allows('build-sign-ios', workflow=gallery, event='workflow_dispatch', branch='', version='v5.7.3'))
 
     def test_docker_build_publish_and_retag_graph_cannot_start_for_editor_pr(self):
         workflow = ROOT / '.github/workflows/docker.yml'
         self.assertFalse(allows('pre-job', workflow=workflow))
-        self.assertTrue(allows('pre-job', workflow=workflow, branch='normal'))
+        self.assertFalse(allows('pre-job', workflow=workflow, branch='normal'))
         self.assertTrue(allows('pre-job', workflow=workflow, event='push', branch=''))
         blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', workflow.read_text(), re.M | re.S))
         for job in ['server', 'machine-learning', 'retag_server', 'retag_ml']:

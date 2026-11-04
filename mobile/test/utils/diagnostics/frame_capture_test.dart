@@ -18,7 +18,7 @@ void main() {
   });
   test('empty samples are not zero-latency evidence and truncation is explicit', () {
     final capture = FrameCapture(hz: 120, limit: 1);
-    expect((capture.report()['ui'] as Map)['p95Ms'], isNull);
+    expect((capture.report()['ui']! as Map)['p95Ms'], isNull);
     expect(capture.report()['jankPercent'], isNull);
     capture.add(8000, 8000);
     capture.add(9000, 9000);

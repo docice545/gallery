@@ -18,6 +18,8 @@ def allows(workflow, job, branch, event='pull_request'):
         'github.actor': repr('fixture-user'), 'github.event.pull_request.head.repo.fork': 'False',
         'inputs.android_media_pilot': 'False', 'inputs.refresh_ios_pods_lock': 'False',
         'inputs.build_target': repr(''),
+        'inputs.android_release': repr(event == 'workflow_dispatch'),
+        'inputs.ios_release': 'False', 'inputs.version': repr(''),
     }
     for key, value in substitutions.items():
         condition = condition.replace(key, value)
@@ -41,7 +43,8 @@ class DedupSourceScopeTests(unittest.TestCase):
             for branch in BRANCHES:
                 with self.subTest(workflow=workflow, job=job, branch=branch):
                     self.assertFalse(allows(workflow, job, branch))
-            self.assertTrue(allows(workflow, job, 'fixture-normal-pr'))
+            publishing = job == 'build-sign-android' or workflow == 'docker.yml'
+            self.assertEqual(allows(workflow, job, 'fixture-normal-pr'), not publishing)
             self.assertTrue(allows(workflow, job, '', 'workflow_dispatch'))
 
     def test_docker_builds_remain_dependent_on_guarded_pre_job(self):

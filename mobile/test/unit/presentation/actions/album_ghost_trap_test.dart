@@ -7,8 +7,8 @@ import 'package:immich_mobile/domain/models/album/album_trash_snapshot.model.dar
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
-import 'package:immich_mobile/presentation/widgets/album/animated_album_rows.dart';
 import 'package:immich_mobile/presentation/widgets/album/animated_album_grid.dart';
+import 'package:immich_mobile/presentation/widgets/album/animated_album_rows.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
