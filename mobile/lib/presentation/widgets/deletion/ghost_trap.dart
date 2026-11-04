@@ -130,6 +130,8 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     return flight;
   }
 
+  void _repaint() => notifyListeners();
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _active = state == AppLifecycleState.resumed;
@@ -250,7 +252,7 @@ class GhostFlight implements TickerProvider {
       return;
     }
     _entry?.markNeedsBuild();
-    _owner.notifyListeners(); // RenderObject repaint listeners, not Timeline setState.
+    _owner._repaint(); // RenderObject repaint listeners, not Timeline setState.
   }
 
   Future<void> confirmed() async {
@@ -283,7 +285,7 @@ class GhostFlight implements TickerProvider {
     if (identical(_owner._flight, this)) {
       _owner._flight = null;
       if (!_owner._disposing) {
-        _owner.notifyListeners();
+        _owner._repaint();
       }
     }
     unawaited(WidgetsBinding.instance.endOfFrame.then((_) => _image.dispose()));
@@ -438,23 +440,23 @@ class _GhostReflow extends SingleChildRenderObjectWidget {
 }
 
 class _RenderGhostReflow extends RenderProxyBox {
-  _RenderGhostReflow(this.owner, this.token);
-  final GhostTrapCoordinator owner;
+  _RenderGhostReflow(this.coordinator, this.token);
+  final GhostTrapCoordinator coordinator;
   Object token;
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
-    this.owner.addListener(markNeedsPaint);
+    this.coordinator.addListener(markNeedsPaint);
   }
 
   @override
   void detach() {
-    owner.removeListener(markNeedsPaint);
+    coordinator.removeListener(markNeedsPaint);
     super.detach();
   }
 
   Offset get translation {
-    final flight = owner._flight;
+    final flight = coordinator._flight;
     final oldRect = flight?._positions[token];
     if (flight == null || oldRect == null || !attached) {
       return Offset.zero;

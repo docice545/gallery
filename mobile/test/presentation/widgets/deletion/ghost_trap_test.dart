@@ -32,7 +32,7 @@ class _Scene {
                         children: [
                           Expanded(
                             child: ValueListenableBuilder(
-                              listenable: assets,
+                              valueListenable: assets,
                               builder: (_, ids, _) => Align(
                                 alignment: Alignment.topLeft,
                                 child: Wrap(
@@ -60,7 +60,7 @@ class _Scene {
                             ),
                           ),
                           ValueListenableBuilder(
-                            listenable: target,
+                            valueListenable: target,
                             builder: (_, shown, _) => Offstage(
                               offstage: !shown,
                               child: GhostTrashTarget(
@@ -92,8 +92,8 @@ class _Scene {
     });
   }
 
-  Future<GhostFlight?> prepare(WidgetTester tester, [List<String> ids = const ['one']]) =>
-      tester.runAsync(() => container.read(ghostTrapProvider).prepare(context, ids, GhostTrashKind.server));
+  Future<GhostFlight?> prepare(WidgetTester tester, [List<String> ids = const ['one']]) => tester
+      .runAsync<GhostFlight?>(() => container.read(ghostTrapProvider).prepare(context, ids, GhostTrashKind.server));
 }
 
 GhostTrapPainter _paint(WidgetTester tester) =>
