@@ -129,7 +129,19 @@ jobs:
             -H 'content-type: application/json' \
             -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
       - name: Run disposable backend API smoke flows
-        run: bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285
+        id: api-smoke
+        run: |
+          set -o pipefail
+          bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285 \
+            2>&1 | tee "$RUNNER_TEMP/api-smoke.log"
+      - name: Expose failed API operation and disposable backend evidence
+        if: failure() && steps.api-smoke.outcome == 'failure'
+        run: |
+          python3 .github/scripts/report-ci-failures.py api-smoke "$RUNNER_TEMP/api-smoke.log"
+          # Only this job's disposable compose, before teardown. Never query HP.
+          docker compose -f e2e/docker-compose.yml logs --no-color --tail=120 immich-server \
+            > "$RUNNER_TEMP/api-backend-failure.log" 2>&1 || true
+          python3 .github/scripts/report-ci-failures.py api-backend "$RUNNER_TEMP/api-backend-failure.log"
       - name: Upload contract receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -138,6 +150,8 @@ jobs:
           path: |
             server/test-results/**
             /tmp/noodle-api-smoke/**
+            ${{ runner.temp }}/api-smoke.log
+            ${{ runner.temp }}/api-backend-failure.log
           if-no-files-found: ignore
       - name: Tear down disposable services
         if: always()

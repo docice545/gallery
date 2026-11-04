@@ -103,17 +103,22 @@ def formatting() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build", "test-log", "setup"))
+    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build", "test-log", "setup", "api-smoke", "api-backend"))
     parser.add_argument("path", nargs="?", type=Path)
     args = parser.parse_args()
     if args.mode == "format":
         formatting()
     elif args.mode == "flutter":
         flutter(args.path)
-    elif args.mode == "test-log":
+    elif args.mode in {"test-log", "api-smoke", "api-backend"}:
+        title = {
+            "test-log": "Medium suite failure",
+            "api-smoke": "API smoke operation failure",
+            "api-backend": "Disposable API backend evidence",
+        }[args.mode]
         tail = args.path.read_text(errors="replace")[-ANNOTATION_LIMIT * 3:]
         for index, offset in enumerate(range(0, len(tail), ANNOTATION_LIMIT), 1):
-            report(f"Medium suite failure (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
+            report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
     elif args.mode == "setup":
         report("CI toolchain/dependency setup failure", args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:])
     elif args.mode == "android-build":
