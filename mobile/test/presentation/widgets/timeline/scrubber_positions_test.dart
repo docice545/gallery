@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
@@ -35,6 +37,10 @@ Future<void> _mount(
   BaseAsset? asset,
   String? location,
   VoidCallback? onPhotoTap,
+  ThemeMode themeMode = ThemeMode.system,
+  Color accent = Colors.blue,
+  Locale locale = const Locale('en'),
+  double textScale = 1,
 }) async {
   final secondState = secondAttached ?? ValueNotifier(false);
   if (secondAttached == null) {
@@ -50,6 +56,18 @@ Future<void> _mount(
         placeDisplayNamesProvider.overrideWith((ref, locale) => PlaceDisplayNames(locale.toLanguageTag(), const {})),
       ],
       child: MaterialApp(
+        themeMode: themeMode,
+        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: accent)),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark),
+        ),
+        locale: locale,
+        supportedLocales: const [Locale('en'), Locale('ru'), Locale('de'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
         home: PrimaryScrollController(
           controller: controller,
@@ -119,7 +137,66 @@ Future<void> _revealThumb(WidgetTester tester) async {
 }
 
 void main() {
-  setUpAll(() => initializeDateFormatting('en'));
+  setUpAll(() => initializeDateFormatting());
+
+  for (final viewport in [const Size(360, 640), const Size(800, 400)]) {
+    for (final locale in [const Locale('ru'), const Locale('de'), const Locale('ar')]) {
+      testWidgets('date stays centered through live theme/accent changes: $viewport $locale', (tester) async {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        await _mount(tester, controller, showFloatingDate: true, locale: locale, textScale: 2);
+        await _revealThumb(tester);
+        final label = find.byKey(const Key('timeline-floating-date'));
+        final text = find.byKey(const Key('timeline-floating-date-text'));
+        final thumb = find.byKey(const Key('timeline-scroll-thumb'));
+        final top = tester.getRect(label).top;
+        final thumbRect = tester.getRect(thumb);
+        final light = tester.widget<Material>(label).color!;
+        void check() {
+          final rect = tester.getRect(label);
+          expect(rect.center.dx, closeTo(viewport.width / 2, .01));
+          expect(rect.top, top);
+          expect(rect.right, lessThanOrEqualTo(viewport.width - kScrubberThumbHeight - 12));
+          final background = tester.widget<Material>(label).color!.computeLuminance();
+          final foreground = tester.widget<Text>(text).style!.color!.computeLuminance();
+          final contrast = (background > foreground)
+              ? (background + .05) / (foreground + .05)
+              : (foreground + .05) / (background + .05);
+          expect(contrast, greaterThanOrEqualTo(4.5));
+          expect(tester.takeException(), isNull);
+        }
+
+        check();
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        check();
+        expect(tester.widget<Material>(label).color, isNot(light));
+        expect(tester.getRect(thumb), thumbRect);
+        final dark = tester.widget<Material>(label).color;
+        await _mount(
+          tester,
+          controller,
+          showFloatingDate: true,
+          locale: locale,
+          textScale: 2,
+          themeMode: ThemeMode.light,
+          accent: Colors.orange,
+        );
+        await tester.pump(const Duration(milliseconds: 250));
+        check();
+        expect(tester.widget<Material>(label).color, isNot(dark));
+        // Explicit light mode overrides the system's still-dark brightness.
+        expect(Theme.of(tester.element(label)).brightness, Brightness.light);
+      });
+    }
+  }
 
   for (final location in [null, 'Saint Petersburg, a deliberately long location name']) {
     testWidgets('one fixed date overlay ignores photo gestures and uses optional local place: $location', (

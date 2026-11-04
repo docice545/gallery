@@ -148,25 +148,25 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: Hero(
-                    // This key resets the hero animation when the asset is changed in the asset viewer.
-                    // It doesn't seem like the best solution, and only works to reset the hero, not prime the hero of the new active asset for animation,
-                    // but other solutions have failed thus far.
-                    key: ValueKey(isCurrentAsset),
-                    tag: '${asset?.heroTag}_$heroIndex',
-                    child: timelineQuality || widget.fillCell
-                        ? LayoutBuilder(
-                            builder: (context, constraints) {
-                              final request = buildTimelineThumbnailRequest(
-                                viewportSize: constraints.biggest,
-                                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                                imageSize: framingImageSize,
-                                faces: faces,
-                                fit: fit,
-                                preserveEdgeContent: preserveEdgeContent,
-                                allowContain: !widget.fillCell,
-                              );
-                              return Thumbnail.fromAsset(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final request = buildTimelineThumbnailRequest(
+                        viewportSize: constraints.biggest,
+                        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                        imageSize: framingImageSize,
+                        faces: faces,
+                        fit: fit,
+                        preserveEdgeContent: preserveEdgeContent,
+                        allowContain: !widget.fillCell,
+                      );
+                      return Hero(
+                        // This key resets the hero animation when the asset is changed in the asset viewer.
+                        // It doesn't seem like the best solution, and only works to reset the hero, not prime the hero of the new active asset for animation,
+                        // but other solutions have failed thus far.
+                        key: ValueKey(isCurrentAsset),
+                        tag: '${asset?.heroTag}_$heroIndex',
+                        child: timelineQuality || widget.fillCell
+                            ? Thumbnail.fromAsset(
                                 asset: asset,
                                 size: request.decodeSize,
                                 remoteSize: request.decodeSize,
@@ -175,41 +175,46 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                                 fit: fit,
                                 fillCell: widget.fillCell,
                                 faces: faces,
-                              );
-                            },
-                          )
-                        : Thumbnail.fromAsset(
-                            asset: asset,
-                            size: decodeSize,
-                            remoteSize: widget.remoteSize,
-                            fit: fit,
-                            faces: faces,
-                          ),
-                    // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
-                    placeholderBuilder: (context, heroSize, child) {
-                      if (!_hideIndicators) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          setState(() => _hideIndicators = true);
-                        });
-                      }
-                      return const SizedBox();
-                    },
-                    flightShuttleBuilder: (context, animation, direction, from, to) {
-                      void animationStatusListener(AnimationStatus status) {
-                        if (!mounted) {
-                          return;
-                        }
-                        final heroInFlight = status == AnimationStatus.forward || status == AnimationStatus.reverse;
-                        if (_hideIndicators != heroInFlight) {
-                          setState(() => _hideIndicators = heroInFlight);
-                        }
-                        if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
-                          animation.removeStatusListener(animationStatusListener);
-                        }
-                      }
+                              )
+                            : Thumbnail.fromAsset(
+                                asset: asset,
+                                size: decodeSize,
+                                remoteSize: widget.remoteSize,
+                                fit: fit,
+                                faces: faces,
+                              ),
+                        // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
+                        placeholderBuilder: (context, heroSize, child) {
+                          if (!_hideIndicators) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() => _hideIndicators = true);
+                              }
+                            });
+                          }
+                          return const SizedBox();
+                        },
+                        flightShuttleBuilder: (context, animation, direction, from, to) {
+                          void animationStatusListener(AnimationStatus status) {
+                            if (!mounted) {
+                              return;
+                            }
+                            final heroInFlight = status == AnimationStatus.forward || status == AnimationStatus.reverse;
+                            if (_hideIndicators != heroInFlight) {
+                              setState(() => _hideIndicators = heroInFlight);
+                            }
+                            if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+                              animation.removeStatusListener(animationStatusListener);
+                            }
+                          }
 
-                      animation.addStatusListener(animationStatusListener);
-                      return direction == HeroFlightDirection.push ? from.widget : to.widget;
+                          animation.addStatusListener(animationStatusListener);
+                          // The source thumbnail already owns a bounded decode/cache key.
+                          // Reuse that child, never a layout-dependent request at flight size.
+                          final gridHero = (direction == HeroFlightDirection.push ? from.widget : to.widget) as Hero;
+                          return gridHero.child;
+                        },
+                      );
                     },
                   ),
                 ),

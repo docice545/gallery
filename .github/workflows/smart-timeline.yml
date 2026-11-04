@@ -11,6 +11,11 @@ on:
       - '.github/scripts/report-ci-failures.py'
       - '.github/scripts/publish-editor-review.py'
   workflow_dispatch:
+    inputs:
+      software_only:
+        description: 'Build 38 UI/unit regressions only; no APK, emulator or release build'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ concurrency:
 
 jobs:
   presentation:
+    if: ${{ !inputs.software_only }}
     name: Modes, density, date overlay and Live Photo contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -78,6 +84,9 @@ jobs:
             test/presentation/widgets/timeline/justified_row_layout_test.dart \
             test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/domain/services/local_media_refresh_test.dart \
+            test/domain/utils/background_sync_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
             test/presentation/widgets/timeline/scrubber_positions_test.dart \
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
@@ -171,6 +180,9 @@ jobs:
             test/presentation/widgets/timeline/justified_row_layout_test.dart \
             test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/domain/services/local_media_refresh_test.dart \
+            test/domain/utils/background_sync_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
             test/presentation/widgets/timeline/scrubber_positions_test.dart \
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
             test/presentation/widgets/icons/foto_icon_proposal_test.dart \
@@ -203,6 +215,7 @@ jobs:
           if-no-files-found: warn
 
   native-motion:
+    if: ${{ !inputs.software_only }}
     name: Native decoded motion (emulator, Samsung still required)
     needs: presentation
     runs-on: ubuntu-24.04
@@ -343,3 +356,68 @@ jobs:
             specs/design/places-localization-review/measurements.json
             ${{ runner.temp }}/places-review.jsonl
           if-no-files-found: warn
+
+  build38-software:
+    name: Build 38 UI and MediaStore software regressions (no APK)
+    if: github.event_name == 'workflow_dispatch' && inputs.software_only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen dependencies and source generation
+        id: codegen
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Format changed Dart files
+        id: format38
+        run: |
+          git diff --name-only 46fc1b3c1d30d8e9893def0ce953a882aff7fa27 -- 'mobile/**/*.dart' | xargs -r dart format --set-exit-if-changed
+      - name: Annotate formatter differences
+        if: failure() && steps.format38.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py format
+      - name: Analyze mobile source
+        id: analyze38
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        run: |
+          set -o pipefail
+          mise //mobile:analyze 2>&1 | tee "$RUNNER_TEMP/build38-analysis.log"
+      - name: Annotate analyzer diagnostics
+        if: failure() && steps.analyze38.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py analysis "$RUNNER_TEMP/build38-analysis.log"
+      - name: UI, media refresh and existing Live Photo regressions
+        id: tests38
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --reporter json \
+            test/domain/services/local_media_refresh_test.dart \
+            test/domain/utils/background_sync_test.dart \
+            test/domain/services/local_sync_service_test.dart \
+            test/infrastructure/repositories/local_album_repository_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
+            test/presentation/widgets/asset_viewer/asset_page_zoom_reset_test.dart \
+            test/presentation/widgets/timeline/scrubber_positions_test.dart \
+            test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/presentation/widgets/timeline/offline_timeline_restart_test.dart \
+            | tee "$RUNNER_TEMP/build38-tests.jsonl"
+      - name: Annotate test results
+        if: "!cancelled() && (steps.tests38.outcome == 'success' || steps.tests38.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/build38-tests.jsonl"
+      - name: Retain software evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build38-software-tests
+          path: |
+            ${{ runner.temp }}/build38-tests.jsonl
+            ${{ runner.temp }}/build38-analysis.log

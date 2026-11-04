@@ -475,7 +475,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
           if (label != null)
             PositionedDirectional(
               top: math.max(widget.topPadding, MediaQuery.paddingOf(ctx).top) + 8,
-              start: 12,
+              start: kScrubberThumbHeight + 12,
               end: kScrubberThumbHeight + 12,
               child: IgnorePointer(
                 child: RepaintBoundary(
@@ -486,7 +486,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
                         : FadeTransition(
                             opacity: _labelAnimation,
                             child: Align(
-                              alignment: AlignmentDirectional.topStart,
+                              alignment: Alignment.topCenter,
                               child: _FloatingDateLabel(date: label.date, asset: label.asset),
                             ),
                           ),
@@ -602,9 +602,10 @@ class _FloatingDateLabel extends ConsumerWidget {
     final location = place == null
         ? null
         : ref.watch(placeDisplayNamesProvider(Localizations.localeOf(context))).timelineLabel(place);
+    final colors = _ScrubberColors.of(context);
     return Material(
       key: const Key('timeline-floating-date'),
-      color: Colors.black.withValues(alpha: .76),
+      color: colors.labelBackground,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -617,7 +618,10 @@ class _FloatingDateLabel extends ConsumerWidget {
               key: const Key('timeline-floating-date-text'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: context.textTheme.labelMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+              style: context.textTheme.labelMedium?.copyWith(
+                color: colors.labelForeground,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             if (location != null)
               Text(
@@ -625,7 +629,7 @@ class _FloatingDateLabel extends ConsumerWidget {
                 key: const Key('timeline-floating-location-text'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: context.textTheme.labelSmall?.copyWith(color: Colors.white),
+                style: context.textTheme.labelSmall?.copyWith(color: colors.labelForeground),
               ),
           ],
         ),
@@ -634,6 +638,25 @@ class _FloatingDateLabel extends ConsumerWidget {
   }
 }
 
+// Reuse the existing theme accent (including the user's preset/dynamic color).
+// An opaque, tinted surface keeps date contrast independent of the photo below.
+class _ScrubberColors {
+  _ScrubberColors.of(BuildContext context)
+    : thumbBackground = context.isDarkTheme
+          ? context.colorScheme.primary.darken(amount: .5)
+          : context.colorScheme.primary,
+      labelBackground = Color.alphaBlend(
+        context.colorScheme.primary.withValues(alpha: .16),
+        context.colorScheme.surfaceContainerHigh,
+      );
+
+  final Color thumbBackground;
+  final Color labelBackground;
+  Color get labelForeground => _contrastingForeground(labelBackground);
+}
+
+Color _contrastingForeground(Color background) => background.computeLuminance() > .179 ? Colors.black : Colors.white;
+
 class _Scrubber extends StatelessWidget {
   final Animation<double> thumbAnimation;
 
@@ -641,9 +664,7 @@ class _Scrubber extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = context.isDarkTheme
-        ? context.colorScheme.primary.darken(amount: .5)
-        : context.colorScheme.primary;
+    final colors = _ScrubberColors.of(context);
 
     return _SlideFadeTransition(
       animation: thumbAnimation,
@@ -652,7 +673,7 @@ class _Scrubber extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           // The existing date label now lives at a fixed viewport position above.
-          _CircularThumb(backgroundColor),
+          _CircularThumb(colors.thumbBackground),
         ],
       ),
     );
@@ -667,8 +688,9 @@ class _CircularThumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      foregroundPainter: const _ArrowPainter(Colors.white),
+      foregroundPainter: _ArrowPainter(_contrastingForeground(backgroundColor)),
       child: Material(
+        key: const Key('timeline-scroll-thumb'),
         elevation: 4.0,
         color: backgroundColor,
         borderRadius: const BorderRadius.only(
@@ -691,7 +713,7 @@ class _ArrowPainter extends CustomPainter {
   const _ArrowPainter(this.color);
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ArrowPainter oldDelegate) => color != oldDelegate.color;
 
   @override
   void paint(Canvas canvas, Size size) {

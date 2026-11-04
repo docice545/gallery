@@ -44,6 +44,8 @@ class BackgroundSyncManager {
   Cancelable<void>? _syncWebsocketTask;
   Cancelable<void>? _cloudIdSyncTask;
   Cancelable<void>? _deviceAlbumSyncTask;
+  bool _localSyncQueued = false;
+  bool _fullLocalSyncQueued = false;
   Cancelable<void>? _linkedAlbumSyncTask;
   Cancelable<void>? _hashTask;
   Completer<void>? _queuedHash;
@@ -82,6 +84,8 @@ class BackgroundSyncManager {
 
   Future<void> cancel() async {
     _syncQueued = false;
+    _localSyncQueued = false;
+    _fullLocalSyncQueued = false;
     _cancelQueuedHash();
     final tasks = _allTasks;
     _syncTask = null;
@@ -126,6 +130,8 @@ class BackgroundSyncManager {
 
   Future<void> cancelResumeSyncs() async {
     _syncQueued = false;
+    _localSyncQueued = false;
+    _fullLocalSyncQueued = false;
     _cancelQueuedHash();
     final tasks = _resumeSyncTasks;
     _syncTask = null;
@@ -154,8 +160,12 @@ class BackgroundSyncManager {
   }
 
   // No need to cancel the task, as it can also be run when the user logs out
-  Future<void> syncLocal({bool full = false}) {
+  Future<void> syncLocal({bool full = false, bool enqueue = false}) {
     if (_deviceAlbumSyncTask != null) {
+      if (enqueue) {
+        _localSyncQueued = true;
+        _fullLocalSyncQueued |= full;
+      }
       return _deviceAlbumSyncTask!.future.catchError((_) {}, test: (error) => error is CanceledError);
     }
 
@@ -172,10 +182,16 @@ class BackgroundSyncManager {
           }
         })
         .whenComplete(() {
+          onLocalSyncComplete?.call();
           if (identical(_deviceAlbumSyncTask, task)) {
             _deviceAlbumSyncTask = null;
+            if (_localSyncQueued) {
+              final queuedFull = _fullLocalSyncQueued;
+              _localSyncQueued = false;
+              _fullLocalSyncQueued = false;
+              unawaited(syncLocal(full: queuedFull));
+            }
           }
-          onLocalSyncComplete?.call();
         })
         .catchError((error) {
           if (error is! CanceledError) {

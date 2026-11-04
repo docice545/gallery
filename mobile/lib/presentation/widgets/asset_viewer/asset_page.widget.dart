@@ -376,7 +376,11 @@ class _AssetPageState extends ConsumerState<AssetPage> {
         index: widget.index,
         imageProvider: imageProvider,
         heroAttributes: heroAttributes,
-        loadingBuilder: (context, progress, index) => const Center(child: ImmichLoadingIndicator()),
+        loadingChildSize: !asset.isEdited && (asset.width ?? 0) > 0 && (asset.height ?? 0) > 0
+            ? Size(asset.width!.toDouble(), asset.height!.toDouble())
+            : null,
+        loadingBuilder: (context, progress, index) =>
+            Thumbnail.fromAsset(asset: asset, remoteSize: remoteThumbnailSize, fit: BoxFit.contain),
         gaplessPlayback: true,
         filterQuality: FilterQuality.high,
         tightMode: true,
