@@ -57,6 +57,7 @@ class _ImmichMenuScope extends InheritedWidget {
 
 class ImmichMenuItem extends StatefulWidget {
   final IconData icon;
+  final Widget? leadingIcon;
   final String label;
   final FutureOr<void> Function() onPressed;
   final bool disabled;
@@ -64,6 +65,7 @@ class ImmichMenuItem extends StatefulWidget {
   const ImmichMenuItem({
     super.key,
     required this.icon,
+    this.leadingIcon,
     required this.label,
     required this.onPressed,
     this.disabled = false,
@@ -93,7 +95,7 @@ class _ImmichMenuItemState extends State<ImmichMenuItem> {
         alignment: .centerLeft,
         padding: const .symmetric(horizontal: ImmichSpacing.lg, vertical: ImmichSpacing.md),
       ),
-      leadingIcon: Icon(widget.icon, size: ImmichIconSize.sm),
+      leadingIcon: widget.leadingIcon ?? Icon(widget.icon, size: ImmichIconSize.sm),
       child: Text(widget.label, style: const .new(fontSize: ImmichTextSize.body)),
     );
   }

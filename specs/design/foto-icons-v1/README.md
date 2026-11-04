@@ -1,6 +1,6 @@
-# FOTO original icon proposal v1
+# FOTO original icon system v1 — approved
 
-**ICON DESIGN APPROVAL PENDING.** This is the Issue 17 section 11 review candidate. It does not replace production Viewer/editor controls, change action enablement, or add an editor. All paths were authored for this proposal; no Samsung images, SVGs or traced assets were used.
+**APPROVED by the user: `ccdb8a892`**, Viewer/editor sheets, 20/22/24 dp sizes and action mapping. Integration reuses this exact geometry and existing handlers. Approval does not waive action mapping, accessibility, contrast or hit-target tests; substantial future geometry changes require separate review. All paths were authored for this proposal; no Samsung images, SVGs or traced assets were used.
 
 - [Compact overview](overview.png): 84 glyphs, both themes.
 - [Viewer full sheet](viewer.png) and [editor full sheet](editor.png): each glyph at 20 / 22 / 24 logical dp, normal, pressed/selected, disabled and destructive variants.
@@ -35,4 +35,4 @@ flutter test --no-pub test/presentation/widgets/icons/foto_icon_proposal_test.da
 
 `manifest.json` is the source for SVG paths, generated Dart, the sheets and action mapping. `generate.py` uses Python's standard library. PNG rasterization uses CairoSVG and DejaVu Sans; vector geometry is also available as SVG. SDK formatting and Flutter widget checks run in GitHub CI; no local Flutter result is claimed where the SDK is unavailable.
 
-The widget suite covers exhaustive enum mappings and both themes at each size, visible states, icon-only controls, 48 dp geometry, semantics/tooltips and disabled-action safety. The committed SVG/PNG contact sheets are review artifacts, not approved Flutter golden baselines. Record user design approval before integrating or accepting a golden baseline.
+The widget suite covers exhaustive enum mappings and both themes at each size, visible states, icon-only controls, 48 dp geometry, semantics/tooltips and disabled-action safety. The committed SVG/PNG contact sheets preserve the reviewed artifact (their embedded pending label is historical and superseded by the approval above). They are not hardware screenshots or automatic Flutter golden acceptance. The runtime Viewer/editor integration is covered separately by actual-control and gesture tests.

@@ -68,7 +68,8 @@ class AssetViewerStateNotifier extends Notifier<AssetViewerState> {
     if (opacity == state.backgroundOpacity) {
       return;
     }
-    state = state.copyWith(backgroundOpacity: opacity, showingControls: opacity >= 1.0 ? true : state.showingControls);
+    // Cancelling a dismiss gesture restores the photo, not hidden controls.
+    state = state.copyWith(backgroundOpacity: opacity);
   }
 
   void setShowingDetails(bool showing) {

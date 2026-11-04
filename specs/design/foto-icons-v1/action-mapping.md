@@ -1,4 +1,4 @@
-# Icon-to-action mapping — approval pending
+# Icon-to-action mapping — approved by user at ccdb8a892
 
 Labels below are review labels, not new permanent captions in FOTO.
 

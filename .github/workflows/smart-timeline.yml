@@ -67,6 +67,14 @@ jobs:
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
             test/presentation/widgets/icons/foto_icon_proposal_test.dart \
+            test/providers/asset_viewer/asset_viewer_provider_test.dart \
+            test/presentation/widgets/asset_viewer/bottom_bar_test.dart \
+            test/presentation/widgets/asset_viewer/editor_entry_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_local_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/asset_page_zoom_reset_test.dart \
+            test/presentation/widgets/asset_viewer/asset_viewer_system_ui_test.dart \
             test/pages/edit/editor_compact_layout_test.dart \
             test/pages/edit/editor_acceptance_test.dart \
             test/widgets/settings/asset_list_settings_test.dart
@@ -108,6 +116,14 @@ jobs:
             test/presentation/widgets/timeline/scrubber_positions_test.dart \
             test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
             test/presentation/widgets/icons/foto_icon_proposal_test.dart \
+            test/providers/asset_viewer/asset_viewer_provider_test.dart \
+            test/presentation/widgets/asset_viewer/bottom_bar_test.dart \
+            test/presentation/widgets/asset_viewer/editor_entry_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_local_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/asset_page_zoom_reset_test.dart \
+            test/presentation/widgets/asset_viewer/asset_viewer_system_ui_test.dart \
             test/pages/edit/ \
             test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
             test/presentation/widgets/timeline/live_photo_scope_test.dart \

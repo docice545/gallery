@@ -13,6 +13,7 @@ import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_bu
 import 'package:immich_mobile/presentation/widgets/album/album_selector.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
@@ -22,9 +23,10 @@ import 'package:immich_ui/immich_ui.dart';
 enum AddToMenuItem { album }
 
 class AddActionButton extends ConsumerStatefulWidget {
-  const AddActionButton({super.key, this.originalTheme});
+  const AddActionButton({super.key, this.originalTheme, this.iconOnly = false});
 
   final ThemeData? originalTheme;
+  final bool iconOnly;
 
   @override
   ConsumerState<AddActionButton> createState() => _AddActionButtonState();
@@ -54,6 +56,7 @@ class _AddActionButtonState extends ConsumerState<AddActionButton> {
       ),
       BaseActionButton(
         iconData: Icons.photo_album_outlined,
+        fotoKind: widget.iconOnly ? FotoIconKind.addAlbum : null,
         label: context.t.album,
         menuItem: true,
         onPressed: () => _handleMenuSelection(AddToMenuItem.album),
@@ -65,8 +68,14 @@ class _AddActionButtonState extends ConsumerState<AddActionButton> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(context.t.move_to, style: context.textTheme.labelMedium),
         ),
-        const ActionMenuItem(action: ArchiveAction(source: .viewer)),
-        const ActionMenuItem(action: LockAction(source: .viewer)),
+        ActionMenuItem(
+          action: const ArchiveAction(source: .viewer),
+          fotoKind: widget.iconOnly ? FotoIconKind.archive : null,
+        ),
+        ActionMenuItem(
+          action: const LockAction(source: .viewer),
+          fotoKind: widget.iconOnly ? FotoIconKind.lock : null,
+        ),
       ],
     ];
   }
@@ -154,6 +163,13 @@ class _AddActionButtonState extends ConsumerState<AddActionButton> {
             ]
           : _buildMenuChildren(),
       builder: (context, controller, child) {
+        if (widget.iconOnly) {
+          return FotoIconButton(
+            kind: FotoIconKind.addAlbum,
+            label: context.t.add_to_bottom_bar,
+            onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+          );
+        }
         return BaseActionButton(
           iconData: Icons.add,
           label: context.t.add_to_bottom_bar,

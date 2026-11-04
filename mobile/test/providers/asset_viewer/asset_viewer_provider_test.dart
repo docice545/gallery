@@ -25,6 +25,18 @@ void main() {
     addTearDown(container.dispose);
   });
 
+  test('dismiss opacity restoration preserves the single-tap visibility choice', () {
+    final notifier = container.read(assetViewerProvider.notifier);
+    notifier.toggleControls();
+    notifier.setOpacity(.7);
+    notifier.setOpacity(1);
+    expect(container.read(assetViewerProvider).showingControls, isFalse);
+    notifier.toggleControls();
+    notifier.setOpacity(.7);
+    notifier.setOpacity(1);
+    expect(container.read(assetViewerProvider).showingControls, isTrue);
+  });
+
   group('AssetViewerStateNotifier asset watching', () {
     test('propagates stream updates for the current asset into state', () async {
       final controller = StreamController<BaseAsset?>();

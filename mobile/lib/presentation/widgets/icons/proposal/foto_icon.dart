@@ -1,4 +1,6 @@
 // FOTO v1 geometry approved by the user at ccdb8a892. Keep action semantics and accessibility verified.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart';
@@ -58,6 +60,7 @@ class FotoIconButton extends StatelessWidget {
     required this.kind,
     required this.label,
     required this.onPressed,
+    this.onLongPress,
     this.selected = false,
     this.destructive = false,
     this.size = 22,
@@ -65,7 +68,8 @@ class FotoIconButton extends StatelessWidget {
 
   final FotoIconKind kind;
   final String label;
-  final VoidCallback? onPressed;
+  final FutureOr<void> Function()? onPressed;
+  final FutureOr<void> Function()? onLongPress;
   final bool selected;
   final bool destructive;
   final double size;
@@ -79,6 +83,7 @@ class FotoIconButton extends StatelessWidget {
       child: IconButton(
         tooltip: label,
         onPressed: onPressed,
+        onLongPress: onLongPress,
         style: IconButton.styleFrom(
           minimumSize: const Size.square(48),
           padding: EdgeInsets.zero,

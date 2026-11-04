@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_paths.dart';
@@ -16,6 +17,46 @@ void main() {
     expect(fotoIconPaths.keys, unorderedEquals(FotoIconKind.values));
     expect(fotoViewerActionIcons[ActionButtonType.deleteLocal], isNot(fotoViewerActionIcons[ActionButtonType.delete]));
     expect(fotoIconPaths.values.every((path) => path.startsWith('<path d=')), isTrue);
+  });
+
+  testWidgets('viewer surface retains enabled icon contrast over the brightest photo and secondary action', (
+    tester,
+  ) async {
+    var primary = 0;
+    var secondary = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ViewerControlSurface(
+            child: FotoIconButton(
+              kind: FotoIconKind.share,
+              label: 'Share',
+              onPressed: () => primary++,
+              onLongPress: () => secondary++,
+            ),
+          ),
+        ),
+      ),
+    );
+    final context = tester.element(find.byType(FotoIconButton));
+    final colors = Theme.of(context).colorScheme;
+    final material = tester.widget<Material>(
+      find.descendant(of: find.byType(ViewerControlSurface), matching: find.byType(Material)).first,
+    );
+    final worstBackground = Color.alphaBlend(material.color!, Colors.white);
+    for (final foreground in [colors.onSurface, colors.primary, colors.error]) {
+      expect(
+        (foreground.computeLuminance() + .05) / (worstBackground.computeLuminance() + .05),
+        greaterThanOrEqualTo(4.5),
+      );
+    }
+    expect(
+      (colors.primary.computeLuminance() + .05) / (colors.primaryContainer.computeLuminance() + .05),
+      greaterThanOrEqualTo(3),
+    );
+    await tester.longPress(find.byTooltip('Share'));
+    expect(secondary, 1);
+    expect(primary, 0);
   });
 
   for (final brightness in Brightness.values) {

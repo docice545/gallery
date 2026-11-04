@@ -28,6 +28,7 @@ import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/view_intent/view_intent_file_path.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_loading_indicator.dart';
 import 'package:immich_mobile/widgets/photo_view/photo_view.dart';
+import 'package:immich_mobile/widgets/photo_view/src/utils/photo_view_utils.dart';
 
 enum _DragIntent { none, scroll, dismiss }
 
@@ -296,7 +297,13 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       ref.read(isPlayingMotionVideoProvider.notifier).playing = true;
 
   void _onScaleStateChanged(PhotoViewScaleState scaleState) {
-    _isZoomed = scaleState == PhotoViewScaleState.zoomedIn || scaleState == PhotoViewScaleState.covering;
+    final boundaries = _viewController?.scaleBoundaries;
+    _isZoomed = switch (scaleState) {
+      PhotoViewScaleState.zoomedIn => true,
+      PhotoViewScaleState.covering || PhotoViewScaleState.originalSize =>
+        boundaries == null || getScaleForScaleState(scaleState, boundaries) > boundaries.initialScale + .0001,
+      _ => false,
+    };
     _viewer.setZoomed(_isZoomed);
 
     if (scaleState != PhotoViewScaleState.initial) {
@@ -306,9 +313,8 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       return;
     }
 
-    if (!_showingDetails) {
-      _viewer.setControls(true);
-    }
+    // Returning from a pinch/double-tap/pan is not a request for controls.
+    // Only the existing single-tap handler toggles the floating panels.
   }
 
   void _listenForScaleBoundaries(PhotoViewControllerBase? controller) {

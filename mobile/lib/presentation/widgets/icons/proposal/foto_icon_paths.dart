@@ -1,4 +1,4 @@
-// Generated from specs/design/foto-icons-v1/manifest.json. Design approval pending.
+// Generated from specs/design/foto-icons-v1/manifest.json. Geometry approved by user at ccdb8a892.
 enum FotoIconKind {
   back,
   more,

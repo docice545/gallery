@@ -15,6 +15,7 @@ import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/generated/codegen_loader.g.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_exif.repository.dart';
@@ -24,6 +25,7 @@ import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_details.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_page.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
@@ -34,7 +36,6 @@ import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/gcast.service.dart';
 import 'package:immich_mobile/services/server_info.service.dart';
-import 'package:immich_ui/immich_ui.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart' as api_client;
@@ -272,16 +273,16 @@ void main() {
     final router = await openViewer(tester);
     expect(router.current.name, _viewerName);
     expect(timeline.totalAssets, 1, reason: 'the real main Timeline collapses the three-frame stack');
-    expect(find.text('В корзину'), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsOneWidget);
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
-    final deleteButton = tester.widget<ImmichColumnButton>(
-      find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+    final deleteButton = tester.widget<FotoIconButton>(
+      find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
     );
     late Future<void> deletion;
 
     try {
       final activeSiblings = await tester.runAsync(() async {
-        deletion = Future<void>.sync(deleteButton.onPressed);
+        deletion = Future<void>.sync(deleteButton.onPressed!);
         await requestEntered.future.timeout(const Duration(seconds: 5));
         return assets.getStack(cover).timeout(const Duration(seconds: 5));
       });
@@ -328,13 +329,13 @@ void main() {
   testWidgets('a definite server rejection restores the original viewed primary', (tester) async {
     final router = await openViewer(tester);
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
-    final button = tester.widget<ImmichColumnButton>(
-      find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+    final button = tester.widget<FotoIconButton>(
+      find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
     );
     late Future<void> deletion;
     try {
       await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
+        deletion = Future<void>.sync(button.onPressed!);
         await requestEntered.future;
       });
       await drain(tester);
@@ -432,10 +433,10 @@ void main() {
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
     Future<void> deleteCurrent() => Future<void>.sync(
       tester
-          .widget<ImmichColumnButton>(
-            find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+          .widget<FotoIconButton>(
+            find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
           )
-          .onPressed,
+          .onPressed!,
     );
     late Future<void> first;
     late Future<void> second;
@@ -493,11 +494,11 @@ void main() {
     late Future<void> deletion;
     final gate = Completer<void>();
     try {
-      final button = tester.widget<ImmichColumnButton>(
-        find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+      final button = tester.widget<FotoIconButton>(
+        find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
       );
       await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
+        deletion = Future<void>.sync(button.onPressed!);
         await requestEntered.future;
       });
       await drain(tester);
@@ -575,11 +576,11 @@ void main() {
       await drain(tester);
       expect(container.read(assetViewerProvider).currentAsset?.id, 'cover');
       expect(find.text('1/1'), findsNothing);
-      final button = tester.widget<ImmichColumnButton>(
-        find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+      final button = tester.widget<FotoIconButton>(
+        find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
       );
       await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
+        deletion = Future<void>.sync(button.onPressed!);
         await requestEntered.future;
       });
       await drain(tester);

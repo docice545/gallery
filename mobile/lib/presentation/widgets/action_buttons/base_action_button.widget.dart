@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 class BaseActionButton extends StatelessWidget {
   const BaseActionButton({
@@ -7,6 +8,8 @@ class BaseActionButton extends StatelessWidget {
     required this.label,
     required this.iconData,
     this.iconColor,
+    this.fotoKind,
+    this.selected = false,
     this.onPressed,
     this.onLongPressed,
     this.maxWidth = 90.0,
@@ -18,6 +21,8 @@ class BaseActionButton extends StatelessWidget {
   final String label;
   final IconData iconData;
   final Color? iconColor;
+  final FotoIconKind? fotoKind;
+  final bool selected;
   final double maxWidth;
   final double? minWidth;
 
@@ -36,6 +41,29 @@ class BaseActionButton extends StatelessWidget {
     final iconSize = iconTheme.size ?? 24.0;
     final textColor = context.themeData.textTheme.labelLarge?.color;
 
+    final fotoIcon = fotoKind == null
+        ? null
+        : ExcludeSemantics(
+            child: FotoIcon(
+              kind: fotoKind!,
+              semanticLabel: label,
+              size: 20,
+              state: onPressed == null
+                  ? FotoIconState.disabled
+                  : selected
+                  ? FotoIconState.active
+                  : FotoIconState.normal,
+            ),
+          );
+    if (iconOnly && fotoKind != null) {
+      return FotoIconButton(
+        kind: fotoKind!,
+        label: label,
+        selected: selected,
+        onPressed: onPressed,
+        onLongPress: onLongPressed,
+      );
+    }
     if (iconOnly) {
       final iconColor = this.iconColor ?? iconTheme.color ?? context.themeData.iconTheme.color;
 
@@ -56,7 +84,7 @@ class BaseActionButton extends StatelessWidget {
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
-        leadingIcon: Icon(iconData, color: iconColor, size: 20),
+        leadingIcon: fotoIcon ?? Icon(iconData, color: iconColor, size: 20),
         onPressed: onPressed == null
             ? null
             : () {
@@ -82,7 +110,7 @@ class BaseActionButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(iconData, size: iconSize, color: iconColor),
+            fotoIcon ?? Icon(iconData, size: iconSize, color: iconColor),
             const SizedBox(height: 8),
             Text(
               label,

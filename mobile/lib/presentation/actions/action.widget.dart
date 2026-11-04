@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_ui/immich_ui.dart';
 
 abstract class ActionWidget extends ConsumerWidget {
@@ -63,9 +64,26 @@ class ActionButton extends ActionWidget {
 }
 
 class ActionMenuItem extends ActionWidget {
-  const ActionMenuItem({super.key, required super.action});
+  const ActionMenuItem({super.key, required super.action, this.fotoKind});
+
+  final FotoIconKind? fotoKind;
 
   @override
-  Widget builder(BuildContext context, WidgetRef ref, ActionItem action) =>
-      ImmichMenuItem(icon: action.icon, label: action.label, onPressed: action.onAction);
+  Widget builder(BuildContext context, WidgetRef ref, ActionItem action) => ImmichMenuItem(
+    icon: action.icon,
+    leadingIcon: fotoKind == null
+        ? null
+        : ExcludeSemantics(
+            child: FotoIcon(
+              kind: fotoKind!,
+              semanticLabel: action.label,
+              size: 20,
+              state: fotoKind == FotoIconKind.trash || fotoKind == FotoIconKind.deviceTrash
+                  ? FotoIconState.destructive
+                  : FotoIconState.normal,
+            ),
+          ),
+    label: action.label,
+    onPressed: action.onAction,
+  );
 }

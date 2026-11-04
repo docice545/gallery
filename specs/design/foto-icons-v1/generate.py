@@ -126,7 +126,7 @@ demo = (
 page = (
     '<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FOTO · original icon proposal v1</title><style>'
     + css
-    + '</style><body><header><h1>FOTO / иконки v1</h1><p class="pending">ICON DESIGN APPROVAL PENDING · предложение для согласования</p><p>Оригинальная геометрия на сетке 24: округлённые концы и соединения, спокойные открытые штрихи, оптическая толщина 1.65 / 1.75 / 1.85 dp. Цвета бренда — существующие #4150AF / #ACCBFA.</p><p>Каждая строка: все три реальных размера в каждом состоянии, на светлой и тёмной полупрозрачной панели. Масштаб браузера 100%: 1 CSS px = 1 логический dp; это не замер Samsung.</p>'
+    + '</style><body><header><h1>FOTO / иконки v1</h1><p class="pending">APPROVED BY USER · ccdb8a892 · согласованный вариант</p><p>Оригинальная геометрия на сетке 24: округлённые концы и соединения, спокойные открытые штрихи, оптическая толщина 1.65 / 1.75 / 1.85 dp. Цвета бренда — существующие #4150AF / #ACCBFA.</p><p>Каждая строка: все три реальных размера в каждом состоянии, на светлой и тёмной полупрозрачной панели. Масштаб браузера 100%: 1 CSS px = 1 логический dp; это не замер Samsung.</p>'
     + demo
     + '<p>Пунктир в примере показывает 48 × 48 dp зоны нажатия. Подписи присутствуют только в этом листе; кандидат компонента сохраняет tooltip и семантическое имя действия.</p></header><nav><button aria-pressed="true" onclick="filter(\'all\',this)">Все '
     + str(len(icons))
@@ -137,7 +137,7 @@ page = (
 )
 (HERE / "preview.html").write_text(page)
 lines = [
-    "// Generated from specs/design/foto-icons-v1/manifest.json. Design approval pending.",
+    "// Generated from specs/design/foto-icons-v1/manifest.json. Geometry approved by user at ccdb8a892.",
     "enum FotoIconKind { " + ", ".join(x["id"] for x in icons) + " }",
     "",
     "const fotoIconPaths = <FotoIconKind, String>{",
@@ -150,7 +150,7 @@ lines.append("};\n")
     ROOT / "mobile/lib/presentation/widgets/icons/proposal/foto_icon_paths.dart"
 ).write_text("\n".join(lines))
 (HERE / "action-mapping.md").write_text(
-    "# Icon-to-action mapping — approval pending\n\nLabels below are review labels, not new permanent captions in FOTO.\n\n| ID | Meaning | Existing action |\n| --- | --- | --- |\n"
+    "# Icon-to-action mapping — approved by user at ccdb8a892\n\nLabels below are review labels, not new permanent captions in FOTO.\n\n| ID | Meaning | Existing action |\n| --- | --- | --- |\n"
     + "".join(f"| `{i['id']}` | {i['label']} | {i['binding']} |\n" for i in icons)
 )
 print("Generated preview, action mapping and", len(icons), "Flutter paths")
@@ -170,7 +170,7 @@ for group in ["Viewer", "Editor"]:
     svg.extend(
         [
             text(24, 40, "FOTO / " + group + " / original icons v1", 28, weight="700"),
-            text(24, 65, "ICON DESIGN APPROVAL PENDING", 12, "#8a4e00", "700"),
+            text(24, 65, "APPROVED BY USER · ccdb8a892", 12, "#8a4e00", "700"),
             text(
                 24,
                 88,
@@ -245,7 +245,7 @@ svg = [
     text(
         20,
         60,
-        "ICON DESIGN APPROVAL PENDING · full 20/22/24 dp state sheets attached separately",
+        "APPROVED BY USER · ccdb8a892 · full 20/22/24 dp state sheets attached separately",
         12,
         "#8a4e00",
     ),

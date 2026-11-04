@@ -52,6 +52,9 @@ void main() {
     bool locked = false,
     TimelineOrigin origin = TimelineOrigin.main,
   }) async {
+    if (asset != null) {
+      when(() => context.service.asset.service.getAsset(asset)).thenAnswer((_) async => asset);
+    }
     final timeline = TimelineService((
       assetSource: (_, _) async => [?asset],
       bucketSource: () => Stream.value(const []),
@@ -76,9 +79,9 @@ void main() {
 
     await pumpViewer(tester, asset);
 
-    expect(find.text('Upload'), findsOneWidget);
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsOneWidget);
-    expect(find.text('В корзину'), findsNothing);
+    expect(find.byTooltip('Upload'), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsNothing);
   });
 
   testWidgets('local-only device action uses existing cleanup and never deletes a server asset', (tester) async {
@@ -89,7 +92,7 @@ void main() {
     ).thenAnswer((_) async => LocalDeletionResult(deletedIds: [asset.id], remainingIds: const []));
     await pumpViewer(tester, asset);
 
-    await tester.tap(find.text(StaticTranslations.instance.delete_from_device));
+    await tester.tap(find.byTooltip(StaticTranslations.instance.delete_from_device));
     await tester.pumpAndSettle();
 
     verify(() => cleanup.deleteLocalAssetsDetailed([asset.id], trash: true)).called(1);
@@ -102,9 +105,9 @@ void main() {
 
     await pumpViewer(tester, asset);
 
-    expect(find.text('В корзину'), findsOneWidget);
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
-    expect(find.text('Upload'), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
+    expect(find.byTooltip('Upload'), findsNothing);
   });
 
   testWidgets('owned merged photo keeps cloud Trash without changing its deletion mode', (tester) async {
@@ -112,9 +115,9 @@ void main() {
 
     await pumpViewer(tester, asset);
 
-    expect(find.text('В корзину'), findsOneWidget);
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
-    expect(find.text('Upload'), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
+    expect(find.byTooltip('Upload'), findsNothing);
   });
 
   testWidgets('linked local asset keeps its existing cloud Trash action', (tester) async {
@@ -122,8 +125,8 @@ void main() {
 
     await pumpViewer(tester, asset);
 
-    expect(find.text('В корзину'), findsOneWidget);
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
   });
 
   for (final localId in <String?>[null, 'foreign-device-copy']) {
@@ -132,8 +135,8 @@ void main() {
 
       await pumpViewer(tester, asset);
 
-      expect(find.text('В корзину'), findsNothing);
-      expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
+      expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsNothing);
+      expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
       verifyNever(() => context.service.cleanup.service.deleteLocalAssetsDetailed(any(), trash: true));
       verifyNever(() => context.service.asset.service.trash(any()));
     });
@@ -142,21 +145,21 @@ void main() {
   testWidgets('readonly viewer exposes no device-deletion action', (tester) async {
     await pumpViewer(tester, LocalAssetFactory.create(), readonly: true);
 
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
-    expect(find.text('Upload'), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
+    expect(find.byTooltip('Upload'), findsNothing);
   });
 
   testWidgets('locked viewer exposes no device-deletion action', (tester) async {
     await pumpViewer(tester, LocalAssetFactory.create(), locked: true);
 
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
-    expect(find.text('Upload'), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
+    expect(find.byTooltip('Upload'), findsNothing);
   });
 
   testWidgets('empty viewer exposes no deletion action', (tester) async {
     await pumpViewer(tester, null);
 
-    expect(find.text(StaticTranslations.instance.delete_from_device), findsNothing);
-    expect(find.text('В корзину'), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsNothing);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsNothing);
   });
 }
