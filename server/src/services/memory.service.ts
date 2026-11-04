@@ -55,14 +55,11 @@ import { getPreferences } from 'src/utils/preferences.js';
 
 const DAYS = 3;
 /**
- * Cap on rule memories *visible* on a given day, so a multi-day recap holds its slot for its
- * whole window. Sized from the worst-case overlap of the current rules: the calendar-fixed
- * windows only ever overlap two deep (e.g. `person_throwback` 13–19 and `favorites_throwback`
- * 15–21), plus `recent_trip` and `trip_anniversary`, which can start on any day — four lingering
- * cards. The remaining two slots keep the date-anchored 1-day rules (`birthday` above all, since
- * a missed one waits a year) from ever being crowded out.
+ * FOTO's lane supports sixteen memory cards. A multi-day recap holds one slot
+ * throughout its window. This limits cards, never the photos inside a memory;
+ * the existing eligibility, reservation and overlap checks still apply.
  */
-export const RULE_DAILY_LIMIT = 6;
+export const RULE_DAILY_LIMIT = 16;
 
 /**
  * Claim-order bands. Offsets are far larger than any real rule score (the highest is `birthday`

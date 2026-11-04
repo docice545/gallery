@@ -5,6 +5,8 @@ import 'package:immich_mobile/infrastructure/repositories/memory.repository.dart
 import 'package:immich_mobile/repositories/memory_api.repository.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../unit/factories/remote_asset_factory.dart';
+
 class MockMemoryRepository extends Mock implements MemoryRepository {}
 
 class MockMemoryApiRepository extends Mock implements MemoryApiRepository {}
@@ -25,7 +27,7 @@ void main() {
     data: const MemoryData({'year': 2019}),
     isSaved: false,
     memoryAt: DateTime.utc(2019, 8, 17),
-    assets: const [],
+    assets: [RemoteAssetFactory.create()],
   );
 
   setUp(() {
@@ -40,6 +42,25 @@ void main() {
       () => mockApiRepository.getMemoryLane(),
     ).thenAnswer((_) async => [memory('own-memory'), memory('shared-memory', ownerId: 'space-owner')]);
     when(() => mockRepository.markRemoved(any(), any())).thenAnswer((_) async {});
+  });
+
+  test('lane admits sixteen distinct nonempty cards without truncating their photos', () async {
+    final full = memory('full').copyWith(assets: List.generate(24, (_) => RemoteAssetFactory.create()));
+    final cards = [
+      memory('empty').copyWith(assets: []),
+      full,
+      full,
+      memory('hidden').copyWith(deletedAt: DateTime.utc(2026)),
+      ...List.generate(20, (index) => memory('card-$index')),
+    ];
+    when(() => mockApiRepository.getMemoryLane()).thenAnswer((_) async => cards);
+    final lane = await sut.getMemoryLane('user-1');
+    expect(lane, hasLength(16));
+    expect(lane.map((card) => card.id).toSet(), hasLength(16));
+    expect(lane.first.assets, hasLength(24));
+    when(() => mockApiRepository.getMemoryLane()).thenThrow(Exception('offline'));
+    when(() => mockRepository.getAll('user-1')).thenAnswer((_) async => cards);
+    expect((await sut.getMemoryLane('user-1')).map((card) => card.id), lane.map((card) => card.id));
   });
 
   group('management', () {
