@@ -1,6 +1,19 @@
 -- Read-only picker projection of the existing Photos visibility contract.
 -- Keep the owner hide/subtraction arms in sync with merged_asset.drift.
 -- No auth, media mirror, migrations or writes to Gallery's database.
+-- FOTO can restore the presentation of a failed request while its remote result
+-- is unknown. Never publish that unconfirmed media to another app's picker.
+WITH pending_deletion AS MATERIALIZED (
+  SELECT JSON_EXTRACT(value, '$.id') AS id,
+    JSON_EXTRACT(value, '$.ownerId') AS owner_id,
+    JSON_EXTRACT(value, '$.checksum') AS checksum
+  FROM settings
+  WHERE key LIKE 'sync.trash-reset.%'
+    AND CASE WHEN JSON_VALID(value) THEN
+      JSON_EXTRACT(value, '$.endpoint') = COALESCE((SELECT string_value FROM store_entity WHERE id = 12), '')
+      AND (JSON_EXTRACT(value, '$.operation') IN ('trash', 'permanent') OR JSON_EXTRACT(value, '$.permanent') = 1)
+    ELSE 0 END
+)
 SELECT rae.id AS asset_id, rae.name, rae.type, rae.owner_id, rae.checksum,
   rae.updated_at, rae.created_at, rae.live_photo_video_id, rae.is_favorite,
   rae.width, rae.height, COALESCE(rae.duration_ms, 0) AS duration_ms,
@@ -15,6 +28,8 @@ LEFT JOIN stack_entity se ON rae.stack_id = se.id
 LEFT JOIN remote_exif_entity exif ON exif.asset_id = rae.id
 WHERE
 	rae.deleted_at IS NULL
+	AND NOT EXISTS (SELECT 1 FROM pending_deletion pending
+    WHERE pending.id = rae.id AND pending.owner_id = rae.owner_id AND pending.checksum = rae.checksum)
 	AND rae.visibility = 0 -- timeline visibility
 	AND (
 		(

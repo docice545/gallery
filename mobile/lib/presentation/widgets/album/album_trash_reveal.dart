@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 /// A reveal gesture is navigation, never consent to delete. Only the exposed
 /// button owns [onTrash]; the row keeps its identity and extent until real ACK.
 class AlbumTrashReveal extends StatefulWidget {
-  const AlbumTrashReveal({super.key, required this.child, required this.onTrash});
+  const AlbumTrashReveal({super.key, required this.child, required this.onTrash, this.ghostKey});
 
   final Widget child;
   final Future<void> Function() onTrash;
+  final String? ghostKey;
 
   @override
   State<AlbumTrashReveal> createState() => _AlbumTrashRevealState();
@@ -62,15 +64,23 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
               child: ExcludeSemantics(
                 excluding: _controller.value < .99,
                 child: IgnorePointer(
-                  ignoring: _controller.value < .99 || _busy,
+                  ignoring: _controller.value < .99,
                   child: SizedBox(
                     width: _extent,
                     child: Center(
-                      child: FotoIconButton(
-                        kind: FotoIconKind.trash,
-                        label: context.t.delete_album,
-                        destructive: true,
-                        onPressed: _busy ? null : _trash,
+                      child: GhostTrashTarget(
+                        kind: GhostTrashKind.album,
+                        targetKey: widget.ghostKey,
+                        enabled: widget.ghostKey != null && _controller.value >= .99,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          child: FotoIconButton(
+                            kind: FotoIconKind.trash,
+                            label: context.t.delete_album,
+                            destructive: true,
+                            onPressed: _busy ? null : _trash,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -78,8 +88,10 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
               ),
             ),
           ),
-          Transform.translate(
-            offset: Offset(-_extent * _controller.value, 0),
+          ClipRect(
+            // Reveal the trailing action without pushing the album cover off
+            // screen. Its real painted pixels remain the animation source.
+            clipper: _RevealClipper(_extent * _controller.value),
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onHorizontalDragUpdate: _busy
@@ -106,4 +118,13 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
       ),
     ),
   );
+}
+
+class _RevealClipper extends CustomClipper<Rect> {
+  const _RevealClipper(this.reveal);
+  final double reveal;
+  @override
+  Rect getClip(Size size) => Rect.fromLTWH(0, 0, (size.width - reveal).clamp(0, size.width), size.height);
+  @override
+  bool shouldReclip(_RevealClipper oldClipper) => oldClipper.reveal != reveal;
 }

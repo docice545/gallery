@@ -118,6 +118,15 @@ Future<GhostFlight?> _prepareDeletionVisual(
   return ref.read(ghostTrapProvider).prepare(context, keys, kind);
 }
 
+Future<bool?> _settledDeletionDialog({required BuildContext context, required WidgetBuilder builder}) async {
+  final route = DialogRoute<bool>(context: context, builder: builder);
+  final result = await Navigator.of(context, rootNavigator: true).push(route);
+  // A popped dialog still owns its barrier during the reverse transition.
+  // Capture only after its actual removal, never after an arbitrary delay.
+  await route.completed;
+  return result;
+}
+
 typedef _State = ({List<String> localIds, List<String> remoteIds, bool trash});
 
 final _stateProvider = Provider.family.autoDispose<_State?, ActionSource>((ref, source) {
@@ -592,6 +601,9 @@ class CleanupLocalAlbumAction extends ActionBuilder {
         store.tryGet(StoreKey.serverEndpoint) == endpoint;
     final repository = ref.read(driftProvider).localAlbumRepository;
     final toastService = ref.read(toastServiceProvider);
+    final holds = ref.read(albumDeletionHoldsProvider.notifier);
+    final albumKey = ghostAlbumKey('local', albumId);
+    GhostFlight? visual;
 
     guard.running = true;
     try {
@@ -606,7 +618,7 @@ class CleanupLocalAlbumAction extends ActionBuilder {
         toastService.error(context.t.no_assets_to_show);
         return;
       }
-      final confirmed = await showDialog<bool>(
+      final confirmed = await _settledDeletionDialog(
         context: context,
         builder: (_) => ConfirmDialog(
           title: context.t.delete_album,
@@ -627,12 +639,24 @@ class CleanupLocalAlbumAction extends ActionBuilder {
         return;
       }
       final eligible = snapshot.assets.map((asset) => asset.id).toList(growable: false);
+      visual = await ref
+          .read(ghostTrapProvider)
+          .prepare(
+            context,
+            eligible.map((id) => ghostAlbumCoverKey('local', albumId, id)),
+            GhostTrashKind.album,
+            targetKey: albumKey,
+          );
+      if (visual != null) {
+        holds.state = {...holds.state, albumKey};
+      }
       final result = await _cleanupLocalAssetsDetailed(
         context,
         ref,
         eligible,
         requestCustomPrompt: false,
         canContinue: isCurrent,
+        preflight: () async => snapshot.matches(await repository.getAssets(albumId)) && isCurrent(),
       );
       if (!context.mounted || !isCurrent()) {
         return;
@@ -643,6 +667,14 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       final requested = eligible.toSet();
       final removed = result.deletedIds.where(requested.contains).toSet();
       final remaining = requested.difference(removed).length;
+      if (removed.any((id) => ghostAlbumCoverKey('local', albumId, id) == visual?.assetKey)) {
+        await visual?.confirmed();
+      } else {
+        visual?.cancel();
+      }
+      if (!isCurrent()) {
+        return;
+      }
       if (removed.isNotEmpty) {
         final selected = ref.read(multiSelectProvider).selectedAssets.toList();
         final notifier = ref.read(multiSelectProvider.notifier);
@@ -663,6 +695,10 @@ class CleanupLocalAlbumAction extends ActionBuilder {
         handleError(error, stack: stack, description: "Failed to remove the album's device copies");
       }
     } finally {
+      visual?.cancel();
+      if (holds.mounted) {
+        holds.state = {...holds.state}..remove(albumKey);
+      }
       guard.running = false;
     }
   }
@@ -695,6 +731,9 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         store.tryGet(StoreKey.serverEndpoint) == endpoint;
     final repository = ref.read(albumApiRepositoryProvider);
     final toast = ref.read(toastServiceProvider);
+    final holds = ref.read(albumDeletionHoldsProvider.notifier);
+    final albumKey = ghostAlbumKey('remote', albumId);
+    GhostFlight? visual;
     var photosTrashed = false;
     guard.running = true;
     try {
@@ -702,7 +741,7 @@ class TrashRemoteAlbumAction extends ActionBuilder {
       if (!context.mounted || !current()) {
         return;
       }
-      final confirmed = await showDialog<bool>(
+      final confirmed = await _settledDeletionDialog(
         context: context,
         builder: (_) => ConfirmDialog(
           title: context.t.delete_album,
@@ -722,6 +761,27 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         return;
       }
       if (snapshot.assets.isNotEmpty) {
+        visual = await ref
+            .read(ghostTrapProvider)
+            .prepare(
+              context,
+              snapshot.assetIds.map((id) => ghostAlbumCoverKey('remote', albumId, id)),
+              GhostTrashKind.album,
+              targetKey: albumKey,
+            );
+        if (visual != null) {
+          holds.state = {...holds.state, albumKey};
+          final afterCapture = await repository.getTrashSnapshot(albumId, userId);
+          if (!current() || !snapshot.matches(afterCapture)) {
+            if (context.mounted) {
+              toast.error(context.t.deletion_selection_changed);
+            }
+            return;
+          }
+        }
+        if (!current()) {
+          return;
+        }
         await ref.read(assetServiceProvider).trash(snapshot.assetIds);
         photosTrashed = true;
       }
@@ -739,6 +799,9 @@ class TrashRemoteAlbumAction extends ActionBuilder {
       }
       await ref.read(remoteAlbumProvider.notifier).deleteAlbum(albumId);
       if (context.mounted && current()) {
+        await visual?.confirmed();
+      }
+      if (context.mounted && current()) {
         toast.success(context.t.album_deleted);
       }
     } on AlbumTrashScopeException {
@@ -754,6 +817,10 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         }
       }
     } finally {
+      visual?.cancel();
+      if (holds.mounted) {
+        holds.state = {...holds.state}..remove(albumKey);
+      }
       guard.running = false;
     }
   }
@@ -784,7 +851,7 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
       ref.read(storeServiceProvider).get(.manageLocalMediaAndroid, false);
 
   if (requiresPrompt) {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await _settledDeletionDialog(
       context: context,
       builder: (_) => ConfirmDialog(
         title: context.t.move_to_device_trash,

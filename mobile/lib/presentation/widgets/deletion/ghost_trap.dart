@@ -10,8 +10,17 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 const ghostTrapDuration = Duration(milliseconds: 640);
 const ghostTrapReducedDuration = Duration(milliseconds: 180);
+const ghostTrapAlbumReflowDuration = Duration(milliseconds: 120);
+const ghostTrapAlbumReducedReflowDuration = Duration(milliseconds: 60);
 
 enum GhostTrashKind { server, device, album }
+
+String ghostAlbumKey(String scope, String id) => '$scope-album:$id';
+String ghostAlbumCoverKey(String scope, String albumId, String assetId) => '${ghostAlbumKey(scope, albumId)}:$assetId';
+
+// Holds only the displayed album row while its captured cover flies. It does
+// not change the persisted album/media list or manufacture a success receipt.
+final albumDeletionHoldsProvider = StateProvider<Set<String>>((ref) => const {});
 
 final ghostTrapProvider = Provider<GhostTrapCoordinator>((ref) {
   final coordinator = GhostTrapCoordinator();
@@ -33,7 +42,12 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
   int _preparation = 0;
   bool _disposing = false;
 
-  Future<GhostFlight?> prepare(BuildContext context, Iterable<String> assetKeys, GhostTrashKind kind) async {
+  Future<GhostFlight?> prepare(
+    BuildContext context,
+    Iterable<String> assetKeys,
+    GhostTrashKind kind, {
+    String? targetKey,
+  }) async {
     final preparation = ++_preparation;
     _flight?.cancel();
     if (!_active || !context.mounted) {
@@ -44,7 +58,13 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       return null;
     }
     final target = _targets
-        .where((t) => t.widget.kind == kind && t.route == route && t.visibleRect != null)
+        .where(
+          (t) =>
+              t.widget.kind == kind &&
+              (targetKey == null || t.widget.targetKey == targetKey) &&
+              t.route == route &&
+              t.visibleRect != null,
+        )
         .firstOrNull;
     if (target == null) {
       return null;
@@ -167,7 +187,13 @@ class GhostFlight implements TickerProvider {
   ) : _scrollOffset = _scroll?.pixels {
     _controller = AnimationController(
       vsync: this,
-      duration: reducedMotion ? ghostTrapReducedDuration : ghostTrapDuration,
+      duration: _target.widget.kind == GhostTrashKind.album
+          ? reducedMotion
+                ? ghostTrapReducedDuration - ghostTrapAlbumReducedReflowDuration
+                : ghostTrapDuration - ghostTrapAlbumReflowDuration
+          : reducedMotion
+          ? ghostTrapReducedDuration
+          : ghostTrapDuration,
     )..addListener(_tick);
   }
 
@@ -343,8 +369,9 @@ class _GhostSourceState extends ConsumerState<GhostSource> {
 }
 
 class GhostTrashTarget extends ConsumerStatefulWidget {
-  const GhostTrashTarget({super.key, required this.kind, required this.child, this.enabled = true});
+  const GhostTrashTarget({super.key, required this.kind, required this.child, this.enabled = true, this.targetKey});
   final GhostTrashKind kind;
+  final String? targetKey;
   final bool enabled;
   final Widget child;
   @override
@@ -465,6 +492,10 @@ class _RenderGhostReflow extends RenderProxyBox {
 
   @override
   void paint(PaintingContext context, Offset offset) {
+    final flight = coordinator._flight;
+    if (flight?._confirmed == true && token == (flight!._route, flight.assetKey)) {
+      return; // The captured cover is now in flight; retain the child/player state.
+    }
     context.paintChild(child!, offset + translation);
   }
 

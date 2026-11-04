@@ -225,6 +225,11 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     return sliver is RenderSliver && sliver.geometry != null ? sliver.constraints.precedingScrollExtent : 0;
   }
 
+  ScrollPosition? _gridPosition() {
+    final gridContext = _gridKey.currentContext;
+    return gridContext == null ? null : Scrollable.maybeOf(gridContext)?.position;
+  }
+
   int? _restoreAssetIndex;
   TimelineZoomAnchor? _scheduledZoomAnchor;
   TimelineZoomAnchor? _resolvingZoomAnchor;
@@ -349,28 +354,25 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
 
   void _onMultiSelectionToggled(_, bool isEnabled) {
     final revision = ++_selectionLayoutRevision;
-    if (widget.bottomSheet != null &&
-        !ref.read(multiSelectProvider).forceEnable &&
-        _scrollController.hasClients &&
-        _gridKey.currentContext != null) {
-      final position = _scrollController.position;
+    final position = _gridPosition();
+    if (widget.bottomSheet != null && !ref.read(multiSelectProvider).forceEnable && position != null) {
       final oldPixels = position.pixels;
       final oldStart = _gridStartOffset();
       final service = ref.read(timelineServiceProvider);
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        final currentPosition = mounted ? _gridPosition() : null;
         if (!mounted ||
             revision != _selectionLayoutRevision ||
-            _scrollController.positions.length != 1 ||
-            !identical(_scrollController.position, position) ||
+            currentPosition == null ||
             !identical(ref.read(timelineServiceProvider), service) ||
-            position.pixels != oldPixels) {
+            currentPosition.pixels != oldPixels) {
           return;
         }
         // Replacing an expanded album header with the pinned count must not
         // move the selected photo. Use measured sliver extents, not guessed gaps.
-        final target = (oldPixels + _gridStartOffset() - oldStart).clamp(0.0, position.maxScrollExtent);
-        if (target != position.pixels) {
-          position.jumpTo(target);
+        final target = (oldPixels + _gridStartOffset() - oldStart).clamp(0.0, currentPosition.maxScrollExtent);
+        if (target != currentPosition.pixels) {
+          currentPosition.jumpTo(target);
         }
       });
     }

@@ -12,6 +12,8 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/models/albums/album_search.model.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_tile.dart';
+import 'package:immich_mobile/presentation/widgets/album/animated_album_rows.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
 import 'package:immich_mobile/presentation/widgets/album/new_album_name_modal.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
@@ -602,39 +604,44 @@ class _AlbumList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (albums.isEmpty) {
-      return SliverToBoxAdapter(
-        child: Center(
-          child: Padding(padding: const EdgeInsets.all(20.0), child: Text(context.t.album_search_not_found)),
+    final held = ref.watch(albumDeletionHoldsProvider);
+    return MultiSliver(
+      children: [
+        SliverPadding(
+          padding: const EdgeInsets.only(left: 16.0, right: 16, bottom: 64),
+          sliver: AnimatedAlbumRows<RemoteAlbum>(
+            items: albums,
+            keyOf: (album) => ghostAlbumKey('remote', album.id),
+            heldKeys: held,
+            builder: (_, album) {
+              final isOwner = album.ownerId == userId;
+
+              if (isOwner) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: AlbumTrashReveal(
+                    key: ValueKey(album.id),
+                    ghostKey: ghostAlbumKey('remote', album.id),
+                    onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
+                    child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
+                  ),
+                );
+              } else {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
+                );
+              }
+            },
+          ),
         ),
-      );
-    }
-
-    return SliverPadding(
-      padding: const EdgeInsets.only(left: 16.0, right: 16, bottom: 64),
-      sliver: SliverList.builder(
-        itemBuilder: (_, index) {
-          final album = albums[index];
-          final isOwner = album.ownerId == userId;
-
-          if (isOwner) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: AlbumTrashReveal(
-                key: ValueKey(album.id),
-                onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
-                child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
-              ),
-            );
-          } else {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
-            );
-          }
-        },
-        itemCount: albums.length,
-      ),
+        if (albums.isEmpty && held.isEmpty)
+          SliverToBoxAdapter(
+            child: Center(
+              child: Padding(padding: const EdgeInsets.all(20), child: Text(context.t.album_search_not_found)),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 
@@ -26,7 +27,10 @@ class LocalAlbumThumbnail extends ConsumerWidget {
 
         return ClipRRect(
           borderRadius: const BorderRadius.all(Radius.circular(16)),
-          child: Thumbnail.fromAsset(asset: data),
+          child: GhostSource(
+            assetKey: ghostAlbumCoverKey('local', albumId, data.id),
+            child: Thumbnail.fromAsset(asset: data),
+          ),
         );
       },
       error: (error, stack) {
