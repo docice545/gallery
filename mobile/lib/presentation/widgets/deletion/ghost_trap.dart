@@ -67,8 +67,7 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     final sourceRect = source.visibleRect!;
     final positions = <Object, Rect>{
       for (final s in _sources)
-        if (s.route == route)
-          if (_visibleRect(s._capture.currentContext) case final rect?) (s.route, s.widget.assetKey): rect,
+        if (s.route == route) (s.route, s.widget.assetKey): ?_visibleRect(s._capture.currentContext),
     };
     final scroll = Scrollable.maybeOf(source.context)?.position;
     final scrollOffset = scroll?.pixels;
@@ -446,7 +445,7 @@ class _RenderGhostReflow extends RenderProxyBox {
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
-    this.coordinator.addListener(markNeedsPaint);
+    coordinator.addListener(markNeedsPaint);
   }
 
   @override
