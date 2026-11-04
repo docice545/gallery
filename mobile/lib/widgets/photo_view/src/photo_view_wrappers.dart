@@ -190,7 +190,6 @@ class _ImageWrapperState extends State<ImageWrapper> {
       return PhotoViewCore.customChild(
         backgroundDecoration: widget.backgroundDecoration,
         heroAttributes: widget.heroAttributes,
-        scaleStateChangedCallback: widget.scaleStateChangedCallback,
         enableRotation: widget.enableRotation,
         controller: widget.controller,
         scaleStateController: widget.scaleStateController,

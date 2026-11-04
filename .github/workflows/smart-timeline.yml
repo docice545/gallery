@@ -84,6 +84,7 @@ jobs:
             test/presentation/widgets/timeline/justified_row_layout_test.dart \
             test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/providers/local_media_refresh_provider_test.dart \
             test/domain/services/local_media_refresh_test.dart \
             test/domain/utils/background_sync_test.dart \
             test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
@@ -180,6 +181,7 @@ jobs:
             test/presentation/widgets/timeline/justified_row_layout_test.dart \
             test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
             test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/providers/local_media_refresh_provider_test.dart \
             test/domain/services/local_media_refresh_test.dart \
             test/domain/utils/background_sync_test.dart \
             test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
@@ -397,6 +399,7 @@ jobs:
         run: |
           set -o pipefail
           flutter test --no-pub --concurrency=1 --reporter json \
+            test/providers/local_media_refresh_provider_test.dart \
             test/domain/services/local_media_refresh_test.dart \
             test/domain/utils/background_sync_test.dart \
             test/domain/services/local_sync_service_test.dart \
