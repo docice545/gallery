@@ -1,4 +1,4 @@
-import 'dart:ffi';
+import 'dart:ffi' show Uint8;
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -47,7 +47,7 @@ class _SingleTimeline extends TimelineService {
     : super((
         origin: TimelineOrigin.main,
         assetSource: (index, count) async => index == 0 && count > 0 ? [asset] : [],
-        bucketSource: () => Stream.value([Bucket(assetCount: 1)]),
+        bucketSource: () => Stream.value([const Bucket(assetCount: 1)]),
       ));
   final RemoteAsset asset;
   @override

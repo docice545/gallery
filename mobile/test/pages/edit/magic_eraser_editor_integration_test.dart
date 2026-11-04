@@ -317,6 +317,14 @@ void main() {
         ),
       ]);
       notifier.undo();
+      await tester.pump();
+      final viewport = tester.getRect(find.byKey(const Key('editor-preview-viewport')));
+      final dock = tester.getRect(find.byKey(const Key('editor-fixed-dock')));
+      final editorWidgetState = tester.state(find.byType(EditImagePage));
+      final cropController = tester.widget<CropImage>(find.byType(CropImage)).controller;
+      await pinchAndPan(tester, viewport.center);
+      final zoom = tester.widget<Transform>(find.byKey(const Key('editor-zoom-transform'))).transform.clone();
+      expect(zoom.getMaxScaleOnAxis(), greaterThan(1));
       final before = container.read(editorStateProvider);
       expect(before.canRedo, isTrue);
       await selectMode(tester, 'magicEraser');
@@ -355,6 +363,11 @@ void main() {
       }
       expect(magicEraser, findsNothing);
       expect(container.read(editorStateProvider), before);
+      expect(tester.state(find.byType(EditImagePage)), same(editorWidgetState));
+      expect(tester.widget<CropImage>(find.byType(CropImage)).controller, same(cropController));
+      expect(tester.getRect(find.byKey(const Key('editor-preview-viewport'))), viewport);
+      expect(tester.getRect(find.byKey(const Key('editor-fixed-dock'))), dock);
+      expect(tester.widget<Transform>(find.byKey(const Key('editor-zoom-transform'))).transform, zoom);
       notifier.redo();
       expect(container.read(editorStateProvider).annotations.single.id, 'retained-markup');
       notifier.undo();
@@ -381,7 +394,7 @@ void main() {
     await tester.tap(find.byKey(const Key('editor-rotate-left')));
     await tester.pumpAndSettle();
     expect(tester.widget<TextButton>(find.byKey(const Key('editor-save'))).onPressed, isNotNull);
-    expect(find.byTooltip('Save Copy'), findsOneWidget);
+    expect(find.byTooltip('Save a copy'), findsOneWidget);
     expect(live.isEditable, isFalse, reason: 'The original motion pair must retain its server edit guard');
     expect(live.isStillCopyEditable, isTrue);
     await selectMode(tester, 'magicEraser');

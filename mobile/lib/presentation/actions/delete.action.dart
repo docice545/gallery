@@ -23,6 +23,7 @@ import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/store.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/user.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/repositories/album_api_repository.dart';
@@ -205,6 +206,7 @@ class DeleteAction extends AssetActionBuilder {
 
     try {
       var trashIds = remoteIds;
+      var expandedCovers = <RemoteAsset>[];
       if (trash && source == .timeline) {
         final covers = ref
             .read(ownedAssetsActionProvider(source))
@@ -216,6 +218,7 @@ class DeleteAction extends AssetActionBuilder {
           final userId = ref.read(authUserProvider).id;
           final store = ref.read(storeServiceProvider);
           final endpoint = store.tryGet(StoreKey.serverEndpoint);
+          expandedCovers = covers;
           trashIds = await assetService.resolveStackTrashIds(remoteIds, covers);
           if (!context.mounted) {
             return;
@@ -239,7 +242,16 @@ class DeleteAction extends AssetActionBuilder {
       ToastOption? undo;
       if (trash) {
         visual = await _prepareDeletionVisual(context, ref, source, GhostTrashKind.server);
-        if (visual != null && !await lease.validate()) {
+        if (expandedCovers.isNotEmpty) {
+          final refreshed = await assetService.resolveStackTrashIds(remoteIds, expandedCovers);
+          if (refreshed.length != trashIds.length || !refreshed.toSet().containsAll(trashIds)) {
+            if (context.mounted) {
+              toastService.error(context.t.deletion_selection_changed);
+            }
+            return;
+          }
+        }
+        if (!await lease.validate()) {
           if (context.mounted) {
             toastService.error(context.t.deletion_selection_changed);
           }
@@ -250,7 +262,19 @@ class DeleteAction extends AssetActionBuilder {
         }
         result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const [], lease, visual);
         if (!removeLocalCopies) {
-          undo = .new(onUndo: () => assetService.restoreTrash(trashIds));
+          // A snackbar can outlive the selection sheet. Capture services and
+          // identity, not a disposed WidgetRef; never restore into a new account/server.
+          final users = ref.read(userServiceProvider);
+          final store = ref.read(storeServiceProvider);
+          final acceptedIds = List<String>.unmodifiable(trashIds);
+          undo = .new(
+            onUndo: () async {
+              if (users.tryGetMyUser()?.id != lease.userId || store.tryGet(StoreKey.serverEndpoint) != lease.endpoint) {
+                return;
+              }
+              await assetService.restoreTrash(acceptedIds);
+            },
+          );
         }
       } else {
         result = await _deletePermanently(context, ref, remoteIds, lease);

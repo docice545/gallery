@@ -126,54 +126,52 @@ void main() {
       (const Size(320, 720), const FakeViewPadding(top: 28, bottom: 24), 2.0),
       (const Size(568, 320), const FakeViewPadding(left: 44, right: 44, bottom: 24), 2.0),
     ]) {
-      testWidgets(
-        'one fixed dock and invariant photo across nested tools on $platform $size scale=$scale',
-        (tester) async {
-          await pumpCompactEditor(tester, size: size, padding: padding, scale: scale, portrait: true, russian: true);
-          final photo = editorPhotoRect(tester);
-          final dockHeight = tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height;
-          expect(dockHeight, 56 + padding.bottom);
-          expect(photo.width, closeTo(size.width - padding.left - padding.right, .01));
-          expect(photo.height, closeTo(size.height - padding.top - kToolbarHeight - dockHeight, .01));
-          expect(
-            find.descendant(of: find.byKey(const Key('editor-mode-bar')), matching: find.byType(Text)),
-            findsNothing,
-          );
-          for (var repeat = 0; repeat < 2; repeat++) {
-            await selectEditorMode(tester, 'draw');
-            expect(find.byKey(const Key('editor-mode-bar')), findsNothing, reason: 'Category row must be replaced');
-            for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
-              await tapEditorControl(tester, 'editor-tool-$tool');
-              expectEditorGeometry(tester, photo, dockHeight);
-            }
-            for (final option in ['width', 'color', 'opacity']) {
-              await tapEditorControl(tester, 'editor-$option');
-              expect(find.byKey(const Key('editor-parameter-popover')), findsOneWidget);
-              expectEditorGeometry(tester, photo, dockHeight);
-              final popover = tester.getRect(find.byKey(const Key('editor-parameter-popover')));
-              expect(popover.height, lessThanOrEqualTo(160));
-              expect(popover.bottom, lessThan(photo.bottom));
-              expect(find.byKey(const Key('editor-tools-back')).hitTestable(), findsOneWidget);
-              await tester.tapAt(const Offset(1, 1));
-              await tester.pumpAndSettle();
-              expect(find.byKey(const Key('editor-parameter-popover')), findsNothing);
-              expectEditorGeometry(tester, photo, dockHeight);
-            }
-            await selectEditorMode(tester, 'crop');
-            await tapEditorControl(tester, 'editor-crop-frame');
-            expectEditorGeometry(tester, photo, dockHeight);
-            await tester.tapAt(const Offset(1, 1));
-            await tester.pumpAndSettle();
-            await selectEditorMode(tester, 'text');
-            await tapEditorControl(tester, 'editor-text-options');
-            expectEditorGeometry(tester, photo, dockHeight);
-            await tapEditorControl(tester, 'editor-tools-back');
-            expect(find.byKey(const Key('editor-mode-bar')), findsOneWidget);
+      testWidgets('one fixed dock and invariant photo across nested tools on $platform $size scale=$scale', (
+        tester,
+      ) async {
+        await pumpCompactEditor(tester, size: size, padding: padding, scale: scale, portrait: true, russian: true);
+        final photo = editorPhotoRect(tester);
+        final dockHeight = tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height;
+        expect(dockHeight, 56 + padding.bottom);
+        expect(photo.width, closeTo(size.width - padding.left - padding.right, .01));
+        expect(photo.height, closeTo(size.height - padding.top - kToolbarHeight - dockHeight, .01));
+        expect(
+          find.descendant(of: find.byKey(const Key('editor-mode-bar')), matching: find.byType(Text)),
+          findsNothing,
+        );
+        for (var repeat = 0; repeat < 2; repeat++) {
+          await selectEditorMode(tester, 'draw');
+          expect(find.byKey(const Key('editor-mode-bar')), findsNothing, reason: 'Category row must be replaced');
+          for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
+            await tapEditorControl(tester, 'editor-tool-$tool');
             expectEditorGeometry(tester, photo, dockHeight);
           }
-        },
-        variant: TargetPlatformVariant({platform}),
-      );
+          for (final option in ['width', 'color', 'opacity']) {
+            await tapEditorControl(tester, 'editor-$option');
+            expect(find.byKey(const Key('editor-parameter-popover')), findsOneWidget);
+            expectEditorGeometry(tester, photo, dockHeight);
+            final popover = tester.getRect(find.byKey(const Key('editor-parameter-popover')));
+            expect(popover.height, lessThanOrEqualTo(160));
+            expect(popover.bottom, lessThan(photo.bottom));
+            expect(find.byKey(const Key('editor-tools-back')).hitTestable(), findsOneWidget);
+            await tester.tapAt(const Offset(1, 1));
+            await tester.pumpAndSettle();
+            expect(find.byKey(const Key('editor-parameter-popover')), findsNothing);
+            expectEditorGeometry(tester, photo, dockHeight);
+          }
+          await selectEditorMode(tester, 'crop');
+          await tapEditorControl(tester, 'editor-crop-frame');
+          expectEditorGeometry(tester, photo, dockHeight);
+          await tester.tapAt(const Offset(1, 1));
+          await tester.pumpAndSettle();
+          await selectEditorMode(tester, 'text');
+          await tapEditorControl(tester, 'editor-text-options');
+          expectEditorGeometry(tester, photo, dockHeight);
+          await tapEditorControl(tester, 'editor-tools-back');
+          expect(find.byKey(const Key('editor-mode-bar')), findsOneWidget);
+          expectEditorGeometry(tester, photo, dockHeight);
+        }
+      }, variant: TargetPlatformVariant({platform}));
     }
   }
 

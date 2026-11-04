@@ -16,6 +16,16 @@ import 'package:mocktail/mocktail.dart';
 import '../../factories/remote_asset_factory.dart';
 import '../presentation_context.dart';
 
+// Pump fake-zone repository futures and let real raster capture finish. Waiting
+// for the request entirely inside runAsync deadlocks fake-zone continuations.
+Future<void> _until(WidgetTester tester, bool Function() done) async {
+  for (var frame = 0; frame < 200 && !done(); frame++) {
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
+  }
+  expect(done(), isTrue, reason: 'The bounded frame/raster loop must reach the requested state');
+}
+
 void main() {
   for (final reject in [false, true]) {
     testWidgets('real DeleteAction waits for server ACK; rejected=$reject never produces a false completed flight', (
@@ -54,11 +64,9 @@ void main() {
       );
       final container = ProviderScope.containerOf(tester.element(find.byType(ActionColumnButton)));
       final button = tester.widget<ImmichColumnButton>(find.byType(ImmichColumnButton));
-      late Future<void> deletion;
-      await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
-        await request.future.timeout(const Duration(seconds: 5));
-      });
+      var completed = false;
+      final deletion = Future<void>.sync(button.onPressed).whenComplete(() => completed = true);
+      await _until(tester, () => request.isCompleted);
       await tester.pump();
       final painter =
           tester.widget<CustomPaint>(find.byKey(const ValueKey('ghost-trap-flight'))).painter! as GhostTrapPainter;
@@ -75,7 +83,8 @@ void main() {
         await tester.pump(ghostTrapDuration);
       }
       await tester.pump();
-      await tester.runAsync(() => deletion.timeout(const Duration(seconds: 5)));
+      await _until(tester, () => completed);
+      await deletion;
       await tester.pump();
       expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
       expect(container.read(multiSelectProvider).selectedAssets, reject ? {asset} : isEmpty);
@@ -118,11 +127,9 @@ void main() {
     );
     final container = ProviderScope.containerOf(tester.element(find.byType(ActionColumnButton)));
     final button = tester.widget<ImmichColumnButton>(find.byType(ImmichColumnButton));
-    late Future<void> deletion;
-    await tester.runAsync(() async {
-      deletion = Future<void>.sync(button.onPressed);
-      await request.future.timeout(const Duration(seconds: 5));
-    });
+    var completed = false;
+    final deletion = Future<void>.sync(button.onPressed).whenComplete(() => completed = true);
+    await _until(tester, () => request.isCompleted);
     await tester.pump();
     expect(
       (tester.widget<CustomPaint>(find.byKey(const ValueKey('ghost-trap-flight'))).painter! as GhostTrapPainter)
@@ -131,7 +138,8 @@ void main() {
     );
     response.complete(const LocalDeletionResult(deletedIds: ['accepted'], remainingIds: ['denied']));
     await tester.pump();
-    await tester.runAsync(() => deletion.timeout(const Duration(seconds: 5)));
+    await _until(tester, () => completed);
+    await deletion;
     await tester.pump();
     expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
     expect(container.read(multiSelectProvider).selectedAssets, {first});

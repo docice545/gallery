@@ -504,6 +504,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
                                     padding: const EdgeInsets.all(8),
                                     child: Text(
                                       _timeout ? context.t.magic_eraser_timeout : context.t.magic_eraser_failed,
+                                      key: const Key('eraser-failure-status'),
                                       style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
                                     ),
                                   ),

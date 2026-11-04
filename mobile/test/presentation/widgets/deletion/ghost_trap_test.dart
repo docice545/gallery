@@ -130,7 +130,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 170));
       expect(tester.getTopLeft(find.byKey(const ValueKey('photo-two'))), before);
       await tester.pump(const Duration(milliseconds: 120));
-      await done;
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+      await tester.runAsync(() => done.timeout(const Duration(seconds: 2)));
       await tester.pump();
       expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
       expect(tester.getTopLeft(find.byKey(const ValueKey('photo-two'))).dx, 0);
@@ -175,7 +177,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 179));
     expect(find.byKey(const ValueKey('ghost-trap-flight')), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1));
-    await done;
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+    await tester.runAsync(() => done.timeout(const Duration(seconds: 2)));
     await tester.pump();
     expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
   });

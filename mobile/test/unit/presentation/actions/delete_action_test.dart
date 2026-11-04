@@ -132,7 +132,7 @@ void main() {
           await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
           await tester.pumpAndSettle();
 
-          verify(() => assetService.resolveStackTrashIds([cover.id], [cover])).called(1);
+          verify(() => assetService.resolveStackTrashIds([cover.id], [cover])).called(2);
           verify(() => assetService.trash(ids)).called(1);
           expect(find.text('$count moved to trash'), findsOneWidget);
           verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
@@ -140,6 +140,45 @@ void main() {
           await tester.tap(find.text('Undo'));
           await tester.pumpAndSettle();
           verify(() => assetService.restoreTrash(ids)).called(1);
+        });
+      }
+
+      testWidgets('changed expanded membership after lookup cancels the whole deletion', (tester) async {
+        final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+        var reads = 0;
+        when(
+          () => assetService.resolveStackTrashIds(any(), any()),
+        ).thenAnswer((_) async => ++reads == 1 ? [cover.id, 'intended-child'] : [cover.id, 'unexpected-new-child']);
+        await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+        await tester.pumpAndSettle();
+        expect(reads, 2);
+        verifyNever(() => assetService.trash(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {cover});
+        expect(find.text('Undo'), findsNothing);
+      });
+
+      for (final change in ['server', 'logout']) {
+        testWidgets('Undo after $change cannot restore captured IDs into a different session', (tester) async {
+          final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+          final ids = [cover.id, 'child'];
+          when(() => assetService.resolveStackTrashIds(any(), any())).thenAnswer((_) async => ids);
+          await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+          await tester.pumpAndSettle();
+          verify(() => assetService.trash(ids)).called(1);
+          try {
+            if (change == 'server') {
+              await StoreService.I.put(StoreKey.serverEndpoint, 'https://different.example.test/api');
+            } else {
+              when(context.service.user.tryGetMyUser).thenReturn(null);
+            }
+            await tester.tap(find.text('Undo'));
+            await tester.pumpAndSettle();
+            verifyNever(() => assetService.restoreTrash(any()));
+          } finally {
+            await StoreService.I.put(StoreKey.serverEndpoint, PresentationContext.serverEndpoint);
+          }
         });
       }
 

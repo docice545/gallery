@@ -61,18 +61,14 @@ void main() {
         magicEraserRepositoryProvider.overrideWithValue(repository),
         ...editorThemeTestOverrides(themeMode ?? ThemeMode.dark),
       ];
-      if (themeMode == null) {
-        await tester.pumpConsumerWidgetRaw(wrap?.call(page) ?? page, overrides: overrides);
-      } else {
-        await tester.pumpWidget(
-          localizedForTest(
-            ProviderScope(
-              overrides: overrides,
-              child: EditorThemeTestApp(child: wrap?.call(page) ?? page),
-            ),
+      await tester.pumpWidget(
+        localizedForTest(
+          ProviderScope(
+            overrides: overrides,
+            child: EditorThemeTestApp(child: wrap?.call(page) ?? page),
           ),
-        );
-      }
+        ),
+      );
       // Native descriptor/image decoding completes outside the fake timer zone.
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
@@ -765,8 +761,12 @@ void main() {
     expect(canRemove(tester), isTrue);
     expect(tester.getSize(find.byKey(const Key('eraser-canvas-region'))).height, greaterThan(100));
     // Failure status overlays the existing viewport and never adds a dock row.
-    final statusText = find.byWidgetPredicate((widget) => widget is Text && widget.style?.color == Colors.orangeAccent);
+    final statusText = find.byKey(const Key('eraser-failure-status'));
     expect(statusText, findsOneWidget);
+    expect(
+      tester.widget<Text>(statusText).style!.color,
+      Theme.of(tester.element(statusText)).colorScheme.onErrorContainer,
+    );
     await tester.ensureVisible(find.byKey(const Key('eraser-size-options')));
     await tester.tap(find.byKey(const Key('eraser-size-options')));
     await tester.pumpAndSettle();
