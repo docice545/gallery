@@ -38,15 +38,18 @@ class ReleaseReviewScopeTests(unittest.TestCase):
                 with self.subTest(branch=branch, workflow=workflow, job=job):
                     self.assertFalse(allows(workflow, job, branch))
 
-    def test_unsigned_android_has_no_signing_inputs_and_depends_on_tests(self):
+    def test_unsigned_compile_is_independent_but_cannot_disable_required_test_gates(self):
         source = (ROOT / '.github/workflows/build-mobile.yml').read_text()
         blocks = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)', source, re.M | re.S))
         job = blocks['build-unsigned-android']
         self.assertTrue(allows('build-mobile.yml', 'build-unsigned-android', 'normal-feature'))
         self.assertFalse(allows('build-mobile.yml', 'build-unsigned-android', '', 'push'))
         parsed = yaml.safe_load(source)['jobs']
-        self.assertEqual(parsed['build-unsigned-android']['needs'],
-                         ['pre-job', 'flutter-tests', 'release-tooling-checks', 'live-photo-timeline', 'live-photo-native'])
+        self.assertEqual(parsed['build-unsigned-android']['needs'], 'pre-job')
+        for name in ('flutter-tests', 'release-tooling-checks', 'live-photo-timeline', 'live-photo-native'):
+            self.assertIn(name, parsed)
+            self.assertFalse(parsed[name].get('continue-on-error', False))
+        self.assertNotIn('continue-on-error:', job)
         self.assertIn('runs-on: ubuntu-24.04', job)
         self.assertIn('contents: read', job)
         self.assertNotIn('secrets.', job)
@@ -99,7 +102,7 @@ class ReleaseReviewScopeTests(unittest.TestCase):
         self.assertNotIn('continue-on-error:', gate)
         self.assertIn('set -o pipefail', gate)
         self.assertIn('bash mobile/scripts/live_photo_regressions.sh', gate)
-        for job in ('build-unsigned-android', 'build-sign-android', 'build-sign-ios'):
+        for job in ('build-sign-android', 'build-sign-ios'):
             needs = yaml.safe_load(source)['jobs'][job]['needs']
             self.assertIn('live-photo-timeline', needs)
             self.assertIn('live-photo-native', needs)
