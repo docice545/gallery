@@ -166,3 +166,121 @@ metadata, then background/create/resume, including an unavailable server.
 Confirm no duplicate IDs, date order, unchanged scroll offset, permission denial
 and limited-access behavior. No physical Samsung or other refresh-rate result
 is claimed by this patch.
+
+## Follow-up to the HP run (Flutter 3.47.2 / Dart 3.13.2)
+
+The supplied HP evidence is partial: formatter PASS (1623 files), one analyzer
+info, and two test failures observed by `+151`; no final suite result was
+provided. It must not be described as a completed failed or successful suite.
+
+The repository regression now initializes English `intl` symbols explicitly:
+`TimelineRepository` parses SQLite bucket dates using `DateFormat(..., 'en')`,
+and a repository test does not execute application localization startup.
+`StreamQueue.cancel(immediate: true)` is registered before the first stream read
+and runs before database teardown even when parsing/assertions fail. Previously
+cancellation existed only on the success path; a paused queue could prevent the
+stream close from draining after the original locale exception, causing the
+secondary timeout.
+
+The observer test now controls the permission future, verifies denied/no observer,
+then verifies granted/native registration before counting its coalescing window.
+It asserts zero calls at 349 ms and exactly one at 350 ms, then injects a native
+notification and verifies another exact delta call. It also verifies native stop,
+resume, disposal and no calls after disposal. Log errors from the refresh path
+are asserted rather than silently allowing the service's error handler to hide
+an assertion failure. Teardown closes the provider and channel on failure too.
+The runtime's 350 ms duration and expected call counts have not been relaxed.
+
+`flutter_localizations` is declared directly under `dev_dependencies` with
+`sdk: flutter`; only its existing lockfile dependency category changes from
+transitive to direct dev. Its SDK version and all other locked versions remain
+unchanged. No analyzer suppression is added.
+
+Warnings are assessed separately from assertion failures:
+
+- Drift 2.34's `GeneratedDatabase._handleInstantiated` counts open instances by
+  `runtimeType`; its warning says **when** two instances use the same executor.
+  It does not compare executor identity. Thus that message alone is not evidence
+  of a shared-executor race or corrupted production database. The affected
+  repository fixture creates a fresh `NativeDatabase.memory()` per test and
+  awaits database close; the active stream now has failure-safe cleanup too.
+  A warning that remains needs its construction stack to identify the other
+  live fixture. `dontWarnAboutMultipleDatabases` is not enabled.
+- The exact Dart VM callback diagnostic and stack were not provided. Depending
+  on its text, native callbacks after isolate teardown, callbacks from a leaf
+  FFI call and callbacks on another thread are different faults. They cannot be
+  classified as harmless, fixed, or caused by Drift from the current excerpt.
+  Preserve stderr, exit status and the preceding test name; do not suppress the
+  diagnostic or change native callback code without that evidence.
+
+For a focused repeat on HP after checking out the final PR20 SHA, from `mobile/`:
+
+```sh
+flutter --version
+flutter pub get --enforce-lockfile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze --no-pub
+set -o pipefail
+flutter test --no-pub --concurrency=1 --reporter expanded \
+  test/providers/local_media_refresh_provider_test.dart \
+  test/infrastructure/repositories/local_album_repository_test.dart \
+  test/presentation/widgets/timeline/scrubber_positions_test.dart \
+  2>&1 | tee /tmp/foto-build38-hp-focused.log
+```
+
+Then run the full Build38 software command above with the same `pipefail` and
+`2>&1 | tee /tmp/foto-build38-hp-regressions.log`. Retain the final summary and
+exit status, including any Drift/VM warnings. These commands create no APK and
+perform no signing, merge, deployment or production operation.
+
+### Checkpoint at the user's request to stop and publish
+
+Code commit: `7e66379937e60a82f5d4df465d15b3d6e5364a59` (following
+`5e3edb73d0b9c600db02df553b052ecd024c1140`). No additional runtime application
+changes were made in this HP-follow-up; the three Build38 fixes are preserved.
+
+**Not all blockers are resolved.** Explicit permission completion did NOT fix
+observer `calls == 0`. The first CI rerun disproved that timing hypothesis.
+The current test temporarily traces timer creation/firing and includes active
+timer states, the fake clock and native-registration toggles in the failure
+reason. Use that evidence to establish the actual cause, then remove the
+instrumentation; do not increase the delay or weaken the call-count assertion.
+
+First software-only run:
+https://github.com/docice545/gallery/actions/runs/41850830480
+Job: https://github.com/docice545/gallery/actions/runs/41850830480/job/126646354393
+
+- Dependency installation/codegen and Dart analysis: PASS (the localization
+  dependency info is gone).
+- Flutter summary: 152 success, 1 failure, 1 error, 0 skipped.
+- Locale exception/30 s cleanup timeout no longer occurred. The repository test
+  reached the metadata-order assertion, exposing a fixture with changed
+  `createdAt` but unchanged `updatedAt`. Android upserts deliberately treat equal
+  `updatedAt` as replay. The fixture now supplies a native-style modification
+  timestamp; expected chronological order remains unchanged. Retest pending.
+- Observer test still failed: expected one initial delta call, got zero.
+- Formatter step failed (exit 123) without a formatter diff. It ran at repository
+  root, while mise's Flutter/Dart tool configuration is in `mobile/mise.toml`.
+  Its working directory/relative paths have been corrected; retest pending.
+
+Second software-only run (code `7e6637993`):
+https://github.com/docice545/gallery/actions/runs/41852313101
+Job: https://github.com/docice545/gallery/actions/runs/41852313101/job/126651575209
+At checkpoint: **IN PROGRESS, dependency installation/code generation**. No
+result is claimed. The user requested publication immediately, so it was left
+running. No APK/native-emulator job is enabled in this mode. This document-only
+checkpoint uses `[skip ci]` and does not restart/cancel that run.
+
+Next steps on HP / in the next session:
+
+1. Read the second run's result and annotations (or execute the focused command
+   above). It should provide timer diagnostics if the observer still fails.
+2. Fix the confirmed observer cause in the provider/test clock boundary without
+   weakening 349/350 ms or lifecycle assertions; remove temporary Zone tracing
+   after diagnosis. Keep `addTearDown` cleanup.
+3. Confirm the metadata fixture, pinned formatter and analyzer pass, then repeat
+   the full Build38 regression command. A completed suite summary is required.
+4. Obtain exact Drift/VM warning text and construction/callback stacks. They have
+   not been suppressed or declared harmless/fixed.
+5. Samsung cold Hero/raster timings, automatic screenshot latency and 60/90/120 Hz
+   acceptance remain pending; no APK/signing/deployment authorization is implied.
