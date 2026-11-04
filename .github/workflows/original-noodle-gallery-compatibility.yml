@@ -544,8 +544,6 @@ jobs:
     name: FOTO Build 22 offline timeline emulator E2E
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      GRADLE_USER_HOME: ${{ runner.temp }}/foto-offline-gradle
     permissions:
       contents: read
       packages: read
@@ -557,7 +555,9 @@ jobs:
         # Keep Android/Java: this job needs both the APK and a live emulator.
         # The previous runner exhausted its disk before it could retain diagnostics.
         run: |
+          test "$GITHUB_ACTIONS" = true
           test "$RUNNER_ENVIRONMENT" = github-hosted
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/foto-offline-gradle" >> "$GITHUB_ENV"
           df -h /
           sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
@@ -746,6 +746,13 @@ jobs:
             force-avd-creation: true
             script: |
               python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/foto-offline-smoke.attempt" -- bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
+      - name: Require completed offline smoke and both decoded captures
+        # A wrapper action's green result alone is not evidence that its script finished.
+        run: |
+          test "$(cat "$RUNNER_TEMP/foto-offline-smoke.attempt")" = 'completed exit=0'
+          python3 tools/original-noodle-gallery/assert_offline_pixels.py /tmp/foto-offline-e2e/online.png
+          python3 tools/original-noodle-gallery/assert_offline_pixels.py /tmp/foto-offline-e2e/offline.png
+          echo '::notice title=FOTO offline acceptance::Smoke completed exit=0; sharp photo pixels verified online and after offline process restart.'
       - name: Upload FOTO offline evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

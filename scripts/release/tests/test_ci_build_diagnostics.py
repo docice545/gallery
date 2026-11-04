@@ -163,6 +163,41 @@ with Path('mutations').open('a') as output:
                 if has_apk:
                     self.assertEqual(apk.read_bytes(), b'exact compiled APK bytes')
 
+    def test_offline_action_success_requires_finished_smoke_and_both_pixel_checks(self):
+        command = step_body('original-noodle-gallery-compatibility.yml',
+                            'Require completed offline smoke and both decoded captures')
+        for marker, missing in [(None, ''), ('started', ''), ('completed exit=17', ''),
+                                ('completed exit=0', 'offline.png'), ('completed exit=0', '')]:
+            with self.subTest(marker=marker, missing=missing), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if marker is not None:
+                    (root / 'foto-offline-smoke.attempt').write_text(marker + '\n')
+                fake(root / 'bin/python3', '''#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+assert sys.argv[1] == 'tools/original-noodle-gallery/assert_offline_pixels.py'
+assert sys.argv[2] in ['/tmp/foto-offline-e2e/online.png', '/tmp/foto-offline-e2e/offline.png']
+with Path('captures-checked').open('a') as output:
+    output.write(Path(sys.argv[2]).name + '\\n')
+raise SystemExit(1 if Path(sys.argv[2]).name == os.environ['MISSING_CAPTURE'] else 0)
+''')
+                # Use an absolute interpreter in the fake to avoid resolving itself through PATH.
+                fake_python = root / 'bin/python3'
+                fake_python.write_text(fake_python.read_text().replace('#!/usr/bin/env python3',
+                                                                       '#!' + shutil.which('python3'), 1))
+                env = {**os.environ, 'RUNNER_TEMP': str(root), 'MISSING_CAPTURE': missing,
+                       'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH']}
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
+                                        env=env, text=True, capture_output=True, timeout=10)
+                accepted = marker == 'completed exit=0' and not missing
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual('FOTO offline acceptance' in result.stdout, accepted)
+                captures = root / 'captures-checked'
+                if marker == 'completed exit=0':
+                    self.assertEqual(captures.read_text().splitlines(), ['online.png', 'offline.png'])
+                else:
+                    self.assertFalse(captures.exists())
+
     def test_debug_apk_failure_retains_exit_status_and_bounded_diagnostics(self):
         workflow = 'original-noodle-gallery-compatibility.yml'
         command = step_body(workflow, 'Build final debug APK for emulator evidence')
