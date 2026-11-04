@@ -311,8 +311,8 @@ void main() {
   ) async {
     controller.onLoad = controller.onPlaybackReady.notifyListeners;
     await mount(tester, host(asset: _remote()));
-      expect(surfaces, greaterThan(0));
-      expect(find.byKey(const Key('native-surface')), findsOneWidget);
+    expect(surfaces, greaterThan(0));
+    expect(find.byKey(const Key('native-surface')), findsOneWidget);
     expect(controller.sources.single.type, VideoSourceType.network);
     expect(controller.sources.single.path, 'https://example.invalid/api/assets/server-motion/video/playback');
     expect(controller.sources.single.headers, {'x-test-auth': 'synthetic-token'});

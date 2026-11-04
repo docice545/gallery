@@ -21,6 +21,8 @@ def report(title: str, message: str, *, level: str = "error") -> None:
 def flutter(path: Path) -> None:
     names = {}
     output = {}
+    failures = set()
+    totals = {"success": 0, "failure": 0, "error": 0, "skipped": 0}
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -35,12 +37,16 @@ def flutter(path: Path) -> None:
             test_id = event.get("testID")
             # Flutter widget failures put the assertion and source location in
             # print events; their error event only says "See exception logs above".
+            combined = output.get(test_id, "") + "\n" + str(event.get("message", ""))
             output[test_id] = (
-                output.get(test_id, "") + "\n" + str(event.get("message", ""))
-            )[-12000:]
+                combined
+                if len(combined) <= 12000
+                else combined[:6000] + "\n...\n" + combined[-5900:]
+            )
         elif event.get("type") == "error":
             test_id = event.get("testID")
             title = names.get(test_id, "Flutter test failure")
+            failures.add(title)
             evidence = (
                 str(event.get("error", ""))
                 + "\n"
@@ -55,7 +61,17 @@ def flutter(path: Path) -> None:
                     evidence[offset : offset + ANNOTATION_LIMIT],
                 )
         elif event.get("type") == "testDone":
+            name = names.get(event.get("testID"), "")
+            if name and not name.startswith("loading ") and not event.get("hidden"):
+                result = "skipped" if event.get("skipped") else event.get("result")
+                if result in totals:
+                    totals[result] += 1
             output.pop(event.get("testID"), None)
+    report("Flutter result summary", json.dumps(totals), level="notice")
+    if failures:
+        report(
+            "Flutter failed test inventory", "\n".join(sorted(failures)), level="notice"
+        )
 
 
 def formatting() -> None:
@@ -87,13 +103,51 @@ def formatting() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("flutter", "format", "build"))
+    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build", "android-debug", "test-log", "setup", "api-smoke", "api-backend"))
     parser.add_argument("path", nargs="?", type=Path)
     args = parser.parse_args()
     if args.mode == "format":
         formatting()
     elif args.mode == "flutter":
         flutter(args.path)
+    elif args.mode in {"test-log", "api-smoke", "api-backend"}:
+        title = {
+            "test-log": "Medium suite failure",
+            "api-smoke": "API smoke operation failure",
+            "api-backend": "Disposable API backend evidence",
+        }[args.mode]
+        tail = args.path.read_text(errors="replace")[-ANNOTATION_LIMIT * 3:]
+        for index, offset in enumerate(range(0, len(tail), ANNOTATION_LIMIT), 1):
+            report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
+    elif args.mode == "setup":
+        report("CI toolchain/dependency setup failure", args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:])
+    elif args.mode in {"android-build", "android-debug"}:
+        title = "Unsigned Android build failed" if args.mode == "android-build" else "Emulator debug APK build failed"
+        tail = args.path.read_text(errors="replace")[-ANNOTATION_LIMIT * 3:]
+        for index, offset in enumerate(range(0, len(tail), ANNOTATION_LIMIT), 1):
+            report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
+    elif args.mode == "analysis":
+        lines = args.path.read_text(errors="replace").splitlines()
+        diagnostics = [
+            line
+            for line in lines
+            if any(
+                mark in line
+                for mark in (
+                    "error •",
+                    "warning •",
+                    "info •",
+                    "error -",
+                    "warning -",
+                    "info -",
+                )
+            )
+        ]
+        report("Dart analyzer diagnostics", "\n".join(diagnostics), level="notice")
+        for line in diagnostics[:10]:
+            report("Dart analyzer", line)
+        if not diagnostics:
+            report("Dart analyzer output", "\n".join(lines[-40:]))
     else:
         report(
             "Disposable CI Docker build failed",

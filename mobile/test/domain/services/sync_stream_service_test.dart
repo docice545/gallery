@@ -11,9 +11,11 @@ import 'package:http/testing.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/user/auth_user.drift.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/pending_local_trash.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
+import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
@@ -23,6 +25,7 @@ import 'package:immich_mobile/infrastructure/repositories/remote_asset.repositor
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/utils/semver.dart';
@@ -298,6 +301,63 @@ void main() {
       await handleEventsCallback(events, mockAbortCallbackWrapper.call, mockResetCallbackWrapper.call);
     });
     await sut.sync();
+  }
+
+  for (final failedStage in ['version', 'stream']) {
+    test('offline $failedStage request preserves the loaded SQLite catalog and merged identities', () async {
+      final context = MediumRepositoryContext();
+      addTearDown(context.dispose);
+      await context.newUser(id: 'offline-owner');
+      await context.newAuthUser(id: 'offline-owner');
+      await context.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
+      for (final id in ['device-only', 'device-copy']) {
+        await context.newLocalAsset(id: id, checksum: id, createdAt: DateTime(2026));
+        await context.newLocalAlbumAsset(albumId: 'camera', assetId: id);
+      }
+      await context.newRemoteAsset(
+        id: 'server-copy',
+        checksum: 'device-copy',
+        ownerId: 'offline-owner',
+        createdAt: DateTime(2026),
+      );
+      await context.newRemoteAsset(id: 'server-only', ownerId: 'offline-owner', createdAt: DateTime(2026));
+      final query = TimelineRepository(context.db).main(['offline-owner'], 'offline-owner', GroupAssetsBy.day);
+      Future<void> expectCatalog() async {
+        final assets = await query.assetSource(0, 20);
+        expect(assets.map((asset) => asset.id), unorderedEquals(['device-only', 'server-copy', 'server-only']));
+        expect(assets.singleWhere((asset) => asset.id == 'server-copy').localId, 'device-copy');
+      }
+
+      await expectCatalog();
+      sut = SyncStreamService(
+        syncApiRepository: mockSyncApiRepo,
+        syncStreamRepository: SyncStreamRepository(context.db),
+        localAssetRepository: mockLocalAssetRepo,
+        trashedLocalAssetRepository: mockTrashedLocalAssetRepo,
+        assetMediaRepository: mockAssetMediaRepo,
+        permissionRepository: mockPermissionRepo,
+        syncMigrationRepository: mockSyncMigrationRepo,
+        api: mockApi,
+      );
+      final unavailable = ApiException(0, 'Synthetic unavailable Backend');
+      if (failedStage == 'version') {
+        when(() => mockServerApi.getServerVersion()).thenThrow(unavailable);
+      } else {
+        when(
+          () => mockSyncApiRepo.streamChanges(
+            any(),
+            onReset: any(named: 'onReset'),
+            serverVersion: any(named: 'serverVersion'),
+            supportedSyncTypes: any(named: 'supportedSyncTypes'),
+            abortSignal: any(named: 'abortSignal'),
+          ),
+        ).thenThrow(unavailable);
+      }
+      await expectLater(sut.sync(), throwsA(same(unavailable)));
+      await expectCatalog();
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      verifyNever(() => mockAssetMediaRepo.deleteAll(any()));
+    });
   }
 
   test('does not advance the sync cursor when updateAssetsV2 reports SQLite corruption', () async {

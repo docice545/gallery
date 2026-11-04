@@ -13,7 +13,14 @@ on:
   pull_request:
   push:
     # Exact-source evidence for the isolated audit candidate, before any merge.
-    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
+    branches:
+      [
+        main,
+        'release/*',
+        codex/issue18-cross-platform-audit,
+        codex/issue17-smart-timeline,
+        codex/issue18-backend-contract-rating,
+      ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -77,7 +84,14 @@ jobs:
         run: mise //mobile:codegen
 
       - name: Run analyze
-        run: mise //mobile:analyze
+        id: analyze
+        run: |
+          set -o pipefail
+          mise //mobile:analyze 2>&1 | tee "$RUNNER_TEMP/mobile-analysis.log"
+      - name: Annotate analyzer diagnostics
+        if: failure() && steps.analyze.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py analysis "$RUNNER_TEMP/mobile-analysis.log"
 
       - name: Changed sync service and durable V2 journal regressions (manual acceptance)
         if: github.event_name == 'workflow_dispatch' && !inputs.retry_cancellation_tests
@@ -106,8 +120,29 @@ jobs:
         id: dart-format
         run: mise //mobile:format
 
+      - name: Run complete release Dart format gate
+        id: release-format
+        # mise exposes shims, so keep the same mobile cwd as the HP stage.
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          python3 - <<'PY_FORMAT' 2>&1 | tee "$RUNNER_TEMP/release-format.log"
+          import subprocess, sys
+          from pathlib import Path
+          root = Path.cwd().parent
+          sys.path.insert(0, str(root))
+          from scripts.release.android_release import release_dart_sources
+          paths = release_dart_sources(root)
+          sys.exit(subprocess.run(['dart', 'format', '--set-exit-if-changed', *paths], check=False).returncode)
+          PY_FORMAT
+
+      - name: Annotate complete formatter invocation failure
+        if: failure() && steps.release-format.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/release-format.log"
+
       - name: Annotate formatter differences
-        if: failure() && steps.dart-format.outcome == 'failure'
+        if: failure() && (steps.dart-format.outcome == 'failure' || steps.release-format.outcome == 'failure')
         working-directory: .
         run: python3 .github/scripts/report-ci-failures.py format
 

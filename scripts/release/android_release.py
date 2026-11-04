@@ -567,6 +567,45 @@ def restore_owned_report(root: Path, original: bytes | None, directory: Path) ->
         )
 
 
+def release_dart_sources(root: Path) -> list[str]:
+    """Use the same tracked Dart source scope in hosted CI and the HP builder."""
+    source_files = run(
+        [
+            "git",
+            "ls-files",
+            "--",
+            "mobile/lib",
+            "mobile/test",
+            "mobile/integration_test",
+        ],
+        root,
+    ).splitlines()
+    dart_files = [
+        str(root / item)
+        for item in source_files
+        if item.endswith(".dart")
+        and not item.endswith(
+            (".g.dart", ".freezed.dart", ".drift.dart", ".gr.dart")
+        )
+    ]
+    if not dart_files:
+        raise ReleaseError(
+            "no tracked Dart source files were found for the format check"
+        )
+    return dart_files
+
+
+def android_build_environment(env: dict[str, str]) -> dict[str, str]:
+    # Universal release Jetifier exhausted the former 4 GiB heap in hosted CI.
+    # Bound worker concurrency as in the native gate; keep all three ABIs and
+    # AndroidX transforms. This affects child processes, never HP configuration.
+    return {
+        **env,
+        "GRADLE_OPTS": env.get("GRADLE_OPTS", "")
+        + " -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false",
+    }
+
+
 def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch: str = "work") -> None:
     if not preflight(root, expected, env, branch=branch):
         raise ReleaseError("preflight failed; no build was started")
@@ -580,6 +619,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch
     apk.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tracked_report = run(["git", "ls-files", "--", GRADLE_REPORT], root).strip()
     original_report = (root / GRADLE_REPORT).read_bytes() if tracked_report else None
+    build_env = android_build_environment(env)
 
     def stage(label: str, command: list[str], cwd: Path) -> None:
         print(f"RUN {label}", flush=True)
@@ -587,7 +627,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(descriptor, "w") as handle:
             result = subprocess.run(
-                command, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT
+                command, cwd=cwd, env=build_env, stdout=handle, stderr=subprocess.STDOUT
             )
         if result.returncode:
             raise ReleaseError(
@@ -597,29 +637,7 @@ def build(root: Path, expected: str, number: int, env: dict[str, str], *, branch
 
     try:
         stage("locked-codegen", ["bash", "scripts/android_media_codegen.sh"], mobile)
-        source_files = run(
-            [
-                "git",
-                "ls-files",
-                "--",
-                "mobile/lib",
-                "mobile/test",
-                "mobile/integration_test",
-            ],
-            root,
-        ).splitlines()
-        dart_files = [
-            str(root / item)
-            for item in source_files
-            if item.endswith(".dart")
-            and not item.endswith(
-                (".g.dart", ".freezed.dart", ".drift.dart", ".gr.dart")
-            )
-        ]
-        if not dart_files:
-            raise ReleaseError(
-                "no tracked Dart source files were found for the format check"
-            )
+        dart_files = release_dart_sources(root)
         stage(
             "dart-format",
             ["dart", "format", "--output=none", "--set-exit-if-changed", *dart_files],

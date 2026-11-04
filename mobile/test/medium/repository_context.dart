@@ -41,7 +41,8 @@ import '../utils.dart';
 class MediumRepositoryContext {
   final Drift db;
 
-  MediumRepositoryContext() : db = Drift(DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
+  MediumRepositoryContext({Drift? database})
+    : db = database ?? Drift(DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
 
   Future<void> dispose() async {
     await db.close();

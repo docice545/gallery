@@ -47,7 +47,14 @@ on:
   push:
     # The audit branch can collect hosted evidence before GitHub API access is
     # available to open its PR. Push events cannot enter either signing path.
-    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
+    branches:
+      [
+        main,
+        'release/*',
+        codex/issue18-cross-platform-audit,
+        codex/issue17-smart-timeline,
+        codex/issue18-backend-contract-rating,
+      ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -102,11 +109,24 @@ jobs:
           working_directory: ./mobile
 
       - name: Install dependencies
-        run: mise //mobile:install:ci
+        id: flutter-install
+        run: |
+          set -o pipefail
+          mise //mobile:install:ci 2>&1 | tee "$RUNNER_TEMP/flutter-install.log"
+
+      - name: Annotate Flutter dependency setup failure
+        if: failure() && steps.flutter-install.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/flutter-install.log"
 
       - name: Perform codegen
         id: codegen
-        run: mise //mobile:codegen
+        run: |
+          set -o pipefail
+          mise //mobile:codegen 2>&1 | tee "$RUNNER_TEMP/flutter-codegen.log"
+
+      - name: Annotate Flutter code generation failure
+        if: failure() && steps.codegen.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/flutter-codegen.log"
 
       - name: Previously failed Flutter cases and current device-only action contracts
         id: focused-flutter
@@ -243,15 +263,10 @@ jobs:
 
   build-unsigned-android:
     name: Unsigned universal Android (no device acceptance)
-    needs:
-      [
-        pre-job,
-        flutter-tests,
-        release-tooling-checks,
-        live-photo-timeline,
-        live-photo-native,
-      ]
-    if: ${{ github.event_name == 'pull_request' && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    # Compile independently so a test/VM startup failure cannot conceal an APK
+    # compiler error. All test/native gates still fail the workflow and signing.
+    needs: pre-job
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -260,6 +275,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before universal Android build
+        # The SDK/NDK, Java and source checkout stay intact. This is never an HP step.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - name: Preserve source version and require a credentials-free workspace
         id: source
         run: |
@@ -288,16 +312,29 @@ jobs:
       - name: Frozen packages and generated clients
         run: mise //mobile:install:ci && mise //mobile:codegen
       - name: Build unsigned universal APK
+        id: unsigned-apk
         working-directory: mobile
         env:
           VERSION_NAME: ${{ steps.source.outputs.version }}
           VERSION_CODE: ${{ steps.source.outputs.build }}
         run: |
+          set -o pipefail
           test ! -e android/key.jks
           test ! -e android/key.properties
-          flutter build apk --release --no-pub \
+          # Same bounded resources as the native gate and reviewed HP builder.
+          # Universal release Jetifier exhausted the previous 4 GiB heap.
+          export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
+          # Flutter 3.47 skips release plugin registration with --no-pub:
+          # the dev integration_test Java entry survives but its release class
+          # is excluded. Regenerate with the locked dependency graph instead.
+          flutter build apk --release --pub \
             --target-platform android-arm,android-arm64,android-x64 \
-            --build-name="$VERSION_NAME" --build-number="$VERSION_CODE"
+            --build-name="$VERSION_NAME" --build-number="$VERSION_CODE" \
+            2>&1 | tee "$RUNNER_TEMP/unsigned-apk-build.log"
+          git diff --exit-code -- pubspec.lock
+      - name: Expose unsigned build failure without signing credentials
+        if: ${{ failure() && steps.unsigned-apk.outcome == 'failure' }}
+        run: python3 .github/scripts/report-ci-failures.py android-build "$RUNNER_TEMP/unsigned-apk-build.log"
       - name: Verify actual APK and record source provenance
         env:
           VERSION_NAME: ${{ steps.source.outputs.version }}
@@ -490,7 +527,15 @@ jobs:
           build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Use CocoaPods for Flutter plugins
-        run: mise exec -- flutter config --no-enable-swift-package-manager
+        id: ios-plugin-config
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          flutter config --no-enable-swift-package-manager 2>&1 | tee "$RUNNER_TEMP/ios-plugin-config.log"
+
+      - name: Annotate iOS plugin configuration failure
+        if: failure() && steps.ios-plugin-config.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/ios-plugin-config.log"
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0

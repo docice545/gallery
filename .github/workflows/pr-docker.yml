@@ -17,6 +17,7 @@ on:
       - '.dockerignore'
       - '.github/workflows/docker.yml'
       - '.github/workflows/pr-docker.yml'
+      - '.github/scripts/report-ci-failures.py'
 
 permissions:
   contents: read
@@ -55,18 +56,26 @@ jobs:
       - uses: ./.github/actions/apply-branding
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
       - name: Compile existing Dockerfile without registry writes
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.component }}/Dockerfile
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: gallery-pr-check:${{ matrix.component }}
-          build-args: |
-            DEVICE=cpu
-            BUILD_SOURCE_COMMIT=${{ github.sha }}
-            BUILD_REPOSITORY=${{ github.repository }}
+        id: compile
+        env:
+          COMPONENT: ${{ matrix.component }}
+          BUILD_CONTEXT: ${{ matrix.context }}
+          # Dockerfile's optional secret authenticates its pinned js-pdk lookup.
+          # Never pass a job token as a persistent image ARG or ENV.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker buildx build --progress plain --load \
+            --file "$COMPONENT/Dockerfile" --platform linux/amd64 \
+            --tag "gallery-pr-check:$COMPONENT" \
+            --secret id=github_token,env=GITHUB_TOKEN \
+            --build-arg DEVICE=cpu \
+            --build-arg "BUILD_SOURCE_COMMIT=$GITHUB_SHA" \
+            --build-arg "BUILD_REPOSITORY=$GITHUB_REPOSITORY" \
+            "$BUILD_CONTEXT" 2>&1 | tee "$RUNNER_TEMP/pr-docker-build.log"
+      - name: Annotate compiler or dependency failure
+        if: failure() && steps.compile.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/pr-docker-build.log"
       - name: Record the tested checkout
         run: |
           {

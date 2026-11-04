@@ -13,7 +13,8 @@ import subprocess
 GATES = {"Live Photo timeline non-regression", "Live Photo native decoded motion"}
 REQUIRED_JOBS = {
     "build-mobile.yml": GATES
-    | {"Flutter tests and coverage", "Release artifact and provenance checks"},
+    | {"Flutter tests and coverage", "Release artifact and provenance checks",
+       "Unsigned universal Android (no device acceptance)"},
     "test.yml": {
         "Upstream Rebase Tooling",
         "Test & Lint Server",
@@ -37,6 +38,14 @@ REQUIRED_JOBS = {
         "End-to-End Tests (Web) (ubuntu-latest)",
     },
     "static_analysis.yml": {"Run Dart Code Analysis"},
+    "original-noodle-gallery-compatibility.yml": {
+        "API contract and compatibility regressions",
+        "Stock Android 5.8.0 emulator E2E",
+        "Stock Android 5.9.0 emulator E2E",
+        "iOS source and simulator contract checks",
+        "Android durable thumbnail cache regression tests",
+        "FOTO Build 22 offline timeline emulator E2E",
+    },
 }
 
 

@@ -102,6 +102,10 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
   bool _previewForeground = true;
   bool _previewAttached = true;
   bool _previewAdvanced = false;
+  bool _previewPlayRequested = false;
+  bool _previewPlayAccepted = false;
+  bool _previewObservedMotion = false;
+  bool _previewEndedBeforeAck = false;
   bool _isLoading = false;
   bool _resumeAfterPause = false;
   bool _playbackForeground = true;
@@ -156,6 +160,7 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (widget.timelinePreview) {
       // Pause before child platform-view disposal; later async source/load work is stale.
       _previewAttached = false;
+      ++_pauseRevision;
       _previewTrace('lease-revoked');
       unawaited(_attachedNotifier?.pause());
     }
@@ -490,9 +495,30 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
       final info = _controller?.videoInfo;
       _previewTrace('native-ready:${info?.width}x${info?.height}');
       try {
-        if (_canPreview) {
-          await _controller?.play();
+        final controller = _controller;
+        if (_canPreview && controller != null) {
+          final revision = _pauseRevision;
+          _previewPlayRequested = true;
+          await controller.play();
+          // Platform position/end events and method acknowledgements use
+          // separate channels. Neither a late ACK nor observed frames may
+          // publish success for a revoked route/visibility/lifecycle lease.
+          if (!_canPreview || revision != _pauseRevision || !identical(controller, _controller)) {
+            try {
+              await controller.pause();
+            } catch (_) {
+              // Disposal may have removed the native view while play awaited
+              // its acknowledgement. It must not become an unhandled Future.
+              _previewTrace('revoked-player-pause-failed');
+            }
+            return;
+          }
+          _previewPlayAccepted = true;
           _previewTrace('play-request-accepted');
+          _publishPreviewMotion();
+          if (_previewEndedBeforeAck) {
+            _finishPreview();
+          }
         }
       } catch (error) {
         _previewTrace('play-failed:${error.runtimeType}');
@@ -525,6 +551,10 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     _notifier.onNativePlaybackEnded();
 
     if (widget.timelinePreview) {
+      if (_previewPlayRequested && !_previewPlayAccepted) {
+        _previewEndedBeforeAck = true;
+        return;
+      }
       _finishPreview();
     } else if (_controller?.playbackInfo?.status == PlaybackStatus.stopped) {
       ref.read(isPlayingMotionVideoProvider.notifier).playing = false;
@@ -578,13 +608,22 @@ class _NativeVideoViewerState extends ConsumerState<NativeVideoViewer> with Widg
     if (widget.timelinePreview &&
         !_previewAdvanced &&
         _isVideoReady &&
+        _previewPlayRequested &&
         playback?.status == PlaybackStatus.playing &&
         (playback?.position ?? 0) > 0) {
-      _previewAdvanced = true;
-      _previewTrace('position-advanced');
-      widget.onPreviewStarted?.call();
+      _previewObservedMotion = true;
+      _publishPreviewMotion();
     }
     _notifier.onNativePositionChanged();
+  }
+
+  void _publishPreviewMotion() {
+    if (!_canPreview || !_previewPlayAccepted || !_previewObservedMotion || _previewAdvanced) {
+      return;
+    }
+    _previewAdvanced = true;
+    _previewTrace('position-advanced');
+    widget.onPreviewStarted?.call();
   }
 
   void _onPlaybackStatusChanged() {
