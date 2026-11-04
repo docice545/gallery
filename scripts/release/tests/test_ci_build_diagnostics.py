@@ -31,6 +31,31 @@ def fake(path, source):
 
 
 class BuildDiagnosticsTests(unittest.TestCase):
+    def test_ios_plugin_config_uses_mobile_toolchain_and_preserves_failure(self):
+        workflow = (ROOT / '.github/workflows/build-mobile.yml').read_text()
+        section = workflow.split('      - name: Use CocoaPods for Flutter plugins\n', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('working-directory: ./mobile', section)
+        command = step_body('build-mobile.yml', 'Use CocoaPods for Flutter plugins')
+        for status in (0, 42):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                mobile = root / 'mobile'
+                mobile.mkdir()
+                fake(root / 'bin/flutter', '''#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+assert Path.cwd().name == 'mobile'
+assert sys.argv[1:] == ['config', '--no-enable-swift-package-manager']
+print('PLUGIN_CONFIG_DIAGNOSTIC')
+sys.exit(int(os.environ['FIXTURE_EXIT']))
+''')
+                env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
+                       'RUNNER_TEMP': str(root), 'FIXTURE_EXIT': str(status)}
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=mobile,
+                                        env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn('PLUGIN_CONFIG_DIAGNOSTIC', (root / 'ios-plugin-config.log').read_text())
+
     def test_unsigned_and_hp_resource_profile_preserves_abis_flags_and_failure(self):
         command = step_body('build-mobile.yml', 'Build unsigned universal APK')
         for status in (0, 31):

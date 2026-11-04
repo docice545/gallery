@@ -527,7 +527,15 @@ jobs:
           build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Use CocoaPods for Flutter plugins
-        run: mise exec -- flutter config --no-enable-swift-package-manager
+        id: ios-plugin-config
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          flutter config --no-enable-swift-package-manager 2>&1 | tee "$RUNNER_TEMP/ios-plugin-config.log"
+
+      - name: Annotate iOS plugin configuration failure
+        if: failure() && steps.ios-plugin-config.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py setup "$RUNNER_TEMP/ios-plugin-config.log"
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0

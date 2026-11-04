@@ -66,244 +66,264 @@ void main() {
   setUpAll(TestUtils.init);
 
   for (final source in ['mixed', 'local-only', 'empty']) {
-    testWidgets('$source SQLite Timeline survives offline process restart without waiting for user refresh', (
-      tester,
-    ) async {
-      final directory = await Directory.systemTemp.createTemp('foto-offline-restart-');
-      final file = File('${directory.path}/catalog.sqlite');
-      final thumbnail = File('${directory.path}/cached-thumbnail.rgba');
-      var ctx = MediumRepositoryContext(database: Drift(NativeDatabase(file)));
-      late StoreService store;
-      final api = _UserApi();
-      final refresh = Completer<UserDto?>();
-      when(api.getMyUser).thenAnswer((_) => refresh.future);
-      final pendingPreviews = <Completer<Object?>>[];
-      var offline = source != 'mixed';
-      final remoteCalls = <String>[];
-      final localCalls = <String>[];
-      final boundary = GlobalKey();
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      const remoteChannel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
-        RemoteImageApi.pigeonChannelCodec,
-      );
-      const remoteCancel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.immich_mobile.RemoteImageApi.cancelRequest',
-        RemoteImageApi.pigeonChannelCodec,
-      );
-      const localChannel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.immich_mobile.LocalImageApi.requestImage',
-        LocalImageApi.pigeonChannelCodec,
-      );
-      const localCancel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.immich_mobile.LocalImageApi.cancelRequest',
-        LocalImageApi.pigeonChannelCodec,
-      );
-      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockDecodedMessageHandler(remoteChannel, (message) async {
-        final url = (message! as List).first! as String;
-        remoteCalls.add(url);
-        if (offline && Uri.parse(url).queryParameters['size'] == 'preview') {
-          final pending = Completer<Object?>();
-          pendingPreviews.add(pending);
-          return pending.future;
+    testWidgets(
+      '$source SQLite Timeline survives offline process restart without waiting for user refresh',
+      (tester) async {
+        final directory = (await tester.runAsync(() => Directory.systemTemp.createTemp('foto-offline-restart-')))!;
+        final file = File('${directory.path}/catalog.sqlite');
+        final thumbnail = File('${directory.path}/cached-thumbnail.rgba');
+        var ctx = MediumRepositoryContext(database: Drift(NativeDatabase(file)));
+        late StoreService store;
+        final api = _UserApi();
+        final refresh = Completer<UserDto?>();
+        when(api.getMyUser).thenAnswer((_) => refresh.future);
+        final pendingPreviews = <Completer<Object?>>[];
+        var offline = source != 'mixed';
+        final remoteCalls = <String>[];
+        final localCalls = <String>[];
+        final boundary = GlobalKey();
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        const remoteChannel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
+          RemoteImageApi.pigeonChannelCodec,
+        );
+        const remoteCancel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.immich_mobile.RemoteImageApi.cancelRequest',
+          RemoteImageApi.pigeonChannelCodec,
+        );
+        const localChannel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.immich_mobile.LocalImageApi.requestImage',
+          LocalImageApi.pigeonChannelCodec,
+        );
+        const localCancel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.immich_mobile.LocalImageApi.cancelRequest',
+          LocalImageApi.pigeonChannelCodec,
+        );
+        final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockDecodedMessageHandler(remoteChannel, (message) async {
+          final url = (message! as List).first! as String;
+          remoteCalls.add(url);
+          if (offline && Uri.parse(url).queryParameters['size'] == 'preview') {
+            final pending = Completer<Object?>();
+            pendingPreviews.add(pending);
+            return pending.future;
+          }
+          // Message handlers run in the widget test's FakeAsync zone. This tiny
+          // four-byte fixture must not await real filesystem work in that zone.
+          return _pixels(thumbnail.readAsBytesSync());
+        });
+        messenger.setMockDecodedMessageHandler(remoteCancel, (_) async => [null]);
+        messenger.setMockDecodedMessageHandler(localChannel, (message) async {
+          final id = (message! as List).first! as String;
+          localCalls.add(id);
+          return _pixels(id == 'device-copy' ? _blue : _green);
+        });
+        messenger.setMockDecodedMessageHandler(localCancel, (_) async => [null]);
+
+        Future<void> openStore() async {
+          store = await StoreService.init(storeRepository: StoreRepository(ctx.db));
+          await SettingsRepository.ensureInitialized(ctx.db);
         }
-        return _pixels(await thumbnail.readAsBytes());
-      });
-      messenger.setMockDecodedMessageHandler(remoteCancel, (_) async => [null]);
-      messenger.setMockDecodedMessageHandler(localChannel, (message) async {
-        final id = (message! as List).first! as String;
-        localCalls.add(id);
-        return _pixels(id == 'device-copy' ? _blue : _green);
-      });
-      messenger.setMockDecodedMessageHandler(localCancel, (_) async => [null]);
 
-      Future<void> openStore() async {
-        store = await StoreService.init(storeRepository: StoreRepository(ctx.db));
-        await SettingsRepository.ensureInitialized(ctx.db);
-      }
-
-      Future<ProviderContainer> mount() async {
-        final service = UserService(userApiRepository: api, userRepository: ctx.db.userRepository, storeService: store);
-        await tester.pumpConsumerWidgetRaw(
-          MediaQuery(
-            // Samsung-scale decode demand requires a preview, while only the
-            // warmed smaller thumbnail may survive the bounded native cache.
-            data: const MediaQueryData(size: Size(390, 844), devicePixelRatio: 3),
-            child: RepaintBoundary(
-              key: boundary,
-              child: const TimelineRouteScope(
-                timelineServiceBuilder: buildPhotosTimelineRouteService,
-                child: FaceAwareThumbnailScope(
-                  child: Timeline(
-                    appBar: null,
-                    bottomSheet: null,
-                    denseLayout: true,
-                    emptyWidget: TimelineEmptyState(),
+        Future<ProviderContainer> mount() async {
+          final service = UserService(
+            userApiRepository: api,
+            userRepository: ctx.db.userRepository,
+            storeService: store,
+          );
+          await tester.pumpConsumerWidgetRaw(
+            MediaQuery(
+              // Samsung-scale decode demand requires a preview, while only the
+              // warmed smaller thumbnail may survive the bounded native cache.
+              data: const MediaQueryData(size: Size(390, 844), devicePixelRatio: 3),
+              child: RepaintBoundary(
+                key: boundary,
+                child: const TimelineRouteScope(
+                  timelineServiceBuilder: buildPhotosTimelineRouteService,
+                  child: FaceAwareThumbnailScope(
+                    child: Timeline(
+                      appBar: null,
+                      bottomSheet: null,
+                      denseLayout: true,
+                      emptyWidget: TimelineEmptyState(),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          overrides: [
-            driftProvider.overrideWithValue(ctx.db),
-            userServiceProvider.overrideWithValue(service),
-            readonlyModeProvider.overrideWith(_Readonly.new),
-            stackCountsProvider.overrideWith((_) => Stream.value({})),
-          ],
-        );
-        final container = ProviderScope.containerOf(tester.element(find.byType(Timeline)));
-        unawaited(container.read(currentUserProvider.notifier).refresh());
-        for (var i = 0; i < 8; i++) {
-          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
-          await tester.pump(const Duration(milliseconds: 100));
-        }
-        return container;
-      }
-
-      Future<void> assertPhotos() async {
-        final tiles = tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).toList();
-        final expected = source == 'mixed'
-            ? ['device-only', 'server-only', 'server-copy']
-            : source == 'local-only'
-            ? ['device-only']
-            : <String>[];
-        expect(tiles.map((tile) => tile.asset!.id).toSet(), expected.toSet());
-        expect(tiles, hasLength(expected.length), reason: 'checksum-linked device/server copy stays one tile');
-        if (source == 'empty') {
-          expect(find.byType(FilledButton), findsOneWidget, reason: 'real empty state, not an unending grey grid');
-          return;
-        }
-        final image = (await tester.runAsync(
-          () => (boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary).toImage(),
-        ))!;
-        final pixels = (await tester.runAsync(
-          () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
-        ))!.buffer.asUint8List();
-        final origin = tester.getTopLeft(find.byKey(boundary));
-        for (final tile in tiles) {
-          final finder = find.byWidgetPredicate((widget) => identical(widget, tile));
-          final point = tester.getCenter(finder) - origin;
-          final offset = (point.dy.floor() * image.width + point.dx.floor()) * 4;
-          final color = tile.asset!.id == 'server-only'
-              ? _red
-              : tile.asset!.id == 'server-copy'
-              ? _blue
-              : _green;
-          expect(pixels.sublist(offset, offset + 4), color, reason: '${tile.asset!.id} must show decoded photo pixels');
-        }
-        image.dispose();
-      }
-
-      try {
-        await tester.runAsync(() async {
-          await openStore();
-          await store.put(StoreKey.serverEndpoint, 'https://offline.example.test/api');
-          await store.put(StoreKey.accessToken, 'synthetic-offline-token');
-          await store.put(
-            StoreKey.currentUser,
-            UserDto(id: 'owner', email: 'owner@example.test', name: 'Owner', profileChangedAt: DateTime(2026)),
+            overrides: [
+              driftProvider.overrideWithValue(ctx.db),
+              userServiceProvider.overrideWithValue(service),
+              readonlyModeProvider.overrideWith(_Readonly.new),
+              stackCountsProvider.overrideWith((_) => Stream.value({})),
+            ],
           );
-          await ctx.newUser(id: 'owner');
-          await ctx.newAuthUser(id: 'owner');
-          if (source != 'empty') {
-            await ctx.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
-            await ctx.newLocalAsset(
-              id: 'device-only',
-              checksum: 'local',
-              createdAt: DateTime(2026),
-              width: 500,
-              height: 500,
-            );
-            await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-only');
+          final container = ProviderScope.containerOf(tester.element(find.byType(Timeline)));
+          unawaited(container.read(currentUserProvider.notifier).refresh());
+          for (var i = 0; i < 8; i++) {
+            await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+            await tester.pump(const Duration(milliseconds: 100));
           }
+          return container;
+        }
+
+        Future<void> assertPhotos() async {
+          final tiles = tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).toList();
+          final expected = source == 'mixed'
+              ? ['device-only', 'server-only', 'server-copy']
+              : source == 'local-only'
+              ? ['device-only']
+              : <String>[];
+          expect(tiles.map((tile) => tile.asset!.id).toSet(), expected.toSet());
+          expect(tiles, hasLength(expected.length), reason: 'checksum-linked device/server copy stays one tile');
+          if (source == 'empty') {
+            expect(find.byType(FilledButton), findsOneWidget, reason: 'real empty state, not an unending grey grid');
+            return;
+          }
+          final image = (await tester.runAsync(
+            () => (boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary).toImage(),
+          ))!;
+          final pixels = (await tester.runAsync(
+            () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+          ))!.buffer.asUint8List();
+          final origin = tester.getTopLeft(find.byKey(boundary));
+          for (final tile in tiles) {
+            final finder = find.byWidgetPredicate((widget) => identical(widget, tile));
+            final point = tester.getCenter(finder) - origin;
+            final offset = (point.dy.floor() * image.width + point.dx.floor()) * 4;
+            final color = tile.asset!.id == 'server-only'
+                ? _red
+                : tile.asset!.id == 'server-copy'
+                ? _blue
+                : _green;
+            expect(
+              pixels.sublist(offset, offset + 4),
+              color,
+              reason: '${tile.asset!.id} must show decoded photo pixels',
+            );
+          }
+          image.dispose();
+        }
+
+        try {
+          debugPrint('C9 $source: seed durable SQLite and thumbnail fixture');
+          await tester.runAsync(() async {
+            await openStore();
+            await store.put(StoreKey.serverEndpoint, 'https://offline.example.test/api');
+            await store.put(StoreKey.accessToken, 'synthetic-offline-token');
+            await store.put(
+              StoreKey.currentUser,
+              UserDto(id: 'owner', email: 'owner@example.test', name: 'Owner', profileChangedAt: DateTime(2026)),
+            );
+            await ctx.newUser(id: 'owner');
+            await ctx.newAuthUser(id: 'owner');
+            if (source != 'empty') {
+              await ctx.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
+              await ctx.newLocalAsset(
+                id: 'device-only',
+                checksum: 'local',
+                createdAt: DateTime(2026),
+                width: 500,
+                height: 500,
+              );
+              await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-only');
+            }
+            if (source == 'mixed') {
+              await ctx.newLocalAsset(
+                id: 'device-copy',
+                checksum: 'shared',
+                createdAt: DateTime(2026),
+                width: 500,
+                height: 500,
+              );
+              await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-copy');
+              await ctx.newRemoteAsset(
+                id: 'server-copy',
+                ownerId: 'owner',
+                checksum: 'shared',
+                createdAt: DateTime(2026),
+                width: 500,
+                height: 500,
+              );
+              await ctx.newRemoteAsset(
+                id: 'server-only',
+                ownerId: 'owner',
+                checksum: 'remote',
+                createdAt: DateTime(2026),
+                width: 500,
+                height: 500,
+              );
+              await thumbnail.writeAsBytes(_red, flush: true);
+            }
+          });
+          debugPrint('C9 $source: first mount');
+          var container = await mount();
+          await assertPhotos();
+          debugPrint('C9 $source: loaded pixels survive sync error');
+          container.read(syncStatusProvider.notifier).errorRemoteSync('SocketException: Backend unavailable');
+          await tester.pump();
+          await assertPhotos();
+          await tester.pumpWidget(const SizedBox());
+          await tester.runAsync(() async {
+            await SettingsRepository.reset();
+            await store.dispose();
+            await ctx.dispose();
+            ctx = MediumRepositoryContext(database: Drift(NativeDatabase(file)));
+            await openStore();
+          });
+          PaintingBinding.instance.imageCache.clear();
+          PaintingBinding.instance.imageCache.clearLiveImages();
+          offline = true;
+          debugPrint('C9 $source: cold mount from reopened SQLite and native cache');
+          container = await mount();
+          await assertPhotos();
+          expect(refresh.isCompleted, isFalse, reason: 'remote authorization/user refresh cannot gate SQLite photos');
           if (source == 'mixed') {
-            await ctx.newLocalAsset(
-              id: 'device-copy',
-              checksum: 'shared',
-              createdAt: DateTime(2026),
-              width: 500,
-              height: 500,
-            );
-            await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-copy');
-            await ctx.newRemoteAsset(
-              id: 'server-copy',
-              ownerId: 'owner',
-              checksum: 'shared',
-              createdAt: DateTime(2026),
-              width: 500,
-              height: 500,
-            );
-            await ctx.newRemoteAsset(
-              id: 'server-only',
-              ownerId: 'owner',
-              checksum: 'remote',
-              createdAt: DateTime(2026),
-              width: 500,
-              height: 500,
-            );
-            await thumbnail.writeAsBytes(_red, flush: true);
+            expect(thumbnail.readAsBytesSync(), _red);
+            expect(localCalls, containsAll(['device-only', 'device-copy']));
+            expect(pendingPreviews, isNotEmpty, reason: 'cached pixels render while Backend preview is still pending');
+          } else {
+            expect(remoteCalls, isEmpty, reason: 'local-only and real-empty startup need no remote thumbnails');
           }
-        });
-        var container = await mount();
-        await assertPhotos();
-        container.read(syncStatusProvider.notifier).errorRemoteSync('SocketException: Backend unavailable');
-        await tester.pump();
-        await assertPhotos();
-        await tester.pumpWidget(const SizedBox());
-        await tester.runAsync(() async {
-          await SettingsRepository.reset();
-          await store.dispose();
-          await ctx.dispose();
-          ctx = MediumRepositoryContext(database: Drift(NativeDatabase(file)));
-          await openStore();
-        });
-        PaintingBinding.instance.imageCache.clear();
-        PaintingBinding.instance.imageCache.clearLiveImages();
-        offline = true;
-        container = await mount();
-        await assertPhotos();
-        expect(refresh.isCompleted, isFalse, reason: 'remote authorization/user refresh cannot gate SQLite photos');
-        if (source == 'mixed') {
-          expect(await thumbnail.readAsBytes(), _red);
-          expect(localCalls, containsAll(['device-only', 'device-copy']));
-        } else {
-          expect(remoteCalls, isEmpty, reason: 'local-only and real-empty startup need no remote thumbnails');
+          offline = false;
+          debugPrint('C9 $source: Backend returns');
+          for (final pending in pendingPreviews) {
+            pending.complete(_pixels(_red));
+          }
+          refresh.complete(null);
+          container.read(syncStatusProvider.notifier).completeRemoteSync();
+          for (var i = 0; i < 3; i++) {
+            await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          await assertPhotos();
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          for (final pending in pendingPreviews.where((pending) => !pending.isCompleted)) {
+            pending.complete([null]);
+          }
+          if (!refresh.isCompleted) {
+            refresh.complete(null);
+          }
+          messenger.setMockDecodedMessageHandler(remoteChannel, null);
+          messenger.setMockDecodedMessageHandler(remoteCancel, null);
+          messenger.setMockDecodedMessageHandler(localChannel, null);
+          messenger.setMockDecodedMessageHandler(localCancel, null);
+          PaintingBinding.instance.imageCache.clear();
+          PaintingBinding.instance.imageCache.clearLiveImages();
+          await tester.runAsync(() async {
+            await SettingsRepository.reset();
+            await store.dispose();
+            await ctx.dispose();
+            await directory.delete(recursive: true);
+          });
         }
-        offline = false;
-        for (final pending in pendingPreviews) {
-          pending.complete(_pixels(_red));
-        }
-        refresh.complete(null);
-        container.read(syncStatusProvider.notifier).completeRemoteSync();
-        for (var i = 0; i < 3; i++) {
-          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
-          await tester.pump(const Duration(milliseconds: 100));
-        }
-        await assertPhotos();
-        expect(tester.takeException(), isNull);
-      } finally {
-        await tester.pumpWidget(const SizedBox());
-        for (final pending in pendingPreviews.where((pending) => !pending.isCompleted)) {
-          pending.complete([null]);
-        }
-        if (!refresh.isCompleted) refresh.complete(null);
-        messenger.setMockDecodedMessageHandler(remoteChannel, null);
-        messenger.setMockDecodedMessageHandler(remoteCancel, null);
-        messenger.setMockDecodedMessageHandler(localChannel, null);
-        messenger.setMockDecodedMessageHandler(localCancel, null);
-        PaintingBinding.instance.imageCache.clear();
-        PaintingBinding.instance.imageCache.clearLiveImages();
-        await tester.runAsync(() async {
-          await SettingsRepository.reset();
-          await store.dispose();
-          await ctx.dispose();
-          await directory.delete(recursive: true);
-        });
-      }
-    });
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
   }
 }
