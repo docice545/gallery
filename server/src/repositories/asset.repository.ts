@@ -309,6 +309,8 @@ type UpsertExifOptions = {
   video?: Insertable<AssetVideoTable>;
   keyframes?: Insertable<AssetKeyframeTable>;
   lockedPropertiesBehavior: 'override' | 'append' | 'skip';
+  /** Revision observed before reading EXIF/XMP; null means no row existed yet. */
+  expectedUpdateId?: string | null;
 };
 
 const distinctLocked = <T extends LockableProperty[] | null>(eb: ExpressionBuilder<DB, 'asset_exif'>, columns: T) =>
@@ -677,7 +679,14 @@ export class AssetRepository {
       },
     ],
   })
-  async upsertExif({ exif, audio, video, keyframes, lockedPropertiesBehavior }: UpsertExifOptions): Promise<void> {
+  async upsertExif({
+    exif,
+    audio,
+    video,
+    keyframes,
+    lockedPropertiesBehavior,
+    expectedUpdateId,
+  }: UpsertExifOptions): Promise<void> {
     let query = this.db;
     if (audio) {
       (query as any) = this.db.with('audio', (qb) =>
@@ -750,7 +759,14 @@ export class AssetRepository {
           const skipLocked = <T extends keyof AssetExifTable>(col: T) =>
             eb
               .case()
-              .when(sql`${col}`, '=', eb.fn.any('asset_exif.lockedProperties'))
+              .when(
+                eb.or([
+                  eb(sql`${col}`, '=', eb.fn.any('asset_exif.lockedProperties')),
+                  ...(expectedUpdateId !== undefined && (lockableProperties as readonly string[]).includes(col)
+                    ? [eb('asset_exif.updateId', 'is distinct from', expectedUpdateId)]
+                    : []),
+                ]),
+              )
               .then(eb.ref(`asset_exif.${col}`))
               .else(eb.ref(`excluded.${col}`))
               .end();

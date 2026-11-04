@@ -85,10 +85,24 @@ describe(MetadataService.name, () => {
     mocks.metadata.readTags.mockResolvedValueOnce(sidecarData ?? {});
   };
 
+  let writtenSidecarPath: string | undefined;
+
   beforeEach(() => {
     ({ sut, mocks } = newTestService(MetadataService));
 
     mockReadTags();
+    writtenSidecarPath = undefined;
+
+    // The repository now owns the SQL transaction, registration and unlock.
+    // Existing service fixtures supply the coherent snapshot delivered to the
+    // file writer; real transaction/rollback behavior is covered by medium tests.
+    mocks.assetJob.writeSidecar.mockImplementation(async (id, write) => {
+      const asset = await mocks.assetJob.getForSidecarWriteJob(id);
+      if (!asset) return;
+      asset.exifInfo.lockedProperties = await mocks.assetJob.getLockedPropertiesForMetadataExtraction(id);
+      writtenSidecarPath = await write(asset);
+      return writtenSidecarPath !== undefined;
+    });
 
     mocks.config.getWorker.mockReturnValue(ImmichWorker.Microservices);
     mocks.faceIdentity.ensurePersonIdentity.mockResolvedValue({ id: 'identity-1' } as any);
@@ -2600,13 +2614,6 @@ describe(MetadataService.name, () => {
         GPSLatitude: gps,
         GPSLongitude: gps,
       });
-      expect(mocks.asset.unlockProperties).toHaveBeenCalledWith(asset.id, [
-        'description',
-        'latitude',
-        'longitude',
-        'dateTimeOriginal',
-        'timeZone',
-      ]);
     });
 
     it('should write rating', async () => {
@@ -2617,7 +2624,6 @@ describe(MetadataService.name, () => {
       mocks.assetJob.getForSidecarWriteJob.mockResolvedValue(getForSidecarWrite(asset));
       await expect(sut.handleSidecarWrite({ id: asset.id })).resolves.toBe(JobStatus.Success);
       expect(mocks.metadata.writeTags).toHaveBeenCalledWith(asset.files[0].path, { Rating: 4 });
-      expect(mocks.asset.unlockProperties).toHaveBeenCalledWith(asset.id, ['rating']);
     });
 
     it('should write null rating as 0', async () => {
@@ -2628,7 +2634,6 @@ describe(MetadataService.name, () => {
       mocks.assetJob.getForSidecarWriteJob.mockResolvedValue(getForSidecarWrite(asset));
       await expect(sut.handleSidecarWrite({ id: asset.id })).resolves.toBe(JobStatus.Success);
       expect(mocks.metadata.writeTags).toHaveBeenCalledWith(asset.files[0].path, { Rating: 0 });
-      expect(mocks.asset.unlockProperties).toHaveBeenCalledWith(asset.id, ['rating']);
     });
 
     it.each([AssetFileType.Thumbnail, AssetFileType.Preview, AssetFileType.EncodedVideo])(
@@ -2646,12 +2651,6 @@ describe(MetadataService.name, () => {
         expect(mocks.metadata.writeTags).toHaveBeenCalledWith(`${asset.originalPath}.xmp`, {
           TagsList: ['reopen-tag'],
         });
-        expect(mocks.asset.upsertFile).toHaveBeenCalledWith({
-          assetId: asset.id,
-          type: AssetFileType.Sidecar,
-          path: `${asset.originalPath}.xmp`,
-        });
-        expect(mocks.asset.unlockProperties).toHaveBeenCalledWith(asset.id, ['tags']);
       },
     );
 
@@ -2666,11 +2665,7 @@ describe(MetadataService.name, () => {
       await expect(sut.handleSidecarWrite({ id: asset.id })).resolves.toBe(JobStatus.Success);
 
       expect(mocks.metadata.writeTags).toHaveBeenCalledWith(`${asset.originalPath}.xmp`, { Rating: 3 });
-      expect(mocks.asset.upsertFile).toHaveBeenCalledWith({
-        assetId: asset.id,
-        type: AssetFileType.Sidecar,
-        path: `${asset.originalPath}.xmp`,
-      });
+      expect(writtenSidecarPath).toBe(`${asset.originalPath}.xmp`);
     });
 
     it('should write tags list to sidecar', async () => {
@@ -2860,7 +2855,7 @@ describe(MetadataService.name, () => {
         expect(mockBackend.downloadToTemp).toHaveBeenCalledWith('upload/user1/ab/cd/file.jpg.xmp');
         // readTags should be called with local temp paths
         expect(mocks.metadata.readTags).toHaveBeenCalledWith(s3TempPath);
-        expect(mocks.metadata.readTags).toHaveBeenCalledWith(s3SidecarTempPath);
+        expect(mocks.metadata.readTags).toHaveBeenCalledWith(s3SidecarTempPath, { throwOnError: true });
       });
 
       it('should cleanup temp files after processing S3 asset', async () => {
@@ -3032,11 +3027,7 @@ describe(MetadataService.name, () => {
           contentType: 'application/xml',
         });
         // Must record the sidecar row in the DB so subsequent metadata extraction can find it
-        expect(mocks.asset.upsertFile).toHaveBeenCalledWith({
-          assetId: asset.id,
-          type: AssetFileType.Sidecar,
-          path: 'upload/user1/ab/cd/file.jpg.xmp',
-        });
+        expect(writtenSidecarPath).toBe('upload/user1/ab/cd/file.jpg.xmp');
       });
 
       it('should not record a sidecar row if the S3 upload fails', async () => {
@@ -3057,7 +3048,7 @@ describe(MetadataService.name, () => {
 
         await expect(sut.handleSidecarWrite({ id: asset.id })).rejects.toThrow('S3 unreachable');
 
-        expect(mocks.asset.upsertFile).not.toHaveBeenCalled();
+        expect(writtenSidecarPath).toBeUndefined();
       });
     });
   });

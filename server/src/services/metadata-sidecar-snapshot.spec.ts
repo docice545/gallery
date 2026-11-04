@@ -1,4 +1,4 @@
-import { AssetFileType } from 'src/enum.js';
+import { AssetFileType, JobStatus } from 'src/enum.js';
 import { MetadataService } from 'src/services/metadata.service.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
 import { getForSidecarWrite } from 'test/mappers.js';
@@ -9,11 +9,18 @@ it('never combines stale null rating with locks belonging to a newer manual rati
   const asset = AssetFactory.from().file({ type: AssetFileType.Sidecar }).exif({ rating: null }).build();
   mocks.assetJob.getForSidecarWriteJob.mockResolvedValue(structuredClone(getForSidecarWrite(asset)));
   // Simulate the manual update committing after the value snapshot was read.
-  mocks.assetJob.getLockedPropertiesForMetadataExtraction.mockImplementation(async () => {
+  mocks.assetJob.getLockedPropertiesForMetadataExtraction.mockImplementation(() => {
     asset.exifInfo.rating = 3;
-    return ['rating'];
+    return Promise.resolve(['rating']);
   });
-  await sut.handleSidecarWrite({ id: asset.id });
+  mocks.assetJob.writeSidecar.mockImplementation(
+    async (_, write) => (await write(structuredClone(getForSidecarWrite(asset)))) !== undefined,
+  );
+  await expect(sut.handleSidecarWrite({ id: asset.id })).resolves.toBe(JobStatus.Skipped);
   expect(mocks.metadata.writeTags).not.toHaveBeenCalledWith(asset.files[0].path, { Rating: 0 });
-  expect(mocks.asset.unlockProperties).not.toHaveBeenCalled();
+  expect(mocks.assetJob.getLockedPropertiesForMetadataExtraction).not.toHaveBeenCalled();
+  asset.exifInfo.rating = 3;
+  asset.exifInfo.lockedProperties = ['rating'];
+  await expect(sut.handleSidecarWrite({ id: asset.id })).resolves.toBe(JobStatus.Success);
+  expect(mocks.metadata.writeTags).toHaveBeenCalledWith(asset.files[0].path, { Rating: 3 });
 });
