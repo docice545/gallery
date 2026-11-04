@@ -16,6 +16,7 @@ import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.da
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/view_intent/view_intent_file_path.provider.dart';
 import 'package:immich_mobile/widgets/photo_view/photo_view.dart';
+import 'package:immich_mobile/widgets/photo_view/src/core/photo_view_core.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../unit/factories/local_asset_factory.dart';
@@ -64,6 +65,15 @@ void main() {
   testWidgets('real photo gestures: only single tap toggles; zoom and pan retain the asset and hidden controls', (
     tester,
   ) async {
+    // Hidden details / adjacent native-image placeholders may keep animating.
+    // Wait for the finite route/gesture animations, then assert the actual
+    // decoded PhotoView surface instead of waiting for unrelated spinners.
+    Future<void> settleGestures() async {
+      for (var frame = 0; frame < 30; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    }
+
     final imageFile = await tester.runAsync(() async {
       final directory = await Directory.systemTemp.createTemp('foto-viewer-gestures-');
       addTearDown(() => directory.delete(recursive: true));
@@ -121,11 +131,22 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await settleGestures();
     final homeContext = tester.element(find.byType(Navigator).last);
     await tester.runAsync(() => precacheImage(FileImage(imageFile!), homeContext));
     unawaited(router.push(const PageRouteInfo('ViewerGestures')));
-    await tester.pumpAndSettle();
+    await settleGestures();
+    final photo = tester.widget<PhotoView>(find.byKey(Key(assets.first.heroTag)).first);
+    expect(photo.imageProvider, FileImage(imageFile!));
+    await tester.runAsync(() => precacheImage(photo.imageProvider!, tester.element(find.byType(AssetViewer))));
+    await settleGestures();
+    expect(
+      tester
+          .widgetList<PhotoViewCore>(find.byType(PhotoViewCore))
+          .any((core) => core.childSize == const Size(2400, 1600)),
+      isTrue,
+      reason: 'gesture acceptance requires the decoded original, not a loading cover',
+    );
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
     AssetViewerState state() => container.read(assetViewerProvider);
     final center = tester.getCenter(find.byType(PageView));
@@ -133,7 +154,7 @@ void main() {
     expect(state().showingControls, isTrue);
     await tester.tapAt(center);
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().showingControls, isFalse);
 
     // Actual double tap through PhotoView's gesture recognizers, not a notifier call.
@@ -141,7 +162,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(center);
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().isZoomed, isTrue);
     expect(state().showingControls, isFalse);
     expect(tester.widget<PageView>(find.byType(PageView)).physics, isA<NeverScrollableScrollPhysics>());
@@ -150,11 +171,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(center);
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().isZoomed, isTrue, reason: 'originalSize must also lock PageView');
     expect(state().showingControls, isFalse);
     await tester.dragFrom(center, const Offset(-180, 10));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().currentAsset?.id, assets.first.id);
     expect(state().showingControls, isFalse);
 
@@ -163,7 +184,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(center);
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().isZoomed, isFalse);
     expect(state().showingControls, isFalse);
     // Actual two-finger scale gestures cannot request controls either.
@@ -174,7 +195,7 @@ void main() {
     await tester.pump();
     await left.up();
     await right.up();
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().isZoomed, isTrue);
     expect(state().showingControls, isFalse);
     expect(state().currentAsset?.id, assets.first.id);
@@ -182,20 +203,20 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
     await tester.tapAt(center);
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().isZoomed, isFalse);
     await tester.dragFrom(center, const Offset(0, 40));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(router.current.name, 'ViewerGestures');
     expect(state().showingControls, isFalse);
 
     await tester.fling(find.byType(PageView), const Offset(-320, 0), 1000);
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().currentAsset?.id, assets.last.id);
     expect(state().showingControls, isFalse);
     await tester.tapAt(center);
     await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
+    await settleGestures();
     expect(state().showingControls, isTrue);
     expect(find.byType(PhotoView), findsWidgets);
     expect(tester.takeException(), isNull);
