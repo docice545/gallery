@@ -123,6 +123,32 @@ with Path('mutations').open('a') as output:
                         ['docker', 'image', 'prune', '--all', '--force'],
                     ])
 
+    def test_debug_apk_failure_retains_exit_status_and_bounded_diagnostics(self):
+        workflow = 'original-noodle-gallery-compatibility.yml'
+        command = step_body(workflow, 'Build final debug APK for emulator evidence')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake(root / 'bin/flutter', '''#!/usr/bin/env python3
+import sys
+assert sys.argv[1:] == ['build', 'apk', '--debug', '--no-tree-shake-icons', '--no-pub', '--target-platform', 'android-x64']
+print('compiler context ' * 2000)
+print('FINAL_DEBUG_BUILD_FAILURE')
+sys.exit(42)
+''')
+            env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
+                   'RUNNER_TEMP': str(root), 'GRADLE_USER_HOME': str(root / 'fixture-gradle')}
+            result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command], cwd=root,
+                                    env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 42, result.stderr)
+            evidence = subprocess.run(['python3', str(ROOT / '.github/scripts/report-ci-failures.py'),
+                                       'android-debug', str(root / 'foto-debug-apk.log')],
+                                      text=True, capture_output=True, timeout=10, check=True)
+            annotations = evidence.stdout.splitlines()
+            self.assertEqual(len(annotations), 3)
+            self.assertTrue(all(line.startswith('::error title=Emulator debug APK build failed') and len(line) < 4096
+                                for line in annotations))
+            self.assertIn('FINAL_DEBUG_BUILD_FAILURE', evidence.stdout)
+
     def test_api_failure_is_not_hidden_by_tee_and_evidence_is_bounded(self):
         workflow = 'original-noodle-gallery-compatibility.yml'
         command = step_body(workflow, 'Run disposable backend API smoke flows')

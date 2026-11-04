@@ -19,5 +19,7 @@ for attempt in 1 2 3; do
     exit "$pull_status"
   fi
   echo "Transient registry fetch failed (attempt $attempt of 3); tests have not started." >&2
-  sleep "$((attempt * 2))"
+  # The shared registry can throttle for a complete minute. Keep the same
+  # bounded three fetch attempts, allowing that window to pass before the last.
+  sleep "$((attempt * 30))"
 done
