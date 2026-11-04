@@ -288,16 +288,22 @@ jobs:
       - name: Frozen packages and generated clients
         run: mise //mobile:install:ci && mise //mobile:codegen
       - name: Build unsigned universal APK
+        id: unsigned-apk
         working-directory: mobile
         env:
           VERSION_NAME: ${{ steps.source.outputs.version }}
           VERSION_CODE: ${{ steps.source.outputs.build }}
         run: |
+          set -o pipefail
           test ! -e android/key.jks
           test ! -e android/key.properties
           flutter build apk --release --no-pub \
             --target-platform android-arm,android-arm64,android-x64 \
-            --build-name="$VERSION_NAME" --build-number="$VERSION_CODE"
+            --build-name="$VERSION_NAME" --build-number="$VERSION_CODE" \
+            2>&1 | tee "$RUNNER_TEMP/unsigned-apk-build.log"
+      - name: Expose unsigned build failure without signing credentials
+        if: ${{ failure() && steps.unsigned-apk.outcome == 'failure' }}
+        run: python3 .github/scripts/report-ci-failures.py android-build "$RUNNER_TEMP/unsigned-apk-build.log"
       - name: Verify actual APK and record source provenance
         env:
           VERSION_NAME: ${{ steps.source.outputs.version }}

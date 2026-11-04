@@ -87,7 +87,7 @@ def formatting() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("flutter", "format", "build"))
+    parser.add_argument("mode", choices=("flutter", "format", "build", "android-build"))
     parser.add_argument("path", nargs="?", type=Path)
     args = parser.parse_args()
     if args.mode == "format":
@@ -96,7 +96,7 @@ def main() -> None:
         flutter(args.path)
     else:
         report(
-            "Disposable CI Docker build failed",
+            "Unsigned Android build failed" if args.mode == "android-build" else "Disposable CI Docker build failed",
             args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:],
         )
 
