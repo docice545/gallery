@@ -33,7 +33,9 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
 
     def other_workflows(self):
         result = []
-        for name in ("test.yml", "static_analysis.yml"):
+        for name in gate.REQUIRED_JOBS:
+            if name == "build-mobile.yml":
+                continue
             result.extend(
                 [
                     {"workflow_runs": [self.run_row(path=f".github/workflows/{name}")]},
@@ -112,7 +114,7 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
         )
 
     def test_green_live_photo_cannot_conceal_failed_backend_or_analysis(self):
-        for index in (0, 2):
+        for index in (0, 2, 4):
             other = self.other_workflows()
             other[index]["workflow_runs"][0]["conclusion"] = "failure"
             with patch.object(
@@ -125,6 +127,15 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
                 ],
             ), self.assertRaisesRegex(ValueError, "not successful"):
                 gate.verify(REPO, SHA)
+
+    def test_unsigned_compile_is_mandatory_even_with_green_test_workflow(self):
+        jobs = self.jobs()
+        name = "Unsigned universal Android (no device acceptance)"
+        next(job for job in jobs if job["name"] == name)["conclusion"] = "skipped"
+        with patch.object(
+            gate, "api", side_effect=[{"workflow_runs": [self.run_row()]}, {"jobs": jobs}]
+        ), self.assertRaisesRegex(ValueError, "Unsigned universal Android"):
+            gate.verify(REPO, SHA)
 
     def test_live_photo_success_cannot_hide_skipped_full_flutter(self):
         jobs = self.jobs()
@@ -139,7 +150,7 @@ class LivePhotoReleaseGateTests(unittest.TestCase):
             gate.verify(REPO, SHA)
 
     def test_green_workflows_with_skipped_backend_or_analysis_block_release(self):
-        for index in (1, 3):
+        for index in (1, 3, 5):
             other = self.other_workflows()
             other[index]["jobs"][0]["conclusion"] = "skipped"
             with self.subTest(index=index), patch.object(

@@ -13,7 +13,14 @@ on:
   pull_request:
   push:
     # Exact-source evidence for the isolated audit candidate, before any merge.
-    branches: [main, 'release/*', codex/issue18-cross-platform-audit]
+    branches:
+      [
+        main,
+        'release/*',
+        codex/issue18-cross-platform-audit,
+        codex/issue17-smart-timeline,
+        codex/issue18-backend-contract-rating,
+      ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

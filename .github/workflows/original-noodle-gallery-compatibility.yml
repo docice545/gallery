@@ -12,17 +12,15 @@ on:
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
+    # Exact-source evidence for reviewed candidates; never starts release jobs.
     branches:
+      - main
+      - 'release/*'
       - 'codex/foto-master-final-20261029'
       - 'codex/foto-build22-resume-20261029'
-    paths:
-      - 'server/**'
-      - 'open-api/**'
-      - 'mobile/**'
-      - 'e2e/**'
-      - 'tools/original-noodle-gallery/**'
-      - 'server/test/contracts/original-noodle-gallery-compatibility.json'
-      - '.github/workflows/original-noodle-gallery-compatibility.yml'
+      - 'codex/issue18-cross-platform-audit'
+      - 'codex/issue17-smart-timeline'
+      - 'codex/issue18-backend-contract-rating'
 
 permissions: {}
 
