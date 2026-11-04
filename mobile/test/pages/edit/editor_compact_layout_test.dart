@@ -9,13 +9,12 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
 import 'package:immich_mobile/presentation/pages/edit/edit.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
-import 'package:immich_mobile/providers/theme.provider.dart';
-import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
 
 import '../../fixtures/editor_raster.dart';
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
+import 'editor_theme_test_host.dart';
 
 Future<void> pumpCompactEditor(
   WidgetTester tester, {
@@ -23,6 +22,7 @@ Future<void> pumpCompactEditor(
   double scale = 1,
   bool portrait = false,
   bool russian = false,
+  ThemeMode themeMode = ThemeMode.dark,
   FakeViewPadding padding = const FakeViewPadding(top: 28, bottom: 24),
 }) async {
   TestUtils.init();
@@ -54,22 +54,21 @@ Future<void> pumpCompactEditor(
   }
   final bytes = (await tester.runAsync(() => EditedImageExporter.encodePng(image)))!;
   await tester.runAsync(
-    () => tester.pumpConsumerWidgetRaw(
-      RepaintBoundary(
-        key: const Key('compact-editor-screen'),
-        child: EditImagePage(
-          image: Image.memory(bytes),
-          applyEdits: (_) => throw StateError('Layout tests must not replace originals'),
-        ),
-      ),
-      overrides: [
-        immichThemeProvider.overrideWith(
-          (ref) => ImmichTheme(
-            light: ColorScheme.fromSeed(seedColor: Colors.blue),
-            dark: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.dark),
+    () => tester.pumpWidget(
+      localizedForTest(
+        ProviderScope(
+          overrides: editorThemeTestOverrides(themeMode),
+          child: EditorThemeTestApp(
+            child: RepaintBoundary(
+              key: const Key('compact-editor-screen'),
+              child: EditImagePage(
+                image: Image.memory(bytes),
+                applyEdits: (_) => throw StateError('Layout tests must not replace originals'),
+              ),
+            ),
           ),
         ),
-      ],
+      ),
     ),
   );
   for (var i = 0; i < 100 && find.byType(CropImage).evaluate().isEmpty; i++) {
@@ -127,52 +126,54 @@ void main() {
       (const Size(320, 720), const FakeViewPadding(top: 28, bottom: 24), 2.0),
       (const Size(568, 320), const FakeViewPadding(left: 44, right: 44, bottom: 24), 2.0),
     ]) {
-      testWidgets('one fixed dock and invariant photo across nested tools on $platform $size scale=$scale', (
-        tester,
-      ) async {
-        await pumpCompactEditor(tester, size: size, padding: padding, scale: scale, portrait: true, russian: true);
-        final photo = editorPhotoRect(tester);
-        final dockHeight = tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height;
-        expect(dockHeight, 56 + padding.bottom);
-        expect(photo.width, closeTo(size.width - padding.left - padding.right, .01));
-        expect(photo.height, closeTo(size.height - padding.top - kToolbarHeight - dockHeight, .01));
-        expect(
-          find.descendant(of: find.byKey(const Key('editor-mode-bar')), matching: find.byType(Text)),
-          findsNothing,
-        );
-        for (var repeat = 0; repeat < 2; repeat++) {
-          await selectEditorMode(tester, 'draw');
-          expect(find.byKey(const Key('editor-mode-bar')), findsNothing, reason: 'Category row must be replaced');
-          for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
-            await tapEditorControl(tester, 'editor-tool-$tool');
+      testWidgets(
+        'one fixed dock and invariant photo across nested tools on $platform $size scale=$scale',
+        (tester) async {
+          await pumpCompactEditor(tester, size: size, padding: padding, scale: scale, portrait: true, russian: true);
+          final photo = editorPhotoRect(tester);
+          final dockHeight = tester.getSize(find.byKey(const Key('editor-bottom-panel'))).height;
+          expect(dockHeight, 56 + padding.bottom);
+          expect(photo.width, closeTo(size.width - padding.left - padding.right, .01));
+          expect(photo.height, closeTo(size.height - padding.top - kToolbarHeight - dockHeight, .01));
+          expect(
+            find.descendant(of: find.byKey(const Key('editor-mode-bar')), matching: find.byType(Text)),
+            findsNothing,
+          );
+          for (var repeat = 0; repeat < 2; repeat++) {
+            await selectEditorMode(tester, 'draw');
+            expect(find.byKey(const Key('editor-mode-bar')), findsNothing, reason: 'Category row must be replaced');
+            for (final tool in ['pen', 'highlighter', 'brush', 'eraser']) {
+              await tapEditorControl(tester, 'editor-tool-$tool');
+              expectEditorGeometry(tester, photo, dockHeight);
+            }
+            for (final option in ['width', 'color', 'opacity']) {
+              await tapEditorControl(tester, 'editor-$option');
+              expect(find.byKey(const Key('editor-parameter-popover')), findsOneWidget);
+              expectEditorGeometry(tester, photo, dockHeight);
+              final popover = tester.getRect(find.byKey(const Key('editor-parameter-popover')));
+              expect(popover.height, lessThanOrEqualTo(160));
+              expect(popover.bottom, lessThan(photo.bottom));
+              expect(find.byKey(const Key('editor-tools-back')).hitTestable(), findsOneWidget);
+              await tester.tapAt(const Offset(1, 1));
+              await tester.pumpAndSettle();
+              expect(find.byKey(const Key('editor-parameter-popover')), findsNothing);
+              expectEditorGeometry(tester, photo, dockHeight);
+            }
+            await selectEditorMode(tester, 'crop');
+            await tapEditorControl(tester, 'editor-crop-frame');
             expectEditorGeometry(tester, photo, dockHeight);
-          }
-          for (final option in ['width', 'color', 'opacity']) {
-            await tapEditorControl(tester, 'editor-$option');
-            expect(find.byKey(const Key('editor-parameter-popover')), findsOneWidget);
-            expectEditorGeometry(tester, photo, dockHeight);
-            final popover = tester.getRect(find.byKey(const Key('editor-parameter-popover')));
-            expect(popover.height, lessThanOrEqualTo(160));
-            expect(popover.bottom, lessThan(photo.bottom));
-            expect(find.byKey(const Key('editor-tools-back')).hitTestable(), findsOneWidget);
             await tester.tapAt(const Offset(1, 1));
             await tester.pumpAndSettle();
-            expect(find.byKey(const Key('editor-parameter-popover')), findsNothing);
+            await selectEditorMode(tester, 'text');
+            await tapEditorControl(tester, 'editor-text-options');
+            expectEditorGeometry(tester, photo, dockHeight);
+            await tapEditorControl(tester, 'editor-tools-back');
+            expect(find.byKey(const Key('editor-mode-bar')), findsOneWidget);
             expectEditorGeometry(tester, photo, dockHeight);
           }
-          await selectEditorMode(tester, 'crop');
-          await tapEditorControl(tester, 'editor-crop-frame');
-          expectEditorGeometry(tester, photo, dockHeight);
-          await tester.tapAt(const Offset(1, 1));
-          await tester.pumpAndSettle();
-          await selectEditorMode(tester, 'text');
-          await tapEditorControl(tester, 'editor-text-options');
-          expectEditorGeometry(tester, photo, dockHeight);
-          await tapEditorControl(tester, 'editor-tools-back');
-          expect(find.byKey(const Key('editor-mode-bar')), findsOneWidget);
-          expectEditorGeometry(tester, photo, dockHeight);
-        }
-      }, variant: TargetPlatformVariant({platform}));
+        },
+        variant: TargetPlatformVariant({platform}),
+      );
     }
   }
 

@@ -6,20 +6,20 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
-import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
-import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/widgets/common/transparent_image.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart' as api;
 
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
+import 'editor_theme_test_host.dart';
 
 class _MockMagicEraserRepository extends Mock implements MagicEraserRepository {}
 
@@ -49,21 +49,30 @@ void main() {
     ).thenAnswer((_) async => result);
   });
 
-  Future<void> pumpEditor(WidgetTester tester, {RemoteAsset? photo, Widget Function(Widget page)? wrap}) async {
+  Future<void> pumpEditor(
+    WidgetTester tester, {
+    RemoteAsset? photo,
+    Widget Function(Widget page)? wrap,
+    ThemeMode? themeMode,
+  }) async {
     await tester.runAsync(() async {
       final page = MagicEraserPage(asset: photo ?? asset);
-      await tester.pumpConsumerWidgetRaw(
-        wrap?.call(page) ?? page,
-        overrides: [
-          magicEraserRepositoryProvider.overrideWithValue(repository),
-          immichThemeProvider.overrideWith(
-            (ref) => ImmichTheme(
-              light: ColorScheme.fromSeed(seedColor: Colors.blue),
-              dark: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.dark),
+      final overrides = [
+        magicEraserRepositoryProvider.overrideWithValue(repository),
+        ...editorThemeTestOverrides(themeMode ?? ThemeMode.dark),
+      ];
+      if (themeMode == null) {
+        await tester.pumpConsumerWidgetRaw(wrap?.call(page) ?? page, overrides: overrides);
+      } else {
+        await tester.pumpWidget(
+          localizedForTest(
+            ProviderScope(
+              overrides: overrides,
+              child: EditorThemeTestApp(child: wrap?.call(page) ?? page),
             ),
           ),
-        ],
-      );
+        );
+      }
       // Native descriptor/image decoding completes outside the fake timer zone.
       await Future<void>.delayed(const Duration(milliseconds: 50));
     });
@@ -229,6 +238,68 @@ void main() {
   }
 
   for (final dimensions in [const Size(600, 1000), const Size(1200, 800)]) {
+    testWidgets(
+      'Magic Eraser follows live system theme without losing mask, brush options, zoom or history on $dimensions',
+      (tester) async {
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+        tester.view.physicalSize = const Size(393, 852);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 28, bottom: 24);
+        tester.view.viewPadding = const FakeViewPadding(top: 28, bottom: 24);
+        addTearDown(tester.view.reset);
+        await setSourceSize(tester, width: dimensions.width.toInt(), height: dimensions.height.toInt());
+        await pumpEditor(tester, themeMode: ThemeMode.system);
+        await waitForGestureSource(tester);
+        await selectCenter(tester);
+        final state = tester.state(find.byType(MagicEraserPage));
+        final viewport = tester.getRect(find.byKey(const Key('eraser-canvas-region')));
+        final controller = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).transformationController!;
+        controller.value = Matrix4.identity()
+          ..scaleByDouble(1.5, 1.5, 1, 1)
+          ..translateByDouble(-24, -36, 0, 1);
+        await tester.pump();
+        final transform = controller.value.clone();
+        await tester.tap(find.byKey(const Key('eraser-size-options')));
+        await tester.pumpAndSettle();
+        for (final phone in [Brightness.dark, Brightness.light]) {
+          tester.platformDispatcher.platformBrightnessTestValue = phone;
+          await tester.pumpAndSettle();
+          final dock = find.byKey(const Key('editor-bottom-panel'));
+          expect(Theme.of(tester.element(dock)).brightness, phone);
+          expect(Theme.of(tester.element(find.byKey(const Key('editor-parameter-popover')))).brightness, phone);
+          expect(tester.getSize(dock).height, 80);
+          expect(tester.getRect(find.byKey(const Key('eraser-canvas-region'))), viewport);
+          expect(tester.state(find.byType(MagicEraserPage)), same(state));
+          expect(
+            tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).transformationController,
+            same(controller),
+          );
+          expect(controller.value, transform);
+          expect(displayedImage(tester).bytes, orderedEquals(source));
+          expect(canRemove(tester), isTrue);
+          expect(tester.widget<FotoIconButton>(find.byKey(const Key('eraser-brush'))).selected, isTrue);
+          final bar = tester.widget<AppBar>(find.byType(AppBar));
+          expect(
+            bar.systemOverlayStyle!.statusBarIconBrightness,
+            phone == Brightness.dark ? Brightness.light : Brightness.dark,
+          );
+        }
+        await tester.tapAt(const Offset(1, 1));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('eraser-header-undo')));
+        await tester.pump();
+        expect(canRemove(tester), isFalse);
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('eraser-header-redo')));
+        await tester.pump();
+        expect(canRemove(tester), isTrue);
+        verify(() => repository.source(asset.id, abortTrigger: any(named: 'abortTrigger'))).called(1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('Build27 pointer down paints immediately before up on $dimensions', (tester) async {
       await pumpGestureEditor(tester, width: dimensions.width.toInt(), height: dimensions.height.toInt());
       final start = imagePoint(tester, const Offset(.4, .5));

@@ -123,7 +123,7 @@ class MarkupControls extends StatelessWidget {
     final selectedToolWidth = min(180.0, MediaQuery.sizeOf(context).width * .45);
     return Material(
       key: Key(compact && draw && !showToolStrip ? 'editor-markup-settings' : 'editor-markup-controls'),
-      color: const Color(0xff191919),
+      color: Colors.transparent,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact && !settingsExpanded ? 0 : 4),
         child: Column(
@@ -134,7 +134,10 @@ class MarkupControls extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 child: DecoratedBox(
                   key: const Key('editor-drawing-pill'),
-                  decoration: BoxDecoration(color: const Color(0xff303030), borderRadius: BorderRadius.circular(32)),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(32),
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -150,24 +153,12 @@ class MarkupControls extends StatelessWidget {
                           isSelected: tool == entry,
                           style: IconButton.styleFrom(
                             shape: const CircleBorder(),
-                            backgroundColor: tool == entry ? const Color(0xff5a5122) : Colors.transparent,
+                            backgroundColor: tool == entry
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : Colors.transparent,
                           ),
-                          selectedIcon: Icon(
-                            icon(entry),
-                            color: entry == AnnotationTool.pen
-                                ? Colors.blue
-                                : entry == AnnotationTool.highlighter
-                                ? Colors.purple
-                                : Colors.yellow,
-                          ),
-                          icon: Icon(
-                            icon(entry),
-                            color: entry == AnnotationTool.pen
-                                ? Colors.blue
-                                : entry == AnnotationTool.highlighter
-                                ? Colors.purple
-                                : Colors.white,
-                          ),
+                          selectedIcon: Icon(icon(entry), color: Theme.of(context).colorScheme.primary),
+                          icon: Icon(icon(entry), color: Theme.of(context).colorScheme.onSurface),
                           onPressed: () => onTool(entry),
                         ),
                       const SizedBox(height: 28, child: VerticalDivider(width: 12)),
@@ -289,7 +280,9 @@ class MarkupControls extends StatelessWidget {
                               color: candidate,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: color == candidate ? Colors.yellow : Colors.grey,
+                                color: color == candidate
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(context).colorScheme.outline,
                                 width: color == candidate ? 3 : 1,
                               ),
                             ),

@@ -82,6 +82,7 @@ jobs:
             test/presentation/widgets/asset_viewer/asset_viewer_system_ui_test.dart \
             test/pages/edit/editor_compact_layout_test.dart \
             test/pages/edit/editor_acceptance_test.dart \
+            test/pages/edit/editor_theme_test.dart \
             test/widgets/settings/asset_list_settings_test.dart
       - name: Annotate formatter differences
         if: failure() && steps.format.outcome == 'failure'
@@ -222,6 +223,7 @@ jobs:
           flutter test --no-pub --concurrency=1 --update-goldens --reporter json \
             test/pages/edit/editor_compact_layout_test.dart \
             test/pages/edit/editor_acceptance_test.dart \
+            test/pages/edit/editor_theme_test.dart \
             | tee "$RUNNER_TEMP/editor-review.jsonl"
       - name: Annotate rendering results
         if: "!cancelled() && (steps.render.outcome == 'success' || steps.render.outcome == 'failure')"

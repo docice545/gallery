@@ -21,6 +21,7 @@ import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_chrome.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
@@ -29,9 +30,7 @@ import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/background_sync.provider.dart';
-import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
-import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/annotation_editor.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
 import 'package:immich_mobile/utils/editor_geometry.dart';
@@ -142,7 +141,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     await showDialog<void>(
       context: context,
       builder: (context) => Theme(
-        data: getThemeData(colorScheme: ref.read(immichThemeProvider).dark, locale: context.locale),
+        data: Theme.of(context),
         child: Dialog(
           alignment: Alignment.bottomCenter,
           insetPadding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.paddingOf(context).bottom + 64),
@@ -154,7 +153,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                   height: 216,
                   child: Column(
                     children: [
-                      Text(context.tr('editor_layers'), style: const TextStyle(color: Colors.white)),
+                      Text(context.tr('editor_layers')),
                       Expanded(
                         child: ListView(
                           children: [
@@ -162,7 +161,6 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                               ListTile(
                                 key: ValueKey('editor-layer-${element.id}'),
                                 selected: _selectedId == element.id,
-                                textColor: Colors.white,
                                 title: Text(
                                   element.isText
                                       ? element.text!
@@ -579,13 +577,13 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
           Navigator.of(context).pop();
         }
       },
-      child: Theme(
-        data: getThemeData(colorScheme: ref.watch(immichThemeProvider).dark, locale: context.locale),
+      child: EditorChrome(
         child: Builder(
           builder: (context) => Scaffold(
             appBar: AppBar(
               toolbarHeight: kToolbarHeight,
-              backgroundColor: Colors.black,
+              systemOverlayStyle: editorSystemUiStyle(context),
+              backgroundColor: Theme.of(context).colorScheme.surface,
               leadingWidth: 48,
               leading: IconButton(
                 key: const Key('editor-back'),
@@ -621,7 +619,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                 _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits, retryImport: _pendingCopy != null),
               ],
             ),
-            backgroundColor: Colors.black,
+            backgroundColor: Theme.of(context).colorScheme.surface,
             body: SafeArea(
               bottom: false,
               child: LayoutBuilder(
@@ -711,7 +709,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                           top: 8,
                           right: 8,
                           child: Material(
-                            color: const Color(0xff191919),
+                            color: Theme.of(context).colorScheme.surfaceContainerHigh,
                             borderRadius: BorderRadius.circular(24),
                             child: TextButton(
                               key: const Key('editor-cancel-export'),
@@ -924,10 +922,16 @@ class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
           AnnotationTool.ellipse,
         ]) {
           controls.add(
-            _button('editor-tool-${tool.name}', fotoAnnotationToolIcons[tool]!, _toolLabel(context, tool), () {
-              _dismiss();
-              widget.onTool(tool);
-            }, selected: widget.tool == tool),
+            _button(
+              'editor-tool-${tool.name}',
+              fotoAnnotationToolIcons[tool]!,
+              _toolLabel(context, tool),
+              () {
+                _dismiss();
+                widget.onTool(tool);
+              },
+              selected: widget.tool == tool,
+            ),
           );
         }
         controls.add(_button('editor-width', FotoIconKind.brush, context.t.size, () => _open('width')));

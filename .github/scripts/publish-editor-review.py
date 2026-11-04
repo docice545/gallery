@@ -16,7 +16,11 @@ PREFIX = "mobile/test/pages/edit/goldens/fixed_dock_"
 PROFILES = {
     "editor": {
         "prefix": PREFIX,
-        "names": ["entry", "markup", "marker", "width", "color", "crop", "text"],
+        "names": ["entry", "markup", "marker", "width", "color", "crop", "text"] + [
+            f"theme_{theme}_{state}"
+            for theme in ("light", "dark")
+            for state in ("entry", "markup", "marker", "width", "color", "crop", "text")
+        ],
         "marker": "EDITOR_VIEWPORT ",
         "receipt": "specs/design/editor-dock-review/measurements.json",
     },

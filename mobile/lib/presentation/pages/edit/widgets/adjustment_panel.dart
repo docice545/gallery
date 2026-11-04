@@ -54,7 +54,7 @@ class _AdjustmentPanelState extends ConsumerState<AdjustmentPanel> {
               const SizedBox(width: 12),
               Text(
                 '${((state.adjustments[_selected] ?? 0) * 100).round()}',
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               ),
               Expanded(
                 child: Slider(

@@ -11,11 +11,10 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser_availability.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_chrome.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
-import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
-import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
 /// The canvas is always the server's oriented original, independent of local
@@ -413,17 +412,15 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = getThemeData(colorScheme: ref.watch(immichThemeProvider).dark, locale: context.locale);
-
-    return Theme(
-      data: theme,
+    return EditorChrome(
       child: PopScope(
         canPop: !_saving,
         child: Scaffold(
-          backgroundColor: Colors.black,
+          backgroundColor: Theme.of(context).colorScheme.surface,
           appBar: AppBar(
-            backgroundColor: Colors.black,
+            backgroundColor: Theme.of(context).colorScheme.surface,
             toolbarHeight: kToolbarHeight,
+            systemOverlayStyle: editorSystemUiStyle(context),
             leading: IconButton(
               key: const Key('eraser-back'),
               tooltip: context.t.back,
@@ -498,13 +495,13 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
                               right: 12,
                               child: IgnorePointer(
                                 child: Material(
-                                  color: Colors.black87,
+                                  color: Theme.of(context).colorScheme.errorContainer,
                                   borderRadius: BorderRadius.circular(12),
                                   child: Padding(
                                     padding: const EdgeInsets.all(8),
                                     child: Text(
                                       _timeout ? context.t.magic_eraser_timeout : context.t.magic_eraser_failed,
-                                      style: const TextStyle(color: Colors.orangeAccent),
+                                      style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
                                     ),
                                   ),
                                 ),
@@ -542,7 +539,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
               Text(
                 magicEraserAvailabilityMessage(context, _loadError),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               ),
               TextButton(onPressed: _load, child: Text(context.t.retry)),
             ],
@@ -611,7 +608,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
             if (_processing || _saving)
               Positioned.fill(
                 child: ColoredBox(
-                  color: Colors.black54,
+                  color: Theme.of(context).colorScheme.surface.withValues(alpha: .96),
                   child: Center(
                     child: SingleChildScrollView(
                       child: Column(
@@ -648,7 +645,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
     children: [
       const CircularProgressIndicator(),
       const SizedBox(height: 12),
-      Text(text, style: const TextStyle(color: Colors.white)),
+      Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
     ],
   );
 
