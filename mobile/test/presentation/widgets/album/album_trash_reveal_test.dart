@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 
 import '../../../widget_tester_extensions.dart';
 

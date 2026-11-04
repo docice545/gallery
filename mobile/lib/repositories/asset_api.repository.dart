@@ -593,6 +593,60 @@ class AssetApiRepository extends ApiRepository {
     AssetVisibility.archive => api.AssetVisibility.archive,
   };
 
+  /// Online, owner-scoped verification before removing a phone copy. Cached
+  /// checksum matches alone cannot establish that a server copy is still usable.
+  Future<bool> isCleanupBackupAvailable(LocalAsset local, String ownerId) async {
+    if (local.remoteId == null || local.checksum == null) {
+      return false;
+    }
+    final endpoint = _apiService.apiClient.basePath;
+    try {
+      final photo = await _api.getAssetInfo(local.remoteId!);
+      if (photo == null ||
+          photo.ownerId != ownerId ||
+          photo.checksum != local.checksum ||
+          photo.isOffline ||
+          photo.isTrashed) {
+        return false;
+      }
+      final motionId = photo.livePhotoVideoId.orElse(null);
+      if (local.isMotionPhoto && motionId == null) {
+        return false;
+      }
+      if (motionId != null) {
+        final motion = await _api.getAssetInfo(motionId);
+        if (motion == null ||
+            motion.ownerId != ownerId ||
+            motion.isOffline ||
+            motion.isTrashed ||
+            motion.type != AssetTypeEnum.VIDEO) {
+          return false;
+        }
+        if (!await _cleanupOriginalAvailable(motionId)) {
+          return false;
+        }
+      }
+      return await _cleanupOriginalAvailable(local.remoteId!) && endpoint == _apiService.apiClient.basePath;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _cleanupOriginalAvailable(String id) async {
+    final response = await _apiService.apiClient
+        .invokeAPI(
+          '/assets/$id/original',
+          'HEAD',
+          [const QueryParam('edited', 'false')],
+          null,
+          <String, String>{},
+          <String, String>{},
+          null,
+        )
+        .timeout(const Duration(seconds: 15));
+    return response.statusCode == 200 && (int.tryParse(response.headers['content-length'] ?? '') ?? 0) > 0;
+  }
+
   Future<String?> getAssetMIMEType(String assetId) async {
     final response = await checkNull(_api.getAssetInfo(assetId));
 

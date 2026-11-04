@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
@@ -22,6 +23,36 @@ void main() {
     assetMediaRepository = MockAssetMediaRepository();
     when(() => localAssetRepository.getAlbumIdsForAssets(any())).thenAnswer((_) async => {});
     sut = CleanupService(localAssetRepository, assetMediaRepository);
+  });
+
+  test('verified cleanup rechecks online backup and consent before native removal', () async {
+    final asset = LocalAsset(
+      id: 'phone',
+      remoteId: 'server',
+      name: 'synthetic.jpg',
+      checksum: 'sum',
+      type: AssetType.image,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      playbackStyle: AssetPlaybackStyle.livePhoto,
+      isEdited: false,
+    );
+    when(() => localAssetRepository.get('phone')).thenAnswer((_) async => asset);
+    final pending = Completer<bool>();
+    sut = CleanupService(localAssetRepository, assetMediaRepository, verifyBackup: (_, _) => pending.future);
+    var consent = true;
+    final operation = sut.deleteVerifiedLocalAssets([asset], 'owner', canContinue: () => consent);
+    final expectation = expectLater(operation, throwsA(isA<CleanupBackupUnverified>()));
+    consent = false;
+    pending.complete(true);
+    await expectation;
+    verifyNever(() => assetMediaRepository.deleteAll(any()));
+    sut = CleanupService(localAssetRepository, assetMediaRepository, verifyBackup: (_, _) async => false);
+    await expectLater(
+      sut.deleteVerifiedLocalAssets([asset], 'owner', canContinue: () => true),
+      throwsA(isA<CleanupBackupUnverified>()),
+    );
+    verifyNever(() => assetMediaRepository.deleteAll(any()));
   });
 
   test('navigation evidence includes only verified IDs and albums after the cache commit', () async {
