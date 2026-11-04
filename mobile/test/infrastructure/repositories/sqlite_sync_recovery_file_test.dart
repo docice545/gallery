@@ -48,9 +48,15 @@ SyncAssetV2 _asset({required String id, required String checksum}) => SyncAssetV
 Future<Uint8List> corruptOwnerChecksumIndex(File database) async {
   final raw = sqlite.sqlite3.open(database.path);
   final pageSize = raw.select('PRAGMA page_size').single.values.single! as int;
-  final indexRoot = raw
-      .select("SELECT rootpage FROM sqlite_master WHERE type = 'index' AND name = 'UQ_remote_assets_owner_checksum'")
-      .single.values.single! as int;
+  final indexRoot =
+      raw
+              .select(
+                "SELECT rootpage FROM sqlite_master WHERE type = 'index' AND name = 'UQ_remote_assets_owner_checksum'",
+              )
+              .single
+              .values
+              .single!
+          as int;
   raw.close();
 
   final bytes = await database.readAsBytes();
@@ -88,12 +94,12 @@ void main() {
       db = Drift(drift.DatabaseConnection(NativeDatabase(primary), closeStreamsSynchronously: true));
       final repository = SyncStreamRepository(db);
       await repository.updateUsersV1([_owner()]);
-      await db.into(db.settingsEntity).insert(
-        SettingsEntityCompanion.insert(key: pendingKey, value: const drift.Value(pendingValue)),
-      );
-      await db.into(db.settingsEntity).insert(
-        SettingsEntityCompanion.insert(key: cursorKey, value: const drift.Value(cursorValue)),
-      );
+      await db
+          .into(db.settingsEntity)
+          .insert(SettingsEntityCompanion.insert(key: pendingKey, value: const drift.Value(pendingValue)));
+      await db
+          .into(db.settingsEntity)
+          .insert(SettingsEntityCompanion.insert(key: cursorKey, value: const drift.Value(cursorValue)));
 
       final seed = [
         for (var index = 1; index <= 100; index++)
@@ -120,25 +126,13 @@ void main() {
 
       await expectLater(
         failingRepository.updateAssetsV2([failingAsset], debugLabel: 'file-backed-test'),
-        throwsA(
-          isA<SqliteDatabaseUnhealthy>().having(
-            (error) => error.cause,
-            'cause',
-            779,
-          ),
-        ),
+        throwsA(isA<SqliteDatabaseUnhealthy>().having((error) => error.cause, 'cause', 779)),
       );
       expect(SqliteRecoveryGate.isHalted, isTrue);
       expect(captured, isNotNull);
       expect(await primary.readAsBytes(), corruptedBytes);
-      expect(
-        (await db.settingsEntity.select().get()).where((row) => row.key == pendingKey).single.value,
-        pendingValue,
-      );
-      expect(
-        (await db.settingsEntity.select().get()).where((row) => row.key == cursorKey).single.value,
-        cursorValue,
-      );
+      expect((await db.settingsEntity.select().get()).where((row) => row.key == pendingKey).single.value, pendingValue);
+      expect((await db.settingsEntity.select().get()).where((row) => row.key == cursorKey).single.value, cursorValue);
       await db.close();
       db = null;
 
@@ -152,9 +146,7 @@ void main() {
 
       SqliteRecoveryGate.clearAfterValidatedRecovery();
       final candidateFile = File('${report.candidate!.path}/immich.sqlite');
-      candidateDb = Drift(
-        drift.DatabaseConnection(NativeDatabase(candidateFile), closeStreamsSynchronously: true),
-      );
+      candidateDb = Drift(drift.DatabaseConnection(NativeDatabase(candidateFile), closeStreamsSynchronously: true));
       final candidateRepository = SyncStreamRepository(candidateDb);
       await candidateRepository.updateAssetsV2([failingAsset], debugLabel: 'file-backed-resume');
       final candidateRow = await (candidateDb.remoteAssetEntity.select()..where((row) => row.id.equals('asset-1')))

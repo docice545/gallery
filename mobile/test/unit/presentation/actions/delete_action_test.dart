@@ -69,6 +69,9 @@ void main() {
     TimelineOrigin? origin,
     ActionSource source = ActionSource.timeline,
   }) async {
+    for (final asset in selection) {
+      when(() => assetService.getAsset(asset)).thenAnswer((_) async => asset);
+    }
     final timeline = origin == null
         ? null
         : TimelineService((
@@ -129,7 +132,7 @@ void main() {
           await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
           await tester.pumpAndSettle();
 
-          verify(() => assetService.resolveStackTrashIds([cover.id], [cover])).called(1);
+          verify(() => assetService.resolveStackTrashIds([cover.id], [cover])).called(2);
           verify(() => assetService.trash(ids)).called(1);
           expect(find.text('$count moved to trash'), findsOneWidget);
           verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
@@ -137,6 +140,45 @@ void main() {
           await tester.tap(find.text('Undo'));
           await tester.pumpAndSettle();
           verify(() => assetService.restoreTrash(ids)).called(1);
+        });
+      }
+
+      testWidgets('changed expanded membership after lookup cancels the whole deletion', (tester) async {
+        final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+        var reads = 0;
+        when(
+          () => assetService.resolveStackTrashIds(any(), any()),
+        ).thenAnswer((_) async => ++reads == 1 ? [cover.id, 'intended-child'] : [cover.id, 'unexpected-new-child']);
+        await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+        await tester.pumpAndSettle();
+        expect(reads, 2);
+        verifyNever(() => assetService.trash(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        final scope = ProviderScope.containerOf(tester.element(find.byType(ActionIconButton)), listen: false);
+        expect(scope.read(multiSelectProvider).selectedAssets, {cover});
+        expect(find.text('Undo'), findsNothing);
+      });
+
+      for (final change in ['server', 'logout']) {
+        testWidgets('Undo after $change cannot restore captured IDs into a different session', (tester) async {
+          final cover = RemoteAssetFactory.create(ownerId: context.currentUser.id, stackId: 'stack');
+          final ids = [cover.id, 'child'];
+          when(() => assetService.resolveStackTrashIds(any(), any())).thenAnswer((_) async => ids);
+          await pumpDelete(tester, {cover}, origin: TimelineOrigin.main);
+          await tester.pumpAndSettle();
+          verify(() => assetService.trash(ids)).called(1);
+          try {
+            if (change == 'server') {
+              await StoreService.I.put(StoreKey.serverEndpoint, 'https://different.example.test/api');
+            } else {
+              when(context.service.user.tryGetMyUser).thenReturn(null);
+            }
+            await tester.tap(find.text('Undo'));
+            await tester.pumpAndSettle();
+            verifyNever(() => assetService.restoreTrash(any()));
+          } finally {
+            await StoreService.I.put(StoreKey.serverEndpoint, PresentationContext.serverEndpoint);
+          }
         });
       }
 
@@ -491,7 +533,7 @@ void main() {
         await tester.tap(find.byType(TextButton).at(1));
         await tester.pumpAndSettle();
 
-        expect(find.text(StaticTranslations.instance.move_to_device_trash), findsNothing);
+        expect(find.text(StaticTranslations.instance.device_trash_confirmation_title), findsNothing);
         verify(() => assetService.acceptPermanentDeletion([asset.id])).called(1);
         verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
       });
@@ -504,7 +546,7 @@ void main() {
         await pumpDelete(tester, {asset}, device: true);
         await tester.pump(const Duration(milliseconds: 300));
 
-        expect(find.text(StaticTranslations.instance.move_to_device_trash), findsOneWidget);
+        expect(find.text(StaticTranslations.instance.device_trash_confirmation_title), findsOneWidget);
         await tester.tap(find.byType(TextButton).at(1)); // confirm
         await tester.pumpAndSettle();
 
@@ -512,6 +554,65 @@ void main() {
         // Has to be cleared inside the body; the framework asserts on it before tearDown runs.
         debugDefaultTargetPlatformOverride = null;
       });
+
+      for (final scale in [1.0, 2.0]) {
+        testWidgets('compact Russian device consent at scale $scale', (tester) async {
+          debugDefaultTargetPlatformOverride = TargetPlatform.android;
+          tester.view.physicalSize = const Size(393, 852);
+          tester.view.devicePixelRatio = 1;
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await StoreService.I.put(StoreKey.manageLocalMediaAndroid, true);
+          final asset = LocalAssetFactory.create();
+          when(() => assetService.getAsset(asset)).thenAnswer((_) async => asset);
+          await tester.pumpTestWidget(
+            context,
+            const ActionIconButton(action: CleanupLocalAction(source: .timeline)),
+            overrides: context.selected({asset}),
+          );
+          final localization = EasyLocalization.of(tester.element(find.byType(ActionIconButton)))!;
+          await localization.setLocale(const Locale('ru'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byType(ImmichIconButton));
+          // The action is deliberately busy until consent resolves; its loading
+          // indicator cannot settle while this confirmation is still open.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.byType(ConfirmDialog), findsOneWidget);
+          expect(find.text('Удалить с устройства?'), findsOneWidget);
+          expect(
+            find.text('Выбранные фото будут перемещены в корзину телефона. Копии на сервере останутся.'),
+            findsOneWidget,
+          );
+          expect(find.text('Отмена'), findsOneWidget);
+          expect(find.text('В корзину'), findsOneWidget);
+          final dialog = tester.getRect(find.byType(AlertDialog));
+          expect(dialog.left, greaterThanOrEqualTo(0));
+          expect(dialog.right, lessThanOrEqualTo(393));
+          expect(dialog.bottom, lessThanOrEqualTo(852));
+          verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+          await tester.tap(find.text('Отмена'));
+          await tester.pumpAndSettle();
+          verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+          await tester.tap(find.byType(ImmichIconButton));
+          // The action is deliberately busy until consent resolves; its loading
+          // indicator cannot settle while this confirmation is still open.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.tap(find.text('В корзину'));
+          await tester.pumpAndSettle();
+          verify(() => cleanupService.deleteLocalAssetsDetailed([asset.id])).called(1);
+          verifyNever(() => assetService.trash(any()));
+          verifyNever(() => assetService.acceptPermanentDeletion(any()));
+          expect(find.byType(ConfirmDialog), findsNothing);
+          expect(tester.takeException(), isNull);
+          await localization.setLocale(const Locale('en'));
+          await tester.pumpAndSettle();
+          debugDefaultTargetPlatformOverride = null;
+        });
+      }
 
       testWidgets('local only delete on Android with MANAGE_MEDIA deletes nothing when cancelled', (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -565,11 +666,7 @@ void main() {
       final backedUp = LocalAssetFactory.create(remoteId: 'remote');
       final localOnly = LocalAssetFactory.create();
 
-      await tester.pumpTestAction(
-        context,
-        const CleanupLocalAction(source: .timeline),
-        overrides: context.selected({backedUp, localOnly}),
-      );
+      await pumpDelete(tester, {backedUp, localOnly}, device: true);
       await tester.pumpAndSettle();
 
       verify(() => cleanupService.deleteLocalAssetsDetailed([backedUp.id, localOnly.id])).called(1);

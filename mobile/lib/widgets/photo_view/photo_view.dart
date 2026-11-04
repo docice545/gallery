@@ -236,6 +236,7 @@ class PhotoView extends StatefulWidget {
     required this.imageProvider,
     required this.index,
     this.loadingBuilder,
+    this.loadingChildSize,
     this.backgroundDecoration,
     this.wantKeepAlive = false,
     this.gaplessPlayback = false,
@@ -315,6 +316,7 @@ class PhotoView extends StatefulWidget {
        imageProvider = null,
        gaplessPlayback = false,
        loadingBuilder = null,
+       loadingChildSize = null,
        index = 0;
 
   /// Given a [imageProvider] it resolves into an zoomable image widget using. It
@@ -324,6 +326,10 @@ class PhotoView extends StatefulWidget {
   /// While [imageProvider] is not resolved, [loadingBuilder] is called by [PhotoView]
   /// into the screen, by default it is a centered [CircularProgressIndicator]
   final LoadingBuilder? loadingBuilder;
+
+  /// Upright metadata dimensions keep the Hero's contained rectangle stable
+  /// before the first decoded frame arrives. Never used as a decode target.
+  final Size? loadingChildSize;
 
   /// Show loadFailedChild when the image failed to load
   final ImageErrorWidgetBuilder? errorBuilder;
@@ -584,6 +590,7 @@ class _PhotoViewState extends State<PhotoView> with AutomaticKeepAliveClientMixi
             : ImageWrapper(
                 imageProvider: widget.imageProvider!,
                 loadingBuilder: widget.loadingBuilder,
+                loadingChildSize: widget.loadingChildSize,
                 backgroundDecoration: backgroundDecoration,
                 semanticLabel: widget.semanticLabel,
                 gaplessPlayback: widget.gaplessPlayback,

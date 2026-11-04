@@ -10,6 +10,7 @@ import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/sync_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
+import 'package:immich_mobile/utils/place_names.dart';
 import 'package:logging/logging.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:openapi/api.dart';
@@ -105,6 +106,14 @@ final resolvedPlaceLabelsProvider = StateProvider<Map<String, String>>((ref) {
   ref.watch(placeNameServiceProvider);
   return const {};
 });
+
+/// Cache-only read used by every display surface, including the scrolling
+/// Timeline. Watching this provider never invokes the native geocoder or API.
+final placeDisplayNamesProvider = Provider.family<PlaceDisplayNames, Locale>((ref, locale) {
+  final persisted = ref.watch(persistedPlaceLabelsProvider).valueOrNull ?? const <String, String>{};
+  final resolved = ref.watch(resolvedPlaceLabelsProvider);
+  return PlaceDisplayNames(locale.toLanguageTag(), {...persisted, ...resolved});
+}, dependencies: [persistedPlaceLabelsProvider, resolvedPlaceLabelsProvider]);
 
 typedef PlaceLabelRequest = ({Place place, Locale locale});
 

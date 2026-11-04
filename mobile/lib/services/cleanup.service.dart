@@ -2,6 +2,8 @@ import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
+import 'package:immich_mobile/domain/models/events.model.dart';
+import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -72,8 +74,10 @@ class CleanupService {
         // A SQLite failure is not a MediaStore refusal. Propagate it so the
         // caller retains selection and the next verified retry can reconcile
         // an already-trashed row instead of reporting stale cache as success.
+        final albums = await _localAssetRepository.getAlbumIdsForAssets(acknowledged.toList());
         await _localAssetRepository.deleteAssets(acknowledged.toList());
         deleted.addAll(acknowledged);
+        EventStream.shared.emit(DeviceTrashAcknowledgedEvent(albumIds: albums, assetIds: acknowledged));
       }
     }
     return LocalDeletionResult(

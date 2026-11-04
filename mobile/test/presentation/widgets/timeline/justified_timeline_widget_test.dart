@@ -15,6 +15,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
@@ -26,11 +27,14 @@ import 'package:immich_mobile/infrastructure/repositories/store.repository.dart'
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/header.widget.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/multi_select_status_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/sliver_segmented_list.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/timeline.widget.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.dart';
@@ -43,6 +47,7 @@ import '../../../test_utils.dart';
 import '../../../widget_tester_extensions.dart';
 
 const _spacing = 3.0;
+final _testConfig = StateProvider<AppConfig>((_) => const AppConfig());
 const _captureArtifacts = bool.fromEnvironment('FOTO_MOSAIC_CAPTURE');
 const _artifactDirectory = String.fromEnvironment(
   'FOTO_MOSAIC_ARTIFACT_DIR',
@@ -201,6 +206,10 @@ void main() {
     double textScale = 1,
     TimelineAssetSource? source,
     bool withHeaders = false,
+    bool realTimeline = false,
+    bool selectionChrome = false,
+    double selectionExpandedHeight = kToolbarHeight,
+    EdgeInsets insets = EdgeInsets.zero,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -248,14 +257,30 @@ void main() {
     );
     await tester.pumpConsumerWidgetRaw(
       MediaQuery(
-        data: MediaQueryData(size: size, textScaler: TextScaler.linear(textScale)),
+        data: MediaQueryData(
+          size: size,
+          padding: insets,
+          viewPadding: insets,
+          textScaler: TextScaler.linear(textScale),
+        ),
         child: RepaintBoundary(
           key: boundary,
           child: ColoredBox(
             color: Colors.white,
             child: Theme(
               data: ThemeData(fontFamily: 'GoogleSans'),
-              child: FaceAwareThumbnailScope(child: list),
+              child: FaceAwareThumbnailScope(
+                child: realTimeline
+                    ? Timeline(
+                        appBar: selectionChrome
+                            ? SliverAppBar(expandedHeight: selectionExpandedHeight, title: const Text('FOTO'))
+                            : null,
+                        bottomSheet: selectionChrome ? const SizedBox.shrink() : null,
+                        denseLayout: true,
+                        withStack: true,
+                      )
+                    : list,
+              ),
             ),
           ),
         ),
@@ -267,7 +292,7 @@ void main() {
         ),
         readonlyModeProvider.overrideWith(_Readonly.new),
         hapticFeedbackProvider.overrideWith(_NoHaptics.new),
-        appConfigProvider.overrideWithValue(const AppConfig()),
+        appConfigProvider.overrideWith((ref) => ref.watch(_testConfig)),
         thumbnailFaceBoundsProvider.overrideWith((_, _) => Stream.value(const [])),
         stackCountsProvider.overrideWith((_) => Stream.value({})),
       ],
@@ -276,7 +301,216 @@ void main() {
     await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 40)));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(tester.element(find.byType(CustomScrollView)));
-    return _Fixture(container, segments, boundary, scroll);
+    return _Fixture(
+      container,
+      segments,
+      boundary,
+      realTimeline ? PrimaryScrollController.of(tester.element(find.byType(CustomScrollView))) : scroll,
+    );
+  }
+
+  testWidgets('selection replaces an expanded header without moving the visible photo or changing its ID', (
+    tester,
+  ) async {
+    final assets = [for (var i = 0; i < 60; i++) _asset('anchor-$i')];
+    final fixture = await mount(
+      tester,
+      assets,
+      realTimeline: true,
+      selectionChrome: true,
+      selectionExpandedHeight: 220,
+      insets: const EdgeInsets.only(top: 28),
+    );
+    fixture.scroll.jumpTo(480);
+    await tester.pumpAndSettle();
+    final visible = tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).firstWhere((tile) {
+      final rect = tester.getRect(_tile(tile.asset!.id));
+      return rect.top > 150 && rect.bottom < 700;
+    }).asset!;
+    final before = tester.getRect(_tile(visible.id));
+    await tester.longPress(_tile(visible.id));
+    await tester.pumpAndSettle();
+    expect(fixture.container.read(multiSelectProvider).selectedAssets.single.id, visible.id);
+    expect(tester.getRect(_tile(visible.id)), before);
+    await tester.tap(find.byType(MultiSelectStatusButton));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(_tile(visible.id)), before);
+    expect(fixture.container.read(multiSelectProvider).selectedIds, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final size in [const Size(320, 720), const Size(720, 320)]) {
+    testWidgets('actual Timeline selection count stays in one safe toolbar after taps and scroll at $size', (
+      tester,
+    ) async {
+      const insets = EdgeInsets.fromLTRB(24, 28, 24, 24);
+      final assets = [for (var i = 0; i < 36; i++) _asset('selection-$i')];
+      final fixture = await mount(
+        tester,
+        assets,
+        realTimeline: true,
+        selectionChrome: true,
+        size: size,
+        textScale: 2,
+        insets: insets,
+        buckets: [
+          for (var day = 0; day < 6; day++)
+            TimeBucket(date: DateTime(2026, 11, 3 - day), assetCount: 6, aspectRatios: List.filled(6, 1)),
+        ],
+      );
+      await tester.longPress(_tile(assets.first.id));
+      await tester.pumpAndSettle();
+      final status = find.byType(MultiSelectStatusButton);
+      final toolbar = find.byKey(const ValueKey('timeline-selection-toolbar'));
+      void checkCount(int expected) {
+        expect(fixture.container.read(multiSelectProvider).selectedIds, hasLength(expected));
+        expect(find.descendant(of: status, matching: find.text('$expected')), findsOneWidget);
+        expect(status, findsOneWidget);
+        final rect = tester.getRect(status);
+        expect(rect.top, greaterThanOrEqualTo(insets.top));
+        expect(rect.bottom, lessThanOrEqualTo(insets.top + kToolbarHeight));
+        expect(rect.height, greaterThanOrEqualTo(48));
+        expect(rect.left, greaterThanOrEqualTo(insets.left));
+        expect(rect.right, lessThanOrEqualTo(size.width - insets.right));
+        expect(status.hitTestable(), findsOneWidget);
+      }
+
+      checkCount(1);
+      expect(toolbar, findsOneWidget);
+      final firstHeader = tester.getRect(find.byType(TimelineHeader).first);
+      expect(firstHeader.top, greaterThanOrEqualTo(insets.top + kToolbarHeight));
+      await tester.tap(_tile(assets[1].id));
+      await tester.pump();
+      checkCount(2);
+      await tester.tap(_tile(assets[1].id));
+      await tester.pump();
+      checkCount(1);
+      expect(fixture.container.read(multiSelectProvider).selectedAssets.single.id, assets.first.id);
+      final initialButton = tester.getRect(status);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -450));
+      await tester.pumpAndSettle();
+      checkCount(1);
+      expect(tester.getRect(status), initialButton);
+      // The opaque pinned bar owns its entire area; scrolled date/header hit
+      // targets cannot compete with the count or the system status inset.
+      expect(tester.widget<SliverAppBar>(toolbar).pinned, isTrue);
+      expect(tester.widget<SliverAppBar>(toolbar).backgroundColor!.a, 1);
+      await tester.tap(status);
+      await tester.pumpAndSettle();
+      expect(status, findsNothing);
+      expect(fixture.container.read(multiSelectProvider).selectedIds, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final selectionChrome in [false, true]) {
+    testWidgets(
+      'real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: $selectionChrome)',
+      (tester) async {
+        final assets = [
+          for (var i = 0; i < 60; i++) _asset('mode-$i', ratio: [.45, 1.5, .75][i % 3]),
+        ];
+        final fixture = await mount(
+          tester,
+          assets,
+          realTimeline: true,
+          selectionChrome: selectionChrome,
+          buckets: [
+            for (var day = 0; day < 6; day++)
+              TimeBucket(
+                date: DateTime(2026, 11, 3 - day),
+                assetCount: 10,
+                aspectRatios: assets.skip(day * 10).take(10).map((asset) => asset.width! / asset.height!).toList(),
+              ),
+          ],
+        );
+        fixture.scroll.jumpTo(900);
+        await tester.pumpAndSettle();
+        final visible = tester
+            .widgetList<ThumbnailTile>(find.byType(ThumbnailTile))
+            .where((tile) {
+              final rect = tester.getRect(_tile(tile.asset!.id));
+              return rect.top >= 0 && rect.bottom <= 844;
+            })
+            .first
+            .asset!;
+        await tester.longPress(_tile(visible.id));
+        await tester.pumpAndSettle();
+        final selectedBefore = fixture.container
+            .read(multiSelectProvider)
+            .selectedAssets
+            .map((asset) => asset.id)
+            .toSet();
+        expect(selectedBefore, {visible.id});
+        final config = fixture.container.read(_testConfig.notifier);
+        config.state = config.state.copyWith(
+          timeline: config.state.timeline.copyWith(presentation: TimelinePresentation.immersive),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          fixture.container.read(multiSelectProvider).selectedAssets.map((asset) => asset.id).toSet(),
+          selectedBefore,
+        );
+        final immersiveSegments = fixture.container.read(timelineSegmentProvider).requireValue;
+        expect(immersiveSegments.every((segment) => segment.headerExtent == 0), isTrue);
+        expect(
+          fixture.scroll.offset,
+          greaterThan(0),
+          reason: 'Presentation switching must not reset to the newest photo',
+        );
+        expect(_tile(visible.id), findsOneWidget);
+        List<List<List<double>>> geometry(List<Segment> segments) => [
+          for (final segment in segments.cast<FixedSegment>())
+            [
+              for (var row = 0; row < segment.rows.rowCount; row++)
+                [segment.rows.heightForRow(row), ...segment.rows.widthsForRow(row)],
+            ],
+        ];
+        final geometryBefore = geometry(immersiveSegments);
+        config.state = config.state.copyWith(timeline: config.state.timeline.copyWith(tilesPerRow: 2));
+        await tester.pumpAndSettle();
+        expect(fixture.container.read(timelineArgsProvider).columnCount, 2);
+        final resizedSegments = fixture.container.read(timelineSegmentProvider).requireValue;
+        expect(resizedSegments.cast<FixedSegment>().map((segment) => segment.columnCount), everyElement(2));
+        expect(geometry(resizedSegments), isNot(equals(geometryBefore)));
+        // Justified density is a target: a particular mixed-aspect row can retain
+        // its partition and width. Verify the real tile against the new layout,
+        // rather than imposing a hard per-photo size change on the mosaic.
+        final assetIndex = assets.indexWhere((asset) => asset.id == visible.id);
+        final segment = resizedSegments.cast<FixedSegment>().singleWhere(
+          (segment) =>
+              assetIndex >= segment.firstAssetIndex && assetIndex < segment.firstAssetIndex + segment.bucket.assetCount,
+        );
+        final relativeIndex = assetIndex - segment.firstAssetIndex;
+        final row = segment.rows.rowForAssetIndex(relativeIndex);
+        final expectedWidth = segment.rows.widthsForRow(row)[relativeIndex - segment.rows.firstAssetIndexForRow(row)];
+        expect(
+          _tile(visible.id).hitTestable(),
+          findsOneWidget,
+          reason: 'Density changes must restore the actual visible mosaic, including while selection chrome is active',
+        );
+        expect(tester.getRect(_tile(visible.id)).width, closeTo(expectedWidth, .01));
+        expect(fixture.scroll.offset, greaterThan(0));
+        config.state = config.state.copyWith(
+          timeline: config.state.timeline.copyWith(presentation: TimelinePresentation.classic),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          fixture.container.read(timelineSegmentProvider).requireValue.every((segment) => segment.headerExtent > 0),
+          isTrue,
+        );
+        expect(
+          fixture.container.read(multiSelectProvider).selectedAssets.map((asset) => asset.id).toSet(),
+          selectedBefore,
+        );
+        expect(
+          _tile(visible.id).hitTestable(),
+          findsOneWidget,
+          reason: 'Returning to Classic must retain the same visible photo',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final ratios in [
@@ -320,7 +554,7 @@ void main() {
     });
   }
 
-  testWidgets('selection gesture keeps image geometry and elements stable while top outer clipping survives', (
+  testWidgets('selection keeps image geometry and elements stable with the existing six-pixel tile corners', (
     tester,
   ) async {
     final assets = [for (var i = 0; i < 6; i++) _asset('select-$i', ratio: i.isEven ? .65 : 1.35)];
@@ -338,21 +572,29 @@ void main() {
       isNot(_pixel(selected, 390, rectangles[assets.first.id]!.center)),
     );
     final first = rectangles[assets.first.id]!;
-    expect(_pixel(selected, 390, first.topLeft + const Offset(1, 1)), [255, 255, 255, 255]);
+    // Sample fully outside the six-pixel arc, away from its antialiased edge.
+    expect(_pixel(selected, 390, first.topLeft + const Offset(.5, .5)), [255, 255, 255, 255]);
     final firstRow = rectangles.values.where((rect) => rect.top == first.top).toList();
     expect(firstRow.length, greaterThan(1));
-    expect(_pixel(before, 390, firstRow.last.topRight + const Offset(-1, 1)), [255, 255, 255, 255]);
-    expect(
-      _pixel(before, 390, firstRow.first.topRight + const Offset(-1, 1)),
-      isNot([255, 255, 255, 255]),
-      reason: 'the internal top corner stays square',
-    );
+    expect(_pixel(before, 390, firstRow.last.topRight + const Offset(-.5, .5)), [255, 255, 255, 255]);
+    expect(_pixel(before, 390, firstRow.first.topRight + const Offset(-.5, .5)), [
+      255,
+      255,
+      255,
+      255,
+    ], reason: 'Build 31-32 rounds internal tile corners as well as group edges');
     final nextRow = rectangles.values.firstWhere((rect) => rect.top > first.top);
-    expect(
-      _pixel(before, 390, nextRow.topLeft + const Offset(1, 1)),
-      isNot([255, 255, 255, 255]),
-      reason: 'following rows do not receive their own rounded corners',
-    );
+    expect(_pixel(before, 390, nextRow.topLeft + const Offset(.5, .5)), [
+      255,
+      255,
+      255,
+      255,
+    ], reason: 'following rows retain the same tile corners');
+    expect(_pixel(before, 390, nextRow.topLeft + const Offset(6, 6)), isNot([255, 255, 255, 255]));
+    for (final asset in assets) {
+      final clip = tester.widget<ClipRRect>(find.ancestor(of: _tile(asset.id), matching: find.byType(ClipRRect)).first);
+      expect(clip.borderRadius, BorderRadius.circular(6));
+    }
     await tester.tap(_tile(assets[1].id));
     await tester.pumpAndSettle();
     expect(fixture.container.read(multiSelectProvider).selectedAssets, unorderedEquals(assets.take(2)));

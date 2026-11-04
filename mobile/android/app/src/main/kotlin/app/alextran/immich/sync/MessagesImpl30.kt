@@ -17,6 +17,15 @@ class NativeSyncApiImpl30(context: Context) : NativeSyncApiImplBase(context), Na
   private val ctx: Context = context.applicationContext
   private val prefs = ctx.getSharedPreferences(SHARED_PREF_NAME, Context.MODE_PRIVATE)
 
+  private val checkpoint = MediaGenerationCheckpoint {
+    MediaGenerationSnapshot(
+      MediaStore.getVersion(ctx),
+      MediaStore.getExternalVolumeNames(ctx).associateWith { MediaStore.getGeneration(ctx, it) }
+    )
+  }
+
+  override fun onSyncReadStarted() = checkpoint.ensureStarted()
+
   companion object {
     const val SHARED_PREF_NAME = "Immich::MediaManager"
     const val SHARED_PREF_MEDIA_STORE_VERSION_KEY = "MediaStore::getVersion"
@@ -30,6 +39,7 @@ class NativeSyncApiImpl30(context: Context) : NativeSyncApiImplBase(context), Na
   }
 
   override fun clearSyncCheckpoint() {
+    checkpoint.clear()
     prefs.edit().apply {
       remove(SHARED_PREF_MEDIA_STORE_VERSION_KEY)
       remove(SHARED_PREF_MEDIA_STORE_GEN_KEY)
@@ -41,17 +51,18 @@ class NativeSyncApiImpl30(context: Context) : NativeSyncApiImplBase(context), Na
     runSync(callback) { shouldFullSync() }
   }
 
-  private fun shouldFullSync(): Boolean =
-    MediaStore.getVersion(ctx) != prefs.getString(SHARED_PREF_MEDIA_STORE_VERSION_KEY, null)
+  private fun shouldFullSync(): Boolean {
+    checkpoint.begin()
+    return MediaStore.getVersion(ctx) != prefs.getString(SHARED_PREF_MEDIA_STORE_VERSION_KEY, null)
+  }
 
   override fun checkpointSync() {
-    val genMap = MediaStore.getExternalVolumeNames(ctx)
-      .associateWith { MediaStore.getGeneration(ctx, it) }
-
-    prefs.edit().apply {
-      putString(SHARED_PREF_MEDIA_STORE_VERSION_KEY, MediaStore.getVersion(ctx))
-      putString(SHARED_PREF_MEDIA_STORE_GEN_KEY, Json.encodeToString(genMap))
-      apply()
+    checkpoint.commit { snapshot ->
+      prefs.edit().apply {
+        putString(SHARED_PREF_MEDIA_STORE_VERSION_KEY, snapshot.version)
+        putString(SHARED_PREF_MEDIA_STORE_GEN_KEY, Json.encodeToString(snapshot.generations))
+        apply()
+      }
     }
   }
 
@@ -60,6 +71,7 @@ class NativeSyncApiImpl30(context: Context) : NativeSyncApiImplBase(context), Na
   }
 
   private suspend fun getMediaChanges(): SyncDelta {
+    checkpoint.ensureStarted()
     val genMap = getSavedGenerationMap()
     val currentVolumes = MediaStore.getExternalVolumeNames(ctx)
     val changed = mutableListOf<PlatformAsset>()

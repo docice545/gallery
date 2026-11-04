@@ -58,6 +58,9 @@ void main() {
     ActionSource source = ActionSource.timeline,
     bool menu = false,
   }) async {
+    for (final item in selection) {
+      when(() => service.getAsset(item)).thenAnswer((_) async => item);
+    }
     await tester.pumpTestWidget(
       fixture,
       Column(

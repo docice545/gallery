@@ -7,6 +7,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
+import 'package:immich_mobile/utils/place_names.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import '../../medium/repository_context.dart';
@@ -53,6 +54,12 @@ void main() {
       expect((buckets.single as TimeBucket).assetCount, 1);
       expect(assets.map((asset) => (asset as RemoteAsset).id), [place.assetId]);
       expect(place.hasCoordinates, isFalse, reason: 'Saved place detail needs no device/GPS permission');
+      for (final language in ['ru', 'en', 'ru']) {
+        expect(PlaceDisplayNames(language, const {}).label(place), language == 'ru' ? 'Аннино' : 'Annino');
+        final after = repository.place(place.name, [owner.id], owner.id, GroupAssetsBy.day, selectedPlace: place);
+        expect((await after.assetSource(0, 100)).map((asset) => (asset as RemoteAsset).id), [place.assetId]);
+        expect(((await after.bucketSource().first).single as TimeBucket).assetCount, 1);
+      }
     }
     final legacy = repository.place('Annino', [owner.id], owner.id, GroupAssetsBy.day);
     final buckets = await legacy.bucketSource().first;

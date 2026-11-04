@@ -8,6 +8,7 @@ import 'package:immich_mobile/presentation/widgets/timeline/timeline_route_scope
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/place_names.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
+import 'package:immich_mobile/utils/place_names.dart';
 import 'package:immich_mobile/widgets/common/mesmerizing_sliver_app_bar.dart';
 
 @RoutePage()
@@ -26,9 +27,14 @@ class PlaceDetailPage extends ConsumerWidget {
       ref.watch(placeDetailsProvider).valueOrNull ?? const [],
       selectedPlace: selectedPlace,
     );
+    // Intentional detail entry may enrich this one place. Presentation always
+    // uses the same cache/fallback policy as the list, including while offline.
+    if (source != null) {
+      ref.watch(localizedPlaceLabelProvider((place: source, locale: context.locale)));
+    }
     final title = source == null
-        ? place
-        : ref.watch(localizedPlaceLabelProvider((place: source, locale: context.locale))).valueOrNull ?? place;
+        ? localizedPlaceNameFallback(Place(name: place, assetId: ''), context.locale.languageCode)
+        : ref.watch(placeDisplayNamesProvider(context.locale)).label(source);
     return TimelineRouteScope(
       timelineServiceBuilder: (ref, scope, groupBy) {
         final user = ref.watch(currentUserProvider);

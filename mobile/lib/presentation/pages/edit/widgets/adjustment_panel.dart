@@ -2,9 +2,11 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor.provider.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 class AdjustmentPanel extends ConsumerStatefulWidget {
-  const AdjustmentPanel({super.key});
+  const AdjustmentPanel({super.key, this.onComplete});
+  final VoidCallback? onComplete;
   @override
   ConsumerState<AdjustmentPanel> createState() => _AdjustmentPanelState();
 }
@@ -12,14 +14,14 @@ class AdjustmentPanel extends ConsumerStatefulWidget {
 class _AdjustmentPanelState extends ConsumerState<AdjustmentPanel> {
   String _selected = 'brightness';
   static const _tools = {
-    'brightness': Icons.brightness_6,
-    'contrast': Icons.contrast,
-    'saturation': Icons.colorize,
-    'exposure': Icons.exposure,
-    'temperature': Icons.thermostat,
-    'shadows': Icons.tonality,
-    'highlights': Icons.highlight,
-    'hue': Icons.palette,
+    'brightness': FotoIconKind.brightness,
+    'contrast': FotoIconKind.contrast,
+    'saturation': FotoIconKind.saturation,
+    'exposure': FotoIconKind.exposure,
+    'temperature': FotoIconKind.temperature,
+    'shadows': FotoIconKind.shadows,
+    'highlights': FotoIconKind.highlights,
+    'hue': FotoIconKind.hue,
   };
   @override
   Widget build(BuildContext context) {
@@ -27,33 +29,22 @@ class _AdjustmentPanelState extends ConsumerState<AdjustmentPanel> {
     final notifier = ref.read(editorStateProvider.notifier);
     return Material(
       key: const Key('editor-adjustment-panel'),
-      color: const Color(0xff191919),
+      color: Colors.transparent,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            height: 88,
+            height: 48,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
                 for (final tool in _tools.entries)
-                  SizedBox(
-                    width: 108,
-                    child: TextButton(
-                      key: ValueKey('editor-adjustment-${tool.key}'),
-                      onPressed: () => setState(() => _selected = tool.key),
-                      style: TextButton.styleFrom(
-                        foregroundColor: tool.key == _selected ? Colors.yellow : Colors.white70,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(tool.value),
-                          const SizedBox(height: 4),
-                          Text(context.tr('editor_${tool.key}'), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ],
-                      ),
-                    ),
+                  FotoIconButton(
+                    key: ValueKey('editor-adjustment-${tool.key}'),
+                    kind: tool.value,
+                    label: context.tr('editor_${tool.key}'),
+                    selected: tool.key == _selected,
+                    onPressed: () => setState(() => _selected = tool.key),
                   ),
               ],
             ),
@@ -63,7 +54,7 @@ class _AdjustmentPanelState extends ConsumerState<AdjustmentPanel> {
               const SizedBox(width: 12),
               Text(
                 '${((state.adjustments[_selected] ?? 0) * 100).round()}',
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
               ),
               Expanded(
                 child: Slider(
@@ -71,9 +62,11 @@ class _AdjustmentPanelState extends ConsumerState<AdjustmentPanel> {
                   min: -1,
                   max: 1,
                   value: state.adjustments[_selected] ?? 0,
-                  activeColor: Colors.yellow,
                   onChangeStart: (_) => notifier.beginGesture(),
-                  onChangeEnd: (_) => notifier.endGesture(),
+                  onChangeEnd: (_) {
+                    notifier.endGesture();
+                    widget.onComplete?.call();
+                  },
                   onChanged: (value) => notifier.setAdjustment(_selected, value),
                 ),
               ),

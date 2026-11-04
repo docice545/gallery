@@ -10,8 +10,13 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/models/albums/album_search.model.dart';
+import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/widgets/album/album_tile.dart';
+import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart';
+import 'package:immich_mobile/presentation/widgets/album/animated_album_grid.dart';
+import 'package:immich_mobile/presentation/widgets/album/animated_album_rows.dart';
 import 'package:immich_mobile/presentation/widgets/album/new_album_name_modal.widget.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/providers/album/album_sort_by_options.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
@@ -23,7 +28,6 @@ import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/album_filter.utils.dart';
 import 'package:immich_mobile/utils/album_permissions.dart';
-import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 import 'package:immich_mobile/widgets/common/search_field.dart';
 import 'package:sliver_tools/sliver_tools.dart';
@@ -601,94 +605,85 @@ class _AlbumList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (albums.isEmpty) {
-      return SliverToBoxAdapter(
-        child: Center(
-          child: Padding(padding: const EdgeInsets.all(20.0), child: Text(context.t.album_search_not_found)),
+    final held = ref.watch(albumDeletionHoldsProvider);
+    return MultiSliver(
+      children: [
+        SliverPadding(
+          padding: const EdgeInsets.only(left: 16.0, right: 16, bottom: 64),
+          sliver: AnimatedAlbumRows<RemoteAlbum>(
+            items: albums,
+            keyOf: (album) => ghostAlbumKey('remote', album.id),
+            heldKeys: held,
+            builder: (_, album) {
+              final isOwner = album.ownerId == userId;
+
+              if (isOwner) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: AlbumTrashReveal(
+                    key: ValueKey(album.id),
+                    ghostKey: ghostAlbumKey('remote', album.id),
+                    onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
+                    child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
+                  ),
+                );
+              } else {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
+                );
+              }
+            },
+          ),
         ),
-      );
-    }
-
-    return SliverPadding(
-      padding: const EdgeInsets.only(left: 16.0, right: 16, bottom: 64),
-      sliver: SliverList.builder(
-        itemBuilder: (_, index) {
-          final album = albums[index];
-          final isOwner = album.ownerId == userId;
-
-          if (isOwner) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: Dismissible(
-                key: ValueKey(album.id),
-                background: Container(
-                  color: context.colorScheme.error,
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 16),
-                  child: Icon(Icons.delete, color: context.colorScheme.onError),
-                ),
-                direction: DismissDirection.endToStart,
-                confirmDismiss: (direction) {
-                  return showDialog<bool>(
-                    context: context,
-                    builder: (context) => ConfirmDialog(
-                      onOk: () => true,
-                      title: context.t.delete_album,
-                      content: context.t.album_delete_confirmation(album: album.name),
-                      ok: context.t.delete,
-                    ),
-                  );
-                },
-                onDismissed: (direction) async {
-                  await ref.read(remoteAlbumProvider.notifier).deleteAlbum(album.id);
-                },
-                child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
-              ),
-            );
-          } else {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
-            );
-          }
-        },
-        itemCount: albums.length,
-      ),
+        if (albums.isEmpty && held.isEmpty)
+          SliverToBoxAdapter(
+            child: Center(
+              child: Padding(padding: const EdgeInsets.all(20), child: Text(context.t.album_search_not_found)),
+            ),
+          ),
+      ],
     );
   }
 }
 
-class _AlbumGrid extends StatelessWidget {
+class _AlbumGrid extends ConsumerWidget {
   const _AlbumGrid({required this.albums, required this.userId, required this.onAlbumSelected});
-
   final List<RemoteAlbum> albums;
   final String? userId;
   final AlbumSelectorCallback onAlbumSelected;
 
   @override
-  Widget build(BuildContext context) {
-    if (albums.isEmpty) {
-      return SliverToBoxAdapter(
-        child: Center(
-          child: Padding(padding: const EdgeInsets.all(20.0), child: Text(context.t.album_search_not_found)),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final held = ref.watch(albumDeletionHoldsProvider);
+    return MultiSliver(
+      children: [
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          sliver: AnimatedAlbumGrid<RemoteAlbum>(
+            items: albums,
+            keyOf: (album) => ghostAlbumKey('remote', album.id),
+            heldKeys: held,
+            builder: (context, album) {
+              final card = _GridAlbumCard(album: album, userId: userId, onAlbumSelected: onAlbumSelected);
+              return album.ownerId != userId
+                  ? card
+                  : AlbumTrashReveal(
+                      key: ValueKey(album.id),
+                      ghostKey: ghostAlbumKey('remote', album.id),
+                      onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
+                      child: card,
+                    );
+            },
+          ),
         ),
-      );
-    }
-
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 250,
-          mainAxisSpacing: 4,
-          crossAxisSpacing: 4,
-          childAspectRatio: .7,
-        ),
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final album = albums[index];
-          return _GridAlbumCard(album: album, userId: userId, onAlbumSelected: onAlbumSelected);
-        }, childCount: albums.length),
-      ),
+        if (albums.isEmpty && held.isEmpty)
+          SliverToBoxAdapter(
+            child: Center(
+              child: Padding(padding: const EdgeInsets.all(20), child: Text(context.t.album_search_not_found)),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -726,9 +721,12 @@ class _GridAlbumCard extends ConsumerWidget {
                     future: albumThumbnailAsset,
                     builder: (context, snapshot) {
                       if (snapshot.hasData && snapshot.data != null) {
-                        return Thumbnail.remote(
-                          remoteId: album.thumbnailAssetId!,
-                          thumbhash: snapshot.data!.thumbHash ?? "",
+                        return GhostSource(
+                          assetKey: ghostAlbumCoverKey('remote', album.id, album.thumbnailAssetId!),
+                          child: Thumbnail.remote(
+                            remoteId: album.thumbnailAssetId!,
+                            thumbhash: snapshot.data!.thumbHash ?? "",
+                          ),
                         );
                       }
 

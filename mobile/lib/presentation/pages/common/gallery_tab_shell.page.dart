@@ -6,6 +6,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/gallery_nav/gallery_bottom_nav.widget.dart';
 import 'package:immich_mobile/providers/gallery_nav/gallery_nav_destination.dart';
 import 'package:immich_mobile/providers/gallery_nav/gallery_tab_enum.dart';
+import 'package:immich_mobile/providers/local_media_refresh.provider.dart';
 
 @RoutePage()
 class GalleryTabShellPage extends ConsumerStatefulWidget {
@@ -90,6 +91,7 @@ class _GalleryTabShellPageState extends ConsumerState<GalleryTabShellPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(localMediaRefreshProvider);
     final isLandscape = context.orientation == Orientation.landscape;
     final slots = ref.watch(galleryNavSlotsProvider);
     if (_lastSlots != null && !listEquals(_lastSlots, slots)) {

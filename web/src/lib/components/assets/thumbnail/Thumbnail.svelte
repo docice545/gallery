@@ -384,7 +384,7 @@
         {/if}
 
         <!-- Stacked asset -->
-        {#if asset.stack && showStackedIcon}
+        {#if asset.stack && asset.stack.assetCount > 1 && showStackedIcon}
           <div
             class={[
               'pointer-events-none absolute z-2 flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[11px] leading-none font-semibold text-white',

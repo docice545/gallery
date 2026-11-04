@@ -15,6 +15,7 @@ import 'package:immich_mobile/domain/services/asset.service.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/generated/codegen_loader.g.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_exif.repository.dart';
@@ -23,7 +24,9 @@ import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.re
 import 'package:immich_mobile/platform/remote_image_api.g.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_details.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_page.widget.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
@@ -34,7 +37,6 @@ import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/gcast.service.dart';
 import 'package:immich_mobile/services/server_info.service.dart';
-import 'package:immich_ui/immich_ui.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart' as api_client;
@@ -253,6 +255,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   }
 
+  Future<void> awaitRequest(WidgetTester tester) async {
+    for (var frame = 0; frame < 200 && !requestEntered.isCompleted; frame++) {
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
+    }
+    expect(requestEntered.isCompleted, isTrue);
+  }
+
   Future<void> closeViewer(WidgetTester tester, RootStackRouter router, {Future<void>? deletion}) async {
     if (!response.isCompleted) {
       response.complete();
@@ -266,22 +276,76 @@ void main() {
     router.dispose();
   }
 
+  for (final deleted in ['cover', 'next-frame']) {
+    testWidgets('exact stack 2→1: deleting $deleted keeps its survivor without a stack container', (tester) async {
+      await tester.runAsync(() => remote.trash(['last-frame']));
+      final router = await openViewer(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
+      Future<void>? deletion;
+      try {
+        expect(find.text('1/2'), findsOneWidget);
+        if (deleted != 'cover') {
+          final child = await tester.runAsync(() => remote.get(deleted));
+          container.read(assetViewerProvider.notifier)
+            ..setAsset(child!)
+            ..setStackIndex(1);
+          when(() => api.delete([deleted], false)).thenAnswer((_) async {
+            requestEntered.complete();
+            await response.future;
+          });
+          await drain(tester);
+        }
+        final button = tester.widget<FotoIconButton>(
+          find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+        );
+        deletion = Future<void>.sync(button.onPressed!);
+        await awaitRequest(tester);
+        response.complete();
+        await drain(tester);
+        await tester.runAsync(() => deletion!.timeout(const Duration(seconds: 5)));
+        final survivor = deleted == 'cover' ? 'next-frame' : 'cover';
+        expect(router.current.name, _viewerName);
+        expect(container.read(assetViewerProvider).currentAsset?.id, survivor);
+        expect(timeline.totalAssets, 1);
+        expect(timeline.getAssetSafe(0)?.id, survivor, reason: 'no sync or unStack is required');
+        expect(tester.widgetList<AssetDetails>(find.byType(AssetDetails)).map((details) => details.asset.id), [
+          survivor,
+        ]);
+        expect(
+          find.descendant(of: find.byType(AssetStackRow), matching: find.byType(SingleChildScrollView)),
+          findsNothing,
+        );
+        expect(await tester.runAsync(() async => (await remote.get(survivor))!.deletedAt), isNull);
+        expect(await tester.runAsync(() async => (await remote.get(survivor))!.checksum), 'checksum-$survivor');
+        await tester.runAsync(() => remote.restoreTrash([deleted]));
+        await drain(tester);
+        expect(
+          find.descendant(of: find.byType(AssetStackRow), matching: find.byType(SingleChildScrollView)),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await closeViewer(tester, router, deletion: deletion);
+      }
+    });
+  }
+
   testWidgets('trashing a viewed primary keeps active siblings open while the server response is pending', (
     tester,
   ) async {
     final router = await openViewer(tester);
     expect(router.current.name, _viewerName);
     expect(timeline.totalAssets, 1, reason: 'the real main Timeline collapses the three-frame stack');
-    expect(find.text('В корзину'), findsOneWidget);
+    expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsOneWidget);
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
-    final deleteButton = tester.widget<ImmichColumnButton>(
-      find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+    final deleteButton = tester.widget<FotoIconButton>(
+      find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
     );
     late Future<void> deletion;
 
     try {
       final activeSiblings = await tester.runAsync(() async {
-        deletion = Future<void>.sync(deleteButton.onPressed);
+        deletion = Future<void>.sync(deleteButton.onPressed!);
         await requestEntered.future.timeout(const Duration(seconds: 5));
         return assets.getStack(cover).timeout(const Duration(seconds: 5));
       });
@@ -328,13 +392,13 @@ void main() {
   testWidgets('a definite server rejection restores the original viewed primary', (tester) async {
     final router = await openViewer(tester);
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
-    final button = tester.widget<ImmichColumnButton>(
-      find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+    final button = tester.widget<FotoIconButton>(
+      find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
     );
     late Future<void> deletion;
     try {
       await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
+        deletion = Future<void>.sync(button.onPressed!);
         await requestEntered.future;
       });
       await drain(tester);
@@ -432,10 +496,10 @@ void main() {
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
     Future<void> deleteCurrent() => Future<void>.sync(
       tester
-          .widget<ImmichColumnButton>(
-            find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+          .widget<FotoIconButton>(
+            find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
           )
-          .onPressed,
+          .onPressed!,
     );
     late Future<void> first;
     late Future<void> second;
@@ -473,7 +537,7 @@ void main() {
     }
   });
 
-  testWidgets('returning to the retained page cancels a delayed neighbor load and keeps navigation mapped', (
+  testWidgets('returning to the surviving stack page cancels a delayed neighbor load and keeps navigation mapped', (
     tester,
   ) async {
     await tester.runAsync(
@@ -493,15 +557,15 @@ void main() {
     late Future<void> deletion;
     final gate = Completer<void>();
     try {
-      final button = tester.widget<ImmichColumnButton>(
-        find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+      final button = tester.widget<FotoIconButton>(
+        find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
       );
       await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
+        deletion = Future<void>.sync(button.onPressed!);
         await requestEntered.future;
       });
       await drain(tester);
-      expect(timeline.totalAssets, 1);
+      expect(timeline.totalAssets, 2, reason: 'the active stack representative remains in the real Timeline');
       expect(tester.widget<PageView>(find.byType(PageView)).childrenDelegate.estimatedChildCount, 2);
       final entered = Completer<void>();
       timeline.neighborGate = gate;
@@ -509,7 +573,7 @@ void main() {
       final controller = tester.widget<PageView>(find.byType(PageView)).controller!;
       final navigate = tester
           .widgetList<AssetPage>(find.byType(AssetPage))
-          .firstWhere((page) => page.retainedAsset != null)
+          .firstWhere((page) => page.index == 0)
           .onTapNavigate!;
       navigate(1);
       await drain(tester);
@@ -524,8 +588,8 @@ void main() {
       navigate(1);
       await drain(tester);
       expect(container.read(assetViewerProvider).currentAsset?.id, 'neighbor');
-      expect(controller.page, 0, reason: 'leaving the retained stack removes its single inserted page');
-      expect(tester.widget<PageView>(find.byType(PageView)).childrenDelegate.estimatedChildCount, 1);
+      expect(controller.page, 1, reason: 'the survivor remains a real Timeline card before the neighbor');
+      expect(tester.widget<PageView>(find.byType(PageView)).childrenDelegate.estimatedChildCount, 2);
       expect(tester.takeException(), isNull);
     } finally {
       if (!gate.isCompleted) {
@@ -575,11 +639,11 @@ void main() {
       await drain(tester);
       expect(container.read(assetViewerProvider).currentAsset?.id, 'cover');
       expect(find.text('1/1'), findsNothing);
-      final button = tester.widget<ImmichColumnButton>(
-        find.byWidgetPredicate((widget) => widget is ImmichColumnButton && widget.label == 'В корзину'),
+      final button = tester.widget<FotoIconButton>(
+        find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
       );
       await tester.runAsync(() async {
-        deletion = Future<void>.sync(button.onPressed);
+        deletion = Future<void>.sync(button.onPressed!);
         await requestEntered.future;
       });
       await drain(tester);

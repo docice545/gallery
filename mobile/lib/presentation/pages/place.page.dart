@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/place.model.dart';
-import 'package:immich_mobile/domain/services/place_name.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
@@ -132,15 +131,13 @@ class _PlaceList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final places = ref.watch(placeDetailsProvider);
-    final persisted = ref.watch(persistedPlaceLabelsProvider).valueOrNull ?? const <String, String>{};
-    final labels = {...persisted, ...ref.watch(resolvedPlaceLabelsProvider)};
     final locale = context.locale;
+    final names = ref.watch(placeDisplayNamesProvider(locale));
     final aliases = query != null && query!.trim().runes.length >= 2
         ? ref.watch(placeSearchAliasesProvider(query!)).valueOrNull ?? const []
         : const [];
 
-    String stableLabel(Place place) => localizedPlaceNameFallback(place, locale.languageCode);
-    String label(Place place) => labels[PlaceNameService.key(place, locale.toLanguageTag())] ?? stableLabel(place);
+    String label(Place place) => names.label(place);
 
     return places.when(
       // Preserve the existing sliver during sync refresh, instead of replacing
@@ -166,6 +163,12 @@ class _PlaceList extends ConsumerWidget {
         ),
       ),
       data: (places) {
+        // Enrich only the bounded opening preview, independent of scroll/tiles.
+        // Opening another place explicitly resolves that one detail. Existing
+        // successful cache entries are reused; this never re-geocodes assets.
+        for (final place in places.take(12)) {
+          ref.watch(localizedPlaceLabelProvider((place: place, locale: locale)));
+        }
         final aliasScopes = {
           for (final alias in aliases)
             if (nearestPlaceForAlias(places, alias.name, alias.latitude, alias.longitude) case final place?)
@@ -213,19 +216,16 @@ class _PlaceList extends ConsumerWidget {
   }
 }
 
-class _PlaceTile extends ConsumerWidget {
+class _PlaceTile extends StatelessWidget {
   const _PlaceTile({super.key, required this.place, required this.cachedLabel});
 
   final Place place;
   final String cachedLabel;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final localized = ref.watch(localizedPlaceLabelProvider((place: place, locale: context.locale)));
-    final nativeLabel = localized.valueOrNull;
-    final label = nativeLabel != null && nativeLabel.trim() != place.name.trim() ? nativeLabel : cachedLabel;
+  Widget build(BuildContext context) {
     return PlaceListTile(
-      name: label,
+      name: cachedLabel,
       sourceName: place.name,
       regionName: localizedPlaceRegion(place, context.locale.languageCode),
       onTap: () => context.pushRoute(PlaceDetailRoute(place: place.name, selectedPlace: place)),

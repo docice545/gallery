@@ -6,9 +6,11 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/row.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/row_layout.dart';
@@ -26,6 +28,7 @@ import 'package:immich_mobile/providers/timeline/highlighted_asset.provider.dart
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/widgets/asset_grid/thumbnail_placeholder.dart';
+import 'package:intl/intl.dart';
 
 class FixedSegment extends Segment {
   final double tileHeight;
@@ -112,7 +115,7 @@ class FixedSegment extends Segment {
     final rowIndexInSegment = index - gridIndex;
     final layout = rows;
 
-    return _FixedSegmentRow(
+    final row = _FixedSegmentRow(
       assetIndex: firstAssetIndex + layout.firstAssetIndexForRow(rowIndexInSegment),
       assetCount: layout.assetCountForRow(rowIndexInSegment),
       tileHeight: layout.heightForRow(rowIndexInSegment),
@@ -123,6 +126,16 @@ class FixedSegment extends Segment {
       rowWidths: denseLayout ? layout.widthsForRow(rowIndexInSegment) : null,
       topCornerRadius: 0,
     );
+    // Immersive mode removes visual headers, not the accessible date grouping.
+    return header == HeaderType.none && bucket is TimeBucket && rowIndexInSegment == 0
+        ? Semantics(
+            container: true,
+            label: DateFormat.yMMMd(
+              Localizations.localeOf(context).toLanguageTag(),
+            ).format((bucket as TimeBucket).date),
+            child: row,
+          )
+        : row;
   }
 
   @override
@@ -284,14 +297,12 @@ class _FixedSegmentRow extends ConsumerWidget {
         ),
     ];
 
-    return TimelineDragRegion(
-      child: TimelineRow(
-        height: tileHeight,
-        widths: widths,
-        spacing: spacing,
-        textDirection: Directionality.of(context),
-        children: children,
-      ),
+    return TimelineRow(
+      height: tileHeight,
+      widths: widths,
+      spacing: spacing,
+      textDirection: Directionality.of(context),
+      children: children,
     );
   }
 }
@@ -323,8 +334,12 @@ class _AssetTileWidget extends ConsumerWidget {
     if (multiSelectState.forceEnable || multiSelectState.isEnabled) {
       ref.read(multiSelectProvider.notifier).toggleAssetSelection(asset);
     } else {
-      await ref.read(timelineServiceProvider).loadAssets(assetIndex, 1);
-      if (!ctx.mounted) {
+      final timeline = ref.read(timelineServiceProvider);
+      final loaded = await timeline.loadAssets(assetIndex, 1);
+      if (!ctx.mounted ||
+          !identical(timeline, ref.read(timelineServiceProvider)) ||
+          loaded.length != 1 ||
+          assetSelectionKey(loaded.single) != assetSelectionKey(asset)) {
         return;
       }
 
@@ -354,17 +369,7 @@ class _AssetTileWidget extends ConsumerWidget {
   }
 
   bool _getLockSelectionStatus(WidgetRef ref) {
-    final lockSelectionAssets = ref.read(multiSelectProvider.select((state) => state.lockedSelectionAssets));
-
-    if (lockSelectionAssets.isEmpty) {
-      return false;
-    }
-
-    // Iterate with `==` instead of `Set.contains` because `RemoteAsset.hashCode`
-    // includes `localId` while `==` does not — so the same server asset can
-    // hash to a different bucket when its `localId` differs (e.g., album-fetched
-    // copy has localId=null, merged-timeline copy has it populated).
-    return lockSelectionAssets.any((a) => a == asset);
+    return ref.watch(multiSelectProvider.select((state) => state.isLocked(asset)));
   }
 
   @override
@@ -380,10 +385,16 @@ class _AssetTileWidget extends ConsumerWidget {
     // `select` so only the matching tile's selector flips when the highlight moves.
     final isHighlighted = ref.watch(timelineHighlightedAssetProvider.select((a) => isHighlightedAsset(a, asset)));
 
-    return RepaintBoundary(
+    return GhostSource(
+      assetKey: asset.heroTag,
       child: GestureDetector(
         onTap: () => lockSelection ? null : _handleOnTap(context, ref, assetIndex, asset, heroOffset, remoteSize),
-        onLongPress: () => lockSelection || isReadonlyModeEnabled ? null : _handleOnLongPress(ref, asset),
+        onLongPress:
+            lockSelection ||
+                isReadonlyModeEnabled ||
+                context.findAncestorWidgetOfExactType<TimelineDragRegion>() != null
+            ? null
+            : () => _handleOnLongPress(ref, asset),
         child: Stack(
           fit: StackFit.passthrough,
           children: [

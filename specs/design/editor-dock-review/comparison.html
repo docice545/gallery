@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ru">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>FOTO — одна панель редактора</title
+  ><style>
+    body {
+      margin: 24px;
+      background: #14151b;
+      color: #e8ebfa;
+      font: 16px system-ui;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    figure {
+      margin: 0;
+      width: 236px;
+    }
+    figcaption {
+      font-weight: 650;
+      margin: 10px 0;
+    }
+    .screen {
+      position: relative;
+    }
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .viewport {
+      position: absolute;
+      box-sizing: border-box;
+      border: 1px solid #64edbb;
+      pointer-events: none;
+    }
+    p {
+      line-height: 1.5;
+      max-width: 1100px;
+    }
+    code {
+      word-break: break-all;
+    }
+  </style>
+  <h1>FOTO: постоянная область фотографии</h1>
+  <p>
+    Синтетический Flutter render, 393 × 852 dp. Зелёная рамка показывает
+    измеренный viewport. Это не Samsung и не замер 120 Гц. Иконки FOTO v1
+    согласованы пользователем (ccdb8a892); соответствие действиям и аппаратная
+    приёмка проверяются отдельно.
+  </p>
+  <p>Source SHA: <code>65c99a6fae530715ca9c2bc8189d941dcc734942</code></p>
+  <h2>До изменения</h2>
+  <section>
+    <figure>
+      <figcaption>До: Вход</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/compact_android_portrait.png"
+          alt="До: Вход"
+        />
+      </div>
+    </figure>
+    <figure>
+      <figcaption>До: Разметка</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/compact_android_portrait_draw.png"
+          alt="До: Разметка"
+        />
+      </div>
+    </figure>
+  </section>
+  <h2>После изменения — вложенность не уменьшает viewport</h2>
+  <section>
+    <figure>
+      <figcaption>Вход в редактор</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_entry.png"
+          alt="Вход в редактор"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+    <figure>
+      <figcaption>Разметка</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_markup.png"
+          alt="Разметка"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+    <figure>
+      <figcaption>Маркер</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_marker.png"
+          alt="Маркер"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+    <figure>
+      <figcaption>Толщина</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_width.png"
+          alt="Толщина"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+    <figure>
+      <figcaption>Цвет</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_color.png"
+          alt="Цвет"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+    <figure>
+      <figcaption>Обрезка</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_crop.png"
+          alt="Обрезка"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+    <figure>
+      <figcaption>Текст</figcaption>
+      <div class="screen">
+        <img
+          src="../../../mobile/test/pages/edit/goldens/fixed_dock_text.png"
+          alt="Текст"
+        /><span
+          class="viewport"
+          style="left: 0%; top: 9.85915%; width: 100%; height: 80.7512%"
+        ></span>
+      </div>
+      <p>Viewport 393 × 688 dp<br />Dock 393 × 80 dp</p>
+    </figure>
+  </section>
+</html>

@@ -7,10 +7,12 @@ import 'package:immich_mobile/data/store.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/datetime_extensions.dart';
-import 'package:immich_mobile/presentation/actions/action.widget.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/favorite.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/motion_photo_action_button.widget.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_kebab_menu.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset_viewer/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/current_album.provider.dart';
@@ -18,7 +20,6 @@ import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.da
 import 'package:immich_mobile/providers/routes.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/timezone.dart';
-import 'package:immich_ui/immich_ui.dart';
 
 class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
   const ViewerTopAppBar({super.key});
@@ -50,8 +51,9 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final actions = <Widget>[
       if (asset.isMotionPhoto) const MotionPhotoActionButton(iconOnly: true),
       if (album != null && album.isActivityEnabled && album.isShared)
-        IconButton(
-          icon: const Icon(Icons.chat_outlined),
+        FotoIconButton(
+          kind: FotoIconKind.comments,
+          label: context.t.comments_and_likes,
           onPressed: () {
             unawaited(
               context.router.push(
@@ -61,9 +63,14 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
           },
         ),
 
-      const ActionIconButton(action: FavoriteAction(source: .viewer)),
-
-      ImmichColorOverride(color: null, child: ViewerKebabMenu(originalTheme: originalTheme)),
+      if ((const FavoriteAction(source: .viewer)).create(context, ref) case final item?)
+        FotoIconButton(
+          kind: FotoIconKind.favorite,
+          label: item.label,
+          selected: asset.isFavorite,
+          onPressed: item.onAction,
+        ),
+      ViewerKebabMenu(originalTheme: originalTheme),
     ];
 
     final lockedViewActions = <Widget>[ViewerKebabMenu(originalTheme: originalTheme)];
@@ -73,55 +80,32 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
       child: AnimatedOpacity(
         opacity: opacity,
         duration: Durations.short2,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: showingDetails
-                        ? null
-                        : const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.black45, Colors.black12, Colors.transparent],
-                            stops: [0.0, 0.7, 1.0],
-                          ),
-                  ),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: SizedBox(
+              height: 56,
+              child: ViewerControlSurface(
+                child: NavigationToolbar(
+                  centerMiddle: true,
+                  middleSpacing: 4,
+                  leading: const _AppBarBackButton(),
+                  middle: showingDetails ? null : _AssetInfoTitle(asset: asset),
+                  trailing: !showingDetails && !isReadonlyModeEnabled
+                      ? Row(mainAxisSize: MainAxisSize.min, children: isInLockedView ? lockedViewActions : actions)
+                      : null,
                 ),
               ),
             ),
-            SafeArea(
-              bottom: false,
-              child: SizedBox(
-                height: preferredSize.height,
-                child: Theme(
-                  data: context.themeData.copyWith(iconTheme: const IconThemeData(size: 22, color: Colors.white)),
-                  child: NavigationToolbar(
-                    centerMiddle: true,
-                    leading: const _AppBarBackButton(),
-                    middle: showingDetails ? null : _AssetInfoTitle(asset: asset),
-                    trailing: !showingDetails && !isReadonlyModeEnabled
-                        ? ImmichColorOverride(
-                            color: Colors.white,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: isInLockedView ? lockedViewActions : actions,
-                            ),
-                          )
-                        : null,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   @override
-  Size get preferredSize => const Size.fromHeight(60.0);
+  Size get preferredSize => const Size.fromHeight(64.0);
 }
 
 class _AppBarBackButton extends ConsumerWidget {
@@ -129,19 +113,7 @@ class _AppBarBackButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final showingDetails = ref.watch(assetViewerProvider.select((state) => state.showingDetails));
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: showingDetails ? context.colorScheme.surface : Colors.transparent,
-        shape: const CircleBorder(),
-        iconSize: 22,
-        iconColor: showingDetails ? context.colorScheme.onSurface : Colors.white,
-        padding: const EdgeInsets.all(10.0),
-        elevation: showingDetails ? 4 : 0,
-      ),
-      onPressed: context.maybePop,
-      child: const Icon(Icons.arrow_back_rounded),
-    );
+    return FotoIconButton(kind: FotoIconKind.back, label: context.t.back, onPressed: context.maybePop);
   }
 }
 
@@ -163,8 +135,22 @@ class _AssetInfoTitle extends ConsumerWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(dateFormatted, style: context.textTheme.labelLarge?.copyWith(color: Colors.white)),
-        Text(timeFormatted, style: context.textTheme.labelMedium?.copyWith(color: Colors.white70)),
+        Flexible(
+          child: Text(
+            dateFormatted,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.textTheme.labelLarge?.copyWith(color: Colors.white),
+          ),
+        ),
+        Flexible(
+          child: Text(
+            timeFormatted,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.textTheme.labelMedium?.copyWith(color: Colors.white70),
+          ),
+        ),
       ],
     );
   }

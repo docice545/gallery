@@ -2,6 +2,7 @@ import { render } from '@testing-library/svelte';
 import { getIntersectionObserverMock } from '$lib/__mocks__/intersection-observer.mock';
 import Thumbnail from '$lib/components/assets/thumbnail/Thumbnail.svelte';
 import { getTabbable } from '$lib/utils/focus-util';
+import { toTimelineAsset } from '$lib/utils/timeline-util';
 import { assetFactory } from '@test-data/factories/asset-factory';
 
 vi.mock('$lib/utils/navigation', () => ({
@@ -36,7 +37,7 @@ describe('Thumbnail component', () => {
   it('should only contain a single tabbable element (the container)', () => {
     const asset = assetFactory.build({ originalPath: 'image.jpg', originalMimeType: 'image/jpeg' });
     const { baseElement } = render(Thumbnail, {
-      asset,
+      asset: toTimelineAsset(asset),
       selected: true,
     });
 
@@ -52,11 +53,24 @@ describe('Thumbnail component', () => {
   it('shows thumbhash while image is loading', () => {
     const asset = assetFactory.build({ originalPath: 'image.jpg', originalMimeType: 'image/jpeg' });
     const sut = render(Thumbnail, {
-      asset,
+      asset: toTimelineAsset(asset),
       selected: true,
     });
 
     const thumbhash = sut.getByTestId('thumbhash');
     expect(thumbhash).not.toBeFalsy();
+  });
+
+  it.each([1, 2])('shows a stack badge only for multiple active frames (count %i)', (assetCount) => {
+    const asset = assetFactory.build({
+      stack: { id: 'stack-id', primaryAssetId: 'cover-id', assetCount },
+    });
+    const view = render(Thumbnail, { asset: toTimelineAsset(asset) });
+
+    if (assetCount === 1) {
+      expect(view.queryByText('1', { selector: 'p' })).not.toBeInTheDocument();
+    } else {
+      expect(view.getByText('2', { selector: 'p' })).toBeInTheDocument();
+    }
   });
 });

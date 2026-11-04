@@ -328,6 +328,14 @@ select
   "asset"."duplicateId",
   (
     select
+      "updateId"
+    from
+      "asset_exif"
+    where
+      "assetId" = "asset"."id"
+  ) as "exifUpdateId",
+  (
+    select
       coalesce(json_agg(agg), '[]')
     from
       (

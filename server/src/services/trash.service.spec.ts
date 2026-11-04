@@ -81,28 +81,30 @@ describe(TrashService.name, () => {
   describe('restore', () => {
     it('should handle an empty trash', async () => {
       mocks.trash.getDeletedIds.mockResolvedValue(makeAssetIdStream(0));
-      mocks.trash.restore.mockResolvedValue(0);
+      mocks.trash.restoreWithIds.mockResolvedValue([]);
       await expect(sut.restore(authStub.user1)).resolves.toEqual({ count: 0 });
-      expect(mocks.trash.restore).toHaveBeenCalledWith('user-id');
+      expect(mocks.trash.restoreWithIds).toHaveBeenCalledWith('user-id');
     });
 
     it('should restore', async () => {
       mocks.trash.getDeletedIds.mockResolvedValue(makeAssetIdStream(1));
-      mocks.trash.restore.mockResolvedValue(1);
+      mocks.trash.restoreWithIds.mockResolvedValue(['asset1']);
       await expect(sut.restore(authStub.user1)).resolves.toEqual({ count: 1 });
-      expect(mocks.trash.restore).toHaveBeenCalledWith('user-id');
+      expect(mocks.trash.restoreWithIds).toHaveBeenCalledWith('user-id');
+      expect(mocks.event.emit).toHaveBeenCalledWith('AssetRestoreAll', { assetIds: ['asset1'], userId: 'user-id' });
     });
 
     it('should clean up conflicting tombstones for user on restore', async () => {
-      mocks.trash.restore.mockResolvedValue(3);
+      mocks.trash.restoreWithIds.mockResolvedValue(['asset1', 'asset2', 'asset3']);
       await sut.restore(authStub.user1);
       expect(mocks.duplicateRepository.deleteConflictingTombstonesForUser).toHaveBeenCalledWith('user-id');
     });
 
     it('should skip tombstone cleanup when nothing restored', async () => {
-      mocks.trash.restore.mockResolvedValue(0);
+      mocks.trash.restoreWithIds.mockResolvedValue([]);
       await sut.restore(authStub.user1);
       expect(mocks.duplicateRepository.deleteConflictingTombstonesForUser).not.toHaveBeenCalled();
+      expect(mocks.event.emit).not.toHaveBeenCalled();
     });
   });
 

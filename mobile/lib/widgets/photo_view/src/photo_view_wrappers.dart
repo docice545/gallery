@@ -9,6 +9,7 @@ class ImageWrapper extends StatefulWidget {
     super.key,
     required this.imageProvider,
     required this.loadingBuilder,
+    this.loadingChildSize,
     required this.backgroundDecoration,
     required this.semanticLabel,
     required this.gaplessPlayback,
@@ -43,6 +44,7 @@ class ImageWrapper extends StatefulWidget {
 
   final ImageProvider imageProvider;
   final LoadingBuilder? loadingBuilder;
+  final Size? loadingChildSize;
   final ImageErrorWidgetBuilder? errorBuilder;
   final BoxDecoration backgroundDecoration;
   final String? semanticLabel;
@@ -183,19 +185,23 @@ class _ImageWrapperState extends State<ImageWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_loading || _lastException != null) {
-      return CustomChildWrapper(
-        childSize: null,
+      // Keep PhotoViewCore/Hero mounted when the first image arrives mid-flight.
+      // A CustomChildWrapper here changes the subtree type and aborts that Hero.
+      return PhotoViewCore.customChild(
         backgroundDecoration: widget.backgroundDecoration,
         heroAttributes: widget.heroAttributes,
-        scaleStateChangedCallback: widget.scaleStateChangedCallback,
         enableRotation: widget.enableRotation,
         controller: widget.controller,
         scaleStateController: widget.scaleStateController,
-        maxScale: widget.maxScale,
-        minScale: widget.minScale,
-        initialScale: widget.initialScale,
-        basePosition: widget.basePosition,
-        scaleStateCycle: widget.scaleStateCycle,
+        scaleBoundaries: ScaleBoundaries(
+          widget.minScale ?? 0.0,
+          widget.maxScale ?? double.infinity,
+          widget.initialScale ?? PhotoViewComputedScale.contained,
+          widget.outerSize,
+          widget.loadingChildSize ?? widget.outerSize,
+        ),
+        basePosition: widget.basePosition ?? Alignment.center,
+        scaleStateCycle: widget.scaleStateCycle ?? defaultScaleStateCycle,
         onTapUp: widget.onTapUp,
         onTapDown: widget.onTapDown,
         onDragStart: widget.onDragStart,
@@ -204,14 +210,13 @@ class _ImageWrapperState extends State<ImageWrapper> {
         onDragCancel: widget.onDragCancel,
         onScaleEnd: widget.onScaleEnd,
         onLongPressStart: widget.onLongPressStart,
-        outerSize: widget.outerSize,
         gestureDetectorBehavior: widget.gestureDetectorBehavior,
-        tightMode: widget.tightMode,
-        filterQuality: widget.filterQuality,
-        disableGestures: widget.disableGestures,
+        tightMode: widget.tightMode ?? false,
+        filterQuality: widget.filterQuality ?? FilterQuality.none,
+        disableGestures: widget.disableGestures ?? false,
         disableScaleGestures: true,
-        enablePanAlways: widget.enablePanAlways,
-        child: _loading ? _buildLoading(context) : _buildError(context),
+        enablePanAlways: widget.enablePanAlways ?? false,
+        customChild: _loading ? _buildLoading(context) : _buildError(context),
       );
     }
 

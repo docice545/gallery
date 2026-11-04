@@ -37,6 +37,11 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
       ..limit(1),
   );
 
+  Expression<bool> _isStackRepresentative() => CustomExpression<bool>(
+    '(remote_asset_entity.stack_id IS NULL OR stack_entity.id IS NULL OR '
+    'remote_asset_entity.id = ${_effectiveStackPrimarySql('remote_asset_entity', 'stack_entity')})',
+  );
+
   Stream<List<String>> watchTimelineUserIds(String userId) {
     final query = _db.partnerEntity.selectOnly()
       ..addColumns([_db.partnerEntity.sharedById])
@@ -569,9 +574,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
               (_db.sharedSpaceAssetEntity.assetId.isNotNull() |
                   _db.sharedSpaceLibraryEntity.libraryId.isNotNull() |
                   _db.sharedSpaceAlbumLinkEntity.albumId.isNotNull()) &
-              (_db.remoteAssetEntity.stackId.isNull() |
-                  _db.stackEntity.id.isNull() |
-                  _db.remoteAssetEntity.id.equalsExp(_db.stackEntity.primaryAssetId)),
+              _isStackRepresentative(),
         );
       return countQuery
           .map((row) => row.read(countExp) ?? 0)
@@ -620,9 +623,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
             (_db.sharedSpaceAssetEntity.assetId.isNotNull() |
                 _db.sharedSpaceLibraryEntity.libraryId.isNotNull() |
                 _db.sharedSpaceAlbumLinkEntity.albumId.isNotNull()) &
-            (_db.remoteAssetEntity.stackId.isNull() |
-                _db.stackEntity.id.isNull() |
-                _db.remoteAssetEntity.id.equalsExp(_db.stackEntity.primaryAssetId)),
+            _isStackRepresentative(),
       )
       ..groupBy([dateExp])
       ..orderBy([OrderingTerm.desc(dateExp)]);
@@ -683,9 +684,7 @@ class TimelineRepository extends DatabaseAccessor<Drift> with $TimelineRepositor
                     _db.remoteAssetEntity.visibility.equalsValue(AssetVisibility.archive)) &
                 _remoteWithinTemporalScope(_db.remoteAssetEntity, temporalScope) &
                 membership &
-                (_db.remoteAssetEntity.stackId.isNull() |
-                    _db.stackEntity.id.isNull() |
-                    _db.remoteAssetEntity.id.equalsExp(_db.stackEntity.primaryAssetId)),
+                _isStackRepresentative(),
           )
           ..orderBy([OrderingTerm.desc(_db.remoteAssetEntity.createdAt)])
           ..limit(count, offset: offset);
@@ -1606,7 +1605,7 @@ AND (
 )
 AND (
   rae.stack_id IS NULL
-  OR rae.id = se.primary_asset_id
+  OR rae.id = ${_effectiveStackPrimarySql('rae', 'se')}
 )
 ''';
 }
@@ -1867,3 +1866,19 @@ extension on String {
     return DateFormat(format, 'en').parse(this);
   }
 }
+
+// Equivalent to the generated main/Live Photos query in merged_asset.drift.
+// This is a read-time projection; canonical membership and cover are untouched.
+String _effectiveStackPrimarySql(String asset, String stack) =>
+    '''
+COALESCE(
+    (SELECT primary_frame.id FROM remote_asset_entity primary_frame
+     WHERE primary_frame.id = $stack.primary_asset_id
+       AND primary_frame.stack_id = $stack.id AND primary_frame.owner_id = $asset.owner_id
+       AND primary_frame.deleted_at IS NULL),
+    (SELECT survivor.id FROM remote_asset_entity survivor
+     WHERE survivor.stack_id = $stack.id AND survivor.owner_id = $asset.owner_id
+       AND survivor.deleted_at IS NULL AND survivor.visibility = 0
+     ORDER BY survivor.created_at, survivor.id LIMIT 1)
+  )
+''';

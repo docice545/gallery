@@ -9,20 +9,20 @@ on:
       - 'mobile/**'
       - 'e2e/**'
       - 'tools/original-noodle-gallery/**'
+      - '.github/scripts/run-ci-smoke-once.py'
+      - '.github/scripts/login-ci-ghcr.py'
       - 'server/test/contracts/original-noodle-gallery-compatibility.json'
       - '.github/workflows/original-noodle-gallery-compatibility.yml'
   push:
+    # Exact-source evidence for reviewed candidates; never starts release jobs.
     branches:
+      - main
+      - 'release/*'
       - 'codex/foto-master-final-20261029'
       - 'codex/foto-build22-resume-20261029'
-    paths:
-      - 'server/**'
-      - 'open-api/**'
-      - 'mobile/**'
-      - 'e2e/**'
-      - 'tools/original-noodle-gallery/**'
-      - 'server/test/contracts/original-noodle-gallery-compatibility.json'
-      - '.github/workflows/original-noodle-gallery-compatibility.yml'
+      - 'codex/issue18-cross-platform-audit'
+      - 'codex/issue17-smart-timeline'
+      - 'codex/issue18-backend-contract-rating'
 
 permissions: {}
 
@@ -53,54 +53,95 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir server exec vitest run src/utils/client-contracts.spec.ts src/utils/original-noodle-gallery-contracts.spec.ts --config test/vitest.config.mjs
+      - name: Ensure API smoke media tool is available
+        id: media-tools
+        run: |
+          set -o pipefail
+          {
+            if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v convert >/dev/null 2>&1; then
+              sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg imagemagick
+            fi
+          } 2>&1 | tee "$RUNNER_TEMP/api-media-tools.log"
+      - name: Expose API fixture infrastructure failure
+        if: failure() && steps.media-tools.outcome == 'failure'
+        run: |
+          python3 - <<'PY_DIAGNOSTIC'
+          import os
+          from pathlib import Path
+          tail = Path(os.environ['RUNNER_TEMP'], 'api-media-tools.log').read_text(errors='replace')[-2800:]
+          escaped = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=API media-tool installation failure::' + escaped)
+          PY_DIAGNOSTIC
       - name: Authenticate GHCR pulls
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+        run: python3 .github/scripts/login-ci-ghcr.py
       - name: Start disposable backend dependencies
+        id: disposable-dependencies
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Build and start disposable FOTO backend
+        id: disposable-backend
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml build immich-server && break
-            rc=$?
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          docker compose -f e2e/docker-compose.yml up -d immich-server
-          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
-          docker compose -f e2e/docker-compose.yml logs immich-server
-          exit 1
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml build immich-server && break
+              rc=$?
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            docker compose -f e2e/docker-compose.yml up -d immich-server
+            for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+            docker compose -f e2e/docker-compose.yml logs immich-server
+            exit 1
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-backend.log"
+      - name: Annotate disposable backend build or startup failure
+        if: failure() && steps.disposable-backend.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-backend.log"
       - name: Seed disposable login account
         run: |
           curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up \
             -H 'content-type: application/json' \
             -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
-      - name: Ensure API smoke media tool is available
-        run: |
-          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v convert >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y ffmpeg imagemagick
-          fi
       - name: Run disposable backend API smoke flows
-        run: bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285
+        id: api-smoke
+        run: |
+          set -o pipefail
+          bash tools/original-noodle-gallery/api_smoke.sh http://127.0.0.1:2285 \
+            2>&1 | tee "$RUNNER_TEMP/api-smoke.log"
+      - name: Expose failed API operation and disposable backend evidence
+        if: failure() && steps.api-smoke.outcome == 'failure'
+        run: |
+          python3 .github/scripts/report-ci-failures.py api-smoke "$RUNNER_TEMP/api-smoke.log"
+          # Only this job's disposable compose, before teardown. Never query HP.
+          docker compose -f e2e/docker-compose.yml logs --no-color --tail=120 immich-server \
+            > "$RUNNER_TEMP/api-backend-failure.log" 2>&1 || true
+          python3 .github/scripts/report-ci-failures.py api-backend "$RUNNER_TEMP/api-backend-failure.log"
       - name: Upload contract receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -109,6 +150,8 @@ jobs:
           path: |
             server/test-results/**
             /tmp/noodle-api-smoke/**
+            ${{ runner.temp }}/api-smoke.log
+            ${{ runner.temp }}/api-backend-failure.log
           if-no-files-found: ignore
       - name: Tear down disposable services
         if: always()
@@ -133,6 +176,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before backend and stock emulator
+        # Android/Java and the official APK remain; only this disposable host is touched.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
@@ -153,22 +205,31 @@ jobs:
           grep -q 'Signer #1 certificate SHA-256 digest: c1a77384cf726ba6ef0ac7ef51acd124e49941d123a2530615dd51a80c5b57c3' apk-signature.txt
           echo "path=$PWD/gallery-v$VERSION.apk" >> "$GITHUB_OUTPUT"
       - name: Start disposable PostgreSQL and Redis
+        id: disposable-dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            python3 .github/scripts/login-ci-ghcr.py
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Prepare hosted Android emulator KVM and ADB
         run: |
           set -euxo pipefail
@@ -182,28 +243,44 @@ jobs:
           adb start-server
           adb version
       - name: Build and start disposable FOTO backend
+        id: disposable-backend
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml build immich-server && break
-            rc=$?
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          docker compose -f e2e/docker-compose.yml up -d immich-server
-          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
-          docker compose -f e2e/docker-compose.yml logs immich-server
-          exit 1
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml build immich-server && break
+              rc=$?
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            docker compose -f e2e/docker-compose.yml up -d immich-server
+            for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+            docker compose -f e2e/docker-compose.yml logs immich-server
+            exit 1
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-backend.log"
+      - name: Annotate disposable backend build or startup failure
+        if: failure() && steps.disposable-backend.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-backend.log"
       - name: Seed disposable login account
         run: |
           curl --fail --silent -X POST http://127.0.0.1:2285/api/auth/admin-sign-up -H 'content-type: application/json' -d '{"email":"admin@immich.cloud","password":"password","name":"Admin"}'
+      - name: Reclaim completed backend build cache before the AVD
+        # The running disposable server/database and their images/volumes stay intact.
+        # A prior runner ran out of disk while creating the stock Android AVD.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          docker builder prune --all --force
+          df -h /
       - name: Run official client on emulator
         # reactivecircus/android-emulator-runner has an upstream boot race:
         # sys.boot_completed may precede Android's input service. Retry the
-        # entire action so a transient adb 224 is retried before declaring the
-        # unchanged client incompatible.
+        # bootstrap action so a transient adb 224 can recover before tests start.
+        # The exclusive marker below prevents any product test from running twice;
+        # an already-started failed/interrupted test keeps the whole job failed.
         uses: Wandalen/wretry.action@a163f62ae554a8f3cbe27b23db15b60c0ae2e93c # v1.3.0
         env:
           APK_PATH: ${{ github.workspace }}/gallery-v${{ matrix.version }}.apk
@@ -223,7 +300,7 @@ jobs:
             force-avd-creation: true
             script: |
               mkdir -p /tmp/noodle-e2e
-              bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
+              python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/official-smoke.attempt" -- bash tools/original-noodle-gallery/android_emulator_smoke.sh "$APK_PATH" "$VERSION" "$SERVER_URL"
       - name: Upload Android E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -258,36 +335,24 @@ jobs:
       - name: Prepare iOS contract receipts
         run: mkdir -p mobile/ci-receipts
       - name: Run iOS-capable Flutter analysis
+        id: ios-analysis
         working-directory: mobile
         run: |
           set -o pipefail
           flutter analyze --no-pub 2>&1 | tee ci-receipts/flutter-analyze.log
       - name: Surface Flutter analysis failure details
-        if: failure()
-        working-directory: mobile
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('ci-receipts/flutter-analyze.log')
-          if path.exists():
-              diagnostics = [
-                  line.strip()
-                  for line in path.read_text(errors='replace').splitlines()
-                  if ' warning • ' in line or ' error • ' in line
-              ]
-              for diagnostic in diagnostics:
-                  encoded = diagnostic.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  print(f'::error title=Flutter analyzer diagnostic::{encoded}')
-              if not diagnostics:
-                  print('::notice title=Flutter analyzer diagnostics::No warning or error diagnostics were emitted.')
-          PY
+        if: failure() && steps.ios-analysis.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py analysis mobile/ci-receipts/flutter-analyze.log
       - name: Run iOS-capable existing service and repository tests
+        id: ios-services
         if: always()
         working-directory: mobile
         run: |
           set -o pipefail
-          flutter test --no-pub test/services test/repositories 2>&1 | tee ci-receipts/service-repository-tests.log
+          flutter test --no-pub --reporter json test/services test/repositories | tee ci-receipts/service-repository-tests.jsonl
+      - name: Report exact iOS-capable service results
+        if: "!cancelled() && (steps.ios-services.outcome == 'success' || steps.ios-services.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter mobile/ci-receipts/service-repository-tests.jsonl
       - name: Run screenshot framing policy tests
         if: always()
         working-directory: mobile
@@ -301,6 +366,7 @@ jobs:
           set -o pipefail
           flutter test --no-pub test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart 2>&1 | tee ci-receipts/thumbnail-rendered-tests.log
       - name: Run Memories lane geometry and text widget tests
+        id: ios-memory
         if: always()
         working-directory: mobile
         # Keep the Build 22 memory-lane gate on every exact final-SHA matrix run.
@@ -308,7 +374,7 @@ jobs:
           set -o pipefail
           flutter test --no-pub test/presentation/widgets/memory/memory_lane_test.dart 2>&1 | tee ci-receipts/memory-lane-tests.log
       - name: Surface Memories test failure details
-        if: failure()
+        if: failure() && steps.ios-memory.outcome == 'failure'
         working-directory: mobile
         run: |
           python3 - <<'PY'
@@ -337,6 +403,7 @@ jobs:
             test/presentation/widgets/timeline/live_photo_scope_test.dart \
             2>&1 | tee ci-receipts/live-photo-timeline-tests.log
       - name: Run SQLite recovery fixture tests
+        id: ios-sqlite
         if: always()
         working-directory: mobile
         run: |
@@ -348,7 +415,7 @@ jobs:
             test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart \
             2>&1 | tee ci-receipts/sqlite-recovery-tests.log
       - name: Surface SQLite fixture failure details
-        if: failure()
+        if: failure() && steps.ios-sqlite.outcome == 'failure'
         working-directory: mobile
         run: |
           python3 - <<'PY'
@@ -395,6 +462,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before Android cache tests
+        # Preserve SDK/NDK and Java; this Gradle job previously exhausted its disk.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
         with:
           github_token: ${{ github.token }}
@@ -475,6 +551,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Reclaim unused hosted toolchains before Android and backend builds
+        # Keep Android/Java: this job needs both the APK and a live emulator.
+        # The previous runner exhausted its disk before it could retain diagnostics.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/foto-offline-gradle" >> "$GITHUB_ENV"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
       - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
         with:
           github_token: ${{ github.token }}
@@ -489,6 +576,7 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - name: Build final debug APK for emulator evidence
+        id: foto-debug-apk
         working-directory: mobile
         # Keep this as a standalone retryable receipt: the prior hosted run
         # built the same APK, while a later runner failed before backend setup.
@@ -517,24 +605,54 @@ jobs:
           export GRADLE_OPTS="-Dfile.encoding=UTF-8"
           # This receipt is deliberately x86_64-only for the hosted emulator.
           # Release workflows continue to build the universal/arm64 artifacts.
-          flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64
+          flutter build apk --debug --no-tree-shake-icons --no-pub --target-platform android-x64 2>&1 | tee "$RUNNER_TEMP/foto-debug-apk.log"
+      - name: Annotate emulator APK compilation failure
+        if: failure() && steps.foto-debug-apk.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py android-debug "$RUNNER_TEMP/foto-debug-apk.log"
+      - name: Reclaim finished Android compilation before disposable backend
+        # This job only installs the finished APK from this point onward.
+        # Preserve its exact bytes while releasing intermediates and isolated Gradle data.
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$PWD" = "$GITHUB_WORKSPACE"
+          test "$GRADLE_USER_HOME" = "$RUNNER_TEMP/foto-offline-gradle"
+          apk=mobile/build/app/outputs/flutter-apk/app-debug.apk
+          test -s "$apk"
+          before=$(sha256sum "$apk" | cut -d ' ' -f 1)
+          cp "$apk" "$RUNNER_TEMP/foto-offline-preserved.apk"
+          (cd mobile/android && ./gradlew --stop)
+          rm -rf -- mobile/build "$RUNNER_TEMP/foto-offline-gradle"
+          mkdir -p "$(dirname "$apk")"
+          cp "$RUNNER_TEMP/foto-offline-preserved.apk" "$apk"
+          test "$(sha256sum "$apk" | cut -d ' ' -f 1)" = "$before"
+          df -h /
       - name: Start disposable PostgreSQL and Redis
+        id: disposable-dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
-              docker compose -f e2e/docker-compose.yml up -d database redis && break
-            rc=$?
-            docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+          set -o pipefail
+          {
+            python3 .github/scripts/login-ci-ghcr.py
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml pull --quiet database redis && \
+                docker compose -f e2e/docker-compose.yml up -d database redis && break
+              rc=$?
+              docker compose -f e2e/docker-compose.yml down -v --remove-orphans || true
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            for i in $(seq 1 60); do docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich && break; sleep 2; done
+            # The retry loop must not report readiness after its final failed probe.
+            docker compose -f e2e/docker-compose.yml exec -T database pg_isready -U postgres -d immich
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-dependencies.log"
+      - name: Annotate disposable dependency setup failure
+        if: failure() && steps.disposable-dependencies.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-dependencies.log"
       - name: Record Build 22 APK receipt
         if: always()
         working-directory: mobile
@@ -548,20 +666,27 @@ jobs:
             echo 'APK missing after build step' | tee /tmp/foto-build22-receipt/apk-missing.txt
           fi
       - name: Build and start disposable FOTO backend
+        id: disposable-backend
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker compose -f e2e/docker-compose.yml build immich-server && break
-            rc=$?
-            if [[ $attempt -eq 5 ]]; then
-              docker compose -f e2e/docker-compose.yml ps || true
-              exit $rc
-            fi
-            sleep $((attempt * 30))
-          done
-          docker compose -f e2e/docker-compose.yml up -d immich-server
-          for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
-          docker compose -f e2e/docker-compose.yml logs immich-server
-          exit 1
+          set -o pipefail
+          {
+            for attempt in 1 2 3 4 5; do
+              docker compose -f e2e/docker-compose.yml build immich-server && break
+              rc=$?
+              if [[ $attempt -eq 5 ]]; then
+                docker compose -f e2e/docker-compose.yml ps || true
+                exit $rc
+              fi
+              sleep $((attempt * 30))
+            done
+            docker compose -f e2e/docker-compose.yml up -d immich-server
+            for i in $(seq 1 90); do curl --fail --silent http://127.0.0.1:2285/api/server/ping && exit 0 || true; sleep 2; done
+            docker compose -f e2e/docker-compose.yml logs immich-server
+            exit 1
+          } 2>&1 | tee "$RUNNER_TEMP/disposable-backend.log"
+      - name: Annotate disposable backend build or startup failure
+        if: failure() && steps.disposable-backend.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/disposable-backend.log"
       - name: Seed account and edge-content fixture
         run: |
           set -euo pipefail
@@ -581,6 +706,8 @@ jobs:
             # each fixture has distinct bytes and survives server deduplication.
             convert -size 1080x1920 xc:white -fill black -draw 'rectangle 100,30 980,210' \
               -fill blue -draw 'rectangle 100,1710 980,1890' \
+              -fill '#f01ac2' -draw 'rectangle 400,700 680,900' \
+              -fill '#19d28a' -draw 'rectangle 400,1020 680,1220' \
               -fill white -pointsize 80 -gravity North -annotate +0+65 "$year" "$fixture"
             response=$(curl --fail --silent -X POST "$base/assets" -H "Authorization: Bearer $token" \
               -F "assetData=@$fixture" -F "filename=Screenshot_edge-content-$year.png" \
@@ -618,7 +745,14 @@ jobs:
             emulator-boot-timeout: 900
             force-avd-creation: true
             script: |
-              bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
+              python3 .github/scripts/run-ci-smoke-once.py "$RUNNER_TEMP/foto-offline-smoke.attempt" -- bash tools/original-noodle-gallery/foto_offline_emulator_smoke.sh "$APK_PATH" debug "$SERVER_URL"
+      - name: Require completed offline smoke and both decoded captures
+        # A wrapper action's green result alone is not evidence that its script finished.
+        run: |
+          test "$(cat "$RUNNER_TEMP/foto-offline-smoke.attempt")" = 'completed exit=0'
+          python3 tools/original-noodle-gallery/assert_offline_pixels.py /tmp/foto-offline-e2e/online.png
+          python3 tools/original-noodle-gallery/assert_offline_pixels.py /tmp/foto-offline-e2e/offline.png
+          echo '::notice title=FOTO offline acceptance::Smoke completed exit=0; sharp photo pixels verified online and after offline process restart.'
       - name: Upload FOTO offline evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -630,4 +764,3 @@ jobs:
       - name: Tear down disposable services
         if: always()
         run: docker compose -f e2e/docker-compose.yml down -v
-

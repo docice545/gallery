@@ -85,10 +85,13 @@ class FixedRowLayout {
         count++;
         rowHeight = math.max(0.0, width - spacing * (count - 1)) / sum;
         if (rowHeight <= target) {
+          // Compare the raw candidate heights before applying the paint bounds.
+          // Rejecting a slightly oversized previous row caused a width increase
+          // from 384 to 390 dp to halve mixed-photo height (317.5 -> 142.2).
+          // The chosen row is still capped below; no unbounded row or fixed
+          // number of columns is introduced.
           if (count > 1 &&
-              ((previousHeight <= maximum &&
-                      previousHeight >= minimum &&
-                      (previousHeight - target).abs() < (rowHeight - target).abs()) ||
+              ((previousHeight >= minimum && (previousHeight - target).abs() < (rowHeight - target).abs()) ||
                   rowHeight < minimum)) {
             count--;
             sum = previousSum;
@@ -245,7 +248,12 @@ class FixedRowLayout {
     int high = rowCount;
     while (low < high) {
       final middle = (low + high) ~/ 2;
-      if (offsetForRow(middle) <= offset) {
+      // A global sliver offset is converted back to a row-relative offset by
+      // subtraction. Floating-point cancellation can put an exact row start a
+      // fraction below its boundary and anchor the preceding row on the next
+      // density change. Match the segment end-boundary tolerance; this is far
+      // below a physical pixel and does not snap ordinary scrolling.
+      if (offsetForRow(middle) <= offset + 1e-8) {
         low = middle + 1;
       } else {
         high = middle;

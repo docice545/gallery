@@ -322,11 +322,11 @@ class WorkflowProvenanceTests(unittest.TestCase):
         (output / "release-manifest.json").write_text(json.dumps(receipt))
         return output
 
-    def responses(self, *, paid="skipped", sha=COMMIT, artifact=True):
+    def responses(self, *, paid="skipped", sha=COMMIT, artifact=True, branch="work"):
         return [
             {
                 "head_sha": sha,
-                "head_branch": "work",
+                "head_branch": branch,
                 "path": ios_unsigned.WORKFLOW_PATH,
                 "event": "workflow_dispatch",
                 "status": "completed",
@@ -353,11 +353,11 @@ class WorkflowProvenanceTests(unittest.TestCase):
                 ]
             },
             {
-                "artifacts": [
-                    {"name": ios_unsigned.ARTIFACT, "expired": False, "id": 42}
-                ]
-                if artifact
-                else []
+                "artifacts": (
+                    [{"name": ios_unsigned.ARTIFACT, "expired": False, "id": 42}]
+                    if artifact
+                    else []
+                )
             },
         ]
 
@@ -396,7 +396,11 @@ class WorkflowProvenanceTests(unittest.TestCase):
                 "api",
                 side_effect=[
                     {"workflow_runs": []},
-                    {"workflow_runs": [{"id": 2, "head_sha": COMMIT}]},
+                    {
+                        "workflow_runs": [
+                            {"id": 2, "head_sha": COMMIT, "head_branch": "work"}
+                        ]
+                    },
                 ],
             ),
             patch.object(ios_unsigned, "command") as execute,
@@ -423,6 +427,7 @@ class WorkflowProvenanceTests(unittest.TestCase):
         self.assertNotIn("private.example", str(caught.exception))
 
     def test_fetch_verifies_output_and_is_idempotent(self):
+        branch = "codex/ios-review"
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive = root / "fixture.xcarchive"
@@ -438,26 +443,37 @@ class WorkflowProvenanceTests(unittest.TestCase):
                 return ""
 
             with (
-                patch.object(ios_unsigned, "api", side_effect=self.responses()),
+                patch.object(
+                    ios_unsigned, "api", side_effect=self.responses(branch=branch)
+                ),
                 patch.object(ios_unsigned, "command", side_effect=download),
             ):
-                released = ios_unsigned.fetch(123, COMMIT, output, "5.7.2", "6")
+                released = ios_unsigned.fetch(
+                    123, COMMIT, output, "5.7.2", "6", branch=branch
+                )
             self.assertEqual(released["sha256"], ios_artifact.sha256(ipa))
             self.assertEqual(released["artifact_id"], 42)
+            self.assertEqual(released["branch"], branch)
             self.assertTrue((output / "release-manifest.json").is_file())
             with (
-                patch.object(ios_unsigned, "api", side_effect=self.responses()),
+                patch.object(
+                    ios_unsigned, "api", side_effect=self.responses(branch=branch)
+                ),
                 patch.object(ios_unsigned, "command") as download_again,
             ):
-                repeated = ios_unsigned.fetch(123, COMMIT, output, "5.7.2", "6")
+                repeated = ios_unsigned.fetch(
+                    123, COMMIT, output, "5.7.2", "6", branch=branch
+                )
             download_again.assert_not_called()
             self.assertIn("already exists", repeated["status"])
             (output / "Photos-unsigned.ipa").write_bytes(b"tampered")
             with (
-                patch.object(ios_unsigned, "api", side_effect=self.responses()),
+                patch.object(
+                    ios_unsigned, "api", side_effect=self.responses(branch=branch)
+                ),
                 self.assertRaisesRegex(ValueError, "checksum"),
             ):
-                ios_unsigned.fetch(123, COMMIT, output, "5.7.2", "6")
+                ios_unsigned.fetch(123, COMMIT, output, "5.7.2", "6", branch=branch)
 
     def test_dispatch_retry_reuses_verified_original_run_without_new_ci(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -471,7 +487,7 @@ class WorkflowProvenanceTests(unittest.TestCase):
                     COMMIT, wait=True, output=output, version="5.7.2", build="6"
                 )
             launch.assert_not_called()
-            preflight.assert_called_once_with(COMMIT)
+            preflight.assert_called_once_with(COMMIT, branch="work")
             self.assertEqual(result["run_id"], 123)
             self.assertIn("already exists", result["status"])
 
@@ -529,6 +545,171 @@ class WorkflowProvenanceTests(unittest.TestCase):
                     COMMIT, wait=True, output=output, version="5.7.2", build="6"
                 )
             launch.assert_not_called()
+
+    def test_explicit_branch_is_verified_even_when_commits_match(self):
+        branch = "codex/issue18-cross-platform-audit"
+        with patch.object(
+            ios_unsigned, "api", side_effect=self.responses(branch=branch)
+        ):
+            self.assertEqual(
+                ios_unsigned.verify_run(123, COMMIT, branch=branch)[2]["id"], 42
+            )
+        for actual, expected in (("work", branch), (branch, "work")):
+            with (
+                self.subTest(actual=actual, expected=expected),
+                patch.object(
+                    ios_unsigned, "api", side_effect=self.responses(branch=actual)
+                ),
+                self.assertRaisesRegex(ValueError, "expected branch"),
+            ):
+                ios_unsigned.verify_run(123, COMMIT, branch=expected)
+
+    def test_invalid_branch_fails_before_any_git_or_github_operation(self):
+        for branch in (
+            "",
+            "-main",
+            "a..b",
+            "a//b",
+            "a/.b",
+            "a/b.lock",
+            "main.",
+            "main?x=y",
+            "a@{b}",
+        ):
+            with (
+                self.subTest(branch=branch),
+                patch.object(ios_unsigned, "command") as execute,
+                patch.object(ios_unsigned, "api") as api,
+                self.assertRaisesRegex(ValueError, "branch name"),
+            ):
+                ios_unsigned.preflight(COMMIT, branch=branch)
+            execute.assert_not_called()
+            api.assert_not_called()
+
+    def test_preflight_pins_local_and_remote_branch_and_keeps_clean_guard(self):
+        branch = "codex/ios-review"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflow = root / ios_unsigned.WORKFLOW_PATH
+            workflow.parent.mkdir(parents=True)
+            workflow.touch()
+            for local_branch, local_sha, dirty, remote_sha, valid in (
+                (branch, COMMIT, "", COMMIT, True),
+                ("work", COMMIT, "", COMMIT, False),
+                (branch, "b" * 40, "", COMMIT, False),
+                (branch, COMMIT, " M mobile/pubspec.yaml", COMMIT, False),
+                (branch, COMMIT, "", "b" * 40, False),
+            ):
+                answers = {
+                    ("git", "rev-parse", "--show-toplevel"): str(root),
+                    ("git", "branch", "--show-current"): local_branch,
+                    ("git", "rev-parse", "HEAD"): local_sha,
+                    (
+                        "git",
+                        "remote",
+                        "get-url",
+                        "origin",
+                    ): "https://github.com/docice545/gallery.git",
+                    ("git", "status", "--porcelain"): dirty,
+                }
+                with (
+                    self.subTest(
+                        local_branch=local_branch,
+                        local_sha=local_sha,
+                        dirty=dirty,
+                        remote_sha=remote_sha,
+                    ),
+                    patch.object(
+                        ios_unsigned,
+                        "command",
+                        side_effect=lambda args, **kw: answers[tuple(args)],
+                    ),
+                    patch.object(
+                        ios_unsigned,
+                        "api",
+                        return_value={"object": {"sha": remote_sha}},
+                    ) as api,
+                ):
+                    if valid:
+                        self.assertEqual(
+                            ios_unsigned.preflight(COMMIT, branch=branch), root
+                        )
+                        api.assert_called_once_with("git/ref/heads/codex/ios-review")
+                    else:
+                        with self.assertRaises(ValueError):
+                            ios_unsigned.preflight(COMMIT, branch=branch)
+
+    def test_dispatch_uses_explicit_branch_and_ignores_another_branch_same_sha(self):
+        branch = "codex/ios-review"
+        with (
+            patch.object(ios_unsigned, "preflight") as preflight,
+            patch.object(
+                ios_unsigned,
+                "api",
+                side_effect=[
+                    {"workflow_runs": []},
+                    {
+                        "workflow_runs": [
+                            {"id": 2, "head_sha": COMMIT, "head_branch": "work"},
+                            {"id": 3, "head_sha": COMMIT, "head_branch": branch},
+                        ]
+                    },
+                ],
+            ) as api,
+            patch.object(ios_unsigned, "command") as execute,
+        ):
+            self.assertEqual(
+                ios_unsigned.dispatch(COMMIT, wait=False, branch=branch), 3
+            )
+        preflight.assert_called_once_with(COMMIT, branch=branch)
+        arguments = execute.call_args.args[0]
+        self.assertEqual(arguments[arguments.index("--ref") + 1], branch)
+        self.assertIn("version=", arguments)
+        self.assertIn("build_target=ios", arguments)
+        self.assertTrue(
+            all(
+                "branch=codex%2Fios-review&" in call.args[0]
+                for call in api.call_args_list
+            )
+        )
+
+    def test_failed_cancelled_or_skipped_build_is_not_release_evidence(self):
+        for conclusion in ("failure", "cancelled", "skipped", None):
+            responses = self.responses()
+            responses[0]["conclusion"] = conclusion
+            with (
+                patch.object(ios_unsigned, "api", side_effect=responses),
+                self.assertRaises(ValueError),
+            ):
+                ios_unsigned.verify_run(123, COMMIT)
+        responses = self.responses()
+        responses[1]["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+        with (
+            patch.object(ios_unsigned, "api", side_effect=responses),
+            self.assertRaisesRegex(ValueError, "native build"),
+        ):
+            ios_unsigned.verify_run(123, COMMIT)
+
+    def test_retry_cannot_relabel_legacy_work_receipt_as_new_branch(self):
+        branch = "codex/ios-review"
+        with tempfile.TemporaryDirectory() as temporary:
+            output = self.cached_output(Path(temporary))
+            original = (output / "release-manifest.json").read_bytes()
+            with (
+                patch.object(ios_unsigned, "preflight"),
+                patch.object(ios_unsigned, "dispatch") as launch,
+                self.assertRaisesRegex(ValueError, "identity differs"),
+            ):
+                ios_unsigned.dispatch_or_reuse(
+                    COMMIT,
+                    wait=True,
+                    output=output,
+                    version="5.7.2",
+                    build="6",
+                    branch=branch,
+                )
+            launch.assert_not_called()
+            self.assertEqual((output / "release-manifest.json").read_bytes(), original)
 
 
 if __name__ == "__main__":

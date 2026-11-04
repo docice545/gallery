@@ -17,6 +17,7 @@ import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.prov
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_overlay.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
@@ -28,6 +29,7 @@ import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/view_intent/view_intent_file_path.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_loading_indicator.dart';
 import 'package:immich_mobile/widgets/photo_view/photo_view.dart';
+import 'package:immich_mobile/widgets/photo_view/src/utils/photo_view_utils.dart';
 
 enum _DragIntent { none, scroll, dismiss }
 
@@ -296,7 +298,13 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       ref.read(isPlayingMotionVideoProvider.notifier).playing = true;
 
   void _onScaleStateChanged(PhotoViewScaleState scaleState) {
-    _isZoomed = scaleState == PhotoViewScaleState.zoomedIn || scaleState == PhotoViewScaleState.covering;
+    final boundaries = _viewController?.scaleBoundaries;
+    _isZoomed = switch (scaleState) {
+      PhotoViewScaleState.zoomedIn => true,
+      PhotoViewScaleState.covering || PhotoViewScaleState.originalSize =>
+        boundaries == null || getScaleForScaleState(scaleState, boundaries) > boundaries.initialScale + .0001,
+      _ => false,
+    };
     _viewer.setZoomed(_isZoomed);
 
     if (scaleState != PhotoViewScaleState.initial) {
@@ -306,9 +314,8 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       return;
     }
 
-    if (!_showingDetails) {
-      _viewer.setControls(true);
-    }
+    // Returning from a pinch/double-tap/pan is not a request for controls.
+    // Only the existing single-tap handler toggles the floating panels.
   }
 
   void _listenForScaleBoundaries(PhotoViewControllerBase? controller) {
@@ -369,7 +376,11 @@ class _AssetPageState extends ConsumerState<AssetPage> {
         index: widget.index,
         imageProvider: imageProvider,
         heroAttributes: heroAttributes,
-        loadingBuilder: (context, progress, index) => const Center(child: ImmichLoadingIndicator()),
+        loadingChildSize: !asset.isEdited && (asset.width ?? 0) > 0 && (asset.height ?? 0) > 0
+            ? Size(asset.width!.toDouble(), asset.height!.toDouble())
+            : null,
+        loadingBuilder: (context, progress, index) =>
+            Thumbnail.fromAsset(asset: asset, remoteSize: remoteThumbnailSize, fit: BoxFit.contain),
         gaplessPlayback: true,
         filterQuality: FilterQuality.high,
         tightMode: true,
@@ -465,7 +476,10 @@ class _AssetPageState extends ConsumerState<AssetPage> {
     }
     final stackChildren = stackState?.valueOrNull ?? (stackState?.hasError == true ? _lastStackChildren : null);
     if (stackChildren != null && stackChildren.isNotEmpty) {
-      final safeStackIndex = stackIndex.clamp(0, stackChildren.length - 1);
+      // A promoted cover changes the primary-first order asynchronously.
+      // The selected ID remains authoritative while its ordinal catches up.
+      final selectedIdIndex = stackChildren.indexWhere((frame) => frame.id == currentAsset?.id);
+      final safeStackIndex = selectedIdIndex >= 0 ? selectedIdIndex : stackIndex.clamp(0, stackChildren.length - 1);
       displayAsset = stackChildren.elementAt(safeStackIndex);
     }
 
@@ -498,15 +512,22 @@ class _AssetPageState extends ConsumerState<AssetPage> {
                 SizedBox(
                   width: viewportWidth,
                   height: viewportHeight,
-                  child: _buildPhotoView(
-                    asset: displayAsset,
-                    heroAttributes: isCurrent
-                        ? PhotoViewHeroAttributes(tag: '${asset.heroTag}_${widget.heroOffset}')
-                        : null,
-                    isCurrent: isCurrent,
-                    isPlayingMotionVideo: isPlayingMotionVideo,
-                    localFilePath: viewIntentFilePath,
-                    remoteThumbnailSize: thumbnailSize,
+                  child: GhostSource(
+                    assetKey: displayAsset.heroTag,
+                    captureInsets: EdgeInsets.only(
+                      top: MediaQuery.paddingOf(context).top + 68,
+                      bottom: MediaQuery.paddingOf(context).bottom + 68,
+                    ),
+                    child: _buildPhotoView(
+                      asset: displayAsset,
+                      heroAttributes: isCurrent
+                          ? PhotoViewHeroAttributes(tag: '${asset.heroTag}_${widget.heroOffset}')
+                          : null,
+                      isCurrent: isCurrent,
+                      isPlayingMotionVideo: isPlayingMotionVideo,
+                      localFilePath: viewIntentFilePath,
+                      remoteThumbnailSize: thumbnailSize,
+                    ),
                   ),
                 ),
                 if (showingOcr && displayAsset.width != null && displayAsset.height != null)

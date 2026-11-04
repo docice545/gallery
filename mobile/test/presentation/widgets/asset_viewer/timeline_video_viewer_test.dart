@@ -10,6 +10,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
@@ -140,7 +141,7 @@ LocalAsset _local({String? remoteId}) => LocalAsset(
   isEdited: false,
 );
 
-RemoteAsset _remote() => RemoteAsset(
+RemoteAsset _remote({String? motionId = 'server-motion'}) => RemoteAsset(
   id: 'server-live',
   name: 'synthetic-remote.jpg',
   checksum: 'remote-checksum',
@@ -148,7 +149,7 @@ RemoteAsset _remote() => RemoteAsset(
   type: AssetType.image,
   createdAt: DateTime.utc(2026),
   updatedAt: DateTime.utc(2026),
-  livePhotoVideoId: 'server-motion',
+  livePhotoVideoId: motionId,
   isEdited: false,
 );
 
@@ -173,6 +174,7 @@ void main() {
     await SettingsRepository.ensureInitialized(db);
     store = await StoreService.init(storeRepository: StoreRepository(db), listenUpdates: false);
     await Store.put(StoreKey.serverEndpoint, 'https://example.invalid/api');
+    await SettingsRepository.instance.write(SettingsKey.networkCustomHeaders, {'x-test-auth': 'synthetic-token'});
     const channel = 'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle';
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler(
       channel,
@@ -304,8 +306,28 @@ void main() {
     verifyZeroInteractions(assets);
   });
 
-  testAndroidWidgets('remote timeline stays static and does not construct a native player', (tester) async {
+  testAndroidWidgets('remote timeline plays the authenticated pair and reports motion only after position advances', (
+    tester,
+  ) async {
+    controller.onLoad = controller.onPlaybackReady.notifyListeners;
     await mount(tester, host(asset: _remote()));
+    expect(surfaces, greaterThan(0));
+    expect(find.byKey(const Key('native-surface')), findsOneWidget);
+    expect(controller.sources.single.type, VideoSourceType.network);
+    expect(controller.sources.single.path, 'https://example.invalid/api/assets/server-motion/video/playback');
+    expect(controller.sources.single.headers, {'x-test-auth': 'synthetic-token'});
+    expect(controller.commands.take(4), ['volume:0.0', 'loop:false', 'load', 'play']);
+    expect(started, 0);
+    controller.onPlaybackPositionChanged.value = 20;
+    await tester.pump();
+    controller.onPlaybackPositionChanged.value = 40;
+    await tester.pump();
+    expect(started, 1);
+    verifyZeroInteractions(assets);
+  });
+
+  testAndroidWidgets('remote timeline without a motion pair stays static without a native player', (tester) async {
+    await mount(tester, host(asset: _remote(motionId: null)));
     expect(surfaces, 0);
     expect(controller.sources, isEmpty);
     expect(controller.commands, isEmpty);

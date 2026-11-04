@@ -9,6 +9,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
+import 'package:immich_mobile/domain/models/timeline_grouping.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
@@ -27,6 +28,7 @@ import 'package:immich_mobile/providers/infrastructure/user.provider.dart' as in
 import 'package:immich_mobile/providers/photos_filter/timeline_query.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
+import 'package:immich_mobile/providers/timeline/timeline_grouping.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/services/server_info.service.dart';
 import 'package:immich_ui/immich_ui.dart' as ui;
@@ -104,6 +106,39 @@ void main() {
       expect(tester.getRect(find.byType(CustomScrollView)).bottom, lessThanOrEqualTo(actions.top));
       expect(find.text('Delete permanently'), findsOneWidget);
       expect(find.text('Restore'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('floating deletion result paints and receives touches before the grouping pill; pill recovers', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(393, 852);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await _pumpTimeline(tester, withGroupingPill: true);
+      final pill = find.byKey(const Key('timeline-grouping-bottom-pill'));
+      final months = find.text('Months');
+      final container = ProviderScope.containerOf(tester.element(find.byType(Timeline)));
+      final before = container.read(timelineOverviewModeProvider);
+      ui.snackbar.success('Фотографии перемещены в корзину', duration: const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final message = tester.getRect(find.byType(SnackBar));
+      expect(message.overlaps(tester.getRect(pill)), isTrue, reason: 'exercise the actual overlapping z-order');
+      final overlap = message.intersect(tester.getRect(pill));
+      // The covered area belongs to the notification, not the underlying selector.
+      await tester.tapAt(overlap.center);
+      await tester.pump();
+      expect(container.read(timelineOverviewModeProvider), before);
+      expect(months.hitTestable(), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(months.hitTestable(), findsOneWidget);
+      await tester.tap(months);
+      await tester.pumpAndSettle();
+      expect(container.read(timelineOverviewModeProvider), TimelineOverviewMode.months);
       expect(tester.takeException(), isNull);
     });
 

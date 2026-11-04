@@ -43,6 +43,7 @@ export type RegisterSpaceContextOptions = {
 };
 
 export interface SelectionCommandContext {
+  includeStacks?: boolean;
   assets: TimelineAsset[];
   selectedAssetIds: string[];
   ownedAssets: TimelineAsset[];
@@ -62,6 +63,7 @@ export interface SelectionCommandContext {
 }
 
 export type RegisterSelectionContextOptions = {
+  getIncludeStacks?: () => boolean;
   getAssets: () => TimelineAsset[];
   clearSelection: () => void;
   canAddToAlbum?: () => boolean;
@@ -166,6 +168,7 @@ class CommandContextManager {
       onDelete: registered.options.getOnDelete?.(),
       onUndoDelete: registered.options.getOnUndoDelete?.(),
       addSelectedToCurrentSpace: registered.options.getAddSelectedToCurrentSpace?.(),
+      ...(registered.options.getIncludeStacks && { includeStacks: registered.options.getIncludeStacks() }),
     };
   }
 

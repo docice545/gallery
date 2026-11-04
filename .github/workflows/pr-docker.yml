@@ -1,0 +1,84 @@
+name: PR Docker compilation (no publishing)
+
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'web/**'
+      - 'machine-learning/**'
+      - 'packages/**'
+      - 'open-api/**'
+      - 'i18n/**'
+      - 'branding/**'
+      - 'patches/**'
+      - 'package.json'
+      - 'pnpm-*.yaml'
+      - '.pnpmfile.cjs'
+      - '.dockerignore'
+      - '.github/workflows/docker.yml'
+      - '.github/workflows/pr-docker.yml'
+      - '.github/scripts/report-ci-failures.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: PR Docker build (${{ matrix.component }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: server
+            context: .
+          - component: machine-learning
+            context: machine-learning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reclaim unused hosted toolchains before Docker compilation
+        # The server image exhausted the hosted runner while extracting Intel GPU
+        # libraries. These jobs compile containers and do not need Android/.NET.
+        # Run before buildx setup so image pruning cannot discard its builder.
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+      - uses: ./.github/actions/apply-branding
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Compile existing Dockerfile without registry writes
+        id: compile
+        env:
+          COMPONENT: ${{ matrix.component }}
+          BUILD_CONTEXT: ${{ matrix.context }}
+          # Dockerfile's optional secret authenticates its pinned js-pdk lookup.
+          # Never pass a job token as a persistent image ARG or ENV.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker buildx build --progress plain --load \
+            --file "$COMPONENT/Dockerfile" --platform linux/amd64 \
+            --tag "gallery-pr-check:$COMPONENT" \
+            --secret id=github_token,env=GITHUB_TOKEN \
+            --build-arg DEVICE=cpu \
+            --build-arg "BUILD_SOURCE_COMMIT=$GITHUB_SHA" \
+            --build-arg "BUILD_REPOSITORY=$GITHUB_REPOSITORY" \
+            "$BUILD_CONTEXT" 2>&1 | tee "$RUNNER_TEMP/pr-docker-build.log"
+      - name: Annotate compiler or dependency failure
+        if: failure() && steps.compile.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/pr-docker-build.log"
+      - name: Record the tested checkout
+        run: |
+          {
+            echo 'Compilation only; no registry publication, deployment or device acceptance.'
+            echo "Checkout: $(git rev-parse HEAD) (PR merge checkout)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -86,6 +86,17 @@ class LocalAssetRepository extends DatabaseAccessor<Drift> with $LocalAssetRepos
     });
   }
 
+  Future<Set<String>> getAlbumIdsForAssets(List<String> ids) async {
+    if (ids.isEmpty) {
+      return const {};
+    }
+    final links = _db.localAlbumAssetEntity;
+    final query = _db.selectOnly(links, distinct: true)
+      ..addColumns([links.albumId])
+      ..where(links.assetId.isIn(ids));
+    return (await query.get()).map((row) => row.read(links.albumId)!).toSet();
+  }
+
   Future<LocalAsset?> getById(String id) {
     final query = _db.localAssetEntity.select()..where((lae) => lae.id.equals(id));
 

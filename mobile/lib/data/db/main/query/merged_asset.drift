@@ -53,6 +53,9 @@ import '../table/remote/shared_space_album_hidden.dart';
 -- arm only needs to subtract assets that have NO other, visible path.
 -- Filters are disabled for the main timeline. Live Photos uses the same visibility,
 -- deduplication and backup-selection query with paired-still and temporal predicates.
+-- Trash may arrive before StacksV1 changes the canonical cover. Select a live
+-- representative from persisted membership until that sync arrives. Keep links
+-- intact for rollback/restore, and never choose Hidden/Locked frames as fallback.
 mergedAsset(:current_user_id AS TEXT, :live_photos_only AS BOOLEAN OR NULL, :scope_start AS TEXT OR NULL, :scope_end AS TEXT OR NULL):
 SELECT
 	rae.id as remote_id,
@@ -161,7 +164,16 @@ AND (:scope_end IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), S
 	)
 	AND (
 		rae.stack_id IS NULL
-		OR rae.id = se.primary_asset_id
+		OR rae.id = COALESCE(
+    (SELECT primary_frame.id FROM remote_asset_entity primary_frame
+     WHERE primary_frame.id = se.primary_asset_id
+       AND primary_frame.stack_id = se.id AND primary_frame.owner_id = rae.owner_id
+       AND primary_frame.deleted_at IS NULL),
+    (SELECT survivor.id FROM remote_asset_entity survivor
+     WHERE survivor.stack_id = se.id AND survivor.owner_id = rae.owner_id
+       AND survivor.deleted_at IS NULL AND survivor.visibility = 0
+     ORDER BY survivor.created_at, survivor.id LIMIT 1)
+  )
 	)
 
 UNION ALL
@@ -334,7 +346,16 @@ AND (:scope_end IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), S
 		)
 		AND (
 			rae.stack_id IS NULL
-			OR rae.id = se.primary_asset_id
+			OR rae.id = COALESCE(
+    (SELECT primary_frame.id FROM remote_asset_entity primary_frame
+     WHERE primary_frame.id = se.primary_asset_id
+       AND primary_frame.stack_id = se.id AND primary_frame.owner_id = rae.owner_id
+       AND primary_frame.deleted_at IS NULL),
+    (SELECT survivor.id FROM remote_asset_entity survivor
+     WHERE survivor.stack_id = se.id AND survivor.owner_id = rae.owner_id
+       AND survivor.deleted_at IS NULL AND survivor.visibility = 0
+     ORDER BY survivor.created_at, survivor.id LIMIT 1)
+  )
 		)
 	UNION ALL
 	SELECT

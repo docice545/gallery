@@ -15,7 +15,7 @@ class FilterPanel extends ConsumerWidget {
     final editorNotifier = ref.read(editorStateProvider.notifier);
     return Material(
       key: const Key('editor-filter-panel'),
-      color: Colors.black.withValues(alpha: .78),
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
@@ -51,7 +51,10 @@ class FilterPanel extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Row(
                   children: [
-                    Text(context.t.editor_filter_intensity, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                    Text(
+                      context.t.editor_filter_intensity,
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Slider(
@@ -63,15 +66,15 @@ class FilterPanel extends ConsumerWidget {
                         value: editorState.filterIntensity,
                         onChanged: (value) =>
                             editorNotifier.setFilter(editorState.selectedFilterIndex, intensity: value),
-                        activeColor: Colors.white,
-                        inactiveColor: Colors.white24,
+                        activeColor: Theme.of(context).colorScheme.primary,
+                        inactiveColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                       ),
                     ),
                     SizedBox(
                       width: 40,
                       child: Text(
                         '${(editorState.filterIntensity * 100).round()}%',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 12),
                         textAlign: TextAlign.end,
                       ),
                     ),
@@ -117,7 +120,10 @@ class _FilterThumbnail extends StatelessWidget {
             height: 60,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: isSelected ? Colors.yellow : Colors.transparent, width: 3),
+              border: Border.all(
+                color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                width: 3,
+              ),
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(5),
@@ -131,7 +137,9 @@ class _FilterThumbnail extends StatelessWidget {
           Text(
             name,
             style: TextStyle(
-              color: isSelected ? Colors.white : Colors.white70,
+              color: isSelected
+                  ? Theme.of(context).colorScheme.onSurface
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 10,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
             ),

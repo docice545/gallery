@@ -423,6 +423,23 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   Map<String, dynamic>? _pendingState(AssetTrashSnapshot? snapshot) =>
       snapshot?.retainedValue == null ? null : jsonDecode(snapshot!.retainedValue!) as Map<String, dynamic>;
 
+  bool _hasPresentationRollback(Map<String, dynamic>? state) =>
+      state?['operation'] == 'trash' && state?['presentationRolledBack'] == true && state?['permanent'] != true;
+
+  DateTime? _projectedTrashDate(AssetTrashSnapshot? snapshot, DateTime? incoming) {
+    final state = _pendingState(snapshot);
+    if (_hasPresentationRollback(state)) {
+      final previous = state!['previousDeletedAt'] as int?;
+      return previous == null ? null : DateTime.fromMillisecondsSinceEpoch(previous, isUtc: true);
+    }
+    return state?['operation'] == 'restore' ? null : incoming ?? snapshot?.deletedAt;
+  }
+
+  bool _projectedIndexState(AssetTrashSnapshot? snapshot, bool incoming) {
+    final state = _pendingState(snapshot);
+    return _hasPresentationRollback(state) ? state!['previousIndexTombstone'] == true : incoming;
+  }
+
   /// Only the foreground cold-start path calls this, before accepting actions.
   /// A request abandoned with the previous engine has an unknown outcome.
   Future<void> recoverPendingTrashOperations() async {
@@ -435,10 +452,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         }
         final state = jsonDecode(row.value!) as Map<String, dynamic>;
         if (state['phase'] == 'inFlight') {
-          state['phase'] = 'uncertain';
-          await (_db.settingsEntity.update()..where((r) => r.key.equals(row.key))).write(
-            SettingsEntityCompanion(value: Value(jsonEncode(state))),
-          );
+          await _resolveTrashOperation(_decodeRetained(row.key, row.value!), null);
         }
       }
     });
@@ -570,9 +584,25 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       var indexRollback = false;
       if (trashed == null) {
         state['phase'] = 'uncertain';
+        if (state['operation'] == 'trash') {
+          // Restore only presentation. Keep the revision, operation and backup
+          // fence: a lost response proves neither success nor server rollback.
+          state['presentationRolledBack'] = true;
+          final previous = state['previousDeletedAt'] as int?;
+          if (row != null) {
+            await (_db.remoteAssetEntity.update()..where((r) => r.id.equals(snapshot.id))).write(
+              RemoteAssetEntityCompanion(
+                deletedAt: Value(previous == null ? null : DateTime.fromMillisecondsSinceEpoch(previous, isUtc: true)),
+                isIndexTombstone: Value(state['previousIndexTombstone'] == true),
+              ),
+            );
+          }
+        }
       } else {
+        state.remove('presentationRolledBack');
         state.remove('operation');
         state.remove('phase');
+        final previousPendingState = state.remove('previousPendingState');
         final previous = state.remove('previousDeletedAt');
         final previousTrashDate = state.remove('previousTrashDate');
         final previousIndexState = state.remove('previousIndexTombstone') == true;
@@ -596,9 +626,20 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         // A definite rejection rolls back this action, but cannot prove the
         // outcome of the preceding optimistic operation it was based on.
         if (unresolvedPrevious) {
-          state['operation'] = trashed ? 'trash' : 'restore';
+          if (previousPendingState is Map<String, dynamic>) {
+            // A rejected retry must retain the preceding unknown operation,
+            // not infer its intent from the now-restored visible row.
+            final revision = state['revision'];
+            state
+              ..clear()
+              ..addAll(previousPendingState);
+            state['revision'] = revision;
+          } else {
+            // Compatibility with journals written before full retry snapshots.
+            state['operation'] = trashed ? 'trash' : 'restore';
+            state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
+          }
           state['phase'] = 'uncertain';
-          state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
         }
       }
       if ((trashed == false || indexRollback) && !unresolvedPrevious) {
@@ -656,7 +697,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
           UNION
           SELECT json_extract(value, '\$.id') AS id FROM settings
           WHERE key LIKE ? AND CASE WHEN json_valid(value)
-            THEN COALESCE(json_extract(value, '\$.operation'), 'trash') != 'restore'
+            THEN CASE WHEN json_extract(value, '\$.operation') = 'trash'
+              AND json_extract(value, '\$.presentationRolledBack') = 1
+              AND COALESCE(json_extract(value, '\$.permanent'), 0) != 1
+              THEN json_extract(value, '\$.previousDeletedAt') IS NOT NULL
+              ELSE COALESCE(json_extract(value, '\$.operation'), 'trash') != 'restore' END
             ELSE 0 END
           ''',
           variables: [Variable.withString('$prefix%')],
@@ -766,7 +811,8 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       if (wanted.contains(state.id)) {
         identities[state.id] = (ownerId: state.ownerId, checksum: state.checksum);
         deletionDates[state.id] = state.deletedAt;
-        previousDates[state.id] = _pendingState(state)?['operation'] == 'restore' ? null : state.deletedAt;
+        previousDates[state.id] = _projectedTrashDate(state, null);
+        previousIndexStates[state.id] = _projectedIndexState(state, false);
         if (_pendingState(state)?['operation'] != null) {
           pendingIds.add(state.id);
         }
@@ -826,6 +872,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
             if (pendingIds.contains(entry.key)) ...{
               'previousPending': true,
               'previousTrashDate': deletionDates[entry.key]?.millisecondsSinceEpoch,
+              'previousPendingState': previous,
             },
           },
         });
@@ -864,7 +911,10 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
             }
             final companion = RemoteAssetEntityCompanion(
               isIndexTombstone: Value(
-                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                _projectedIndexState(
+                  retained[asset.id],
+                  asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                ),
               ),
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
@@ -877,11 +927,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               ownerId: Value(asset.ownerId),
               localDateTime: Value(asset.localDateTime),
               thumbHash: Value(asset.thumbhash),
-              deletedAt: Value(
-                _pendingState(retained[asset.id])?['operation'] == 'restore'
-                    ? null
-                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
-              ),
+              deletedAt: Value(_projectedTrashDate(retained[asset.id], asset.deletedAt)),
               visibility: Value(asset.visibility.toAssetVisibility()),
               livePhotoVideoId: Value(asset.livePhotoVideoId),
               stackId: Value(asset.stackId),
@@ -938,7 +984,10 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
             }
             final companion = RemoteAssetEntityCompanion(
               isIndexTombstone: Value(
-                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                _projectedIndexState(
+                  retained[asset.id],
+                  asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                ),
               ),
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
@@ -951,11 +1000,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               ownerId: Value(asset.ownerId),
               localDateTime: Value(asset.localDateTime),
               thumbHash: Value(asset.thumbhash),
-              deletedAt: Value(
-                _pendingState(retained[asset.id])?['operation'] == 'restore'
-                    ? null
-                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
-              ),
+              deletedAt: Value(_projectedTrashDate(retained[asset.id], asset.deletedAt)),
               visibility: Value(asset.visibility.toAssetVisibility()),
               livePhotoVideoId: Value(asset.livePhotoVideoId),
               stackId: Value(asset.stackId),

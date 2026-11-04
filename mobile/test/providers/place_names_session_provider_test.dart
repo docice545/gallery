@@ -85,6 +85,24 @@ void main() {
     return container.read(placeNameServiceProvider);
   }
 
+  test('cache-only display follows language offline without a native request per tile', () async {
+    final service = await currentService();
+    await service.resolve(place, 'ru-RU', isWanted: () => true);
+    expect(nativeCalls, 1);
+    await container.read(persistedPlaceLabelsProvider.future);
+    final ru = container.read(placeDisplayNamesProvider(const Locale('ru', 'RU')));
+    final en = container.read(placeDisplayNamesProvider(const Locale('en')));
+    for (var index = 0; index < 200; index++) {
+      expect(ru.label(place), 'Москва');
+      expect(en.label(place), 'Moscow');
+      expect(ru.timelineLabel(place), 'Москва');
+    }
+    expect(nativeCalls, 1);
+    expect(place.scopeIdentity, ('Moscow', null, null));
+    expect(place.assetId, 'preview');
+    expect(place.latitude, 55.75);
+  });
+
   test('initial endpoint loading creates one native lookup and reopening uses its trusted cache', () async {
     final provider = localizedPlaceLabelProvider(request);
     final subscription = container.listen(provider, (_, _) {});

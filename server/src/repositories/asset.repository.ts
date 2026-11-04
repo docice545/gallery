@@ -36,6 +36,7 @@ import {
   StorageFolder,
   TimeBucketSize,
 } from 'src/enum.js';
+import { lockAssetStacks, repairStackPrimaries } from 'src/repositories/stack.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetAudioTable, AssetKeyframeTable, AssetVideoTable } from 'src/schema/tables/asset-av.table.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
@@ -308,6 +309,8 @@ type UpsertExifOptions = {
   video?: Insertable<AssetVideoTable>;
   keyframes?: Insertable<AssetKeyframeTable>;
   lockedPropertiesBehavior: 'override' | 'append' | 'skip';
+  /** Revision observed before reading EXIF/XMP; null means no row existed yet. */
+  expectedUpdateId?: string | null;
 };
 
 const distinctLocked = <T extends LockableProperty[] | null>(eb: ExpressionBuilder<DB, 'asset_exif'>, columns: T) =>
@@ -676,7 +679,14 @@ export class AssetRepository {
       },
     ],
   })
-  async upsertExif({ exif, audio, video, keyframes, lockedPropertiesBehavior }: UpsertExifOptions): Promise<void> {
+  async upsertExif({
+    exif,
+    audio,
+    video,
+    keyframes,
+    lockedPropertiesBehavior,
+    expectedUpdateId,
+  }: UpsertExifOptions): Promise<void> {
     let query = this.db;
     if (audio) {
       (query as any) = this.db.with('audio', (qb) =>
@@ -749,7 +759,14 @@ export class AssetRepository {
           const skipLocked = <T extends keyof AssetExifTable>(col: T) =>
             eb
               .case()
-              .when(sql`${col}`, '=', eb.fn.any('asset_exif.lockedProperties'))
+              .when(
+                eb.or([
+                  eb(sql`${col}`, '=', eb.fn.any('asset_exif.lockedProperties')),
+                  ...(expectedUpdateId !== undefined && (lockableProperties as readonly string[]).includes(col)
+                    ? [eb('asset_exif.updateId', 'is distinct from', expectedUpdateId)]
+                    : []),
+                ]),
+              )
               .then(eb.ref(`asset_exif.${col}`))
               .else(eb.ref(`excluded.${col}`))
               .end();
@@ -1680,6 +1697,31 @@ export class AssetRepository {
     return this.db.selectFrom('asset').selectAll('asset').where('asset.id', '=', anyUuid(ids)).execute();
   }
 
+  async getActiveTimelineRepresentativeIds(ids: string[], ownerId: string): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .selectFrom('asset as changed')
+      .leftJoin('stack', 'stack.id', 'changed.stackId')
+      .innerJoin('asset as representative', (join) =>
+        join.on((eb) =>
+          eb.or([
+            eb.and([eb('changed.stackId', 'is', null), eb('representative.id', '=', eb.ref('changed.id'))]),
+            eb.and([eb('stack.ownerId', '=', ownerId), eb('representative.id', '=', eb.ref('stack.primaryAssetId'))]),
+          ]),
+        ),
+      )
+      .select('representative.id')
+      .where('changed.id', '=', anyUuid(ids))
+      .where('changed.ownerId', '=', ownerId)
+      .where('representative.ownerId', '=', ownerId)
+      .where('representative.status', '=', AssetStatus.Active)
+      .where('representative.deletedAt', 'is', null)
+      .where('representative.visibility', 'in', [AssetVisibility.Timeline, AssetVisibility.Archive])
+      .distinct()
+      .execute();
+    return rows.map(({ id }) => id);
+  }
+
   @GenerateSql({ params: [[DummyValue.UUID]] })
   getByIdsWithAllRelationsButStacks(ids: string[], viewingUserId?: string) {
     return this.db
@@ -1788,14 +1830,55 @@ export class AssetRepository {
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  getById(
-    id: string,
-    { exifInfo, faces, files, library, owner, smartSearch, stack, tags, edits }: GetByIdsRelations = {},
-  ) {
+  getById(id: string, relations: GetByIdsRelations = {}) {
+    return this.getAssetQuery(relations).where('asset.id', '=', asUuid(id)).limit(1).executeTakeFirst();
+  }
+
+  async getByIdsForTimelineNotifications(ids: string[], ownerId: string) {
+    if (ids.length === 0) return [];
+    return this.getAssetQuery({
+      exifInfo: true,
+      owner: true,
+      faces: { person: true, viewingUserId: ownerId },
+      stack: { assets: true },
+      edits: true,
+      tags: true,
+    })
+      .where('asset.id', '=', anyUuid(ids))
+      .where('asset.ownerId', '=', ownerId)
+      .where('asset.status', '=', AssetStatus.Active)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.visibility', 'in', [AssetVisibility.Timeline, AssetVisibility.Archive])
+      .where((eb) =>
+        eb.or([
+          eb('asset.stackId', 'is', null),
+          eb.exists(
+            eb
+              .selectFrom('stack')
+              .select('id')
+              .whereRef('stack.id', '=', 'asset.stackId')
+              .where('stack.ownerId', '=', ownerId)
+              .whereRef('stack.primaryAssetId', '=', 'asset.id'),
+          ),
+        ]),
+      )
+      .execute();
+  }
+
+  private getAssetQuery({
+    exifInfo,
+    faces,
+    files,
+    library,
+    owner,
+    smartSearch,
+    stack,
+    tags,
+    edits,
+  }: GetByIdsRelations = {}) {
     return this.db
       .selectFrom('asset')
       .selectAll('asset')
-      .where('asset.id', '=', asUuid(id))
       .$if(!!exifInfo, withExif)
       .$if(!!faces, (qb) =>
         qb
@@ -1836,9 +1919,7 @@ export class AssetRepository {
       )
       .$if(!!files, (qb) => qb.select(withFiles))
       .$if(!!tags, (qb) => qb.select(withTags))
-      .$if(!!edits, (qb) => qb.select(withEdits))
-      .limit(1)
-      .executeTakeFirst();
+      .$if(!!edits, (qb) => qb.select(withEdits));
   }
 
   @GenerateSql({ params: [[DummyValue.UUID], {}] })
@@ -1878,16 +1959,21 @@ export class AssetRepository {
     if (ids.length === 0) {
       return [];
     }
-    const rows = await this.db
-      .updateTable('asset')
-      .where('id', '=', anyUuid(ids))
-      // Once irreversible deletion is claimed, even another Trash request must
-      // not make the row restorable again between the claim and removal.
-      .where('status', '!=', AssetStatus.Deleted)
-      .set(options)
-      .returning('id')
-      .execute();
-    return rows.map(({ id }) => id);
+    const update = async (tx: Kysely<DB>) => {
+      const stacks = await lockAssetStacks(tx, { assetIds: ids });
+      const rows = await tx
+        .updateTable('asset')
+        .where('id', '=', anyUuid(ids))
+        // Once irreversible deletion is claimed, even another Trash request must
+        // not make the row restorable again between the claim and removal.
+        .where('status', '!=', AssetStatus.Deleted)
+        .set(options)
+        .returning('id')
+        .execute();
+      await repairStackPrimaries(tx, stacks);
+      return rows.map(({ id }) => id);
+    };
+    return this.db.isTransaction ? update(this.db) : this.db.transaction().execute(update);
   }
 
   async claimDeletion(id: string, cleanup?: { reason: 'library'; libraryId: string } | { reason: 'motion' }) {
@@ -3501,6 +3587,7 @@ export class AssetRepository {
                     .where('stacked.deletedAt', 'is', null)
                     .where('stacked.visibility', '=', AssetVisibility.Timeline)
                     .groupBy('stacked.stackId')
+                    .having((eb) => eb.fn.countAll(), '>', 1)
                     .as('stacked_assets'),
                 (join) => join.onTrue(),
               )

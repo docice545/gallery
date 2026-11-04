@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:auto_route/auto_route.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_grouping.model.dart';
@@ -111,7 +113,9 @@ class Timeline extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final columnCount = ref.watch(appConfigProvider.select((config) => config.timeline.tilesPerRow));
+    final config = ref.watch(appConfigProvider.select((config) => config.timeline));
+    final columnCount = config.tilesPerRow.clamp(2, 5);
+    final immersive = denseLayout && context.isMobile && config.presentation == TimelinePresentation.immersive;
     return LayoutBuilder(
       builder: (_, constraints) {
         final sliverTimeline = _SliverTimeline(
@@ -124,6 +128,8 @@ class Timeline extends ConsumerWidget {
           persistentBottomBar: persistentBottomBar,
           snapToMonth: snapToMonth,
           maxWidth: constraints.maxWidth,
+          columnCount: columnCount,
+          immersive: immersive,
           loadingWidget: loadingWidget,
           emptyWidget: emptyWidget,
           withGroupingPill: withGroupingPill,
@@ -142,6 +148,7 @@ class Timeline extends ConsumerWidget {
                 showStorageIndicator: showStorageIndicator,
                 withStack: withStack,
                 denseLayout: denseLayout && context.isMobile,
+                immersive: immersive,
                 spacing: denseLayout && context.isMobile ? 3 : kTimelineSpacing,
                 textScale: MediaQuery.textScalerOf(context).scale(24) / 24,
                 groupBy: groupBy,
@@ -149,12 +156,7 @@ class Timeline extends ConsumerWidget {
             ),
             if (readOnly) readonlyModeProvider.overrideWith(() => _AlwaysReadOnlyNotifier()),
           ],
-          // The pill overlays the whole timeline body — including the loading state — by
-          // design: it is the always-visible grouping control, mirroring how the old top
-          // header was present while content loaded.
-          child: withGroupingPill && !dockGroupingPill
-              ? Stack(children: [sliverTimeline, const TimelineGroupingBottomPill()])
-              : sliverTimeline,
+          child: sliverTimeline,
         );
       },
     );
@@ -183,6 +185,8 @@ class _SliverTimeline extends ConsumerStatefulWidget {
     this.persistentBottomBar = false,
     this.snapToMonth = true,
     this.maxWidth,
+    this.columnCount = 4,
+    this.immersive = false,
     this.loadingWidget,
     this.emptyWidget,
     this.withGroupingPill = false,
@@ -199,6 +203,8 @@ class _SliverTimeline extends ConsumerStatefulWidget {
   final bool persistentBottomBar;
   final bool snapToMonth;
   final double? maxWidth;
+  final int columnCount;
+  final bool immersive;
   final Widget? loadingWidget;
   final Widget? emptyWidget;
   final bool withGroupingPill;
@@ -211,12 +217,24 @@ class _SliverTimeline extends ConsumerStatefulWidget {
 
 class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBindingObserver {
   late final ScrollController _scrollController;
+  final _gridKey = GlobalKey();
   StreamSubscription? _eventSubscription;
+
+  double _gridStartOffset() {
+    final sliver = _gridKey.currentContext?.findRenderObject();
+    return sliver is RenderSliver && sliver.geometry != null ? sliver.constraints.precedingScrollExtent : 0;
+  }
+
+  ScrollPosition? _gridPosition() {
+    final gridContext = _gridKey.currentContext;
+    return gridContext == null ? null : Scrollable.maybeOf(gridContext)?.position;
+  }
 
   int? _restoreAssetIndex;
   TimelineZoomAnchor? _scheduledZoomAnchor;
   TimelineZoomAnchor? _resolvingZoomAnchor;
   List<Segment>? _lastRenderedSegments;
+  int _selectionLayoutRevision = 0;
 
   final Debouncer _fastScrollDebouncer = Debouncer(interval: const Duration(milliseconds: 100));
 
@@ -228,6 +246,18 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     _eventSubscription = EventStream.shared.listen(_onEvent);
 
     ref.listenManual(multiSelectProvider.select((s) => s.isEnabled), _onMultiSelectionToggled);
+    // Capture before the scoped layout args invalidate the segment stream and
+    // temporarily attach a loading scroll view at offset zero.
+    ref.listenManual(appConfigProvider.select((config) => config.timeline), (previous, next) {
+      if (previous == null ||
+          (previous.presentation == next.presentation && previous.tilesPerRow == next.tilesPerRow)) {
+        return;
+      }
+      final segments = _lastRenderedSegments;
+      if (segments != null && (_gridPosition()?.hasPixels ?? false)) {
+        _restoreAssetIndex ??= _getCurrentAssetIndex(segments);
+      }
+    });
 
     // Drain any pending "view in timeline" request. It is latched in
     // [scrollToAssetNotifierProvider] so it survives this timeline being mounted
@@ -247,11 +277,13 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   @override
   void didUpdateWidget(covariant _SliverTimeline oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.maxWidth != oldWidget.maxWidth) {
+    if (widget.maxWidth != oldWidget.maxWidth ||
+        widget.columnCount != oldWidget.columnCount ||
+        widget.immersive != oldWidget.immersive) {
       // The updated args already regenerate the segments, only remember the scroll position to restore it afterwards
-      final segments = ref.read(timelineSegmentProvider).valueOrNull;
-      if (segments != null && _scrollController.hasClients) {
-        _restoreAssetIndex = _getCurrentAssetIndex(segments);
+      final segments = _lastRenderedSegments;
+      if (segments != null && (_gridPosition()?.hasPixels ?? false)) {
+        _restoreAssetIndex ??= _getCurrentAssetIndex(segments);
       }
     }
   }
@@ -287,34 +319,70 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   }
 
   void _restoreAssetPosition(_) {
-    if (_restoreAssetIndex == null) {
+    final assetIndex = _restoreAssetIndex;
+    final asyncSegments = ref.read(timelineSegmentProvider);
+    // onAttach also runs for the temporary loading view. It cannot consume an
+    // anchor intended for the next completed mosaic layout.
+    if (assetIndex == null || asyncSegments.isLoading || !asyncSegments.hasValue) {
       return;
     }
-
-    final asyncSegments = ref.read(timelineSegmentProvider);
-    asyncSegments.whenData((segments) {
-      final targetSegment = segments.lastWhereOrNull((segment) => segment.firstAssetIndex <= _restoreAssetIndex!);
-      if (targetSegment != null) {
-        final newColumnCount = ref.read(timelineArgsProvider).columnCount;
-        final targetOffset = assetRowOffset(
-          segment: targetSegment,
-          assetIndexInTimeline: _restoreAssetIndex!,
-          columnCount: newColumnCount,
-        );
-        if (targetOffset == null) {
-          return;
-        }
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _scrollController.jumpTo(targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
-          }
-        });
+    final segments = asyncSegments.requireValue;
+    final targetSegment = segments.lastWhereOrNull((segment) => segment.firstAssetIndex <= assetIndex);
+    if (targetSegment == null) {
+      return;
+    }
+    final targetOffset = assetRowOffset(
+      segment: targetSegment,
+      assetIndexInTimeline: assetIndex,
+      columnCount: ref.read(timelineArgsProvider).columnCount,
+    );
+    if (targetOffset == null) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _restoreAssetIndex != assetIndex) {
+        return;
       }
+      // Loading/outgoing views can still share the primary controller during
+      // this frame. Restore the actual mosaic instead of abandoning its anchor
+      // until an unrelated later update happens to attach just one position.
+      final position = _gridPosition();
+      final currentSegments = ref.read(timelineSegmentProvider);
+      if (position == null ||
+          !position.hasContentDimensions ||
+          currentSegments.isLoading ||
+          !identical(currentSegments.value, segments)) {
+        return;
+      }
+      position.jumpTo((targetOffset + _gridStartOffset()).clamp(0.0, position.maxScrollExtent));
+      _restoreAssetIndex = null;
     });
-    _restoreAssetIndex = null;
   }
 
   void _onMultiSelectionToggled(_, bool isEnabled) {
+    final revision = ++_selectionLayoutRevision;
+    final position = _gridPosition();
+    if (widget.bottomSheet != null && !ref.read(multiSelectProvider).forceEnable && position != null) {
+      final oldPixels = position.pixels;
+      final oldStart = _gridStartOffset();
+      final service = ref.read(timelineServiceProvider);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final currentPosition = mounted ? _gridPosition() : null;
+        if (!mounted ||
+            revision != _selectionLayoutRevision ||
+            currentPosition == null ||
+            !identical(ref.read(timelineServiceProvider), service) ||
+            currentPosition.pixels != oldPixels) {
+          return;
+        }
+        // Replacing an expanded album header with the pinned count must not
+        // move the selected photo. Use measured sliver extents, not guessed gaps.
+        final target = (oldPixels + _gridStartOffset() - oldStart).clamp(0.0, currentPosition.maxScrollExtent);
+        if (target != currentPosition.pixels) {
+          currentPosition.jumpTo(target);
+        }
+      });
+    }
     EventStream.shared.emit(MultiSelectToggleEvent(isEnabled));
   }
 
@@ -354,17 +422,22 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
   }
 
   DateTime? _currentTopVisibleDate(List<Segment> segments) {
-    if (segments.isEmpty || !_scrollController.hasClients) {
+    final position = _gridPosition();
+    if (segments.isEmpty || position == null || !position.hasContentDimensions) {
       return null;
     }
-    final offset = _scrollController.offset.clamp(0.0, _scrollController.position.maxScrollExtent);
+    final offset = position.pixels.clamp(0.0, position.maxScrollExtent);
     final segment = segments.findByOffset(offset) ?? segments.firstOrNull;
     final bucket = segment?.bucket;
     return bucket is TimeBucket ? bucket.date : null;
   }
 
   int? _getCurrentAssetIndex(List<Segment> segments) {
-    final currentOffset = _scrollController.offset.clamp(0.0, _scrollController.position.maxScrollExtent);
+    final position = _gridPosition();
+    if (position == null || !position.hasContentDimensions) {
+      return null;
+    }
+    final currentOffset = (position.pixels - _gridStartOffset()).clamp(0.0, position.maxScrollExtent);
     final segment = segments.findByOffset(currentOffset) ?? segments.lastOrNull;
     int? targetAssetIndex;
     if (segment != null) {
@@ -401,8 +474,15 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
       return false;
     }
 
-    // Use Flutter's built in fast velocity tracking
-    if (_scrollController.position.recommendDeferredLoading(context)) {
+    final position = _gridPosition();
+    final notificationContext = notification.context;
+    if (position == null ||
+        notificationContext == null ||
+        Scrollable.maybeOf(notificationContext)?.position != position) {
+      return false;
+    }
+    // Use the actual mosaic, not an outgoing loading/selection scroll view.
+    if (position.recommendDeferredLoading(context)) {
       ref.read(timelineStateProvider.notifier).setRecommendDeferredLoading(true);
 
       // We cannot rely on scroll end events, as the timeline scrubber jumps from position
@@ -484,7 +564,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final target = scrollToAssetNotifierProvider.value;
     final date = target?.date;
     final segments = drainableSegments(ref.read(timelineSegmentProvider));
-    final laidOut = _scrollController.hasClients && _scrollController.position.hasContentDimensions;
+    final laidOut = _gridPosition()?.hasContentDimensions ?? false;
     final matched = date != null && segments != null && _findSegmentForDate(segments, date) != null;
     final isOverview = segmentsAreOverview(segments);
 
@@ -581,11 +661,12 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     // `==` on TimelineScrollTarget compares date + refersToSameAsset, so re-tapping
     // the SAME photo mid-resolution reads as unchanged and is absorbed. That is
     // intended: the destination is identical, and restarting would only re-scan.
+    final position = mounted ? _gridPosition() : null;
     final outcome = decideScrollResolve(
       stillMounted: mounted,
       // `hasContentDimensions` matches the pre-await gate: `maxScrollExtent` below
       // asserts on an attached-but-unlaid-out position in debug builds.
-      stillHasClients: _scrollController.hasClients && _scrollController.position.hasContentDimensions,
+      stillHasClients: position?.hasContentDimensions ?? false,
       targetUnchanged: scrollToAssetNotifierProvider.value == target,
     );
     _resolvingScrollTarget = null;
@@ -628,7 +709,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     // timeline collapses stacks to the primary, memories do not) or the geometry
     // could not be computed. Landing on the correct day beats not moving at all.
     final desiredOffset = rowOffset ?? (segment.startOffset - 50);
-    final targetOffset = desiredOffset.clamp(0.0, _scrollController.position.maxScrollExtent);
+    final targetOffset = desiredOffset.clamp(0.0, position!.maxScrollExtent);
 
     scrollToAssetNotifierProvider.consume();
     _scrollDrainScheduled = false;
@@ -642,11 +723,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final generation = ++_scrollResolveGeneration;
     timelineState.setRecommendDeferredLoading(true);
     try {
-      await _scrollController.animateTo(
-        targetOffset,
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeInOut,
-      );
+      await position.animateTo(targetOffset, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
     } catch (_) {
       // An interrupted animation (user scrolls, controller detached, or a newer jump
       // replaced the ScrollActivity) completes with an error. Swallow it: this runs
@@ -692,7 +769,8 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     required TimelineOverviewMode mode,
     required List<Segment> segments,
   }) {
-    if (ref.read(timelineZoomAnchorProvider) != anchor || !_scrollController.hasClients) {
+    final position = _gridPosition();
+    if (ref.read(timelineZoomAnchorProvider) != anchor || position == null || !position.hasContentDimensions) {
       return;
     }
 
@@ -712,9 +790,9 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     _resolvingZoomAnchor = anchor;
     ref.read(timelineStateProvider.notifier).setRecommendDeferredLoading(true);
     unawaited(
-      _scrollController
+      position
           .animateTo(
-            targetOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
+            targetOffset.clamp(0.0, position.maxScrollExtent),
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeInOut,
           )
@@ -741,6 +819,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
     final isSelectionMode = ref.watch(multiSelectProvider.select((s) => s.forceEnable));
     final isMultiSelectEnabled = ref.watch(multiSelectProvider.select((s) => s.isEnabled));
     final isMultiSelectStatusVisible = !isSelectionMode && isMultiSelectEnabled;
+    final showSelectionToolbar = isMultiSelectStatusVisible && widget.bottomSheet != null;
     final isBottomWidgetVisible =
         widget.bottomSheet != null && (isMultiSelectStatusVisible || widget.persistentBottomBar);
 
@@ -774,139 +853,163 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                       ? const TimelineGroupingFooter()
                       : null
                 : null,
-            body: asyncSegments.widgetWhen(
-              onLoading: () =>
-                  widget.loadingWidget ??
-                  CustomScrollView(
-                    slivers: [
-                      if (widget.appBar != null) widget.appBar!,
-                      const SliverFillRemaining(hasScrollBody: false, child: Center(child: ImmichLoadingIndicator())),
-                    ],
-                  ),
-              onData: (segments) {
-                _lastRenderedSegments = segments;
-                final spec = ref.watch(timelineGroupingSpecProvider);
-                final pinnedGroupBy = ref.watch(timelineArgsProvider).groupBy;
-                final TimelineOverviewMode activeMode = pinnedGroupBy != null ? TimelineOverviewMode.all : spec.mode;
-                final GroupAssetsBy activeGroupBy = pinnedGroupBy ?? spec.groupBy;
-                final zoomAnchor = ref.watch(timelineZoomAnchorProvider);
-                _scheduleZoomAnchorResolution(anchor: zoomAnchor, mode: activeMode, segments: segments);
-                final childCount = (segments.lastOrNull?.lastIndex ?? -1) + 1;
+            body: _withGroupingPill(
+              asyncSegments.widgetWhen(
+                onLoading: () =>
+                    widget.loadingWidget ??
+                    CustomScrollView(
+                      slivers: [
+                        if (widget.appBar != null) widget.appBar!,
+                        const SliverFillRemaining(hasScrollBody: false, child: Center(child: ImmichLoadingIndicator())),
+                      ],
+                    ),
+                onData: (segments) {
+                  final layoutChanged = !identical(_lastRenderedSegments, segments);
+                  _lastRenderedSegments = segments;
+                  if (layoutChanged && _restoreAssetIndex != null) {
+                    _restoreAssetPosition(null);
+                  }
+                  final spec = ref.watch(timelineGroupingSpecProvider);
+                  final pinnedGroupBy = ref.watch(timelineArgsProvider).groupBy;
+                  final TimelineOverviewMode activeMode = pinnedGroupBy != null ? TimelineOverviewMode.all : spec.mode;
+                  final GroupAssetsBy activeGroupBy = pinnedGroupBy ?? spec.groupBy;
+                  final zoomAnchor = ref.watch(timelineZoomAnchorProvider);
+                  _scheduleZoomAnchorResolution(anchor: zoomAnchor, mode: activeMode, segments: segments);
+                  final childCount = (segments.lastOrNull?.lastIndex ?? -1) + 1;
 
-                // Zero assets: render the caller's empty state (first-run / no-results)
-                // instead of a blank grid. The app bar stays so backup/profile remain
-                // reachable; the scrubber and grouping pill are naturally skipped.
-                if (childCount == 0 && widget.emptyWidget != null && !isSelectionMode) {
-                  return CustomScrollView(
-                    slivers: [
-                      if (widget.appBar != null) widget.appBar!,
-                      if (widget.topSliverWidget != null) widget.topSliverWidget!,
-                      SliverFillRemaining(hasScrollBody: false, child: widget.emptyWidget),
-                    ],
-                  );
-                }
-                final double appBarExpandedHeight = widget.appBar != null && widget.appBar is MesmerizingSliverAppBar
-                    ? 200
-                    : 0;
-                final topPadding = context.padding.top + (widget.appBar == null ? 0 : kToolbarHeight) + 10;
+                  // Zero assets: render the caller's empty state (first-run / no-results)
+                  // instead of a blank grid. The app bar stays so backup/profile remain
+                  // reachable; the scrubber and grouping pill are naturally skipped.
+                  if (childCount == 0 && widget.emptyWidget != null && !isSelectionMode) {
+                    return CustomScrollView(
+                      slivers: [
+                        if (widget.appBar != null) widget.appBar!,
+                        if (widget.topSliverWidget != null) widget.topSliverWidget!,
+                        SliverFillRemaining(hasScrollBody: false, child: widget.emptyWidget),
+                      ],
+                    );
+                  }
+                  final double appBarExpandedHeight = widget.appBar != null && widget.appBar is MesmerizingSliverAppBar
+                      ? 200
+                      : 0;
+                  final topPadding =
+                      context.padding.top +
+                      (widget.appBar == null && !isSelectionMode && !showSelectionToolbar ? 0 : kToolbarHeight) +
+                      10;
 
-                const bottomSheetOpenModifier = 120.0;
-                final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
-                    ? TimelineGroupingBottomPill.pillHeight + TimelineGroupingBottomPill.bottomFloat
-                    : 0.0;
-                final contentBottomPadding =
-                    (widget.dockGroupingPill ? 0 : context.padding.bottom) +
-                    pillClearance +
-                    (isMultiSelectEnabled && !widget.dockGroupingPill ? bottomSheetOpenModifier : 0);
-                final scrubberBottomPadding = contentBottomPadding + kScrubberThumbHeight;
+                  const bottomSheetOpenModifier = 120.0;
+                  final pillClearance = widget.withGroupingPill && !widget.dockGroupingPill
+                      ? TimelineGroupingBottomPill.pillHeight + TimelineGroupingBottomPill.bottomFloat
+                      : 0.0;
+                  final contentBottomPadding =
+                      (widget.dockGroupingPill ? 0 : context.padding.bottom) +
+                      pillClearance +
+                      (isMultiSelectEnabled && !widget.dockGroupingPill ? bottomSheetOpenModifier : 0);
+                  final scrubberBottomPadding = contentBottomPadding + kScrubberThumbHeight;
 
-                return TimelinePinchZoom(
-                  onColumnCountWillChange: () {
-                    final targetAssetIndex = _getCurrentAssetIndex(segments);
-                    setState(() {
-                      _restoreAssetIndex = targetAssetIndex;
-                    });
-                  },
-                  child: TimelineDragSelection(
-                    builder: (physics) {
-                      final grid = CustomScrollView(
-                        primary: true,
-                        physics: physics,
-                        scrollCacheExtent: .pixels(maxHeight * 2),
-                        slivers: [
-                          if (isSelectionMode)
-                            const SelectionSliverAppBar()
-                          else if (widget.appBar != null)
-                            widget.appBar!,
-                          if (widget.topSliverWidget != null) widget.topSliverWidget!,
-                          SliverSegmentedList(
-                            segments: segments,
-                            delegate: SliverChildBuilderDelegate(
-                              (ctx, index) {
-                                if (index >= childCount) {
-                                  return null;
-                                }
-                                final segment = segments.findByIndex(index);
-                                return segment?.builder(ctx, index) ?? const SizedBox.shrink();
-                              },
-                              childCount: childCount,
-                              addAutomaticKeepAlives: false,
-                              // We add repaint boundary around tiles, so skip the auto boundaries
-                              addRepaintBoundaries: false,
-                            ),
-                          ),
-                          if (widget.bottomSliverWidget != null) widget.bottomSliverWidget!,
-                          SliverPadding(padding: EdgeInsets.only(bottom: contentBottomPadding)),
-                        ],
-                      );
-
-                      final Widget timeline;
-                      if (widget.withScrubber) {
-                        timeline = Scrubber(
-                          snapToMonth: widget.snapToMonth,
-                          groupBy: activeGroupBy,
-                          layoutSegments: segments,
-                          timelineHeight: maxHeight,
-                          topPadding: topPadding,
-                          bottomPadding: scrubberBottomPadding,
-                          monthSegmentSnappingOffset: timelineScrubberSnappingOffset(
-                            topSliverWidgetHeight: widget.topSliverWidgetHeight,
-                            appBarExpandedHeight: appBarExpandedHeight,
-                          ),
-                          hasAppBar: widget.appBar != null,
-                          child: grid,
-                        );
-                      } else {
-                        timeline = grid;
-                      }
-
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          NotificationListener<ScrollNotification>(
-                            onNotification: _onScrollVelocityNotification,
-                            child: timeline,
-                          ),
-                          if (isBottomWidgetVisible)
-                            Positioned(
-                              top: MediaQuery.paddingOf(context).top,
-                              left: 25,
-                              child: const SizedBox(
-                                height: kToolbarHeight,
-                                child: Center(child: MultiSelectStatusButton()),
+                  return TimelinePinchZoom(
+                    onColumnCountWillChange: () {
+                      final targetAssetIndex = _getCurrentAssetIndex(segments);
+                      setState(() {
+                        _restoreAssetIndex = targetAssetIndex;
+                      });
+                    },
+                    child: TimelineDragSelection(
+                      builder: (physics) {
+                        final grid = CustomScrollView(
+                          primary: true,
+                          physics: physics,
+                          scrollCacheExtent: .pixels(maxHeight * 2),
+                          slivers: [
+                            if (isSelectionMode)
+                              const SelectionSliverAppBar()
+                            else if (showSelectionToolbar)
+                              SliverAppBar(
+                                key: const ValueKey('timeline-selection-toolbar'),
+                                pinned: true,
+                                automaticallyImplyLeading: false,
+                                backgroundColor: context.colorScheme.surface,
+                                surfaceTintColor: Colors.transparent,
+                                titleSpacing: 16,
+                                centerTitle: false,
+                                title: const Align(
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: MultiSelectStatusButton(),
+                                ),
+                              )
+                            else if (widget.appBar != null)
+                              widget.appBar!,
+                            if (widget.topSliverWidget != null) widget.topSliverWidget!,
+                            SliverSegmentedList(
+                              key: _gridKey,
+                              segments: segments,
+                              delegate: SliverChildBuilderDelegate(
+                                (ctx, index) {
+                                  if (index >= childCount) {
+                                    return null;
+                                  }
+                                  final segment = segments.findByIndex(index);
+                                  return segment?.builder(ctx, index) ?? const SizedBox.shrink();
+                                },
+                                childCount: childCount,
+                                addAutomaticKeepAlives: false,
+                                // We add repaint boundary around tiles, so skip the auto boundaries
+                                addRepaintBoundaries: false,
                               ),
                             ),
-                          if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
-                        ],
-                      );
-                    },
-                  ),
-                );
-              },
+                            if (widget.bottomSliverWidget != null) widget.bottomSliverWidget!,
+                            SliverPadding(padding: EdgeInsets.only(bottom: contentBottomPadding)),
+                          ],
+                        );
+
+                        final Widget timeline;
+                        if (widget.withScrubber) {
+                          timeline = Scrubber(
+                            snapToMonth: widget.snapToMonth,
+                            groupBy: activeGroupBy,
+                            layoutSegments: segments,
+                            timelineHeight: maxHeight,
+                            topPadding: topPadding,
+                            bottomPadding: scrubberBottomPadding,
+                            monthSegmentSnappingOffset: timelineScrubberSnappingOffset(
+                              topSliverWidgetHeight: widget.topSliverWidgetHeight,
+                              appBarExpandedHeight: appBarExpandedHeight,
+                            ),
+                            hasAppBar: widget.appBar != null || showSelectionToolbar || isSelectionMode,
+                            showFloatingDate:
+                                widget.immersive ||
+                                ref.watch(appConfigProvider.select((config) => config.timeline.floatingDate)),
+                            assetAtIndex: ref.read(timelineServiceProvider).getAssetSafe,
+                            contentStartOffset: _gridStartOffset,
+                            child: grid,
+                          );
+                        } else {
+                          timeline = grid;
+                        }
+
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            NotificationListener<ScrollNotification>(
+                              onNotification: _onScrollVelocityNotification,
+                              child: timeline,
+                            ),
+                            if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
+                          ],
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  Widget _withGroupingPill(Widget body) => widget.withGroupingPill && !widget.dockGroupingPill
+      ? Stack(children: [body, const TimelineGroupingBottomPill()])
+      : body;
 }

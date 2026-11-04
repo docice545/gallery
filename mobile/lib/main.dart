@@ -44,6 +44,7 @@ import 'package:immich_mobile/utils/app_asset_loader.dart';
 import 'package:immich_mobile/utils/bootstrap.dart';
 import 'package:immich_mobile/utils/cache/widgets_binding.dart';
 import 'package:immich_mobile/utils/debug_print.dart';
+import 'package:immich_mobile/utils/diagnostics/frame_capture.dart';
 import 'package:immich_mobile/utils/licenses.dart';
 import 'package:immich_mobile/utils/migration.dart';
 import 'package:immich_mobile/wm_executor.dart';
@@ -54,6 +55,7 @@ import 'package:timezone/data/latest.dart';
 
 void main() async {
   ImmichWidgetsBinding();
+  installFotoFrameCapture();
   try {
     // Cancellation/admission must precede Bootstrap and creation of any pool.
     await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();

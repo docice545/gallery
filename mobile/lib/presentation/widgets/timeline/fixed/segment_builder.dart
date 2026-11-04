@@ -10,6 +10,7 @@ class FixedSegmentBuilder extends SegmentBuilder {
   final bool denseLayout;
   final double topCornerRadius;
   final double headerTextScale;
+  final bool hideDateHeaders;
 
   const FixedSegmentBuilder({
     required super.buckets,
@@ -18,6 +19,7 @@ class FixedSegmentBuilder extends SegmentBuilder {
     this.denseLayout = false,
     this.topCornerRadius = 30,
     this.headerTextScale = 1,
+    this.hideDateHeaders = false,
     super.spacing,
     super.groupBy,
   });
@@ -56,7 +58,7 @@ class FixedSegmentBuilder extends SegmentBuilder {
       firstIndex += segmentCount;
       final segmentLastIndex = firstIndex - 1;
 
-      final timelineHeader = switch (groupBy) {
+      final timelineHeader = switch (hideDateHeaders ? GroupAssetsBy.none : groupBy) {
         GroupAssetsBy.year => HeaderType.year,
         GroupAssetsBy.month => HeaderType.month,
         GroupAssetsBy.day || GroupAssetsBy.auto =>

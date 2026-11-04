@@ -1,6 +1,8 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/album/album.model.dart';
+import 'package:immich_mobile/domain/models/album/album_trash_snapshot.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
+import 'package:immich_mobile/extensions/asset_extensions.dart';
 import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/repositories/api.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
@@ -106,6 +108,70 @@ class AlbumApiRepository extends ApiRepository {
     );
 
     return responseDto.toRemoteAlbum(owner);
+  }
+
+  /// Fetch every active member from the server, without stack collapsing or
+  /// trusting an incomplete Drift sync. Shared/external/mixed-owner albums are
+  /// rejected as a whole; metadata deletion must never masquerade as trash.
+  Future<AlbumTrashSnapshot> getTrashSnapshot(String albumId, String userId) async {
+    bool privateOwned(AlbumResponseDto album) =>
+        album.id == albumId &&
+        album.albumUsers.isNotEmpty &&
+        album.albumUsers.first.user.id == userId &&
+        !album.shared &&
+        !album.hasSharedLink &&
+        (album.sharedSpaceLinks.orElse(null) ?? []).isEmpty;
+    final album = await checkNull(_api.getAlbumInfo(albumId));
+    if (!privateOwned(album)) {
+      throw const AlbumTrashScopeException();
+    }
+    final items = <AssetResponseDto>[];
+    final seen = <String>{};
+    var page = 1;
+    while (album.assetCount > 0) {
+      final result = await checkNull(
+        _apiService.searchApi.searchAssets(
+          MetadataSearchDto(
+            albumIds: Optional.present([albumId]),
+            withDeleted: const Optional.present(false),
+            withStacked: const Optional.present(true),
+            page: Optional.present(page),
+            size: const Optional.present(1000),
+          ),
+        ),
+      );
+      for (final item in result.assets.items) {
+        if (!seen.add(item.id) || item.ownerId != userId || item.libraryId.orElse(null) != null || item.isTrashed) {
+          throw const AlbumTrashScopeException();
+        }
+        items.add(item);
+      }
+      if (items.length > album.assetCount) {
+        throw const AlbumTrashScopeException();
+      }
+      final next = result.assets.nextPage;
+      if (next == null) {
+        break;
+      }
+      if (result.assets.items.isEmpty || int.tryParse(next) != page + 1) {
+        throw const AlbumTrashScopeException();
+      }
+      page++;
+    }
+    final current = await checkNull(_api.getAlbumInfo(albumId));
+    if (!privateOwned(current) ||
+        current.updatedAt != album.updatedAt ||
+        current.assetCount != album.assetCount ||
+        items.length != album.assetCount) {
+      throw const AlbumTrashScopeException();
+    }
+    return AlbumTrashSnapshot(
+      id: album.id,
+      name: album.albumName,
+      ownerId: userId,
+      updatedAt: album.updatedAt,
+      assets: List.unmodifiable(items.map((item) => item.toDto())),
+    );
   }
 
   Future<void> deleteAlbum(String albumId) {

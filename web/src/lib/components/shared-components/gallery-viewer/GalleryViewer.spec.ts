@@ -4,10 +4,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { Component } from 'svelte';
 import { init, register, waitLocale } from 'svelte-i18n';
 import TestWrapper from '$lib/components/TestWrapper.svelte';
+import { AssetAction } from '$lib/constants';
 import type { AssetMultiSelectManager } from '$lib/managers/asset-multi-select-manager.svelte';
+import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
+import { deleteAssets } from '$lib/utils/actions';
+import { navigate } from '$lib/utils/navigation';
 import GalleryViewer from './GalleryViewer.svelte';
 
-const { assetViewerPropsCalls, mockAssetInteraction, mockAssetViewerManager } = vi.hoisted(() => {
+const { assetViewerPropsCalls, thumbnailPropsCalls, mockAssetInteraction, mockAssetViewerManager } = vi.hoisted(() => {
   // Bound to a local name (not an inline literal) so the accessors reference the
   // state directly instead of `this` (unicorn/no-this-outside-of-class).
   const assetViewerManager = {
@@ -36,6 +40,7 @@ const { assetViewerPropsCalls, mockAssetInteraction, mockAssetViewerManager } = 
 
   return {
     assetViewerPropsCalls: [] as Array<Record<string, unknown>>,
+    thumbnailPropsCalls: [] as Array<{ asset: TimelineAsset }>,
     mockAssetInteraction: {
       selectionActive: false,
       assets: [],
@@ -60,8 +65,18 @@ const asAssetInteraction = (assetInteraction: typeof mockAssetInteraction) =>
 
 vi.mock('$lib/components/assets/thumbnail/Thumbnail.svelte', async () => {
   const { default: MockComponent } = await import('@test-data/mocks/thumbnail-with-label.stub.svelte');
-  return { default: MockComponent };
+  return {
+    default: (node: Parameters<typeof MockComponent>[0], props: Parameters<typeof MockComponent>[1]) => {
+      thumbnailPropsCalls.push(props as { asset: TimelineAsset });
+      return MockComponent(node, props);
+    },
+  };
 });
+
+vi.mock('$lib/utils/actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/utils/actions')>()),
+  deleteAssets: vi.fn(),
+}));
 
 vi.mock('$lib/elements/Portal.svelte', async () => {
   const { default: MockComponent } = await import('@test-data/mocks/sidebar.stub.svelte');
@@ -271,6 +286,7 @@ describe('GalleryViewer grouping', () => {
     mockAssetViewerManager.asset = undefined;
     mockAssetViewerManager.isViewing = false;
     assetViewerPropsCalls.length = 0;
+    thumbnailPropsCalls.length = 0;
   });
 
   it('renders the grouping control when grouping is enabled and assets exist', () => {
@@ -579,5 +595,141 @@ describe('GalleryViewer grouping', () => {
     expect(screen.queryByTestId('timeline-desktop-grouping-control')).not.toBeInTheDocument();
     expect(screen.getByTestId('thumbnail-asset-2016')).toBeInTheDocument();
     expect(screen.getByTestId('thumbnail-asset-2015-aug')).toBeInTheDocument();
+  });
+
+  it.each([AssetAction.TRASH, AssetAction.DELETE])(
+    'keeps unrelated grid assets when %s removes an inner stack frame absent from the grid',
+    async (type) => {
+      const assets = defaultAssets();
+      mockAssetViewerManager.asset = assets[0];
+      mockAssetViewerManager.isViewing = true;
+      renderViewer({ assets, enableGrouping: false });
+      await waitFor(() => expect(assetViewerPropsCalls.at(-1)?.onAction).toBeTypeOf('function'));
+
+      const onAction = assetViewerPropsCalls.at(-1)?.onAction as (action: Record<string, unknown>) => Promise<void>;
+      await onAction({ type, asset: asset('inner-frame', '2016-01-02T00:00:00.000Z') });
+
+      expect(screen.getByTestId('thumbnail-asset-2015-jan')).toBeInTheDocument();
+      expect(assets.map(({ id }) => id)).toEqual(['asset-2016', 'asset-2015-aug', 'asset-2015-jan']);
+      expect(navigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('removes the current grid asset and navigates only once for a repeated deletion acknowledgement', async () => {
+    const assets = defaultAssets();
+    const deletedAsset = assets[0];
+    mockAssetViewerManager.asset = deletedAsset;
+    mockAssetViewerManager.isViewing = true;
+    renderViewer({ assets, enableGrouping: false });
+    await waitFor(() => expect(assetViewerPropsCalls.at(-1)?.onAction).toBeTypeOf('function'));
+    const onAction = assetViewerPropsCalls.at(-1)?.onAction as (action: Record<string, unknown>) => Promise<void>;
+    const action = { type: AssetAction.TRASH, asset: deletedAsset };
+
+    await onAction(action);
+    await onAction(action);
+
+    expect(screen.queryByTestId('thumbnail-asset-2016')).not.toBeInTheDocument();
+    expect(screen.getByTestId('thumbnail-asset-2015-aug')).toBeInTheDocument();
+    expect(screen.getByTestId('thumbnail-asset-2015-jan')).toBeInTheDocument();
+    expect(navigate).toHaveBeenCalledExactlyOnceWith({ targetRoute: 'current', assetId: 'asset-2015-aug' });
+  });
+
+  it('replaces a deleted stack primary without navigating away from the surviving stack', async () => {
+    const assets = defaultAssets();
+    const stackSummary = { id: 'stack-1', primaryAssetId: assets[0].id, assetCount: 3 };
+    assets[0] = { ...assets[0], stack: stackSummary };
+    const nextPrimary = asset('next-primary', '2016-01-02T00:00:00.000Z');
+    const remainingFrame = asset('remaining-frame', '2016-01-02T00:00:00.000Z');
+    mockAssetViewerManager.asset = assets[0];
+    mockAssetViewerManager.isViewing = true;
+    renderViewer({ assets, enableGrouping: false });
+    await waitFor(() => expect(assetViewerPropsCalls.at(-1)?.onAction).toBeTypeOf('function'));
+    const onAction = assetViewerPropsCalls.at(-1)?.onAction as (action: Record<string, unknown>) => Promise<void>;
+
+    await onAction({
+      type: AssetAction.TRASH,
+      asset: assets[0],
+      stackHandled: true,
+      stack: { id: 'stack-1', primaryAssetId: nextPrimary.id, assets: [nextPrimary, remainingFrame] },
+      replacementAsset: remainingFrame,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('thumbnail-next-primary')).toBeInTheDocument());
+    expect(thumbnailPropsCalls.findLast(({ asset }) => asset.id === nextPrimary.id)?.asset).toMatchObject({
+      id: nextPrimary.id,
+      stack: { id: 'stack-1', primaryAssetId: nextPrimary.id, assetCount: 2 },
+    });
+    expect(screen.getByTestId('thumbnail-asset-2015-jan')).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('clears stack metadata on the last surviving cover without removing the grid item', async () => {
+    const assets = defaultAssets();
+    const cover = assets[0];
+    assets[0] = { ...cover, stack: { id: 'stack-1', primaryAssetId: cover.id, assetCount: 2 } };
+    mockAssetViewerManager.asset = assets[0];
+    mockAssetViewerManager.isViewing = true;
+    renderViewer({ assets, enableGrouping: false });
+    await waitFor(() => expect(assetViewerPropsCalls.at(-1)?.onAction).toBeTypeOf('function'));
+    const onAction = assetViewerPropsCalls.at(-1)?.onAction as (action: Record<string, unknown>) => Promise<void>;
+
+    await onAction({
+      type: AssetAction.TRASH,
+      asset: asset('inner-frame', '2016-01-02T00:00:00.000Z', { stack: assets[0].stack }),
+      stackHandled: true,
+      stack: null,
+      replacementAsset: { ...cover, stack: null },
+    });
+
+    expect(thumbnailPropsCalls.findLast(({ asset }) => asset.id === cover.id)?.asset).toMatchObject({
+      id: cover.id,
+      stack: null,
+    });
+    expect(screen.getByTestId('thumbnail-asset-2015-jan')).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('removes the empty stack cover while the asset viewer handles closing or advancing', async () => {
+    const assets = defaultAssets();
+    assets[0] = { ...assets[0], stack: { id: 'stack-1', primaryAssetId: assets[0].id, assetCount: 2 } };
+    mockAssetViewerManager.asset = assets[0];
+    mockAssetViewerManager.isViewing = true;
+    renderViewer({ assets, enableGrouping: false });
+    await waitFor(() => expect(assetViewerPropsCalls.at(-1)?.onAction).toBeTypeOf('function'));
+    const onAction = assetViewerPropsCalls.at(-1)?.onAction as (action: Record<string, unknown>) => Promise<void>;
+
+    await onAction({
+      type: AssetAction.TRASH,
+      asset: asset('inner-frame', '2016-01-02T00:00:00.000Z', { stack: assets[0].stack }),
+      stackHandled: true,
+      stack: null,
+    });
+
+    expect(screen.queryByTestId('thumbnail-asset-2016')).not.toBeInTheDocument();
+    expect(screen.getByTestId('thumbnail-asset-2015-aug')).toBeInTheDocument();
+    expect(screen.getByTestId('thumbnail-asset-2015-jan')).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('deletes the selected gallery assets once while the first delete is pending', async () => {
+    const assets = defaultAssets();
+    mockAssetInteraction.assets = assets as never[];
+    mockAssetInteraction.selectionActive = true;
+    let completeDeletion: (completed: boolean) => void = () => {};
+    vi.mocked(deleteAssets).mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          completeDeletion = resolve;
+        }),
+    );
+    renderViewer({ assets, enableGrouping: false });
+
+    await fireEvent.keyDown(document, { key: 'Delete' });
+    await fireEvent.keyDown(document, { key: 'Delete' });
+
+    expect(deleteAssets).toHaveBeenCalledOnce();
+    expect(deleteAssets).toHaveBeenCalledWith(false, expect.any(Function), assets, undefined);
+    completeDeletion(true);
+    await waitFor(() => expect(mockAssetInteraction.clear).toHaveBeenCalledOnce());
   });
 });

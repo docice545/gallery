@@ -119,17 +119,28 @@ class AppLifeCycleNotifier extends StateNotifier<AppLifeCycleEnum> {
     final isAlbumLinkedSyncEnable = _ref.read(appConfigProvider).backup.syncAlbums;
 
     try {
-      final sync = backgroundManager.syncRemoteThenLocal(
-        fullLocalSync: CurrentPlatform.isAndroid,
-        shouldRunLocal: _shouldContinueOperation,
-      );
-      final syncSuccess = await sync.remoteSync;
+      // Catch up MediaStore independently of server latency. Android's native
+      // generation/version check decides when a full scan is actually required.
+      final Future<void> localSync;
+      final Future<bool> remoteSync;
+      if (CurrentPlatform.isAndroid) {
+        localSync = backgroundManager.syncLocal(enqueue: true);
+        remoteSync = backgroundManager.syncRemote();
+      } else {
+        final sync = backgroundManager.syncRemoteThenLocal(
+          fullLocalSync: false,
+          shouldRunLocal: _shouldContinueOperation,
+        );
+        localSync = sync.deferredLocalSync;
+        remoteSync = sync.remoteSync;
+      }
+      final syncSuccess = await remoteSync;
       // #28983: refresh memories on resume (grafted onto fork's #513 deferred-sync restructure)
       _ref.invalidate(memoryLaneProvider);
       _ref.invalidate(allMemoriesProvider);
 
       unawaited(
-        sync.deferredLocalSync
+        localSync
             .then((_) async {
               if (!_shouldContinueOperation()) {
                 return;

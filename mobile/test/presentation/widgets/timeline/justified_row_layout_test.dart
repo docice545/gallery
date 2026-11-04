@@ -111,6 +111,182 @@ void main() {
     verify(layout);
   });
 
+  test('production density settings 2 through 5 order target sizes without requiring that many columns', () {
+    // Exercise the production defaults: the mosaic helper deliberately injects
+    // a fixed target and cannot detect a broken density-to-size mapping.
+    for (final width in [320.0, 390.0, 844.0]) {
+      double? previousHeight;
+      int? previousRows;
+      for (final density in [2, 3, 4, 5]) {
+        final layout = FixedRowLayout.justified(
+          width: width,
+          aspectRatios: List.filled(60, 1.0),
+          columnCount: density,
+          spacing: 3,
+        );
+        verify(layout);
+        if (previousHeight != null) {
+          expect(layout.heightForRow(0), lessThanOrEqualTo(previousHeight));
+          expect(layout.rowCount, lessThanOrEqualTo(previousRows!));
+        }
+        previousHeight = layout.heightForRow(0);
+        previousRows = layout.rowCount;
+      }
+    }
+    final screenshots = FixedRowLayout.justified(
+      width: 390,
+      aspectRatios: List.filled(20, .45),
+      columnCount: 3,
+      spacing: 3,
+    );
+    expect(screenshots.assetCountForRow(0), greaterThan(3));
+    for (final tileWidth in screenshots.widthsForRow(0)) {
+      expect(tileWidth / screenshots.heightForRow(0), closeTo(.45, 1e-8));
+    }
+    verify(screenshots);
+  });
+
+  test('small width growth keeps the nearest bounded mixed row', () {
+    for (final width in [384.0, 390.0, 396.0]) {
+      final layout = FixedRowLayout.justified(
+        width: width,
+        aspectRatios: [
+          for (var i = 0; i < 4; i++) ...[.45, .75, 1.5, 1, .45, 2],
+        ],
+        columnCount: 2,
+        spacing: 3,
+      );
+      expect(layout.assetCountForRow(0), 2);
+      expect(layout.heightForRow(0), closeTo(math.min(320, (width - 3) / 1.2), 1e-8));
+      expect(layout.widthsForRow(0)[0] / layout.widthsForRow(0)[1], closeTo(.45 / .75, 1e-8));
+      for (var row = 0; row < layout.rowCount; row++) {
+        expect(layout.heightForRow(row), lessThanOrEqualTo(320));
+      }
+      verify(layout);
+    }
+  });
+
+  test('global sliver row offsets round-trip at exact boundaries in both presentations', () {
+    for (final hideHeaders in [false, true]) {
+      for (final density in [2, 3, 4, 5]) {
+        final segments = FixedSegmentBuilder(
+          buckets: [
+            for (var day = 0; day < 6; day++)
+              TimeBucket(
+                date: DateTime(2026, 11, 3 - day),
+                assetCount: 10,
+                aspectRatios: [
+                  for (var i = day * 10; i < (day + 1) * 10; i++) [.45, 1.5, .75][i % 3],
+                ],
+              ),
+          ],
+          tileHeight: (390 - 3 * (density - 1)) / density,
+          columnCount: density,
+          spacing: 3,
+          denseLayout: true,
+          hideDateHeaders: hideHeaders,
+        ).generate().cast<FixedSegment>();
+        for (final segment in segments) {
+          for (var row = 0; row < segment.rows.rowCount; row++) {
+            final child = segment.gridIndex + row;
+            final globalOffset = segment.indexToLayoutOffset(child);
+            expect(
+              segment.getMinChildIndexForScrollOffset(globalOffset),
+              child,
+              reason: 'Exact row start must survive global-to-relative double subtraction',
+            );
+            if (row > 0) {
+              expect(
+                segment.getMinChildIndexForScrollOffset(globalOffset - .01),
+                child - 1,
+                reason: 'A real subpixel displacement must still select the preceding row',
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
+  test('a much taller single candidate cannot displace the closer square pair', () {
+    final layout = FixedRowLayout.justified(width: 390, aspectRatios: List.filled(24, 1), columnCount: 2, spacing: 3);
+    expect(layout.assetCountForRow(0), 2);
+    expect(layout.heightForRow(0), 193.5);
+    verify(layout);
+  });
+
+  test('density and viewport changes preserve mixed day boundaries and asset indices', () {
+    final buckets = [
+      TimeBucket(date: DateTime(2026, 11, 2), assetCount: 6, aspectRatios: [.45, 1.5, .75, .45, 2, 1]),
+      TimeBucket(date: DateTime(2026, 11, 1), assetCount: 3, aspectRatios: [.45, .45, .45]),
+      TimeBucket(date: DateTime(2026, 10, 31), assetCount: 2, aspectRatios: [1.5, .75]),
+    ];
+    for (final width in [320.0, 390.0, 844.0]) {
+      for (final density in [2, 3, 4, 5]) {
+        final segments = FixedSegmentBuilder(
+          buckets: buckets,
+          tileHeight: (width - 3 * (density - 1)) / density,
+          columnCount: density,
+          spacing: 3,
+          denseLayout: true,
+        ).generate().cast<FixedSegment>();
+        expect(segments.map((segment) => segment.bucket), orderedEquals(buckets));
+        expect(segments.map((segment) => segment.firstAssetIndex), [0, 6, 9]);
+        expect(segments.map((segment) => segment.header), [
+          HeaderType.monthAndDay,
+          HeaderType.day,
+          HeaderType.monthAndDay,
+        ]);
+        for (final segment in segments) {
+          verify(segment.rows);
+          expect(segment.rows.width, closeTo(width, 1e-8));
+          for (var index = 0; index < segment.bucket.assetCount; index++) {
+            final row = segment.rows.rowForAssetIndex(index);
+            expect(
+              assetRowOffset(
+                segment: segment,
+                assetIndexInTimeline: segment.firstAssetIndex + index,
+                columnCount: density,
+              ),
+              segment.gridOffset + segment.rows.offsetForRow(row),
+            );
+          }
+        }
+      }
+    }
+  });
+
+  test('immersive presentation removes header space without changing dates, mosaic rows or stack representatives', () {
+    // The bucket source already collapses stacks to representative assets.
+    final buckets = [
+      TimeBucket(date: DateTime(2026, 11, 2), assetCount: 3, aspectRatios: [.45, 1.5, .75]),
+      TimeBucket(date: DateTime(2026, 11, 1), assetCount: 2, aspectRatios: [1, .5]),
+    ];
+    for (final density in [2, 3, 4, 5]) {
+      List<FixedSegment> build(bool immersive) => FixedSegmentBuilder(
+        buckets: buckets,
+        tileHeight: (390 - 3 * (density - 1)) / density,
+        columnCount: density,
+        spacing: 3,
+        denseLayout: true,
+        hideDateHeaders: immersive,
+      ).generate().cast<FixedSegment>();
+      final classic = build(false);
+      final immersive = build(true);
+      expect(immersive.last.endOffset, lessThan(classic.last.endOffset));
+      for (var index = 0; index < buckets.length; index++) {
+        expect(immersive[index].bucket, same(buckets[index]));
+        expect(immersive[index].firstAssetIndex, classic[index].firstAssetIndex);
+        expect(immersive[index].rows, classic[index].rows);
+        expect(immersive[index].header, HeaderType.none);
+        expect(immersive[index].headerExtent, 0);
+        expect(classic[index].headerExtent, greaterThan(0));
+        verify(immersive[index].rows);
+      }
+      expect(build(false), classic, reason: 'Returning to Classic restores the original grouped geometry');
+    }
+  });
+
   test('extreme and unknown proportions have finite bounded geometry and no empty cells', () {
     final layout = mosaic([.00001, 100000, double.nan, double.infinity, -1, 0, .25, 3, .4, 1.8]);
     verify(layout);

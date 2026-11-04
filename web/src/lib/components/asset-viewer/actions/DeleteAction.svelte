@@ -10,11 +10,11 @@
   import { IconButton, modalManager } from '@immich/ui';
   import { mdiDeleteForeverOutline, mdiDeleteOutline } from '@mdi/js';
   import { t } from 'svelte-i18n';
-  import type { OnAction, PreAction } from './action';
+  import type { Action, PreAction } from './action';
 
   interface Props {
     asset: AssetResponseDto;
-    onAction: OnAction;
+    onAction: (action: Action) => void | Promise<void>;
     preAction: PreAction;
     onUndoDelete?: OnUndoDelete;
   }
@@ -42,16 +42,18 @@
 
       const type = force ? AssetAction.DELETE : AssetAction.TRASH;
       preAction({ type, asset: timelineAsset });
+      let handled: void | Promise<void> = undefined;
       await deleteAssetsUtil(
         force,
         (ids) => {
           if (ids.includes(timelineAsset.id)) {
-            onAction({ type, asset: timelineAsset });
+            handled = onAction({ type, asset: timelineAsset });
           }
         },
         [timelineAsset],
         onUndoDelete,
       );
+      await Promise.resolve(handled);
     } finally {
       loading = false;
     }

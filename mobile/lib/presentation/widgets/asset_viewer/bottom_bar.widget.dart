@@ -11,22 +11,37 @@ import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/add_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_toggle_button.widget.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/ocr.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/routes.provider.dart';
 import 'package:immich_mobile/widgets/asset_viewer/video_controls.dart';
-import 'package:immich_ui/immich_ui.dart';
 
-// Resolved here rather than as an ActionColumnButton so a hidden restore
-// takes no slot in the spaceEvenly row below.
-List<Widget> _actionColumnButtons(BuildContext context, WidgetRef ref, List<ActionBuilder> actions) => actions
-    .map((a) => a.create(context, ref))
-    .nonNulls
-    .map<ImmichColumnButton>(
-      (item) => .new(icon: item.icon, label: item.label, onPressed: item.onAction, onLongPress: item.onSecondaryAction),
-    )
-    .toList(growable: false);
+// Resolve enablement with the existing actions; hidden actions take no slot.
+List<Widget> _actions(BuildContext context, WidgetRef ref, List<(FotoIconKind, ActionBuilder)> actions) => [
+  for (final (kind, builder) in actions)
+    if (builder.create(context, ref) case final item?)
+      _ghostTarget(
+        kind,
+        FotoIconButton(
+          kind: kind,
+          label: item.label,
+          onPressed: item.onAction,
+          onLongPress: item.onSecondaryAction,
+          destructive: kind == FotoIconKind.trash || kind == FotoIconKind.deviceTrash,
+        ),
+      ),
+];
+
+Widget _ghostTarget(FotoIconKind kind, Widget child) => switch (kind) {
+  FotoIconKind.trash => GhostTrashTarget(kind: GhostTrashKind.server, child: child),
+  FotoIconKind.deviceTrash => GhostTrashTarget(kind: GhostTrashKind.device, child: child),
+  _ => child,
+};
 
 class ViewerBottomBar extends ConsumerWidget {
   const ViewerBottomBar({super.key});
@@ -45,72 +60,71 @@ class ViewerBottomBar extends ConsumerWidget {
 
     final originalTheme = context.themeData;
 
+    final hasOcr =
+        asset is RemoteAsset && asset.isImage && ref.watch(ocrAssetProvider(asset.id)).valueOrNull?.isNotEmpty == true;
     final actions = <Widget>[
-      ..._actionColumnButtons(context, ref, const [RestoreAction(source: .viewer), ShareAction(source: .viewer)]),
-
-      if (!isInLockedView) ...[
-        if (!isInTrash) ...[
-          ..._actionColumnButtons(context, ref, const [
-            UploadAction(source: .viewer, showProgress: true),
-            EditAssetAction(source: .viewer),
-          ]),
-          if (asset.hasRemote) ImmichColorOverride(color: null, child: AddActionButton(originalTheme: originalTheme)),
-        ],
-        ..._actionColumnButtons(context, ref, [
-          if (asset.storage == AssetState.local)
-            const CleanupLocalAction(source: .viewer)
-          else
-            const DeleteAction(source: .viewer),
+      if (!isReadonlyModeEnabled) ...[
+        ..._actions(context, ref, const [
+          (FotoIconKind.restore, RestoreAction(source: .viewer)),
+          (FotoIconKind.share, ShareAction(source: .viewer)),
         ]),
+        if (!isInLockedView) ...[
+          if (!isInTrash) ...[
+            ..._actions(context, ref, const [
+              (FotoIconKind.upload, UploadAction(source: .viewer, showProgress: true)),
+              (FotoIconKind.edit, EditAssetAction(source: .viewer)),
+            ]),
+            if (asset.hasRemote) AddActionButton(originalTheme: originalTheme, iconOnly: true),
+          ],
+          ..._actions(context, ref, [
+            if (asset.storage == AssetState.local)
+              (FotoIconKind.deviceTrash, const CleanupLocalAction(source: .viewer))
+            else
+              (FotoIconKind.trash, const DeleteAction(source: .viewer)),
+          ]),
+        ],
       ],
+      if (hasOcr) OcrToggleButton(asset: asset),
     ];
 
     return AnimatedSwitcher(
-      duration: Durations.short4,
+      duration: MediaQuery.disableAnimationsOf(context) ? Duration.zero : Durations.short4,
       child: showingDetails
           ? const SizedBox.shrink()
-          : Theme(
-              data: context.themeData.copyWith(
-                iconTheme: const IconThemeData(size: ImmichIconSize.md, color: Colors.white),
-                textTheme: context.themeData.textTheme.copyWith(
-                  labelLarge: context.themeData.textTheme.labelLarge?.copyWith(color: Colors.white),
-                ),
-              ),
-              child: Stack(
-                children: [
-                  const Positioned.fill(
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [Colors.black45, Colors.black12, Colors.transparent],
-                            stops: [0.0, 0.7, 1.0],
+          : SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 448),
+                  child: ViewerControlSurface(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (asset.isVideo) VideoControls(videoPlayerName: asset.id),
+                        if (actions.isNotEmpty)
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final row = SizedBox(
+                                key: const ValueKey('viewer-action-row'),
+                                height: 56,
+                                width: constraints.maxWidth < actions.length * 48
+                                    ? actions.length * 48.0
+                                    : constraints.maxWidth,
+                                child: Row(
+                                  children: [for (final action in actions) Expanded(child: Center(child: action))],
+                                ),
+                              );
+                              return constraints.maxWidth < actions.length * 48
+                                  ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: row)
+                                  : row;
+                            },
                           ),
-                        ),
-                      ),
+                      ],
                     ),
                   ),
-                  SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (asset.isImage) OcrToggleButton(asset: asset),
-                          if (asset.isVideo) VideoControls(videoPlayerName: asset.id),
-                          if (!isReadonlyModeEnabled)
-                            ImmichColorOverride(
-                              color: Colors.white,
-                              child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: actions),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
     );

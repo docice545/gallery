@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/settings_key.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
@@ -40,6 +41,35 @@ void main() {
     of: find.text(StaticTranslations.instance.theme_setting_asset_list_autoplay_live_photos_title),
     matching: find.byType(SwitchListTile),
   );
+
+  testWidgets('presentation switches independently of density and remains selected after reopening', (tester) async {
+    await tester.pumpConsumerWidget(const AssetListSettings());
+    final immersive = find.text(StaticTranslations.instance.timeline_presentation_immersive);
+    await tester.ensureVisible(immersive);
+    await tester.tap(immersive);
+    await tester.pumpAndSettle();
+    expect(SettingsRepository.instance.appConfig.timeline.presentation, TimelinePresentation.immersive);
+    expect(SettingsRepository.instance.appConfig.timeline.tilesPerRow, 4);
+    expect(find.byKey(const Key('timeline-floating-date-setting')), findsNothing);
+
+    await tester.pumpConsumerWidget(const SizedBox.shrink());
+    await SettingsRepository.instance.refresh();
+    await tester.pumpConsumerWidget(const AssetListSettings());
+    expect(SettingsRepository.instance.appConfig.timeline.presentation, TimelinePresentation.immersive);
+    final classic = find.text(StaticTranslations.instance.timeline_presentation_classic);
+    await tester.ensureVisible(classic);
+    await tester.tap(classic);
+    await tester.pumpAndSettle();
+    final dateSwitch = find.byKey(const Key('timeline-floating-date-setting'));
+    await tester.ensureVisible(dateSwitch);
+    await tester.tap(dateSwitch);
+    await tester.pumpAndSettle();
+    expect(SettingsRepository.instance.appConfig.timeline.floatingDate, isTrue);
+    expect(SettingsRepository.instance.appConfig.timeline.autoplayLivePhotos, isTrue);
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.min, 2);
+    expect(slider.max, 5);
+  });
 
   testWidgets('offers live photo autoplay enabled by default alongside existing timeline preferences', (tester) async {
     await tester.pumpConsumerWidget(const AssetListSettings());

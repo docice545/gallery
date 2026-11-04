@@ -1,0 +1,428 @@
+name: Build 37 smart Timeline regression gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [codex/foto-build37-android-ui]
+    paths:
+      - 'mobile/**'
+      - 'i18n/**'
+      - '.github/workflows/smart-timeline.yml'
+      - '.github/scripts/report-ci-failures.py'
+      - '.github/scripts/publish-editor-review.py'
+  workflow_dispatch:
+    inputs:
+      software_only:
+        description: 'Build 38 UI/unit regressions only; no APK, emulator or release build'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-timeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  presentation:
+    if: ${{ !inputs.software_only }}
+    name: Modes, density, date overlay and Live Photo contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen dependencies and source generation
+        id: codegen
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Formatter for changed Timeline tests
+        id: format
+        working-directory: mobile
+        run: |
+          dart format --set-exit-if-changed \
+            test/medium/repositories/settings_repository_test.dart \
+            test/utils/place_names_test.dart \
+            test/utils/diagnostics/frame_capture_test.dart \
+            test/domain/services/place_name_service_test.dart \
+            test/providers/place_names_session_provider_test.dart \
+            test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
+            test/infrastructure/repositories/stack_survivor_timeline_test.dart \
+            test/presentation/widgets/images/remote_image_provider_http_test.dart \
+            test/presentation/widgets/timeline/offline_timeline_restart_test.dart \
+            test/infrastructure/repositories/trash_sync_visibility_test.dart \
+            test/infrastructure/repositories/trash_pending_operations_test.dart \
+            test/infrastructure/repositories/cloud_media_catalog_test.dart \
+            test/domain/services/sync_stream_service_test.dart \
+            test/presentation/pages/place_localization_test.dart \
+            test/unit/providers/timeline/selection_identity_test.dart \
+            test/domain/models/deletion_snapshot_test.dart \
+            test/presentation/widgets/deletion/ghost_trap_test.dart \
+            test/repositories/asset_media_trash_repository_test.dart \
+            test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart \
+            test/unit/presentation/actions/ghost_trap_action_test.dart \
+            test/unit/presentation/actions/album_ghost_trap_test.dart \
+            test/repositories/album_trash_snapshot_test.dart \
+            test/presentation/widgets/album/album_trash_reveal_test.dart \
+            test/presentation/widgets/bottom_sheet/selection_action_layout_test.dart \
+            test/presentation/widgets/timeline/timeline_with_grouping_pill_test.dart \
+            test/presentation/widgets/album/local_album_deletion_listener_test.dart \
+            test/services/cleanup.service_test.dart \
+            test/infrastructure/repositories/local_album_repository_test.dart \
+            test/unit/presentation/actions/album_swipe_trash_test.dart \
+            test/unit/presentation/actions/deletion_snapshot_guard_test.dart \
+            test/unit/presentation/actions/delete_action_test.dart \
+            test/unit/presentation/actions/local_album_cleanup_action_test.dart \
+            test/unit/presentation/actions/local_album_device_deletion_test.dart \
+            test/unit/presentation/actions/instant_selected_trash_acceptance_test.dart \
+            test/presentation/widgets/timeline/selection_gesture_test.dart \
+            test/presentation/widgets/timeline/justified_row_layout_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/providers/local_media_refresh_provider_test.dart \
+            test/domain/services/local_media_refresh_test.dart \
+            test/domain/utils/background_sync_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
+            test/presentation/widgets/timeline/scrubber_positions_test.dart \
+            test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            test/presentation/widgets/icons/foto_icon_proposal_test.dart \
+            test/providers/asset_viewer/asset_viewer_provider_test.dart \
+            test/presentation/widgets/asset_viewer/bottom_bar_test.dart \
+            test/presentation/widgets/asset_viewer/editor_entry_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_editor_copy_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_local_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/asset_page_zoom_reset_test.dart \
+            test/presentation/widgets/asset_viewer/asset_viewer_system_ui_test.dart \
+            test/pages/edit/editor_compact_layout_test.dart \
+            test/pages/edit/editor_acceptance_test.dart \
+            test/pages/edit/editor_theme_test.dart \
+            test/widgets/settings/asset_list_settings_test.dart
+      - name: Measure production justified geometry without changing calibration
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: mobile
+        run: |
+          dart run tool/timeline_geometry.dart "$RUNNER_TEMP/timeline-geometry.json"
+          python3 - <<'PY_GEOMETRY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path(os.environ['RUNNER_TEMP'], 'timeline-geometry.json').read_text())
+          for width in (360, 390):
+              for density in (2, 3, 4, 5):
+                  rows = []
+                  for sample in data['measurements']:
+                      if sample['viewportDp'] == width and sample['density'] == density:
+                          row = sample['rows'][0]
+                          rows.append(f"{sample['pattern']}: h={row['heightDp']:.2f}dp widths=" +
+                                      ','.join(f"{v:.2f}" for v in row['widthsDp']))
+                  print(f"::notice title=Actual justified geometry {width}dp density {density}::" + '; '.join(rows))
+          PY_GEOMETRY
+      - name: Retain row and tile measurements
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: timeline-geometry
+          path: ${{ runner.temp }}/timeline-geometry.json
+          if-no-files-found: warn
+      - name: Annotate formatter differences
+        if: failure() && steps.format.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py format
+      - name: Real layout, settings persistence, gestures and existing playback contracts
+        id: tests
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --reporter json \
+            test/medium/repositories/settings_repository_test.dart \
+            test/utils/place_names_test.dart \
+            test/utils/diagnostics/frame_capture_test.dart \
+            test/domain/services/place_name_service_test.dart \
+            test/providers/place_names_session_provider_test.dart \
+            test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
+            test/infrastructure/repositories/stack_survivor_timeline_test.dart \
+            test/presentation/widgets/images/remote_image_provider_http_test.dart \
+            test/presentation/widgets/timeline/offline_timeline_restart_test.dart \
+            test/infrastructure/repositories/trash_sync_visibility_test.dart \
+            test/infrastructure/repositories/trash_pending_operations_test.dart \
+            test/infrastructure/repositories/cloud_media_catalog_test.dart \
+            test/domain/services/sync_stream_service_test.dart \
+            test/presentation/pages/place_localization_test.dart \
+            test/unit/providers/timeline/selection_identity_test.dart \
+            test/domain/models/deletion_snapshot_test.dart \
+            test/presentation/widgets/deletion/ghost_trap_test.dart \
+            test/repositories/asset_media_trash_repository_test.dart \
+            test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart \
+            test/unit/presentation/actions/ghost_trap_action_test.dart \
+            test/unit/presentation/actions/album_ghost_trap_test.dart \
+            test/repositories/album_trash_snapshot_test.dart \
+            test/presentation/widgets/album/album_trash_reveal_test.dart \
+            test/presentation/widgets/bottom_sheet/selection_action_layout_test.dart \
+            test/presentation/widgets/timeline/timeline_with_grouping_pill_test.dart \
+            test/presentation/widgets/album/local_album_deletion_listener_test.dart \
+            test/services/cleanup.service_test.dart \
+            test/infrastructure/repositories/local_album_repository_test.dart \
+            test/unit/presentation/actions/album_swipe_trash_test.dart \
+            test/unit/presentation/actions/deletion_snapshot_guard_test.dart \
+            test/unit/presentation/actions/delete_action_test.dart \
+            test/unit/presentation/actions/local_album_cleanup_action_test.dart \
+            test/unit/presentation/actions/local_album_device_deletion_test.dart \
+            test/unit/presentation/actions/instant_selected_trash_acceptance_test.dart \
+            test/presentation/widgets/timeline/selection_gesture_test.dart \
+            test/unit/repositories/settings_repository_test.dart \
+            test/widgets/settings/asset_list_settings_test.dart \
+            test/presentation/widgets/timeline/justified_row_layout_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/presentation/widgets/timeline/dense_timeline_overlays_test.dart \
+            test/providers/local_media_refresh_provider_test.dart \
+            test/domain/services/local_media_refresh_test.dart \
+            test/domain/utils/background_sync_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
+            test/presentation/widgets/timeline/scrubber_positions_test.dart \
+            test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart \
+            test/presentation/widgets/icons/foto_icon_proposal_test.dart \
+            test/providers/asset_viewer/asset_viewer_provider_test.dart \
+            test/presentation/widgets/asset_viewer/bottom_bar_test.dart \
+            test/presentation/widgets/asset_viewer/editor_entry_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_editor_copy_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_local_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart \
+            test/presentation/widgets/asset_viewer/asset_page_zoom_reset_test.dart \
+            test/presentation/widgets/asset_viewer/asset_viewer_system_ui_test.dart \
+            test/pages/edit/ \
+            test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            test/presentation/widgets/timeline/live_photo_presentation_test.dart \
+            test/presentation/widgets/images/thumbnail_live_photo_test.dart \
+            test/presentation/widgets/asset_viewer/timeline_preview_video_viewer_test.dart \
+            test/presentation/widgets/asset_viewer/timeline_video_viewer_test.dart \
+            | tee "$RUNNER_TEMP/smart-timeline-tests.jsonl"
+      - name: Annotate test results
+        if: "!cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/smart-timeline-tests.jsonl"
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build37-smart-timeline-tests
+          path: ${{ runner.temp }}/smart-timeline-tests.jsonl
+          if-no-files-found: warn
+
+  native-motion:
+    if: ${{ !inputs.software_only }}
+    name: Native decoded motion (emulator, Samsung still required)
+    needs: presentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Generate locked native bindings
+        run: bash mobile/scripts/android_media_codegen.sh
+      - name: Enable disposable hosted emulator
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Actual authenticated media, ExoPlayer and advancing decoded position
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: false
+          working-directory: mobile
+          script: bash scripts/android_native_motion_test.sh
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build37-native-motion
+          path: |
+            ${{ runner.temp }}/gallery-native-motion-test.log
+            ${{ runner.temp }}/gallery-native-motion-android.log
+          if-no-files-found: warn
+
+  editor-review:
+    name: Explicit editor screenshot review (no release)
+    if: github.event.action == 'labeled' && github.event.label.name == 'review:editor-screenshots' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/issue17-smart-timeline'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Check review publication guards
+        run: python3 -m unittest discover -s scripts/release/tests -p test_editor_review_publication.py -v
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen editor dependencies and source generation
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Render review screenshots with viewport and history assertions
+        id: render
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --update-goldens --reporter json \
+            test/pages/edit/editor_compact_layout_test.dart \
+            test/pages/edit/editor_acceptance_test.dart \
+            test/pages/edit/editor_theme_test.dart \
+            | tee "$RUNNER_TEMP/editor-review.jsonl"
+      - name: Annotate rendering results
+        if: "!cancelled() && (steps.render.outcome == 'success' || steps.render.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/editor-review.jsonl"
+      - name: Publish only reviewed-source PNGs and measured geometry to the existing draft branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_HEAD_BRANCH: ${{ github.head_ref }}
+          REVIEW_TEST_LOG: ${{ runner.temp }}/editor-review.jsonl
+        run: python3 .github/scripts/publish-editor-review.py
+      - name: Retain independent rendering evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: editor-viewport-review
+          path: |
+            mobile/test/pages/edit/goldens/fixed_dock_*.png
+            specs/design/editor-dock-review/measurements.json
+            ${{ runner.temp }}/editor-review.jsonl
+          if-no-files-found: warn
+
+  places-review:
+    name: Explicit Places screenshot review (no release)
+    if: github.event.action == 'labeled' && github.event.label.name == 'review:places-screenshots' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/issue17-smart-timeline'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Check review publication guards
+        run: python3 -m unittest discover -s scripts/release/tests -p test_editor_review_publication.py -v
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen Places dependencies and source generation
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Render review screenshots with locale, identity and scroll assertions
+        id: render
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --update-goldens --reporter json --dart-define=FOTO_CAPTURE_PLACES=true \
+            test/presentation/pages/place_localization_test.dart \
+            | tee "$RUNNER_TEMP/places-review.jsonl"
+      - name: Annotate rendering results
+        if: "!cancelled() && (steps.render.outcome == 'success' || steps.render.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/places-review.jsonl"
+      - name: Publish only reviewed-source PNGs and measured geometry to the existing draft branch
+        env:
+          REVIEW_KIND: places
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_HEAD_BRANCH: ${{ github.head_ref }}
+          REVIEW_TEST_LOG: ${{ runner.temp }}/places-review.jsonl
+        run: python3 .github/scripts/publish-editor-review.py
+      - name: Retain independent rendering evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: places-localization-review
+          path: |
+            mobile/test/presentation/pages/goldens/places_*.png
+            specs/design/places-localization-review/measurements.json
+            ${{ runner.temp }}/places-review.jsonl
+          if-no-files-found: warn
+
+  build38-software:
+    name: Build 38 UI and MediaStore software regressions (no APK)
+    if: github.event_name == 'workflow_dispatch' && inputs.software_only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: immich-app/devtools/actions/use-mise@06a9ef925332c91be647d6256642b86b398592c8 # use-mise-action-v3.2.1
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+      - name: Frozen dependencies and source generation
+        id: codegen
+        run: mise //mobile:install:ci && mise //mobile:codegen
+      - name: Format changed Dart files
+        id: format38
+        working-directory: mobile
+        run: |
+          dart --version
+          git diff --relative --name-only 46fc1b3c1d30d8e9893def0ce953a882aff7fa27 -- '**/*.dart' | xargs -r dart format --set-exit-if-changed
+      - name: Annotate formatter differences
+        if: failure() && steps.format38.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py format
+      - name: Analyze mobile source
+        id: analyze38
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        run: |
+          set -o pipefail
+          mise //mobile:analyze 2>&1 | tee "$RUNNER_TEMP/build38-analysis.log"
+      - name: Annotate analyzer diagnostics
+        if: failure() && steps.analyze38.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py analysis "$RUNNER_TEMP/build38-analysis.log"
+      - name: UI, media refresh and existing Live Photo regressions
+        id: tests38
+        if: "!cancelled() && steps.codegen.outcome == 'success'"
+        working-directory: mobile
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 --reporter json \
+            test/providers/local_media_refresh_provider_test.dart \
+            test/domain/services/local_media_refresh_test.dart \
+            test/domain/utils/background_sync_test.dart \
+            test/domain/services/local_sync_service_test.dart \
+            test/infrastructure/repositories/local_album_repository_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_hero_transition_test.dart \
+            test/presentation/widgets/asset_viewer/viewer_gestures_test.dart \
+            test/presentation/widgets/asset_viewer/asset_page_zoom_reset_test.dart \
+            test/presentation/widgets/timeline/scrubber_positions_test.dart \
+            test/presentation/widgets/timeline/live_photo_autoplay_test.dart \
+            test/presentation/widgets/timeline/live_photo_scope_test.dart \
+            test/presentation/widgets/timeline/justified_timeline_widget_test.dart \
+            test/presentation/widgets/timeline/offline_timeline_restart_test.dart \
+            | tee "$RUNNER_TEMP/build38-tests.jsonl"
+      - name: Annotate test results
+        if: "!cancelled() && (steps.tests38.outcome == 'success' || steps.tests38.outcome == 'failure')"
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/build38-tests.jsonl"
+      - name: Retain software evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build38-software-tests
+          path: |
+            ${{ runner.temp }}/build38-tests.jsonl
+            ${{ runner.temp }}/build38-analysis.log

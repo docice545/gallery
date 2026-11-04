@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull;
@@ -80,6 +81,43 @@ void main() {
     await media('locked', visibility: AssetVisibility.locked);
     expect(await ids(), ['ok']);
   });
+  test('unconfirmed deletion is fenced by endpoint, owner and checksum, without hiding unrelated media', () async {
+    await media('item', checksum: 'current');
+    Future<void> pending({
+      String endpoint = '',
+      String owner = 'viewer',
+      String checksum = 'current',
+      String operation = 'trash',
+    }) async {
+      await ctx.db.customStatement('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)', [
+        'sync.trash-reset.fixture/viewer/item',
+        jsonEncode({
+          'id': 'item',
+          'ownerId': owner,
+          'checksum': checksum,
+          'endpoint': endpoint,
+          'operation': operation,
+          'presentationRolledBack': true,
+        }),
+      ]);
+    }
+
+    await pending();
+    expect(await ids(), isEmpty);
+    await pending(operation: 'restore');
+    expect(await ids(), ['item']);
+    await pending(endpoint: 'https://previous.invalid');
+    expect(await ids(), ['item']);
+    await pending(owner: 'other');
+    expect(await ids(), ['item']);
+    await pending(checksum: 'previous');
+    expect(await ids(), ['item']);
+    await ctx.db.customStatement('UPDATE settings SET value=?', ['broken json']);
+    expect(await ids(), ['item']);
+    await pending(operation: 'permanent');
+    expect(await ids(), isEmpty);
+    expect((await ctx.db.select(ctx.db.remoteAssetEntity).get()).single.deletedAt, isNull);
+  });
   test('restore and permanent deletion change catalog without recreating assets', () async {
     await media('item', deletedAt: DateTime.utc(2026, 10, 7));
     expect(await ids(), isEmpty);
@@ -134,6 +172,24 @@ void main() {
     expect(await ctx.db.select(ctx.db.remoteAssetEntity).get(), hasLength(2));
     expect(await ctx.db.select(ctx.db.stackEntity).get(), hasLength(1));
   });
+  for (final removed in ['primary', 'secondary']) {
+    test('native picker keeps the exact two-to-one survivor after deleting $removed before stack sync', () async {
+      await ctx.insertStack(id: 'stack', ownerId: 'viewer', primaryAssetId: 'primary');
+      await media('primary', stack: 'stack');
+      await media('secondary', stack: 'stack');
+      expect(await ids(), ['primary']);
+      await (ctx.db.update(ctx.db.remoteAssetEntity)..where((row) => row.id.equals(removed))).write(
+        RemoteAssetEntityCompanion(deletedAt: Value(DateTime.utc(2026, 11, 4))),
+      );
+      expect(await ids(), [removed == 'primary' ? 'secondary' : 'primary']);
+      expect((await ctx.db.select(ctx.db.stackEntity).get()).single.primaryAssetId, 'primary');
+      expect((await ctx.db.select(ctx.db.remoteAssetEntity).get()).map((asset) => asset.stackId), ['stack', 'stack']);
+      await (ctx.db.update(
+        ctx.db.remoteAssetEntity,
+      )..where((row) => row.id.equals(removed))).write(const RemoteAssetEntityCompanion(deletedAt: Value(null)));
+      expect(await ids(), ['primary']);
+    });
+  }
   test('space grants require this viewer and timeline-enabled membership', () async {
     await media('shared', owner: 'other');
     await ctx.newSharedSpace(id: 'space', createdById: 'other');

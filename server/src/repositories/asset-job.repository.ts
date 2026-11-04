@@ -40,14 +40,47 @@ export class AssetJobRepository {
 
   @GenerateSql({ params: [DummyValue.UUID] })
   getForSidecarWriteJob(id: string) {
-    return this.db
+    return this.sidecarWriteQuery(this.db, id).executeTakeFirst();
+  }
+
+  private sidecarWriteQuery(db: Kysely<DB>, id: string) {
+    return db
       .selectFrom('asset')
       .where('asset.id', '=', asUuid(id))
       .select(['id', 'originalPath'])
       .select((eb) => withFiles(eb, AssetFileType.Sidecar))
       .$call(withExifInner)
-      .limit(1)
-      .executeTakeFirst();
+      .limit(1);
+  }
+
+  /**
+   * Serialize writers across API/worker processes. The values and their pending
+   * properties come from one locked row, and no newer edit can be unlocked by
+   * this writer. All DB work uses the same connection; the callback only does
+   * file I/O, so concurrent jobs cannot exhaust the pool waiting for themselves.
+   * A failed write rolls back registration/unlock and retains the pending edit.
+   */
+  async writeSidecar(
+    id: string,
+    write: (
+      asset: NonNullable<Awaited<ReturnType<AssetJobRepository['getForSidecarWriteJob']>>>,
+    ) => Promise<string | undefined>,
+  ): Promise<boolean | undefined> {
+    return this.db.transaction().execute(async (tx) => {
+      // Keep deletion/FK lock ordering asset -> exif -> file.
+      await tx.selectFrom('asset').select('id').where('id', '=', id).forKeyShare().executeTakeFirst();
+      const asset = await this.sidecarWriteQuery(tx, id).forUpdate('asset_exif').executeTakeFirst();
+      if (!asset) return;
+      const path = await write(asset);
+      if (!path) return false;
+      await tx
+        .insertInto('asset_file')
+        .values({ assetId: id, type: AssetFileType.Sidecar, path })
+        .onConflict((oc) => oc.columns(['assetId', 'type', 'isEdited']).doUpdateSet({ path }))
+        .execute();
+      await tx.updateTable('asset_exif').set({ lockedProperties: null }).where('assetId', '=', id).execute();
+      return true;
+    });
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
@@ -151,6 +184,9 @@ export class AssetJobRepository {
     return this.db
       .selectFrom('asset')
       .select(columns.asset)
+      .select((eb) =>
+        eb.selectFrom('asset_exif').select('updateId').whereRef('assetId', '=', 'asset.id').as('exifUpdateId'),
+      )
       .select(withFaces)
       .select((eb) => withFiles(eb, AssetFileType.Sidecar))
       .innerJoin('user', 'user.id', 'asset.ownerId')

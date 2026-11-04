@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment_builder.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
+import 'package:immich_mobile/providers/place_names.provider.dart';
+import 'package:immich_mobile/utils/place_names.dart';
 import 'package:intl/date_symbol_data_local.dart';
+
+import '../../../test_utils.dart';
 
 const _scrollKey = Key('scrubbed-scroll');
 final _thumb = find.byWidgetPredicate(
@@ -25,6 +33,14 @@ Future<void> _mount(
   ScrollController controller, {
   ValueNotifier<bool>? secondAttached,
   ScrollController? childController,
+  bool showFloatingDate = false,
+  BaseAsset? asset,
+  String? location,
+  VoidCallback? onPhotoTap,
+  ThemeMode themeMode = ThemeMode.system,
+  Color accent = Colors.blue,
+  Locale locale = const Locale('en'),
+  double textScale = 1,
 }) async {
   final secondState = secondAttached ?? ValueNotifier(false);
   if (secondAttached == null) {
@@ -32,8 +48,26 @@ Future<void> _mount(
   }
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [hapticFeedbackProvider.overrideWith(_NoHaptics.new)],
+      overrides: [
+        hapticFeedbackProvider.overrideWith(_NoHaptics.new),
+        timelineDateLocationProvider.overrideWith(
+          (ref, id) async => location == null ? null : Place(name: location, assetId: id),
+        ),
+        placeDisplayNamesProvider.overrideWith((ref, locale) => PlaceDisplayNames(locale.toLanguageTag(), const {})),
+      ],
       child: MaterialApp(
+        themeMode: themeMode,
+        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: accent)),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark),
+        ),
+        locale: locale,
+        supportedLocales: const [Locale('en'), Locale('ru'), Locale('de'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
         home: PrimaryScrollController(
           controller: controller,
@@ -46,18 +80,32 @@ Future<void> _mount(
                   child: Scrubber(
                     key: const Key('scrubber'),
                     layoutSegments: FixedSegmentBuilder(
-                      buckets: [TimeBucket(date: DateTime(2026, 11, 2), assetCount: 30)],
+                      buckets: [
+                        TimeBucket(date: DateTime(2026, 11, 2), assetCount: 15),
+                        TimeBucket(date: DateTime(2026, 11, 1), assetCount: 15),
+                      ],
                       tileHeight: 100,
                       columnCount: 3,
                     ).generate(),
                     timelineHeight: 240,
                     hasAppBar: false,
                     snapToMonth: false,
+                    topPadding: 24,
+                    showFloatingDate: showFloatingDate,
+                    assetAtIndex: (_) => asset,
                     child: CustomScrollView(
                       key: _scrollKey,
                       primary: childController == null,
                       controller: childController,
-                      slivers: const [SliverToBoxAdapter(child: SizedBox(height: 2000))],
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: onPhotoTap,
+                            child: const SizedBox(height: 2000),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -89,7 +137,124 @@ Future<void> _revealThumb(WidgetTester tester) async {
 }
 
 void main() {
-  setUpAll(() => initializeDateFormatting('en'));
+  setUpAll(() => initializeDateFormatting());
+
+  for (final viewport in [const Size(360, 640), const Size(800, 400)]) {
+    for (final locale in [const Locale('ru'), const Locale('de'), const Locale('ar')]) {
+      testWidgets('date stays centered through live theme/accent changes: $viewport $locale', (tester) async {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        await _mount(tester, controller, showFloatingDate: true, locale: locale, textScale: 2);
+        await _revealThumb(tester);
+        final label = find.byKey(const Key('timeline-floating-date'));
+        final text = find.byKey(const Key('timeline-floating-date-text'));
+        final thumb = find.byKey(const Key('timeline-scroll-thumb'));
+        final top = tester.getRect(label).top;
+        final thumbRect = tester.getRect(thumb);
+        final light = tester.widget<Material>(label).color!;
+        void check() {
+          final rect = tester.getRect(label);
+          expect(rect.center.dx, closeTo(viewport.width / 2, .01));
+          expect(rect.top, top);
+          expect(rect.right, lessThanOrEqualTo(viewport.width - kScrubberThumbHeight - 12));
+          final background = tester.widget<Material>(label).color!.computeLuminance();
+          final foreground = tester.widget<Text>(text).style!.color!.computeLuminance();
+          final contrast = (background > foreground)
+              ? (background + .05) / (foreground + .05)
+              : (foreground + .05) / (background + .05);
+          expect(contrast, greaterThanOrEqualTo(4.5));
+          expect(tester.takeException(), isNull);
+        }
+
+        check();
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        check();
+        expect(tester.widget<Material>(label).color, isNot(light));
+        expect(tester.getRect(thumb), thumbRect);
+        final dark = tester.widget<Material>(label).color;
+        await _mount(
+          tester,
+          controller,
+          showFloatingDate: true,
+          locale: locale,
+          textScale: 2,
+          themeMode: ThemeMode.light,
+          accent: Colors.orange,
+        );
+        await tester.pump(const Duration(milliseconds: 250));
+        check();
+        expect(tester.widget<Material>(label).color, isNot(dark));
+        // Explicit light mode overrides the system's still-dark brightness.
+        expect(Theme.of(tester.element(label)).brightness, Brightness.light);
+      });
+    }
+  }
+
+  for (final location in [null, 'Saint Petersburg, a deliberately long location name']) {
+    testWidgets('one fixed date overlay ignores photo gestures and uses optional local place: $location', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      var taps = 0;
+      await _mount(
+        tester,
+        controller,
+        showFloatingDate: true,
+        asset: TestUtils.createRemoteAsset(id: 'visible-photo'),
+        location: location,
+        onPhotoTap: () => taps++,
+      );
+      final label = find.byKey(const Key('timeline-floating-date'));
+      expect(label, findsNothing);
+      await _revealThumb(tester);
+      await tester.pump();
+      expect(label, findsOneWidget);
+      final before = tester.getRect(label);
+      expect(before.top, greaterThanOrEqualTo(24));
+      expect(before.bottom, lessThan(240));
+      expect(before.right, lessThan(tester.view.physicalSize.width));
+      final place = find.byKey(const Key('timeline-floating-location-text'));
+      expect(place, location == null ? findsNothing : findsOneWidget);
+      if (location != null) {
+        expect(tester.widget<Text>(place).overflow, TextOverflow.ellipsis);
+      }
+      await tester.tapAt(before.center);
+      expect(taps, 1);
+      final thumbGesture = await tester.startGesture(tester.getCenter(_thumb));
+      await thumbGesture.moveBy(const Offset(0, 30));
+      await thumbGesture.moveBy(const Offset(0, 40));
+      await tester.pump();
+      expect(tester.getRect(label).topLeft, before.topLeft);
+      expect(label, findsOneWidget);
+      // A held drag must not fade the date even after the idle timeout.
+      await tester.pump(const Duration(seconds: 2));
+      expect(label, findsOneWidget);
+      await thumbGesture.up();
+      controller.jumpTo(1500);
+      await tester.pump();
+      expect(find.text('Nov 1, 2026'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(label, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  test('location fallback uses existing nonblank metadata only', () {
+    expect(timelinePlaceLabel(' City ', 'State', 'Country'), 'City');
+    expect(timelinePlaceLabel(' ', 'State', 'Country'), 'State');
+    expect(timelinePlaceLabel(null, null, 'Country'), 'Country');
+    expect(timelinePlaceLabel(null, ' ', null), isNull);
+  });
 
   testWidgets('a shared primary controller with two positions never reads an ambiguous position', (tester) async {
     final controller = ScrollController();

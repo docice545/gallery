@@ -3,6 +3,8 @@ import {
   deletionBatchStatus,
   deletionPreflight,
   deletionStatuses,
+  getStack,
+  restoreAssets,
   permanentDeletion,
   PermanentDeletionBatchState,
   State,
@@ -10,8 +12,10 @@ import {
 import { toastManager } from '@immich/ui';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineAsset } from '$lib/managers/timeline-manager/types';
+import { assetFactory } from '@test-data/factories/asset-factory';
 import { deleteAssets } from './actions';
 import { handleError } from './handle-error';
+import { toTimelineAsset } from './timeline-util';
 
 const flags = vi.hoisted(() => ({ authorizedDeletion: true }));
 vi.mock('@immich/sdk', async (original) => ({
@@ -21,6 +25,8 @@ vi.mock('@immich/sdk', async (original) => ({
   deletionStatuses: vi.fn(),
   permanentDeletion: vi.fn(),
   deletionPreflight: vi.fn(),
+  getStack: vi.fn(),
+  restoreAssets: vi.fn(),
 }));
 vi.mock('$lib/managers/feature-flags-manager.svelte', () => ({ featureFlagsManager: { valueOrUndefined: flags } }));
 vi.mock('./handle-error', () => ({ handleError: vi.fn() }));
@@ -33,6 +39,65 @@ beforeEach(() => {
     Promise.resolve(bulkIdsDto.ids.map((id) => ({ id, scope: 'managed', authorized: true }))),
   );
   vi.spyOn(toastManager, 'primary').mockImplementation(() => ({}) as never);
+});
+describe('explicit timeline stack deletion', () => {
+  const selection = (count: number) => {
+    const members = Array.from({ length: count }, (_, i) =>
+      assetFactory.build({ id: `frame-${i}`, ownerId: 'owner', isTrashed: false }),
+    );
+    const cover = toTimelineAsset(members[0]);
+    cover.stack = { id: 'stack', primaryAssetId: cover.id, assetCount: count };
+    return { members, cover };
+  };
+
+  it.each([2, 3, 5])('trashes all %i active members of an explicitly selected cover', async (count) => {
+    const { members, cover } = selection(count);
+    vi.mocked(getStack).mockResolvedValue({ id: 'stack', primaryAssetId: cover.id, assets: members });
+    const removed = vi.fn();
+    await deleteAssets(false, removed, [cover], undefined, { includeStacks: true });
+    expect(deleteBulk).toHaveBeenCalledWith({ assetBulkDeleteDto: { ids: members.map((a) => a.id), force: false } });
+    expect(removed).toHaveBeenCalledWith(members.map((a) => a.id));
+  });
+
+  it('keeps viewer deletion limited to the selected cover without the timeline option', async () => {
+    const { cover } = selection(3);
+    await deleteAssets(false, vi.fn(), [cover]);
+    expect(getStack).not.toHaveBeenCalled();
+    expect(deleteBulk).toHaveBeenCalledWith({ assetBulkDeleteDto: { ids: [cover.id], force: false } });
+  });
+
+  it('deduplicates mixed selection and restores every member without duplicate timeline tiles', async () => {
+    const { members, cover } = selection(3);
+    vi.mocked(getStack).mockResolvedValue({ id: 'stack', primaryAssetId: cover.id, assets: members });
+    const standalone = toTimelineAsset(assetFactory.build({ id: 'single', ownerId: 'owner' }));
+    const undo = vi.fn();
+    await deleteAssets(false, vi.fn(), [cover, standalone, cover], undo, { includeStacks: true });
+    const ids = [...members.map((a) => a.id), 'single'];
+    expect(deleteBulk).toHaveBeenCalledWith({ assetBulkDeleteDto: { ids, force: false } });
+    const notification = vi.mocked(toastManager.primary).mock.calls.at(-1)![0] as {
+      button: { onclick: () => Promise<void> };
+    };
+    await notification.button.onclick();
+    expect(restoreAssets).toHaveBeenCalledWith({ bulkIdsDto: { ids } });
+    expect(undo).toHaveBeenCalledWith([cover, standalone]);
+  });
+
+  it.each(['offline', 'foreign', 'stale'])('does not delete any selection if stack lookup is %s', async (failure) => {
+    const { members, cover } = selection(3);
+    if (failure === 'offline') {
+      vi.mocked(getStack).mockRejectedValueOnce(new Error('offline'));
+    } else {
+      vi.mocked(getStack).mockResolvedValueOnce({
+        id: 'stack',
+        primaryAssetId: failure === 'stale' ? members[1].id : cover.id,
+        assets: failure === 'foreign' ? [members[0], { ...members[1], ownerId: 'another-owner' }] : members,
+      });
+    }
+    const removed = vi.fn();
+    expect(await deleteAssets(false, removed, [cover], undefined, { includeStacks: true })).toBe(false);
+    expect(deleteBulk).not.toHaveBeenCalled();
+    expect(removed).not.toHaveBeenCalled();
+  });
 });
 describe('permanent deletion acknowledgements', () => {
   it('removes only completed items; blocked/failed originals remain visible in Trash', async () => {

@@ -19,7 +19,7 @@ class _FakeBackgroundSyncManager extends BackgroundSyncManager {
   }
 
   @override
-  Future<void> syncLocal({bool full = false}) async {
+  Future<void> syncLocal({bool full = false, bool enqueue = false}) async {
     calls.add('local-full-$full');
   }
 }
@@ -85,7 +85,7 @@ class _QueuedRemoteSyncManager extends BackgroundSyncManager {
   Future<void> syncDeviceTrash() async {}
 
   @override
-  Future<void> syncLocal({bool full = false}) async => localRequests++;
+  Future<void> syncLocal({bool full = false, bool enqueue = false}) async => localRequests++;
 
   @override
   Future<void> hashAssets({bool enqueue = false}) async => hashRequests++;
@@ -124,7 +124,59 @@ class _ControlledHashManager extends BackgroundSyncManager {
   }
 }
 
+class _QueuedLocalSyncManager extends BackgroundSyncManager {
+  final runs = <Completer<void>>[];
+  final fullRequests = <bool>[];
+  @override
+  Cancelable<void> createLocalSyncTask(bool full) {
+    fullRequests.add(full);
+    final run = Completer<void>();
+    runs.add(run);
+    return Cancelable(
+      completer: run,
+      onCancel: () {
+        if (!run.isCompleted) {
+          run.completeError(CanceledError());
+        }
+      },
+    );
+  }
+
+  @override
+  Future<void> syncDeviceTrash() async {}
+}
+
 void main() {
+  test('MediaStore changes during another local sync queue exactly one delta pass', () async {
+    final manager = _QueuedLocalSyncManager();
+    final first = manager.syncLocal();
+    for (var i = 0; i < 20; i++) {
+      unawaited(manager.syncLocal(enqueue: true));
+    }
+    expect(manager.runs, hasLength(1));
+    manager.runs.first.complete();
+    await first;
+    expect(manager.runs, hasLength(2));
+    expect(manager.fullRequests, [false, false]);
+    manager.runs.last.complete();
+    await Future<void>.delayed(Duration.zero);
+    await manager.cancel();
+    expect(manager.runs, hasLength(2));
+  });
+  test('cancel discards queued MediaStore work before resume starts a fresh pass', () async {
+    final manager = _QueuedLocalSyncManager();
+    final first = manager.syncLocal();
+    unawaited(manager.syncLocal(enqueue: true));
+    await manager.cancelResumeSyncs();
+    await first;
+    expect(manager.runs, hasLength(1));
+    final resumed = manager.syncLocal(enqueue: true);
+    expect(manager.runs, hasLength(2));
+    manager.runs.last.complete();
+    await resumed;
+    await manager.cancel();
+  });
+
   group('saved-copy hashing after an older snapshot', () {
     test('coalesces editor requests and awaits the follow-up that includes each saved copy', () async {
       final manager = _ControlledHashManager();

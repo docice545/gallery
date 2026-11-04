@@ -5,6 +5,7 @@ import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/pages/common/large_leading_tile.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 
@@ -39,12 +40,15 @@ class AlbumTile extends ConsumerWidget {
           return snapshot.hasData && snapshot.data != null
               ? ClipRRect(
                   borderRadius: const BorderRadius.all(Radius.circular(15)),
-                  child: SizedBox(
-                    width: 80,
-                    height: 80,
-                    child: Thumbnail.remote(
-                      remoteId: album.thumbnailAssetId!,
-                      thumbhash: snapshot.data!.thumbHash ?? "",
+                  child: GhostSource(
+                    assetKey: ghostAlbumCoverKey('remote', album.id, album.thumbnailAssetId!),
+                    child: SizedBox(
+                      width: 80,
+                      height: 80,
+                      child: Thumbnail.remote(
+                        remoteId: album.thumbnailAssetId!,
+                        thumbhash: snapshot.data!.thumbHash ?? "",
+                      ),
                     ),
                   ),
                 )

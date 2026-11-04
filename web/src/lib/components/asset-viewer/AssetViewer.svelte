@@ -39,6 +39,7 @@
   } from '@immich/sdk';
   import { CommandPaletteDefaultProvider } from '@immich/ui';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import type { SwipeCustomEvent } from 'svelte-gestures';
   import { t } from 'svelte-i18n';
   import { fly } from 'svelte/transition';
@@ -112,6 +113,11 @@
 
   let previewStackedAsset: AssetResponseDto | undefined = $state();
   let stack: StackResponseDto | null = $state(null);
+  let retainedStack: StackResponseDto | null = null;
+  const deletedAssetIds = new SvelteSet<string>();
+  const deletionTasks = new SvelteMap<string, Promise<void>>();
+  let stackRefreshVersion = 0;
+  let destroyed = false;
   const asset = $derived(previewStackedAsset ?? cursor.current);
   const nextAsset = $derived(cursor.nextAsset);
   const previousAsset = $derived(cursor.previousAsset);
@@ -125,18 +131,37 @@
     isPlayingOriginalVideo = value;
   };
 
+  const normalizeStack = (response: StackResponseDto): StackResponseDto => {
+    const assets = response.assets.filter(({ id, isTrashed }) => !deletedAssetIds.has(id) && !isTrashed);
+    const primaryAssetId = assets.some(({ id }) => id === response.primaryAssetId)
+      ? response.primaryAssetId
+      : (assets[0]?.id ?? response.primaryAssetId);
+    const summary = assets.length > 1 ? { id: response.id, primaryAssetId, assetCount: assets.length } : null;
+    return { ...response, primaryAssetId, assets: assets.map((asset) => ({ ...asset, stack: summary })) };
+  };
+
   const refreshStack = async () => {
+    const version = ++stackRefreshVersion;
+    const current = cursor.current;
     if (authManager.isSharedLink || !withStacked) {
       return;
     }
 
-    if (asset.stack) {
-      stack = await getStack({ id: asset.stack.id });
+    if (!current.stack) {
+      stack = null;
+      if (!retainedStack?.assets.some(({ id }) => id === current.id)) {
+        retainedStack = null;
+      }
+      return;
     }
 
-    if (!stack?.assets.some(({ id }) => id === asset.id)) {
-      stack = null;
+    const refreshed = await getStack({ id: current.stack.id });
+    if (destroyed || version !== stackRefreshVersion || cursor.current.id !== current.id) {
+      return;
     }
+    const normalized = normalizeStack(refreshed);
+    retainedStack = normalized.assets.some(({ id }) => id === current.id) ? normalized : null;
+    stack = retainedStack && retainedStack.assets.length > 1 ? retainedStack : null;
   };
 
   const handleFavorite = async () => {
@@ -164,6 +189,13 @@
     const restoredAsset = assets[0];
     await assetViewerManager.setAssetId(restoredAsset.id);
     await navigate({ targetRoute: 'current', assetId: restoredAsset.id });
+  };
+
+  const handleUndoDelete: OnUndoDelete = (assets) => {
+    for (const restoredAsset of assets) {
+      deletedAssetIds.delete(restoredAsset.id);
+    }
+    onUndoDelete?.(assets);
   };
 
   onMount(() => {
@@ -194,6 +226,8 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
+    stackRefreshVersion++;
     activityManager.reset();
     assetViewerManager.resetPanelState();
     syncAssetViewerOpenClass(false);
@@ -281,7 +315,7 @@
     if (nextIndex < 0 || nextIndex >= assets.length) {
       return;
     }
-    cursor.current = assets[nextIndex];
+    cursor = { ...cursor, current: assets[nextIndex] };
   };
 
   /**
@@ -334,46 +368,137 @@
     preAction?.(action);
   };
 
+  const handleDeletedAssets = async (
+    ids: string[],
+    action?: Extract<Action, { type: AssetAction.DELETE | AssetAction.TRASH }>,
+  ) => {
+    const removed = new Set(ids.filter((id) => !deletedAssetIds.has(id)));
+    if (removed.size === 0) {
+      return;
+    }
+    const previousStack = stack ?? retainedStack;
+    const removedAsset = action?.asset ?? previousStack?.assets.find(({ id }) => removed.has(id)) ?? cursor.current;
+    const relevant =
+      removed.has(cursor.current.id) ||
+      previousStack?.assets.some(({ id }) => removed.has(id)) ||
+      (previewStackedAsset && removed.has(previewStackedAsset.id));
+    for (const id of removed) {
+      deletedAssetIds.add(id);
+    }
+    const completedAction = action ?? { type: AssetAction.TRASH, asset: toTimelineAsset(removedAsset) };
+    const targetStackId = removedAsset.stack?.id ?? (relevant ? previousStack?.id : undefined);
+    const isInTargetStack = () =>
+      cursor.current.id === removedAsset.id ||
+      (!!targetStackId &&
+        (cursor.current.stack?.id === targetStackId ||
+          (retainedStack?.id === targetStackId && retainedStack.assets.some(({ id }) => id === cursor.current.id))));
+    if (!relevant && !action) {
+      return;
+    }
+    if (!withStacked || !targetStackId) {
+      await Promise.resolve(onAction?.(completedAction));
+      return;
+    }
+
+    // Invalidate pre-deletion requests before any cursor change can start another refresh.
+    const inTargetStack = isInTargetStack();
+    if (inTargetStack) {
+      stackRefreshVersion++;
+      previewStackedAsset = undefined;
+    }
+    const source = previousStack?.id === targetStackId ? previousStack : null;
+    let updated = normalizeStack(
+      source ?? { id: targetStackId, primaryAssetId: removedAsset.id, assets: inTargetStack ? [cursor.current] : [] },
+    );
+    const selectSurvivor = (response: StackResponseDto) => {
+      retainedStack = response;
+      stack = response.assets.length > 1 ? response : null;
+      const order = source?.assets ?? response.assets;
+      const currentIndex = order.findIndex(({ id }) => id === cursor.current.id);
+      const next = order.slice(currentIndex + 1).find(({ id }) => !deletedAssetIds.has(id));
+      const previous = order.slice(0, currentIndex).findLast(({ id }) => !deletedAssetIds.has(id));
+      const selectedId = deletedAssetIds.has(cursor.current.id) ? (next ?? previous)?.id : cursor.current.id;
+      const selected = response.assets.find(({ id }) => id === selectedId) ?? response.assets[0];
+      if (selected) {
+        cursor = { ...cursor, current: selected };
+      }
+    };
+    if (source && inTargetStack) {
+      selectSurvivor(updated);
+    }
+    const version = inTargetStack ? ++stackRefreshVersion : stackRefreshVersion;
+    try {
+      const refreshed = normalizeStack(await getStack({ id: targetStackId }));
+      updated = refreshed;
+      if (!destroyed && version === stackRefreshVersion && isInTargetStack()) {
+        selectSurvivor(updated);
+      }
+    } catch {
+      // A depleted stack may have disappeared. Keep the confirmed local removals on a refresh failure.
+    }
+    if (destroyed) {
+      return;
+    }
+    updated = normalizeStack(updated);
+
+    await Promise.resolve(
+      onAction?.({
+        ...completedAction,
+        stackHandled: true,
+        stack: updated.assets.length > 1 ? updated : null,
+        replacementAsset: updated.assets.find(({ id }) => id === updated.primaryAssetId),
+      }),
+    );
+
+    if (!destroyed && updated.assets.length === 0 && isInTargetStack()) {
+      const next = cursor.nextAsset && !deletedAssetIds.has(cursor.nextAsset.id) ? cursor.nextAsset : undefined;
+      const previous =
+        cursor.previousAsset && !deletedAssetIds.has(cursor.previousAsset.id) ? cursor.previousAsset : undefined;
+      if (!(await navigateToAsset(next)) && !(await navigateToAsset(previous))) {
+        closeViewer();
+      }
+    }
+  };
+
+  const handleConfirmedDeletion = (
+    ids: string[],
+    action?: Extract<Action, { type: AssetAction.DELETE | AssetAction.TRASH }>,
+  ) => {
+    const freshIds = ids.filter((id) => !deletedAssetIds.has(id));
+    if (freshIds.length === 0) {
+      return Promise.all(ids.map((id) => deletionTasks.get(id)).filter((task) => task !== undefined)).then(() => {});
+    }
+    const task = handleDeletedAssets(freshIds, action);
+    for (const id of freshIds) {
+      deletionTasks.set(id, task);
+    }
+    return task;
+  };
+
+  const onAssetsDelete = (ids: string[]) => handleConfirmedDeletion(ids);
+
   const handleAction = async (action: Action) => {
     switch (action.type) {
       case AssetAction.DELETE:
       case AssetAction.TRASH: {
-        const deletedId = action.asset.id;
-        const currentStack = withStacked ? stack : null;
-
-        if (currentStack?.assets.some(({ id }) => id === deletedId)) {
-          const previousAssets = currentStack.assets;
-          const deletedIndex = previousAssets.findIndex(({ id }) => id === deletedId);
-          const remainingAssets = previousAssets.filter(({ id }) => id !== deletedId);
-
-          previewStackedAsset = undefined;
-
-          if (remainingAssets.length > 0) {
-            stack = {
-              ...currentStack,
-              assets: remainingAssets,
-            };
-
-            const nextAsset = remainingAssets[Math.min(deletedIndex, remainingAssets.length - 1)];
-            cursor.current = nextAsset;
-          } else {
-            stack = null;
-          }
-        }
-
-        eventManager.emit('AssetsDelete', [deletedId]);
-        break;
+        await handleConfirmedDeletion([action.asset.id], action);
+        eventManager.emit('AssetsDelete', [action.asset.id]);
+        return;
       }
       case AssetAction.REMOVE_ASSET_FROM_STACK: {
+        stackRefreshVersion++;
         stack = action.stack;
+        retainedStack = action.stack;
         if (stack) {
-          cursor.current = stack.assets[0];
+          cursor = { ...cursor, current: stack.assets[0] };
         }
         break;
       }
       case AssetAction.STACK:
       case AssetAction.SET_STACK_PRIMARY_ASSET: {
+        stackRefreshVersion++;
         stack = action.stack;
+        retainedStack = action.stack;
         break;
       }
       case AssetAction.SET_PERSON_FEATURED_PHOTO: {
@@ -394,6 +519,11 @@
       }
       case AssetAction.UNSTACK: {
         closeViewer();
+        break;
+      }
+      case AssetAction.RESTORE: {
+        deletedAssetIds.delete(action.asset.id);
+        await refreshStack();
         break;
       }
       // no default
@@ -422,16 +552,21 @@
   };
 
   const refresh = async () => {
+    const current = asset;
+    const preview = previewStackedAsset;
     await refreshStack();
+    if (destroyed) {
+      return;
+    }
     ocrManager.clear();
     faceManager.clear();
     if (!sharedLink) {
-      if (previewStackedAsset) {
-        await ocrManager.getAssetOcr(previewStackedAsset.id);
-        await faceManager.getAssetFaces(previewStackedAsset.id);
+      if (preview) {
+        await ocrManager.getAssetOcr(preview.id);
+        await faceManager.getAssetFaces(preview.id);
       }
-      await ocrManager.getAssetOcr(asset.id);
-      await faceManager.getAssetFaces(asset.id);
+      await ocrManager.getAssetOcr(current.id);
+      await faceManager.getAssetFaces(current.id);
     }
   };
 
@@ -521,7 +656,7 @@
 </script>
 
 <CommandPaletteDefaultProvider name={$t('assets')} actions={[Tag, TagPeople]} />
-<OnEvents {onAssetUpdate} {onAssetsUndoArchive} />
+<OnEvents {onAssetUpdate} {onAssetsUndoArchive} {onAssetsDelete} />
 
 <svelte:document
   bind:fullscreenElement
@@ -547,7 +682,7 @@
         {stack}
         preAction={handlePreAction}
         onAction={handleAction}
-        {onUndoDelete}
+        onUndoDelete={onUndoDelete ? handleUndoDelete : undefined}
         onClose={onClose ? () => onClose(stack?.primaryAssetId ?? asset.id) : undefined}
         {onRemoveFromAlbum}
         {isPlayingOriginalVideo}
@@ -674,7 +809,7 @@
     </div>
   {/if}
 
-  {#if stack && withStacked && !assetViewerManager.isShowEditor && $slideshowState === SlideshowState.None}
+  {#if stack && stack.assets.length > 1 && withStacked && !assetViewerManager.isShowEditor && $slideshowState === SlideshowState.None}
     {@const stackedAssets = stack.assets}
     <div id="stack-slideshow" class="absolute bottom-0 col-span-4 col-start-1 w-fit max-w-full">
       <div class="no-wrap horizontal-scrollbar relative flex flex-row overflow-x-auto overflow-y-hidden">
@@ -689,7 +824,7 @@
               dimmed={stackedAsset.id !== asset.id}
               asset={toTimelineAsset(stackedAsset)}
               onClick={() => {
-                cursor.current = stackedAsset;
+                cursor = { ...cursor, current: stackedAsset };
                 previewStackedAsset = undefined;
               }}
               onMouseEvent={({ isMouseOver }) => handleStackedAssetMouseEvent(isMouseOver, stackedAsset)}
