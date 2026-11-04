@@ -292,10 +292,14 @@ jobs:
           set -o pipefail
           test ! -e android/key.jks
           test ! -e android/key.properties
-          flutter build apk --release --no-pub \
+          # Flutter 3.47 skips release plugin registration with --no-pub:
+          # the dev integration_test Java entry survives but its release class
+          # is excluded. Regenerate with the locked dependency graph instead.
+          flutter build apk --release --pub \
             --target-platform android-arm,android-arm64,android-x64 \
             --build-name="$VERSION_NAME" --build-number="$VERSION_CODE" \
             2>&1 | tee "$RUNNER_TEMP/unsigned-apk-build.log"
+          git diff --exit-code -- pubspec.lock
       - name: Expose unsigned build failure without signing credentials
         if: ${{ failure() && steps.unsigned-apk.outcome == 'failure' }}
         run: python3 .github/scripts/report-ci-failures.py android-build "$RUNNER_TEMP/unsigned-apk-build.log"
