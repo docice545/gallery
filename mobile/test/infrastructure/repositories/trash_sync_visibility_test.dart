@@ -13,6 +13,7 @@ import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/infrastructure/repositories/backup.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
@@ -165,6 +166,17 @@ void main() {
               'still',
             ]);
           }
+          await ctx.newLocalAsset(id: 'device-original', checksum: 'still-checksum');
+          await ctx.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
+          await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-original');
+          await ctx.db.remoteAssetEntity.deleteWhere((row) => row.id.equals('still'));
+          expect(
+            await BackupRepository(ctx.db).getCandidates('owner'),
+            isEmpty,
+            reason: 'Even a sync-reset gap must not re-upload an unknown Trash outcome',
+          );
+          expect((await BackupRepository(ctx.db).getCandidates('other')).map((a) => a.id), ['device-original']);
+          await stream(payload(), v2: v2);
           await sync.reconcilePendingTrash(pending, isTrashed: accepted);
           expect((await remote.get('still'))!.isTrashed, accepted);
           expect(await sync.getPendingTrashOperations(), isEmpty);

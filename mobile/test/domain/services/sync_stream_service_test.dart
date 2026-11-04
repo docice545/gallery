@@ -535,7 +535,12 @@ void main() {
       when(() => assetsApi.getAssetInfo('remote-1')).thenThrow(ApiException(0, 'offline'));
       await expectLater(sut.sync(), throwsA(isA<ApiException>()));
       expect(await repository.getPendingTrashOperations(), hasLength(1));
-      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+      expect(
+        (await remote.get('remote-1'))!.isTrashed,
+        isTrue,
+        reason: 'This fixture was already in Trash; presentation rollback must not resurrect it',
+      );
+      expect(await repository.getRetainedTrashIds('owner'), contains('remote-1'));
       when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
       expect(await sut.sync(), isTrue);
       expect((await remote.get('remote-1'))!.isTrashed, isFalse);
