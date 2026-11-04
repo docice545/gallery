@@ -248,7 +248,12 @@ class FixedRowLayout {
     int high = rowCount;
     while (low < high) {
       final middle = (low + high) ~/ 2;
-      if (offsetForRow(middle) <= offset) {
+      // A global sliver offset is converted back to a row-relative offset by
+      // subtraction. Floating-point cancellation can put an exact row start a
+      // fraction below its boundary and anchor the preceding row on the next
+      // density change. Match the segment end-boundary tolerance; this is far
+      // below a physical pixel and does not snap ordinary scrolling.
+      if (offsetForRow(middle) <= offset + 1e-8) {
         low = middle + 1;
       } else {
         high = middle;

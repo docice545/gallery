@@ -1492,6 +1492,7 @@
   "device_deletion_summary": "Gerät: {removed} entfernt, {remaining} verbleiben.",
   "device_trash_confirmation_body": "Die ausgewählten Fotos werden in den Papierkorb des Geräts verschoben. Die Kopien auf dem Server bleiben erhalten.",
   "device_trash_confirmation_cancel": "Abbrechen",
+  "device_trash_confirmation_confirm": "In den Papierkorb",
   "device_trash_confirmation_title": "Vom Gerät entfernen?",
   "direction": "Richtung",
   "disable": "Deaktivieren",

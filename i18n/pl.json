@@ -1495,6 +1495,7 @@
   "device_deletion_summary": "Urządzenie: usunięto {removed}, pozostało {remaining}.",
   "device_trash_confirmation_body": "Wybrane zdjęcia zostaną przeniesione do kosza urządzenia. Kopie na serwerze pozostaną.",
   "device_trash_confirmation_cancel": "Anuluj",
+  "device_trash_confirmation_confirm": "Do kosza",
   "device_trash_confirmation_title": "Usunąć z urządzenia?",
   "direction": "Kierunek",
   "disable": "Wyłącz",

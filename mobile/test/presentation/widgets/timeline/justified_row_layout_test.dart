@@ -166,6 +166,48 @@ void main() {
     }
   });
 
+  test('global sliver row offsets round-trip at exact boundaries in both presentations', () {
+    for (final hideHeaders in [false, true]) {
+      for (final density in [2, 3, 4, 5]) {
+        final segments = FixedSegmentBuilder(
+          buckets: [
+            for (var day = 0; day < 6; day++)
+              TimeBucket(
+                date: DateTime(2026, 11, 3 - day),
+                assetCount: 10,
+                aspectRatios: [
+                  for (var i = day * 10; i < (day + 1) * 10; i++) [.45, 1.5, .75][i % 3],
+                ],
+              ),
+          ],
+          tileHeight: (390 - 3 * (density - 1)) / density,
+          columnCount: density,
+          spacing: 3,
+          denseLayout: true,
+          hideDateHeaders: hideHeaders,
+        ).generate().cast<FixedSegment>();
+        for (final segment in segments) {
+          for (var row = 0; row < segment.rows.rowCount; row++) {
+            final child = segment.gridIndex + row;
+            final globalOffset = segment.indexToLayoutOffset(child);
+            expect(
+              segment.getMinChildIndexForScrollOffset(globalOffset),
+              child,
+              reason: 'Exact row start must survive global-to-relative double subtraction',
+            );
+            if (row > 0) {
+              expect(
+                segment.getMinChildIndexForScrollOffset(globalOffset - .01),
+                child - 1,
+                reason: 'A real subpixel displacement must still select the preceding row',
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
   test('a much taller single candidate cannot displace the closer square pair', () {
     final layout = FixedRowLayout.justified(width: 390, aspectRatios: List.filled(24, 1), columnCount: 2, spacing: 3);
     expect(layout.assetCountForRow(0), 2);

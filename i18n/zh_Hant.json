@@ -1489,6 +1489,7 @@
   "device_deletion_summary": "裝置：已移除 {removed} 項，剩餘 {remaining} 項。",
   "device_trash_confirmation_body": "所選照片將移至裝置垃圾桶。伺服器上的副本將保留。",
   "device_trash_confirmation_cancel": "取消",
+  "device_trash_confirmation_confirm": "移至垃圾桶",
   "device_trash_confirmation_title": "從裝置移除？",
   "direction": "方向",
   "disable": "停用",

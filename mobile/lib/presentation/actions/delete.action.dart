@@ -860,7 +860,7 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
         title: context.t.device_trash_confirmation_title,
         content: context.t.device_trash_confirmation_body,
         cancel: context.t.device_trash_confirmation_cancel,
-        ok: context.t.to_trash,
+        ok: context.t.device_trash_confirmation_confirm,
       ),
     );
     if (confirmed != true) {

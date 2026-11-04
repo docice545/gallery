@@ -577,11 +577,12 @@ void main() {
     final firstRow = rectangles.values.where((rect) => rect.top == first.top).toList();
     expect(firstRow.length, greaterThan(1));
     expect(_pixel(before, 390, firstRow.last.topRight + const Offset(-.5, .5)), [255, 255, 255, 255]);
-    expect(
-      _pixel(before, 390, firstRow.first.topRight + const Offset(-.5, .5)),
-      [255, 255, 255, 255],
-      reason: 'Build 31-32 rounds internal tile corners as well as group edges',
-    );
+    expect(_pixel(before, 390, firstRow.first.topRight + const Offset(-.5, .5)), [
+      255,
+      255,
+      255,
+      255,
+    ], reason: 'Build 31-32 rounds internal tile corners as well as group edges');
     final nextRow = rectangles.values.firstWhere((rect) => rect.top > first.top);
     expect(_pixel(before, 390, nextRow.topLeft + const Offset(.5, .5)), [
       255,
