@@ -312,6 +312,9 @@ jobs:
           set -o pipefail
           test ! -e android/key.jks
           test ! -e android/key.properties
+          # Same bounded resources as the native gate and reviewed HP builder.
+          # Universal release Jetifier exhausted the previous 4 GiB heap.
+          export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.workers.max=2 -Dorg.gradle.parallel=false"
           # Flutter 3.47 skips release plugin registration with --no-pub:
           # the dev integration_test Java entry survives but its release class
           # is excluded. Regenerate with the locked dependency graph instead.
