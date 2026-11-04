@@ -90,13 +90,13 @@ void main() {
       MaterialApp(
         home: TimelineDragRegion(
           onStart: (_) => started++,
-          child: Column(
+          child: const Column(
             children: [
-              const SizedBox(key: Key('header'), height: 80, width: 400, child: Text('November')),
+              SizedBox(key: Key('header'), height: 80, width: 400, child: Text('November')),
               TimelineAssetIndexWrapper(
                 assetIndex: 0,
                 segmentIndex: 0,
-                child: const SizedBox(height: 100, width: 400, child: ColoredBox(color: Colors.blue)),
+                child: SizedBox(height: 100, width: 400, child: ColoredBox(color: Colors.blue)),
               ),
             ],
           ),
