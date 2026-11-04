@@ -659,6 +659,42 @@ describe(MemoryService.name, () => {
       vi.useRealTimers();
     });
 
+    it('creates at most sixteen distinct cards without truncating their assets', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-23T12:00:00Z'));
+      try {
+        const user = factory.userAdmin();
+        mocks.user.getList.mockResolvedValue([user]);
+        mocks.systemMetadata.get.mockResolvedValue({
+          lastOnThisDayDate: '2026-04-25T00:00:00.000Z',
+          lastRuleDate: '2026-04-22T00:00:00.000Z',
+        });
+        mocks.asset.getByDayOfYear.mockResolvedValue([]);
+        mocks.memory.search.mockResolvedValue([]);
+        mocks.memory.hasRuleMemory.mockResolvedValue(false);
+        mocks.memory.create.mockResolvedValue(MemoryFactory.create() as any);
+        const candidates = Array.from({ length: 18 }, (_, index) => ({
+          ruleId: 'birthday',
+          dedupeKey: `card-${index}`,
+          title: `Card ${index}`,
+          score: 100 - index,
+          assetIds: ids(`card-${index}-asset-`, 20),
+          memoryAt: DateTime.fromISO('2026-04-23T00:00:00Z'),
+        }));
+        vi.spyOn(sut as any, 'getMemoryRules').mockReturnValue([
+          { id: 'birthday', evaluate: vi.fn().mockResolvedValue([candidates[0], ...candidates]) },
+        ] as never);
+        await sut.onMemoriesCreate();
+        expect(mocks.memory.create).toHaveBeenCalledTimes(16);
+        expect(new Set(mocks.memory.create.mock.calls.map(([row]) => (row.data as any).dedupeKey)).size).toBe(16);
+        for (const [, assets] of mocks.memory.create.mock.calls) {
+          expect(assets.size).toBe(20);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should respect the daily rule cap across reruns when a rule memory already exists', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-23T12:00:00Z'));
