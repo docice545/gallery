@@ -8,6 +8,7 @@ import 'package:immich_ui/src/internal.dart';
 class ImmichColumnButton extends StatefulWidget {
   final IconData icon;
   final Widget? leadingIcon;
+  final bool preserveIconWhileLoading;
   final double maxLabelWidth;
   final int? maxLabelLines;
   final String label;
@@ -22,6 +23,7 @@ class ImmichColumnButton extends StatefulWidget {
     required this.label,
     required this.onPressed,
     this.leadingIcon,
+    this.preserveIconWhileLoading = false,
     this.maxLabelWidth = 90,
     this.maxLabelLines = 2,
     this.onLongPress,
@@ -72,7 +74,7 @@ class _ImmichColumnButtonState extends State<ImmichColumnButton> {
         child: Column(
           mainAxisSize: .min,
           children: [
-            _isLoading
+            _isLoading && !widget.preserveIconWhileLoading
                 ? const SizedBox.square(
                     dimension: ImmichIconSize.md,
                     child: CircularProgressIndicator(strokeWidth: ImmichBorderWidth.lg),

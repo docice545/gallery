@@ -49,6 +49,8 @@ jobs:
             test/presentation/pages/place_localization_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
+            test/presentation/widgets/deletion/ghost_trap_test.dart \
+            test/unit/presentation/actions/ghost_trap_action_test.dart \
             test/repositories/album_trash_snapshot_test.dart \
             test/presentation/widgets/album/album_trash_reveal_test.dart \
             test/presentation/widgets/bottom_sheet/selection_action_layout_test.dart \
@@ -100,6 +102,8 @@ jobs:
             test/presentation/pages/place_localization_test.dart \
             test/unit/providers/timeline/selection_identity_test.dart \
             test/domain/models/deletion_snapshot_test.dart \
+            test/presentation/widgets/deletion/ghost_trap_test.dart \
+            test/unit/presentation/actions/ghost_trap_action_test.dart \
             test/repositories/album_trash_snapshot_test.dart \
             test/presentation/widgets/album/album_trash_reveal_test.dart \
             test/presentation/widgets/bottom_sheet/selection_action_layout_test.dart \

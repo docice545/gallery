@@ -12,6 +12,7 @@ import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/add_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_toggle_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/ocr.provider.dart';
@@ -24,14 +25,23 @@ import 'package:immich_mobile/widgets/asset_viewer/video_controls.dart';
 List<Widget> _actions(BuildContext context, WidgetRef ref, List<(FotoIconKind, ActionBuilder)> actions) => [
   for (final (kind, builder) in actions)
     if (builder.create(context, ref) case final item?)
-      FotoIconButton(
-        kind: kind,
-        label: item.label,
-        onPressed: item.onAction,
-        onLongPress: item.onSecondaryAction,
-        destructive: kind == FotoIconKind.trash || kind == FotoIconKind.deviceTrash,
+      _ghostTarget(
+        kind,
+        FotoIconButton(
+          kind: kind,
+          label: item.label,
+          onPressed: item.onAction,
+          onLongPress: item.onSecondaryAction,
+          destructive: kind == FotoIconKind.trash || kind == FotoIconKind.deviceTrash,
+        ),
       ),
 ];
+
+Widget _ghostTarget(FotoIconKind kind, Widget child) => switch (kind) {
+  FotoIconKind.trash => GhostTrashTarget(kind: GhostTrashKind.server, child: child),
+  FotoIconKind.deviceTrash => GhostTrashTarget(kind: GhostTrashKind.device, child: child),
+  _ => child,
+};
 
 class ViewerBottomBar extends ConsumerWidget {
   const ViewerBottomBar({super.key});

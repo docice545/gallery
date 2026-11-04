@@ -14,7 +14,9 @@ import 'package:immich_mobile/domain/utils/event_stream.dart';
 import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
+import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -92,6 +94,27 @@ class _SelectionDeletionLease {
     _invalid = true;
     unawaited(_reload.cancel());
   }
+}
+
+Future<GhostFlight?> _prepareDeletionVisual(
+  BuildContext context,
+  WidgetRef ref,
+  ActionSource source,
+  GhostTrashKind kind,
+) async {
+  final keys = ref
+      .read(assetsActionProvider(source))
+      .where((asset) => asset.isImage)
+      .map((asset) => asset.heroTag)
+      .toList();
+  if (source == ActionSource.viewer && ref.read(isPlayingMotionVideoProvider)) {
+    ref.read(isPlayingMotionVideoProvider.notifier).playing = false;
+    await WidgetsBinding.instance.endOfFrame;
+  }
+  if (!context.mounted) {
+    return null;
+  }
+  return ref.read(ghostTrapProvider).prepare(context, keys, kind);
 }
 
 typedef _State = ({List<String> localIds, List<String> remoteIds, bool trash});
@@ -178,6 +201,7 @@ class DeleteAction extends AssetActionBuilder {
     }
     guard.running = true;
     final lease = _SelectionDeletionLease(context, ref, source);
+    GhostFlight? visual;
 
     try {
       var trashIds = remoteIds;
@@ -214,7 +238,17 @@ class DeleteAction extends AssetActionBuilder {
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
       ToastOption? undo;
       if (trash) {
-        result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const [], lease);
+        visual = await _prepareDeletionVisual(context, ref, source, GhostTrashKind.server);
+        if (visual != null && !await lease.validate()) {
+          if (context.mounted) {
+            toastService.error(context.t.deletion_selection_changed);
+          }
+          return;
+        }
+        if (!context.mounted || !lease.isSessionCurrent()) {
+          return;
+        }
+        result = await _moveToTrash(context, ref, trashIds, removeLocalCopies ? localIds : const [], lease, visual);
         if (!removeLocalCopies) {
           undo = .new(onUndo: () => assetService.restoreTrash(trashIds));
         }
@@ -263,6 +297,7 @@ class DeleteAction extends AssetActionBuilder {
         handleError(error, stack: stack, description: "Failed to delete assets");
       }
     } finally {
+      visual?.cancel();
       lease.dispose();
       guard.running = false;
     }
@@ -287,8 +322,12 @@ class DeleteAction extends AssetActionBuilder {
     List<String> remoteIds,
     List<String> localIds,
     _SelectionDeletionLease lease,
+    GhostFlight? visual,
   ) async {
     await ref.read(assetServiceProvider).trash(remoteIds);
+    if (lease.isSessionCurrent()) {
+      await visual?.confirmed();
+    }
     if (!context.mounted || !lease.isSessionCurrent()) {
       return null;
     }
@@ -428,6 +467,7 @@ class CleanupLocalAction extends AssetActionBuilder {
     bool isCurrent() => lease.isSessionCurrent();
     final toastService = ref.read(toastServiceProvider);
 
+    GhostFlight? visual;
     guard.running = true;
     try {
       final result = await _cleanupLocalAssetsDetailed(
@@ -436,6 +476,10 @@ class CleanupLocalAction extends AssetActionBuilder {
         assetIds,
         canContinue: isCurrent,
         preflight: lease.validate,
+        beforeOperation: () async {
+          visual = await _prepareDeletionVisual(context, ref, source, GhostTrashKind.device);
+          return visual == null || await lease.validate();
+        },
       );
       if (result == null) {
         return;
@@ -444,6 +488,18 @@ class CleanupLocalAction extends AssetActionBuilder {
         return;
       }
 
+      final representative = ref
+          .read(assetsActionProvider(source))
+          .where((asset) => asset.heroTag == visual?.assetKey)
+          .firstOrNull;
+      if (representative != null && result.deletedIds.contains(representative.localId)) {
+        await visual?.confirmed();
+      } else {
+        visual?.cancel();
+      }
+      if (!context.mounted || !isCurrent()) {
+        return;
+      }
       if (source == .timeline && result.deletedIds.isNotEmpty) {
         final removed = result.deletedIds.toSet();
         final selected = ref.read(multiSelectProvider).selectedAssets.toList();
@@ -468,6 +524,7 @@ class CleanupLocalAction extends AssetActionBuilder {
         handleError(error, stack: stack, description: "Failed to remove the device copies");
       }
     } finally {
+      visual?.cancel();
       lease.dispose();
       guard.running = false;
     }
@@ -690,6 +747,7 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
   bool trash = true,
   bool Function()? canContinue,
   Future<bool> Function()? preflight,
+  Future<bool> Function()? beforeOperation,
 }) async {
   if (assetIds.isEmpty) {
     return null;
@@ -719,6 +777,15 @@ Future<LocalDeletionResult?> _cleanupLocalAssetsDetailed(
     return null;
   }
   if (preflight != null && !await preflight()) {
+    if (context.mounted) {
+      ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
+    }
+    return null;
+  }
+  if (!context.mounted || canContinue?.call() == false) {
+    return null;
+  }
+  if (beforeOperation != null && !await beforeOperation()) {
     if (context.mounted) {
       ref.read(toastServiceProvider).error(context.t.deletion_selection_changed);
     }

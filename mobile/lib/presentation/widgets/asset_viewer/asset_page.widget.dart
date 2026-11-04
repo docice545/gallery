@@ -17,6 +17,7 @@ import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.prov
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_overlay.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
@@ -504,15 +505,22 @@ class _AssetPageState extends ConsumerState<AssetPage> {
                 SizedBox(
                   width: viewportWidth,
                   height: viewportHeight,
-                  child: _buildPhotoView(
-                    asset: displayAsset,
-                    heroAttributes: isCurrent
-                        ? PhotoViewHeroAttributes(tag: '${asset.heroTag}_${widget.heroOffset}')
-                        : null,
-                    isCurrent: isCurrent,
-                    isPlayingMotionVideo: isPlayingMotionVideo,
-                    localFilePath: viewIntentFilePath,
-                    remoteThumbnailSize: thumbnailSize,
+                  child: GhostSource(
+                    assetKey: displayAsset.heroTag,
+                    captureInsets: EdgeInsets.only(
+                      top: MediaQuery.paddingOf(context).top + 68,
+                      bottom: MediaQuery.paddingOf(context).bottom + 68,
+                    ),
+                    child: _buildPhotoView(
+                      asset: displayAsset,
+                      heroAttributes: isCurrent
+                          ? PhotoViewHeroAttributes(tag: '${asset.heroTag}_${widget.heroOffset}')
+                          : null,
+                      isCurrent: isCurrent,
+                      isPlayingMotionVideo: isPlayingMotionVideo,
+                      localFilePath: viewIntentFilePath,
+                      remoteThumbnailSize: thumbnailSize,
+                    ),
                   ),
                 ),
                 if (showingOcr && displayAsset.width != null && displayAsset.height != null)

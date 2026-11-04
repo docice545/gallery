@@ -10,6 +10,7 @@ import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/row.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/fixed/row_layout.dart';
@@ -384,7 +385,8 @@ class _AssetTileWidget extends ConsumerWidget {
     // `select` so only the matching tile's selector flips when the highlight moves.
     final isHighlighted = ref.watch(timelineHighlightedAssetProvider.select((a) => isHighlightedAsset(a, asset)));
 
-    return RepaintBoundary(
+    return GhostSource(
+      assetKey: asset.heroTag,
       child: GestureDetector(
         onTap: () => lockSelection ? null : _handleOnTap(context, ref, assetIndex, asset, heroOffset, remoteSize),
         onLongPress:
