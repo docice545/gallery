@@ -167,10 +167,7 @@ void main() {
         ])?.token,
         'remote-centre',
       );
-      expect(
-        chooseLivePhotoCandidate([_candidate('no-pair', asset: _remote('no-pair', live: false))]),
-        isNull,
-      );
+      expect(chooseLivePhotoCandidate([_candidate('no-pair', asset: _remote('no-pair', live: false))]), isNull);
     });
 
     test('network, missing and malformed source paths cannot authorize playback', () {

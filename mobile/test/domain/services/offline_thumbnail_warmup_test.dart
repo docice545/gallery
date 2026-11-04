@@ -25,10 +25,7 @@ void main() {
     });
 
     test('Wi-Fi present is sufficient if another transport is also reported', () {
-      expect(
-        canWarmThumbnailsOn(const [ConnectivityResult.mobile, ConnectivityResult.wifi]),
-        true,
-      );
+      expect(canWarmThumbnailsOn(const [ConnectivityResult.mobile, ConnectivityResult.wifi]), true);
     });
   });
 }

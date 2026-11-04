@@ -195,9 +195,7 @@ void main() {
 
     expect(find.text(StaticTranslations.instance.location_permission), findsNothing);
 
-    await tester.ensureVisible(
-      find.text(StaticTranslations.instance.use_current_connection),
-    );
+    await tester.ensureVisible(find.text(StaticTranslations.instance.use_current_connection));
     await tester.pumpAndSettle();
     await tester.tap(find.text(StaticTranslations.instance.use_current_connection));
     await tester.pumpAndSettle();

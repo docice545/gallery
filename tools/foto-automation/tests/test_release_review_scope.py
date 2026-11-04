@@ -70,11 +70,50 @@ class ReleaseReviewScopeTests(unittest.TestCase):
         source = (ROOT / '.github/workflows/pr-docker.yml').read_text()
         self.assertIn('  pull_request:', source)
         self.assertIn('contents: read', source)
-        self.assertIn('push: false', source)
-        self.assertIn('load: true', source)
+        workflow = yaml.safe_load(source)
+        job = workflow['jobs']['build']
+        self.assertEqual(job.get('permissions', workflow['permissions']), {'contents': 'read'})
+        command = next(step for step in job['steps'] if step.get('id') == 'compile')['run']
+        self.assertIn('docker buildx build --progress plain --load', command)
+        self.assertIn('--secret id=github_token,env=GITHUB_TOKEN', command)
         self.assertIn('context: machine-learning', source)
-        for forbidden in ('secrets.', 'packages: write', 'docker/login-action', 'cache-to:', 'push: true', '--push'):
+        for forbidden in ('secrets.', 'packages: write', 'docker/login-action', 'cache-to:', 'push: true', '--push', 'docker push', 'docker login', 'type=registry', '--cache-to'):
             self.assertNotIn(forbidden, source)
+
+    def test_pr_docker_command_loads_locally_and_preserves_build_failure(self):
+        import os
+        import subprocess
+        import tempfile
+
+        workflow = yaml.safe_load((ROOT / '.github/workflows/pr-docker.yml').read_text())
+        command = next(step for step in workflow['jobs']['build']['steps'] if step.get('id') == 'compile')['run']
+        with tempfile.TemporaryDirectory() as directory:
+            for status in (0, 31):
+                for component, context in (('server', '.'), ('machine-learning', 'machine-learning')):
+                    with self.subTest(status=status, component=component):
+                        # No Docker process or registry: execute the exact workflow
+                        # shell and capture its argv through a controlled function.
+                        stub = 'docker() { printf "%s\\n" "$@" > "$RUNNER_TEMP/docker-argv"; return "$FIXTURE_STATUS"; };\n'
+                        result = subprocess.run(
+                            ['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', stub + command],
+                            cwd=directory, env={**os.environ, 'RUNNER_TEMP': directory,
+                                'COMPONENT': component, 'BUILD_CONTEXT': context,
+                                'GITHUB_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'docice545/gallery',
+                                'GITHUB_TOKEN': 'synthetic-job-token', 'FIXTURE_STATUS': str(status)},
+                            text=True, capture_output=True, timeout=5,
+                        )
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        args = Path(directory, 'docker-argv').read_text().splitlines()
+                        self.assertEqual(args[:2], ['buildx', 'build'])
+                        self.assertIn('--load', args)
+                        self.assertNotIn('--push', args)
+                        self.assertNotIn('--output', args)
+                        self.assertEqual(args[args.index('--platform') + 1], 'linux/amd64')
+                        self.assertEqual(args[args.index('--file') + 1], component + '/Dockerfile')
+                        self.assertEqual(args[args.index('--tag') + 1], 'gallery-pr-check:' + component)
+                        self.assertEqual(args[-1], context)
+                        self.assertIn('id=github_token,env=GITHUB_TOKEN', args)
+                        self.assertNotIn('synthetic-job-token', ' '.join(args) + result.stdout + result.stderr)
 
     def test_existing_build_only_ios_retains_ipa_without_signed_step(self):
         source = (ROOT / '.github/workflows/build-mobile.yml').read_text()
