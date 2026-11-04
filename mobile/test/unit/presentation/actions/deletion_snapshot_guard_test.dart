@@ -50,7 +50,7 @@ void main() {
     verifyNever(() => fixture.service.cleanup.service.deleteLocalAssetsDetailed(any()));
   }
 
-  for (final change in ['one-many-one', 'refresh', 'metadata', 'missing']) {
+  for (final change in ['one-many-one', 'metadata', 'missing']) {
     testWidgets('$change while confirmation is visible rejects the whole snapshot', (tester) async {
       final scope = await mount(tester, permanent: true);
       await tester.tap(find.byType(ActionButton));
@@ -60,9 +60,6 @@ void main() {
           final other = RemoteAssetFactory.create(ownerId: fixture.currentUser.id);
           scope.read(multiSelectProvider.notifier).selectAsset(other);
           scope.read(multiSelectProvider.notifier).deselectAsset(other);
-        case 'refresh':
-          EventStream.shared.emit(const TimelineReloadEvent());
-          await tester.pump();
         case 'metadata':
           when(
             () => fixture.service.asset.service.getAsset(selected),
@@ -76,6 +73,21 @@ void main() {
       expect(find.text('The selection changed. Nothing was deleted. Select the items again.'), findsOneWidget);
     });
   }
+
+  testWidgets('background timeline reload during lookup preserves exact captured IDs', (tester) async {
+    final scope = await mount(tester);
+    final lookup = Completer<BaseAsset?>();
+    when(() => fixture.service.asset.service.getAsset(selected)).thenAnswer((_) => lookup.future);
+    await tester.tap(find.text('Move to trash'));
+    await tester.pump();
+    EventStream.shared.emit(const TimelineReloadEvent());
+    await tester.pump();
+    lookup.complete(selected.copyWith(updatedAt: selected.updatedAt.add(const Duration(seconds: 1))));
+    await tester.pumpAndSettle();
+    verify(() => fixture.service.asset.service.trash([selected.id])).called(1);
+    expect(scope.read(multiSelectProvider).selectedAssets, isEmpty);
+    expect(find.text('The selection changed. Nothing was deleted. Select the items again.'), findsNothing);
+  });
 
   testWidgets('selection changing during fresh-row lookup never submits the stale server batch', (tester) async {
     final scope = await mount(tester);

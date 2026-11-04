@@ -17,9 +17,18 @@ class DeletionSnapshot {
     asset.checksum,
     asset.type,
     asset.createdAt,
-    asset.updatedAt,
+    // A server metadata update (favorite, description, etc.) is not a new file.
+    // MediaStore modification time remains part of the local file identity.
+    asset is LocalAsset ? asset.updatedAt : null,
     switch (asset) {
-      RemoteAsset() => (asset.ownerId, asset.stackId, asset.deletedAt, asset.isIndexTombstone, asset.visibility),
+      RemoteAsset() => (
+        asset.ownerId,
+        asset.stackId,
+        asset.deletedAt,
+        asset.isIndexTombstone,
+        asset.visibility,
+        asset.livePhotoVideoId,
+      ),
       LocalAsset() => null,
     },
   );

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
@@ -46,8 +44,9 @@ final _deletionGuardProvider = Provider.family<_DeletionGuard, ActionSource>(
   dependencies: [assetsActionProvider],
 );
 
-/// Consent expires when selection, route, account, server or underlying rows
-/// change. A 1→many→1 sequence also expires it, even when IDs happen to match.
+/// Consent names immutable files, not a timeline generation. Explicit selection,
+/// account, server or file identity changes expire it; a background reload does
+/// not. A 1→many→1 user selection also expires it even when IDs match again.
 class _SelectionDeletionLease {
   final BuildContext context;
   final WidgetRef ref;
@@ -57,7 +56,6 @@ class _SelectionDeletionLease {
   final String? endpoint;
   final int? revision;
   final MultiSelectNotifier? selection;
-  late final StreamSubscription<TimelineReloadEvent> _reload;
   bool _invalid = false;
 
   _SelectionDeletionLease(this.context, this.ref, this.source)
@@ -65,12 +63,11 @@ class _SelectionDeletionLease {
       userId = ref.read(currentUserProvider)?.id,
       endpoint = ref.read(storeServiceProvider).tryGet(StoreKey.serverEndpoint),
       revision = source == .timeline ? ref.read(multiSelectProvider).revision : null,
-      selection = source == .timeline ? ref.read(multiSelectProvider.notifier) : null {
-    _reload = EventStream.shared.listen<TimelineReloadEvent>((_) => _invalid = true);
-  }
+      selection = source == .timeline ? ref.read(multiSelectProvider.notifier) : null;
 
   bool isSessionCurrent() =>
       context.mounted &&
+      ModalRoute.of(context)?.isCurrent != false &&
       ref.read(currentUserProvider)?.id == userId &&
       ref.read(storeServiceProvider).tryGet(StoreKey.serverEndpoint) == endpoint;
 
@@ -93,7 +90,6 @@ class _SelectionDeletionLease {
 
   void dispose() {
     _invalid = true;
-    unawaited(_reload.cancel());
   }
 }
 
@@ -358,7 +354,7 @@ class DeleteAction extends AssetActionBuilder {
     GhostFlight? visual,
   ) async {
     await ref.read(assetServiceProvider).trash(remoteIds);
-    if (lease.isSessionCurrent()) {
+    if (!removeLocalCopies && lease.isSessionCurrent()) {
       await visual?.confirmed();
     }
     if (!context.mounted || !lease.isSessionCurrent()) {
@@ -370,7 +366,9 @@ class DeleteAction extends AssetActionBuilder {
     }
     // Server acceptance precedes any device operation: an offline/uncertain
     // server request must not remove the phone's only available copy.
-    final local = await _cleanupLocalAssetsDetailed(context, ref, localIds, canContinue: lease.isSelectionCurrent);
+    // Once the server has accepted the captured IDs, its sync may remove rows
+    // from the current selection. Do not misreport that refresh as no deletion.
+    final local = await _cleanupLocalAssetsDetailed(context, ref, localIds, canContinue: lease.isSessionCurrent);
     if (!context.mounted) {
       return null;
     }
@@ -379,6 +377,9 @@ class DeleteAction extends AssetActionBuilder {
         message: '$message. ${context.t.device_deletion_summary(removed: 0, remaining: localIds.length)}',
         success: false,
       );
+    }
+    if (local.remainingIds.isEmpty && lease.isSessionCurrent()) {
+      await visual?.confirmed();
     }
     return (message: '$message. ${_deviceResult(context, ref, local)}', success: local.remainingIds.isEmpty);
   }
@@ -521,11 +522,8 @@ class CleanupLocalAction extends AssetActionBuilder {
         return;
       }
 
-      final representative = ref
-          .read(assetsActionProvider(source))
-          .where((asset) => asset.heroTag == visual?.assetKey)
-          .firstOrNull;
-      if (representative != null && result.deletedIds.contains(representative.localId)) {
+      final representative = lease.snapshot.assets.where((asset) => asset.heroTag == visual?.assetKey).firstOrNull;
+      if (result.remainingIds.isEmpty && representative != null && result.deletedIds.contains(representative.localId)) {
         await visual?.confirmed();
       } else {
         visual?.cancel();
