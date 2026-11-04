@@ -47,6 +47,7 @@ jobs:
             test/providers/place_names_session_provider_test.dart \
             test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
             test/infrastructure/repositories/stack_survivor_timeline_test.dart \
+            test/presentation/widgets/images/remote_image_provider_http_test.dart \
             test/infrastructure/repositories/trash_sync_visibility_test.dart \
             test/infrastructure/repositories/trash_pending_operations_test.dart \
             test/infrastructure/repositories/cloud_media_catalog_test.dart \
@@ -136,6 +137,7 @@ jobs:
             test/providers/place_names_session_provider_test.dart \
             test/infrastructure/repositories/timeline_place_identity_repository_test.dart \
             test/infrastructure/repositories/stack_survivor_timeline_test.dart \
+            test/presentation/widgets/images/remote_image_provider_http_test.dart \
             test/infrastructure/repositories/trash_sync_visibility_test.dart \
             test/infrastructure/repositories/trash_pending_operations_test.dart \
             test/infrastructure/repositories/cloud_media_catalog_test.dart \

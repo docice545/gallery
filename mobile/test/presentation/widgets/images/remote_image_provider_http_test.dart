@@ -147,6 +147,53 @@ void main() {
     expect(base.hashCode, full().hashCode);
   });
 
+  test('offline Timeline preview shows a durable thumbnail while the backend request is still pending', () async {
+    // Cold Flutter image cache; the native cache owns only the warmed thumbnail.
+    // A connected Wi-Fi transport can still have an unreachable Backend, so its
+    // preview request need not fail promptly. Pixels must not wait for it.
+    final pendingPreview = Completer<Object?>();
+    response = (args) async {
+      final size = Uri.parse(args[0]! as String).queryParameters['size'];
+      return size == 'thumbnail' ? await encodedImage() : await pendingPreview.future;
+    };
+    final provider = RemoteImageProvider.thumbnail(
+      assetId: 'offline-id',
+      thumbhash: 'persisted-revision',
+      remoteMediaSize: AssetMediaSize.preview,
+      decodeSize: const Size.square(320),
+    );
+    final firstImage = Completer<ImageInfo>();
+    final stream = provider.resolve(ImageConfiguration.empty);
+    final images = <ImageInfo>[];
+    final listener = ImageStreamListener(
+      (image, _) {
+        images.add(image);
+        if (!firstImage.isCompleted) {
+          firstImage.complete(image);
+        }
+      },
+      onError: (Object error, StackTrace? stack) {
+        if (!firstImage.isCompleted) {
+          firstImage.completeError(error, stack);
+        }
+      },
+    );
+    stream.addListener(listener);
+    try {
+      final image = await firstImage.future.timeout(const Duration(seconds: 2));
+      expect(image.image.width, greaterThan(0));
+      expect(pendingPreview.isCompleted, isFalse, reason: 'cached pixels precede any network response');
+      expect(requested.any((url) => Uri.parse(url).queryParameters['size'] == 'thumbnail'), isTrue);
+    } finally {
+      stream.removeListener(listener);
+      provider.cancel();
+      pendingPreview.complete([null]);
+      for (final image in images) {
+        image.dispose();
+      }
+    }
+  });
+
   test('a changed remote media revision invalidates native original and preview URLs', () {
     final old = full(revision: 'before');
     final refreshed = full(revision: 'after');
