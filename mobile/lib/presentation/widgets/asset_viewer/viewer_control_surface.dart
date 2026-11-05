@@ -10,11 +10,8 @@ class ViewerControlSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-
-    final background = isDark ? const Color(0xe6202124) : const Color(0xf5f7f8fa);
-
-    final foreground = isDark ? Colors.white : const Color(0xff202124);
+    final background = colors.surfaceContainerHigh.withValues(alpha: .96);
+    final foreground = colors.onSurface;
 
     return Theme(
       data: theme.copyWith(
@@ -23,7 +20,10 @@ class ViewerControlSurface extends StatelessWidget {
       ),
       child: Material(
         color: background,
-        borderRadius: BorderRadius.circular(28),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: colors.outlineVariant.withValues(alpha: .55)),
+        ),
         clipBehavior: Clip.antiAlias,
         child: child,
       ),

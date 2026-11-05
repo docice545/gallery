@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/actions/archive.action.dart';
 import 'package:immich_mobile/presentation/actions/asset_debug.action.dart';
@@ -18,6 +19,7 @@ import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 class TimelineCompactSelection extends ConsumerWidget {
   const TimelineCompactSelection({super.key});
@@ -35,22 +37,31 @@ class TimelineCompactSelection extends ConsumerWidget {
     StackAction(source: .timeline),
     ManageStackAction(source: .timeline),
     UploadAction(source: .timeline),
+    DeleteEverywhereAction(source: .timeline),
+    CleanupLocalAction(source: .timeline),
   ];
 
   Widget _actionButton(BuildContext context, WidgetRef ref, ActionBuilder builder, {bool destructive = false}) {
-    final action = builder.create(context, ref);
+    var action = builder.create(context, ref);
+    var kind = GhostTrashKind.server;
+    if (action == null && destructive) {
+      action = const CleanupLocalAction(source: .timeline).create(context, ref);
+      kind = GhostTrashKind.device;
+    }
     if (action == null) {
       return const SizedBox.shrink();
     }
 
     final button = IconButton(
       tooltip: action.label,
-      icon: Icon(action.icon, color: destructive ? const Color(0xffffb4ab) : null),
+      icon: destructive
+          ? FotoIcon(kind: FotoIconKind.trash, semanticLabel: action.label, state: FotoIconState.destructive)
+          : Icon(action.icon),
       onPressed: action.onAction,
       onLongPress: action.onSecondaryAction,
     );
 
-    return destructive ? GhostTrashTarget(kind: GhostTrashKind.server, child: button) : button;
+    return destructive ? GhostTrashTarget(kind: kind, child: button) : button;
   }
 
   Future<void> _showCollections(BuildContext context) async {
@@ -86,22 +97,21 @@ class TimelineCompactSelection extends ConsumerWidget {
       if (action == null) {
         continue;
       }
-      extra.add(
-        ListTile(
-          dense: true,
-          leading: Icon(action.icon),
-          title: Text(action.label),
-          onTap: action.onAction,
-          onLongPress: action.onSecondaryAction,
-        ),
+      final tile = ListTile(
+        dense: true,
+        leading: Icon(action.icon),
+        title: Text(action.label),
+        onTap: action.onAction,
+        onLongPress: action.onSecondaryAction,
       );
+      extra.add(builder is CleanupLocalAction ? GhostTrashTarget(kind: GhostTrashKind.device, child: tile) : tile);
     }
 
     return CompactSelectionToolbar(
       deleteButton: _actionButton(context, ref, const DeleteAction(source: .timeline), destructive: true),
       shareButton: _actionButton(context, ref, const ShareAction(source: .timeline)),
       createButton: IconButton(
-        tooltip: 'Создать',
+        tooltip: context.t.create,
         icon: const Icon(Icons.create_new_folder_outlined),
         onPressed: () => _showCollections(context),
       ),

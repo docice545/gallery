@@ -548,7 +548,9 @@ void main() {
             final panel = tester.getRect(find.byKey(const Key('editor-bottom-panel')));
             expect(viewport.top, closeTo(appBar.bottom, .01));
             expect(viewport.bottom, closeTo(panel.top, .01));
-            expect(viewport.width, closeTo(panel.width, .01));
+            expect(viewport.width, size.width);
+            expect(panel.width, closeTo(size.width < 588 ? size.width - 28 : 560, .01));
+            expect(panel.center.dx, closeTo(viewport.center.dx, .01));
             expect(panel.bottom, closeTo(size.height, .01));
             expect(panel.height, 56);
             expect(find.byKey(const Key('editor-mode-bar')), findsNothing);

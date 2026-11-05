@@ -59,12 +59,12 @@ void main() {
     final landscape = mosaic([1.5]);
     expect(landscape.rowCount, 1);
     expect(landscape.isJustifiedRow(0), isTrue);
-    expect(landscape.heightForRow(0), 260);
+    expect(landscape.heightForRow(0), 200);
     expect(landscape.widthsForRow(0), [390]);
     final portrait = mosaic([.45]);
     expect(portrait.rowCount, 1);
     expect(portrait.isJustifiedRow(0), isTrue);
-    expect(portrait.heightForRow(0), 320);
+    expect(portrait.heightForRow(0), 200);
     expect(portrait.widthsForRow(0), [390]);
     verify(landscape);
     verify(portrait);

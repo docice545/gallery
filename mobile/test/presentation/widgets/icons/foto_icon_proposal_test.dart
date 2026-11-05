@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,12 +48,14 @@ void main() {
     final worstBackground = Color.alphaBlend(material.color!, Colors.white);
     for (final foreground in [colors.onSurface, colors.primary, colors.error]) {
       expect(
-        (foreground.computeLuminance() + .05) / (worstBackground.computeLuminance() + .05),
+        (math.max(foreground.computeLuminance(), worstBackground.computeLuminance()) + .05) /
+            (math.min(foreground.computeLuminance(), worstBackground.computeLuminance()) + .05),
         greaterThanOrEqualTo(4.5),
       );
     }
     expect(
-      (colors.primary.computeLuminance() + .05) / (colors.primaryContainer.computeLuminance() + .05),
+      (math.max(colors.primary.computeLuminance(), colors.primaryContainer.computeLuminance()) + .05) /
+          (math.min(colors.primary.computeLuminance(), colors.primaryContainer.computeLuminance()) + .05),
       greaterThanOrEqualTo(3),
     );
     await tester.longPress(find.byTooltip('Share'));

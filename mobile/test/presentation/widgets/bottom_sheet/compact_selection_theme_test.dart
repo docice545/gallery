@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
+import 'toolbar_test_app.dart';
+
 void main() {
   for (final brightness in [Brightness.light, Brightness.dark]) {
     testWidgets('compact selection toolbar: $brightness', (tester) async {
@@ -13,7 +15,7 @@ void main() {
       var actionCount = 0;
 
       await tester.pumpWidget(
-        MaterialApp(
+        toolbarTestApp(
           theme: ThemeData(brightness: brightness, useMaterial3: true),
           home: Scaffold(
             body: Align(

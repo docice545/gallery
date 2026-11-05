@@ -17,7 +17,7 @@ void main() {
   test('one asset fills the row with bounded photo-first height', () {
     final rows = layout(1);
     expect(rows.rowCount, 1);
-    expect(rows.heightForRow(0), 270);
+    expect(rows.heightForRow(0), closeTo(183.933333, .000001));
     expect(FixedRowLayout.justifiedWidths(width: rows.width, spacing: 2, aspectRatios: [0.5]), [360]);
   });
 

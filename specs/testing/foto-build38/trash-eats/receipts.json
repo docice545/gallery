@@ -1,0 +1,157 @@
+{
+  "baseCommit": "03273bfca913ec846c81156c1837570f7fcd54d6",
+  "flutter": "3.47.2",
+  "dart": "3.13.2",
+  "cloudTests": [
+    {
+      "log": "ui-bin-regression.log",
+      "sha256": "840726ef410a8a0272f67a5bd04f1cba4094df20873a8744f406e69291a6614f",
+      "testsPassed": 144,
+      "exitCode": 0
+    },
+    {
+      "log": "bin-final-regression.log",
+      "sha256": "30d64f40080edb20ff7d46ccd5bf0aacdebe4c01ad2d23049c5dd2d96ca031fe",
+      "testsPassed": 19,
+      "exitCode": 0
+    },
+    {
+      "log": "bin-crop-verified.log",
+      "sha256": "8af9894841a8539a972e417b1a9d92de1d91b1e9f0e7382dc698a981bc4149df",
+      "testsPassed": 3,
+      "exitCode": 0
+    },
+    {
+      "log": "selection-dispatch-final.log",
+      "sha256": "8f7268cdd7bc72d20a668f16fab5e39c92bbe18595d792efaceb6a9756f6f840",
+      "testsPassed": 42,
+      "exitCode": 0
+    }
+  ],
+  "analyzerIssues": 0,
+  "androidGradle": {
+    "command": ":app:testDebugUnitTest --console=plain --max-workers=2",
+    "java": "Temurin21.0.13+9",
+    "tests": 117,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "classes": [
+      {
+        "name": "app.alextran.immich.localfiles.LocalMotionPhotoLayoutTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "7407b57988ae37471a7639498469b7d70a94af38efd4c420f2ba792e37d5bdcb"
+      },
+      {
+        "name": "app.alextran.immich.cloudmedia.CloudAdmissionPolicyTest",
+        "tests": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "139bfeb65e85021de7dcecbccbd23456c2ebdabc5130b20bcbd5ce2d72cc42a6"
+      },
+      {
+        "name": "app.alextran.immich.sync.MediaGenerationCheckpointTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "295e26e2bad3742705a454d7c25873fd655d9a888fde14b2ed884d198dc285ec"
+      },
+      {
+        "name": "app.alextran.immich.images.OfflineThumbnailCacheTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "755298cbe354eac8a5a9035f0a4bee991d3c6c8514533235eac0db04040b4bc6"
+      },
+      {
+        "name": "app.alextran.immich.localfiles.SyncTrashPolicyTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "8dda0453b79263f5ca40ddd41efad942e09ff0cbd6d4a7c7e74e3099306e0491"
+      },
+      {
+        "name": "app.alextran.immich.images.RemoteImageHttpErrorTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "038a5c5a7d56782cacc719252e84f38c5e87ee7f3a8a9e6730c54fdb93088e01"
+      },
+      {
+        "name": "app.alextran.immich.cloudmedia.CloudRangeReaderTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "3c915cfb07293835253f0907e1a14b6c96516ba43645714d74500e166d0d7a14"
+      },
+      {
+        "name": "app.alextran.immich.cloudmedia.CloudMimeTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "bf9dd67f8f773a8a25a53fcf0e7176709332df1701c556b9c11dfb12a224dd89"
+      },
+      {
+        "name": "app.alextran.immich.sync.MediaMimePolicyTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "448f64eadd87f1da6f02b7b84d9718798d0938283c258ddebb319b456abb578a"
+      },
+      {
+        "name": "app.alextran.immich.places.PlaceNamePolicyTest",
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "bb2b1efd0e89e986aedb0b19e8877015d77a3a8af5e45b80d06d840fdce25aa1"
+      },
+      {
+        "name": "app.alextran.immich.recovery.RecoveryStoreTest",
+        "tests": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "340cdfead47d9298e94e491e6631d98ceb524bac8896edd651cfa1f6e82db4db"
+      }
+    ]
+  },
+  "screenshots": {
+    "dark-00-before.png": "566ff5bfedd5b0c1e3bc37cb29bca5da46e49657b8eb7221c071ed5faf06e2a4",
+    "dark-01-pending.png": "c6a898a72ad9940fc1255232e8460beb9ee211f68fce8beec1bd08117353dc35",
+    "dark-02-flight.png": "7d53f337a1ad2b4889cd1771ea16eb8f6b3ecc2cfddc27b7be9964702f7cb268",
+    "dark-03-lid-open.png": "2cc7c74b9c5487492808e63ce72278f7c89f8a6a857cb1774f8cbe755d7ae6de",
+    "dark-04-approach.png": "cf0fca441db98806de49a2cc28537f404eba44febb36aeb00240bd3413effa45",
+    "dark-05-inside.png": "cc46bcc74a203cd744d09fab3e88c6ca835c6005ea6aa3a5909f29d1a3407b6e",
+    "dark-06-swallowed.png": "d99f6463a893dd4bbe1669239463ab3720c115e5d7a633365cfeac0fe5f7e605",
+    "dark-07-shake.png": "ac4c8e93209c834be72e25a002b35dc4e4ac69c8fdeae611b1b114c7904b6937",
+    "dark-08-settle.png": "9e71f3fa612688a8dfd6c0736018f6c1db34ba47624eac8c27e6e55c3c7cb662",
+    "dark-09-after.png": "821af34eb058b83c9124a9df014c49d8bbd6a208f9b9334003774cb8d010a8f4",
+    "light-00-before.png": "d1aaea4d9a7d94c44c973386c080f9fe7b0afb6dc7bbe97c9517ab43e779b6b3",
+    "light-01-pending.png": "9d142f888e1d342c8c839dab7132dc988dcea5f63c049c84cfdae22a2423d8a2",
+    "light-02-flight.png": "7080cf8dbea50867c07c08962118ba2bd11d1710bd2cb5b633c5a17c3ad6f6db",
+    "light-03-lid-open.png": "23dd480a17e65a07cbd41b2b44027e10f9e8a66e3139ea6a3db381a4c252cd79",
+    "light-04-approach.png": "351e9cdcb499bbfb6ef9230a9ef1a7f506dbd18002014229c216d359c0c61280",
+    "light-05-inside.png": "4f81209c428439be5a57b1a614b05d35621f081cafa390a46e301aa42927288c",
+    "light-06-swallowed.png": "65792488b3a04e7f9c9c0f0b32067d2f157dafd4cec43857b8f73c0f13b78762",
+    "light-07-shake.png": "f0905c0c7fa2d132006321e6b3726335d98a8b86db18643579a80461a03a65b6",
+    "light-08-settle.png": "3624c1783593bae7f9118ea381c26abb5a065ddbb30e88f76783a76c6991620d",
+    "light-09-after.png": "95750f7b4711c6afe0fa37f73ffebdb8d1ca87322fe4f75133c140ce1527f1aa",
+    "occlusion-inside.png": "4c36ad878d86eb8ca56ff77bfc28a8f071981ee587b107ed84648853e6798d70",
+    "occlusion-swallowed.png": "1efeb7e63ee8a52e0c7a2297a100c09edead3ab6782733ddb0c84144493ed1ef"
+  },
+  "physicalAndroid": "DEVICE_REQUIRED",
+  "HPRelease": "HP_REQUIRED",
+  "status": "CLOUD_UI_VERIFIED_NOT_FINAL_ACCEPTANCE"
+}

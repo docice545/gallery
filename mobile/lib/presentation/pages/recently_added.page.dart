@@ -26,7 +26,7 @@ class RecentlyAddedPage extends StatelessWidget {
           return timelineService;
         }),
       ],
-      child: Timeline(appBar: MesmerizingSliverAppBar(title: context.t.recently_added)),
+      child: Timeline(denseLayout: true, appBar: MesmerizingSliverAppBar(title: context.t.recently_added)),
     );
   }
 }

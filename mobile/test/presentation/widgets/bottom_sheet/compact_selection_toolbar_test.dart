@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
+import 'toolbar_test_app.dart';
+
 void main() {
   testWidgets('compact selection toolbar preserves height and actions', (tester) async {
     tester.view.physicalSize = const Size(393, 852);
@@ -16,7 +18,7 @@ void main() {
     var photoTaps = 0;
 
     await tester.pumpWidget(
-      MaterialApp(
+      toolbarTestApp(
         home: Scaffold(
           body: Stack(
             children: [
@@ -88,4 +90,43 @@ void main() {
     expect(photoTaps, 1);
     expect(tester.takeException(), isNull);
   });
+  for (final locale in ['en', 'ru']) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('$locale selection keeps 48dp actions at text scale $scale with safe insets', (tester) async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(bottom: 24);
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.view.reset);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        Widget button(String id) => IconButton(key: ValueKey(id), icon: const Icon(Icons.add), onPressed: () {});
+        await tester.pumpWidget(
+          toolbarTestApp(
+            locale: Locale(locale),
+            home: Scaffold(
+              bottomSheet: CompactSelectionToolbar(
+                deleteButton: button('delete'),
+                shareButton: button('share'),
+                createButton: button('create'),
+                moreActions: const [ListTile(title: Text('Extra'))],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final id in ['delete', 'share', 'create', 'selection-more-button']) {
+          final rect = tester.getRect(find.byKey(ValueKey(id)));
+          expect(rect.shortestSide, greaterThanOrEqualTo(48));
+          expect(rect.bottom, lessThanOrEqualTo(616));
+        }
+        expect(find.text(locale == 'ru' ? 'Удалить' : 'Delete'), findsOneWidget);
+        final more = find.byKey(const ValueKey('selection-more-button'));
+        final before = tester.getRect(more);
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        expect(tester.getRect(more), before);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 }

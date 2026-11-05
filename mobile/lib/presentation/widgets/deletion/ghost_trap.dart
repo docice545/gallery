@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 
 const ghostTrapDuration = Duration(milliseconds: 640);
 const ghostTrapReducedDuration = Duration(milliseconds: 180);
@@ -69,6 +70,7 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     if (target == null) {
       return null;
     } // Never fly into a fabricated/offscreen bin.
+    target._resolveIcon();
     final keys = assetKeys.toSet();
     final source = _sources
         .where((s) => keys.contains(s.widget.assetKey) && s.route == route && s.visibleRect != null)
@@ -249,7 +251,10 @@ class GhostFlight implements TickerProvider {
                   painter: GhostTrapPainter(
                     image: _image,
                     source: sourceRect.shift(-origin),
-                    target: target.center - origin,
+                    target: _target.iconRect.center - origin,
+                    binSize: _target.iconRect.shortestSide,
+                    binColor: _target.iconColor,
+                    binSurface: Theme.of(_target.context).colorScheme.surfaceContainerHigh,
                     progress: _controller.value,
                     confirmed: _confirmed,
                     reducedMotion: reducedMotion,
@@ -383,6 +388,48 @@ class _GhostTrashTargetState extends ConsumerState<GhostTrashTarget> {
   late final _owner = ref.read(ghostTrapProvider);
   ModalRoute<dynamic>? get route => mounted ? ModalRoute.of(context) : null;
   Rect? get visibleRect => mounted && widget.enabled ? _visibleRect(_anchor.currentContext, requireHit: true) : null;
+
+  Element? _icon;
+  void _resolveIcon() {
+    Element? found;
+    void visit(Element element) {
+      if (found != null) {
+        return;
+      }
+      if (element.widget is FotoIcon || element.widget is Icon) {
+        found = element;
+      } else {
+        element.visitChildren(visit);
+      }
+    }
+
+    _anchor.currentContext?.visitChildElements(visit);
+    _icon = found;
+  }
+
+  Rect get iconRect {
+    final box = _icon?.mounted == true ? _icon?.findRenderObject() : null;
+    if (box is RenderBox && box.attached && box.hasSize) {
+      return box.localToGlobal(Offset.zero) & box.size;
+    }
+    return Rect.fromCenter(center: visibleRect!.center, width: 24, height: 24);
+  }
+
+  Color get iconColor {
+    final element = _icon?.mounted == true ? _icon : null;
+    final colors = Theme.of(context).colorScheme;
+    final icon = element?.widget;
+    if (icon is FotoIcon) {
+      return switch (icon.state) {
+        FotoIconState.normal => colors.onSurface,
+        FotoIconState.active => colors.primary,
+        FotoIconState.disabled => colors.onSurface.withValues(alpha: .38),
+        FotoIconState.destructive => colors.error,
+      };
+    }
+    return (icon is Icon ? icon.color : null) ?? IconTheme.of(element ?? context).color ?? colors.onSurface;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -400,21 +447,50 @@ class _GhostTrashTargetState extends ConsumerState<GhostTrashTarget> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _owner,
-    child: widget.child,
-    builder: (_, child) {
-      final flight = _owner._flight;
-      final t = flight?._reflow ?? 0;
-      final bounce = flight?._target == this && flight?._confirmed == true && flight?.reducedMotion == false
-          ? math.sin(t * math.pi) * .13
-          : 0.0;
-      return SizedBox(
-        key: _anchor,
-        child: Transform.scale(scale: 1 + bounce, child: child),
-      );
-    },
+  Widget build(BuildContext context) => SizedBox(
+    key: _anchor,
+    child: _GhostTargetMask(target: this, owner: _owner, child: widget.child),
   );
+}
+
+/// Replace only the icon's paint while the overlay animates it. Button labels,
+/// hit regions, semantics and layout stay intact; reduced motion uses the icon.
+class _GhostTargetMask extends SingleChildRenderObjectWidget {
+  const _GhostTargetMask({required this.target, required this.owner, required super.child});
+  final _GhostTrashTargetState target;
+  final GhostTrapCoordinator owner;
+  @override
+  _RenderGhostTargetMask createRenderObject(BuildContext context) => _RenderGhostTargetMask(target, owner);
+}
+
+class _RenderGhostTargetMask extends RenderProxyBox {
+  _RenderGhostTargetMask(this.target, this.coordinator);
+  final _GhostTrashTargetState target;
+  final GhostTrapCoordinator coordinator;
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    coordinator.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    coordinator.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final flight = coordinator._flight;
+    if (flight?._target != target || flight?._confirmed != true || flight!.reducedMotion) {
+      super.paint(context, offset);
+      return;
+    }
+    final icon = target.iconRect.shift(-localToGlobal(Offset.zero)).inflate(1);
+    final path = Path.combine(PathOperation.difference, Path()..addRect(Offset.zero & size), Path()..addRect(icon));
+    context.pushClipPath(needsCompositing, offset, Offset.zero & size, path, super.paint);
+  }
 }
 
 bool _hasDecodedImage(RenderObject object) {
@@ -452,7 +528,7 @@ Rect? _visibleRect(BuildContext? context, {bool requireHit = false}) {
     }
   }
   final screen = Offset.zero & MediaQuery.sizeOf(context);
-  return screen.contains(rect.center) && rect.overlaps(screen) ? rect : null;
+  return rect.overlaps(screen) && (!requireHit || screen.contains(rect.center)) ? rect : null;
 }
 
 class _GhostReflow extends SingleChildRenderObjectWidget {
@@ -472,12 +548,12 @@ class _RenderGhostReflow extends RenderProxyBox {
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
-    coordinator.addListener(markNeedsPaint);
+    coordinator.addListener(markNeedsLayout);
   }
 
   @override
   void detach() {
-    coordinator.removeListener(markNeedsPaint);
+    coordinator.removeListener(markNeedsLayout);
     super.detach();
   }
 
@@ -488,6 +564,18 @@ class _RenderGhostReflow extends RenderProxyBox {
       return Offset.zero;
     }
     return (oldRect.topLeft - localToGlobal(Offset.zero)) * (1 - flight._reflow);
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final flight = coordinator._flight;
+    final oldRect = flight?._positions[token];
+    if (oldRect != null && child != null) {
+      // Keep the original cover crop until intake finishes. Only the existing
+      // render child is laid out; scaling its paint would distort the image.
+      child!.layout(BoxConstraints.tight(Size.lerp(oldRect.size, child!.size, flight!._reflow)!), parentUsesSize: true);
+    }
   }
 
   @override
@@ -513,8 +601,9 @@ class _RenderGhostReflow extends RenderProxyBox {
   }
 }
 
-/// Strip deformation keeps a single decoded image and a bounded 16 draw calls.
-/// Progress: lift 0–120, curl 120–350, intake 350–520, target/reflow 520–640 ms.
+/// One captured image, one continuous mesh with 16 segments. The front wall is opaque:
+/// disappearance is caused by the photo entering the opening, not by a fade.
+/// All phases (including 2.5 damped rocking cycles) share the same 640ms clock.
 class GhostTrapPainter extends CustomPainter {
   GhostTrapPainter({
     required this.image,
@@ -524,6 +613,9 @@ class GhostTrapPainter extends CustomPainter {
     required this.confirmed,
     required this.reducedMotion,
     required this.glow,
+    this.binSize = 24,
+    this.binColor = Colors.black,
+    this.binSurface = Colors.white,
   });
   final ui.Image image;
   final Rect source;
@@ -532,6 +624,12 @@ class GhostTrapPainter extends CustomPainter {
   final bool confirmed;
   final bool reducedMotion;
   final Color glow;
+  final double binSize;
+  final Color binColor;
+  final Color binSurface;
+
+  double _phase(double start, double end) => ((progress - start) / (end - start)).clamp(0, 1);
+  double _ease(double start, double end) => Curves.easeInOutCubic.transform(_phase(start, end));
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -550,47 +648,141 @@ class GhostTrapPainter extends CustomPainter {
       );
       return;
     }
-    final ms = progress * 640;
-    if (ms >= 530) {
-      return;
+    final scale = binSize / 24 * (1 + .36 * _ease(.18, .45) * (1 - _ease(.9, 1)));
+    final swallow = math.sin(math.pi * _phase(.68, .86));
+    final shake = _phase(.8, .98);
+    final angle = .14 * math.sin(shake * math.pi * 5) * math.pow(1 - shake, 2);
+    final lid = _ease(.18, .48) * (1 - _ease(.77, .87));
+    void binCoordinates(void Function() paint) {
+      canvas.save();
+      canvas.translate(target.dx, target.dy);
+      canvas.rotate(angle);
+      canvas.scale(scale * (1 + .08 * swallow), scale * (1 - .055 * swallow));
+      canvas.translate(-12, -12);
+      paint();
+      canvas.restore();
     }
-    final lift = Curves.easeOutCubic.transform((ms / 120).clamp(0, 1));
-    final curl = Curves.easeInOutCubic.transform(((ms - 120) / 230).clamp(0, 1));
-    final intake = Curves.easeInCubic.transform(((ms - 350) / 180).clamp(0, 1));
-    final start = source.center - Offset(0, 8 * lift);
-    final bend = Offset.lerp(start, target, .45)! + Offset(source.width * .16, -source.height * .16);
-    final center =
-        start * math.pow(1 - intake, 2).toDouble() + bend * (2 * intake * (1 - intake)) + target * intake * intake;
-    final width = source.width * (1 + .035 * lift) * (1 - .58 * curl) * (1 - intake);
-    final height = source.height * (1 + .24 * curl) * (1 - intake);
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(.18 * curl * (1 - intake));
-    if (curl == 0) {
+
+    final stroke = Paint()
+      ..color = binColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.85
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    // Rear rim and dark cavity precede the photograph in paint order.
+    binCoordinates(() {
+      canvas.drawOval(
+        const Rect.fromLTWH(6.3, 5.9, 11.4, 3.4),
+        Paint()..color = Color.alphaBlend(binColor.withValues(alpha: .32), binSurface),
+      );
+      canvas.drawArc(const Rect.fromLTWH(6.3, 5.9, 11.4, 3.4), math.pi, math.pi, false, stroke);
+    });
+
+    if (progress < .8) {
+      final flight = Curves.easeInOutCubic.transform(_phase(0, .60));
+      final intake = _ease(.60, .80);
+      final mouthApproach = target + Offset(0, -19 * scale);
+      final control1 = source.center + Offset((target.dx - source.center.dx) * .12, -source.height * .22);
+      final control2 = mouthApproach + Offset((source.center.dx - target.dx) * .22, -64);
+      final u = 1 - flight;
+      var center =
+          source.center * (u * u * u) +
+          control1 * (3 * u * u * flight) +
+          control2 * (3 * u * flight * flight) +
+          mouthApproach * (flight * flight * flight);
+      center = Offset.lerp(center, target + Offset(0, 3.5 * scale), intake)!;
+      final width = ui.lerpDouble(ui.lerpDouble(source.width, 10 * scale, flight), 6 * scale, intake)!;
+      final height = ui.lerpDouble(ui.lerpDouble(source.height, 24 * scale, flight), 6 * scale, intake)!;
+      final curl = math.sin(math.pi * flight) * .65;
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(.14 * math.sin(math.pi * flight));
       final rect = Rect.fromCenter(center: Offset.zero, width: width, height: height);
-      canvas.drawShadow(
-        Path()..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(7))),
-        glow.withValues(alpha: .28),
-        5 * lift,
-        false,
+      if (flight > 0 && flight < .85) {
+        canvas.drawShadow(
+          Path()..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(6))),
+          glow.withValues(alpha: .18),
+          3,
+          false,
+        );
+      }
+      // Shared mesh edges avoid antialiased seams between separate image strips.
+      final positions = <Offset>[];
+      final texture = <Offset>[];
+      final indices = <int>[];
+      for (var row = 0; row <= 16; row++) {
+        final y = row / 16;
+        final taper = 1 - curl * .35 * y;
+        final shift = math.sin(y * math.pi * 1.5) * width * .12 * curl;
+        positions.addAll([
+          Offset(-width * taper / 2 + shift, -height / 2 + height * y),
+          Offset(width * taper / 2 + shift, -height / 2 + height * y),
+        ]);
+        texture.addAll([Offset(0, image.height * y), Offset(image.width.toDouble(), image.height * y)]);
+        if (row < 16) {
+          final i = row * 2;
+          indices.addAll([i, i + 1, i + 2, i + 1, i + 3, i + 2]);
+        }
+      }
+      final vertices = ui.Vertices(ui.VertexMode.triangles, positions, textureCoordinates: texture, indices: indices);
+      final shader = ui.ImageShader(image, TileMode.clamp, TileMode.clamp, Matrix4.identity().storage);
+      canvas.drawVertices(
+        vertices,
+        BlendMode.srcOver,
+        Paint()
+          ..shader = shader
+          ..filterQuality = FilterQuality.low,
       );
+      vertices.dispose();
+      shader.dispose();
+      canvas.restore();
     }
-    final paint = Paint()..filterQuality = FilterQuality.low;
-    for (var strip = 0; strip < 16; strip++) {
-      final y = strip / 16;
-      final taper = 1 - curl * .72 * y;
-      final shift = math.sin(y * math.pi * 1.5) * width * .23 * curl;
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(0, image.height * y, image.width.toDouble(), image.height / 16),
-        Rect.fromLTWH(-width * taper / 2 + shift, -height / 2 + height * y, width * taper, height / 16 + .35),
-        paint,
+
+    binCoordinates(() {
+      // This wall physically hides the lower part of the swallowed photograph.
+      final wall = Path()
+        ..moveTo(6.5, 8.2)
+        ..lineTo(7.2, 19)
+        ..quadraticBezierTo(7.4, 20.5, 9.2, 20.5)
+        ..lineTo(14.8, 20.5)
+        ..quadraticBezierTo(16.6, 20.5, 16.8, 19)
+        ..lineTo(17.5, 8.2)
+        ..close();
+      canvas.drawPath(wall, Paint()..color = binSurface.withValues(alpha: 1));
+      final outline = Path()
+        ..moveTo(6.5, 9)
+        ..lineTo(7.2, 19)
+        ..quadraticBezierTo(7.4, 20.5, 9.2, 20.5)
+        ..lineTo(14.8, 20.5)
+        ..quadraticBezierTo(16.6, 20.5, 16.8, 19)
+        ..lineTo(17.5, 9);
+      canvas.drawPath(outline, stroke);
+      canvas.drawLine(const Offset(10, 11), const Offset(10, 17), stroke);
+      canvas.drawLine(const Offset(14, 11), const Offset(14, 17), stroke);
+      // A real hinge: the lid rotates around its left edge, then settles shut.
+      canvas.save();
+      canvas.translate(4, 7);
+      canvas.rotate(-.95 * lid);
+      canvas.translate(-4, -7);
+      canvas.drawLine(const Offset(4, 7), const Offset(20, 7), stroke);
+      canvas.drawPath(
+        Path()
+          ..moveTo(9, 7)
+          ..lineTo(9, 4.5)
+          ..lineTo(15, 4.5)
+          ..lineTo(15, 7),
+        stroke,
       );
-    }
-    canvas.restore();
+      canvas.restore();
+    });
   }
 
   @override
   bool shouldRepaint(GhostTrapPainter oldDelegate) =>
-      oldDelegate.progress != progress || oldDelegate.confirmed != confirmed || oldDelegate.target != target;
+      oldDelegate.progress != progress ||
+      oldDelegate.confirmed != confirmed ||
+      oldDelegate.target != target ||
+      oldDelegate.binColor != binColor ||
+      oldDelegate.binSurface != binSurface ||
+      oldDelegate.binSize != binSize;
 }

@@ -158,7 +158,11 @@ void main() {
           final other = tester.getRect(find.byKey(const ValueKey('row-other')));
           await tester.drag(find.byKey(const ValueKey('row-album')), const Offset(-150, 0));
           await tester.pumpAndSettle();
-          expect(tester.getRect(cover), original, reason: 'The actual cover stays visible after revealing the bin');
+          expect(
+            tester.getRect(cover),
+            original.shift(const Offset(-64, 0)),
+            reason: 'Cover, title and row translate together; a partly visible cover remains capturable',
+          );
           expect(find.byType(ConfirmDialog), findsNothing);
           final bin = find.descendant(
             of: find.byKey(const ValueKey('row-album')),

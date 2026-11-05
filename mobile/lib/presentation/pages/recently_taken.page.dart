@@ -24,7 +24,11 @@ class RecentlyTakenPage extends StatelessWidget {
 
         return ref.watch(timelineFactoryProvider).remoteAssets(user.id, groupBy: groupBy, temporalScope: scope);
       },
-      child: Timeline(withGroupingPill: true, appBar: MesmerizingSliverAppBar(title: context.t.recently_taken)),
+      child: Timeline(
+        denseLayout: true,
+        withGroupingPill: true,
+        appBar: MesmerizingSliverAppBar(title: context.t.recently_taken),
+      ),
     );
   }
 }

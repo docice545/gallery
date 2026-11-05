@@ -102,8 +102,8 @@ class FixedRowLayout {
         previousHeight = rowHeight;
       }
       final last = first + count == ratios.length;
-      // A day containing one asset must span the full mosaic width.
-      // Cover-crop tall portraits instead of leaving a narrow left tile.
+      // A singleton keeps the mode's full-width cover crop, but uses the
+      // selected density's target height rather than the maximum row height.
       final singleAssetDay = ratios.length == 1;
       var justified = singleAssetDay || !last || rowHeight <= maximum;
       final available = math.max(0.0, width - spacing * (count - 1));
@@ -114,7 +114,7 @@ class FixedRowLayout {
         // meet both height bounds, cover-crop its cells rather than create an
         // excessively tall/short row. Images are never geometrically stretched.
         rowHeight = singleAssetDay
-            ? math.min(maximum, math.max(minimum, width / rowRatios.first))
+            ? math.min(target, math.max(minimum, width / rowRatios.first))
             : rowHeight.clamp(minimum, maximum);
         widths = singleAssetDay ? [width] : _boundedWidths(rowRatios, available);
       } else {
@@ -222,7 +222,7 @@ class FixedRowLayout {
   double _heightForCount(int count) => !denseLayout
       ? tileHeight
       : count == 1
-      ? math.min(width * 0.75, 360)
+      ? (tileHeight * 1.55).clamp(96.0, 280.0)
       : math.min((width - spacing * (count - 1)) / count, 280);
 
   double heightForRow(int row) => _justifiedRows?[row].height ?? _heightForCount(assetCountForRow(row));

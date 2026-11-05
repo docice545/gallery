@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
 
 /// Compact floating selection toolbar.
@@ -31,7 +32,15 @@ class _CompactSelectionToolbarState extends State<CompactSelectionToolbar> {
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        SizedBox(height: 42, child: Center(child: button)),
+        SizedBox.square(
+          dimension: 48,
+          child: IconButtonTheme(
+            data: IconButtonThemeData(
+              style: IconButton.styleFrom(fixedSize: const Size.square(48), visualDensity: VisualDensity.standard),
+            ),
+            child: button,
+          ),
+        ),
         Text(
           label,
           maxLines: 1,
@@ -71,21 +80,21 @@ class _CompactSelectionToolbarState extends State<CompactSelectionToolbar> {
                 ),
               ViewerControlSurface(
                 child: SizedBox(
-                  height: 76,
+                  height: 76 + (MediaQuery.textScalerOf(context).scale(11) - 11).clamp(0, double.infinity),
                   child: Row(
                     children: [
-                      Expanded(child: _labeledAction(widget.deleteButton, 'Удалить')),
-                      Expanded(child: _labeledAction(widget.shareButton, 'Поделиться')),
-                      Expanded(child: _labeledAction(widget.createButton, 'Добавить')),
+                      Expanded(child: _labeledAction(widget.deleteButton, context.t.delete)),
+                      Expanded(child: _labeledAction(widget.shareButton, context.t.share)),
+                      Expanded(child: _labeledAction(widget.createButton, context.t.add)),
                       Expanded(
                         child: _labeledAction(
                           IconButton(
                             key: const ValueKey('selection-more-button'),
-                            tooltip: _showMore ? 'Закрыть' : 'Ещё',
+                            tooltip: _showMore ? context.t.close : context.t.more,
                             icon: Icon(_showMore ? Icons.close : Icons.more_horiz),
                             onPressed: widget.moreActions.isEmpty ? null : () => setState(() => _showMore = !_showMore),
                           ),
-                          'Ещё',
+                          context.t.more,
                         ),
                       ),
                     ],

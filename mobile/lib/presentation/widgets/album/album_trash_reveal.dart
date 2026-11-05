@@ -58,7 +58,18 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
       builder: (context, child) => Stack(
         alignment: Alignment.centerRight,
         children: [
-          Positioned.fill(child: ColoredBox(color: Theme.of(context).colorScheme.errorContainer)),
+          Positioned(
+            right: 0,
+            top: 4,
+            bottom: 4,
+            width: _extent,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
           Positioned.fill(
             child: Align(
               alignment: Alignment.centerRight,
