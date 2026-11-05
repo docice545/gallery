@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/presentation/widgets/images/decoded_image_source.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 
 const ghostTrapDuration = Duration(milliseconds: 640);
@@ -536,6 +537,9 @@ class _RenderGhostTargetMask extends RenderProxyBox {
 }
 
 bool _hasDecodedImage(RenderObject object) {
+  if (object case DecodedImageSource(hasDecodedImage: true)) {
+    return true;
+  }
   if (object is RenderImage && object.image != null) {
     return true;
   }

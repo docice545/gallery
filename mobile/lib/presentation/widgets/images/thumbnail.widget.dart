@@ -7,7 +7,9 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
+import 'package:immich_mobile/presentation/widgets/images/decoded_image_source.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/images/local_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumb_hash_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
@@ -269,15 +271,46 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
     _stopListeningToThumbhashStream();
   }
 
+  // Reflow can cross the thumbnail/preview quality threshold. Only that
+  // resolution parameter may differ: endpoint, asset, edit/revision query and
+  // every other URL component must still match.
+  bool _sameRemoteThumbnail(String before, String after) {
+    if (before == after) {
+      return true;
+    }
+    final old = Uri.tryParse(before);
+    final next = Uri.tryParse(after);
+    const resolutions = {'thumbnail', 'preview'};
+    return old != null &&
+        next != null &&
+        old.pathSegments.lastOrNull == 'thumbnail' &&
+        resolutions.contains(old.queryParameters['size']) &&
+        resolutions.contains(next.queryParameters['size']) &&
+        old.replace(queryParameters: {...old.queryParametersAll, 'size': next.queryParametersAll['size']}) == next;
+  }
+
   @override
   void didUpdateWidget(Thumbnail oldWidget) {
     super.didUpdateWidget(oldWidget);
 
     if (widget.imageProvider != oldWidget.imageProvider) {
-      // A virtualized tile can now represent another asset (or no asset).
-      // Never keep the previous photo/blurhash while the replacement fails.
+      // Deletion reflow changes the decode size. Keep the same source's
+      // pixels while that resize decodes, so neighbors never flash a gradient.
+      // A recycled tile, changed revision/URL or edited device photo still
+      // clears immediately; it must not display another asset's old pixels.
+      final sameSource =
+          widget.sourceRevision == oldWidget.sourceRevision &&
+          switch ((oldWidget.imageProvider, widget.imageProvider)) {
+            (final RemoteImageProvider old, final RemoteImageProvider next) =>
+              old.edited == next.edited && _sameRemoteThumbnail(old.url, next.url),
+            (final LocalThumbProvider old, final LocalThumbProvider next) =>
+              old.id == next.id && old.assetType == next.assetType && old.checksum == next.checksum,
+            _ => false,
+          };
       _stopListeningToStream();
-      _clearImages();
+      if (!sameSource) {
+        _clearImages();
+      }
       _loadImage();
       return;
     }
@@ -415,7 +448,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
   }
 }
 
-class _ThumbnailRenderBox extends RenderBox {
+class _ThumbnailRenderBox extends RenderBox implements DecodedImageSource {
   ui.Image? _image;
   ui.Image? _previousImage;
   double _fadeValue;
@@ -425,6 +458,9 @@ class _ThumbnailRenderBox extends RenderBox {
   bool _fillCell;
   Size? _framingImageSize;
   Gradient _placeholderGradient;
+
+  @override
+  bool get hasDecodedImage => (_image != null && _fadeValue > 0) || (_previousImage != null && _fadeValue < 1);
 
   @override
   bool isRepaintBoundary = true;

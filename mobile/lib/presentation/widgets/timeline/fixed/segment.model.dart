@@ -285,16 +285,22 @@ class _FixedSegmentRow extends ConsumerWidget {
         TimelineAssetIndexWrapper(
           assetIndex: assetIndex + i,
           segmentIndex: 0, // For simplicity, using 0 for now
-          child: _clipMosaicEdge(
-            context,
-            i,
-            assets.length,
-            _AssetTileWidget(
-              key: ValueKey(Object.hash(assets[i].heroTag, assetIndex + i, timelineService.hashCode)),
-              asset: assets[i],
-              assetIndex: assetIndex + i,
-              size: Size(widths[i], tileHeight),
-              fillCell: denseLayout,
+          // Move the clipped thumbnail as one unit during confirmed deletion.
+          // A clip outside GhostSource would cut neighbors off at their new
+          // cell bounds while the existing reflow keeps their old positions.
+          child: GhostSource(
+            assetKey: assets[i].heroTag,
+            child: _clipMosaicEdge(
+              context,
+              i,
+              assets.length,
+              _AssetTileWidget(
+                key: ValueKey(Object.hash(assets[i].heroTag, assetIndex + i, timelineService.hashCode)),
+                asset: assets[i],
+                assetIndex: assetIndex + i,
+                size: Size(widths[i], tileHeight),
+                fillCell: denseLayout,
+              ),
             ),
           ),
         ),
@@ -402,41 +408,36 @@ class _AssetTileWidget extends ConsumerWidget {
     // `select` so only the matching tile's selector flips when the highlight moves.
     final isHighlighted = ref.watch(timelineHighlightedAssetProvider.select((a) => isHighlightedAsset(a, asset)));
 
-    return GhostSource(
-      assetKey: asset.heroTag,
-      child: GestureDetector(
-        onTap: () => lockSelection ? null : _handleOnTap(context, ref, assetIndex, asset, heroOffset, remoteSize),
-        onLongPress:
-            lockSelection ||
-                isReadonlyModeEnabled ||
-                context.findAncestorWidgetOfExactType<TimelineDragRegion>() != null
-            ? null
-            : () => _handleOnLongPress(ref, asset),
-        child: Stack(
-          fit: StackFit.passthrough,
-          children: [
-            ThumbnailTile(
-              asset,
-              fillCell: fillCell,
-              remoteSize: remoteSize,
-              lockSelection: lockSelection,
-              showStorageIndicator: showStorageIndicator,
-              showStackIndicator: showStackIndicator,
-              heroOffset: heroOffset,
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  opacity: isHighlighted ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(border: Border.all(color: context.colorScheme.primary, width: 3)),
-                  ),
+    return GestureDetector(
+      onTap: () => lockSelection ? null : _handleOnTap(context, ref, assetIndex, asset, heroOffset, remoteSize),
+      onLongPress:
+          lockSelection || isReadonlyModeEnabled || context.findAncestorWidgetOfExactType<TimelineDragRegion>() != null
+          ? null
+          : () => _handleOnLongPress(ref, asset),
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          ThumbnailTile(
+            asset,
+            fillCell: fillCell,
+            remoteSize: remoteSize,
+            lockSelection: lockSelection,
+            showStorageIndicator: showStorageIndicator,
+            showStackIndicator: showStackIndicator,
+            heroOffset: heroOffset,
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: isHighlighted ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(border: Border.all(color: context.colorScheme.primary, width: 3)),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
