@@ -11,11 +11,13 @@ void main() {
   testWidgets('left swipe only reveals; reverse swipe closes; only explicit trash tap acts', (tester) async {
     var deleted = 0;
     var opened = 0;
+    var revealed = 0;
     await tester.pumpConsumerWidget(
       Center(
         child: SizedBox(
           width: 320,
           child: AlbumTrashReveal(
+            onReveal: () => revealed++,
             onTrash: () async => deleted++,
             child: SizedBox(
               height: 80,
@@ -31,6 +33,7 @@ void main() {
     await tester.drag(row, const Offset(-180, 0));
     await tester.pumpAndSettle();
     expect(deleted, 0);
+    expect(revealed, 1);
     expect(opened, 0);
     expect(tester.getSize(row), before);
     final cameraAfterSwipe = tester.getTopLeft(find.text('Camera'));

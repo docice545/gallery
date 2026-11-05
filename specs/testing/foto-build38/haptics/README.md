@@ -1,0 +1,9 @@
+# Preference-aware feedback
+
+The existing setting flows through `AppSettingsEnum.enableHapticFeedback` → persisted `StoreKey.enableHapticFeedback` → `HapticNotifier`. The timeline grouping selector previously bypassed it with direct `HapticFeedback.selectionClick()` calls. Both selector variants now use the same notifier as other timeline selection controls.
+
+Album swipe emits one selection signal when the reveal is opened, not on every drag update. Editor tool selection uses the same live preference. A confirmed bin flight emits one medium signal at intake (80% of its unchanged duration); a pending, cancelled, hidden or disposed flight emits none. A verified deletion without a visible flight emits a single acknowledgement signal. No per-file vibration loop was added. Existing animation geometry, timing and reduced-motion behavior are unchanged.
+
+Actual runs: 378 editor/album/deletion regression tests, 35 focused haptic and timing tests, analyzer zero issues. The focused tests record `HapticFeedback.vibrate` platform messages, toggle the setting without rebuilding the provider, exercise real editor/grouping controls, reject feedback before confirmed intake, and verify no retry when the OS platform implementation is unavailable. Log hashes are recorded in `receipts.json`; counts overlap.
+
+**DEVICE_REQUIRED:** enable FOTO feedback and Samsung's touch vibration, set a nonzero system vibration intensity, exercise selection, album reveal, editor tool selection and a successfully confirmed deletion. Repeat with FOTO off and with system touch vibration disabled. Check that cancellation and ordinary scrolling are quiet. Flutter delegates to the native system; FOTO does not force vibration when the system declines it. These platform-channel tests cannot certify physical strength or latency.

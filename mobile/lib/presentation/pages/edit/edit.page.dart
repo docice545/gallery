@@ -30,6 +30,7 @@ import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/providers/background_sync.provider.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:immich_mobile/utils/annotation_editor.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
@@ -668,6 +669,9 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     onSticker: _addSticker,
                     onReset: _reset,
                     onMode: (mode) {
+                      if (mode != _mode) {
+                        ref.read(hapticFeedbackProvider.notifier).selectionClick();
+                      }
                       if (mode == EditorMode.magicEraser) {
                         unawaited(_openMagicEraser());
                         return;

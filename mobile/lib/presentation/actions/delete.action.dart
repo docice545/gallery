@@ -15,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/is_motion_video_playing.provider.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
@@ -111,7 +112,9 @@ Future<GhostFlight?> _prepareDeletionVisual(
   if (!context.mounted) {
     return null;
   }
-  return ref.read(ghostTrapProvider).prepare(context, keys, kind);
+  return ref
+      .read(ghostTrapProvider)
+      .prepare(context, keys, kind, onIntake: ref.read(hapticFeedbackProvider.notifier).mediumImpact);
 }
 
 Future<bool?> _settledDeletionDialog({required BuildContext context, required WidgetBuilder builder}) async {
@@ -289,6 +292,9 @@ class DeleteAction extends AssetActionBuilder {
         return;
       }
       if (result.success) {
+        if (visual == null) {
+          ref.read(hapticFeedbackProvider.notifier).mediumImpact();
+        }
         toastService.success(result.message, toast: undo);
         if (trash) {
           // A response owns only the captured IDs. New selections and local-only
@@ -549,6 +555,9 @@ class CleanupLocalAction extends AssetActionBuilder {
         remaining: result.remainingIds.length,
       );
       if (result.remainingIds.isEmpty) {
+        if (visual == null) {
+          ref.read(hapticFeedbackProvider.notifier).mediumImpact();
+        }
         toastService.success(message);
       } else {
         toastService.error(message);
@@ -647,6 +656,7 @@ class CleanupLocalAlbumAction extends ActionBuilder {
             eligible.map((id) => ghostAlbumCoverKey('local', albumId, id)),
             GhostTrashKind.album,
             targetKey: albumKey,
+            onIntake: ref.read(hapticFeedbackProvider.notifier).mediumImpact,
           );
       if (!context.mounted || !isCurrent()) {
         return;
@@ -690,6 +700,9 @@ class CleanupLocalAlbumAction extends ActionBuilder {
       }
       final message = context.t.device_deletion_summary(removed: removed.length, remaining: remaining);
       if (remaining == 0) {
+        if (visual == null) {
+          ref.read(hapticFeedbackProvider.notifier).mediumImpact();
+        }
         toastService.success(message);
       } else {
         toastService.error(message);
@@ -772,6 +785,7 @@ class TrashRemoteAlbumAction extends ActionBuilder {
               snapshot.assetIds.map((id) => ghostAlbumCoverKey('remote', albumId, id)),
               GhostTrashKind.album,
               targetKey: albumKey,
+              onIntake: ref.read(hapticFeedbackProvider.notifier).mediumImpact,
             );
         if (visual != null) {
           holds.state = {...holds.state, albumKey};
@@ -806,6 +820,9 @@ class TrashRemoteAlbumAction extends ActionBuilder {
         await visual?.confirmed();
       }
       if (context.mounted && current()) {
+        if (visual == null) {
+          ref.read(hapticFeedbackProvider.notifier).mediumImpact();
+        }
         toast.success(context.t.album_deleted);
       }
     } on AlbumTrashScopeException {

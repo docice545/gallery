@@ -6,9 +6,12 @@ import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 
+import '../../fixtures/haptics.dart';
+
 final editorTestThemeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 
 List<Override> editorThemeTestOverrides(ThemeMode mode) => [
+  testHapticsOverride,
   editorTestThemeModeProvider.overrideWith((ref) => mode),
   appConfigProvider.overrideWith(
     (ref) => defaultConfig.copyWith(theme: defaultConfig.theme.copyWith(mode: ref.watch(editorTestThemeModeProvider))),

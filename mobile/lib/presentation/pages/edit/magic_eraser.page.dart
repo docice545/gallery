@@ -13,6 +13,7 @@ import 'package:immich_mobile/presentation/pages/edit/magic_eraser_availability.
 import 'package:immich_mobile/presentation/pages/edit/widgets/editor_chrome.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/repositories/magic_eraser.repository.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
 
@@ -686,6 +687,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
         onPressed: _busy || _drawing
             ? null
             : () => setState(() {
+                ref.read(hapticFeedbackProvider.notifier).selectionClick();
                 _erase = false;
                 _zoom = false;
               }),
@@ -698,6 +700,7 @@ class _MagicEraserPageState extends ConsumerState<MagicEraserPage> {
         onPressed: _busy || _drawing
             ? null
             : () => setState(() {
+                ref.read(hapticFeedbackProvider.notifier).selectionClick();
                 _erase = true;
                 _zoom = false;
               }),

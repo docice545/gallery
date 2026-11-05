@@ -11,6 +11,7 @@ import 'package:immich_mobile/presentation/widgets/album/album_trash_reveal.dart
 import 'package:immich_mobile/presentation/widgets/album/animated_album_rows.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/local_album_thumbnail.widget.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/widgets/common/local_album_sliver_app_bar.dart';
@@ -65,6 +66,7 @@ class _AlbumList extends ConsumerWidget {
                     padding: const EdgeInsets.only(bottom: 8.0),
                     child: AlbumTrashReveal(
                       key: ValueKey('local-album-${album.id}'),
+                      onReveal: () => ref.read(hapticFeedbackProvider.notifier).selectionClick(),
                       ghostKey: ghostAlbumKey('local', album.id),
                       onTrash: () async => CleanupLocalAlbumAction(
                         albumId: album.id,

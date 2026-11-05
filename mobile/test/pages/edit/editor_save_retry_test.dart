@@ -17,6 +17,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../../fixtures/editor_image_stream.dart';
 import '../../fixtures/editor_raster.dart';
+import '../../fixtures/haptics.dart';
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
 
@@ -71,6 +72,7 @@ void main() {
           ),
         ),
         overrides: [
+          testHapticsOverride,
           fileMediaRepositoryProvider.overrideWithValue(media),
           editedCopyServiceProvider.overrideWithValue(importer),
           immichThemeProvider.overrideWith(

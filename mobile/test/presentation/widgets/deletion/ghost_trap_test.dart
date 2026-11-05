@@ -128,6 +128,36 @@ Future<ui.Image> _decodedPhoto() async {
 }
 
 void main() {
+  testWidgets('intake feedback happens once after confirmed swallowing, never pending or cancelled', (tester) async {
+    final scene = _Scene();
+    await scene.mount(tester);
+    var feedback = 0;
+    Future<GhostFlight?> prepare() => tester.runAsync<GhostFlight?>(
+      () => scene.container
+          .read(ghostTrapProvider)
+          .prepare(scene.context, ['one'], GhostTrashKind.server, onIntake: () => feedback++),
+    );
+    final cancelled = await prepare();
+    await tester.pump(const Duration(seconds: 2));
+    expect(feedback, 0);
+    cancelled!.cancel();
+    await cancelled.confirmed();
+    expect(feedback, 0);
+    await tester.pump();
+    final flight = await prepare();
+    final done = flight!.confirmed();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 490));
+    expect(feedback, 0);
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(feedback, 1);
+    await tester.pump(const Duration(milliseconds: 200));
+    await done;
+    await flight.confirmed();
+    expect(feedback, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
   _ghostTest('decoded pixels are captured once and retained through every flight phase', (tester) async {
     final photo = (await tester.runAsync(_decodedPhoto))!;
     addTearDown(photo.dispose);

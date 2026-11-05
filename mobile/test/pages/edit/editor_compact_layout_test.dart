@@ -23,6 +23,7 @@ Future<void> pumpCompactEditor(
   bool portrait = false,
   bool russian = false,
   ThemeMode themeMode = ThemeMode.dark,
+  List<Override> overrides = const [],
   FakeViewPadding padding = const FakeViewPadding(top: 28, bottom: 24),
 }) async {
   TestUtils.init();
@@ -57,7 +58,7 @@ Future<void> pumpCompactEditor(
     () => tester.pumpWidget(
       localizedForTest(
         ProviderScope(
-          overrides: editorThemeTestOverrides(themeMode),
+          overrides: [...editorThemeTestOverrides(themeMode), ...overrides],
           child: EditorThemeTestApp(
             child: RepaintBoundary(
               key: const Key('compact-editor-screen'),

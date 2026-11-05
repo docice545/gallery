@@ -6,11 +6,12 @@ import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart
 /// A reveal gesture is navigation, never consent to delete. Only the exposed
 /// button owns [onTrash]; the row keeps its identity and extent until real ACK.
 class AlbumTrashReveal extends StatefulWidget {
-  const AlbumTrashReveal({super.key, required this.child, required this.onTrash, this.ghostKey});
+  const AlbumTrashReveal({super.key, required this.child, required this.onTrash, this.ghostKey, this.onReveal});
 
   final Widget child;
   final Future<void> Function() onTrash;
   final String? ghostKey;
+  final VoidCallback? onReveal;
 
   @override
   State<AlbumTrashReveal> createState() => _AlbumTrashRevealState();
@@ -20,8 +21,13 @@ class _AlbumTrashRevealState extends State<AlbumTrashReveal> with SingleTickerPr
   static const _extent = 64.0;
   late final _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 160));
   bool _busy = false;
+  bool _open = false;
 
   void _settle(bool open) {
+    if (open && !_open) {
+      widget.onReveal?.call();
+    }
+    _open = open;
     if (MediaQuery.disableAnimationsOf(context)) {
       _controller.value = open ? 1 : 0;
     } else {

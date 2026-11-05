@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-05",
+  "regressionPassed": 378,
+  "focusedBoundaryPassed": 35,
+  "analyzerIssues": 0,
+  "logSha256": {
+    "haptics-regression-final.log": "32d56fffb342332b46d9ef5f9166a42f25257be1721c72ce25cf95704a148469",
+    "haptics-boundary-tests.log": "2487fdb991a7472b62ecbfdd87b53192913564274022b4e19bab6ad6da043765",
+    "flutter-analyze-haptics-final.log": "47de49902b8c645059612131d1fcdcc035371af96b869255223431b009055b81"
+  },
+  "deviceStatus": "DEVICE_REQUIRED",
+  "limitation": "Flutter platform channel calls and timing are verified; physical Samsung vibration and OS suppression are not measured."
+}

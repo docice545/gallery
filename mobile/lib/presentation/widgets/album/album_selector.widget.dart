@@ -20,6 +20,7 @@ import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
 import 'package:immich_mobile/providers/album/album_sort_by_options.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
@@ -622,6 +623,7 @@ class _AlbumList extends ConsumerWidget {
                   padding: const EdgeInsets.only(bottom: 8.0),
                   child: AlbumTrashReveal(
                     key: ValueKey(album.id),
+                    onReveal: () => ref.read(hapticFeedbackProvider.notifier).selectionClick(),
                     ghostKey: ghostAlbumKey('remote', album.id),
                     onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
                     child: AlbumTile(album: album, isOwner: isOwner, onAlbumSelected: onAlbumSelected),
@@ -670,6 +672,7 @@ class _AlbumGrid extends ConsumerWidget {
                   ? card
                   : AlbumTrashReveal(
                       key: ValueKey(album.id),
+                      onReveal: () => ref.read(hapticFeedbackProvider.notifier).selectionClick(),
                       ghostKey: ghostAlbumKey('remote', album.id),
                       onTrash: () async => TrashRemoteAlbumAction(albumId: album.id).create(context, ref).onAction(),
                       child: card,

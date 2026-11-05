@@ -29,6 +29,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:openapi/api.dart' as api;
 
 import '../../fixtures/editor_raster.dart';
+import '../../fixtures/haptics.dart';
 import '../../test_utils.dart';
 import '../../widget_tester_extensions.dart';
 
@@ -66,6 +67,7 @@ void main() {
           asset: legacyCaller ? null : photo ?? asset,
         ),
         overrides: [
+          testHapticsOverride,
           magicEraserRepositoryProvider.overrideWithValue(repository),
           backgroundSyncProvider.overrideWithValue(backgroundSync),
           immichThemeProvider.overrideWith(

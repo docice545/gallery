@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' as drift;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
@@ -14,9 +15,11 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline_grouping_selector.widget.dart';
+import 'package:immich_mobile/providers/app_settings.provider.dart';
 import 'package:immich_mobile/providers/timeline/timeline_grouping.provider.dart';
 import 'package:immich_mobile/widgets/settings/asset_list_settings/asset_list_group_settings.dart';
 
+import '../../../fixtures/haptics.dart';
 import '../../../test_utils.dart';
 import '../../../widget_tester_extensions.dart';
 
@@ -61,6 +64,31 @@ void main() {
   }
 
   TimelineOverviewMode grouping(WidgetTester tester) => containerOf(tester).read(timelineOverviewModeProvider);
+
+  testWidgets('grouping feedback follows the live FOTO haptic preference', (tester) async {
+    final settings = TestAppSettingsService(haptics: true);
+    final calls = <MethodCall>[];
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'HapticFeedback.vibrate') {
+        calls.add(call);
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await tester.pumpConsumerWidget(
+      const TimelineGroupingSelector(),
+      overrides: [appSettingsServiceProvider.overrideWithValue(settings)],
+    );
+    await tester.tap(find.byKey(const Key('timeline-grouping-years')));
+    await tester.pumpAndSettle();
+    expect(calls.map((c) => c.arguments), ['HapticFeedbackType.selectionClick']);
+    settings.haptics = false;
+    await tester.tap(find.byKey(const Key('timeline-grouping-months')));
+    await tester.pumpAndSettle();
+    expect(calls.length, 1);
+    expect(grouping(tester), TimelineOverviewMode.months);
+  });
 
   group('TimelineGroupingSelector', () {
     testWidgets('renders years, months, and days segments in an app-bar action slot', (tester) async {

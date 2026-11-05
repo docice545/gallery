@@ -48,6 +48,7 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     Iterable<String> assetKeys,
     GhostTrashKind kind, {
     String? targetKey,
+    VoidCallback? onIntake,
   }) async {
     final preparation = ++_preparation;
     _flight?.cancel();
@@ -144,6 +145,7 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       reduced,
       color,
       overlay,
+      onIntake,
     );
     _flight = flight;
     flight._show();
@@ -186,6 +188,7 @@ class GhostFlight implements TickerProvider {
     this.reducedMotion,
     this._glow,
     this._overlay,
+    this._onIntake,
   ) : _scrollOffset = _scroll?.pixels {
     _controller = AnimationController(
       vsync: this,
@@ -211,10 +214,12 @@ class GhostFlight implements TickerProvider {
   final bool reducedMotion;
   final Color _glow;
   final OverlayState _overlay;
+  final VoidCallback? _onIntake;
   late final AnimationController _controller;
   OverlayEntry? _entry;
   bool _disposed = false;
   bool _confirmed = false;
+  bool _intakeSignaled = false;
 
   @override
   Ticker createTicker(TickerCallback onTick) => Ticker(onTick);
@@ -280,6 +285,10 @@ class GhostFlight implements TickerProvider {
     if (!_valid) {
       cancel();
       return;
+    }
+    if (_confirmed && !_intakeSignaled && _controller.value >= .8) {
+      _intakeSignaled = true;
+      _onIntake?.call();
     }
     _entry?.markNeedsBuild();
     _owner._repaint(); // RenderObject repaint listeners, not Timeline setState.
