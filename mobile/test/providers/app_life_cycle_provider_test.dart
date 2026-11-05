@@ -137,7 +137,12 @@ void main() {
     when(() => lockService.lock()).thenAnswer((_) async {});
     when(() => lockService.unlock()).thenAnswer((_) async {});
     when(() => backgroundSync.cancelResumeSyncs()).thenAnswer((_) async {});
-    when(() => backgroundSync.syncLocal(full: any(named: 'full'))).thenAnswer((_) async {});
+    when(
+      () => backgroundSync.syncLocal(
+        full: any(named: 'full'),
+        enqueue: any(named: 'enqueue'),
+      ),
+    ).thenAnswer((_) async {});
     when(() => backgroundSync.syncRemote()).thenAnswer((_) async => true);
     when(() => backgroundSync.hashAssets()).thenAnswer((_) async {});
     // Fork-only: #513 routes resume through syncRemoteThenLocal instead of upstream's
