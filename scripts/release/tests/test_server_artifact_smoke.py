@@ -328,7 +328,7 @@ class SmokeLifecycle(SmokeFixture):
             elif path == '/assets/permanent-deletion':
                 if state['enabled']:
                     state['deleted'] = True
-                    result = [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}]
+                    result = [{'id': ASSET, 'scope': 'managed', 'accepted': True, 'state': 'complete'}]
                 else: result = [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
             elif path == '/users/me': result = {'id': OWNER}
             elif path == '/assets/managed-deletion-preparation':
@@ -340,7 +340,7 @@ class SmokeLifecycle(SmokeFixture):
                 state['enabled'] = body['enabled']
             elif path == '/assets/managed-deletion-policy':
                 result = {'enabled': state['enabled'], 'prepared': state['prepared'], 'canPrepare': False}
-            elif path == '/assets/' + ASSET + '/deletion-status': result = {'id': ASSET, 'state': 'complete'}
+            elif path == '/assets/' + ASSET + '/deletion-status': result = {'id': ASSET, 'accepted': True, 'state': 'complete'}
             elif path != '/auth/admin-sign-up': self.fail('Unexpected mocked route: ' + path)
             return io.BytesIO(json.dumps(result).encode() if result is not None else b'')
         opener = Mock()
@@ -384,7 +384,7 @@ class Build11OrdinaryStorage(SmokeFixture):
         request = Mock(side_effect=[None,
             [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
             media, None, {'enabled': True, 'prepared': True, 'canPrepare': False},
-            [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}], {'id': ASSET, 'state': 'complete'}])
+            [{'id': ASSET, 'scope': 'managed', 'accepted': True, 'state': 'complete'}], {'id': ASSET, 'accepted': True, 'state': 'complete'}])
         with patch.object(smoke, 'publish_lab_evidence') as publish:
             smoke.ordinary_managed_smoke(request, ASSET, media)
         publish.assert_not_called()
@@ -403,12 +403,21 @@ class Build11OrdinaryStorage(SmokeFixture):
             smoke.ordinary_managed_smoke(request, ASSET, b'fixture')
         self.assertEqual(request.call_count, 6)
 
+    def test_complete_without_durable_acceptance_is_not_accepted(self):
+        request = Mock(side_effect=[None,
+            [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
+            b'fixture', None, {'enabled': True, 'prepared': True, 'canPrepare': False},
+            [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}]])
+        with self.assertRaisesRegex(RuntimeError, 'MANAGED_DELETION_NOT_COMPLETE'):
+            smoke.ordinary_managed_smoke(request, ASSET, b'fixture')
+        self.assertEqual(request.call_count, 6)
+
     def test_external_physical_success_requires_default_denial_owner_consent_and_file_absence(self):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
         media = smoke.synthetic_png(22)
         request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, media,
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
-            [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
+            [{'id': ASSET, 'scope': scope, 'accepted': True, 'state': 'complete'}]])
         with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], True, [], []]) as storage:
             result = smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
         self.assertTrue(result['ownerWritablePhysicalDeletion'])
@@ -422,7 +431,7 @@ class Build11OrdinaryStorage(SmokeFixture):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
         request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, smoke.synthetic_png(22),
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
-            [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
+            [{'id': ASSET, 'scope': scope, 'accepted': True, 'state': 'complete'}]])
         with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
             smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
 

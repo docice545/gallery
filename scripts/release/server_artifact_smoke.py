@@ -276,7 +276,7 @@ def ordinary_managed_smoke(request, asset_id, media):
     request('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True})
     assert request('/assets/managed-deletion-policy') == {'enabled': True, 'prepared': True, 'canPrepare': False}
     result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-    if result != [{'id': asset_id, 'scope': 'managed', 'state': 'complete'}]:
+    if result != [{'id': asset_id, 'scope': 'managed', 'accepted': True, 'state': 'complete'}]:
         # Preserve the strict completion gate, but expose fixed state/code
         # diagnostics so a real worker failure can be distinguished from an
         # in-flight receipt without printing IDs, paths or credentials.
@@ -288,7 +288,7 @@ def ordinary_managed_smoke(request, asset_id, media):
                  re.fullmatch('[A-Z0-9_]{1,80}', row['code']) else 'UNKNOWN'
                  for row in rows if isinstance(row, dict)]
         raise RuntimeError('MANAGED_DELETION_NOT_COMPLETE states=' + ','.join(states) + ' codes=' + ','.join(codes))
-    assert request('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'state': 'complete'}
+    assert request('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'accepted': True, 'state': 'complete'}
     return result
 
 
@@ -447,7 +447,7 @@ def external_smoke(request, server, owner):
     assert denied == [{'id': asset_id, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
     request('/assets/library-deletion-consent/' + scope, 'PUT', {'enabled': True, 'confirmed': True})
     result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-    assert result == [{'id': asset_id, 'scope': scope, 'state': 'complete'}]
+    assert result == [{'id': asset_id, 'scope': scope, 'accepted': True, 'state': 'complete'}]
     assert storage_fixture(server, 'fileGone') is True
     assert storage_fixture(server, 'externalIds', scope=scope) == []
     # Exercise the actual compiled external-scan admission query, rather than
