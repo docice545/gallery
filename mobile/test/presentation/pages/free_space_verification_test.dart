@@ -19,10 +19,12 @@ import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/services/toast.service.dart';
 import 'package:immich_mobile/widgets/settings/free_up_space_settings.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../infrastructure/repository.mock.dart';
 import '../../unit/factories/local_asset_factory.dart';
+import '../../unit/factories/local_album_factory.dart';
 import '../../unit/presentation/presentation_context.dart';
 
 class _Cleanup extends Mock implements CleanupService {}
@@ -46,15 +48,26 @@ void main() {
     for (final locale in ['en', 'ru']) {
       testWidgets('free space verification and retained files $brightness $locale', (tester) async {
         final fixture = await PresentationContext.create();
+        // Match main.dart's locale bridge for ICU plural selection.
+        final previousLocale = Intl.defaultLocale;
+        Intl.defaultLocale = locale;
+        addTearDown(() => Intl.defaultLocale = previousLocale);
         addTearDown(fixture.dispose);
         tester.view.physicalSize = const Size(393, 852);
         tester.view.devicePixelRatio = 1;
         tester.view.padding = const FakeViewPadding(bottom: 24);
         addTearDown(tester.view.reset);
+        final protectedAlbums = List.generate(11, (i) => LocalAlbumFactory.create(id: 'kept-$i'));
         final settings = MockSettingsRepository();
-        when(
-          () => settings.appConfig,
-        ).thenReturn(const AppConfig(cleanup: CleanupConfig(cutoffDaysAgo: 30, defaultsInitialized: true)));
+        when(() => settings.appConfig).thenReturn(
+          AppConfig(
+            cleanup: CleanupConfig(
+              cutoffDaysAgo: 30,
+              defaultsInitialized: true,
+              keepAlbumIds: protectedAlbums.map((a) => a.id).toList(),
+            ),
+          ),
+        );
         final service = _Cleanup();
         final toast = _Toast();
         final List<LocalAsset> photos = [
@@ -100,7 +113,7 @@ void main() {
           ),
           overrides: [
             cleanupProvider.overrideWith((_) => notifier),
-            localAlbumProvider.overrideWith((_) => Stream.value([])),
+            localAlbumProvider.overrideWith((_) => Stream.value(protectedAlbums)),
             toastServiceProvider.overrideWithValue(toast),
           ],
         );
@@ -108,6 +121,11 @@ void main() {
         await EasyLocalization.of(context)!.setLocale(Locale(locale));
         await tester.pumpAndSettle();
         final t = context.t;
+        expect(find.text(t.keeping(items: '${t.favorites}, ${t.keep_albums_count(count: 11)}')), findsOneWidget);
+        if (locale == 'ru') {
+          expect(t.keep_albums_count(count: 11), '11 альбомов');
+          expect(t.select_cutoff_date, 'Фото и видео до даты');
+        }
         Future<void> press(Finder finder) async {
           await tester.ensureVisible(finder);
           await tester.pumpAndSettle();
@@ -133,9 +151,9 @@ void main() {
 
         await press(find.widgetWithText(ElevatedButton, t.continue$));
         await press(find.text(t.scan).first);
-        await tester.ensureVisible(find.text(t.cleanup_verifies_originals));
+        await tester.ensureVisible(find.text(t.cleanup_verifies_originals).first);
         await tester.pumpAndSettle();
-        expect(find.text(t.cleanup_verifies_originals), findsOneWidget);
+        expect(find.text(t.cleanup_verifies_originals).hitTestable(), findsOneWidget);
         await capture('verify');
         await press(find.widgetWithText(ElevatedButton, t.rescan));
         expect(notifier.state.assetsToDelete.length, 2);

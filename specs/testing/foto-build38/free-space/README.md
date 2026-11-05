@@ -15,3 +15,5 @@ flutter analyze --no-pub
 ```
 
 `receipts.json` records executed results and local log hashes. Native Android/iOS removal, permission denial, iCloud originals, actual bytes reclaimed after emptying system trash and backup restoration remain **DEVICE_REQUIRED**. Server-original availability must also be checked against the HP instance before acceptance. These are readiness checks, not final product acceptance.
+
+The final wording also removes the duplicated keep verb (Russian: “Оставить: Избранное, 11 альбомов”), replaces the technical cutoff label with “Фото и видео до даты”, explains why a date is required, and calls the scan results copies **to verify**. The network/Live Photo verification explanation remains visible on the final review step. The four final visual fixtures follow main.dart’s locale bridge for ICU plurals; eight notifier checks also passed in that run.

@@ -666,6 +666,8 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                                     ),
                                     style: context.textTheme.labelLarge?.copyWith(fontSize: 15),
                                   ),
+                                  const SizedBox(height: 8),
+                                  Text(context.t.cleanup_verifies_originals, style: context.textTheme.bodySmall),
                                 ],
                               )
                             : null,
