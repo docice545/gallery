@@ -12,5 +12,6 @@ abstract class ThemeConfig with _$ThemeConfig {
     @Default(ImmichColorPreset.indigo) ImmichColorPreset primaryColor,
     @Default(false) bool dynamicTheme,
     @Default(true) bool colorfulInterface,
+    @Default(true) bool fancyDeletion,
   }) = _ThemeConfig;
 }

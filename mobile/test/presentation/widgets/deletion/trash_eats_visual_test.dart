@@ -9,6 +9,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 
 import '../bottom_sheet/toolbar_test_app.dart';
 
@@ -120,6 +121,7 @@ void main() {
         RepaintBoundary(
           key: boundary,
           child: ProviderScope(
+            overrides: [fancyDeletionEnabledProvider.overrideWithValue(true)],
             child: toolbarTestApp(
               theme: ThemeData(brightness: brightness, colorSchemeSeed: Colors.teal, fontFamily: 'Roboto'),
               home: Builder(

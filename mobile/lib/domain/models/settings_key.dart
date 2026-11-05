@@ -17,6 +17,9 @@ enum SettingsKey<T> {
   themeDynamic<bool>(),
   themeColorfulInterface<bool>(),
 
+  // Animations (stored by name; no database schema migration).
+  animationFancyDeletion<bool>(),
+
   // Image
   imagePreferRemote<bool>(),
   imageLoadOriginal<bool>(),

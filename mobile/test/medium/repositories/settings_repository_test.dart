@@ -47,6 +47,21 @@ void main() {
   });
 
   group('write', () {
+    test('fancy deletion defaults on and its disabled preference survives a fresh SQLite snapshot', () async {
+      expect(sut.appConfig.theme.fancyDeletion, isTrue);
+      await sut.write(.animationFancyDeletion, false);
+      final rows = await ctx.db.select(ctx.db.settingsEntity).get();
+      final restored = AppConfig.fromEntries({
+        for (final row in rows)
+          SettingsKey.values.byName(row.key): SettingsKey.values.byName(row.key).decode(row.value!),
+      });
+      expect(restored.theme.fancyDeletion, isFalse);
+      await sut.refresh();
+      expect(sut.appConfig.theme.fancyDeletion, isFalse);
+      await sut.write(.animationFancyDeletion, true);
+      expect(sut.appConfig.theme.fancyDeletion, isTrue);
+      expect(await ctx.db.select(ctx.db.settingsEntity).get(), isEmpty);
+    });
     test('presentation, density and classic date preference survive a fresh snapshot from SQLite', () async {
       await sut.write(.timelinePresentation, TimelinePresentation.immersive);
       await sut.write(.timelineTilesPerRow, 3);

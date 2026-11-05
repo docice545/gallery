@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
+import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 
 class _Scene {
+  final effects = StateProvider<bool>((_) => true);
   final assets = ValueNotifier(['one', 'two', 'three']);
   final target = ValueNotifier(true);
   late BuildContext context;
@@ -24,6 +26,7 @@ class _Scene {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [fancyDeletionEnabledProvider.overrideWith((ref) => ref.watch(effects))],
         child: MaterialApp(
           home: Builder(
             builder: (ctx) {
@@ -128,6 +131,65 @@ Future<ui.Image> _decodedPhoto() async {
 }
 
 void main() {
+  for (final enabled in [false, true]) {
+    for (final reduced in [false, true]) {
+      for (final count in [1, 3]) {
+        _ghostTest('effects=$enabled reduced=$reduced for $count selected photos', (tester) async {
+          final scene = _Scene();
+          await scene.mount(tester, reduced: reduced);
+          scene.container.read(scene.effects.notifier).state = enabled;
+          final before = tester.getTopLeft(find.byKey(const ValueKey('photo-one')));
+          final flight = await scene.prepare(tester, ['one', 'two', 'three'].take(count).toList());
+          expect(flight != null, enabled);
+          await tester.pump();
+          if (enabled) {
+            expect(_paint(tester).confirmed, isFalse);
+            expect(_paint(tester).reducedMotion, reduced);
+            final done = flight!.confirmed();
+            await tester.pump();
+            await tester.pump(
+              (reduced ? ghostTrapReducedDuration : ghostTrapDuration) + const Duration(milliseconds: 1),
+            );
+            await tester.runAsync(() => done.timeout(const Duration(seconds: 2)));
+          } else {
+            expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+            // Ordinary grid updates use the natural layout, with no source
+            // holds or effect-created delay. No mutation API is owned here.
+            scene.assets.value = ['two', 'three'];
+            await tester.pump();
+            expect(tester.getTopLeft(find.byKey(const ValueKey('photo-two'))), before);
+          }
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump();
+        });
+      }
+    }
+  }
+
+  testWidgets('live off cancels pending pixels and stale ACK cannot resurrect them; on works without restart', (
+    tester,
+  ) async {
+    final scene = _Scene();
+    await scene.mount(tester);
+    final owner = scene.container.read(ghostTrapProvider);
+    final oldFlight = await scene.prepare(tester);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ghost-trap-flight')), findsOneWidget);
+    scene.container.read(scene.effects.notifier).state = false;
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+    expect(await scene.prepare(tester), isNull);
+    scene.container.read(scene.effects.notifier).state = true;
+    await oldFlight!.confirmed();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('ghost-trap-flight')), findsNothing);
+    expect(identical(owner, scene.container.read(ghostTrapProvider)), isTrue);
+    final newFlight = await scene.prepare(tester);
+    expect(newFlight, isNotNull);
+    newFlight!.cancel();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
   testWidgets('intake feedback happens once after confirmed swallowing, never pending or cancelled', (tester) async {
     final scene = _Scene();
     await scene.mount(tester);

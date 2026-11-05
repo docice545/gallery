@@ -15,6 +15,7 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
+import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
@@ -64,6 +65,7 @@ void main() {
     WidgetTester tester,
     Set<BaseAsset> selection, {
     bool trashEnabled = true,
+    bool fancyDeletion = true,
     bool everywhere = false,
     bool device = false,
     TimelineOrigin? origin,
@@ -99,6 +101,7 @@ void main() {
       ),
       overrides: [
         ...context.selected(selection),
+        fancyDeletionEnabledProvider.overrideWithValue(fancyDeletion),
         if (timeline != null) timelineServiceProvider.overrideWithValue(timeline),
         if (source == .viewer) assetsActionProvider(source).overrideWithValue(AssetFilter(selection)),
       ],
@@ -119,6 +122,52 @@ void main() {
     expect(find.byType(ConfirmDialog), findsOneWidget);
     await tester.tap(find.byType(TextButton).at(confirm ? 1 : 0)); // [cancel, ok]
     await tester.pumpAndSettle();
+  }
+
+  for (final effects in [false, true]) {
+    for (final count in [1, 3]) {
+      testWidgets('effects=$effects preserves exact $count-item Trash request and Undo', (tester) async {
+        final selection = List.generate(count, (_) => owned()).toSet();
+        final ids = selection.map((a) => a.id).toList();
+        await pumpDelete(tester, selection, fancyDeletion: effects);
+        await tester.pumpAndSettle();
+        verify(() => assetService.trash(ids)).called(1);
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        await tester.tap(find.text('Undo'));
+        await tester.pumpAndSettle();
+        verify(() => assetService.restoreTrash(ids)).called(1);
+      });
+      testWidgets('effects=$effects retains confirmation and cancellation for $count permanent deletions', (
+        tester,
+      ) async {
+        final selection = List.generate(count, (_) => owned(deletedAt: DateTime(2026))).toSet();
+        final ids = selection.map((a) => a.id).toList();
+        await pumpDelete(tester, selection, fancyDeletion: effects, origin: TimelineOrigin.trash);
+        await respondToDialog(tester, confirm: false);
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
+        await tester.tap(find.byType(ImmichIconButton));
+        await tester.pump();
+        await respondToDialog(tester, confirm: true);
+        verify(() => assetService.acceptPermanentDeletion(ids)).called(1);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+      });
+      testWidgets('effects=$effects retains device consent for $count local copies', (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        await StoreService.I.put(StoreKey.manageLocalMediaAndroid, true);
+        final selection = List.generate(count, (_) => LocalAssetFactory.create()).toSet();
+        await pumpDelete(tester, selection, fancyDeletion: effects, device: true);
+        await respondToDialog(tester, confirm: false);
+        verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
+        await tester.tap(find.byType(ImmichIconButton));
+        await tester.pump();
+        await respondToDialog(tester, confirm: true);
+        verify(() => cleanupService.deleteLocalAssetsDetailed(selection.map((a) => a.id).toList())).called(1);
+        verifyNever(() => assetService.trash(any()));
+        verifyNever(() => assetService.acceptPermanentDeletion(any()));
+        debugDefaultTargetPlatformOverride = null;
+      });
+    }
   }
 
   group('DeleteAction', () {

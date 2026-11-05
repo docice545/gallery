@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
 
 const ghostTrapDuration = Duration(milliseconds: 640);
 const ghostTrapReducedDuration = Duration(milliseconds: 180);
@@ -24,7 +25,23 @@ String ghostAlbumCoverKey(String scope, String albumId, String assetId) => '${gh
 final albumDeletionHoldsProvider = StateProvider<Set<String>>((ref) => const {});
 
 final ghostTrapProvider = Provider<GhostTrapCoordinator>((ref) {
-  final coordinator = GhostTrapCoordinator();
+  var observing = false;
+  late final GhostTrapCoordinator coordinator;
+  coordinator = GhostTrapCoordinator(
+    observePreference: () {
+      if (observing) {
+        return;
+      }
+      observing = true;
+      // Thumbnails may mount before settings are needed. Subscribe lazily on
+      // the first deletion, then retain this coordinator across live changes.
+      ref.listen(
+        fancyDeletionEnabledProvider,
+        (_, enabled) => coordinator.setEffectsEnabled(enabled),
+        fireImmediately: true,
+      );
+    },
+  );
   ref.onDispose(coordinator.dispose);
   return coordinator;
 });
@@ -32,7 +49,7 @@ final ghostTrapProvider = Provider<GhostTrapCoordinator>((ref) {
 /// Owns only transient pixels and geometry. It cannot delete, restore, decode
 /// originals, issue network requests or grant a Live Photo playback lease.
 class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
-  GhostTrapCoordinator() {
+  GhostTrapCoordinator({this.observePreference}) {
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -42,6 +59,19 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
   bool _active = true;
   int _preparation = 0;
   bool _disposing = false;
+  final VoidCallback? observePreference;
+  bool _effectsEnabled = true;
+
+  void setEffectsEnabled(bool enabled) {
+    if (_effectsEnabled == enabled) {
+      return;
+    }
+    _effectsEnabled = enabled;
+    _preparation++;
+    if (!enabled) {
+      _flight?.cancel();
+    }
+  }
 
   Future<GhostFlight?> prepare(
     BuildContext context,
@@ -50,9 +80,10 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     String? targetKey,
     VoidCallback? onIntake,
   }) async {
+    observePreference?.call();
     final preparation = ++_preparation;
     _flight?.cancel();
-    if (!_active || !context.mounted) {
+    if (!_effectsEnabled || !_active || !context.mounted) {
       return null;
     }
     final route = ModalRoute.of(context);
@@ -125,6 +156,7 @@ class GhostTrapCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       return null; // Capture failure never prevents the underlying safe operation.
     }
     if (preparation != _preparation ||
+        !_effectsEnabled ||
         !_active ||
         !context.mounted ||
         route?.isCurrent == false ||
@@ -232,6 +264,7 @@ class GhostFlight implements TickerProvider {
 
   bool get _valid =>
       !_disposed &&
+      _owner._effectsEnabled &&
       _owner._active &&
       _route?.isCurrent != false &&
       _target.visibleRect != null &&

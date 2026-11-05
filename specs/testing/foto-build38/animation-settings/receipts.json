@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-05",
+  "flutter": "3.47.2",
+  "logs": {
+    "fancy-deletion-final.log": {
+      "sha256": "42a01f30b33745f9dd735ea262af0a9bf4c92aeb23a245a8a8b1178088e192eb",
+      "passed": 126
+    },
+    "fancy-deletion-visual.log": {
+      "sha256": "2d20bcfb101386052199fb6b3233469008020f665781e85442f637e25afca721",
+      "passed": 3
+    }
+  },
+  "reviewedImages": {
+    "dark-false.png": "3cccabf24bfac74d213038bf3aa81b4df75778bd4c360e0223c9ca174a2bf3ca",
+    "dark-true.png": "d7de85e2a8568eaba060be747c6ca19513848a0f7fa7229b2ed83599b0194288",
+    "light-false.png": "51d27e4c7a07aa250e634460b347c2feb4b96761ae82e719eee600dce22ccb12",
+    "light-true.png": "6b3ce7450ea6eaca21a0d7d661c081dfbfe994ef7213ee824b9d23c8d732603c"
+  },
+  "unchangedTrashEatsFrames": 22,
+  "physicalSamsung": "DEVICE_REQUIRED",
+  "physicalIOS": "DEVICE_REQUIRED"
+}
