@@ -3680,7 +3680,7 @@
   "total": "Total",
   "total_usage": "Total usage",
   "trash": "Trash",
-  "trash_action_prompt": "{count} moved to trash",
+  "trash_action_prompt": "{count, plural, one {Photo in trash} other {# photos in trash}}",
   "trash_all": "Trash All",
   "trash_cleanup_accepted": "Trash cleared. Server files are being deleted in the background.",
   "trash_cleanup_partial": "Accepted for permanent deletion: {count}. Remaining: {remaining}. {reasons}",

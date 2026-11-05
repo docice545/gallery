@@ -848,7 +848,7 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
             floatingActionButton: const DownloadStatusFloatingButton(),
             bottomNavigationBar: widget.dockGroupingPill
                 ? isBottomWidgetVisible
-                      ? null
+                      ? widget.bottomSheet
                       : widget.withGroupingPill && !isMultiSelectEnabled && !isSelectionMode
                       ? const TimelineGroupingFooter()
                       : null
@@ -995,8 +995,6 @@ class _SliverTimelineState extends ConsumerState<_SliverTimeline> with WidgetsBi
                               child: timeline,
                             ),
                             if (isBottomWidgetVisible && !widget.dockGroupingPill) widget.bottomSheet!,
-                            if (isBottomWidgetVisible && widget.dockGroupingPill)
-                              Positioned(left: 0, right: 0, bottom: 0, child: widget.bottomSheet!),
                           ],
                         );
                       },

@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-05",
+  "logs": {
+    "trash-notice-reviewed.log": {
+      "passed": 73,
+      "sha256": "22175d16a42e44cecba036abc0eab9de35df45dc7df70d924cbfaedb878c84eb"
+    },
+    "ui-snackbar-package.log": {
+      "passed": 4,
+      "sha256": "e17d504f91ce447b4a300ec0bb3eb3b15ced513807005c7f5c61f113b2374cfe"
+    }
+  },
+  "images": {
+    "dark.png": "dfb1e7f6d85354de504c7dd76c278d5a8f9157aa378f76855986f34a079453f8",
+    "light.png": "512080d2ea2804cb3c07f03fd897e332c79cd7af63282c2752cb9e35afbbce44"
+  },
+  "hardware": "DEVICE_REQUIRED"
+}

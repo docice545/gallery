@@ -3669,7 +3669,7 @@
   "total": "Total",
   "total_usage": "Uso total",
   "trash": "Papelera",
-  "trash_action_prompt": "{count} movidos a la papelera",
+  "trash_action_prompt": "{count, plural, one {Foto en la papelera} other {# fotos en la papelera}}",
   "trash_all": "Descartar todo",
   "trash_cleanup_accepted": "Papelera vaciada. Los archivos del servidor se están eliminando en segundo plano.",
   "trash_cleanup_partial": "Aceptados para eliminación permanente: {count}. Restantes: {remaining}. {reasons}",

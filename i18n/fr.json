@@ -3670,7 +3670,7 @@
   "total": "Total",
   "total_usage": "Utilisation globale",
   "trash": "Corbeille",
-  "trash_action_prompt": "{count} média(s) mis à la corbeille",
+  "trash_action_prompt": "{count, plural, one {Photo dans la corbeille} other {# photos dans la corbeille}}",
   "trash_all": "Tout supprimer",
   "trash_cleanup_accepted": "Corbeille vidée. La suppression des fichiers du serveur se poursuit en arrière-plan.",
   "trash_cleanup_partial": "Suppression définitive acceptée pour {count} éléments. Restants : {remaining}. {reasons}",

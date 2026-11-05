@@ -183,7 +183,7 @@ void main() {
 
           verify(() => assetService.resolveStackTrashIds([cover.id], [cover])).called(2);
           verify(() => assetService.trash(ids)).called(1);
-          expect(find.text('$count moved to trash'), findsOneWidget);
+          expect(find.text('$count photos in trash'), findsOneWidget);
           verifyNever(() => cleanupService.deleteLocalAssetsDetailed(any()));
           verifyNever(() => assetService.acceptPermanentDeletion(any()));
           await tester.tap(find.text('Undo'));

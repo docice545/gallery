@@ -3675,7 +3675,7 @@
   "total": "Totaal",
   "total_usage": "Totaal gebruik",
   "trash": "Prullenbak",
-  "trash_action_prompt": "{count, plural, one {# item} other {# items}} verplaatst naar de prullenbak",
+  "trash_action_prompt": "{count, plural, one {Foto in prullenbak} other {# foto’s in prullenbak}}",
   "trash_all": "Verplaats alle naar prullenbak",
   "trash_cleanup_accepted": "Prullenbak geleegd. De serverbestanden worden op de achtergrond verwijderd.",
   "trash_cleanup_partial": "Geaccepteerd voor definitieve verwijdering: {count}. Resterend: {remaining}. {reasons}",

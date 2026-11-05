@@ -3678,7 +3678,7 @@
   "total": "Всего",
   "total_usage": "Общая статистика",
   "trash": "Корзина",
-  "trash_action_prompt": "Объекты перемещены в корзину ({count} шт.)",
+  "trash_action_prompt": "{count, plural, =1 {Фото в корзине} other {# фото в корзине}}",
   "trash_all": "Удалить все",
   "trash_cleanup_accepted": "Корзина очищена. Удаление файлов на сервере продолжается в фоне.",
   "trash_cleanup_partial": "Принято к окончательному удалению: {count}. Осталось: {remaining}. {reasons}",

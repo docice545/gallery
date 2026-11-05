@@ -3630,7 +3630,7 @@
   "total": "总计",
   "total_usage": "总用量",
   "trash": "回收站",
-  "trash_action_prompt": "已将 {count} 项移至回收站",
+  "trash_action_prompt": "{count} 张照片已移入回收站",
   "trash_all": "全部删除",
   "trash_cleanup_accepted": "回收站已清空。服务器文件正在后台删除。",
   "trash_cleanup_partial": "已接受永久删除：{count}。剩余：{remaining}。{reasons}",

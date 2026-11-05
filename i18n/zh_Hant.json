@@ -3654,7 +3654,7 @@
   "total": "統計",
   "total_usage": "總用量",
   "trash": "垃圾桶",
-  "trash_action_prompt": "{count} 個丟入垃圾桶",
+  "trash_action_prompt": "{count} 張照片已移至垃圾桶",
   "trash_all": "全部丟掉",
   "trash_cleanup_accepted": "垃圾桶已清空。伺服器檔案正在背景刪除。",
   "trash_cleanup_partial": "已接受永久刪除：{count}。剩餘：{remaining}。{reasons}",

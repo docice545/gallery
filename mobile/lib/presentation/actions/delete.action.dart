@@ -201,6 +201,7 @@ class DeleteAction extends AssetActionBuilder {
     final (:localIds, :remoteIds, :trash) = state;
     final assetService = ref.read(assetServiceProvider);
     final toastService = ref.read(toastServiceProvider);
+    final undoLabel = context.t.undo;
     final viewerState = source == .viewer ? ref.read(assetViewerProvider) : null;
     final deletedStackIndex = viewerState?.stackIndex ?? 0;
     final deletedStackAsset = viewerState?.currentAsset;
@@ -247,7 +248,7 @@ class DeleteAction extends AssetActionBuilder {
       }
       final _DeletionMessage? result;
       // Only trashing is reversible; a permanent delete and a device cleanup are not.
-      ToastOption? undo;
+      ToastOption? undo = trash ? const ToastOption(neutral: true) : null;
       if (trash) {
         visual = await _prepareDeletionVisual(context, ref, source, GhostTrashKind.server);
         if (expandedCovers.isNotEmpty) {
@@ -276,11 +277,17 @@ class DeleteAction extends AssetActionBuilder {
           final store = ref.read(storeServiceProvider);
           final acceptedIds = List<String>.unmodifiable(trashIds);
           undo = .new(
+            neutral: true,
+            undoLabel: undoLabel,
             onUndo: () async {
               if (users.tryGetMyUser()?.id != lease.userId || store.tryGet(StoreKey.serverEndpoint) != lease.endpoint) {
                 return;
               }
-              await assetService.restoreTrash(acceptedIds);
+              try {
+                await assetService.restoreTrash(acceptedIds);
+              } catch (error, stack) {
+                handleError(error, stack: stack, description: 'Failed to restore trashed assets');
+              }
             },
           );
         }

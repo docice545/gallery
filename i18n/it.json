@@ -3675,7 +3675,7 @@
   "total": "Totale",
   "total_usage": "Utilizzo totale",
   "trash": "Cestino",
-  "trash_action_prompt": "{count} elementi spostati nel cestino",
+  "trash_action_prompt": "{count, plural, one {Foto nel cestino} other {# foto nel cestino}}",
   "trash_all": "Cestina Tutto",
   "trash_cleanup_accepted": "Cestino svuotato. I file sul server vengono eliminati in background.",
   "trash_cleanup_partial": "Accettati per l’eliminazione definitiva: {count}. Rimanenti: {remaining}. {reasons}",

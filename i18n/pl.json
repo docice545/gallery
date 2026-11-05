@@ -3695,7 +3695,7 @@
   "total": "Razem",
   "total_usage": "Całkowite wykorzystanie",
   "trash": "Kosz",
-  "trash_action_prompt": "{count} przeniesione do kosza",
+  "trash_action_prompt": "{count, plural, one {Zdjęcie w koszu} few {# zdjęcia w koszu} many {# zdjęć w koszu} other {# zdjęcia w koszu}}",
   "trash_all": "Usuń wszystkie",
   "trash_cleanup_accepted": "Kosz opróżniony. Pliki na serwerze są usuwane w tle.",
   "trash_cleanup_partial": "Przyjęto do trwałego usunięcia: {count}. Pozostało: {remaining}. {reasons}",
