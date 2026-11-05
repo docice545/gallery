@@ -13,4 +13,5 @@ final appConfigProvider = Provider.autoDispose<AppConfig>((ref) {
 
 final fancyDeletionEnabledProvider = Provider<bool>(
   (ref) => ref.watch(appConfigProvider.select((config) => config.theme.fancyDeletion)),
+  dependencies: [appConfigProvider],
 );

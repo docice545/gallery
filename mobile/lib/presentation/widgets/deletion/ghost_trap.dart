@@ -44,7 +44,7 @@ final ghostTrapProvider = Provider<GhostTrapCoordinator>((ref) {
   );
   ref.onDispose(coordinator.dispose);
   return coordinator;
-});
+}, dependencies: [fancyDeletionEnabledProvider]);
 
 /// Owns only transient pixels and geometry. It cannot delete, restore, decode
 /// originals, issue network requests or grant a Live Photo playback lease.
