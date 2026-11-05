@@ -393,6 +393,16 @@ class Build11OrdinaryStorage(SmokeFixture):
         self.assertEqual(calls[3], ('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True}))
         self.assertFalse(any('preparation' in call[0] for call in calls))
 
+    def test_incomplete_managed_receipt_preserves_gate_with_sanitized_diagnostics(self):
+        request = Mock(side_effect=[None,
+            [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
+            b'fixture', None, {'enabled': True, 'prepared': True, 'canPrepare': False},
+            [{'id': ASSET, 'scope': 'managed', 'state': 'pending', 'code': 'FILE_BUSY'},
+             {'id': 'private-id', 'state': 'private-state', 'code': '/private/token'}]])
+        with self.assertRaisesRegex(RuntimeError, '^MANAGED_DELETION_NOT_COMPLETE states=pending,unknown codes=FILE_BUSY,UNKNOWN$'):
+            smoke.ordinary_managed_smoke(request, ASSET, b'fixture')
+        self.assertEqual(request.call_count, 6)
+
     def test_external_physical_success_requires_default_denial_owner_consent_and_file_absence(self):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
         media = smoke.synthetic_png(22)

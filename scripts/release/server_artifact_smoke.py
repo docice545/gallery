@@ -276,7 +276,18 @@ def ordinary_managed_smoke(request, asset_id, media):
     request('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True})
     assert request('/assets/managed-deletion-policy') == {'enabled': True, 'prepared': True, 'canPrepare': False}
     result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-    assert result == [{'id': asset_id, 'scope': 'managed', 'state': 'complete'}]
+    if result != [{'id': asset_id, 'scope': 'managed', 'state': 'complete'}]:
+        # Preserve the strict completion gate, but expose fixed state/code
+        # diagnostics so a real worker failure can be distinguished from an
+        # in-flight receipt without printing IDs, paths or credentials.
+        rows = result if isinstance(result, list) else []
+        states = [row.get('state') if row.get('state') in
+                  ('complete', 'pending', 'blocked', 'failed') else 'unknown'
+                  for row in rows if isinstance(row, dict)]
+        codes = [row.get('code') if isinstance(row.get('code'), str) and
+                 re.fullmatch('[A-Z0-9_]{1,80}', row['code']) else 'UNKNOWN'
+                 for row in rows if isinstance(row, dict)]
+        raise RuntimeError('MANAGED_DELETION_NOT_COMPLETE states=' + ','.join(states) + ' codes=' + ','.join(codes))
     assert request('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'state': 'complete'}
     return result
 

@@ -120,6 +120,14 @@ jobs:
           else
             python3 scripts/release/server_artifact_smoke.py "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
           fi
+      - name: Preserve unaccepted artifact and diagnostics on smoke failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gallery-trash-server-unaccepted
+          path: ${{ runner.temp }}/gallery-server-artifact/
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gallery-trash-server-linux-amd64
