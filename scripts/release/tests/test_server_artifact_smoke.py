@@ -137,6 +137,27 @@ class ArtifactIdentity(SmokeFixture):
 
 
 class SignedLabContract(SmokeFixture):
+    def test_local_lab_requires_exact_command_line_opt_in(self):
+        with patch.dict(os.environ, {'GALLERY_LOCAL_DISPOSABLE_LAB': '1'}, clear=True), \
+                patch('sys.argv', ['smoke', SOURCE, str(self.directory)]), \
+                patch.object(smoke, 'verify_artifact') as verify, redirect_stdout(io.StringIO()):
+            self.assertEqual(smoke.main(), 1)
+            verify.assert_not_called()
+        self.assertFalse(smoke._local_disposable_lab)
+
+    def test_local_lab_checks_artifact_and_releases_scope_on_failure(self):
+        def reject(*args):
+            smoke.require_lab()
+            raise RuntimeError('ARTIFACT_ARCHIVE_CHANGED')
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('sys.argv', ['smoke', '--local-disposable-lab', SOURCE, str(self.directory)]), \
+                patch.object(smoke, 'verify_artifact', side_effect=reject) as verify, \
+                patch.object(smoke, 'docker') as docker, redirect_stdout(io.StringIO()):
+            self.assertEqual(smoke.main(), 1)
+            verify.assert_called_once_with(self.directory, SOURCE)
+            docker.assert_not_called()
+        self.assertFalse(smoke._local_disposable_lab)
+
     def test_key_generation_and_evidence_are_refused_outside_explicit_lab(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(smoke.subprocess, 'run') as run:
             for function, args in ((smoke.lab_keys, ()), (smoke.lab_payload, (OWNER, [root_identity()], POSTGRES_IMAGE)),

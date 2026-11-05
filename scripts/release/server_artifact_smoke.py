@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Fresh disposable CI database/storage only. Never accepts an HP/remote API URL."""
+"""Fresh disposable database/storage only. Never accepts an existing/remote API URL.
+
+Outside CI, --local-disposable-lab explicitly enables the same synthetic lab on
+the local Docker daemon (including HP). No production paths, database, secrets
+or container names can be supplied. Existing containers are never adopted.
+"""
 import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -25,6 +30,7 @@ POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a
 ROOT = Path(__file__).resolve().parents[2]
 LAB_MARKER = 'SYNTHETIC_DISPOSABLE_CI_LAB_NOT_PRODUCTION_RECOVERY'
 LAB_TRUST = '/run/gallery-smoke-lab-recovery'
+_local_disposable_lab = False
 ROLLBACK_SOURCE = '81867689be4d773473b6a3f417eee16c0329231e'
 ROLLBACK_ARCHIVE_SHA = 'd0e9e46997df44e6fe5bcb614608672b7e3bec3a6ab8667f440583337f27a45a'
 ROLLBACK_IMAGE = 'sha256:0f9e791e36ce747a02b53827122e514277b0195ef2ec43e64d2b7eaaa0238ab2'
@@ -58,7 +64,7 @@ process.stdout.write(JSON.stringify(await collectRootIdentities(roots)));
 
 
 def require_lab():
-    if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1':
+    if not _local_disposable_lab and (os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1'):
         raise RuntimeError('EXPLICIT_DISPOSABLE_CI_LAB_REQUIRED')
 
 
@@ -489,26 +495,32 @@ def docker(*args, input=None):
 
 
 def main():
-    if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1':
-        print('FAIL only runs on an explicitly isolated GitHub runner; no containers touched')
+    global _local_disposable_lab
+    arguments = sys.argv[1:]
+    local = bool(arguments and arguments[0] == '--local-disposable-lab')
+    if local:
+        arguments = arguments[1:]
+    if not local and (os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1'):
+        print('FAIL isolated CI or explicit --local-disposable-lab required; no containers touched')
         return 1
-    if len(sys.argv) not in (3, 4):
+    if len(arguments) not in (2, 3):
         print('FAIL exact source SHA and existing artifact directory, optional pinned rollback directory required')
         return 1
-    sha, output = sys.argv[1:3]
-    rollback_directory = Path(sys.argv[3]) if len(sys.argv) == 4 else None
+    sha, output = arguments[:2]
+    rollback_directory = Path(arguments[2]) if len(arguments) == 3 else None
     directory = Path(output)
     names = []
     network = None
     lab = None
     stage = 'verify committed artifact identity'
     try:
+        _local_disposable_lab = local
         manifest, expected_version = verify_artifact(directory, sha)
         keys = lab_keys()
         lab = tempfile.TemporaryDirectory(prefix='gallery-smoke-lab-')
         trust = Path(lab.name)
         trust_arguments = prepare_lab_store(trust, keys['publicKey'])
-        print('CI free runner disk bytes:', shutil.disk_usage(directory).free, flush=True)
+        print('Disposable lab free disk bytes:', shutil.disk_usage(directory).free, flush=True)
         prefix = 'gallery-trash-ci-' + secrets.token_hex(6)
         network = docker('network', 'create', prefix)
         db, redis, server = (prefix + '-' + name for name in ('pg', 'redis', 'server'))
@@ -629,6 +641,7 @@ def main():
         manifest['isolatedRecoveryEvidence'] = {'testOnly': True, 'marker': LAB_MARKER,
                                                'productionRecoveryVerified': False, 'productionAuthorization': False}
         manifest['isolatedWorkerConfiguration'] = 'API_AND_MICROSERVICES'
+        manifest['isolatedExecutionEnvironment'] = 'LOCAL_DISPOSABLE_LAB' if local else 'GITHUB_ACTIONS'
         manifest['thumbnailPreviewVerification'] = 'PASS_SYNTHETIC_FILES_AND_HTTP'
         manifest['isolatedExternalDeletion'] = external_result
         manifest['rollbackVerification'] = 'NOT_TESTED_NO_PINNED_ROLLBACK_ARTIFACT'
@@ -714,6 +727,7 @@ def main():
                 print('Diagnostic fixture logs unavailable; primary failure preserved')
         return 1
     finally:
+        _local_disposable_lab = False
         for name in reversed(names):
             try:
                 docker('rm', '-f', '-v', name)
