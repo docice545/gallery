@@ -3080,6 +3080,7 @@
   "selected": "Ausgewählt",
   "selected_count": "{count, plural, other {# ausgewählt}}",
   "selected_gps_coordinates": "Ausgewählte GPS-Koordinaten",
+  "selection_more": "Mehr",
   "send_message": "Nachricht senden",
   "send_welcome_email": "Begrüßungsmail senden",
   "separate_from_grouped_person": "Von gruppierter Person trennen",

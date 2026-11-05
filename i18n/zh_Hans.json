@@ -3043,6 +3043,7 @@
   "selected": "已选择",
   "selected_count": "{count, plural, other {已选中#项}}",
   "selected_gps_coordinates": "已选定的GPS坐标",
+  "selection_more": "更多",
   "send_message": "发送消息",
   "send_welcome_email": "发送欢迎邮件",
   "separate_from_grouped_person": "从合并的人物中分离",

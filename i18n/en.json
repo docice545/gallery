@@ -3090,6 +3090,7 @@
   "selected": "Selected",
   "selected_count": "{count, plural, other {# selected}}",
   "selected_gps_coordinates": "Selected GPS Coordinates",
+  "selection_more": "More",
   "send_message": "Send message",
   "send_welcome_email": "Send welcome email",
   "separate_from_grouped_person": "Separate from grouped person",

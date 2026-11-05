@@ -3088,6 +3088,7 @@
   "selected": "Выбрано",
   "selected_count": "{count, plural, one {Выбран # объект} many {Выбрано # объектов} other {Выбрано # объекта}}",
   "selected_gps_coordinates": "Выбранные координаты",
+  "selection_more": "Ещё",
   "send_message": "Отправить сообщение",
   "send_welcome_email": "Отправить приветственное письмо",
   "separate_from_grouped_person": "Отделить от сгруппированного человека",

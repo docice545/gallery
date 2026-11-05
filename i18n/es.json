@@ -3081,6 +3081,7 @@
   "selected": "Seleccionado",
   "selected_count": "{count, plural, one {# seleccionado} other {# seleccionados}}",
   "selected_gps_coordinates": "Coordenadas GPS seleccionadas",
+  "selection_more": "Más",
   "send_message": "Enviar mensaje",
   "send_welcome_email": "Enviar correo de bienvenida",
   "separate_from_grouped_person": "Separar de la persona agrupada",

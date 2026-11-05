@@ -3105,6 +3105,7 @@
   "selected": "Wybrane",
   "selected_count": "{count, plural, other {# wybrane}}",
   "selected_gps_coordinates": "Wybrane Współrzędne GPS",
+  "selection_more": "Więcej",
   "send_message": "Wyślij wiadomość",
   "send_welcome_email": "Wyślij e-mail powitalny",
   "separate_from_grouped_person": "Oddziel od pogrupowanej osoby",

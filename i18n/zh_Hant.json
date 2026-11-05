@@ -3067,6 +3067,7 @@
   "selected": "已選取",
   "selected_count": "{count, plural, other {已選取 # 項}}",
   "selected_gps_coordinates": "選取的 GPS 座標",
+  "selection_more": "更多",
   "send_message": "傳訊息",
   "send_welcome_email": "傳送歡迎電子郵件",
   "separate_from_grouped_person": "從合併的人物中分離",

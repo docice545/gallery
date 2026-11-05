@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
@@ -120,6 +121,12 @@ void main() {
           expect(rect.bottom, lessThanOrEqualTo(616));
         }
         expect(find.text(locale == 'ru' ? 'Удалить' : 'Delete'), findsOneWidget);
+        final shortLabel = find.text(locale == 'ru' ? 'Ещё' : 'More');
+        expect(shortLabel, findsOneWidget);
+        if (locale == 'ru') {
+          expect(tester.renderObject<RenderParagraph>(shortLabel).didExceedMaxLines, isFalse);
+          expect(find.text('Дополнительные действия'), findsNothing);
+        }
         final more = find.byKey(const ValueKey('selection-more-button'));
         final before = tester.getRect(more);
         await tester.tap(more);

@@ -3085,6 +3085,7 @@
   "selected": "Geselecteerd",
   "selected_count": "{count, plural, other {# geselecteerd}}",
   "selected_gps_coordinates": "Geselecteerde gps-coördinaten",
+  "selection_more": "Meer",
   "send_message": "Bericht versturen",
   "send_welcome_email": "Stuur welkomstmail",
   "separate_from_grouped_person": "Losmaken van gegroepeerde persoon",

@@ -94,7 +94,7 @@ class _CompactSelectionToolbarState extends State<CompactSelectionToolbar> {
                             icon: Icon(_showMore ? Icons.close : Icons.more_horiz),
                             onPressed: widget.moreActions.isEmpty ? null : () => setState(() => _showMore = !_showMore),
                           ),
-                          context.t.more,
+                          context.t.selection_more,
                         ),
                       ),
                     ],
