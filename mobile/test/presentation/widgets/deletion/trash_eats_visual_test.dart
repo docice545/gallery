@@ -161,18 +161,19 @@ void main() {
                       ],
                     ),
                     bottomNavigationBar: CompactSelectionToolbar(
-                      deleteButton: GhostTrashTarget(
-                        kind: GhostTrashKind.server,
-                        child: FotoIconButton(
+                      actions: [
+                        SelectionToolbarAction(
                           key: const Key('delete-hit-region'),
+                          trashKind: GhostTrashKind.server,
                           kind: FotoIconKind.trash,
-                          label: 'Move to trash',
+                          label: 'Delete',
+                          semanticLabel: 'Move to trash',
                           destructive: true,
                           onPressed: () {},
                         ),
-                      ),
-                      shareButton: FotoIconButton(kind: FotoIconKind.share, label: 'Share', onPressed: () {}),
-                      createButton: IconButton(icon: const Icon(Icons.add), onPressed: () {}),
+                        SelectionToolbarAction(kind: FotoIconKind.share, label: 'Send', onPressed: () {}),
+                        SelectionToolbarAction(kind: FotoIconKind.addAlbum, label: 'Add', onPressed: () {}),
+                      ],
                       moreActions: const [],
                     ),
                   );
@@ -185,12 +186,13 @@ void main() {
       await tester.pumpAndSettle();
       final button = tester.getRect(find.byKey(const Key('delete-hit-region')));
       final label = tester.getRect(find.text('Delete'));
+      final iconCenter = tester.getCenter(find.byWidgetPredicate((w) => w is FotoIcon && w.kind == FotoIconKind.trash));
       final neighbor = find.descendant(
         of: find.byWidgetPredicate((widget) => widget is GhostSource && widget.assetKey == 'photo-1'),
         matching: find.byType(RawImage),
       );
       final neighborBefore = tester.getRect(neighbor);
-      expect(button.shortestSide, 48);
+      expect(button.shortestSide, 52);
       Future<void> capture(String phase) async {
         await tester.runAsync(() async {
           final image = await (boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary).toImage(
@@ -231,7 +233,7 @@ void main() {
         }
         final painter =
             tester.widget<CustomPaint>(find.byKey(const ValueKey('ghost-trap-flight'))).painter! as GhostTrapPainter;
-        expect(painter.target, button.center, reason: 'flight ends at icon, never at the whole labelled capsule');
+        expect(painter.target, iconCenter, reason: 'flight ends at icon, never at the whole labelled capsule');
       }
       await tester.pump(Duration(milliseconds: 641 - elapsed));
       await tester.runAsync(() => completed);

@@ -100,10 +100,19 @@ void main() {
                 final text = find.text(label);
                 expect(text, findsOneWidget);
                 final widget = tester.widget<Text>(text);
-                expect(widget.softWrap, isFalse);
+                expect(
+                  tester
+                      .renderObject<RenderParagraph>(find.descendant(of: text, matching: find.byType(RichText)))
+                      .didExceedMaxLines,
+                  isFalse,
+                );
                 expect(widget.overflow, isNot(TextOverflow.ellipsis));
                 final rect = tester.getRect(text);
-                expect(capsule.contains(rect.topLeft) && capsule.contains(rect.bottomRight), isTrue);
+                expect(
+                  capsule.inflate(.01).contains(rect.topLeft) && capsule.inflate(.01).contains(rect.bottomRight),
+                  isTrue,
+                  reason: '$rect within $capsule',
+                );
               }
               for (final key in ['trash-restore', 'trash-delete-permanently']) {
                 expect(tester.getSize(find.byKey(ValueKey(key))).shortestSide, greaterThanOrEqualTo(48));
@@ -166,13 +175,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ConfirmDialog), findsOneWidget);
       verifyNever(() => service.acceptPermanentDeletion(any()));
-      await tester.tap(find.byType(TextButton).first);
+      await tester.tap(find.descendant(of: find.byType(ConfirmDialog), matching: find.byType(TextButton)).first);
       await tester.pumpAndSettle();
       verifyNever(() => service.acceptPermanentDeletion(any()));
       await tester.tap(delete);
       await tester.pumpAndSettle();
       expect(find.byType(ConfirmDialog), findsOneWidget);
-      await tester.tap(find.byType(TextButton).last);
+      await tester.tap(find.descendant(of: find.byType(ConfirmDialog), matching: find.byType(TextButton)).last);
       await tester.pumpAndSettle();
       verify(() => service.acceptPermanentDeletion([asset.id])).called(1);
       verifyNever(() => service.trash(any()));

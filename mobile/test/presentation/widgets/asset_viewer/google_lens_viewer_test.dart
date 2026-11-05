@@ -206,12 +206,8 @@ void main() {
       final beforeTransform = core.controller.value;
       final beforeRect = tester.getRect(find.byKey(Key(assets.first.heroTag)).first);
       await capture('before');
-      await tester.tap(find.byTooltip('More'));
-      await settleGestures();
-      expect(find.text('Google Lens'), findsOneWidget);
-      await tester.ensureVisible(find.text('Google Lens'));
-      await capture('menu');
-      await tester.tap(find.text('Google Lens'));
+      expect(find.byTooltip('Google Lens'), findsOneWidget);
+      await tester.tap(find.byTooltip('Google Lens'));
       await settleGestures();
       verifyNever(
         () => fixture.repository.assetMedia.api.shareAssets(

@@ -125,33 +125,15 @@ void main() {
                             Align(
                               alignment: Alignment.bottomCenter,
                               child: CompactSelectionToolbar(
-                                deleteButton: IconButton(
-                                  icon: FotoIcon(
-                                    kind: kinds[0],
-                                    semanticLabel: labels[0],
-                                    size: 24,
-                                    state: FotoIconState.destructive,
-                                  ),
-                                  onPressed: () => taps++,
-                                ),
-                                shareButton: IconButton(
-                                  icon: FotoIcon(
-                                    kind: kinds[1],
-                                    semanticLabel: labels[1],
-                                    size: 24,
-                                    state: FotoIconState.normal,
-                                  ),
-                                  onPressed: () => taps++,
-                                ),
-                                createButton: IconButton(
-                                  icon: FotoIcon(
-                                    kind: kinds[2],
-                                    semanticLabel: labels[2],
-                                    size: 24,
-                                    state: FotoIconState.normal,
-                                  ),
-                                  onPressed: () => taps++,
-                                ),
+                                actions: [
+                                  for (var i = 0; i < 3; i++)
+                                    SelectionToolbarAction(
+                                      label: labels[i],
+                                      kind: kinds[i],
+                                      destructive: i == 0,
+                                      onPressed: () => taps++,
+                                    ),
+                                ],
                                 moreActions: [ListTile(title: const Text('Архивировать'), onTap: () {})],
                               ),
                             )
@@ -196,10 +178,21 @@ void main() {
           expect(paintedCount.width, lessThan(100));
           expect(find.descendant(of: status, matching: find.text('1')), findsOneWidget);
           for (final label in labels) {
-            final paragraph = tester.renderObject<RenderParagraph>(find.text(label));
+            final visibleLabel = section == 'timeline'
+                ? label
+                : switch (kinds[labels.indexOf(label)]) {
+                    FotoIconKind.deviceTrash => 'С устройства',
+                    FotoIconKind.trash => 'Удалить',
+                    FotoIconKind.share => 'Отправить',
+                    FotoIconKind.link => 'Ссылка',
+                    _ => label,
+                  };
+            final paragraph = tester.renderObject<RenderParagraph>(
+              find.descendant(of: find.text(visibleLabel), matching: find.byType(RichText)),
+            );
             expect(paragraph.didExceedMaxLines, isFalse);
-            final word = label.split(' ').reduce((a, b) => a.length > b.length ? a : b);
-            final start = label.indexOf(word);
+            final word = visibleLabel.split(' ').reduce((a, b) => a.length > b.length ? a : b);
+            final start = visibleLabel.indexOf(word);
             expect(
               paragraph.getBoxesForSelection(TextSelection(baseOffset: start, extentOffset: start + word.length)),
               hasLength(1),
@@ -210,7 +203,7 @@ void main() {
                 find.byWidgetPredicate((widget) => widget is FotoIcon && widget.kind == kinds[labels.indexOf(label)]),
               );
             } else {
-              await tester.tap(find.text(label));
+              await tester.tap(find.text(visibleLabel));
             }
             await tester.pumpAndSettle();
           }
@@ -322,14 +315,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Action'));
+    await tester.tap(find.widgetWithText(TextButton, 'Action').first);
     await tester.pump();
-    await tester.tap(find.text('Action'));
-    await tester.longPress(find.text('Action'));
+    await tester.tap(find.widgetWithText(TextButton, 'Action').first);
+    await tester.longPress(find.widgetWithText(TextButton, 'Action').first);
     expect(calls, 1, reason: 'A pending destructive action must not run twice');
     pending.complete();
     await tester.pumpAndSettle();
-    await tester.longPress(find.text('Action'));
+    await tester.longPress(find.widgetWithText(TextButton, 'Action').first);
     await tester.pumpAndSettle();
     expect(calls, 2, reason: 'Secondary actions remain accessible');
     expect(tester.takeException(), isNull);

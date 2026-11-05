@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
-import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_ui/immich_ui.dart';
 
 import '../../../unit/presentation/presentation_context.dart';
+import 'toolbar_test_app.dart';
 
 class _Action extends ActionBuilder {
   const _Action(this.label, this.callback);
@@ -20,6 +21,9 @@ class _Action extends ActionBuilder {
 }
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader('Roboto')..addFont(rootBundle.load('fonts/GoogleSans/GoogleSans-Regular.ttf'))).load();
+  });
   for (final size in [const Size(320, 700), const Size(393, 852), const Size(852, 393)]) {
     for (final textScale in [1.0, 2.0]) {
       testWidgets('selection actions are equal centered cells at $size textScale=$textScale with safe inset', (
@@ -36,7 +40,7 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(
             overrides: fixture.overrides,
-            child: MaterialApp(
+            child: toolbarTestApp(
               home: MediaQuery(
                 data: MediaQueryData(
                   size: size,
@@ -51,8 +55,7 @@ void main() {
                     resizeOnScroll: false,
                     actions: [
                       ActionColumnButton(action: _Action(null, () {})),
-                      for (final label in labels)
-                        ActionColumnButton(fotoKind: FotoIconKind.deviceTrash, action: _Action(label, () => taps++)),
+                      for (final label in labels) ActionColumnButton(action: _Action(label, () => taps++)),
                     ],
                   ),
                 ),
@@ -69,10 +72,12 @@ void main() {
           rects.add(rect);
           expect(rect.width, greaterThanOrEqualTo(48));
           expect(rect.height, greaterThanOrEqualTo(48));
-          final icon = find.descendant(of: cell, matching: find.byType(FotoIcon));
+          final icon = find.descendant(of: cell, matching: find.byType(Icon));
           expect(tester.getCenter(icon).dx, closeTo(rect.center.dx, .01));
           final label = find.text(labels[i]);
-          final paragraph = tester.renderObject<RenderParagraph>(label);
+          final paragraph = tester.renderObject<RenderParagraph>(
+            find.descendant(of: label, matching: find.byType(RichText)),
+          );
           expect(paragraph.didExceedMaxLines, isFalse, reason: 'the complete localized label remains readable');
         }
         for (final rect in rects) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
@@ -6,6 +7,9 @@ import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selectio
 import 'toolbar_test_app.dart';
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader('Roboto')..addFont(rootBundle.load('fonts/GoogleSans/GoogleSans-Regular.ttf'))).load();
+  });
   for (final brightness in [Brightness.light, Brightness.dark]) {
     testWidgets('compact selection toolbar: $brightness', (tester) async {
       tester.view.physicalSize = const Size(393, 852);
@@ -22,9 +26,11 @@ void main() {
             body: Align(
               alignment: Alignment.bottomCenter,
               child: CompactSelectionToolbar(
-                deleteButton: const Icon(Icons.delete_outline),
-                shareButton: const Icon(Icons.share_rounded),
-                createButton: const Icon(Icons.create_new_folder_outlined),
+                actions: [
+                  SelectionToolbarAction(label: 'Удалить', icon: Icons.delete_outline, onPressed: () {}),
+                  SelectionToolbarAction(label: 'Отправить', icon: Icons.share_rounded, onPressed: () {}),
+                  SelectionToolbarAction(label: 'Добавить', icon: Icons.create_new_folder_outlined, onPressed: () {}),
+                ],
                 moreActions: [ListTile(title: const Text('Архивировать'), onTap: () => actionCount++)],
               ),
             ),

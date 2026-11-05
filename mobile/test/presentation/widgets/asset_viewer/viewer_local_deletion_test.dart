@@ -74,12 +74,13 @@ void main() {
     );
   }
 
-  testWidgets('local-only viewer exposes the existing delete-from-device action alongside upload', (tester) async {
+  testWidgets('local-only viewer exposes device deletion; upload is in the preserved More menu', (tester) async {
     final asset = LocalAssetFactory.create(id: 'device-copy');
 
     await pumpViewer(tester, asset);
 
-    expect(find.byTooltip('Upload'), findsOneWidget);
+    expect(find.byTooltip('Upload'), findsNothing);
+    expect(find.byTooltip('Google Lens'), findsOneWidget);
     expect(find.byTooltip(StaticTranslations.instance.delete_from_device), findsOneWidget);
     expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsNothing);
   });

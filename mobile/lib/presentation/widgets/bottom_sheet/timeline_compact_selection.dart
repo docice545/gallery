@@ -41,7 +41,12 @@ class TimelineCompactSelection extends ConsumerWidget {
     CleanupLocalAction(source: .timeline),
   ];
 
-  Widget _actionButton(BuildContext context, WidgetRef ref, ActionBuilder builder, {bool destructive = false}) {
+  SelectionToolbarAction? _actionButton(
+    BuildContext context,
+    WidgetRef ref,
+    ActionBuilder builder, {
+    bool destructive = false,
+  }) {
     var action = builder.create(context, ref);
     var kind = GhostTrashKind.server;
     if (action == null && destructive) {
@@ -49,19 +54,21 @@ class TimelineCompactSelection extends ConsumerWidget {
       kind = GhostTrashKind.device;
     }
     if (action == null) {
-      return const SizedBox.shrink();
+      return null;
     }
 
-    final button = IconButton(
-      tooltip: action.label,
-      icon: destructive
-          ? FotoIcon(kind: FotoIconKind.trash, semanticLabel: action.label, state: FotoIconState.destructive)
-          : Icon(action.icon),
+    final icon = destructive
+        ? (kind == GhostTrashKind.device ? FotoIconKind.deviceTrash : FotoIconKind.trash)
+        : FotoIconKind.share;
+    return SelectionToolbarAction(
+      label: fotoActionCaption(context, icon, action.label),
+      semanticLabel: action.label,
+      kind: icon,
       onPressed: action.onAction,
       onLongPress: action.onSecondaryAction,
+      destructive: destructive,
+      trashKind: destructive ? kind : null,
     );
-
-    return destructive ? GhostTrashTarget(kind: kind, child: button) : button;
   }
 
   Future<void> _showCollections(BuildContext context) async {
@@ -108,13 +115,16 @@ class TimelineCompactSelection extends ConsumerWidget {
     }
 
     return CompactSelectionToolbar(
-      deleteButton: _actionButton(context, ref, const DeleteAction(source: .timeline), destructive: true),
-      shareButton: _actionButton(context, ref, const ShareAction(source: .timeline)),
-      createButton: IconButton(
-        tooltip: context.t.create,
-        icon: const Icon(Icons.create_new_folder_outlined),
-        onPressed: () => _showCollections(context),
-      ),
+      actions: [
+        ?_actionButton(context, ref, const DeleteAction(source: .timeline), destructive: true),
+        ?_actionButton(context, ref, const ShareAction(source: .timeline)),
+        SelectionToolbarAction(
+          label: context.t.add,
+          semanticLabel: context.t.create,
+          kind: FotoIconKind.addAlbum,
+          onPressed: () => _showCollections(context),
+        ),
+      ],
       moreActions: extra,
     );
   }

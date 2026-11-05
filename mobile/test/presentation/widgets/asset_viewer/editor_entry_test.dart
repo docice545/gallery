@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/setting.model.dart';
@@ -10,6 +11,7 @@ import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/edit_asset.action.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/bottom_bar.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_top_app_bar.widget.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset_viewer/asset.provider.dart';
@@ -51,6 +53,9 @@ class _DefaultSettings extends SettingsNotifier {
 class _Timeline extends Mock implements TimelineService {}
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader('Roboto')..addFont(rootBundle.load('fonts/GoogleSans/GoogleSans-Regular.ttf'))).load();
+  });
   late PresentationContext context;
 
   setUp(() async => context = await PresentationContext.create());
@@ -100,20 +105,21 @@ void main() {
       final asset = RemoteAssetFactory.create(ownerId: context.currentUser.id);
       await pumpViewer(tester, asset, textScale: 2, padding: const EdgeInsets.fromLTRB(0, 24, 0, 24));
       final row = find.byKey(const ValueKey('viewer-action-row'));
-      expect(tester.getSize(row).height, 56);
-      expect(find.descendant(of: row, matching: find.byType(Text)), findsNothing);
-      final actions = find.descendant(of: row, matching: find.byType(FotoIconButton));
+      expect(tester.getSize(row).height, inInclusiveRange(52, 200));
+      final actions = find.descendant(of: row, matching: find.byType(SelectionToolbarAction));
       final boxes = [
-        for (final widget in tester.widgetList<FotoIconButton>(actions)) tester.getRect(find.byWidget(widget)),
+        for (final widget in tester.widgetList<SelectionToolbarAction>(actions)) tester.getRect(find.byWidget(widget)),
       ];
-      expect(boxes.length, greaterThanOrEqualTo(3));
+      expect(boxes.length, 5);
       for (final box in boxes) {
-        expect(box.size, const Size.square(48));
+        expect(box.shortestSide, greaterThanOrEqualTo(48));
         expect(box.bottom, lessThanOrEqualTo(size.height - 24));
+        for (final other in boxes.where((other) => other != box)) {
+          expect(box.deflate(.01).overlaps(other), isFalse);
+        }
       }
-      final gaps = [for (var i = 1; i < boxes.length; i++) boxes[i].center.dx - boxes[i - 1].center.dx];
-      for (final gap in gaps) {
-        expect(gap, closeTo(gaps.first, .01));
+      for (final widget in tester.widgetList<SelectionToolbarAction>(actions)) {
+        expect(find.descendant(of: find.byWidget(widget), matching: find.text(widget.label)), findsOneWidget);
       }
       final back = find.byWidgetPredicate((w) => w is FotoIconButton && w.kind == FotoIconKind.back);
       expect(tester.getRect(back).top, greaterThanOrEqualTo(24));

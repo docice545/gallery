@@ -26,6 +26,7 @@ import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_details.wi
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_page.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_viewer.page.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
@@ -295,8 +296,8 @@ void main() {
           });
           await drain(tester);
         }
-        final button = tester.widget<FotoIconButton>(
-          find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+        final button = tester.widget<SelectionToolbarAction>(
+          find.byWidgetPredicate((widget) => widget is SelectionToolbarAction && widget.kind == FotoIconKind.trash),
         );
         deletion = Future<void>.sync(button.onPressed!);
         await awaitRequest(tester);
@@ -338,8 +339,8 @@ void main() {
     expect(timeline.totalAssets, 1, reason: 'the real main Timeline collapses the three-frame stack');
     expect(find.byTooltip(StaticTranslations.instance.move_to_server_trash), findsOneWidget);
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
-    final deleteButton = tester.widget<FotoIconButton>(
-      find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+    final deleteButton = tester.widget<SelectionToolbarAction>(
+      find.byWidgetPredicate((widget) => widget is SelectionToolbarAction && widget.kind == FotoIconKind.trash),
     );
     late Future<void> deletion;
 
@@ -392,8 +393,8 @@ void main() {
   testWidgets('a definite server rejection restores the original viewed primary', (tester) async {
     final router = await openViewer(tester);
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
-    final button = tester.widget<FotoIconButton>(
-      find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+    final button = tester.widget<SelectionToolbarAction>(
+      find.byWidgetPredicate((widget) => widget is SelectionToolbarAction && widget.kind == FotoIconKind.trash),
     );
     late Future<void> deletion;
     try {
@@ -496,8 +497,8 @@ void main() {
     final container = ProviderScope.containerOf(tester.element(find.byType(AssetViewer)));
     Future<void> deleteCurrent() => Future<void>.sync(
       tester
-          .widget<FotoIconButton>(
-            find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+          .widget<SelectionToolbarAction>(
+            find.byWidgetPredicate((widget) => widget is SelectionToolbarAction && widget.kind == FotoIconKind.trash),
           )
           .onPressed!,
     );
@@ -557,8 +558,8 @@ void main() {
     late Future<void> deletion;
     final gate = Completer<void>();
     try {
-      final button = tester.widget<FotoIconButton>(
-        find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+      final button = tester.widget<SelectionToolbarAction>(
+        find.byWidgetPredicate((widget) => widget is SelectionToolbarAction && widget.kind == FotoIconKind.trash),
       );
       await tester.runAsync(() async {
         deletion = Future<void>.sync(button.onPressed!);
@@ -639,8 +640,8 @@ void main() {
       await drain(tester);
       expect(container.read(assetViewerProvider).currentAsset?.id, 'cover');
       expect(find.text('1/1'), findsNothing);
-      final button = tester.widget<FotoIconButton>(
-        find.byWidgetPredicate((widget) => widget is FotoIconButton && widget.kind == FotoIconKind.trash),
+      final button = tester.widget<SelectionToolbarAction>(
+        find.byWidgetPredicate((widget) => widget is SelectionToolbarAction && widget.kind == FotoIconKind.trash),
       );
       await tester.runAsync(() async {
         deletion = Future<void>.sync(button.onPressed!);

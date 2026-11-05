@@ -36,7 +36,7 @@ const fotoViewerActionIcons = <ActionButtonType, FotoIconKind>{
   ActionButtonType.cast: FotoIconKind.cast,
   ActionButtonType.setAlbumCover: FotoIconKind.cover,
   ActionButtonType.similarPhotos: FotoIconKind.similar,
-  ActionButtonType.googleLens: FotoIconKind.similar,
+  ActionButtonType.googleLens: FotoIconKind.lens,
   ActionButtonType.setProfilePicture: FotoIconKind.profile,
   ActionButtonType.viewInTimeline: FotoIconKind.timeline,
   ActionButtonType.slideshow: FotoIconKind.slideshow,

@@ -196,7 +196,7 @@ void main() {
         expect(done(), isTrue);
       }
 
-      final pencil = find.byWidgetPredicate((w) => w is FotoIconButton && w.kind == FotoIconKind.edit);
+      final pencil = find.byWidgetPredicate((w) => w is FotoIcon && w.kind == FotoIconKind.edit);
       await advanceUntil(() => pencil.hitTestable().evaluate().isNotEmpty);
       expect(find.byType(AssetViewer), findsOneWidget);
       await tester.tap(pencil);

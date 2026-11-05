@@ -85,7 +85,8 @@ void main() {
       ],
     );
 
-    await tester.tap(find.text('Delete from Device'));
+    expect(find.text('From device'), findsOneWidget);
+    await tester.tap(find.byTooltip('Delete from Device'));
     await tester.pumpAndSettle();
 
     verify(() => context.service.cleanup.service.deleteLocalAssetsDetailed([local.id])).called(1);

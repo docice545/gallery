@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/store.dart';
@@ -92,20 +93,13 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: SizedBox(
-              height: 56,
-              child: ViewerControlSurface(
-                child: NavigationToolbar(
-                  centerMiddle: true,
-                  middleSpacing: 4,
-                  leading: const _AppBarBackButton(),
-                  middle: showingDetails ? null : _AssetInfoTitle(asset: asset),
-                  trailing: !isInTrash && !showingDetails && !isReadonlyModeEnabled
-                      ? Row(mainAxisSize: MainAxisSize.min, children: isInLockedView ? lockedViewActions : actions)
-                      : null,
-                ),
-              ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            child: _CompactViewerToolbar(
+              asset: asset,
+              showTitle: !showingDetails,
+              actions: !isInTrash && !showingDetails && !isReadonlyModeEnabled
+                  ? (isInLockedView ? lockedViewActions : actions)
+                  : const [],
             ),
           ),
         ),
@@ -114,7 +108,9 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
   }
 
   @override
-  Size get preferredSize => const Size.fromHeight(64.0);
+  // A loose maximum for the accessible two-row variant. The normal toolbar
+  // sizes to 48dp with a 44dp painted capsule, including 48dp hit targets.
+  Size get preferredSize => const Size.fromHeight(112.0);
 }
 
 class _AppBarBackButton extends ConsumerWidget {
@@ -126,43 +122,57 @@ class _AppBarBackButton extends ConsumerWidget {
   }
 }
 
-class _AssetInfoTitle extends ConsumerWidget {
+class _CompactViewerToolbar extends ConsumerWidget {
+  const _CompactViewerToolbar({required this.asset, required this.actions, required this.showTitle});
   final BaseAsset asset;
-
-  const _AssetInfoTitle({required this.asset});
+  final List<Widget> actions;
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final exifInfo = ref.watch(assetExifProvider(asset)).valueOrNull;
-    final alwaysUse24HourFormat = MediaQuery.alwaysUse24HourFormatOf(context);
-
     final (dateTime, _) = resolveAssetDateTime(asset, exifInfo);
-
-    final dateFormatted = dateTime.formatDate();
-    final timeFormatted = dateTime.formatTime(alwaysUse24HourFormat: alwaysUse24HourFormat);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Flexible(
-          child: Text(
-            dateFormatted,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: context.textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurface),
+    final date = DateFormat.MMMd(context.locale.toString()).format(dateTime);
+    final time = dateTime.formatTime(alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context));
+    final text = '$date · $time';
+    final style = context.textTheme.labelMedium?.copyWith(fontSize: 12, color: Theme.of(context).colorScheme.onSurface);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final measure = TextPainter(
+          text: TextSpan(text: text, style: style),
+          textScaler: MediaQuery.textScalerOf(context),
+          textDirection: Directionality.of(context),
+        )..layout();
+        final stacked = showTitle && measure.width + 8 > constraints.maxWidth - 48 * (actions.length + 1);
+        measure.dispose();
+        final title = Text(
+          text,
+          key: const ValueKey('viewer-compact-date-time'),
+          semanticsLabel: '${dateTime.formatDate()} $time',
+          textAlign: TextAlign.center,
+          style: style,
+        );
+        return ViewerControlSurface(
+          pill: true,
+          visualHeight: stacked ? null : 44,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 48,
+                child: NavigationToolbar(
+                  centerMiddle: true,
+                  middleSpacing: 4,
+                  leading: const _AppBarBackButton(),
+                  middle: showTitle && !stacked ? title : null,
+                  trailing: actions.isEmpty ? null : Row(mainAxisSize: MainAxisSize.min, children: actions),
+                ),
+              ),
+              if (stacked) Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 6), child: title),
+            ],
           ),
-        ),
-        Flexible(
-          child: Text(
-            timeFormatted,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: context.textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.72),
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }

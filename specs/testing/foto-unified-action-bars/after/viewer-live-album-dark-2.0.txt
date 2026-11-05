@@ -1,0 +1,4 @@
+bottom: Rect.fromLTRB(12.0, 631.0, 378.0, 820.0)
+fontScale: 2.0
+source: working tree
+top: Rect.fromLTRB(12.0, 26.0, 378.0, 112.0)

@@ -333,7 +333,7 @@ class ActionButtonBuilder {
   static const Set<ActionButtonType> defaultViewerBottomBarButtons = {
     ActionButtonType.share,
     ActionButtonType.moveToLockFolder,
-    ActionButtonType.upload,
+    ActionButtonType.googleLens,
     ActionButtonType.delete,
     ActionButtonType.archive,
     ActionButtonType.unarchive,

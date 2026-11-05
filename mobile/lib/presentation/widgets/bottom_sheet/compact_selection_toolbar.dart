@@ -1,24 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_ui/immich_ui.dart';
 
 /// Compact floating selection toolbar.
 ///
 /// The primary row never changes height when the overflow menu opens.
 /// All action callbacks are supplied by the existing action system.
 class CompactSelectionToolbar extends StatefulWidget {
-  const CompactSelectionToolbar({
-    super.key,
-    required this.deleteButton,
-    required this.shareButton,
-    required this.createButton,
-    required this.moreActions,
-  });
+  const CompactSelectionToolbar({super.key, required this.actions, required this.moreActions});
 
-  final Widget deleteButton;
-  final Widget shareButton;
-  final Widget createButton;
+  final List<SelectionToolbarAction> actions;
   final List<Widget> moreActions;
 
   @override
@@ -30,6 +27,17 @@ class _CompactSelectionToolbarState extends State<CompactSelectionToolbar> {
 
   @override
   Widget build(BuildContext context) {
+    final actions = [
+      ...widget.actions,
+      if (widget.moreActions.isNotEmpty)
+        SelectionToolbarAction(
+          key: const ValueKey('selection-more-button'),
+          kind: _showMore ? FotoIconKind.cancel : FotoIconKind.more,
+          label: context.t.selection_more,
+          semanticLabel: _showMore ? context.t.close : context.t.more,
+          onPressed: () => setState(() => _showMore = !_showMore),
+        ),
+    ];
     return SelectionToolbarFrame(
       above: _showMore && widget.moreActions.isNotEmpty
           ? ConstrainedBox(
@@ -41,23 +49,7 @@ class _CompactSelectionToolbarState extends State<CompactSelectionToolbar> {
               ),
             )
           : null,
-      child: ActionCellGrid(
-        compact: true,
-        children: [
-          SelectionToolbarAction(button: widget.deleteButton, label: context.t.delete),
-          SelectionToolbarAction(button: widget.shareButton, label: context.t.share),
-          SelectionToolbarAction(button: widget.createButton, label: context.t.add),
-          SelectionToolbarAction(
-            button: IconButton(
-              key: const ValueKey('selection-more-button'),
-              tooltip: _showMore ? context.t.close : context.t.more,
-              icon: Icon(_showMore ? Icons.close : Icons.more_horiz),
-              onPressed: widget.moreActions.isEmpty ? null : () => setState(() => _showMore = !_showMore),
-            ),
-            label: context.t.selection_more,
-          ),
-        ],
-      ),
+      child: ActionCellGrid(compact: true, labels: actions.map((action) => action.label).toList(), children: actions),
     );
   }
 }
@@ -76,18 +68,17 @@ class SelectionToolbarFrame extends StatelessWidget {
     child: Center(
       heightFactor: 1,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 392),
+        constraints: const BoxConstraints(maxWidth: 640),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             if (above != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: above),
             ViewerControlSurface(
+              pill: true,
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .45),
-                child: SingleChildScrollView(
-                  child: Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: child),
-                ),
+                child: SingleChildScrollView(child: child),
               ),
             ),
           ],
@@ -97,31 +88,79 @@ class SelectionToolbarFrame extends StatelessWidget {
   );
 }
 
+/// Shared labeled action used by viewer, selection, albums and trash.
+/// The existing UI button retains async guarding and long-press behavior.
 class SelectionToolbarAction extends StatelessWidget {
-  const SelectionToolbarAction({super.key, required this.button, required this.label});
-  final Widget button;
+  const SelectionToolbarAction({
+    super.key,
+    required this.label,
+    this.semanticLabel,
+    this.kind,
+    this.icon = Icons.more_horiz,
+    required this.onPressed,
+    this.onLongPress,
+    this.destructive = false,
+    this.selected = false,
+    this.trashKind,
+  });
+
   final String label;
+  final String? semanticLabel;
+  final FotoIconKind? kind;
+  final IconData icon;
+  final FutureOr<void> Function()? onPressed;
+  final FutureOr<void> Function()? onLongPress;
+  final bool destructive;
+  final bool selected;
+  final GhostTrashKind? trashKind;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      SizedBox.square(
-        dimension: 48,
-        child: IconButtonTheme(
-          data: IconButtonThemeData(
-            style: IconButton.styleFrom(fixedSize: const Size.square(48), visualDensity: VisualDensity.standard),
-          ),
-          child: button,
-        ),
+  Widget build(BuildContext context) {
+    final fullLabel = semanticLabel ?? label;
+    final button = Tooltip(
+      message: fullLabel,
+      child: ImmichColumnButton(
+        icon: icon,
+        leadingIcon: kind == null
+            ? Icon(icon, size: 22)
+            : ExcludeSemantics(
+                child: FotoIcon(
+                  kind: kind!,
+                  semanticLabel: fullLabel,
+                  size: 22,
+                  state: onPressed == null
+                      ? FotoIconState.disabled
+                      : destructive
+                      ? FotoIconState.destructive
+                      : selected
+                      ? FotoIconState.active
+                      : FotoIconState.normal,
+                ),
+              ),
+        compact: true,
+        label: label,
+        semanticLabel: fullLabel,
+        maxLabelWidth: double.infinity,
+        maxLabelLines: null,
+        preserveIconWhileLoading: destructive,
+        foregroundColor: destructive ? Theme.of(context).colorScheme.error : null,
+        disabled: onPressed == null,
+        onPressed: onPressed ?? () {},
+        onLongPress: onLongPress,
       ),
-      Text(
-        label,
-        textAlign: TextAlign.center,
-        style: Theme.of(
-          context,
-        ).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface, fontSize: 11),
-      ),
-    ],
-  );
+    );
+    return trashKind == null ? button : GhostTrashTarget(kind: trashKind!, child: button);
+  }
 }
+
+/// Short visual captions never replace the action's full accessible meaning.
+String fotoActionCaption(BuildContext context, FotoIconKind? kind, String label) => switch (kind) {
+  FotoIconKind.share => context.t.foto_action_send,
+  FotoIconKind.edit => context.t.edit,
+  FotoIconKind.addAlbum => context.t.add,
+  FotoIconKind.link => context.t.link,
+  FotoIconKind.lens => context.t.foto_action_lens,
+  FotoIconKind.deviceTrash => context.t.foto_action_device_remove,
+  FotoIconKind.trash => context.t.delete,
+  _ => label,
+};

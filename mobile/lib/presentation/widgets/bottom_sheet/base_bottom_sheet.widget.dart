@@ -9,6 +9,7 @@ import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 
 class BaseBottomSheet extends ConsumerStatefulWidget {
@@ -92,17 +93,23 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
         child: SelectionToolbarFrame(
           child: ActionCellGrid(
             compact: true,
+            labels: [
+              for (final action in actions.take(hasDetails ? 3 : 4))
+                if (action is ActionColumnButton)
+                  fotoActionCaption(context, action.fotoKind, action.action.create(context, ref)!.label)
+                else
+                  '',
+              if (hasDetails) context.t.selection_more,
+            ],
             children: [
               ...actions.take(hasDetails ? 3 : 4),
               if (hasDetails)
                 SelectionToolbarAction(
+                  key: const ValueKey('context-selection-more'),
                   label: context.t.selection_more,
-                  button: IconButton(
-                    key: const ValueKey('context-selection-more'),
-                    tooltip: context.t.more,
-                    icon: const Icon(Icons.more_horiz),
-                    onPressed: () => setState(() => _showMore = true),
-                  ),
+                  semanticLabel: context.t.more,
+                  kind: FotoIconKind.more,
+                  onPressed: () => setState(() => _showMore = true),
                 ),
             ],
           ),

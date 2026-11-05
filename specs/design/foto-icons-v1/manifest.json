@@ -185,6 +185,24 @@
       "binding": "SimilarPhotosAction"
     },
     {
+      "id": "lens",
+      "label": "Объектив",
+      "group": "Viewer",
+      "paths": [
+        "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+        "m13.7 13.7 3 3"
+      ],
+      "circles": [
+        {
+          "cx": 11,
+          "cy": 11,
+          "r": 3.5
+        }
+      ],
+      "binding": "GoogleLensAction",
+      "approval": "FOTO Unified Action Bars df426526e283c05a64c1c40c98782713c2192f52"
+    },
+    {
       "id": "profile",
       "label": "Фото профиля",
       "group": "Viewer",

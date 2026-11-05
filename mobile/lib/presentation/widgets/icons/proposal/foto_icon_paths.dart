@@ -16,6 +16,7 @@ enum FotoIconKind {
   cast,
   cover,
   similar,
+  lens,
   profile,
   timeline,
   slideshow,
@@ -116,6 +117,8 @@ const fotoIconPaths = <FotoIconKind, String>{
   FotoIconKind.cover:
       "<path d=\"M5 4h12l3 3v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5Z\"/><path d=\"M4 16l5-5 4 4 2-2 5 5 M15 8h.1\"/>",
   FotoIconKind.similar: "<path d=\"M4 7h10v13H4Z M9 4h11v12 M7 16l2-3 3 4\"/>",
+  FotoIconKind.lens:
+      "<path d=\"M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5\"/><circle cx=\"11\" cy=\"11\" r=\"3.5\"/><path d=\"m13.7 13.7 3 3\"/>",
   FotoIconKind.profile:
       "<path d=\"M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18\"/><path d=\"M12 6a3 3 0 1 0 0 6 3 3 0 1 0 0-6\"/><path d=\"M6 18c1-5 11-5 12 0\"/>",
   FotoIconKind.timeline: "<path d=\"M5 5h5v5H5Z M14 5h5v5h-5Z M5 14h5v5H5Z M14 14h5v5h-5Z\"/>",
