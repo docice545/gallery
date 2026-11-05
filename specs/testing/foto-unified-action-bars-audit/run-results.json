@@ -1,0 +1,28 @@
+{
+  "flutter_analyze_baseline": {
+    "exit_code": 0,
+    "issues": 0
+  },
+  "flutter_analyze_010a7a667": {
+    "exit_code": 0,
+    "issues": 0
+  },
+  "flutter_analyze_with_new_tests_before_import_sort": {
+    "exit_code": 1,
+    "info": 6,
+    "warnings": 0,
+    "errors": 0
+  },
+  "flutter_analyze_final": {
+    "exit_code": 0,
+    "issues": 0
+  },
+  "flutter_test_final": {
+    "exit_code": 0,
+    "passed": 233,
+    "failed": 0
+  },
+  "native_devices": [],
+  "new_actual_viewer_pngs": 24,
+  "fresh_panel_pngs_identical_to_existing_evidence": 54
+}

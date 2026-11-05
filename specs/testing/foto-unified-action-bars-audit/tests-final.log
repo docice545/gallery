@@ -1,0 +1,242 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart
+00:00 +0: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: (setUpAll)
+00:00 +0: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.0 cloud=false
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:03 +1: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.local font=1.0 Brightness.dark
+00:03 +2: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.0 cloud=true
+00:03 +3: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.0 cloud=true
+00:03 +4: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.0 cloud=true
+00:03 +5: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.local font=1.5 Brightness.light
+00:03 +6: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=false
+00:04 +7: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=false
+00:04 +8: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=false
+00:04 +9: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.localVideo font=1.0 Brightness.dark
+00:04 +10: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=true
+00:04 +11: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=true
+00:04 +12: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=true
+00:04 +13: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=1.5 cloud=true
+00:04 +14: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.localVideo font=2.0 Brightness.dark
+00:05 +15: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=false
+00:05 +16: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=false
+00:05 +17: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=false
+00:05 +18: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=false
+00:05 +19: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.localAlbum font=1.5 Brightness.dark
+00:05 +20: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=true
+00:05 +21: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=true
+00:05 +22: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=true
+00:05 +23: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=true
+00:05 +24: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.dark font=2.0 cloud=true
+00:06 +25: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.backedUpLocal font=1.0 Brightness.light
+00:06 +26: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=false
+00:06 +27: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=false
+00:06 +28: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=false
+00:06 +29: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=false
+00:06 +30: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=false
+00:06 +31: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloud font=1.0 Brightness.dark
+00:06 +32: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=true
+00:06 +33: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=true
+00:07 +34: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.0 cloud=true
+00:07 +35: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloud font=1.5 Brightness.light
+00:07 +36: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=false
+00:07 +37: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=false
+00:07 +38: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=false
+00:07 +39: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudVideo font=1.0 Brightness.dark
+00:07 +40: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=true
+00:07 +41: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=true
+00:07 +42: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=true
+00:08 +43: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=true
+00:08 +44: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=1.5 cloud=true
+00:08 +45: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudVideo font=2.0 Brightness.light
+00:08 +46: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=2.0 cloud=false
+00:08 +47: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=2.0 cloud=false
+00:08 +48: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=2.0 cloud=false
+00:08 +49: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.motion font=1.5 Brightness.dark
+00:08 +50: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=2.0 cloud=true
+00:09 +51: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=2.0 cloud=true
+00:09 +52: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart: real viewer geometry Brightness.light font=2.0 cloud=true
+00:09 +53: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.motion font=2.0 Brightness.light
+00:09 +54: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.merged font=1.0 Brightness.dark
+00:09 +55: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.merged font=1.0 Brightness.light
+00:09 +56: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.merged font=1.5 Brightness.dark
+00:09 +57: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.merged font=1.5 Brightness.light
+00:09 +58: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.merged font=2.0 Brightness.dark
+00:10 +59: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.merged font=2.0 Brightness.light
+00:10 +60: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.foreign font=1.0 Brightness.dark
+00:10 +61: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: (setUpAll)
+00:10 +61: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.foreign font=1.0 Brightness.light
+00:10 +62: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:10 +63: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:10 +64: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:10 +65: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:11 +66: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:11 +67: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:11 +68: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:11 +69: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:11 +70: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:11 +71: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.0
+00:12 +72: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.remoteAlbum font=2.0 Brightness.light
+00:12 +73: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +74: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +75: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +76: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +77: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +78: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +79: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +80: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.0
+00:12 +81: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudReadonly font=1.0 Brightness.light
+00:12 +82: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.0
+00:12 +83: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.0
+00:12 +84: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.0
+00:12 +85: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudReadonly font=2.0 Brightness.dark
+00:12 +86: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash dark font=1.0
+00:12 +87: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash dark font=1.0
+00:12 +88: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.localLocked font=1.0 Brightness.dark
+00:12 +89: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline dark font=1.0
+00:12 +90: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline dark font=1.0
+00:12 +91: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline dark font=1.0
+00:12 +92: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.localLocked font=1.5 Brightness.light
+00:12 +93: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local dark font=1.0
+00:12 +94: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local dark font=1.0
+00:12 +95: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.localLocked font=2.0 Brightness.light
+00:12 +96: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-foto dark font=1.0
+00:12 +97: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudLocked font=1.0 Brightness.dark
+00:13 +98: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites dark font=1.0
+00:13 +99: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudLocked font=1.0 Brightness.light
+00:13 +100: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars trash-selection dark font=1.0
+00:13 +101: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudLocked font=1.5 Brightness.dark
+00:13 +102: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=1.5
+00:13 +103: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudLocked font=1.5 Brightness.light
+00:13 +104: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.5
+00:13 +105: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=1.5
+00:13 +106: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.cloudLocked font=2.0 Brightness.light
+00:13 +107: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.5
+00:13 +108: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.5
+00:13 +109: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.5
+00:13 +110: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=1.5
+00:13 +111: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.trash font=1.5 Brightness.light
+00:13 +112: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash dark font=1.5
+00:13 +113: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash dark font=1.5
+00:13 +114: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash dark font=1.5
+00:13 +115: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.noOcr font=1.0 Brightness.dark
+00:13 +116: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline dark font=1.5
+00:13 +117: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline dark font=1.5
+00:13 +118: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.noOcr font=1.5 Brightness.dark
+00:14 +119: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local dark font=1.5
+00:14 +120: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.noOcr font=1.5 Brightness.light
+00:14 +121: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-foto dark font=1.5
+00:14 +122: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart: viewer tools _Scenario.noOcr font=2.0 Brightness.dark
+00:14 +123: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites dark font=1.5
+00:14 +124: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites dark font=1.5
+00:14 +125: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars trash-selection dark font=1.5
+00:14 +126: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud dark font=2.0
+00:14 +127: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album dark font=2.0
+00:14 +128: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local dark font=2.0
+00:14 +129: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash dark font=2.0
+00:15 +130: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline dark font=2.0
+00:15 +131: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:15 +132: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:15 +133: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:15 +134: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:15 +135: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:15 +136: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:16 +137: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:16 +138: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.0
+00:16 +139: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash light font=1.0
+00:16 +140: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=3 Brightness.dark font=1.0
+00:16 +141: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline light font=1.0
+00:16 +142: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=4 Brightness.dark font=1.0
+00:16 +143: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local light font=1.0
+00:16 +144: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=5 Brightness.dark font=1.0
+00:16 +145: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-foto light font=1.0
+00:16 +146: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.dark font=1.5
+00:16 +147: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites light font=1.0
+00:16 +148: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites light font=1.0
+00:16 +149: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=4 Brightness.dark font=1.5
+00:16 +150: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars trash-selection light font=1.0
+00:16 +151: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=5 Brightness.dark font=1.5
+00:17 +152: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud light font=1.5
+00:17 +153: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud light font=1.5
+00:17 +154: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=3 Brightness.dark font=2.0
+00:17 +155: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album light font=1.5
+00:17 +156: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album light font=1.5
+00:17 +157: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=5 Brightness.dark font=2.0
+00:17 +158: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local light font=1.5
+00:17 +159: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.light font=1.0
+00:17 +160: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash light font=1.5
+00:17 +161: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash light font=1.5
+00:17 +162: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=4 Brightness.light font=1.0
+00:17 +163: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline light font=1.5
+00:17 +164: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=5 Brightness.light font=1.0
+00:17 +165: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local light font=1.5
+00:17 +166: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local light font=1.5
+00:17 +167: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=3 Brightness.light font=1.5
+00:17 +168: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-foto light font=1.5
+00:17 +169: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=4 Brightness.light font=1.5
+00:17 +170: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites light font=1.5
+00:18 +171: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites light font=1.5
+00:18 +172: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=2 Brightness.light font=2.0
+00:18 +173: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars trash-selection light font=1.5
+00:18 +174: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars trash-selection light font=1.5
+00:18 +175: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart: same full width shell count=4 Brightness.light font=2.0
+00:18 +176: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud light font=2.0
+00:18 +177: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-cloud light font=2.0
+00:18 +178: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-live-album light font=2.0
+00:18 +179: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-local light font=2.0
+00:18 +180: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars viewer-trash light font=2.0
+00:18 +181: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars timeline light font=2.0
+00:18 +182: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-local light font=2.0
+00:19 +183: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars album-foto light font=2.0
+00:19 +184: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars library-favorites light font=2.0
+00:19 +185: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: approved bars trash-selection light font=2.0
+00:19 +186: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart: local upload and remote OCR remain usable in viewer More
+00:19 +187: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: identical two-action trash capsule Brightness.dark en width=320.0 scale=1.0
+00:20 +188: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +189: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +190: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +191: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +192: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +193: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +194: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +195: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +196: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:21 +197: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +198: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +199: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +200: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +201: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +202: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +203: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +204: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:22 +205: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:23 +206: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:23 +207: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:23 +208: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.light
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:24 +209: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: (tearDownAll)
+00:24 +209: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: (setUpAll)
+00:24 +209: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: local photo is handed off only after explicit choice; return preserves viewer state
+00:25 +210: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction uploads the selected local assets
+00:25 +211: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction uploads the selected local assets
+00:25 +212: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction uploads the selected local assets
+00:26 +213: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction uploads the selected local assets
+00:26 +214: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: cancel before choosing an app never prepares or shares a photo
+00:26 +215: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: cancel before choosing an app never prepares or shares a photo
+00:26 +216: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction reports an error when an asset fails to upload
+00:26 +217: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: unavailable photo shows retry/close and retries only on explicit tap
+00:26 +218: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: unavailable photo shows retry/close and retries only on explicit tap
+00:26 +219: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction shows the progress dialog while uploading and closes it after
+00:26 +220: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: native chooser failure shows retry/close and retries only on explicit tap
+00:26 +221: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: native chooser failure shows retry/close and retries only on explicit tap
+00:26 +222: /workspace/gallery/mobile/test/unit/presentation/actions/upload_action_test.dart: UploadAction is hidden for a remote asset, which has nothing to upload
+00:26 +223: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: pending preparation cancels via button; late completion cannot navigate
+00:26 +224: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: pending preparation cancels via button; late completion cannot navigate
+00:26 +225: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: pending preparation cancels via button; late completion cannot navigate
+00:26 +226: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: pending preparation cancels via back; late completion cannot navigate
+00:26 +227: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: pending preparation cancels via dispose; late completion cannot navigate
+00:26 +228: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: Russian tools and Lens dialog at 390x844 Brightness.dark font 1.0
+00:26 +229: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: Russian tools and Lens dialog at 390x844 Brightness.dark font 2.0
+00:26 +230: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: Russian tools and Lens dialog at 390x844 Brightness.light font 1.0
+00:26 +231: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: Russian tools and Lens dialog at 390x844 Brightness.light font 2.0
+00:27 +232: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: Lens appears only for Android photographs in an unlocked non-trash viewer
+00:27 +233: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: (tearDownAll)
+00:27 +233: All tests passed!

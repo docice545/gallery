@@ -1,0 +1,42 @@
+[
+  {
+    "name": "android-send",
+    "url": "https://developer.android.com/training/sharing/send",
+    "final_url": "https://developer.android.com/develop/ui/compose/sharing/send",
+    "status": 200,
+    "html_sha256": "8b45e9e2aa16ae735cf901f76e25fb24013c2304692a6d738198d99ff1755962",
+    "text_sha256": "795dc91d3be0fa487f36fcd5939d21bfc09eb088dc315905c416102f7e198b5c"
+  },
+  {
+    "name": "android-intents",
+    "url": "https://developer.android.com/guide/components/intents-common",
+    "final_url": "https://developer.android.com/guide/components/intents-common",
+    "status": 200,
+    "html_sha256": "0ae65fc1dbaae1af3d7e01597e0d88552022c85c94b97df4da484d887d9ace5e",
+    "text_sha256": "81e7ff4f2f8ef8c32e1e7d66f61c83a7965295be80bd959e0a4b531650a11401"
+  },
+  {
+    "name": "android-intent-api",
+    "url": "https://developer.android.com/reference/android/content/Intent",
+    "final_url": "https://developer.android.com/reference/android/content/Intent",
+    "status": 200,
+    "html_sha256": "1f6bd310e920a7d8b0862823623fec1266b75a1bf713d6c7ab7384300d78e3ef",
+    "text_sha256": "46a7f84f870270ae526c5e246e08094723664bb9d84fe5de8893166942a4c669"
+  },
+  {
+    "name": "google-image-search",
+    "url": "https://support.google.com/websearch/answer/1325808?hl=en&co=GENIE.Platform%3DAndroid",
+    "final_url": "https://support.google.com/websearch/answer/1325808?hl=en&co=GENIE.Platform%3DAndroid",
+    "status": 200,
+    "html_sha256": "6b1b1ec9df86f846f8ce43788c06bf52c86afe202f95f23eb24c4cc1324cf6ab",
+    "text_sha256": "d13bf479db35fd24e253c7d17108f36751b81309431f5319bead0322dc74ac82"
+  },
+  {
+    "name": "google-lens",
+    "url": "https://lens.google/",
+    "final_url": "https://search.google/ways-to-search/lens/",
+    "status": 200,
+    "html_sha256": "7dca7eb20f112113287d1478ecf85fffd80c4ee4355d7f9c37b4bd0abe367401",
+    "text_sha256": "96f2a03f7cde7dad1d361b57532ddb600bbaab79f943a969afd146c2e30a7cf5"
+  }
+]

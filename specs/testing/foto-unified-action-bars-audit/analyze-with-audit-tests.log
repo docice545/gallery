@@ -1,0 +1,10 @@
+Analyzing mobile...
+
+   info • Sort directive sections alphabetically. Try sorting the directives • test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart:3:1 • directives_ordering
+   info • Sort directive sections alphabetically. Try sorting the directives • test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart:22:1 • directives_ordering
+   info • Sort directive sections alphabetically. Try sorting the directives • test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart:23:1 • directives_ordering
+   info • Sort directive sections alphabetically. Try sorting the directives • test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart:24:1 • directives_ordering
+   info • Sort directive sections alphabetically. Try sorting the directives • test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart:29:1 • directives_ordering
+   info • Sort directive sections alphabetically. Try sorting the directives • test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart:38:1 • directives_ordering
+
+6 issues found. (ran in 8.2s)
