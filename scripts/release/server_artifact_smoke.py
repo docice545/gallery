@@ -379,7 +379,8 @@ const {getKyselyConfig}=await import('file:///usr/src/app/server/dist/utils/data
 let input='';for await(const part of process.stdin)input+=part;
 const data=JSON.parse(input),config=new ConfigRepository().getEnv();
 if(config.storage.mediaLocation!=='/data')throw new Error('DISPOSABLE_STORAGE_REQUIRED');
-const root='/data/build11-external-ci',file=root+'/synthetic.png';
+// External library roots must be outside the managed upload tree.
+const root='/tmp/gallery-build38-external-ci',file=root+'/synthetic.png';
 if(data.action==='writeExternal'){
   await fs.mkdir(root,{recursive:true,mode:0o700});
   await fs.writeFile(file,Buffer.from(data.media,'base64'),{flag:'wx',mode:0o600});
@@ -546,6 +547,8 @@ def main():
                 headers['Authorization'] = 'Bearer ' + token
             body = data if isinstance(data, bytes) else None if data is None else json.dumps(data).encode()
             with opener.open(urllib.request.Request(base + path, body, headers, method=method), timeout=10) as response:
+                if method == 'HEAD':
+                    return {'status': response.status, 'contentLength': int(response.headers.get('Content-Length', '0'))}
                 body = response.read()
                 return body if raw else json.loads(body) if body else None
 
@@ -569,6 +572,8 @@ def main():
         asset_id = upload_synthetic(request, media)
         original = request(f'/assets/{asset_id}/original', raw=True)
         assert original == media
+        assert request(f'/assets/{asset_id}/original?edited=false', 'HEAD') == {'status': 200, 'contentLength': len(media)}
+        print('PASS authenticated unedited original HEAD availability and byte length for free-space verification')
         before = request('/assets/' + asset_id)
         request('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
         assert request('/assets/' + asset_id)['isTrashed'] is True

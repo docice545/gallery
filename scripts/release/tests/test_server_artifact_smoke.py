@@ -318,6 +318,11 @@ class SmokeLifecycle(SmokeFixture):
             elif path == '/assets' and method == 'DELETE': state['trashed'] = True
             elif path == '/assets/' + ASSET:
                 result = {'isTrashed': state['trashed'], 'fileCreatedAt': '2024-05-06', 'localDateTime': '2024-05-06'}
+            elif path == '/assets/' + ASSET + '/original?edited=false' and method == 'HEAD':
+                reply = io.BytesIO()
+                reply.status = 200
+                reply.headers = {'Content-Length': str(len(media))}
+                return reply
             elif path == '/assets/' + ASSET + '/original':
                 if state['deleted']: raise urllib.error.HTTPError('unused', 404, 'fixture', {}, None)
                 return io.BytesIO(media)
@@ -373,6 +378,7 @@ class SmokeLifecycle(SmokeFixture):
         self.assertEqual(completed['isolatedWorkerConfiguration'], 'API_AND_MICROSERVICES')
         self.assertEqual(completed['thumbnailPreviewVerification'], 'PASS_SYNTHETIC_FILES_AND_HTTP')
         self.assertIn('ordinary owner consent', completed['isolatedSmoke'])
+        self.assertIn(('/assets/' + ASSET + '/original?edited=false', 'HEAD'), requests)
         thumbnails.assert_called_once()
         external.assert_called_once()
         self.assertEqual(len([call for call in calls if call[0] == 'rm']), 3)
@@ -418,7 +424,7 @@ class Build11OrdinaryStorage(SmokeFixture):
         request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, media,
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
             [{'id': ASSET, 'scope': scope, 'accepted': True, 'state': 'complete'}]])
-        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], True, [], []]) as storage:
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/tmp/gallery-build38-external-ci'}, [ASSET], True, [], []]) as storage:
             result = smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
         self.assertTrue(result['ownerWritablePhysicalDeletion'])
         self.assertFalse(result['productionNFSVerified'])
@@ -432,7 +438,7 @@ class Build11OrdinaryStorage(SmokeFixture):
         request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, smoke.synthetic_png(22),
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
             [{'id': ASSET, 'scope': scope, 'accepted': True, 'state': 'complete'}]])
-        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/tmp/gallery-build38-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
             smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
 
     def test_runtime_fixture_refuses_production_container_before_any_exec(self):
