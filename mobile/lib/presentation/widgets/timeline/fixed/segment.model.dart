@@ -213,15 +213,18 @@ class _FixedSegmentRow extends ConsumerWidget {
           rowWidths ??
           FixedRowLayout.justifiedWidths(width: rowWidth, spacing: spacing, aspectRatios: List.filled(assetCount, 1.0));
       return RepaintBoundary(
-        child: TimelineRow(
-          height: tileHeight,
-          widths: widths,
-          spacing: spacing,
-          textDirection: Directionality.of(context),
-          children: [
-            for (var i = 0; i < widths.length; i++)
-              _clipMosaicEdge(context, i, widths.length, ThumbnailPlaceholder(width: widths[i], height: tileHeight)),
-          ],
+        child: _positionRow(
+          TimelineRow(
+            height: tileHeight,
+            widths: widths,
+            spacing: spacing,
+            textDirection: Directionality.of(context),
+            children: [
+              for (var i = 0; i < widths.length; i++)
+                _clipMosaicEdge(context, i, widths.length, ThumbnailPlaceholder(width: widths[i], height: tileHeight)),
+            ],
+          ),
+          widths,
         ),
       );
     }
@@ -297,12 +300,26 @@ class _FixedSegmentRow extends ConsumerWidget {
         ),
     ];
 
-    return TimelineRow(
-      height: tileHeight,
-      widths: widths,
-      spacing: spacing,
-      textDirection: Directionality.of(context),
-      children: children,
+    return _positionRow(
+      TimelineRow(
+        height: tileHeight,
+        widths: widths,
+        spacing: spacing,
+        textDirection: Directionality.of(context),
+        children: children,
+      ),
+      widths,
+    );
+  }
+
+  Widget _positionRow(Widget row, List<double> widths) {
+    if (!denseLayout) {
+      return row;
+    }
+    final gap = math.max(0.0, rowWidth - widths.sum - spacing * (widths.length - 1));
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: gap / 2),
+      child: row,
     );
   }
 }

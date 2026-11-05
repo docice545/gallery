@@ -55,7 +55,7 @@ void main() {
     expect(layout.extent, layout.rowCount == 0 ? 0 : layout.offsetForRow(layout.rowCount) - layout.spacing);
   }
 
-  test('a single photograph fills the width with bounded cover-crop height', () {
+  test('single landscapes fill width while solitary portraits keep a compact bounded footprint', () {
     final landscape = mosaic([1.5]);
     expect(landscape.rowCount, 1);
     expect(landscape.isJustifiedRow(0), isTrue);
@@ -63,9 +63,9 @@ void main() {
     expect(landscape.widthsForRow(0), [390]);
     final portrait = mosaic([.45]);
     expect(portrait.rowCount, 1);
-    expect(portrait.isJustifiedRow(0), isTrue);
-    expect(portrait.heightForRow(0), 200);
-    expect(portrait.widthsForRow(0), [390]);
+    expect(portrait.isJustifiedRow(0), isFalse);
+    expect(portrait.heightForRow(0), 128);
+    expect(portrait.widthsForRow(0), [72]);
     verify(landscape);
     verify(portrait);
   });
@@ -298,13 +298,13 @@ void main() {
     }
   });
 
-  test('a final incomplete row keeps its natural width at the target height', () {
-    final layout = mosaic([1, 1, .25]);
-    expect(layout.rowCount, 2);
+  test('an unavoidable extreme portrait tail is bounded instead of leaving a tall empty row', () {
+    final layout = mosaic([3, 3, .25]);
+    expect(layout.rowCount, 3);
     expect(layout.isJustifiedRow(0), isTrue);
-    expect(layout.isJustifiedRow(1), isFalse);
-    expect(layout.widthsForRow(1), [72]);
-    expect(layout.heightForRow(1), 200);
+    expect(layout.isJustifiedRow(2), isFalse);
+    expect(layout.widthsForRow(2), [72]);
+    expect(layout.heightForRow(2), 128);
     verify(layout);
   });
 

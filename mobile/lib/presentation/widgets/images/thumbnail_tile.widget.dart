@@ -368,24 +368,30 @@ class _VideoIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      spacing: 3,
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.end,
-      // CrossAxisAlignment.start looks more centered vertically than CrossAxisAlignment.center
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          duration.format(),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            shadows: [Shadow(blurRadius: 5.0, color: Color.fromRGBO(0, 0, 0, 0.6))],
+    // A bounded portrait tail (or enlarged system text) can be narrower than
+    // the duration badge. Keep the full duration without overflow or cropping.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topRight,
+      child: Row(
+        spacing: 3,
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
+        // CrossAxisAlignment.start looks more centered vertically than CrossAxisAlignment.center
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            duration.format(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              shadows: [Shadow(blurRadius: 5.0, color: Color.fromRGBO(0, 0, 0, 0.6))],
+            ),
           ),
-        ),
-        const _TileOverlayIcon(Icons.play_circle_outline_rounded),
-      ],
+          const _TileOverlayIcon(Icons.play_circle_outline_rounded),
+        ],
+      ),
     );
   }
 }

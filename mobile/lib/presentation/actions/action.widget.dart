@@ -33,6 +33,7 @@ class ActionColumnButton extends ActionWidget {
   Widget builder(BuildContext context, WidgetRef ref, ActionItem action) => _ghostTarget(
     ImmichColumnButton(
       icon: action.icon,
+      compact: ActionCellGrid.isCompact(context),
       preserveIconWhileLoading: fotoKind == FotoIconKind.trash || fotoKind == FotoIconKind.deviceTrash,
       maxLabelWidth: ActionCellGrid.contains(context) ? double.infinity : 90,
       maxLabelLines: ActionCellGrid.contains(context) ? null : 2,

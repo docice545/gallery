@@ -44,9 +44,10 @@ class FixedRowLayout {
   /// Pathological source dimensions are bounded (1:4 through 3:1), and cells
   /// narrower than 72 pixels receive a bounded cover crop for usable selection
   /// targets. Ordinary rows preserve their source aspect ratios. Unknown
-  /// dimensions use a square. A final row
-  /// which would exceed [maximumHeight] stays at [targetHeight] instead of
-  /// stretching a lone portrait across the display.
+  /// dimensions use a square. Rebalance the last two rows within this bucket
+  /// before leaving a portrait orphan. A genuinely unfillable date tail uses
+  /// at most 128 dp of height and retains portrait proportions; no asset is
+  /// borrowed from the next date or stretched across the display.
   factory FixedRowLayout.justified({
     required double width,
     required List<double> aspectRatios,
@@ -101,11 +102,60 @@ class FixedRowLayout {
         }
         previousHeight = rowHeight;
       }
+      // The greedy target can close a landscape row immediately before a
+      // portrait tail (e.g. 16:9, 16:9, 9:16). Try the bounded final window's
+      // partitions before committing it. This is bucket-local and does not
+      // depend on thumbnails or selection; the large-library pass stays linear.
+      final remaining = ratios.length - first - count;
+      if (remaining > 0 && remaining <= maxCount) {
+        final tailSum = ratios.skip(first + count).fold(0.0, (a, b) => a + b);
+        final tailHeight = (width - spacing * (remaining - 1)) / tailSum;
+        if (tailHeight > maximum) {
+          final totalCount = count + remaining;
+          final totalSum = sum + tailSum;
+          var leftSum = 0.0;
+          var bestScore = double.infinity;
+          for (var leftCount = 1; leftCount <= math.min(maxCount, totalCount); leftCount++) {
+            leftSum += ratios[first + leftCount - 1];
+            final rightCount = totalCount - leftCount;
+            if (rightCount > maxCount) {
+              continue;
+            }
+            final leftHeight = (width - spacing * (leftCount - 1)) / leftSum;
+            final rightHeight = rightCount == 0 ? target : (width - spacing * (rightCount - 1)) / (totalSum - leftSum);
+            // A neighboring landscape may use at most 20% cover crop to avoid
+            // abandoning a portrait at denser settings. The final paint still
+            // obeys maximum; this is not permission for an unbounded row.
+            if (leftHeight < minimum ||
+                leftHeight > maximum * 1.25 ||
+                rightHeight < minimum ||
+                rightHeight > maximum * 1.25) {
+              continue;
+            }
+            // Prefer a partition that keeps the 72 dp badge target without
+            // forcing the portrait into a wider, heavily cropped tile.
+            final leftMin = ratios.skip(first).take(leftCount).reduce(math.min);
+            final rightMin = rightCount == 0 ? 1.0 : ratios.skip(first + leftCount).take(rightCount).reduce(math.min);
+            if (leftHeight * leftMin < math.min(72.0, width) ||
+                (rightCount > 0 && rightHeight * rightMin < math.min(72.0, width))) {
+              continue;
+            }
+            final score = (leftHeight - target).abs() + (rightHeight - target).abs();
+            if (score < bestScore) {
+              bestScore = score;
+              count = leftCount;
+              sum = leftSum;
+              rowHeight = leftHeight;
+            }
+          }
+        }
+      }
       final last = first + count == ratios.length;
-      // A singleton keeps the mode's full-width cover crop, but uses the
-      // selected density's target height rather than the maximum row height.
-      final singleAssetDay = ratios.length == 1;
-      var justified = singleAssetDay || !last || rowHeight <= maximum;
+      // Landscape singleton days retain their bounded full-width cover. A lone
+      // portrait must not receive that strong landscape crop.
+      final singleAssetDay = ratios.length == 1 && ratios.first >= 1;
+      final singlePortraitDay = ratios.length == 1 && ratios.first < 1;
+      var justified = !singlePortraitDay && (singleAssetDay || !last || rowHeight <= maximum);
       final available = math.max(0.0, width - spacing * (count - 1));
       List<double> widths;
       final rowRatios = ratios.sublist(first, first + count);
@@ -118,7 +168,7 @@ class FixedRowLayout {
             : rowHeight.clamp(minimum, maximum);
         widths = singleAssetDay ? [width] : _boundedWidths(rowRatios, available);
       } else {
-        rowHeight = target;
+        rowHeight = math.max(minimum, math.min(target, 128.0));
         final minimumWidth = math.min(72.0, available / count);
         widths = [for (final ratio in rowRatios) math.max(minimumWidth, rowHeight * ratio)];
         if (widths.fold(0.0, (sum, width) => sum + width) >= available) {

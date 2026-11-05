@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi' hide Size;
 import 'dart:io';
 import 'dart:math' as math;
@@ -151,6 +152,7 @@ void main() {
   final sourceSizes = <String, Size>{};
   final requests = <String>[];
   var offlinePreviewFailure = false;
+  Completer<void>? decodeGate;
   const requestChannel = BasicMessageChannel<Object?>(
     'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
     RemoteImageApi.pigeonChannelCodec,
@@ -178,6 +180,7 @@ void main() {
       final arguments = message! as List<Object?>;
       final url = arguments.first! as String;
       requests.add(url);
+      await decodeGate?.future;
       if (offlinePreviewFailure && Uri.parse(url).queryParameters['size'] == 'preview') {
         return ['network-unavailable', 'Synthetic offline refusal', null];
       }
@@ -191,6 +194,7 @@ void main() {
 
   setUp(() async {
     requests.clear();
+    decodeGate = null;
     offlinePreviewFailure = false;
     sourceSizes.clear();
     PaintingBinding.instance.imageCache.clear();
@@ -213,6 +217,7 @@ void main() {
     Size size = const Size(390, 844),
     List<Bucket>? buckets,
     double textScale = 1,
+    Brightness brightness = Brightness.light,
     double decodePixelRatio = 1,
     TimelineAssetSource? source,
     bool withHeaders = false,
@@ -280,7 +285,7 @@ void main() {
           child: ColoredBox(
             color: Colors.white,
             child: Theme(
-              data: ThemeData(fontFamily: 'GoogleSans'),
+              data: ThemeData(fontFamily: 'GoogleSans', brightness: brightness),
               child: FaceAwareThumbnailScope(
                 child: realTimeline
                     ? Timeline(
@@ -300,7 +305,7 @@ void main() {
                         denseLayout: true,
                         withStack: true,
                       )
-                    : list,
+                    : Material(color: Colors.transparent, child: list),
               ),
             ),
           ),
@@ -732,16 +737,120 @@ void main() {
         }
         expect(row.last.right, lessThanOrEqualTo(390 + 1e-6));
       }
+      await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 80)));
+      await tester.pumpAndSettle();
       final bytes = await _capture(tester, fixture.boundary);
       for (final asset in assets) {
         final center = tester.getRect(_tile(asset.id)).center;
-        expect(_pixel(bytes, 390, center), isNot([255, 255, 255, 255]));
+        final color = _sourceColor(asset.id);
+        expect(_pixel(bytes, 390, center), [
+          (color.r * 255).round(),
+          (color.g * 255).round(),
+          (color.b * 255).round(),
+          255,
+        ], reason: 'Visible cells must contain decoded source pixels, not grey placeholders');
       }
       expect(requests, isNotEmpty);
       expect(requests.every((url) => Uri.parse(url).path.endsWith('/thumbnail')), isTrue);
       expect(tester.takeException(), isNull);
     });
   }
+
+  for (final presentation in TimelinePresentation.values) {
+    for (final density in [2, 3, 4, 5]) {
+      for (final brightness in Brightness.values) {
+        testWidgets(
+          'Build39 two landscape photos and portrait video 00:39 fill real rows in $presentation density $density $brightness',
+          (tester) async {
+            final assets = [
+              _asset('wide-a', ratio: 16 / 9),
+              _asset('wide-b', ratio: 16 / 9),
+              _asset(
+                'portrait-video',
+                ratio: 9 / 16,
+              ).copyWith(type: AssetType.video, durationMs: 39000, name: 'clip.mp4'),
+            ];
+            final fixture = await mount(tester, assets, realTimeline: true, brightness: brightness);
+            final config = fixture.container.read(_testConfig.notifier);
+            config.state = config.state.copyWith(
+              timeline: config.state.timeline.copyWith(presentation: presentation, tilesPerRow: density),
+            );
+            await tester.pumpAndSettle();
+            await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 80)));
+            await tester.pumpAndSettle();
+            final rects = [for (final asset in assets) tester.getRect(_tile(asset.id))];
+            final pixels = await _capture(
+              tester,
+              fixture.boundary,
+              name: 'build39-video-${presentation.name}-$density-${brightness.name}',
+            );
+            for (var i = 0; i < assets.length; i++) {
+              final color = _sourceColor(assets[i].id);
+              expect(_pixel(pixels, 390, rects[i].center), [
+                (color.r * 255).round(),
+                (color.g * 255).round(),
+                (color.b * 255).round(),
+                255,
+              ], reason: 'Decode actual fixture pixels, not grey thumbnail boxes');
+            }
+            expect(find.text('00:39'), findsOneWidget);
+            final rows = <double, List<Rect>>{};
+            for (final rect in rects) {
+              rows.putIfAbsent(rect.top, () => []).add(rect);
+            }
+            for (final row in rows.values) {
+              expect(
+                row.last.right,
+                closeTo(390, .01),
+                reason: 'A real portrait video must not leave a large blank right-hand rectangle',
+              );
+            }
+            final video = rects.last;
+            expect(
+              video.width / video.height,
+              closeTo(9 / 16, .03),
+              reason: 'Do not disguise the hole by strongly cropping the portrait video',
+            );
+            final before = {for (final asset in assets) asset.id: tester.getRect(_tile(asset.id))};
+            await tester.longPress(_tile(assets.last.id));
+            await tester.pumpAndSettle();
+            expect(fixture.container.read(multiSelectProvider).selectedAssets.single.id, assets.last.id);
+            for (final asset in assets) {
+              expect(tester.getRect(_tile(asset.id)), before[asset.id]);
+            }
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets('Build39 portrait video row does not jump when actual thumbnail decoding completes', (tester) async {
+    decodeGate = Completer<void>();
+    final assets = [
+      _asset('pending-a', ratio: 16 / 9),
+      _asset('pending-b', ratio: 16 / 9),
+      _asset('pending-video', ratio: 9 / 16).copyWith(type: AssetType.video, durationMs: 39000),
+    ];
+    final fixture = await mount(tester, assets);
+    final before = {for (final asset in assets) asset.id: tester.getRect(_tile(asset.id))};
+    decodeGate!.complete();
+    await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 80)));
+    await tester.pumpAndSettle();
+    final pixels = await _capture(tester, fixture.boundary);
+    for (final asset in assets) {
+      final rect = tester.getRect(_tile(asset.id));
+      expect(rect, before[asset.id]);
+      final color = _sourceColor(asset.id);
+      expect(_pixel(pixels, 390, rect.center), [
+        (color.r * 255).round(),
+        (color.g * 255).round(),
+        (color.b * 255).round(),
+        255,
+      ]);
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('selection keeps image geometry and elements stable with the existing six-pixel tile corners', (
     tester,
@@ -803,12 +912,16 @@ void main() {
   testWidgets('date and month boundaries preserve order and date selection across differently shaped rows', (
     tester,
   ) async {
-    final assets = [_asset('november', ratio: .55), _asset('october-a', ratio: 1.6), _asset('october-b', ratio: .7)];
+    final assets = [
+      _asset('november', ratio: 9 / 16).copyWith(type: AssetType.video, durationMs: 39000),
+      _asset('october-a', ratio: 1.6),
+      _asset('october-b', ratio: .7),
+    ];
     final fixture = await mount(
       tester,
       assets,
       buckets: [
-        TimeBucket(date: DateTime(2026, 11, 1), assetCount: 1, aspectRatios: const [.55]),
+        TimeBucket(date: DateTime(2026, 11, 1), assetCount: 1, aspectRatios: const [9 / 16]),
         TimeBucket(date: DateTime(2026, 10, 24), assetCount: 2, aspectRatios: const [1.6, .7]),
       ],
       withHeaders: true,
@@ -820,6 +933,9 @@ void main() {
     final secondHeader = tester.getRect(dateHeaders.last);
     final firstPhoto = tester.getRect(_tile(assets.first.id));
     final nextPhoto = tester.getRect(_tile(assets[1].id));
+    expect(firstPhoto.height, lessThanOrEqualTo(128));
+    expect(firstPhoto.center.dx, closeTo(195, .01));
+    expect(firstPhoto.width / firstPhoto.height, closeTo(9 / 16, .01));
     expect(firstPhoto.top - firstHeader.bottom, closeTo(_spacing, 1e-6));
     expect(nextPhoto.top - secondHeader.bottom, closeTo(_spacing, 1e-6));
     expect(secondHeader.top - firstPhoto.bottom, inInclusiveRange(0, _spacing + 1e-6));
@@ -835,7 +951,10 @@ void main() {
 
   for (final size in [const Size(390, 844), const Size(320, 568), const Size(844, 390)]) {
     testWidgets('mosaic and headers fit $size with enlarged text without RenderFlex overflow', (tester) async {
-      final assets = [for (var i = 0; i < 12; i++) _asset('sized-$i', ratio: i.isEven ? .6 : 1.4)];
+      final assets = [
+        for (var i = 0; i < 12; i++)
+          _asset('sized-$i', ratio: i.isEven ? .6 : 1.4).copyWith(type: AssetType.video, durationMs: 39000),
+      ];
       final fixture = await mount(
         tester,
         assets,
@@ -863,19 +982,34 @@ void main() {
     final fixture = await mount(
       tester,
       [],
-      buckets: [Bucket(assetCount: 50000, aspectRatios: List.filled(50000, 1))],
+      buckets: [
+        Bucket(assetCount: 50000, aspectRatios: List.generate(50000, (i) => [16 / 9, 9 / 16, 1.0, 4.0][i % 4])),
+      ],
       source: (offset, count) async {
         sourceRequests.add((offset, count));
-        return List.generate(math.min(count, 50000 - offset), (index) => _asset('large-${offset + index}'));
+        return List.generate(math.min(count, 50000 - offset), (index) {
+          final i = offset + index;
+          return _asset(
+            'large-$i',
+            ratio: [16 / 9, 9 / 16, 1.0, 4.0][i % 4],
+          ).copyWith(type: i % 4 == 1 ? AssetType.video : AssetType.image, durationMs: i % 4 == 1 ? 39000 : null);
+        });
       },
     );
     expect(find.byType(ThumbnailTile).evaluate().length, lessThan(50));
     expect(sourceRequests.every((request) => request.$2 <= 1024), isTrue);
-    fixture.scroll.jumpTo(100000);
+    fixture.scroll.jumpTo(fixture.scroll.position.maxScrollExtent / 2);
     await tester.pump();
     await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 40)));
     await tester.pumpAndSettle();
     expect(find.byType(ThumbnailTile).evaluate().length, lessThan(50));
+    final visibleAssets = tester
+        .widgetList<ThumbnailTile>(find.byType(ThumbnailTile))
+        .map((tile) => tile.asset)
+        .toList();
+    expect(visibleAssets, isNotEmpty);
+    expect(visibleAssets.every((asset) => asset != null), isTrue);
+    expect(int.parse(visibleAssets.first!.id.split('-').last), greaterThan(20000));
     expect(sourceRequests.any((request) => request.$1 > 0), isTrue);
     expect(sourceRequests.every((request) => request.$2 <= 1024), isTrue);
     expect(requests.length, lessThan(100));

@@ -247,17 +247,16 @@ void main() {
     return ProviderScope.containerOf(tester.element(find.byType(ListView)));
   }
 
-  testWidgets('a single portrait fills its bounded row and retains motion and stack badges', (tester) async {
+  testWidgets('a solitary portrait stays compact and centered with motion and stack badges', (tester) async {
     final asset = _asset('single', ratio: 0.6, live: true, stack: true);
     await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
 
     final rect = tester.getRect(_tile(asset.id));
-    // Build 31-32 deliberately made a single-asset day full-width; incomplete
-    // final rows within a multi-asset day still have separate compact-row coverage.
-    expect(rect.width, closeTo(_viewportWidth, 0.001));
-    expect(rect.height, greaterThan(160));
-    expect(rect.height, lessThanOrEqualTo(320));
+    // Build 39 keeps an isolated date portrait proportional and bounded.
+    expect(rect.height, 128);
+    expect(rect.width / rect.height, closeTo(.6, .001));
+    expect(rect.center.dx, closeTo(tester.getRect(find.byType(ListView)).center.dx, .001));
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     final stackCount = tester.getRect(_inTile(asset.id, find.text(' 3')));
     final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.photo_library_outlined)));
@@ -317,7 +316,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('completed dense rows fill the width and the final incomplete row stays compact', (tester) async {
+  testWidgets('rebalanced mixed rows fill the width without abandoning the last portrait', (tester) async {
     final assets = [
       _asset('one', ratio: 0.5),
       _asset('two', ratio: 1.8),
@@ -335,14 +334,18 @@ void main() {
       final rect = tester.getRect(_tile(asset.id));
       rowRects.putIfAbsent(rect.top, () => []).add(rect);
     }
-    expect(rowRects.length, 3);
-    for (final rects in rowRects.values.take(rowRects.length - 1)) {
+    expect(rowRects.length, 2);
+    for (final rects in rowRects.values) {
       expect(
         rects.fold<double>(0, (sum, rect) => sum + rect.width) + _spacing * (rects.length - 1),
         closeTo(_viewportWidth, 0.001),
       );
     }
-    expect(rowRects.values.last.single.width, lessThan(_viewportWidth));
+    expect(rowRects.values.last.length, greaterThan(1));
+    expect(
+      tester.getRect(_tile(assets.last.id)).width / tester.getRect(_tile(assets.last.id)).height,
+      closeTo(.7, .01),
+    );
     expect(tester.takeException(), isNull);
   });
 

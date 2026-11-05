@@ -111,7 +111,6 @@ class MemoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = getMemoryTitle(context, memory);
-    final colorScheme = Theme.of(context).colorScheme;
     final thumbnail = memory.assets.isEmpty
         ? null
         : thumbnailBuilder?.call(memory.assets.first) ??
@@ -120,49 +119,40 @@ class MemoryCard extends StatelessWidget {
                 thumbhash: memory.assets.first.thumbHash ?? '',
                 fit: BoxFit.cover,
               );
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: colorScheme.surfaceContainerHighest,
-        boxShadow: [
-          BoxShadow(color: colorScheme.shadow.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2)),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ?thumbnail,
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0.42, 1],
+                colors: [Colors.transparent, Color(0xCC000000)],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 14,
+            right: 14,
+            bottom: 14,
+            child: Text(
+              title,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                fontSize: 15,
+                height: 1.2,
+                shadows: [Shadow(color: Colors.black54, blurRadius: 3)],
+              ),
+            ),
+          ),
         ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ?thumbnail,
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.42, 1],
-                  colors: [Colors.transparent, Color(0xCC000000)],
-                ),
-              ),
-            ),
-            Positioned(
-              left: 14,
-              right: 14,
-              bottom: 14,
-              child: Text(
-                title,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  fontSize: 15,
-                  height: 1.2,
-                  shadows: [Shadow(color: Colors.black54, blurRadius: 3)],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

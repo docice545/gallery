@@ -78,7 +78,7 @@ void main() {
         for (final rect in rects) {
           expect(rect.width, closeTo(rects.first.width, .01));
         }
-        expect(tester.getRect(find.byType(CustomScrollView)).bottom, lessThanOrEqualTo(size.height - 24));
+        expect(tester.getRect(find.byType(SingleChildScrollView)).bottom, lessThanOrEqualTo(size.height - 24));
         await tester.ensureVisible(find.text(labels.first));
         await tester.tap(find.text(labels.first));
         await tester.pumpAndSettle();

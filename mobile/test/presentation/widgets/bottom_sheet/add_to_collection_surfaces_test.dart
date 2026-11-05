@@ -17,6 +17,9 @@ import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/services/setting.service.dart';
 import 'package:immich_mobile/domain/services/user.service.dart';
 import 'package:immich_mobile/models/albums/album_search.model.dart';
+import 'package:immich_mobile/presentation/actions/action.widget.dart';
+import 'package:immich_mobile/presentation/actions/remove_from_album.action.dart';
+import 'package:immich_mobile/presentation/actions/set_album_cover.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/add_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/archive_bottom_sheet.widget.dart';
@@ -152,6 +155,29 @@ void main() {
     // Reverting a surface to `[AddToAlbumHeader(), AlbumSelector(...)]` — upstream's album-only
     // picker, which is the bug — empties this.
     expect(slivers.whereType<CollectionPicker>(), hasLength(1));
+  }
+
+  for (final ownsAlbum in [true, false]) {
+    testWidgets('Build39 album compact overflow retains contextual owner actions: $ownsAlbum', (tester) async {
+      await pumpSheet(tester, RemoteAlbumBottomSheet(album: ownsAlbum ? ownedAlbum() : foreignAlbum()));
+      expect(find.byKey(const ValueKey('context-selection-more')), findsOneWidget);
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('context-selection-more')));
+      await tester.pumpAndSettle();
+      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      final actions = tester
+          .widgetList<ActionColumnButton>(find.byType(ActionColumnButton))
+          .map((w) => w.action)
+          .toList();
+      expect(actions.whereType<RemoveFromAlbumAction>().length, ownsAlbum ? 1 : 0);
+      expect(actions.whereType<SetAlbumCoverAction>().length, ownsAlbum ? 1 : 0);
+      expectPickerMounted(tester);
+      await tester.tap(find.byKey(const ValueKey('context-selection-close')));
+      await tester.pumpAndSettle();
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+      expect(find.byKey(const ValueKey('context-selection-more')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets('a selection inside an owned album offers spaces', (tester) async {

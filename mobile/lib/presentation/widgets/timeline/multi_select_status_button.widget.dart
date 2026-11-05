@@ -12,20 +12,44 @@ class MultiSelectStatusButton extends ConsumerWidget {
     final selectCount = ref.watch(multiSelectProvider.select((s) => s.selectedAssets.length));
     return Tooltip(
       message: context.t.deselect_all,
-      child: ElevatedButton.icon(
-        style: ElevatedButton.styleFrom(
-          minimumSize: const Size(48, 48),
-          maximumSize: const Size(double.infinity, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-        ),
-        onPressed: () => ref.read(multiSelectProvider.notifier).reset(),
-        icon: Icon(Icons.close_rounded, color: context.colorScheme.onPrimary),
-        label: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            selectCount.toString(),
-            semanticsLabel: context.t.selected_count(count: selectCount),
-            style: context.textTheme.titleMedium?.copyWith(height: 1, color: context.colorScheme.onPrimary),
+      child: SizedBox(
+        height: 48,
+        child: TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            padding: EdgeInsets.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            foregroundColor: context.colorScheme.onPrimaryContainer,
+          ),
+          onPressed: () => ref.read(multiSelectProvider.notifier).reset(),
+          child: Container(
+            key: const ValueKey('selection-count-surface'),
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: context.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.close_rounded, size: 18),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      selectCount.toString(),
+                      semanticsLabel: context.t.selected_count(count: selectCount),
+                      style: context.textTheme.labelLarge?.copyWith(
+                        height: 1,
+                        color: context.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

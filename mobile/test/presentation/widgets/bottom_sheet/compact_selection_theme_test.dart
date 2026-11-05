@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
 import 'toolbar_test_app.dart';
@@ -34,15 +35,16 @@ void main() {
       await tester.pumpAndSettle();
 
       final toolbar = find.byType(CompactSelectionToolbar);
-      final row = find.descendant(of: toolbar, matching: find.byType(Row));
+      final row = find.descendant(of: toolbar, matching: find.byType(ActionCellGrid));
 
-      expect(tester.getSize(row.first).height, 76);
+      final initialHeight = tester.getSize(row.first).height;
+      expect(initialHeight, inInclusiveRange(48, 96));
 
       await tester.tap(find.byKey(const ValueKey('selection-more-button')));
       await tester.pumpAndSettle();
 
       expect(find.text('Архивировать'), findsOneWidget);
-      expect(tester.getSize(row.first).height, 76);
+      expect(tester.getSize(row.first).height, initialHeight);
 
       await tester.tap(find.text('Архивировать'));
       await tester.pumpAndSettle();

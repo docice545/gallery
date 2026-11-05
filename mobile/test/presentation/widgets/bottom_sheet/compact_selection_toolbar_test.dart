@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 
 import 'toolbar_test_app.dart';
@@ -59,9 +60,10 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    final row = find.descendant(of: find.byType(CompactSelectionToolbar), matching: find.byType(Row));
+    final row = find.descendant(of: find.byType(CompactSelectionToolbar), matching: find.byType(ActionCellGrid));
 
-    expect(tester.getSize(row.first).height, 76);
+    final initialHeight = tester.getSize(row.first).height;
+    expect(initialHeight, inInclusiveRange(48, 96));
 
     await tester.tap(find.byTooltip('Корзина'));
     await tester.tap(find.byTooltip('Поделиться'));
@@ -75,7 +77,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Архивировать'), findsOneWidget);
-    expect(tester.getSize(row.first).height, 76);
+    expect(tester.getSize(row.first).height, initialHeight);
 
     await tester.tap(find.text('Архивировать'));
     expect(extras, 1);

@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/action_cell_grid.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 
 class BaseBottomSheet extends ConsumerStatefulWidget {
@@ -42,6 +45,7 @@ class BaseBottomSheet extends ConsumerStatefulWidget {
 
 class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> {
   late DraggableScrollableController _controller;
+  bool _showMore = false;
 
   @override
   void initState() {
@@ -64,7 +68,7 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
         .where((action) => action is! ActionWidget || action.action.create(context, ref) != null)
         .toList();
     ref.listen(timelineStateProvider, (previous, next) {
-      if (!widget.resizeOnScroll) {
+      if (!widget.resizeOnScroll || !_controller.isAttached) {
         return;
       }
 
@@ -79,6 +83,33 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
       }
     });
 
+    // The action-free viewer collection picker remains a regular sheet.
+    if (!_showMore && widget.actions.isNotEmpty) {
+      final hasDetails = actions.length > 4 || (widget.slivers?.isNotEmpty ?? false) || widget.footer != null;
+      return Align(
+        alignment: Alignment.bottomCenter,
+        heightFactor: widget.expand ? null : 1,
+        child: SelectionToolbarFrame(
+          child: ActionCellGrid(
+            compact: true,
+            children: [
+              ...actions.take(hasDetails ? 3 : 4),
+              if (hasDetails)
+                SelectionToolbarAction(
+                  label: context.t.selection_more,
+                  button: IconButton(
+                    key: const ValueKey('context-selection-more'),
+                    tooltip: context.t.more,
+                    icon: const Icon(Icons.more_horiz),
+                    onPressed: () => setState(() => _showMore = true),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return DraggableScrollableSheet(
       controller: _controller,
       initialChildSize: widget.initialChildSize,
@@ -88,12 +119,9 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
       expand: widget.expand,
       shouldCloseOnMinExtent: widget.shouldCloseOnMinExtent,
       builder: (BuildContext context, ScrollController scrollController) {
-        return Card(
-          color: widget.backgroundColor ?? context.colorScheme.surfaceContainer,
-          elevation: 3.0,
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-          margin: EdgeInsets.zero,
-          child: SafeArea(
+        return _detailsSurface(
+          context,
+          SafeArea(
             top: false,
             child: Column(
               children: [
@@ -101,7 +129,21 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
                   child: CustomScrollView(
                     controller: scrollController,
                     slivers: [
-                      const SliverToBoxAdapter(child: _DragHandle()),
+                      SliverToBoxAdapter(
+                        child: widget.actions.isEmpty
+                            ? const _DragHandle()
+                            : Row(
+                                children: [
+                                  const Expanded(child: _DragHandle()),
+                                  IconButton(
+                                    key: const ValueKey('context-selection-close'),
+                                    tooltip: context.t.close,
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () => setState(() => _showMore = false),
+                                  ),
+                                ],
+                              ),
+                      ),
                       if (actions.isNotEmpty)
                         SliverToBoxAdapter(
                           child: Column(
@@ -122,6 +164,22 @@ class _BaseDraggableScrollableSheetState extends ConsumerState<BaseBottomSheet> 
           ),
         );
       },
+    );
+  }
+
+  Widget _detailsSurface(BuildContext context, Widget child) {
+    if (widget.actions.isEmpty) {
+      return Card(
+        color: widget.backgroundColor ?? context.colorScheme.surfaceContainer,
+        elevation: 3,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+        margin: EdgeInsets.zero,
+        child: child,
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: ViewerControlSurface(child: child),
     );
   }
 }
