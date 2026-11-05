@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="790" viewBox="0 0 960 790">
+<title>FOTO Unified Action Bars — compact reference</title><desc>Illustrative visual of slim top viewer bar, five-action photo bar, trash and album bars, dark and light themes. Not a literal pixel specification.</desc>
+<defs>
+<g id="share" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.7 10.7 6.6-4.3M8.7 13.3l6.6 4.3"/></g>
+<g id="edit" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 20 4.5-1 11-11-3.5-3.5-11 11L4 20ZM14.8 5.7l3.5 3.5"/></g>
+<g id="add" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v10H3z"/><path d="M15 11v6m-3-3h6"/></g>
+<g id="lens" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="11" cy="11" r="3.5"/><path d="m13.7 13.7 3 3"/></g>
+<g id="trash" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></g>
+<g id="restore" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a8 8 0 1 1 2 7M4 5v6h6"/></g>
+<g id="move" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20m-13-7 3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3"/></g>
+<g id="back" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></g>
+<g id="heart" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9c0 5-8 10-8 10S4 14 4 9a4.5 4.5 0 0 1 8-2 4.5 4.5 0 0 1 8 2z"/></g>
+<g id="more" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></g>
+</defs>
+<rect width="960" height="790" fill="#101014"/>
+<g font-family="Arial, sans-serif"><text x="54" y="58" font-size="28" font-weight="700" fill="#f6f6f8">FOTO · Unified Action Bars</text><text x="54" y="87" font-size="15" fill="#b6b5c1">Узкие капсулы · единые иконки · разные действия по контексту</text></g>
+<text x="55" y="132" font-family="Arial" font-size="16" fill="#d7d6e1">Просмотр · верхняя панель (~40–44 dp)</text>
+<rect x="55" y="148" width="850" height="52" rx="26" fill="#e6e4e9"/>
+<g color="#25232b"><use href="#back" x="78" y="162" width="24" height="24"/><use href="#heart" x="783" y="162"/><use href="#more" x="852" y="162"/></g>
+<text x="480" y="180" font-family="Arial" font-size="17" text-anchor="middle" fill="#25232b">5 нояб. · 18:22</text>
+<text x="55" y="245" font-family="Arial" font-size="16" fill="#d7d6e1">Фото · пять действий (~48–52 dp)</text>
+<rect x="55" y="261" width="850" height="74" rx="37" fill="#e6e4e9"/>
+<g font-family="Arial" font-size="13" fill="#25232b" text-anchor="middle">
+<g color="#25232b"><use href="#share" x="124" y="268"/><use href="#edit" x="291" y="268"/><use href="#add" x="459" y="268"/><use href="#lens" x="626" y="268"/></g><g color="#c92b35"><use href="#trash" x="793" y="268"/></g>
+<text x="136" y="315">Отправить</text><text x="303" y="315">Изменить</text><text x="471" y="315">Добавить</text><text x="638" y="315">Объектив</text><text x="805" y="315" fill="#c92b35">Удалить</text>
+</g>
+<text x="55" y="389" font-family="Arial" font-size="16" fill="#d7d6e1">Корзина · те же размеры, только допустимые действия</text>
+<rect x="55" y="405" width="850" height="74" rx="37" fill="#e6e4e9"/>
+<g font-family="Arial" font-size="13" text-anchor="middle"><g color="#25232b"><use href="#restore" x="338" y="412"/></g><g color="#c92b35"><use href="#trash" x="598" y="412"/></g><text x="350" y="459" fill="#25232b">Восстановить</text><text x="610" y="459" fill="#c92b35">Удалить навсегда</text></g>
+<text x="55" y="533" font-family="Arial" font-size="16" fill="#d7d6e1">Альбомы / локальные папки · действия зависят от прав</text>
+<rect x="55" y="549" width="850" height="74" rx="37" fill="#e6e4e9"/>
+<g font-family="Arial" font-size="13" text-anchor="middle"><g color="#25232b"><use href="#share" x="180" y="556"/><use href="#add" x="372" y="556"/><use href="#move" x="564" y="556"/></g><g color="#c92b35"><use href="#trash" x="756" y="556"/></g><text x="192" y="603" fill="#25232b">Отправить</text><text x="384" y="603" fill="#25232b">Добавить</text><text x="576" y="603" fill="#25232b">Переместить</text><text x="768" y="603" fill="#c92b35">Удалить</text></g>
+<text x="55" y="675" font-family="Arial" font-size="16" fill="#d7d6e1">Тёмная тема · тот же силуэт</text>
+<rect x="55" y="692" width="850" height="67" rx="33.5" fill="#34343b" stroke="#565661"/>
+<g font-family="Arial" font-size="13" text-anchor="middle"><g color="#f0f0f4"><use href="#share" x="124" y="697"/><use href="#edit" x="291" y="697"/><use href="#add" x="459" y="697"/><use href="#lens" x="626" y="697"/></g><g color="#ff7079"><use href="#trash" x="793" y="697"/></g><text x="136" y="746" fill="#f0f0f4">Отправить</text><text x="303" y="746" fill="#f0f0f4">Изменить</text><text x="471" y="746" fill="#f0f0f4">Добавить</text><text x="638" y="746" fill="#f0f0f4">Объектив</text><text x="805" y="746" fill="#ff7079">Удалить</text></g>
+</svg>
