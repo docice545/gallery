@@ -21,7 +21,9 @@ These images prove the covered date/cache/position behavior, not final visual ap
 
 ## Actual final verification
 
-157 Flutter tests passed in 47 seconds (the command below plus `test/domain/models/deletion_snapshot_test.dart` and `test/unit/presentation/actions/deletion_snapshot_guard_test.dart`). `flutter analyze --no-pub`: no issues. 51 pure JVM tests passed for OfflineThumbnailCache, LocalMotionPhotoLayout, SyncTrashPolicy, MediaGenerationCheckpoint and PlaceNamePolicy using Kotlin 2.2.20/JDK 21/JUnit 4.13.2. Full Gradle/APK verification is separate and still in progress after repository HTTP 503 failures. [Receipts](receipts.json) include failures and final successes.
+157 Flutter tests passed in 47 seconds (the command below plus `test/domain/models/deletion_snapshot_test.dart` and `test/unit/presentation/actions/deletion_snapshot_guard_test.dart`). `flutter analyze --no-pub`: no issues. 51 pure JVM tests passed for OfflineThumbnailCache, LocalMotionPhotoLayout, SyncTrashPolicy, MediaGenerationCheckpoint and PlaceNamePolicy using Kotlin 2.2.20/JDK 21/JUnit 4.13.2. Subsequent full Gradle verification passed 117 JVM tests; an actual unsigned universal APK and native decoded-motion AVD test passed CI. Final source/artifact identities are in [the complete acceptance record](../../../../docs/acceptance/FOTO-Build38-unified-16.md). Physical Samsung acceptance remains separate. [Receipts](receipts.json) include failures and final successes.
+
+An additional [actual Android emulator online/offline process-restart run](../offline-emulator/README.md) passed on attempt 2. Both screenshots were visually inspected and retain the two decoded synthetic server photos and dated groups. This is distinct from the Flutter fixture and from Samsung acceptance; the failed first attempt remains recorded.
 
 ## Reproduction
 

@@ -1,0 +1,271 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+  "status": "NOT_RUN",
+  "finalAccepted": false,
+  "productionChanged": false,
+  "artifacts": {
+    "android": {
+      "path": null,
+      "sha256": null,
+      "versionCode": null,
+      "certificateSHA256": null
+    },
+    "ios": {
+      "path": null,
+      "sha256": null,
+      "teamID": null,
+      "profileExpiry": null
+    },
+    "backend": {
+      "imageId": null,
+      "archiveSHA256": null
+    }
+  },
+  "checks": [
+    {
+      "id": "android_signed_build",
+      "status": "HP_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "android_upgrade_preserves_data",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_offline_cold_start_and_reconnect",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_year_scrub_and_scroll_anchor",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_single_horizontal_both_modes",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_delete_confirm_cancel_partial_undo",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_effect_toggle_persistence_reduced_motion",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_live_motion_photo_backup_editor",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "samsung_60_120hz_frame_timings",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ios_personal_team_signature_and_provisioning",
+      "status": "SIGNING_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ios_sidestore_install_and_refresh",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "ios_live_photo_photokit_background_share",
+      "status": "DEVICE_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "backend_hp_disposable_http",
+      "status": "HP_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "backend_hp_staging_android_ios_integration",
+      "status": "HP_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "hp_magic_eraser_model_real_photo_quality",
+      "status": "HP_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "hp_restore_drill_and_rollback",
+      "status": "HP_REQUIRED",
+      "testedAt": null,
+      "device": null,
+      "evidence": [],
+      "notes": ""
+    }
+  ],
+  "master": {
+    "01": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "02": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "03": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "04": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "05": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "06": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "07": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "08": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "09": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "10": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "11": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "12": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "13": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "14": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "15": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "16": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    }
+  },
+  "visual": {
+    "V01": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V02": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V03": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V04": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V05": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V06": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V07": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V08": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V09": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V10": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V11": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    },
+    "V12": {
+      "status": "DEVICE_REQUIRED",
+      "evidence": []
+    }
+  }
+}

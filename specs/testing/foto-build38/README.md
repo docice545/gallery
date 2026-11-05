@@ -1,8 +1,8 @@
-# FOTO Build38 cloud evidence — work in progress
+# FOTO Build38 cloud evidence
 
 Base: `d94389c98d2ac8cbdfe3e5bcf18b3bdaac23665b`. Branch: `codex/foto-build38-unified-16`.
 
-Actual execution on 2026-11-04 UTC / 2026-11-05 Moscow. Flutter 3.47.2 / Dart 3.13.2; Python 3.12; CPU Big-LaMa pinned by SHA-256. No HP, Samsung or iOS installation has been performed. This is not final acceptance.
+Actual execution on 2026-11-04–05 UTC. Final candidate: `e2cc9c001d3f8efd7f1762037e16932c56699d2c`. [Complete 16-item acceptance record](../../../docs/acceptance/FOTO-Build38-unified-16.md), [visual matrix](../../../docs/acceptance/foto-visual-qa-matrix.md), [final receipts](cloud-final-receipts.json). Earlier focused results below are retained diagnostic history, not the current aggregate. Flutter 3.47.2 / Dart 3.13.2; Python 3.12; CPU Big-LaMa pinned by SHA-256. No HP, Samsung or iOS installation has been performed. This is not final acceptance.
 
 ## Selection and deletion
 
@@ -27,7 +27,7 @@ flutter test --no-pub --concurrency=2 \
   test/domain/services/memory_service_test.dart
 ```
 
-Broader cloud regression is ongoing. The first broad action run exposed six existing album animation expectations that keep the cover stationary, contrary to the required whole-row swipe. The first editor run exposed an outdated 80dp inner-capsule assertion: the capsule is 56dp plus 24dp safe area. The corrected assertion checks the complete dock, retaining theme/viewport invariance checks. The larger editor baseline has 12 additional width assertions to review; those failures are geometry checks, not established golden-image differences. Early Flutter attempts before Pigeon completed and the first server invocation without its configured Vitest aliases were bootstrap failures, not passing tests.
+The complete Flutter regression later passed **6186 tests** without changing golden baselines. Whole-row swipe expectations were corrected to require the cover to move with the title; editor assertions now distinguish the fixed image viewport from its narrower centered floating dock and preserve transform checks. Scoped provider dependencies and measured footer placement were fixed after actual failures. Full server tests passed 7028 cases, with one expected failure and twelve skips. Current build and hardware boundaries are recorded in the linked final acceptance record. Early bootstrap failures and earlier failing runs are not counted as passes.
 
 ## AI visual evidence
 
@@ -42,7 +42,7 @@ INPAINTING_TEST_MODEL=/path/to/big-lama.pt python -m pytest -q
 
 ## Log receipts
 
-Raw temporary logs remain outside Git at `/workspace/foto-build38-evidence`; reproducible commands and SHA-256 receipts are retained here. CI artifact evidence will be linked after the branch checks run.
+Raw temporary logs remain outside Git at `/workspace/foto-build38-evidence`; reproducible commands and SHA-256 receipts are retained here. Actual CI artifact evidence is linked in the final receipts and acceptance record.
 
 | Log | SHA-256 |
 | --- | --- |
@@ -57,4 +57,4 @@ Raw temporary logs remain outside Git at `/workspace/foto-build38-evidence`; rep
 
 ## Offline feed P0
 
-[Reproductions, reviewed renders, limitations and device gates](offline/README.md). This block remains part of the ongoing 16-task project, alongside iOS and backend acceptance.
+[Reproductions, reviewed renders, limitations and device gates](offline/README.md). This block is included in the 16-task handoff, alongside iOS and backend. [Actual Android offline process-restart screenshots and receipt](offline-emulator/README.md) also passed and were reviewed. Physical acceptance remains required.

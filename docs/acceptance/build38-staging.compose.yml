@@ -1,0 +1,79 @@
+# Disposable acceptance only. Never combine with a production Compose file.
+# Pass a unique --project-name and a private --env-file from the HP run directory.
+services:
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a81434c65b71e20d27203baf903a0275f4341e4c16dfd901fd67
+    environment:
+      POSTGRES_PASSWORD: ${FOTO_LAB_PASSWORD:?Private lab password required}
+      POSTGRES_DB: immich
+    command:
+      [postgres, -c, shared_preload_libraries=vchord.so, -c, config_file=/var/lib/postgresql/data/postgresql.conf]
+    volumes:
+      - database:/var/lib/postgresql/data
+    labels:
+      io.foto.acceptance.source: ${FOTO_SOURCE_SHA:?Full reviewed SHA required}
+
+  redis:
+    image: redis:7.4.6
+    labels:
+      io.foto.acceptance.source: ${FOTO_SOURCE_SHA:?Full reviewed SHA required}
+
+  server:
+    image: ${FOTO_SERVER_IMAGE:?Immutable verified server image ID required}
+    pull_policy: never
+    depends_on: [database, redis]
+    environment:
+      DB_HOSTNAME: database
+      DB_PASSWORD: ${FOTO_LAB_PASSWORD:?Private lab password required}
+      REDIS_HOSTNAME: redis
+      IMMICH_MEDIA_LOCATION: /data
+      IMMICH_WORKERS_INCLUDE: api,microservices
+      IMMICH_WORKERS_EXCLUDE: ''
+      GALLERY_INPAINTING_URL: http://inpainting:3004
+      GALLERY_INPAINTING_TOKEN: ${FOTO_INPAINT_TOKEN:?Private lab token required}
+    ports:
+      - 127.0.0.1:22938:2283
+    # Docker does not publish ports from an internal-only network. Only the API
+    # joins this additional bridge; DB/Redis/model remain on the internal one.
+    networks: [default, api_access]
+    volumes:
+      - media:/data
+    labels:
+      io.foto.acceptance.source: ${FOTO_SOURCE_SHA:?Full reviewed SHA required}
+
+  inpainting:
+    image: ${FOTO_INPAINT_IMAGE:?Immutable verified local worker image ID required}
+    pull_policy: never
+    environment:
+      GALLERY_INPAINTING_TOKEN: ${FOTO_INPAINT_TOKEN:?Private lab token required}
+      INPAINTING_MODEL_PATH: /models/big-lama.pt
+      INPAINTING_MODEL_SHA256: 344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
+      INPAINTING_CPU_THREADS: '2'
+      INPAINTING_WORKING_SIZE: '512'
+      TMPDIR: /tmp
+    volumes:
+      - type: bind
+        source: ${FOTO_MODEL_FILE:?Existing verified HP model file required}
+        target: /models/big-lama.pt
+        read_only: true
+        bind:
+          create_host_path: false
+    user: '1000:1000'
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1g,mode=1777
+    cpus: 2.0
+    mem_limit: 3g
+    pids_limit: 128
+    labels:
+      io.foto.acceptance.source: ${FOTO_SOURCE_SHA:?Full reviewed SHA required}
+
+networks:
+  default:
+    internal: true
+  api_access:
+    driver: bridge
+
+volumes:
+  database:
+  media:

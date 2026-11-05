@@ -1,0 +1,773 @@
+{
+  "archiveCacheNote": "Older reproducible download archives and unused owned Docker image caches were evicted after verified tests to recover cloud vfs space. Manifests, hashes, raw test logs and the final e2cc9c001 APK/IPA/Docker download archives remain; GitHub artifacts retain the original downloads.",
+  "artifacts": {
+    "android": {
+      "archiveHashVerified": true,
+      "manifest": {
+        "abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+        "applicationId": "de.opennoodle.gallery",
+        "bytes": 193405087,
+        "deviceAcceptance": "NOT_TESTED",
+        "releaseReady": false,
+        "sha256": "0fb8ab82f9410ddb6bf13c6ba95281ba6e1727b71533fc06beb8c958c9a45aa3",
+        "signing": "UNSIGNED",
+        "sourceCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+        "versionCode": 38,
+        "versionName": "5.7.3"
+      },
+      "run": 41992126279,
+      "signedRelease": false
+    },
+    "backend": {
+      "archiveHashVerified": true,
+      "manifest": {
+        "archiveSHA256": "26bb9cb304bb6a48de528e39bf6a15747992951587eb3f0032183b764e02e95c",
+        "components": [
+          "server",
+          "web",
+          "compiled-sdk",
+          "cli",
+          "immich-plugin-core",
+          "gallery-core"
+        ],
+        "deployment": "NOT_DEPLOYED",
+        "imageId": "sha256:15a86644ce68db767895fc4e27ebade46c72245d4556f87a5924baa754cd9623",
+        "imageManifestDigest": "sha256:15a86644ce68db767895fc4e27ebade46c72245d4556f87a5924baa754cd9623",
+        "imageTag": "gallery-server:trash-e2cc9c001d3f",
+        "isolatedExecutionEnvironment": "GITHUB_ACTIONS",
+        "isolatedExternalDeletion": {
+          "externalScanSuppression": true,
+          "externalScopeDefaultReadOnly": true,
+          "ownerWritablePhysicalDeletion": true,
+          "productionNFSVerified": false,
+          "syntheticMediaOnly": true
+        },
+        "isolatedRecoveryEvidence": {
+          "marker": "SYNTHETIC_DISPOSABLE_CI_LAB_NOT_PRODUCTION_RECOVERY",
+          "productionAuthorization": false,
+          "productionRecoveryVerified": false,
+          "testOnly": true
+        },
+        "isolatedSmoke": "PASS: disposable lab migrations + HTTP Trash/Restore/ordinary owner consent/permanent deletion + read-only audit",
+        "isolatedWorkerConfiguration": "API_AND_MICROSERVICES",
+        "livePhotoDynamicDeletionRoots": true,
+        "migrationBase": "0c8be542121d415f4d748dda20367044cd200d40",
+        "migrationFilesAdded": [],
+        "migrationsAdded": [],
+        "mobileBuild": 38,
+        "mobileVersion": "5.7.3",
+        "platform": "linux/amd64",
+        "registryPublished": false,
+        "rollbackVerification": "NOT_TESTED_NO_PINNED_ROLLBACK_ARTIFACT",
+        "schemaDelta": "NONE_FROM_MIGRATION_BASE",
+        "serverVersion": "5.7.3",
+        "signing": "NOT_APPLICABLE",
+        "sourceCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+        "thumbnailPreviewVerification": "PASS_SYNTHETIC_FILES_AND_HTTP",
+        "toolingCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c"
+      },
+      "run": 41992135140
+    },
+    "ios": {
+      "archiveHashVerified": true,
+      "compiledBundles": [
+        {
+          "AppGroupId": "group.de.opennoodle.gallery.share",
+          "BGTaskSchedulerPermittedIdentifiers": [
+            "de.opennoodle.gallery.background.refreshUpload",
+            "de.opennoodle.gallery.background.processingUpload"
+          ],
+          "CFBundleIdentifier": "de.opennoodle.gallery",
+          "CFBundleShortVersionString": "5.7.3",
+          "CFBundleVersion": "38",
+          "MinimumOSVersion": "15.0"
+        },
+        {
+          "AppGroupId": "group.de.opennoodle.gallery.share",
+          "BGTaskSchedulerPermittedIdentifiers": null,
+          "CFBundleIdentifier": "de.opennoodle.gallery.ShareExtension",
+          "CFBundleShortVersionString": "5.7.3",
+          "CFBundleVersion": "38",
+          "MinimumOSVersion": "16.0"
+        },
+        {
+          "AppGroupId": "group.de.opennoodle.gallery.share",
+          "BGTaskSchedulerPermittedIdentifiers": null,
+          "CFBundleIdentifier": "de.opennoodle.gallery.Widget",
+          "CFBundleShortVersionString": "5.7.3",
+          "CFBundleVersion": "38",
+          "MinimumOSVersion": "17.0"
+        }
+      ],
+      "embeddedProvisioningProfileCount": 0,
+      "installableRelease": false,
+      "receipt": {
+        "artifact_id": 13398898727,
+        "artifact_name": "ios-unsigned-ipa",
+        "branch": "codex/foto-build38-unified-16",
+        "build": "38",
+        "commit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+        "repository": "docice545/gallery",
+        "run_id": 41992130730,
+        "runner": "GitHub Actions 1000007443",
+        "runner_labels": ["macos-15"],
+        "sha256": "2001354387554e274b2e7d07e7d336fc50f48a36a21a9721bc7fd546b21633d3",
+        "status": "PASS: Runner + both extensions, identities/version, ASCII base and ru Фото verified; user-side signing required",
+        "verified_at": "2026-11-05T08:26:25.277421+00:00",
+        "version": "5.7.3"
+      },
+      "run": 41992130730,
+      "signing": "UNSIGNED"
+    }
+  },
+  "candidateSource": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+  "ciFailures": [
+    {
+      "attempt": 1,
+      "diagnosis": "Emulator-loss cause not established. Fresh-runner attempt 2 passed; failure retained, not reclassified as PASS.",
+      "logSHA256": "a955b3f43cd0e65c51103ad1caf9ad992875e9c27dfa0b826640b4c0d3a24d64",
+      "observed": "ADB emulator-5554 disappeared; no online/offline capture acceptance completed",
+      "phase": "authenticated",
+      "run": 41992098090,
+      "status": "FAIL"
+    },
+    {
+      "reason": "Weblate requires immich-push-o-matic APPROVED review; absent. Gate unchanged.",
+      "run": 41992097943,
+      "status": "BLOCKED"
+    },
+    {
+      "reason": "Five existing docs formatting violations. Only formatting changed; local docs format and actual Docusaurus build passed.",
+      "run": 41992097726,
+      "status": "FAIL_CORRECTED_LOCALLY"
+    },
+    {
+      "diagnosis": "Redis image omits Config.User; Docker materializes empty container User. Exact production defaults guard rejected this fixture. Synthetic metadata image now declares USER 0; cached image and production guard unchanged. Actual rerun passed.",
+      "logSHA256": "f80859ef238d1fba565ffe154c79f904b2560ce08d03b8a00e14383437d6f77b",
+      "status": "FAIL_FIXED_TEST_FIXTURE",
+      "test": "Legacy scoped helper Docker fixture"
+    }
+  ],
+  "combinedStaging": {
+    "actualApiWorkerComponents": "PASS_SEPARATELY",
+    "fullStackHttp": "NOT_COMPLETED",
+    "networkCorrection": "Internal-only Docker network suppresses published API ports; added API-only bridge, leaving DB/Redis/model on internal network.",
+    "networkLogSHA256": "5dac9b3fddbf2856d694a266538dc3f82b737839b7ad10cf59a715f14025b8d3",
+    "networkTest": {
+      "actualServerApiAcceptance": false,
+      "apiNetworks": ["internal default", "api_access bridge"],
+      "loopback": "127.0.0.1:22938",
+      "notes": "Validates final Compose network publishing only. Actual FOTO API+workers and Big-LaMa HTTP are independently validated; simultaneous full stack exceeded cloud vfs disk budget.",
+      "status": "PASS_NETWORK_TOPOLOGY",
+      "syntheticRedisInsteadOfServer": true
+    },
+    "productionChanged": false,
+    "reason": "Cloud Docker vfs exhausted available disk while recreating the API container; exact logs retain ENOSPC. No successful combined full-stack receipt was produced.",
+    "status": "HP_REQUIRED"
+  },
+  "dateUTC": "2026-11-05",
+  "finalAccepted": false,
+  "inpaintingDocker": {
+    "afterSHA256": "6c6bcd939e01e621b294ffea4d01b2687d6204442a775fa807662abc5a6708a4",
+    "beforeSHA256": "698a0fa4aaf764fe25e60d1b2a1cb3a517ddad503ebee6796b3ded150129c677",
+    "buildLogSHA256": "8cbb08be6adc804c3000b890123775f66ea395536754f607b5a3f9d5c39beed2",
+    "checks": [
+      "auth401",
+      "modelReady",
+      "realHttpInference200",
+      "jpeg480x320",
+      "originalPreserved",
+      "noStore",
+      "unknownCancellationIdempotent",
+      "temporaryFilesCleaned"
+    ],
+    "cpuLimit": 2,
+    "deviceAcceptance": "DEVICE_REQUIRED",
+    "httpInferenceSeconds": 3.186,
+    "imageId": "sha256:6b726b20efb421493a55a1e0beeb28221d48c17357bab98d039ec846734c3793",
+    "logSHA256": "8de26324b2507e4c939d15619bc4363b514346d43b9f323f3627696ce5620976",
+    "memoryLimitGiB": 3,
+    "modelSHA256": "344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9",
+    "productionChanged": false,
+    "sourceCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+    "status": "PASS",
+    "syntheticOnly": true
+  },
+  "logs": [
+    {
+      "command": "cd mobile && flutter test --no-pub --concurrency=2 --reporter expanded",
+      "deviceAcceptance": false,
+      "failed": 0,
+      "file": "flutter-full-suite-verified.log",
+      "passed": 6186,
+      "sha256": "81e9820cdfbeb46ee89d56c8c5f65804c56fe71211dbb87bab9d74feb356fedd",
+      "sourceCommitOrFix": "ecf1c537d03e3b7ea2fd48f32bdcae8247acf481",
+      "status": "PASS"
+    },
+    {
+      "command": "pnpm --dir server test run",
+      "deviceAcceptance": false,
+      "expectedFail": 1,
+      "file": "server-unit-final.log",
+      "passed": 7028,
+      "sha256": "4456c0e80153cf97380391f66eeae28e6752406f8c4617a8dcd990f2c59a16d7",
+      "skipped": 12,
+      "sourceCommitOrFix": "ecf1c537d03e3b7ea2fd48f32bdcae8247acf481",
+      "status": "PASS_WITH_EXPECTED_AND_SKIPPED"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/release/tests -v",
+      "deviceAcceptance": false,
+      "file": "release-tools-final.log",
+      "passed": 561,
+      "sha256": "7886368a9f517d151b88fbf0c71ac38c2bce6a602230f558e1d1d4a394a80ee5",
+      "skipped": 17,
+      "sourceCommitOrFix": "ecf1c537d03e3b7ea2fd48f32bdcae8247acf481",
+      "status": "PASS_WITH_SKIPS"
+    },
+    {
+      "command": "python3 -m unittest discover -s mobile/scripts/tests -v",
+      "deviceAcceptance": false,
+      "file": "mobile-release-tools-final.log",
+      "passed": 128,
+      "sha256": "a51d67347a08003614646c0fb01693377ee97b1f2bba1452f62cd2d2630b1d5e",
+      "sourceCommitOrFix": "ecf1c537d03e3b7ea2fd48f32bdcae8247acf481",
+      "status": "PASS"
+    },
+    {
+      "classes": 11,
+      "command": "cd mobile/android && bash gradlew :app:testDebugUnitTest --console=plain",
+      "deviceAcceptance": false,
+      "failed": 0,
+      "file": "android-native-complete-env.log",
+      "passed": 117,
+      "sha256": "214c6f2670c585b3e3919d9d9fd8e54efa348a8c2840ab71cb745074c6bf6862",
+      "skipped": 0,
+      "sourceCommitOrFix": null,
+      "status": "PASS"
+    },
+    {
+      "command": "cd inpainting && INPAINTING_TEST_MODEL=/path/to/big-lama.pt python -m pytest -q",
+      "deviceAcceptance": false,
+      "file": "inpaint-contour-green.log",
+      "passed": 60,
+      "sha256": "b4551eab0da7169f58f2b7972eb14dbbecd8dada22246b756a93c94dceb016ae",
+      "sourceCommitOrFix": null,
+      "status": "PASS"
+    },
+    {
+      "command": "cd mobile && flutter test --no-pub --dart-define=FOTO_MOSAIC_CAPTURE=true --dart-define=FOTO_MOSAIC_ARTIFACT_DIR=/tmp/foto-horizontal test/presentation/widgets/timeline/justified_timeline_widget_test.dart --plain-name 'single horizontal' --reporter expanded",
+      "deviceAcceptance": false,
+      "file": "horizontal-photos-pixels.log",
+      "passed": 6,
+      "sha256": "196af9d040cc1088dac73a6ae25767085921acc921e160f6eba74de31cd13eb3",
+      "sourceCommitOrFix": null,
+      "status": "PASS"
+    },
+    {
+      "command": "cd mobile && flutter test --no-pub test/presentation/widgets/bottom_sheet/compact_selection_toolbar_test.dart test/presentation/widgets/bottom_sheet/compact_selection_theme_test.dart test/presentation/widgets/bottom_sheet/selection_action_layout_test.dart test/presentation/widgets/bottom_sheet/timeline_compact_selection_test.dart",
+      "deviceAcceptance": false,
+      "file": "selection-label-tests.log",
+      "passed": 15,
+      "sha256": "d7e7094afad38a13974647cc2d7a45d13d77ae1b9be7f4897db52960426a27e7",
+      "sourceCommitOrFix": "ed4607435",
+      "status": "PASS"
+    },
+    {
+      "command": "cd mobile && flutter analyze --no-pub",
+      "deviceAcceptance": false,
+      "file": "selection-label-analyze.log",
+      "issues": 0,
+      "sha256": "909c4f83423f7e1b99806c5be6563fd0c804150f483365d86eb5cd5954b86d42",
+      "sourceCommitOrFix": "ed4607435",
+      "status": "PASS"
+    },
+    {
+      "command": "bash docs/acceptance/capture-cloud-visuals.sh \"$PWD\" /tmp/foto-controls-memory",
+      "deviceAcceptance": false,
+      "file": "controls-memory-visual.log",
+      "passed": 4,
+      "sha256": "98f0beed8b6b493fcb09cf42006aadb270cad5cd61302ed6ea87b61abd92e95e",
+      "sourceCommitOrFix": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "status": "PASS"
+    },
+    {
+      "command": "python3 docs/acceptance/test_hp_handoff.py -v",
+      "deviceAcceptance": false,
+      "file": "hp-handoff-guards.log",
+      "passed": 7,
+      "sha256": "b23e084bb1e970d6862c495c30123e86c59469dd4a09198d95816619c6f7098a",
+      "sourceCommitOrFix": null,
+      "status": "PASS"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/release/tests -p 'test_ci_build_diagnostics.py' -v; python3 -m unittest discover -s mobile/scripts/tests -p 'test_live_photo_release_gate.py' -v",
+      "deviceAcceptance": false,
+      "file": "manual-unsigned-workflow.log",
+      "passed": 15,
+      "sha256": "4d5161d4244a41ddf52c868efd8558261b0287cb36d880b8134d40fec8145c22",
+      "sourceCommitOrFix": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "status": "PASS"
+    },
+    {
+      "command": "python3 scripts/release/server_artifact_smoke.py --local-disposable-lab 2d8567bfd4235c1ee58d83390ab635ce544fb295 /path/to/verified/artifact",
+      "deviceAcceptance": false,
+      "file": "backend-local-smoke.log",
+      "sha256": "88991c79c53f4c7944cf9d046c222268c8d86c90b4cf3912c3fc0aa1ea846713",
+      "sourceCommitOrFix": "2d8567bfd4235c1ee58d83390ab635ce544fb295",
+      "status": "PASS"
+    },
+    {
+      "file": "native-e2cc9c001/gallery-native-motion-test.log",
+      "passed": 1,
+      "samsungAcceptance": false,
+      "sha256": "ddb9250f3c01929f2a8606a6471206197ab461d391b1f514955e645615a72b71",
+      "sourceCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "status": "PASS_REAL_ANDROID_AVD"
+    },
+    {
+      "command": "cd mobile && flutter test --coverage --reporter json",
+      "file": "mobile-candidate-flutter-ci.log",
+      "focusedDiagnosticSuite": {
+        "failed": 0,
+        "passed": 156
+      },
+      "fullSuite": {
+        "failed": 0,
+        "passed": 6186,
+        "reporterDoneSuccess": true
+      },
+      "job": 127126640845,
+      "run": 41992126279,
+      "sha256": "f11fbec0d6efd5620baf6acf3fae5fa964992319c0cd522277d65454738aad51",
+      "sourceCommit": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "status": "PASS"
+    },
+    {
+      "command": "pnpm --dir docs build",
+      "file": "docs-build-final.log",
+      "scope": "Candidate plus handoff documentation in working tree; no deployment",
+      "sha256": "fa33762c97aa9ead97e566dc9db6f34f699ffea2a9912711893f594b98f14785",
+      "status": "PASS"
+    },
+    {
+      "command": "pnpm --dir docs format",
+      "file": "docs-format-final.log",
+      "scope": "Candidate plus handoff documentation in working tree; no deployment",
+      "sha256": "e0c88a729819790ca47e135e599e66e30d622564f9cfcce6979578ae9e62af16",
+      "status": "PASS"
+    },
+    {
+      "command": "GALLERY_TEST_LOCAL_DOCKER=YES GALLERY_TEST_DOCKER_NAME=VERIFIED_LOCAL_DISPOSABLE_NAME python3 -m unittest discover -s scripts/release/tests -p test_image_release_compose.py -v",
+      "file": "compose-native-final.log",
+      "passed": 5,
+      "scope": "Previously opt-in tests; helper test uses the handoff-only explicit-user fixture correction; production helper is unchanged.",
+      "sha256": "fddc012d04236cf938467fb957ac45d0ca6cce7ab57f386249c80d205f7b3d20",
+      "status": "PASS_REAL_DISPOSABLE_DOCKER"
+    },
+    {
+      "command": "GALLERY_SCOPED_HELPER_DOCKER=YES python3 -m unittest discover -s scripts/release/tests -p test_hp_build10_scoped_helper_docker.py -v",
+      "file": "helper-native-verified.log",
+      "passed": 1,
+      "scope": "Previously opt-in tests; helper test uses the handoff-only explicit-user fixture correction; production helper is unchanged.",
+      "sha256": "dde7f1a54be3f3205daa05ca8820752286c005c224868be210c0cd88821789d7",
+      "status": "PASS_REAL_DISPOSABLE_DOCKER"
+    },
+    {
+      "attempt": 2,
+      "candidateSource": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "deviceAcceptance": false,
+      "file": "offline-emulator-verified.log",
+      "run": 41992098090,
+      "sha256": "e8a747b2578d16b3cbbdec56e291d2bfee99b627ea64cb3f2732db9c7741f6ba",
+      "status": "PASS_REAL_ANDROID_AVD",
+      "testedCheckout": "d5d9cf90acc04479f329edb75229dae40cecbfda"
+    },
+    {
+      "command": "python3 docs/acceptance/test_hp_handoff.py -v",
+      "file": "hp-handoff-final.log",
+      "passed": 7,
+      "scope": "Final handoff; app source frozen at e2cc9c001",
+      "sha256": "b06eb4f31b46f822da6f4756a24819ed1c9c394e8d4f2f512a0f9572763c7cac",
+      "status": "PASS"
+    },
+    {
+      "command": "pnpm --dir docs format",
+      "file": "docs-format-handoff.log",
+      "scope": "Final handoff; app source frozen at e2cc9c001",
+      "sha256": "e0c88a729819790ca47e135e599e66e30d622564f9cfcce6979578ae9e62af16",
+      "status": "PASS"
+    },
+    {
+      "command": "shellcheck docs/acceptance/foto-hp-check.sh docs/acceptance/capture-cloud-visuals.sh",
+      "file": "handoff-shellcheck.log",
+      "scope": "Final handoff scripts",
+      "sha256": "69252a1d716f57eaae846dc4d0dd09b8e46dbebe1802e973f8d37f88998becd9",
+      "status": "PASS",
+      "version": "0.11.0"
+    }
+  ],
+  "notes": [
+    "Counts overlap; do not add focused suites to the full suite.",
+    "Null per-run source means a retained earlier workspace run; consult the adjacent feature receipts for its original correction. It is not an exact-head rebuild claim.",
+    "No signed Android release or provisioned iOS installation was available.",
+    "Synthetic widget PNGs and native AVD results do not certify physical Samsung/iPhone UX."
+  ],
+  "offlineAndroidEmulator": {
+    "abi": "x86_64",
+    "androidApi": 35,
+    "apkMode": "debug",
+    "apkSHA256": "3d034f43d85aea5fd9f950d94acd7b5b5957492e2af35b3b1bd2f7e75e64eb9f",
+    "artifactId": 13401906716,
+    "artifactSHA256": "e1456221655beaf8568f304594e7a50647a292a938d8b1b407e41991a2324526",
+    "attempt": 2,
+    "candidateSource": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+    "captures": [
+      {
+        "file": "online.png",
+        "sha256": "d483f9dc19dfb6e73c153193e3ab8c1494779b9bc1064a55ec86c936498c7363",
+        "size": [320, 640],
+        "visuallyReviewed": true
+      },
+      {
+        "file": "offline.png",
+        "sha256": "3b822984421e43c06dcb2d96bd18ae003a03fc5108df6c5eb585176b1fdc0c3a",
+        "size": [320, 640],
+        "visuallyReviewed": true
+      }
+    ],
+    "checkoutContext": "PR merge of candidate into b216af2be0dd5867c45221724f9612afff62abb8",
+    "decodedMarkerCounts": {
+      "offline": [6400, 4560],
+      "online": [6400, 4560]
+    },
+    "firstAttempt": "FAIL: emulator disappeared from ADB at authenticated phase; cause not established. Kept in final receipts.",
+    "limits": [
+      "Two synthetic previously cached server photos; not a large real library.",
+      "Year dragging, local-only cold catalog, reconnect and late-memory anchor are covered by separate Flutter regressions, not by this AVD scenario.",
+      "Does not verify physical Samsung, signed APK upgrade or final photographic quality."
+    ],
+    "logSHA256": "e8a747b2578d16b3cbbdec56e291d2bfee99b627ea64cb3f2732db9c7741f6ba",
+    "run": 41992098090,
+    "samsungAcceptance": "DEVICE_REQUIRED",
+    "scenario": "Synthetic server photos online; force-stop, disable network, relaunch; decoded markers retained offline.",
+    "signedReleaseAcceptance": false,
+    "status": "PASS_REAL_ANDROID_AVD",
+    "syntheticOnly": true,
+    "testedCheckout": "d5d9cf90acc04479f329edb75229dae40cecbfda",
+    "timelineCropComparison": {
+      "bounds": [0, 80, 320, 550],
+      "pixelIdentical": true
+    },
+    "url": "https://github.com/docice545/gallery/actions/runs/41992098090",
+    "visualReview": "Both dated groups (January 2024 / January 2020), magenta/green source markers and tile geometry remain visible. White areas belong to synthetic source images. No grey placeholders in this fixture. Account connectivity indicator changes offline as expected."
+  },
+  "pending": [
+    "HP_REQUIRED: signed APK update, storage, backup/restore and rollback",
+    "SIGNING_REQUIRED: provisioned SideStore IPA",
+    "DEVICE_REQUIRED: Samsung and iPhone matrix including P0 deletion/offline, Live Photo and AI quality",
+    "EXTERNAL_REVIEW_REQUIRED: immich-push-o-matic Weblate approval"
+  ],
+  "productionChanged": false,
+  "schemaVersion": 1,
+  "successfulCI": [
+    {
+      "conclusion": "success",
+      "headSha": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "Live Photo timeline non-regression",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "pre-job",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Flutter tests and coverage",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Unsigned universal Android (no device acceptance)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Release artifact and provenance checks",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Live Photo native decoded motion",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify or explicitly release iOS",
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Build and sign Android",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/docice545/gallery/actions/runs/41992126279"
+    },
+    {
+      "conclusion": "success",
+      "headSha": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "OpenAPI Clients",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "ShellCheck",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "pre-job",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "SQL Schema Checks",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Upstream Rebase Tooling",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Unit Test CLI",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Lint Web",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Unit Test CLI (Windows)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Test Web",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Test & Lint Server",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Medium Tests (Server)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Unit Test Mobile",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Unit Test ML Training",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Test Branding",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Unit Test ML",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "End-to-End Tests (Server & CLI) (ubuntu-24.04-arm)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Test i18n",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "End-to-End Lint",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "End-to-End Tests (Web) (ubuntu-latest)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": ".github Files Formatting",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "End-to-End Tests (Server & CLI) (ubuntu-latest)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "End-to-End Tests Success",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/docice545/gallery/actions/runs/41992097917"
+    },
+    {
+      "conclusion": "success",
+      "headSha": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "build",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/docice545/gallery/actions/runs/41992135140"
+    },
+    {
+      "conclusion": "success",
+      "headSha": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "Verify or explicitly release iOS",
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Build and sign Android",
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Regenerate iOS CocoaPods lock for review",
+          "status": "completed"
+        },
+        {
+          "conclusion": "skipped",
+          "name": "Android media pilot (no publishing)",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/docice545/gallery/actions/runs/41992130730"
+    },
+    {
+      "attempt": 2,
+      "conclusion": "success",
+      "headSha": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+      "jobs": [
+        {
+          "conclusion": "success",
+          "name": "FOTO Build 22 offline timeline emulator E2E",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Android durable thumbnail cache regression tests",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Stock Android 5.9.0 emulator E2E",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "API contract and compatibility regressions",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "iOS source and simulator contract checks",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Stock Android 5.8.0 emulator E2E",
+          "status": "completed"
+        }
+      ],
+      "status": "completed",
+      "url": "https://github.com/docice545/gallery/actions/runs/41992098090"
+    }
+  ],
+  "visuals": [
+    {
+      "file": "specs/testing/foto-build38/controls-memory/dark-before.png",
+      "reviewed": true,
+      "sha256": "59cd9291df2d1b3d179465eb6c3d86da9d29c18cf7d3fa66e0a4806e526609be",
+      "syntheticOnly": true
+    },
+    {
+      "file": "specs/testing/foto-build38/controls-memory/dark-grouping.png",
+      "reviewed": true,
+      "sha256": "4883805f46b401215ae64678ecef6f7b8d4737c3fa9dbc45522a71dbdd1e7f88",
+      "syntheticOnly": true
+    },
+    {
+      "file": "specs/testing/foto-build38/controls-memory/dark-swiped.png",
+      "reviewed": true,
+      "sha256": "5b3fd889e188930df15e1ecf53f20ce6d95a791e5378a6c419777052b8d84fef",
+      "syntheticOnly": true
+    },
+    {
+      "file": "specs/testing/foto-build38/controls-memory/light-before.png",
+      "reviewed": true,
+      "sha256": "2971175a6d5c27135039c1ff973d6f1c34a75d76c79490ea53df2bce18c838df",
+      "syntheticOnly": true
+    },
+    {
+      "file": "specs/testing/foto-build38/controls-memory/light-grouping.png",
+      "reviewed": true,
+      "sha256": "d728b9189bb8d6375f06b193227255399945f253ad638083a596c2824d851e6c",
+      "syntheticOnly": true
+    },
+    {
+      "file": "specs/testing/foto-build38/controls-memory/light-swiped.png",
+      "reviewed": true,
+      "sha256": "791ba6c25b12b5ec3852316ea036a4f090ecbddcd9d61f5248377b10731576c7",
+      "syntheticOnly": true
+    },
+    {
+      "actualAndroidCapture": true,
+      "file": "specs/testing/foto-build38/offline-emulator/online.png",
+      "reviewed": true,
+      "sha256": "d483f9dc19dfb6e73c153193e3ab8c1494779b9bc1064a55ec86c936498c7363",
+      "syntheticOnly": true
+    },
+    {
+      "actualAndroidCapture": true,
+      "file": "specs/testing/foto-build38/offline-emulator/offline.png",
+      "reviewed": true,
+      "sha256": "3b822984421e43c06dcb2d96bd18ae003a03fc5108df6c5eb585176b1fdc0c3a",
+      "syntheticOnly": true
+    }
+  ]
+}

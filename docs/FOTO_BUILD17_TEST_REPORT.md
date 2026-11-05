@@ -7,25 +7,25 @@
 
 ## Реальные результаты
 
-| Проверка | Результат | Граница подтверждения |
-| --- | --- | --- |
-| Automation regression | 37/37 PASS | Реальные временные flock/process/signals/pidfd; mock systemd |
-| Backend asset-media/repository/library/metadata unit | 418/418 PASS | 4 specs |
-| Backend deletion/recovery/Trash/storage/Magic Eraser unit | 485/485 PASS | 7 specs |
-| PostgreSQL upload/library/duplicate admission/authorized deletion medium | 177/177 PASS | 4 specs, PostgreSQL14 в отдельном контейнере, синтетические файлы |
-| Live Photo roots/retry medium, неизменённые | 18/18 PASS | Из ранее прошедших 102: 84 deletion повторены в финальных 177, не считаются дважды |
-| TypeScript + targeted ESLint + Nest build | PASS | Полная компиляция backend, sync 73 Gallery migrations и 2 aliases |
-| OpenAPI + TypeScript/Dart generators + SDK build | PASS | Одно semantic schema addition: optional nullable duplicateId |
-| Flutter existing backup/sync/trash/delete/autoplay | 177 PASS | 6 specs, без физического устройства |
-| Dart wire-contract | 3/3 PASS | Отсутствующий, null и отдельный duplicateId |
-| Local Trash/hash retry | 7/7 PASS | Отдельный medium spec |
-| Flutter analyze | PASS | Всё приложение, No issues found |
-| Android release build | PASS | Release build, package/version/ZIP/alignment проверены |
-| Big-LaMa real model HTTP E2E | 11/11 PASS | Реальная CPU-модель + HTTP + новые PostgreSQL14/Redis + synthetic files; все test containers удалены |
-| Реальный Synology/NFS, HP cgroup OOM | NOT TESTED | Не было доступа/разрешения на production |
-| Samsung S23/iOS физические устройства | NOT TESTED | Cloud не имеет этих устройств |
-| GitHub asset upload / download | BLOCKED | upload HTTP401 Bad credentials; draft создан без assets |
-| Подпись существующим HP-ключом | NOT TESTED | Ключ не получался, не создавался и не изменялся |
+| Проверка                                                                 | Результат    | Граница подтверждения                                                                                |
+| ------------------------------------------------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------- |
+| Automation regression                                                    | 37/37 PASS   | Реальные временные flock/process/signals/pidfd; mock systemd                                         |
+| Backend asset-media/repository/library/metadata unit                     | 418/418 PASS | 4 specs                                                                                              |
+| Backend deletion/recovery/Trash/storage/Magic Eraser unit                | 485/485 PASS | 7 specs                                                                                              |
+| PostgreSQL upload/library/duplicate admission/authorized deletion medium | 177/177 PASS | 4 specs, PostgreSQL14 в отдельном контейнере, синтетические файлы                                    |
+| Live Photo roots/retry medium, неизменённые                              | 18/18 PASS   | Из ранее прошедших 102: 84 deletion повторены в финальных 177, не считаются дважды                   |
+| TypeScript + targeted ESLint + Nest build                                | PASS         | Полная компиляция backend, sync 73 Gallery migrations и 2 aliases                                    |
+| OpenAPI + TypeScript/Dart generators + SDK build                         | PASS         | Одно semantic schema addition: optional nullable duplicateId                                         |
+| Flutter existing backup/sync/trash/delete/autoplay                       | 177 PASS     | 6 specs, без физического устройства                                                                  |
+| Dart wire-contract                                                       | 3/3 PASS     | Отсутствующий, null и отдельный duplicateId                                                          |
+| Local Trash/hash retry                                                   | 7/7 PASS     | Отдельный medium spec                                                                                |
+| Flutter analyze                                                          | PASS         | Всё приложение, No issues found                                                                      |
+| Android release build                                                    | PASS         | Release build, package/version/ZIP/alignment проверены                                               |
+| Big-LaMa real model HTTP E2E                                             | 11/11 PASS   | Реальная CPU-модель + HTTP + новые PostgreSQL14/Redis + synthetic files; все test containers удалены |
+| Реальный Synology/NFS, HP cgroup OOM                                     | NOT TESTED   | Не было доступа/разрешения на production                                                             |
+| Samsung S23/iOS физические устройства                                    | NOT TESTED   | Cloud не имеет этих устройств                                                                        |
+| GitHub asset upload / download                                           | BLOCKED      | upload HTTP401 Bad credentials; draft создан без assets                                              |
+| Подпись существующим HP-ключом                                           | NOT TESTED   | Ключ не получался, не создавался и не изменялся                                                      |
 
 Количество уникальных пройденных cases: backend unit **903**, PostgreSQL medium **195**,
 Flutter **187**, automation **37**. Числа не означают выполнение всего upstream test suite.

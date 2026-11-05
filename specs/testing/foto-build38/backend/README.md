@@ -16,3 +16,5 @@ python3 scripts/release/server_artifact_smoke.py --local-disposable-lab \
 ```
 
 `receipts.json` contains immutable artifact identities and actual log hashes. The artifact is held by GitHub Actions; the Docker archive and raw logs are not committed. This is not production deployment, HP validation, a restore drill, a NFS permission test, or a rollback pass. Those remain **HP_REQUIRED**. Final acceptance must select the final reviewed source artifact; this earlier successful build remains diagnostic evidence.
+
+The final candidate `e2cc9c001d3f8efd7f1762037e16932c56699d2c` also passed the complete artifact build and real isolated HTTP lab in [run 41992135140](https://github.com/docice545/gallery/actions/runs/41992135140). Its downloaded archive SHA-256 was independently verified as `26bb9cb304bb6a48de528e39bf6a15747992951587eb3f0032183b764e02e95c`; image ID `sha256:15a86644ce68db767895fc4e27ebade46c72245d4556f87a5924baa754cd9623`. [Final public receipts](../cloud-final-receipts.json) retain the manifest. No production publication/deployment or restored-HP rollback test occurred.
