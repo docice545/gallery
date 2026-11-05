@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 class TimelineRow extends MultiChildRenderObjectWidget {
   final double height;
   final List<double> widths;
+  final List<Rect>? cells;
   final double spacing;
   final TextDirection textDirection;
 
@@ -13,6 +14,7 @@ class TimelineRow extends MultiChildRenderObjectWidget {
     super.key,
     required this.height,
     required this.widths,
+    this.cells,
     required this.spacing,
     required this.textDirection,
     required super.children,
@@ -33,13 +35,14 @@ class TimelineRow extends MultiChildRenderObjectWidget {
 
   @override
   RenderObject createRenderObject(BuildContext context) {
-    return RenderFixedRow(height: height, widths: widths, spacing: spacing, textDirection: textDirection);
+    return RenderFixedRow(height: height, widths: widths, cells: cells, spacing: spacing, textDirection: textDirection);
   }
 
   @override
   void updateRenderObject(BuildContext context, RenderFixedRow renderObject) {
     renderObject.height = height;
     renderObject.widths = widths;
+    renderObject.cells = cells;
     renderObject.spacing = spacing;
     renderObject.textDirection = textDirection;
   }
@@ -64,6 +67,7 @@ class RenderFixedRow extends RenderBox
     List<RenderBox>? children,
     required this._height,
     required this._widths,
+    this._cells,
     required this._spacing,
     required this._textDirection,
   }) {
@@ -89,6 +93,17 @@ class RenderFixedRow extends RenderBox
       return;
     }
     _widths = value;
+    markNeedsLayout();
+  }
+
+  List<Rect>? get cells => _cells;
+  List<Rect>? _cells;
+
+  set cells(List<Rect>? value) {
+    if (listEquals(_cells, value)) {
+      return;
+    }
+    _cells = value;
     markNeedsLayout();
   }
 
@@ -121,7 +136,7 @@ class RenderFixedRow extends RenderBox
     }
   }
 
-  double get intrinsicWidth => widths.sum + (spacing * (childCount - 1));
+  double get intrinsicWidth => cells?.map((cell) => cell.right).maxOrNull ?? widths.sum + (spacing * (childCount - 1));
 
   @override
   double computeMinIntrinsicWidth(double height) => intrinsicWidth;
@@ -175,10 +190,13 @@ class RenderFixedRow extends RenderBox
     // Layout each child horizontally.
     while (child != null && childIndex < widths.length) {
       final width = widths[childIndex];
-      final childConstraints = BoxConstraints.tight(Size(width, height));
+      final cell = cells?[childIndex];
+      final childConstraints = BoxConstraints.tight(cell?.size ?? Size(width, height));
       child.layout(childConstraints, parentUsesSize: false);
       final childParentData = child.parentData! as _RowParentData;
-      childParentData.offset = Offset(currentX, 0);
+      childParentData.offset = cell == null
+          ? Offset(currentX, 0)
+          : Offset(flipMainAxis ? size.width - cell.right : cell.left, cell.top);
       child = childParentData.nextSibling;
       childIndex++;
 

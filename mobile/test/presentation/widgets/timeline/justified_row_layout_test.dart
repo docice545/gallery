@@ -36,12 +36,27 @@ void main() {
       expect(widths, isNotEmpty);
       expect(widths.every((width) => width.isFinite && width > 0), isTrue);
       expect(height.isFinite && height > 0, isTrue);
-      final occupied = widths.fold(0.0, (sum, width) => sum + width) + layout.spacing * (widths.length - 1);
+      final cells = layout.cellsForRow(row)!;
+      expect(cells.length, widths.length);
+      expect(cells.map((cell) => cell.width), orderedEquals(widths));
+      for (var a = 0; a < cells.length; a++) {
+        expect(cells[a].top, greaterThanOrEqualTo(0));
+        expect(cells[a].bottom, lessThanOrEqualTo(height + 1e-8));
+        for (var b = a + 1; b < cells.length; b++) {
+          expect(cells[a].overlaps(cells[b]), isFalse);
+        }
+      }
       if (layout.isJustifiedRow(row)) {
-        expect(occupied, closeTo(layout.width, 1e-8));
+        expect(cells.map((cell) => cell.left).reduce(math.min), closeTo(0, 1e-8));
+        expect(cells.map((cell) => cell.right).reduce(math.max), closeTo(layout.width, 1e-8));
+        for (var y = 8.0; y < height - 8; y += 16) {
+          for (var x = 8.0; x < layout.width - 8; x += 16) {
+            expect(cells.any((cell) => cell.inflate(layout.spacing / 2 + 1e-8).contains(Offset(x, y))), isTrue);
+          }
+        }
       } else {
-        expect(row, layout.rowCount - 1);
-        expect(occupied, lessThan(layout.width));
+        expect(layout.assetCount, 1);
+        expect(cells.single.center.dx, closeTo(layout.width / 2, 1e-8));
       }
       final offset = layout.offsetForRow(row);
       expect(layout.rowForOffset(offset), row);
@@ -59,7 +74,7 @@ void main() {
     final landscape = mosaic([1.5]);
     expect(landscape.rowCount, 1);
     expect(landscape.isJustifiedRow(0), isTrue);
-    expect(landscape.heightForRow(0), 200);
+    expect(landscape.heightForRow(0), 128);
     expect(landscape.widthsForRow(0), [390]);
     final portrait = mosaic([.45]);
     expect(portrait.rowCount, 1);
@@ -87,7 +102,7 @@ void main() {
     verify(layout);
   });
 
-  test('mixed portrait and landscape rows use aspect sums, preserve order and vary their item count', () {
+  test('mixed rows preserve order with bounded cover crop and balanced cells', () {
     final ratios = [.5, .5, .5, .5, 2.0, 1.8, 1.5, 1.0];
     final layout = mosaic(ratios);
     final counts = <int>{};
@@ -95,19 +110,24 @@ void main() {
       final first = layout.firstAssetIndexForRow(row);
       final widths = layout.widthsForRow(row);
       counts.add(widths.length);
+      final cells = layout.cellsForRow(row)!;
       for (var index = 0; index < widths.length; index++) {
-        expect(widths[index] / layout.heightForRow(row), closeTo(ratios[first + index], 1e-8));
+        final source = ratios[first + index];
+        final display = cells[index].width / cells[index].height;
+        expect(math.min(source / display, display / source), greaterThanOrEqualTo(.5));
       }
     }
-    expect(counts.length, greaterThan(1));
+    expect(counts, everyElement(inInclusiveRange(2, 3)));
     verify(layout);
   });
 
   test('a long sequence of portraits changes row counts rather than compressing every source into square tiles', () {
     final layout = mosaic(List.filled(40, .5));
-    expect(layout.rowCount, 10);
-    expect(layout.assetCountForRow(0), 4);
-    expect(layout.heightForRow(0), 95.25 * 2);
+    expect(layout.rowCount, 14);
+    expect([
+      for (var row = 0; row < layout.rowCount; row++) layout.assetCountForRow(row),
+    ], everyElement(inInclusiveRange(2, 3)));
+    expect(layout.cellsForRow(2)!.every((cell) => cell.height > cell.width), isTrue);
     verify(layout);
   });
 
@@ -139,9 +159,12 @@ void main() {
       columnCount: 3,
       spacing: 3,
     );
-    expect(screenshots.assetCountForRow(0), greaterThan(3));
-    for (final tileWidth in screenshots.widthsForRow(0)) {
-      expect(tileWidth / screenshots.heightForRow(0), closeTo(.45, 1e-8));
+    expect([
+      for (var row = 0; row < screenshots.rowCount; row++) screenshots.assetCountForRow(row),
+    ], everyElement(inInclusiveRange(2, 3)));
+    for (final cell in screenshots.cellsForRow(0)!) {
+      expect(cell.width, greaterThanOrEqualTo(104));
+      expect(cell.height, lessThanOrEqualTo(280));
     }
     verify(screenshots);
   });
@@ -156,9 +179,9 @@ void main() {
         columnCount: 2,
         spacing: 3,
       );
-      expect(layout.assetCountForRow(0), 2);
-      expect(layout.heightForRow(0), closeTo(math.min(320, (width - 3) / 1.2), 1e-8));
-      expect(layout.widthsForRow(0)[0] / layout.widthsForRow(0)[1], closeTo(.45 / .75, 1e-8));
+      expect(layout.assetCountForRow(0), 3);
+      expect(layout.heightForRow(0), lessThanOrEqualTo(280));
+      expect(layout.widthsForRow(0).every((value) => value >= 104), isTrue);
       for (var row = 0; row < layout.rowCount; row++) {
         expect(layout.heightForRow(row), lessThanOrEqualTo(320));
       }
@@ -208,10 +231,12 @@ void main() {
     }
   });
 
-  test('a much taller single candidate cannot displace the closer square pair', () {
+  test('a tall singleton cannot displace compact square pairs or triples', () {
     final layout = FixedRowLayout.justified(width: 390, aspectRatios: List.filled(24, 1), columnCount: 2, spacing: 3);
-    expect(layout.assetCountForRow(0), 2);
-    expect(layout.heightForRow(0), 193.5);
+    expect([
+      for (var row = 0; row < layout.rowCount; row++) layout.assetCountForRow(row),
+    ], everyElement(inInclusiveRange(2, 3)));
+    expect(layout.heightForRow(0), lessThanOrEqualTo(193.5));
     verify(layout);
   });
 
@@ -248,7 +273,9 @@ void main() {
                 assetIndexInTimeline: segment.firstAssetIndex + index,
                 columnCount: density,
               ),
-              segment.gridOffset + segment.rows.offsetForRow(row),
+              segment.gridOffset +
+                  segment.rows.offsetForRow(row) +
+                  segment.rows.cellsForRow(row)![index - segment.rows.firstAssetIndexForRow(row)].top,
             );
           }
         }
@@ -298,24 +325,25 @@ void main() {
     }
   });
 
-  test('an unavoidable extreme portrait tail is bounded instead of leaving a tall empty row', () {
+  test('an extreme portrait tail is absorbed into a filled bounded block', () {
     final layout = mosaic([3, 3, .25]);
-    expect(layout.rowCount, 3);
+    expect(layout.rowCount, 1);
     expect(layout.isJustifiedRow(0), isTrue);
-    expect(layout.isJustifiedRow(2), isFalse);
-    expect(layout.widthsForRow(2), [72]);
-    expect(layout.heightForRow(2), 128);
+    expect(layout.assetCountForRow(0), 3);
+    expect(layout.widthsForRow(0).last, greaterThanOrEqualTo(104));
+    expect(layout.heightForRow(0), lessThanOrEqualTo(280));
     verify(layout);
   });
 
   test('an extreme portrait beside a panorama keeps both selection and media badges usable', () {
     final layout = mosaic([.25, 3.0]);
     expect(layout.rowCount, 1);
-    expect(layout.widthsForRow(0), [72, 315]);
+    expect(layout.widthsForRow(0), [104, 283]);
     verify(layout);
     final ordinary = mosaic([.5, 2.0]);
-    expect(ordinary.widthsForRow(0)[0] / ordinary.heightForRow(0), closeTo(.5, 1e-8));
-    expect(ordinary.widthsForRow(0)[1] / ordinary.heightForRow(0), closeTo(2.0, 1e-8));
+    expect(ordinary.widthsForRow(0).first, 104);
+    expect(ordinary.widthsForRow(0).last, 283);
+    expect(ordinary.heightForRow(0), closeTo(387 / 2.5, 1e-8));
   });
 
   test('row bounds and exact sums hold across compact screens, zoom levels and pathological ratios', () {
@@ -323,9 +351,9 @@ void main() {
     for (final width in [200.0, 320.0, 390.0, 844.0]) {
       for (var columns = 1; columns <= 8; columns++) {
         final nominal = (width - 3 * (columns - 1)) / columns;
-        final target = (nominal * 1.55).clamp(96.0, 280.0);
-        final minimum = (target * .55).clamp(48.0, 120.0);
-        final maximum = math.max(target, (target * 1.6).clamp(160.0, 320.0));
+        final target = (nominal * 1.25).clamp(88.0, 192.0);
+        final minimum = (target * .55).clamp(64.0, 104.0);
+        const maximum = 280.0;
         final ratios = List.generate(100, (index) {
           if (index % 7 == 0) {
             return 1e-9;
@@ -340,7 +368,7 @@ void main() {
         for (var row = 0; row < layout.rowCount; row++) {
           expect(layout.heightForRow(row), inInclusiveRange(minimum, maximum));
           final available = width - 3 * (layout.assetCountForRow(row) - 1);
-          final floor = math.min(72.0, available / layout.assetCountForRow(row));
+          final floor = math.min(math.min(104.0, (width - 6) / 3), available / layout.assetCountForRow(row));
           for (final cell in layout.widthsForRow(row)) {
             expect(cell, greaterThanOrEqualTo(floor - 1e-8));
           }

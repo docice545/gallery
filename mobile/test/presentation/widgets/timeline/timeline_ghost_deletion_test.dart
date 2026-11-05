@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/config/app_config.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/deletion_result.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
@@ -37,7 +38,7 @@ import '../../../unit/presentation/presentation_context.dart';
 import '../../../widget_tester_extensions.dart';
 import '../bottom_sheet/toolbar_test_app.dart';
 
-enum _Case { server, local, disabled, reduced, rejected, osCancelled, unloaded }
+enum _Case { server, local, disabled, reduced, rejected, osCancelled, unloaded, mosaicServer, mosaicLocal }
 
 class _Writable extends ReadOnlyModeNotifier {
   @override
@@ -221,7 +222,8 @@ void main() {
       testWidgets('Timeline $scenario for $count selected photos uses the real action and thumbnail renderer', (
         tester,
       ) async {
-        final device = scenario == _Case.local || scenario == _Case.osCancelled;
+        final mosaic = scenario == _Case.mosaicServer || scenario == _Case.mosaicLocal;
+        final device = scenario == _Case.local || scenario == _Case.osCancelled || scenario == _Case.mosaicLocal;
         final rejected = scenario == _Case.rejected || scenario == _Case.osCancelled;
         final reduced = scenario == _Case.reduced;
         decodedImages = scenario != _Case.unloaded;
@@ -232,17 +234,42 @@ void main() {
         tester.view.physicalSize = const Size(390, 844);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
-        final assets = List<BaseAsset>.generate(
-          4,
-          (i) => device
-              ? LocalAssetFactory.create(id: 'photo-$i').copyWith(width: 640, height: 480)
-              : TestUtils.createRemoteAsset(id: 'photo-$i', ownerId: fixture.currentUser.id, width: 640, height: 480),
-        );
+        final assets = List<BaseAsset>.generate(mosaic ? 45 : 4, (i) {
+          final ratio = mosaic && i < 5 ? [16 / 9, 16 / 9, 9 / 16, 9 / 16, 9 / 16][i] : 4 / 3;
+          final width = (ratio * 480).round();
+          final video = mosaic && i >= 2 && i < 5;
+          final type = video ? AssetType.video : AssetType.image;
+          final duration = video ? [39000, 17000, 11000][i - 2] : 0;
+          return device
+              ? LocalAssetFactory.create(
+                  id: 'photo-$i',
+                ).copyWith(width: width, height: 480, type: type, durationMs: duration)
+              : TestUtils.createRemoteAsset(
+                  id: 'photo-$i',
+                  ownerId: fixture.currentUser.id,
+                  width: width,
+                  height: 480,
+                ).copyWith(type: type, durationMs: duration);
+        });
         var catalog = List<BaseAsset>.of(assets);
         final updates = StreamController<List<Bucket>>.broadcast(sync: true);
-        List<Bucket> buckets() => [
-          if (catalog.isNotEmpty) Bucket(assetCount: catalog.length, aspectRatios: List.filled(catalog.length, 4 / 3)),
-        ];
+        final firstDateIds = assets.take(5).map((asset) => asset.id).toSet();
+        List<double> ratios(List<BaseAsset> group) => group.map((asset) => asset.width! / asset.height!).toList();
+        List<Bucket> buckets() {
+          if (!mosaic) {
+            return [if (catalog.isNotEmpty) Bucket(assetCount: catalog.length, aspectRatios: ratios(catalog))];
+          }
+          return [
+            for (final firstDate in [true, false])
+              if (catalog.any((asset) => firstDateIds.contains(asset.id) == firstDate))
+                TimeBucket(
+                  date: DateTime(2026, 11, firstDate ? 5 : 4),
+                  assetCount: catalog.where((asset) => firstDateIds.contains(asset.id) == firstDate).length,
+                  aspectRatios: ratios(catalog.where((asset) => firstDateIds.contains(asset.id) == firstDate).toList()),
+                ),
+          ];
+        }
+
         Stream<List<Bucket>> watch() => Stream.multi((controller) {
           controller.addSync(buckets());
           final subscription = updates.stream.listen(controller.addSync, onDone: controller.closeSync);
@@ -261,7 +288,10 @@ void main() {
             await updates.close();
           });
         });
-        final selected = assets.take(count).toSet();
+        final selected = assets.skip(mosaic ? 1 : 0).take(count).toSet();
+        final visibleAssets = assets.take(mosaic ? 5 : 4).toList();
+        final remainingAssets = visibleAssets.where((asset) => !selected.contains(asset)).toList();
+        List<int> sourcePixel(String id) => id.endsWith('0') ? [57, 124, 116, 255] : [176, 107, 71, 255];
         final ids = selected.map((asset) => asset.id).toList();
         for (final asset in assets) {
           when(() => fixture.service.asset.service.getAsset(asset)).thenAnswer((_) async => asset);
@@ -305,19 +335,24 @@ void main() {
                 thumbnailFaceBoundsProvider.overrideWith((ref, _) => Stream.value(const [])),
               ],
               child: toolbarTestApp(
-                theme: ThemeData(fontFamily: 'GoogleSans'),
+                theme: ThemeData(
+                  fontFamily: 'GoogleSans',
+                  brightness: mosaic && count == 3 ? Brightness.dark : Brightness.light,
+                ),
                 home: withStubRouter(
                   MediaQuery(
                     data: MediaQueryData(
                       size: const Size(390, 844),
                       padding: const EdgeInsets.only(top: 24, bottom: 24),
                       disableAnimations: reduced,
+                      textScaler: TextScaler.linear(mosaic && count == 3 ? 2 : 1),
                     ),
-                    child: const FaceAwareThumbnailScope(
+                    child: FaceAwareThumbnailScope(
                       child: Timeline(
-                        appBar: SliverAppBar(title: Text('FOTO')),
+                        appBar: const SliverAppBar(title: Text('FOTO')),
+                        topSliverWidget: mosaic ? const SliverToBoxAdapter(child: SizedBox(height: 600)) : null,
                         denseLayout: true,
-                        bottomSheet: TimelineCompactSelection(),
+                        bottomSheet: const TimelineCompactSelection(),
                         dockGroupingPill: true,
                       ),
                     ),
@@ -327,11 +362,33 @@ void main() {
             ),
           ),
         );
-        await _until(tester, () => find.byType(ThumbnailTile).evaluate().length == 4 && requests.length >= 4);
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(tester.element(find.byType(Timeline)));
+        if (mosaic) {
+          final config = container.read(_config.notifier);
+          config.state = config.state.copyWith(
+            timeline: config.state.timeline.copyWith(
+              presentation: count == 3 ? TimelinePresentation.immersive : TimelinePresentation.classic,
+              tilesPerRow: 3,
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+        final scroll = PrimaryScrollController.of(tester.element(find.byType(CustomScrollView)));
+        if (mosaic) {
+          scroll.jumpTo(600);
+          await tester.pumpAndSettle();
+        }
+        await _until(
+          tester,
+          () =>
+              visibleAssets.every((asset) => _tile(asset.id).evaluate().isNotEmpty) &&
+              requests.length >= visibleAssets.length,
+        );
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
         await tester.pumpAndSettle();
         final decoded = await _capture(tester, key, '$prefix-loaded');
-        for (final asset in decodedImages ? assets : <BaseAsset>[]) {
+        for (final asset in decodedImages ? visibleAssets : <BaseAsset>[]) {
           final rect = tester.getRect(_tile(asset.id));
           final point = rect.topLeft + Offset(rect.width / 4, rect.height / 4);
           final offset = (point.dy.floor() * 390 + point.dx.floor()) * 4;
@@ -341,16 +398,18 @@ void main() {
             reason: 'The real custom thumbnail renderer must contain decoded source pixels before deletion',
           );
         }
-        await tester.longPress(_tile(assets.first.id));
+        await tester.longPress(_tile(selected.first.id));
         await tester.pumpAndSettle();
         for (final asset in selected.skip(1)) {
           await tester.tap(_tile(asset.id));
           await tester.pumpAndSettle();
         }
-        final container = ProviderScope.containerOf(tester.element(find.byType(TimelineCompactSelection)));
         expect(container.read(multiSelectProvider).selectedAssets, selected);
-        final source = tester.getRect(_tile(assets.first.id));
-        final remainingRects = {for (final asset in assets.skip(count)) asset.id: tester.getRect(_tile(asset.id))};
+        final source = tester.getRect(_tile(selected.first.id));
+        // The action panel can share PrimaryScrollController. Read the real
+        // grid's position through its tile, not the panel's scroll position.
+        final beforeScroll = Scrollable.of(tester.element(_tile(selected.first.id))).position.pixels;
+        final remainingRects = {for (final asset in remainingAssets) asset.id: tester.getRect(_tile(asset.id))};
         if (scenario == _Case.disabled) {
           final config = container.read(_config.notifier);
           config.state = config.state.copyWith(theme: config.state.theme.copyWith(fancyDeletion: false));
@@ -358,7 +417,7 @@ void main() {
         }
         final deleteLabel = device ? 'Delete from Device' : 'Move to trash';
         final bin = tester.getRect(find.byTooltip(deleteLabel));
-        await _capture(tester, key, '$prefix-before');
+        final beforePixels = await _capture(tester, key, '$prefix-before');
         await tester.tap(find.byTooltip(deleteLabel));
         await _until(tester, () => requested.isCompleted);
         await tester.pump();
@@ -368,6 +427,16 @@ void main() {
           expect(_painter(tester).source, source);
           expect(bin.contains(_painter(tester).target), isTrue);
           expect(_painter(tester).reducedMotion, reduced);
+          final captured = _painter(tester).image;
+          final rgba = (await tester.runAsync(() => captured.toByteData(format: ui.ImageByteFormat.rawRgba)))!;
+          final captureOffset = ((captured.height / 4).floor() * captured.width + (captured.width / 4).floor()) * 4;
+          final point = source.topLeft + Offset(source.width / 4, source.height / 4);
+          final screenOffset = (point.dy.floor() * 390 + point.dx.floor()) * 4;
+          expect(
+            rgba.buffer.asUint8List().sublist(captureOffset, captureOffset + 4),
+            beforePixels.sublist(screenOffset, screenOffset + 4),
+            reason: 'The flying capture must contain the selected source, including an interior compound cell',
+          );
         }
         expect(container.read(multiSelectProvider).selectedAssets, selected);
         // The real action guard must reject a second tap while the receipt is pending.
@@ -383,31 +452,30 @@ void main() {
           expect(_painter(tester).progress, inExclusiveRange(.4, .65));
           final flying = await _capture(tester, key, '$prefix-flight');
           if (!reduced) {
-            for (final rect in remainingRects.values) {
+            for (final entry in remainingRects.entries) {
+              final rect = entry.value;
               final point = rect.topLeft + Offset(rect.width / 4, rect.height / 4);
               final offset = (point.dy.floor() * 390 + point.dx.floor()) * 4;
-              expect(flying.sublist(offset, offset + 4), [
-                176,
-                107,
-                71,
-                255,
-              ], reason: 'Unselected photos must remain painted during intake and grid reflow');
+              expect(
+                flying.sublist(offset, offset + 4),
+                sourcePixel(entry.key),
+                reason: 'Unselected photos must remain painted during intake and grid reflow',
+              );
             }
           }
           await tester.pump(Duration(milliseconds: reduced ? 70 : 240));
           expect(_painter(tester).progress, inExclusiveRange(.8, .98));
           final intake = await _capture(tester, key, '$prefix-intake');
           if (!reduced) {
-            for (final asset in assets.skip(count)) {
+            for (final asset in remainingAssets) {
               final rect = tester.getRect(_tile(asset.id));
               final point = rect.topLeft + Offset(rect.width / 4, rect.height / 4);
               final offset = (point.dy.floor() * 390 + point.dx.floor()) * 4;
-              expect(intake.sublist(offset, offset + 4), [
-                176,
-                107,
-                71,
-                255,
-              ], reason: 'Reflow must keep the same photo visible while its resized thumbnail is decoding');
+              expect(
+                intake.sublist(offset, offset + 4),
+                sourcePixel(asset.id),
+                reason: 'Reflow must keep the same photo visible while its resized thumbnail is decoding',
+              );
             }
           }
           await tester.pump(reduced ? ghostTrapReducedDuration : ghostTrapDuration);
@@ -420,7 +488,7 @@ void main() {
         for (final asset in selected) {
           expect(_tile(asset.id), rejected ? findsOneWidget : findsNothing);
         }
-        for (final asset in assets.skip(count)) {
+        for (final asset in remainingAssets) {
           expect(_tile(asset.id), findsOneWidget);
         }
         expect(container.read(multiSelectProvider).selectedAssets, rejected ? selected : isEmpty);
@@ -431,16 +499,15 @@ void main() {
         await tester.pumpAndSettle();
         final after = await _capture(tester, key, '$prefix-after');
         if (decodedImages && !rejected) {
-          for (final asset in assets.skip(count)) {
+          for (final asset in remainingAssets) {
             final rect = tester.getRect(_tile(asset.id));
             final point = rect.topLeft + Offset(rect.width / 4, rect.height / 4);
             final offset = (point.dy.floor() * 390 + point.dx.floor()) * 4;
-            expect(after.sublist(offset, offset + 4), [
-              176,
-              107,
-              71,
-              255,
-            ], reason: 'Remaining thumbnails must still display real pixels after deletion');
+            expect(
+              after.sublist(offset, offset + 4),
+              sourcePixel(asset.id),
+              reason: 'Remaining thumbnails must still display real pixels after deletion',
+            );
           }
         }
         if (device) {
@@ -451,6 +518,14 @@ void main() {
           verifyNever(() => fixture.service.cleanup.service.deleteLocalAssetsDetailed(any(), trash: true));
         }
         expect(requests, isNotEmpty);
+        if (mosaic) {
+          expect(beforeScroll, 600);
+          expect(
+            Scrollable.of(tester.element(_tile(assets.first.id))).position.pixels,
+            beforeScroll,
+            reason: 'Deletion must not move a scrolled mosaic to a different position',
+          );
+        }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
         await tester.pump();

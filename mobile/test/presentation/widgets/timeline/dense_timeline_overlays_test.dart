@@ -329,23 +329,14 @@ void main() {
 
     final wrappers = find.byType(TimelineAssetIndexWrapper);
     expect(wrappers, findsNWidgets(5));
-    final rowRects = <double, List<Rect>>{};
-    for (final asset in assets) {
-      final rect = tester.getRect(_tile(asset.id));
-      rowRects.putIfAbsent(rect.top, () => []).add(rect);
+    final rects = [for (final asset in assets) tester.getRect(_tile(asset.id))];
+    final left = rects.map((r) => r.left).reduce(math.min);
+    for (var y = rects.first.top + 6; y < rects.map((r) => r.bottom).reduce(math.max) - 6; y += 12) {
+      for (var x = left + 6; x < left + _viewportWidth - 6; x += 12) {
+        expect(rects.any((rect) => rect.inflate(_spacing / 2 + .01).contains(Offset(x, y))), isTrue);
+      }
     }
-    expect(rowRects.length, 2);
-    for (final rects in rowRects.values) {
-      expect(
-        rects.fold<double>(0, (sum, rect) => sum + rect.width) + _spacing * (rects.length - 1),
-        closeTo(_viewportWidth, 0.001),
-      );
-    }
-    expect(rowRects.values.last.length, greaterThan(1));
-    expect(
-      tester.getRect(_tile(assets.last.id)).width / tester.getRect(_tile(assets.last.id)).height,
-      closeTo(.7, .01),
-    );
+    expect(rects.every((rect) => rect.width < _viewportWidth && rect.width >= 96), isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -427,8 +418,9 @@ void main() {
 
   testWidgets('a cropped viewport below the visibility threshold does not autoplay a motion tile', (tester) async {
     final playback = _PlaybackLog();
-    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 120, playback: playback);
-    expect(tester.getSize(_tile('cropped')).height, greaterThan(180));
+    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 60, playback: playback);
+    final tileHeight = tester.getSize(_tile('cropped')).height;
+    expect(60 / tileHeight, lessThan(.65));
     await _settlePreview(tester);
     expect(playback.starts, isEmpty);
   });

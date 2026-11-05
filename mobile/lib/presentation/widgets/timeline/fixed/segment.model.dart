@@ -124,6 +124,7 @@ class FixedSegment extends Segment {
       rowWidth: layout.width,
       denseLayout: denseLayout,
       rowWidths: denseLayout ? layout.widthsForRow(rowIndexInSegment) : null,
+      rowCells: denseLayout ? layout.cellsForRow(rowIndexInSegment) : null,
       topCornerRadius: 0,
     );
     // Immersive mode removes visual headers, not the accessible date grouping.
@@ -163,6 +164,7 @@ class _FixedSegmentRow extends ConsumerWidget {
   final double rowWidth;
   final bool denseLayout;
   final List<double>? rowWidths;
+  final List<Rect>? rowCells;
   final double topCornerRadius;
 
   const _FixedSegmentRow({
@@ -174,6 +176,7 @@ class _FixedSegmentRow extends ConsumerWidget {
     required this.rowWidth,
     required this.denseLayout,
     this.rowWidths,
+    this.rowCells,
     this.topCornerRadius = 0,
   });
 
@@ -217,11 +220,17 @@ class _FixedSegmentRow extends ConsumerWidget {
           TimelineRow(
             height: tileHeight,
             widths: widths,
+            cells: rowCells,
             spacing: spacing,
             textDirection: Directionality.of(context),
             children: [
               for (var i = 0; i < widths.length; i++)
-                _clipMosaicEdge(context, i, widths.length, ThumbnailPlaceholder(width: widths[i], height: tileHeight)),
+                _clipMosaicEdge(
+                  context,
+                  i,
+                  widths.length,
+                  ThumbnailPlaceholder(width: widths[i], height: rowCells?[i].height ?? tileHeight),
+                ),
             ],
           ),
           widths,
@@ -298,7 +307,7 @@ class _FixedSegmentRow extends ConsumerWidget {
                 key: ValueKey(Object.hash(assets[i].heroTag, assetIndex + i, timelineService.hashCode)),
                 asset: assets[i],
                 assetIndex: assetIndex + i,
-                size: Size(widths[i], tileHeight),
+                size: rowCells?[i].size ?? Size(widths[i], tileHeight),
                 fillCell: denseLayout,
               ),
             ),
@@ -310,6 +319,7 @@ class _FixedSegmentRow extends ConsumerWidget {
       TimelineRow(
         height: tileHeight,
         widths: widths,
+        cells: rowCells,
         spacing: spacing,
         textDirection: Directionality.of(context),
         children: children,
@@ -319,7 +329,7 @@ class _FixedSegmentRow extends ConsumerWidget {
   }
 
   Widget _positionRow(Widget row, List<double> widths) {
-    if (!denseLayout) {
+    if (!denseLayout || rowCells != null) {
       return row;
     }
     final gap = math.max(0.0, rowWidth - widths.sum - spacing * (widths.length - 1));

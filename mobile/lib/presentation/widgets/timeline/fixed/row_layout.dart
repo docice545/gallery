@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show Rect;
 
 import 'package:collection/collection.dart';
 
@@ -38,16 +39,13 @@ class FixedRowLayout {
     required this._offsets,
   }) : denseLayout = true;
 
-  /// Builds a linear-time justified mosaic. A completed row fills [width]; its
-  /// cell width is its height multiplied by the normalized source aspect ratio.
-  ///
-  /// Pathological source dimensions are bounded (1:4 through 3:1), and cells
-  /// narrower than 72 pixels receive a bounded cover crop for usable selection
-  /// targets. Ordinary rows preserve their source aspect ratios. Unknown
-  /// dimensions use a square. Rebalance the last two rows within this bucket
-  /// before leaving a portrait orphan. A genuinely unfillable date tail uses
-  /// at most 128 dp of height and retains portrait proportions; no asset is
-  /// borrowed from the next date or stretched across the display.
+  /// Cached adaptive mosaic for one date bucket. The bounded candidate set
+  /// contains filled rows of 2–3 cells on phones and balanced three-cell
+  /// compositions. Bounded local planning avoids singleton tails without
+  /// moving assets across dates or rearranging a distant earlier viewport.
+  /// Geometry depends only on indexed dimensions, never
+  /// thumbnail readiness or selection. Construction is O(n); scroll lookup
+  /// remains binary search over the cached block offsets.
   factory FixedRowLayout.justified({
     required double width,
     required List<double> aspectRatios,
@@ -61,124 +59,147 @@ class FixedRowLayout {
     assert(columnCount > 0);
     assert(spacing.isFinite && spacing >= 0);
     final nominalHeight = math.max(1.0, width - spacing * (columnCount - 1)) / columnCount;
-    final target = targetHeight ?? (nominalHeight * 1.55).clamp(96.0, 280.0);
-    final minimum = minimumHeight ?? (target * .55).clamp(48.0, 120.0);
-    final maximum = maximumHeight ?? math.max(target, (target * 1.6).clamp(160.0, 320.0));
+    final target = targetHeight ?? (nominalHeight * 1.25).clamp(88.0, 192.0);
+    final minimum = minimumHeight ?? (target * .55).clamp(64.0, 104.0);
+    final maximum = maximumHeight ?? math.max(target, (256.0 - columnCount * 8).clamp(176.0, 240.0));
+    final blockMaximum = math.min(280.0, maximum * 1.25);
+    final minimumWidth = math.min(104.0, (width - spacing * 2) / 3);
+    final maxCount = width < 600 ? 3 : (width / 130).floor().clamp(3, 8);
+    final preferredCount = columnCount.clamp(2, maxCount);
     assert(target.isFinite && target > 0);
     assert(minimum > 0 && minimum <= target);
     assert(maximum.isFinite && maximum >= target);
-    final ratios = [for (final ratio in aspectRatios) ratio.isFinite && ratio > 0 ? ratio.clamp(.25, 3.0) : 1.0];
+    final ratios = [for (final ratio in aspectRatios) ratio.isFinite && ratio > 0 ? ratio.clamp(.25, 4.0) : 1.0];
     final rows = <_JustifiedRow>[];
     final offsets = <double>[0];
-    var first = 0;
-    while (first < ratios.length) {
-      var count = 0;
-      var sum = 0.0;
-      var previousHeight = double.infinity;
-      var previousSum = 0.0;
-      var rowHeight = 0.0;
-      // Limit the search by the available width as well as by the target. Even
-      // a long series of extreme portraits cannot produce negative cell space.
-      final maxCount = math.max(1, ((width + spacing) / (72 + spacing)).floor());
-      while (first + count < ratios.length && count < maxCount) {
-        previousSum = sum;
-        sum += ratios[first + count];
-        count++;
-        rowHeight = math.max(0.0, width - spacing * (count - 1)) / sum;
-        if (rowHeight <= target) {
-          // Compare the raw candidate heights before applying the paint bounds.
-          // Rejecting a slightly oversized previous row caused a width increase
-          // from 384 to 390 dp to halve mixed-photo height (317.5 -> 142.2).
-          // The chosen row is still capped below; no unbounded row or fixed
-          // number of columns is introduced.
-          if (count > 1 &&
-              ((previousHeight >= minimum && (previousHeight - target).abs() < (rowHeight - target).abs()) ||
-                  rowHeight < minimum)) {
-            count--;
-            sum = previousSum;
-            rowHeight = previousHeight;
+
+    _JustifiedRow regular(int first, int count) {
+      final source = ratios.sublist(first, first + count);
+      final available = width - spacing * (count - 1);
+      final height = (available / source.sum).clamp(minimum, maximum);
+      final widths = _boundedWidths(source, available, minimumWidth: minimumWidth);
+      var left = 0.0;
+      final cells = <Rect>[];
+      for (final cellWidth in widths) {
+        cells.add(Rect.fromLTWH(left, 0, cellWidth, height));
+        left += cellWidth + spacing;
+      }
+      return _JustifiedRow(first: first, height: height, cells: cells, justified: true);
+    }
+
+    double loss(Rect cell, double sourceRatio) {
+      final displayed = cell.width / cell.height;
+      return 1 - math.min(displayed / sourceRatio, sourceRatio / displayed);
+    }
+
+    _JustifiedRow? composition(int first, {required bool largeFirst}) {
+      final large = largeFirst ? 0 : 2;
+      final smallA = largeFirst ? 1 : 0;
+      final smallB = largeFirst ? 2 : 1;
+      final heroRatio = ratios[first + large];
+      final a = ratios[first + smallA];
+      final b = ratios[first + smallB];
+      final inverse = 1 / a + 1 / b;
+      final smallWidth = (width - spacing - heroRatio * spacing) / (1 + heroRatio * inverse);
+      final largeWidth = width - spacing - smallWidth;
+      // Balanced columns, not a large picture beside an unusably narrow strip.
+      if (math.min(smallWidth, largeWidth) < minimumWidth ||
+          math.min(smallWidth, largeWidth) / math.max(smallWidth, largeWidth) < .6) {
+        return null;
+      }
+      final height = math.min(blockMaximum, smallWidth * inverse + spacing);
+      final aHeight = (height - spacing) * (1 / a) / inverse;
+      final bHeight = height - spacing - aHeight;
+      if (math.min(aHeight, bHeight) < minimum) {
+        return null;
+      }
+      final smallLeft = largeFirst ? largeWidth + spacing : 0.0;
+      final big = Rect.fromLTWH(largeFirst ? 0 : smallWidth + spacing, 0, largeWidth, height);
+      final top = Rect.fromLTWH(smallLeft, 0, smallWidth, aHeight);
+      final bottom = Rect.fromLTWH(smallLeft, aHeight + spacing, smallWidth, bHeight);
+      // Source traversal is stable: first+1/first+2 in the side column, or
+      // first/first+1 in the left column followed by the large final item.
+      final cells = largeFirst ? [big, top, bottom] : [top, bottom, big];
+      for (var i = 0; i < cells.length; i++) {
+        if (loss(cells[i], ratios[first + i]) > .30) {
+          return null;
+        }
+      }
+      return _JustifiedRow(first: first, height: height, cells: cells, justified: true);
+    }
+
+    double score(_JustifiedRow row, {bool compound = false}) {
+      final losses = [for (var i = 0; i < row.cells.length; i++) loss(row.cells[i], ratios[row.first + i])];
+      final deviation = (row.height - target) / target;
+      final density = .2 * deviation * deviation * row.cells.length + .1 * (row.cells.length - preferredCount).abs();
+      // Favor a well-fitting asymmetric composition when it preserves the
+      // contents of differently shaped neighbors. Poorly cropped compositions
+      // receive no such benefit; ordinary portrait/landscape runs stay rows.
+      final compositionBenefit = compound ? 4 * (1 - losses.reduce(math.max) / .30) : 0.0;
+      return losses.sum * 4 + density - compositionBenefit;
+    }
+
+    if (ratios.length == 1) {
+      // A genuinely solitary date remains bounded. Portraits keep the compact
+      // centered footprint; landscapes/panoramas never grow into giant cards.
+      final ratio = ratios.single;
+      final height = ratio < 1
+          ? math.min(128.0, target)
+          : (width / ratio).clamp(48.0, math.min(128.0, target)).toDouble();
+      final cellWidth = ratio < 1 ? math.min(width, math.max(math.min(72.0, width), height * ratio)) : width;
+      rows.add(
+        _JustifiedRow(
+          first: 0,
+          height: height,
+          cells: [Rect.fromLTWH((width - cellWidth) / 2, 0, cellWidth, height)],
+          justified: cellWidth == width,
+        ),
+      );
+    } else if (ratios.isNotEmpty) {
+      // Solve consecutive short windows, not the entire date as one optimum.
+      // Otherwise removing a middle item can change distant preceding rows and
+      // move an unrelated viewport. Nine assets fit 2/3-cell partitions; a final
+      // ten are kept together instead of leaving an artificial singleton.
+      for (var start = 0; start < ratios.length;) {
+        final remaining = ratios.length - start;
+        final end = start + math.min<int>(remaining, remaining == 10 ? 10 : 9);
+        final costs = List.filled(end - start + 1, double.infinity);
+        final choices = List<_JustifiedRow?>.filled(end - start, null);
+        costs[end - start] = 0;
+        for (var first = end - 2; first >= start; first--) {
+          void consider(_JustifiedRow? row, {bool compound = false}) {
+            if (row == null) {
+              return;
+            }
+            final rest = first + row.cells.length;
+            final cost = score(row, compound: compound) + costs[rest - start];
+            if (cost < costs[first - start]) {
+              costs[first - start] = cost;
+              choices[first - start] = row;
+            }
           }
-          break;
-        }
-        previousHeight = rowHeight;
-      }
-      // The greedy target can close a landscape row immediately before a
-      // portrait tail (e.g. 16:9, 16:9, 9:16). Try the bounded final window's
-      // partitions before committing it. This is bucket-local and does not
-      // depend on thumbnails or selection; the large-library pass stays linear.
-      final remaining = ratios.length - first - count;
-      if (remaining > 0 && remaining <= maxCount) {
-        final tailSum = ratios.skip(first + count).fold(0.0, (a, b) => a + b);
-        final tailHeight = (width - spacing * (remaining - 1)) / tailSum;
-        if (tailHeight > maximum) {
-          final totalCount = count + remaining;
-          final totalSum = sum + tailSum;
-          var leftSum = 0.0;
-          var bestScore = double.infinity;
-          for (var leftCount = 1; leftCount <= math.min(maxCount, totalCount); leftCount++) {
-            leftSum += ratios[first + leftCount - 1];
-            final rightCount = totalCount - leftCount;
-            if (rightCount > maxCount) {
+
+          for (var count = 2; count <= math.min(maxCount, end - first); count++) {
+            if (end - first - count == 1) {
               continue;
             }
-            final leftHeight = (width - spacing * (leftCount - 1)) / leftSum;
-            final rightHeight = rightCount == 0 ? target : (width - spacing * (rightCount - 1)) / (totalSum - leftSum);
-            // A neighboring landscape may use at most 20% cover crop to avoid
-            // abandoning a portrait at denser settings. The final paint still
-            // obeys maximum; this is not permission for an unbounded row.
-            if (leftHeight < minimum ||
-                leftHeight > maximum * 1.25 ||
-                rightHeight < minimum ||
-                rightHeight > maximum * 1.25) {
-              continue;
-            }
-            // Prefer a partition that keeps the 72 dp badge target without
-            // forcing the portrait into a wider, heavily cropped tile.
-            final leftMin = ratios.skip(first).take(leftCount).reduce(math.min);
-            final rightMin = rightCount == 0 ? 1.0 : ratios.skip(first + leftCount).take(rightCount).reduce(math.min);
-            if (leftHeight * leftMin < math.min(72.0, width) ||
-                (rightCount > 0 && rightHeight * rightMin < math.min(72.0, width))) {
-              continue;
-            }
-            final score = (leftHeight - target).abs() + (rightHeight - target).abs();
-            if (score < bestScore) {
-              bestScore = score;
-              count = leftCount;
-              sum = leftSum;
-              rowHeight = leftHeight;
+            consider(regular(first, count));
+            if (count == 3) {
+              consider(composition(first, largeFirst: true), compound: true);
+              consider(composition(first, largeFirst: false), compound: true);
             }
           }
         }
-      }
-      final last = first + count == ratios.length;
-      // Landscape singleton days retain their bounded full-width cover. A lone
-      // portrait must not receive that strong landscape crop.
-      final singleAssetDay = ratios.length == 1 && ratios.first >= 1;
-      final singlePortraitDay = ratios.length == 1 && ratios.first < 1;
-      var justified = !singlePortraitDay && (singleAssetDay || !last || rowHeight <= maximum);
-      final available = math.max(0.0, width - spacing * (count - 1));
-      List<double> widths;
-      final rowRatios = ratios.sublist(first, first + count);
-      if (justified) {
-        // A normal row keeps the exact source proportions. If no partition can
-        // meet both height bounds, cover-crop its cells rather than create an
-        // excessively tall/short row. Images are never geometrically stretched.
-        rowHeight = singleAssetDay
-            ? math.min(target, math.max(minimum, width / rowRatios.first))
-            : rowHeight.clamp(minimum, maximum);
-        widths = singleAssetDay ? [width] : _boundedWidths(rowRatios, available);
-      } else {
-        rowHeight = math.max(minimum, math.min(target, 128.0));
-        final minimumWidth = math.min(72.0, available / count);
-        widths = [for (final ratio in rowRatios) math.max(minimumWidth, rowHeight * ratio)];
-        if (widths.fold(0.0, (sum, width) => sum + width) >= available) {
-          widths = _boundedWidths(rowRatios, available);
-          justified = true;
+        for (var first = start; first < end;) {
+          final row = choices[first - start]!;
+          rows.add(row);
+          first += row.cells.length;
         }
+        start = end;
       }
-      rows.add(_JustifiedRow(first: first, height: rowHeight, widths: List.unmodifiable(widths), justified: justified));
-      offsets.add(offsets.last + rowHeight + spacing);
-      first += count;
+    }
+    for (final row in rows) {
+      offsets.add(offsets.last + row.height + spacing);
     }
     return FixedRowLayout._(
       assetCount: ratios.length,
@@ -194,8 +215,8 @@ class FixedRowLayout {
   /// Keep the existing timeline badges/select targets usable for extreme
   /// portraits beside a panorama. Water filling changes only undersized cells
   /// and the remaining proportional widths; ordinary rows retain their ratios.
-  static List<double> _boundedWidths(List<double> ratios, double available) {
-    final minimum = math.min(72.0, available / ratios.length);
+  static List<double> _boundedWidths(List<double> ratios, double available, {double minimumWidth = 72}) {
+    final minimum = math.min(minimumWidth, available / ratios.length);
     final widths = List.filled(ratios.length, 0.0);
     final fixed = List.filled(ratios.length, false);
     var remaining = available;
@@ -230,6 +251,9 @@ class FixedRowLayout {
   int get rowCount => _justifiedRows?.length ?? (assetCount / columnCount).ceil();
   int get _smallRowCount => rowCount == 0 ? 0 : assetCount ~/ rowCount;
   int get _largeRows => rowCount == 0 ? 0 : assetCount % rowCount;
+
+  /// Ordered, cached cell geometry. Null for the unchanged ordinary grid.
+  List<Rect>? cellsForRow(int row) => _justifiedRows?[row].cells;
 
   bool isJustifiedRow(int row) => _justifiedRows?[row].justified ?? true;
 
@@ -356,11 +380,14 @@ class FixedRowLayout {
 }
 
 class _JustifiedRow {
-  const _JustifiedRow({required this.first, required this.height, required this.widths, required this.justified});
+  _JustifiedRow({required this.first, required this.height, required List<Rect> cells, required this.justified})
+    : cells = List.unmodifiable(cells),
+      widths = List.unmodifiable(cells.map((cell) => cell.width));
 
   final int first;
   final double height;
   final List<double> widths;
+  final List<Rect> cells;
   final bool justified;
 
   @override
@@ -369,8 +396,8 @@ class _JustifiedRow {
       other.first == first &&
       other.height == height &&
       other.justified == justified &&
-      const ListEquality<double>().equals(other.widths, widths);
+      const ListEquality<Rect>().equals(other.cells, cells);
 
   @override
-  int get hashCode => Object.hash(first, height, justified, const ListEquality<double>().hash(widths));
+  int get hashCode => Object.hash(first, height, justified, const ListEquality<Rect>().hash(cells));
 }

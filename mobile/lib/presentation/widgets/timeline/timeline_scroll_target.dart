@@ -45,7 +45,7 @@ Segment? findTimelineZoomAnchorSegment(List<Segment> segments, TimelineZoomAncho
   };
 }
 
-/// The scroll offset of the row holding [assetIndexInTimeline] within [segment].
+/// The scroll offset of the cell holding [assetIndexInTimeline] within [segment].
 ///
 /// Mirrors the arithmetic `_SliverTimelineState._restoreAssetPosition` uses.
 /// Returns null when [columnCount] is not positive, or when the index falls
@@ -62,5 +62,12 @@ double? assetRowOffset({required Segment segment, required int assetIndexInTimel
   final rowIndexInSegment = segment is FixedSegment
       ? segment.rows.rowForAssetIndex(assetIndexInSegment)
       : assetIndexInSegment ~/ columnCount;
-  return segment.indexToLayoutOffset(segment.gridIndex + rowIndexInSegment);
+  var cellTop = 0.0;
+  if (segment is FixedSegment) {
+    final cells = segment.rows.cellsForRow(rowIndexInSegment);
+    if (cells != null) {
+      cellTop = cells[assetIndexInSegment - segment.rows.firstAssetIndexForRow(rowIndexInSegment)].top;
+    }
+  }
+  return segment.indexToLayoutOffset(segment.gridIndex + rowIndexInSegment) + cellTop;
 }

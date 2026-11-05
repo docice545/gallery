@@ -1,0 +1,9 @@
+mobile/lib/presentation/widgets/timeline/fixed/row.dart
+mobile/lib/presentation/widgets/timeline/fixed/row_layout.dart
+mobile/lib/presentation/widgets/timeline/fixed/segment.model.dart
+mobile/lib/presentation/widgets/timeline/timeline_scroll_target.dart
+mobile/test/presentation/widgets/timeline/adaptive_mosaic_layout_test.dart
+mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart
+mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart
+mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart
+mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart

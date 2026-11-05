@@ -732,7 +732,7 @@ void main() {
       for (final row in rows.values) {
         for (var i = 1; i < row.length; i++) {
           expect(row[i].top, row.first.top);
-          expect(row[i].height, row.first.height);
+          expect(row[i].height, greaterThan(0));
           expect(row[i].left - row[i - 1].right, closeTo(_spacing, 1e-6));
         }
         expect(row.last.right, lessThanOrEqualTo(390 + 1e-6));
@@ -794,16 +794,18 @@ void main() {
               ], reason: 'Decode actual fixture pixels, not grey thumbnail boxes');
             }
             expect(find.text('00:39'), findsOneWidget);
-            final rows = <double, List<Rect>>{};
-            for (final rect in rects) {
-              rows.putIfAbsent(rect.top, () => []).add(rect);
-            }
-            for (final row in rows.values) {
-              expect(
-                row.last.right,
-                closeTo(390, .01),
-                reason: 'A real portrait video must not leave a large blank right-hand rectangle',
-              );
+            for (
+              var y = rects.map((rect) => rect.top).reduce(math.min) + 8;
+              y < rects.map((rect) => rect.bottom).reduce(math.max) - 8;
+              y += 12
+            ) {
+              for (var x = 8.0; x < 382; x += 12) {
+                expect(
+                  rects.any((rect) => rect.inflate(1.51).contains(Offset(x, y))),
+                  isTrue,
+                  reason: 'Real photo/video cells must fill the block, including beside its lower stacked tile',
+                );
+              }
             }
             final video = rects.last;
             expect(
@@ -977,6 +979,208 @@ void main() {
     });
   }
 
+  for (final presentation in TimelinePresentation.values) {
+    for (final brightness in Brightness.values) {
+      for (final scale in [1.0, 2.0]) {
+        for (final scene in ['landscapes', 'videos', 'samsung-five', 'mixed']) {
+          testWidgets('Adaptive Mosaic $scene ${presentation.name} ${brightness.name} font $scale', (tester) async {
+            final ratios = switch (scene) {
+              'landscapes' || 'videos' => List.filled(10, 16 / 9),
+              'samsung-five' => [16 / 9, 16 / 9, 9 / 16, 9 / 16, 9 / 16],
+              _ => [9 / 16, 16 / 9, 16 / 9, 9 / 16, 1.0, 2.2, 9 / 16],
+            };
+            final assets = List.generate(ratios.length, (i) {
+              final video = scene == 'videos' || (scene == 'samsung-five' && i >= 2) || (scene == 'mixed' && i.isOdd);
+              return _asset('$scene-$i', ratio: ratios[i]).copyWith(
+                type: video ? AssetType.video : AssetType.image,
+                durationMs: video ? (scene == 'samsung-five' ? [39000, 17000, 11000][i - 2] : 39000) : 0,
+              );
+            });
+            final fixture = await mount(tester, assets, realTimeline: true, brightness: brightness, textScale: scale);
+            final config = fixture.container.read(_testConfig.notifier);
+            config.state = config.state.copyWith(
+              timeline: config.state.timeline.copyWith(presentation: presentation, tilesPerRow: 3),
+            );
+            await tester.pumpAndSettle();
+            await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
+            await tester.pumpAndSettle();
+            final pixels = await _capture(
+              tester,
+              fixture.boundary,
+              name: 'adaptive-$scene-${presentation.name}-${brightness.name}-$scale',
+            );
+            final segments = fixture.container.read(timelineSegmentProvider).requireValue.cast<FixedSegment>();
+            final layout = segments.single.rows;
+            for (var row = 0; row < layout.rowCount; row++) {
+              expect(
+                layout.assetCountForRow(row),
+                inInclusiveRange(2, 3),
+                reason: 'A date with enough material must not become a run of full-width singletons',
+              );
+              final first = layout.firstAssetIndexForRow(row);
+              final block = [
+                for (final asset in assets.skip(first).take(layout.assetCountForRow(row)))
+                  tester.getRect(_tile(asset.id)),
+              ];
+              final top = block.map((r) => r.top).reduce(math.min);
+              final bottom = block.map((r) => r.bottom).reduce(math.max);
+              expect(bottom - top, lessThanOrEqualTo(280));
+              for (final rect in block) {
+                expect(rect.width, greaterThanOrEqualTo(96));
+                expect(rect.width, lessThan(390));
+              }
+              // Check real painted geometry, including the interior of compound
+              // blocks: a technical absence of empty widgets cannot prove this.
+              for (var y = top + 10; y < bottom - 10; y += 12) {
+                for (var x = 6.0; x < 384; x += 12) {
+                  expect(
+                    block.any((rect) => rect.inflate(1.51).contains(Offset(x, y))),
+                    isTrue,
+                    reason: 'No unfilled rectangle at $x,$y within the actual mosaic block',
+                  );
+                }
+              }
+              for (var a = 0; a < block.length; a++) {
+                for (var b = a + 1; b < block.length; b++) {
+                  expect(block[a].overlaps(block[b]), isFalse, reason: 'Photo/video tap regions must not overlap');
+                }
+              }
+            }
+            expect(
+              tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).map((t) => t.asset!.id),
+              assets.map((a) => a.id),
+            );
+            for (final asset in assets) {
+              final rect = tester.getRect(_tile(asset.id));
+              if (rect.center.dy < 844 && rect.center.dy >= 0) {
+                final color = _sourceColor(asset.id);
+                expect(_pixel(pixels, 390, rect.center), [
+                  (color.r * 255).round(),
+                  (color.g * 255).round(),
+                  (color.b * 255).round(),
+                  255,
+                ]);
+              }
+            }
+            if (scene == 'samsung-five') {
+              for (final duration in ['00:39', '00:17', '00:11']) {
+                expect(find.text(duration), findsOneWidget);
+              }
+              final a = tester.getRect(_tile(assets[0].id));
+              final b = tester.getRect(_tile(assets[1].id));
+              final video = tester.getRect(_tile(assets[2].id));
+              expect(a.left, b.left);
+              expect(b.top, closeTo(a.bottom + _spacing, .01));
+              expect(video.left, closeTo(a.right + _spacing, .01));
+              expect(video.top, a.top);
+              expect(
+                video.bottom,
+                closeTo(b.bottom, .01),
+                reason: 'Two landscape photos and portrait video form one mixed, ordered compound block',
+              );
+            }
+            final before = {for (final asset in assets) asset.id: tester.getRect(_tile(asset.id))};
+            // Select a real interior cell, including the lower-left compound tile.
+            await tester.longPress(_tile(assets[1].id));
+            await tester.pumpAndSettle();
+            expect(fixture.container.read(multiSelectProvider).selectedAssets.single.id, assets[1].id);
+            for (final asset in assets) {
+              expect(tester.getRect(_tile(asset.id)), before[asset.id]);
+            }
+            expect(requests.every((url) => Uri.parse(url).path.endsWith('/thumbnail')), isTrue);
+            expect(tester.takeException(), isNull);
+          });
+        }
+      }
+    }
+  }
+
+  for (final presentation in TimelinePresentation.values) {
+    for (final brightness in Brightness.values) {
+      testWidgets('a 50000-item adaptive mosaic stays virtualized in $presentation $brightness at text 200%', (
+        tester,
+      ) async {
+        final sourceRequests = <(int, int)>[];
+        final fixture = await mount(
+          tester,
+          [],
+          realTimeline: true,
+          brightness: brightness,
+          textScale: 2,
+          buckets: [
+            Bucket(assetCount: 50000, aspectRatios: List.generate(50000, (i) => [16 / 9, 9 / 16, 1.0, 4.0][i % 4])),
+          ],
+          source: (offset, count) async {
+            sourceRequests.add((offset, count));
+            return List.generate(math.min(count, 50000 - offset), (index) {
+              final i = offset + index;
+              return _asset(
+                'large-$i',
+                ratio: [16 / 9, 9 / 16, 1.0, 4.0][i % 4],
+              ).copyWith(type: i % 4 == 1 ? AssetType.video : AssetType.image, durationMs: i % 4 == 1 ? 39000 : null);
+            });
+          },
+        );
+        final config = fixture.container.read(_testConfig.notifier);
+        config.state = config.state.copyWith(
+          timeline: config.state.timeline.copyWith(presentation: presentation, tilesPerRow: 3),
+        );
+        await tester.pumpAndSettle();
+        final cachedGeometry = fixture.container.read(timelineSegmentProvider).requireValue.single;
+        expect(find.byType(ThumbnailTile).evaluate().length, lessThan(50));
+        expect(sourceRequests.every((request) => request.$2 <= 1024), isTrue);
+        final initialImageRequests = requests.length;
+        fixture.scroll.jumpTo(fixture.scroll.position.maxScrollExtent / 2);
+        await tester.pump();
+        await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 40)));
+        await tester.pumpAndSettle();
+        expect(find.byType(ThumbnailTile).evaluate().length, lessThan(50));
+        final visibleAssets = tester
+            .widgetList<ThumbnailTile>(find.byType(ThumbnailTile))
+            .map((tile) => tile.asset)
+            .toList();
+        expect(visibleAssets, isNotEmpty);
+        expect(visibleAssets.every((asset) => asset != null), isTrue);
+        expect(int.parse(visibleAssets.first!.id.split('-').last), greaterThan(20000));
+        expect(sourceRequests.any((request) => request.$1 > 0), isTrue);
+        expect(sourceRequests.every((request) => request.$2 <= 1024), isTrue);
+        final imageRequestsDuringScroll = requests.length - initialImageRequests;
+        final uniqueImageIds = requests.map((url) {
+          final path = Uri.parse(url).pathSegments;
+          return path[path.indexOf('assets') + 1];
+        }).toSet();
+        debugPrint(
+          '50000 assets $presentation $brightness: initial/density requests=$initialImageRequests, '
+          'scroll requests=$imageRequestsDuringScroll, unique images=${uniqueImageIds.length}, '
+          'render children=${visibleAssets.length}, geometry reused=${identical(fixture.container.read(timelineSegmentProvider).requireValue.single, cachedGeometry)}',
+        );
+        expect(
+          imageRequestsDuringScroll,
+          lessThan(100),
+          reason: 'A new viewport may request only bounded thumbnails/previews',
+        );
+        expect(initialImageRequests, lessThan(100), reason: 'Initial viewport and density change stay bounded');
+        final visibleIndices = visibleAssets.map((asset) => int.parse(asset!.id.split('-').last)).toList();
+        final low = visibleIndices.reduce(math.min);
+        final high = visibleIndices.reduce(math.max);
+        for (final id in uniqueImageIds) {
+          final index = int.parse(id.split('-').last);
+          expect(
+            index < 100 || (index >= low - 100 && index <= high + 100),
+            isTrue,
+            reason: 'Only the initial and current viewport neighborhoods may request thumbnails',
+          );
+        }
+        expect(
+          fixture.container.read(timelineSegmentProvider).requireValue.single,
+          same(cachedGeometry),
+          reason: 'Scrolling must reuse cached layout instead of recalculating the 50000-item date',
+        );
+        await _capture(tester, fixture.boundary, name: 'adaptive-50000-${presentation.name}-${brightness.name}-2.0');
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
   testWidgets('a 50000-item mosaic keeps image loading and render children bounded while scrolling', (tester) async {
     final sourceRequests = <(int, int)>[];
     final fixture = await mount(
