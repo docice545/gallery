@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/store.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/datetime_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
@@ -17,6 +18,7 @@ import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart'
 import 'package:immich_mobile/providers/infrastructure/asset_viewer/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/current_album.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/readonly_mode.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/routes.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/timezone.dart';
@@ -32,13 +34,14 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
     }
 
     final album = ref.watch(currentRemoteAlbumProvider);
+    final isInTrash = ref.watch(timelineServiceProvider.select((service) => service.origin == TimelineOrigin.trash));
 
     final isInLockedView = ref.watch(inLockedViewProvider);
     final isReadonlyModeEnabled = ref.watch(readonlyModeProvider);
 
     final showingDetails = ref.watch(assetViewerProvider.select((state) => state.showingDetails));
 
-    if (album != null && album.isActivityEnabled && album.isShared && asset is RemoteAsset) {
+    if (!isInTrash && album != null && album.isActivityEnabled && album.isShared && asset is RemoteAsset) {
       ref.watch(Store.activity.list(album.id, assetId: asset.id));
     }
 
@@ -48,30 +51,36 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
 
     final originalTheme = context.themeData;
 
-    final actions = <Widget>[
-      if (asset.isMotionPhoto) const MotionPhotoActionButton(iconOnly: true),
-      if (album != null && album.isActivityEnabled && album.isShared)
-        FotoIconButton(
-          kind: FotoIconKind.comments,
-          label: context.t.comments_and_likes,
-          onPressed: () {
-            unawaited(
-              context.router.push(
-                ActivitiesRoute(album: album, assetId: asset is RemoteAsset ? asset.id : null, assetName: asset.name),
+    final actions = isInTrash
+        ? <Widget>[]
+        : <Widget>[
+            if (asset.isMotionPhoto) const MotionPhotoActionButton(iconOnly: true),
+            if (album != null && album.isActivityEnabled && album.isShared)
+              FotoIconButton(
+                kind: FotoIconKind.comments,
+                label: context.t.comments_and_likes,
+                onPressed: () {
+                  unawaited(
+                    context.router.push(
+                      ActivitiesRoute(
+                        album: album,
+                        assetId: asset is RemoteAsset ? asset.id : null,
+                        assetName: asset.name,
+                      ),
+                    ),
+                  );
+                },
               ),
-            );
-          },
-        ),
 
-      if ((const FavoriteAction(source: .viewer)).create(context, ref) case final item?)
-        FotoIconButton(
-          kind: FotoIconKind.favorite,
-          label: item.label,
-          selected: asset.isFavorite,
-          onPressed: item.onAction,
-        ),
-      ViewerKebabMenu(originalTheme: originalTheme),
-    ];
+            if ((const FavoriteAction(source: .viewer)).create(context, ref) case final item?)
+              FotoIconButton(
+                kind: FotoIconKind.favorite,
+                label: item.label,
+                selected: asset.isFavorite,
+                onPressed: item.onAction,
+              ),
+            ViewerKebabMenu(originalTheme: originalTheme),
+          ];
 
     final lockedViewActions = <Widget>[ViewerKebabMenu(originalTheme: originalTheme)];
 
@@ -92,7 +101,7 @@ class ViewerTopAppBar extends ConsumerWidget implements PreferredSizeWidget {
                   middleSpacing: 4,
                   leading: const _AppBarBackButton(),
                   middle: showingDetails ? null : _AssetInfoTitle(asset: asset),
-                  trailing: !showingDetails && !isReadonlyModeEnabled
+                  trailing: !isInTrash && !showingDetails && !isReadonlyModeEnabled
                       ? Row(mainAxisSize: MainAxisSize.min, children: isInLockedView ? lockedViewActions : actions)
                       : null,
                 ),

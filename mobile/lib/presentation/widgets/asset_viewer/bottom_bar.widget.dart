@@ -12,6 +12,7 @@ import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/add_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_toggle_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_control_surface.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/trash_action_bar.dart';
 import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
@@ -57,6 +58,10 @@ class ViewerBottomBar extends ConsumerWidget {
     final showingDetails = ref.watch(assetViewerProvider.select((s) => s.showingDetails));
     final isInLockedView = ref.watch(inLockedViewProvider);
     final isInTrash = ref.watch(timelineServiceProvider).origin == TimelineOrigin.trash;
+
+    if (isInTrash) {
+      return showingDetails ? const SizedBox.shrink() : const TrashActionBar(source: .viewer);
+    }
 
     final originalTheme = context.themeData;
 

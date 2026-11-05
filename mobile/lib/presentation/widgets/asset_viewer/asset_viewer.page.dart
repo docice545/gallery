@@ -498,6 +498,7 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
     final showingControls = ref.watch(assetViewerProvider.select((s) => s.showingControls));
     final showingDetails = ref.watch(assetViewerProvider.select((s) => s.showingDetails));
     final isZoomed = ref.watch(assetViewerProvider.select((s) => s.isZoomed));
+    final isInTrash = ref.watch(timelineServiceProvider.select((service) => service.origin == TimelineOrigin.trash));
     final backgroundColor = showingDetails
         ? context.colorScheme.surface
         : Colors.black.withValues(alpha: ref.watch(assetViewerProvider.select((s) => s.backgroundOpacity)));
@@ -525,14 +526,16 @@ class _AssetViewerState extends ConsumerState<AssetViewer> {
         appBar: const ViewerTopAppBar(),
         extendBody: true,
         extendBodyBehindAppBar: true,
-        floatingActionButton: IgnorePointer(
-          ignoring: !showingControls,
-          child: AnimatedOpacity(
-            opacity: showingControls ? 1.0 : 0.0,
-            duration: Durations.short2,
-            child: const DownloadStatusFloatingButton(),
-          ),
-        ),
+        floatingActionButton: isInTrash
+            ? null
+            : IgnorePointer(
+                ignoring: !showingControls,
+                child: AnimatedOpacity(
+                  opacity: showingControls ? 1.0 : 0.0,
+                  duration: Durations.short2,
+                  child: const DownloadStatusFloatingButton(),
+                ),
+              ),
         bottomNavigationBar: const ViewerBottomAppBar(),
         body: Stack(
           children: [
