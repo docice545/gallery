@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Busque recursos respaldados que coincidan con su fecha y conserve la configuración.",
   "cleanup_step4_summary": "{count} recursos (creados antes del {date}) para eliminar de tu dispositivo local. Las fotos seguirán accesibles desde la app de Immich.",
   "cleanup_trash_hint": "Para completar la liberación de espacio, abra la aplicación de fotos y vacíe la papelera",
+  "cleanup_unverified_remaining": "Se conservan {count} archivos: no se confirmó la copia de seguridad o la eliminación del dispositivo.",
+  "cleanup_verifies_originals": "Antes de eliminar, FOTO verifica los originales del servidor y ambas partes de cada Live Photo. Se requiere internet. Los archivos no verificados permanecen en este dispositivo.",
   "clear": "Limpiar",
   "clear_all": "Limpiar todo",
   "clear_all_recent_searches": "Borrar búsquedas recientes",

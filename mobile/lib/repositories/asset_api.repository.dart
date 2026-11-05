@@ -600,6 +600,55 @@ class AssetApiRepository extends ApiRepository {
     return response.originalMimeType.orElse(null);
   }
 
+  /// Free-space admission uses fresh owner/hash metadata and an actual original
+  /// response, never thumbnail availability or the local backup icon alone.
+  Future<bool> hasVerifiedBackup(LocalAsset local, String ownerId, {bool keepFavorites = true}) async {
+    final id = local.remoteId;
+    if (id == null || local.checksum == null || local.checksum!.isEmpty) {
+      return false;
+    }
+    bool available(AssetResponseDto asset, String expectedId) =>
+        asset.id == expectedId &&
+        asset.ownerId == ownerId &&
+        !asset.isOffline &&
+        !asset.isTrashed &&
+        asset.deletedAt.orElse(null) == null &&
+        asset.checksum.isNotEmpty;
+    Future<bool> originalAvailable(AssetResponseDto asset) async {
+      final response = await _apiService.apiClient.invokeAPI(
+        '/assets/${Uri.encodeComponent(asset.id)}/original',
+        'HEAD',
+        [const QueryParam('edited', 'false')],
+        null,
+        {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
+        {},
+        null,
+      );
+      final length = int.tryParse(response.headers['content-length'] ?? '') ?? 0;
+      final expected = asset.exifInfo.orElse(null)?.fileSizeInByte.orElse(null);
+      return response.statusCode == 200 && length > 0 && (expected == null || expected == length);
+    }
+
+    final still = await checkNull(_api.getAssetInfo(id));
+    if (!available(still, id) || still.checksum != local.checksum || (keepFavorites && still.isFavorite)) {
+      return false;
+    }
+    if (!await originalAvailable(still)) {
+      return false;
+    }
+    final videoId = still.livePhotoVideoId.orElse(null);
+    if (local.isMotionPhoto && videoId == null) {
+      return false; // A backed-up still alone cannot authorize removing a Live Photo.
+    }
+    if (videoId != null) {
+      final video = await checkNull(_api.getAssetInfo(videoId));
+      if (!available(video, videoId) || video.type != AssetTypeEnum.VIDEO || !await originalAvailable(video)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> updateDescription(String assetId, String description) {
     return _api.updateAsset(assetId, UpdateAssetDto(description: Optional.present(description)));
   }

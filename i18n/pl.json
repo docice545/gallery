@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Wyszukaj zasoby z kopią zapasową, zgodne z Twoimi ustawieniami.",
   "cleanup_step4_summary": "{count} zasoby (utworzone przed {date}) zostaną usunięte z tego urządzenia. Zdjęcia będą nadal dostępne w aplikacji Immich.",
   "cleanup_trash_hint": "Aby całkowicie odzyskać miejsce w pamięci, otwórz aplikację galerii systemowej i opróżnij kosz",
+  "cleanup_unverified_remaining": "Pozostawiono {count} plików: nie potwierdzono kopii zapasowej lub usunięcia z urządzenia.",
+  "cleanup_verifies_originals": "Przed usunięciem FOTO sprawdza oryginały na serwerze i obie części każdego Live Photo. Wymagany jest internet. Niezweryfikowane pliki pozostają na urządzeniu.",
   "clear": "Wyczyść",
   "clear_all": "Wyczyść wszystko",
   "clear_all_recent_searches": "Usuń ostatnio wyszukiwane",

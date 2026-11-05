@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Ricerca risorse già salvate sul server corrispondenti alle opzioni di ricerca.",
   "cleanup_step4_summary": "{count} risorse (create prima del {date}) da rimuovere sul tuo dispositivo. Rimarrano comunque accessibili dall'app Immich.",
   "cleanup_trash_hint": "Per recuperare completamente lo spazio devi aprire l'app della galleria e svuotarne il cestino",
+  "cleanup_unverified_remaining": "{count} file conservati: la verifica del backup o la rimozione dal dispositivo non è stata confermata.",
+  "cleanup_verifies_originals": "Prima della rimozione, FOTO verifica gli originali sul server ed entrambe le parti di ogni Live Photo. È necessaria una connessione Internet. I file non verificati restano sul dispositivo.",
   "clear": "Pulisci",
   "clear_all": "Pulisci tutto",
   "clear_all_recent_searches": "Rimuovi tutte le ricerche recenti",

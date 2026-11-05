@@ -1155,6 +1155,8 @@
   "cleanup_step3_description": "扫描符合日期及保留设置的已备份照片/视频。",
   "cleanup_step4_summary": "将从本地移除{count}个照片/视频（创建于 {date} 之前）。照片仍可在Immich App中访问。",
   "cleanup_trash_hint": "为彻底释放存储空间，请打开系统照片App并清空回收站",
+  "cleanup_unverified_remaining": "已保留 {count} 个文件：未能确认备份或从设备移除。",
+  "cleanup_verifies_originals": "移除前，FOTO 会检查服务器上的原始文件和每张实况照片的两个部分。需要联网。未经验证的文件将保留在此设备上。",
   "clear": "清空",
   "clear_all": "全部清除",
   "clear_all_recent_searches": "清除全部最近搜索记录",

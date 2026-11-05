@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-05",
+  "automated": {
+    "regression": {
+      "passed": 105,
+      "failed": 0
+    },
+    "visualFixture": {
+      "passed": 4,
+      "failed": 0
+    },
+    "analyzerIssues": 0
+  },
+  "baselineReproduction": "real SQLite removal candidates included a remote index tombstone; regression failed before the query correction",
+  "logSha256": {
+    "free-space-tombstone-red-actual.log": "08b240f870c96c616c29eca9076c6a15c623cf3241515c957e2acbf7d0271e9d",
+    "free-space-final-regression.log": "e1d9cb52d1e675cac9cbfad3caa78d7ab7f3283e49526460e3c3e502e6068c63",
+    "free-space-visual.log": "eb6af585bf934028271a40040a56cc120411611c4bfc402da0dc2c4f8559e300",
+    "flutter-analyze-free-space-final.log": "bc8c378671788080e05179b83c5cf29e5ac4f7cc4f4eb4720095b0541c97f810"
+  },
+  "reviewedImages": {
+    "light-ru-verify.png": "05d5abf5ee779f8ac42d880fa88a8c877a828f584000db3bb51e2b25161ba2b3",
+    "dark-ru-remaining.png": "44d553bbb0b54e092e7f50bf762014d5d80825aca882555b232057617b605d1d",
+    "light-en-review.png": "56cfc0904e298281ec13e880925f423a6b4428e0a08df2cbd1abc1890faf7cda"
+  },
+  "limitations": [
+    "Synthetic widget fixtures use mock HTTP/native receipts; no physical device cleanup claimed.",
+    "HEAD verifies original availability and length with fresh owner/hash metadata; it is not a new full server-byte checksum computation.",
+    "Samsung/Android permission, iOS PhotoKit/iCloud and actual disk reclamation: DEVICE_REQUIRED."
+  ]
+}

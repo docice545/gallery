@@ -1158,6 +1158,8 @@
   "cleanup_step3_description": "掃描符合日期與儲存設定的已備份項目。",
   "cleanup_step4_summary": "將從此裝置移除 {count} 個建立於 {date} 之前的項目。您仍可透過 Immich 應用程式存取這些相片。",
   "cleanup_trash_hint": "若要徹底釋放儲存空間，請開啟系統相簿 App 並清空垃圾桶",
+  "cleanup_unverified_remaining": "已保留 {count} 個檔案：未能確認備份或從裝置移除。",
+  "cleanup_verifies_originals": "移除前，FOTO 會檢查伺服器上的原始檔案及每張原況照片的兩個部分。需要連線至網際網路。未驗證的檔案將保留在此裝置上。",
   "clear": "清空",
   "clear_all": "全部清除",
   "clear_all_recent_searches": "清除所有最近的搜尋",

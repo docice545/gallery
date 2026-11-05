@@ -97,6 +97,17 @@ void main() {
       userId = user.id;
     });
 
+    test('free space excludes hidden deletion tombstones and retains verified remote identity', () async {
+      final remote = await ctx.newRemoteAsset(ownerId: userId, checksum: 'tombstone');
+      await ctx.newLocalAsset(checksum: remote.checksum, createdAt: beforeCutoff);
+      await ctx.db.customStatement('UPDATE remote_asset_entity SET is_index_tombstone = 1 WHERE id = ?', [remote.id]);
+      final valid = await ctx.newRemoteAsset(ownerId: userId, checksum: 'valid');
+      final local = await ctx.newLocalAsset(checksum: valid.checksum, createdAt: beforeCutoff);
+      final result = await sut.getRemovalCandidates(userId, cutoffDate);
+      expect(result.assets.map((a) => a.id), [local.id]);
+      expect(result.assets.single.remoteId, valid.id);
+    });
+
     test('returns only assets that match all criteria', () async {
       final otherUser = await ctx.newUser();
 

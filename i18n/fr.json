@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Rechercher des médias sauvegardés qui correspondent à vos dates et aux paramètres de conservation.",
   "cleanup_step4_summary": "{count} éléments créés avant le {date} à supprimer localement sur votre appareil. Les photos resteront accessibles depuis l'appli Immich.",
   "cleanup_trash_hint": "Pour libérer complètement l’espace de stockage, ouvrez l’application Galerie du système et videz la corbeille",
+  "cleanup_unverified_remaining": "{count} fichiers conservés : la vérification de la sauvegarde ou la suppression sur l’appareil n’a pas été confirmée.",
+  "cleanup_verifies_originals": "Avant la suppression, FOTO vérifie vos originaux sur le serveur et les deux parties de chaque Live Photo. Internet est nécessaire. Les fichiers non vérifiés restent sur cet appareil.",
   "clear": "Effacer",
   "clear_all": "Effacer tout",
   "clear_all_recent_searches": "Supprimer les recherches récentes",

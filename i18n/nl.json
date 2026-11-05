@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Scan naar back-upbestanden die overeenkomen met uw datum en behoud uw instellingen.",
   "cleanup_step4_summary": "{count} bestanden (gemaakt vóór {date}) die van uw lokale apparaat moeten worden verwijderd. Foto's blijven toegankelijk via de Immich-app.",
   "cleanup_trash_hint": "Open de galerij-app en leeg de prullenbak om de opslagruimte volledig vrij te maken",
+  "cleanup_unverified_remaining": "{count} bestanden blijven behouden: de back-upcontrole of verwijdering van het apparaat is niet bevestigd.",
+  "cleanup_verifies_originals": "Vóór verwijdering controleert FOTO de originelen op je server en beide onderdelen van elke Live Photo. Internet is vereist. Niet-geverifieerde bestanden blijven op dit apparaat.",
   "clear": "Wissen",
   "clear_all": "Alles wissen",
   "clear_all_recent_searches": "Wis alle recente zoekopdrachten",

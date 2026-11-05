@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Scan for backed up assets matching your date and keep settings.",
   "cleanup_step4_summary": "{count} assets (created before {date}) to remove from your local device. Photos will remain accessible from the Immich app.",
   "cleanup_trash_hint": "To fully reclaim storage space, open the system gallery app and empty the trash",
+  "cleanup_unverified_remaining": "{count} files remain: backup verification or device removal was not confirmed.",
+  "cleanup_verifies_originals": "Before removal, FOTO checks your server originals and both parts of each Live Photo. Internet is required. Unverified files stay on this device.",
   "clear": "Clear",
   "clear_all": "Clear all",
   "clear_all_recent_searches": "Clear all recent searches",

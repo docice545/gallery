@@ -12,6 +12,7 @@ import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/providers/cleanup.provider.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/album.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/utils/bytes_units.dart';
 import 'package:intl/intl.dart';
@@ -41,6 +42,9 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
   Future<void> _initializeAlbumDefaults() async {
     final notifier = ref.read(cleanupProvider.notifier);
     final albums = await ref.read(localAlbumProvider.future);
+    if (!mounted || !notifier.mounted) {
+      return;
+    }
     final existingAlbumIds = albums.map((a) => a.id).toSet();
     final albumsWithNames = albums.map((a) => (a.id, a.name)).toList();
 
@@ -121,7 +125,14 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
   Future<void> _scanAssets() async {
     ref.read(hapticFeedbackProvider.notifier).mediumImpact();
 
-    await ref.read(cleanupProvider.notifier).scanAssets();
+    try {
+      await ref.read(cleanupProvider.notifier).scanAssets();
+    } catch (_) {
+      if (mounted) {
+        ref.read(toastServiceProvider).error(context.t.error_retrieving_asset_information);
+      }
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -154,7 +165,26 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
       return;
     }
 
-    final deletedCount = await ref.read(cleanupProvider.notifier).deleteAssets();
+    final int deletedCount;
+    try {
+      deletedCount = await ref.read(cleanupProvider.notifier).deleteAssets(expected: state);
+    } catch (_) {
+      if (mounted) {
+        ref
+            .read(toastServiceProvider)
+            .error(context.t.cleanup_unverified_remaining(count: state.assetsToDelete.length));
+      }
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    final remaining = ref.read(cleanupProvider).assetsToDelete.length;
+    if (remaining > 0) {
+      ref.read(toastServiceProvider).error(context.t.cleanup_unverified_remaining(count: remaining));
+      setState(() => _currentStep = CleanupStep.delete);
+      return;
+    }
 
     if (mounted && deletedCount > 0) {
       ref.read(hapticFeedbackProvider.notifier).heavyImpact();
@@ -423,7 +453,7 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                   ),
                   subtitle: hasDate
                       ? Text(
-                          DateFormat.yMMMd().format(state.selectedDate!),
+                          DateFormat.yMMMd(Localizations.localeOf(context).toLanguageTag()).format(state.selectedDate!),
                           style: context.textTheme.bodyMedium?.copyWith(
                             color: context.colorScheme.primary,
                             fontWeight: FontWeight.w500,
@@ -536,6 +566,8 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                   content: Column(
                     children: [
                       Text(context.t.cleanup_step3_description, style: subtitleStyle),
+                      const SizedBox(height: 8),
+                      Text(context.t.cleanup_verifies_originals, style: subtitleStyle),
                       if (CurrentPlatform.isIOS) ...[
                         const SizedBox(height: 12),
                         Container(
@@ -628,7 +660,9 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                                   Text(
                                     context.t.cleanup_step4_summary(
                                       count: state.assetsToDelete.length,
-                                      date: DateFormat.yMMMd().format(state.selectedDate!),
+                                      date: DateFormat.yMMMd(
+                                        Localizations.localeOf(context).toLanguageTag(),
+                                      ).format(state.selectedDate!),
                                     ),
                                     style: context.textTheme.labelLarge?.copyWith(fontSize: 15),
                                   ),
@@ -658,7 +692,7 @@ class _FreeUpSpaceSettingsState extends ConsumerState<FreeUpSpaceSettings> {
                           backgroundColor: context.colorScheme.error,
                           foregroundColor: context.colorScheme.onError,
                           minimumSize: const Size(double.infinity, 56),
-                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          textStyle: context.textTheme.labelLarge?.copyWith(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                       ),
                     ],
@@ -687,7 +721,10 @@ class _DeleteConfirmationDialog extends StatelessWidget {
     return AlertDialog(
       title: Text(context.t.cleanup_confirm_prompt_title),
       content: Text(
-        context.t.cleanup_confirm_description(count: assetCount, date: DateFormat.yMMMd().format(cutoffDate)),
+        context.t.cleanup_confirm_description(
+          count: assetCount,
+          date: DateFormat.yMMMd(Localizations.localeOf(context).toLanguageTag()).format(cutoffDate),
+        ),
         style: context.textTheme.labelLarge?.copyWith(fontSize: 15),
       ),
       actions: [

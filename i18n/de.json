@@ -1160,6 +1160,8 @@
   "cleanup_step3_description": "Nach gesicherten Mediendateien scannen, die mit den Filterkriterien und gespeicherten Einstellungen übereinstimmen.",
   "cleanup_step4_summary": "{count} Assets, die vor dem {date} erstellt wurden, warten auf Löschung von Ihrem Gerät. Die Photos werden auch weiterhin über die Immich-App verfügbar sein.",
   "cleanup_trash_hint": "Um den Speicher vollständig freizugeben, öffne die Galerie-App und leere den Papierkorb",
+  "cleanup_unverified_remaining": "{count} Dateien bleiben erhalten: Die Sicherungsprüfung oder das Entfernen vom Gerät wurde nicht bestätigt.",
+  "cleanup_verifies_originals": "Vor dem Entfernen prüft FOTO deine Serveroriginale und beide Teile jedes Live Photos. Eine Internetverbindung ist erforderlich. Ungeprüfte Dateien bleiben auf diesem Gerät.",
   "clear": "Leeren",
   "clear_all": "Alles leeren",
   "clear_all_recent_searches": "Alle letzten Suchvorgänge löschen",
