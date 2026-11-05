@@ -266,7 +266,7 @@ jobs:
     # Compile independently so a test/VM startup failure cannot conceal an APK
     # compiler error. All test/native gates still fail the workflow and signing.
     needs: pre-job
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch') && fromJSON(needs.pre-job.outputs.should_run).mobile == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
