@@ -7,6 +7,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
+import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/archive.action.dart';
@@ -14,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/asset_debug.action.dart';
 import 'package:immich_mobile/presentation/actions/cast.action.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/actions/download.action.dart';
+import 'package:immich_mobile/presentation/actions/google_lens.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
 import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/open_in_browser.action.dart';
@@ -71,6 +73,7 @@ enum ActionButtonType {
   cast,
   setAlbumCover,
   similarPhotos,
+  googleLens,
   setProfilePicture,
   viewInTimeline,
   slideshow,
@@ -159,6 +162,13 @@ enum ActionButtonType {
       ActionButtonType.similarPhotos =>
         !context.isInLockedView && //
             context.asset is RemoteAsset,
+      ActionButtonType.googleLens =>
+        CurrentPlatform.isAndroid &&
+            context.source == ActionSource.viewer &&
+            context.asset.isImage &&
+            !context.isInLockedView &&
+            context.timelineOrigin != TimelineOrigin.trash &&
+            !(context.asset is RemoteAsset && (context.asset as RemoteAsset).isTrashed),
       ActionButtonType.setProfilePicture =>
         !context.isInLockedView && //
             context.asset is RemoteAsset && //
@@ -253,6 +263,10 @@ enum ActionButtonType {
       ActionButtonType.similarPhotos => ActionMenuItem(
         fotoKind: fotoViewerActionIcons[this],
         action: SimilarPhotosAction(assetId: (context.asset as RemoteAsset).id),
+      ),
+      ActionButtonType.googleLens => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: GoogleLensAction(asset: context.asset, viewerContext: buildContext),
       ),
       ActionButtonType.setProfilePicture => ActionMenuItem(
         fotoKind: fotoViewerActionIcons[this],

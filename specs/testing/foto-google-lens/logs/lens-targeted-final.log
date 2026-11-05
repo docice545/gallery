@@ -1,0 +1,56 @@
+00:00 +0: loading /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart
+00:00 +0: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: (setUpAll)
+00:00 +0: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: local photo is handed off only after explicit choice; return preserves viewer state
+00:01 +1: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:01 +2: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:01 +3: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +4: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +5: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +6: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +7: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +8: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +9: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages local photo through the real share repository
+00:02 +10: /workspace/gallery/mobile/test/unit/presentation/actions/google_lens_action_test.dart: pending preparation cancels via dispose; late completion cannot navigate
+00:02 +11: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages cloud photo through the real share repository
+00:02 +12: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages cloud photo through the real share repository
+00:03 +13: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages cloud photo through the real share repository
+00:03 +14: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages cloud photo through the real share repository
+00:03 +15: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages cloud photo through the real share repository
+00:03 +16: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: Lens action stages cloud photo through the real share repository
+00:03 +17: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: iOS server pair shares original still and motion as one native item and reuses retained bytes
+00:03 +18: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: iOS requested invalid pair fails without silent still share
+00:03 +19: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: iOS image-only original mode intentionally does not download motion
+00:03 +20: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: iOS merged Live Photo with deleted local ID resolves existing remote pair without importing duplicates
+00:04 +21: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: cancellation during native pair preparation prevents late chooser and retains resources
+00:04 +22: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: iOS local pair cancellation awaits native export drain without deleting original resources
+00:04 +23: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: shares a local original without requesting a remote original or thumbnail
+00:04 +24: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: server-only photo uses the original endpoint and temporary file cache
+00:04 +25: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: server-only video shares the original rather than a transcode or preview
+00:04 +26: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: multi-share keeps mixed local photo and remote photo/video in one ordered batch
+00:04 +27: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: shares sanitized and fallback names and retains completed files for receivers
+00:04 +28: /workspace/gallery/mobile/test/repositories/asset_media_repository_test.dart: keeps the first copy and uses the first free ordinal for the next
+00:04 +29: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +30: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +31: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +32: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +33: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +34: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +35: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +36: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +37: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +38: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +39: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +40: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +41: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +42: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +43: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +44: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:04 +45: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:05 +46: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:05 +47: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:05 +48: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+00:05 +49: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.dark
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:07 +50: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: real viewer Lens handoff preserves photo transform, route and controls in Brightness.light
+00:08 +51: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart: (tearDownAll)
+00:08 +51: All tests passed!
