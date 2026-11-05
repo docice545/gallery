@@ -1,0 +1,12 @@
+{
+  "flutter": "3.47.2",
+  "date": "2026-11-05",
+  "passed": 6,
+  "logSHA256": "196af9d040cc1088dac73a6ae25767085921acc921e160f6eba74de31cd13eb3",
+  "images": {
+    "single-16x9-immersive.png": "e2b603eb80a895aa95eaa1e65e7c17883d8444308eee632e9fc1627bc59bbf1e",
+    "single-panorama-immersive.png": "8de1df8bee2563a0b25b404e03fbc3fd3e15831a38a03c199c270bbb4d36ef90",
+    "single-4x3-classic.png": "7c5b929bc7ae5a16d6cf439f7da9914fa7d22a6a79663e1b2796c1767a73b498"
+  },
+  "Samsung": "DEVICE_REQUIRED"
+}

@@ -330,6 +330,62 @@ void main() {
     );
   }
 
+  for (final presentation in TimelinePresentation.values) {
+    for (final entry in {'4x3': 4 / 3, '16x9': 16 / 9, 'panorama': 4.0}.entries) {
+      testWidgets('single horizontal ${entry.key} stays bounded across densities in ${presentation.name}', (
+        tester,
+      ) async {
+        final assets = [for (var i = 0; i < 3; i++) _asset('horizontal-$i', ratio: entry.value)];
+        final fixture = await mount(
+          tester,
+          assets,
+          realTimeline: true,
+          buckets: [
+            for (var i = 0; i < 3; i++)
+              TimeBucket(date: DateTime(2026, 11, 3 - i), assetCount: 1, aspectRatios: [entry.value]),
+          ],
+        );
+        final config = fixture.container.read(_testConfig.notifier);
+        var previousHeight = double.infinity;
+        for (final density in [2, 4, 6]) {
+          config.state = config.state.copyWith(
+            timeline: config.state.timeline.copyWith(presentation: presentation, tilesPerRow: density),
+          );
+          await tester.pumpAndSettle();
+          // Density changes select a new native decode size. Let the real
+          // asynchronous codec finish before judging rendered photo pixels.
+          await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 80)));
+          await tester.pumpAndSettle();
+          final rect = tester.getRect(_tile(assets.first.id));
+          expect(
+            rect.height,
+            inInclusiveRange(48, 280),
+            reason: 'a horizontal singleton must not become a full-screen card',
+          );
+          expect(
+            rect.height,
+            lessThanOrEqualTo(previousHeight),
+            reason: 'denser settings must not enlarge a singleton',
+          );
+          expect(rect.width, greaterThan(rect.height));
+          expect(rect.left, greaterThanOrEqualTo(0));
+          expect(rect.right, lessThanOrEqualTo(390));
+          previousHeight = rect.height;
+          if (density == 4) {
+            final rgba = await _capture(tester, fixture.boundary, name: 'single-${entry.key}-${presentation.name}');
+            final color = _pixel(rgba, 390, rect.center);
+            expect(
+              color.take(3).reduce(math.max) - color.take(3).reduce(math.min),
+              greaterThan(40),
+              reason: 'the rendered synthetic landscape must contain photo color, not a grey placeholder',
+            );
+          }
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('offline year navigation, decoded cached photos and late memories share one geometry', (tester) async {
     offlinePreviewFailure = true;
     final prefix = ValueNotifier(0.0);
