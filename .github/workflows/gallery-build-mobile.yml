@@ -585,7 +585,11 @@ jobs:
       actions: read
     if: ${{ (inputs.version == '' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-release' && github.head_ref != 'codex/foto-build17-client-compat' && github.head_ref != 'codex/foto-build17-editor-compact')) && !inputs.android_media_pilot && !inputs.refresh_ios_pods_lock && !github.event.pull_request.head.repo.fork && (inputs.build_target == '' || inputs.build_target == 'both' || inputs.build_target == 'ios') }}
     environment: mobile-build
-    runs-on: macos-15
+    # Unsigned native builds do not use pnpm; its pinned release has no Intel
+    # binary. Keep the signed lane on its original ARM64 image/tool set.
+    runs-on: ${{ inputs.version == '' && 'macos-15-intel' || 'macos-15' }}
+    env:
+      MISE_DISABLE_TOOLS: ${{ inputs.version == '' && 'pnpm' || '' }}
 
     steps:
       - name: Select Xcode 26
@@ -626,10 +630,22 @@ jobs:
           build_number: ${{ steps.ios-source-meta.outputs.build }}
 
       - name: Setup Mise
+        if: inputs.version != ''
         uses: immich-app/devtools/actions/use-mise@3bca63ca3c15020293b36b51737a3ee2c773340b # use-mise-action-v3.1.0
         with:
           github_token: ${{ github.token }}
           working_directory: ./mobile
+
+      - name: Setup Mise for unsigned Intel build
+        if: inputs.version == ''
+        # Same pinned versions as the upstream wrapper, which lacks X64 sha256.
+        uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925 # v4.1.0
+        with:
+          github_token: ${{ github.token }}
+          working_directory: ./mobile
+          install_args: --locked
+          version: 2026.6.10
+          sha256: b15c309db565ce109e07fdda1b2b5b8cff171907fea039fe8e651da86d015204
 
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
